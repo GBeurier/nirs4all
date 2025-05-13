@@ -1,5 +1,3 @@
-# NIRS4ALL: A Pipeline for NIRS Analysis ReloadeD
-
 <img src="docs/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
