@@ -4,23 +4,10 @@
 
 This document organizes and details the main features, improvements, and priorities for the nirs4all library. Each item is tagged with its **Importance** (⭐️ = critical, 🔶 = important, 🔹 = nice-to-have).
 
----
-
-## 1. Easy Prediction on New Data ⭐️
-
-- **Goal:** Allow users to run predictions on new datasets (folders or files) with a single command or function call.
-- **Tasks:**
-  - [ ] Implement a `predict` CLI and Python API that:
-    - Loads a trained model and its pipeline.
-    - Applies all necessary preprocessing/transformations.
-    - Handles various input formats (CSV, folder, etc.).
-    - Outputs predictions in a user-friendly format (CSV, JSON, etc.).
-  - [ ] Document the prediction workflow for end-users.
-  - [ ] Add tests for prediction on new data with/without group columns, missing values, etc.
 
 ---
 
-## 2. Command-Line Executable (`nirs4all` CLI) ⭐️
+## 1. Command-Line Executable (`nirs4all` CLI) ⭐️
 
 - **Goal:** Make nirs4all usable from the command line for training, prediction, and evaluation.
 - **Tasks:**
@@ -29,6 +16,19 @@ This document organizes and details the main features, improvements, and priorit
   - [ ] Allow passing config files, model presets, and data paths as arguments.
   - [ ] Provide help and usage documentation.
   - [ ] Add CLI tests and examples.
+  
+---
+
+## 2. Easy Prediction on New Data ⭐️
+
+- **Goal:** Allow users to run predictions on new datasets (folders or files) with a single command or function call.
+- **Tasks:**
+  - [ ] Implement a `predict` CLI and Python API that:
+    - Loads a trained model and its pipeline. (either the hascode, the path or the config)
+    - Applies all necessary preprocessing/transformations to a dataset to predict.
+    - Handles various input formats (CSV, folder, etc.).
+    - Outputs predictions in a user-friendly format (CSV, JSON, etc.).
+  - [ ] Document the prediction workflow for end-users.
 
 ---
 
@@ -165,6 +165,14 @@ This document organizes and details the main features, improvements, and priorit
 - [ ] Cloud deployment and distributed training support.
 - [ ] Integration with external data sources (databases, APIs).
 
+---
+
+## 15. Conda & Docker install
+
+- **Goal:** Make nirs4all available on conda and docker.
+- **Tasks:** to be defined
+
+  
 ---
 
 # Legend
