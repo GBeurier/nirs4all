@@ -101,7 +101,6 @@ class ExperimentRunner:
         if y_true_for_eval_and_save.ndim > 1 and y_true_for_eval_and_save.shape[1] == 1:
             y_true_for_eval_and_save = y_true_for_eval_and_save.ravel()
 
-
         if isinstance(y_pred_raw_outputs, list):  # Handling multiple folds
             raw_preds_model_output_folds = []
             fold_scores = []
@@ -156,9 +155,8 @@ class ExperimentRunner:
                 s.get(metric_to_use_for_best_fold, 0 if task == 'classification' else np.inf)
                 for s in fold_scores if isinstance(s.get(metric_to_use_for_best_fold), (int, float))
             ])
-            if len(fold_metric_values) == 0: # Fallback if metric not found or not numeric
-                 fold_metric_values = np.array([0 if task == 'classification' else np.inf] * len(fold_scores))
-
+            if len(fold_metric_values) == 0:  # Fallback if metric not found or not numeric
+                fold_metric_values = np.array([0 if task == 'classification' else np.inf] * len(fold_scores))
 
             best_fold_index = np.argmax(fold_metric_values) if task == 'classification' else np.argmin(fold_metric_values)
             
@@ -181,14 +179,14 @@ class ExperimentRunner:
 
             # Weighting logic for weighted average prediction
             weights_for_avg = None
-            if task == 'classification': # Higher score is better
+            if task == 'classification':  # Higher score is better
                 min_metric_val = np.min(fold_metric_values)
                 adjusted_scores_for_weights = fold_metric_values - min_metric_val if min_metric_val < 0 else fold_metric_values
                 total_score_for_weights = np.sum(adjusted_scores_for_weights)
                 weights_for_avg = adjusted_scores_for_weights / total_score_for_weights if total_score_for_weights > 0 else np.ones_like(fold_metric_values) / len(fold_metric_values)
             else:  # Regression, lower score is better, so invert for weighting
                 epsilon = 1e-8
-                safe_scores_for_weights = np.maximum(fold_metric_values, epsilon) # Avoid division by zero or issues with non-positive scores
+                safe_scores_for_weights = np.maximum(fold_metric_values, epsilon)  # Avoid division by zero or issues with non-positive scores
                 inverse_scores_for_weights = 1.0 / safe_scores_for_weights
                 sum_inverse_scores = np.sum(inverse_scores_for_weights)
                 weights_for_avg = inverse_scores_for_weights / sum_inverse_scores if sum_inverse_scores > 0 else np.ones_like(fold_metric_values) / len(fold_metric_values)
@@ -223,7 +221,7 @@ class ExperimentRunner:
             return all_preds_inverse_transformed_for_saving, all_scores_to_save, best_params
 
         else:  # Handling single prediction (no folds)
-            y_pred_single_raw_output = y_pred_raw_outputs # This is the direct model output
+            y_pred_single_raw_output = y_pred_raw_outputs  # This is the direct model output
             
             y_pred_class_single = None
             if task == 'classification':
