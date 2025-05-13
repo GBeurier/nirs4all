@@ -7,6 +7,7 @@ from nirs4all.core.model.model_builder_factory import ModelBuilderFactory
 from nirs4all.utils.backend_utils import is_tensorflow_available, is_torch_available
 from unittest.mock import MagicMock, patch
 from nirs4all.core.utils import framework
+import inspect
 
 class DummyDataset:
     """Classe simulant un dataset pour les tests."""
@@ -139,3 +140,88 @@ class TestModelBuilderFactory:
             assert built_model.n_estimators == 20  # Devrait utiliser la valeur forcée
             assert built_model.max_depth == 3  # Devrait conserver la valeur originale
             assert built_model.random_state == 42  # Devrait ajouter le nouveau paramètre
+
+    def test_prepare_and_call_argument_filtering(self):
+        """Test that prepare_and_call only passes valid arguments to the callable, filtering out extras."""
+        def func_with_args(a, b, c=3):
+            return a, b, c
+        # Extra argument 'd' should be ignored
+        result = ModelBuilderFactory.prepare_and_call(
+            func_with_args,
+            params_from_caller={'a': 1, 'b': 2, 'd': 99}
+        )
+        assert result == (1, 2, 3)
+
+        # If function accepts **kwargs, extra args should be passed
+        def func_with_kwargs(a, **kwargs):
+            return a, kwargs
+        result = ModelBuilderFactory.prepare_and_call(
+            func_with_kwargs,
+            params_from_caller={'a': 1, 'b': 2, 'c': 3}
+        )
+        assert result == (1, {'b': 2, 'c': 3})
+
+        # If function has 'params' bundle, extras should be bundled
+        def func_with_params(a, params=None):
+            return a, params
+        result = ModelBuilderFactory.prepare_and_call(
+            func_with_params,
+            params_from_caller={'a': 1, 'b': 2, 'c': 3}
+        )
+        assert result == (1, {'b': 2, 'c': 3})
+
+        # If function has both 'params' and **kwargs, both should work
+        def func_with_params_and_kwargs(a, params=None, **kwargs):
+            return a, params, kwargs
+        result = ModelBuilderFactory.prepare_and_call(
+            func_with_params_and_kwargs,
+            params_from_caller={'a': 1, 'b': 2, 'c': 3}
+        )
+        # 'b' and 'c' go to params, nothing left for kwargs
+        assert result == (1, {'b': 2, 'c': 3}, {})
+
+        # If function has only positional args, all extras should be filtered
+        def func_positional(a, b):
+            return a + b
+        result = ModelBuilderFactory.prepare_and_call(
+            func_positional,
+            params_from_caller={'a': 2, 'b': 3, 'c': 99}
+        )
+        assert result == 5
+
+        # If function has no arguments, all extras should be ignored
+        def func_no_args():
+            return 42
+        result = ModelBuilderFactory.prepare_and_call(
+            func_no_args,
+            params_from_caller={'a': 1, 'b': 2}
+        )
+        assert result == 42
+
+        # If function has only **kwargs, all extras should be passed
+        def func_only_kwargs(**kwargs):
+            return kwargs
+        result = ModelBuilderFactory.prepare_and_call(
+            func_only_kwargs,
+            params_from_caller={'x': 1, 'y': 2}
+        )
+        assert result == {'x': 1, 'y': 2}
+
+        # If function has 'params' and extra params dict is provided
+        def func_params_dict(params=None):
+            return params
+        result = ModelBuilderFactory.prepare_and_call(
+            func_params_dict,
+            params_from_caller={'params': {'foo': 1}, 'bar': 2}
+        )
+        assert result == {'foo': 1, 'bar': 2}
+
+        # If force_params overrides params_from_caller
+        def func_override(a, b=0):
+            return a, b
+        result = ModelBuilderFactory.prepare_and_call(
+            func_override,
+            params_from_caller={'a': 1, 'b': 2},
+            force_params_from_caller={'b': 99}
+        )
+        assert result == (1, 99)
