@@ -9,7 +9,14 @@
         "sklearn.preprocessing.RobustScaler",
         {
             "samples": [
-                "nirs4all.transformations.Rotate_Translate"
+                "nirs4all.transformations.Rotate_Translate",
+                {
+                    "class": "nirs4all.transformations.Spline_X_Perturbations",
+                    "params": {
+                        "spline_degree": 5,
+                        "perturbation_density":0.1
+                    }
+                }
             ]
         },
         {
@@ -25,7 +32,8 @@
                 {"class": "nirs4all.transformations.Gaussian", "params": {"order": 2, "sigma": 2}},
                 "nirs4all.transformations.SavitzkyGolay",
                 "nirs4all.transformations.StandardNormalVariate",
-                "nirs4all.transformations.Derivate"
+                "nirs4all.transformations.Derivate",
+                "nirs4all.transformations.Haar"
             ]
         },
         "sklearn.preprocessing.MinMaxScaler"

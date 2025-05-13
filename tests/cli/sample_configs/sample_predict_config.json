@@ -1,15 +1,21 @@
 {
-  "dataset": "data/predict_data_config",
-  "model": {
-    "class": "models.SimpleCNN",
-    "params": {
-      "input_shape": [100, 1],
-      "num_classes": 2,
-      "weights_path": "path/to/pretrained_model.pth"
-    }
-  },
-  "experiment": {
-    "name": "sample_prediction_run",
-    "batch_size": 64
-  }
+    "model": {
+        "class": "sklearn.cross_decomposition.PLSRegression",
+        "model_params": {
+            "n_components": 21,
+            "weights_path": "path/to/pretrained_model.pth"
+        }
+    },
+    "x_pipeline": [
+        "sklearn.preprocessing.RobustScaler",
+        {
+            "class": "sklearn.model_selection.RepeatedKFold",
+            "params": {
+                "n_splits": 3,
+                "n_repeats": 1
+            }
+        },
+        "sklearn.preprocessing.MinMaxScaler"
+    ],
+    "y_pipeline": "sklearn.preprocessing.MinMaxScaler"
 }
