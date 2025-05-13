@@ -13,7 +13,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 
 class ExperimentRunner:
-    def __init__(self, configs, results_dir='results', resume_mode='skip', verbose=0):
+    def __init__(self, configs, results_dir='results', resume_mode='restart', verbose=0):
         self.configs = configs
         self.manager = ExperimentManager(results_dir, resume_mode, verbose=3)
         self.logger = self.manager.logger

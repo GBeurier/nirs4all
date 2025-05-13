@@ -118,31 +118,25 @@ from nirs4all.core.runner import ExperimentRunner
 from nirs4all.core.config import Config
 from sklearn.model_selection import RepeatedKFold
 from sklearn.preprocessing import MinMaxScaler, RobustScaler
-
-# Load dataset
-dataset = get_dataset("path/to/your/data")
+from sklearn.cross_decomposition import PLSRegression
 
 # Define a simple processing pipeline
 pipeline = [
     RobustScaler(),  # Scale the data
     {"split": RepeatedKFold(n_splits=3, n_repeats=1)},  # Define cross-validation splits
+    {"features": [None, SG, SNV, [SG, SNV]},  # Provide 4 versions of the spectra (original, Savitzky-Golay, SNV, Savgol then SNV)
     MinMaxScaler()  # Scale the data again after splitting
 ]
 
-# Define a model (using scikit-learn in this example)
-model = {
-    "class": "sklearn.cross_decomposition.PLSRegression",
-    "model_params": {
-        "n_components": 10,
-    }
-}
+# Define scaler for y
+y_scaler = MinMaxScaler()
 
 # Create a configuration
-config = Config("path/to/your/data", pipeline, MinMaxScaler(), model, None, 42)
+config = Config("path/to/your/data", pipeline, y_scaler, PLSRegression(n_components=10), None, 42)
 
 # Run the experiment
-runner = ExperimentRunner([config], resume_mode="restart")
-datasets, predictions, scores, best_params = runner.run()
+runner = ExperimentRunner(config)
+datasets, predictions, scores, _ = runner.run()
 
 # Print results
 print("Model Performance:")
@@ -215,7 +209,7 @@ If you use NIRS4ALL in your research, please cite:
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the CECILL-2.1 License - see the LICENSE file for details.
 
 ## Acknowledgments
 
