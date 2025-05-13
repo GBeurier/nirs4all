@@ -1,0 +1,15 @@
+mkdocs>=1.1.2
+mkdocs-material>=6.1.0
+mkdocstrings>=0.13.6
+jinja2>=3.1.0
+joblib>=1.0.0
+kennard-stone>=1.0.0
+numpy
+pandas
+pytest
+PyWavelets>=1.2.0
+setuptools>=65.0.0
+scikit-learn>=1.0.1
+scipy>=1.7.3
+nirs4all @ git+https://github.com/GBeurier/nirs4all
+sphinx_rtd_theme
