@@ -6,7 +6,7 @@
 Nirs4all Documentation
 ====================
 
-.. image:: ../nirs4all_logo.jpg
+.. image:: ../nirs4all_logo.png
    :width: 25%
    :alt: Nirs4all logo
 

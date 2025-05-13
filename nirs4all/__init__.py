@@ -1,3 +1,3 @@
-__version__ = "2.0.0b4"
+__version__ = "0.0.1"
 
-__all__ = ["core", "data", "data_splitters", "presets", "transformations"]
+__all__ = ["core", "data", "data_splitters", "presets", "transformations", "utils"]
