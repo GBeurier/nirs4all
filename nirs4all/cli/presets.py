@@ -1,87 +1,49 @@
 import json
 import os
 from nirs4all.core.config import Config
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import copy
-import click
 
-# Correctly determine PRESET_DIR relative to this file's location
 PRESET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "presets")
 
-def load_preset(preset_name: str, action_name: Optional[str] = None) -> Dict[str, Any]:
+def load_preset(preset_name: str) -> Dict[str, Any]:
     """
-    Loads a preset JSON file.
-    If action_name is provided, it first looks in a subdirectory named after the action
-    (e.g., presets/train/my_train_preset.json).
-    If not found there, or if action_name is not provided, it looks in the base preset directory
-    (e.g., presets/my_generic_preset.json).
+    Loads a preset JSON file from the presets directory.
     """
     if not preset_name.endswith(".json"):
         preset_filename = f"{preset_name}.json"
     else:
         preset_filename = preset_name
-
-    potential_paths = []
-    if action_name:
-        potential_paths.append(os.path.join(PRESET_DIR, action_name, preset_filename))
-    
-    # Always add the root of the preset directory as a fallback or primary location
-    potential_paths.append(os.path.join(PRESET_DIR, preset_filename))
-
-    for preset_path in potential_paths:
-        if os.path.exists(preset_path):
-            try:
-                with open(preset_path, 'r') as f:
-                    return json.load(f)
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Error decoding JSON from preset file {preset_path}: {e}")
-            except Exception as e:
-                raise IOError(f"Error reading preset file {preset_path}: {e}")
-    
-    tried_paths_str = ", ".join(potential_paths)
-    raise FileNotFoundError(
-        f"Preset '{preset_name}' (as '{preset_filename}') not found. Tried: {tried_paths_str}"
-    )
+    preset_path = os.path.join(PRESET_DIR, preset_filename)
+    if os.path.exists(preset_path):
+        try:
+            with open(preset_path, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Error decoding JSON from preset file {preset_path}: {e}")
+        except Exception as e:
+            raise IOError(f"Error reading preset file {preset_path}: {e}")
+    raise FileNotFoundError(f"Preset '{preset_name}' (as '{preset_filename}') not found in {PRESET_DIR}.")
 
 def _deep_update(source: Dict, overrides: Dict) -> Dict:
-    """
-    Recursively updates a dictionary. Overwrites values, merges dictionaries.
-    Operates on a deep copy of the source.
-    """
     source = copy.deepcopy(source)
     for key, value in overrides.items():
         if isinstance(value, dict) and key in source and isinstance(source[key], dict):
             source[key] = _deep_update(source[key], value)
         else:
-            source[key] = value  # Overwrite or add new key
+            source[key] = value
     return source
 
 def apply_preset_to_config(config: Config, preset_data: Dict[str, Any]) -> Config:
-    """
-    Applies preset data to a Config object.
-    The preset_data is a dictionary that mirrors parts of the Config structure.
-    It deeply merges dictionary values and overwrites other values from the config.
-    """
     if not isinstance(config, Config):
-        # If it's a dict (e.g. from a previous to_dict call), convert it first
         if isinstance(config, dict):
             config = Config.from_dict(config)
         else:
             raise TypeError("config must be an instance of Config or a compatible dict")
-            
     if not isinstance(preset_data, dict):
         raise TypeError("preset_data must be a dictionary")
-
     config_dict = config.to_dict()
-    
-    # Perform a deep update. Attributes in preset_data will overwrite or merge into config_dict.
     updated_dict = _deep_update(config_dict, preset_data)
-    
-    # Ensure all fields expected by Config.from_dict are present, even if None,
-    # based on the structure of Config.
-    # This helps if the preset is sparse and doesn't include all top-level keys.
-    # Config.from_dict should handle missing keys by using their defaults (None for Optional fields).
-    
     return Config.from_dict(updated_dict)
 
 # Example usage (for testing purposes, can be removed or kept for module tests)
@@ -111,7 +73,7 @@ if __name__ == '__main__':
 
     try:
         # Test loading
-        train_preset = load_preset("sample_train", action_name="train")
+        train_preset = load_preset("sample_train")
         print("\\nLoaded train_preset:", json.dumps(train_preset, indent=2))
         
         generic_preset = load_preset("generic_settings")
