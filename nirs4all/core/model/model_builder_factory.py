@@ -316,30 +316,44 @@ class ModelBuilderFactory:
         all_available_args_from_caller = {**params_from_caller, **force_params_from_caller}
 
         signature = inspect.signature(callable_obj)
-        sig_params_spec = signature.parameters 
+        sig_params_spec = signature.parameters
 
-        final_named_args = {} 
+        final_named_args = {}
         remaining_args_for_bundle_or_kwargs = {}
 
         has_params_bundle_arg = 'params' in sig_params_spec and \
                                 sig_params_spec['params'].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
-        
+        has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params_spec.values())
+
+        # Only keep arguments that are in the callable's signature, unless **kwargs is present
         for name, value in all_available_args_from_caller.items():
             if name in sig_params_spec and (name != 'params' or not has_params_bundle_arg):
                 final_named_args[name] = value
             else:
                 remaining_args_for_bundle_or_kwargs[name] = value
-        
+
+        # If both params bundle and **kwargs are present, prioritize bundling all extras into params
         if has_params_bundle_arg:
             params_bundle_dict = {}
             if 'params' in remaining_args_for_bundle_or_kwargs and \
                isinstance(remaining_args_for_bundle_or_kwargs['params'], dict):
                 params_bundle_dict = remaining_args_for_bundle_or_kwargs.pop('params')
-            
             params_bundle_dict.update(remaining_args_for_bundle_or_kwargs)
             final_named_args['params'] = params_bundle_dict
-        else: 
+            # Do not pass any extras to **kwargs if params is present
+            if has_kwargs:
+                # Remove any keys that would have gone to **kwargs
+                for k in list(final_named_args.keys()):
+                    if k not in sig_params_spec and k != 'params':
+                        del final_named_args[k]
+        elif has_kwargs:
+            # If only **kwargs, add all remaining
             final_named_args.update(remaining_args_for_bundle_or_kwargs)
+        # else: already filtered
+
+        # Filter out any keys not in signature if no **kwargs
+        if not has_kwargs:
+            final_named_args = {k: v for k, v in final_named_args.items() if k in sig_params_spec or (has_params_bundle_arg and k == 'params')}
 
         try:
             bound_args = signature.bind(**final_named_args)
