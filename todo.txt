@@ -12,7 +12,7 @@ This document organizes and details the main features, improvements, and priorit
 - **Goal:** Make nirs4all usable from the command line for training, prediction, and evaluation.
 - **Tasks:**
   - [ ] Create a CLI entry point (`nirs4all`).
-  - [ ] Support commands: `train`, `predict`, `finetune`, `evaluate`, `viz`, etc.
+  - [ ] Support commands: `train`, `predict`, `finetune`, and other new commands to appear
   - [ ] Allow passing config files, model presets, and data paths as arguments.
   - [ ] Provide help and usage documentation.
   - [ ] Add CLI tests and examples.
