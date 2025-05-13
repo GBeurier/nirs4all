@@ -1,114 +1,22 @@
--------------------
-NIRS4ALL
--------------------
-
-- dataset signature (add x_train, X_train aliases for 2d dataset, clean signatures)
-- run() output should consider multiple or simple config
-
-
-
-==========================================================================================
-==========================================================================================
-==========================================================================================
-nirs4all_todo
-
-
-- remover augmenter.py, keep as sklearn transformers.
+---------------------------------------------------------------------------------------
+TODO
+---------------------------------------------------------------------------------------
+- sort json content
+- config Generator
+- csv loader reup
 - parametric augmentation {"samples":[], "target":"per_sample", "balance":"y", "balance_transformation":"bins"}
-- CSV LOADER !!!!!!!!
-
-- fix pip folders
-- test_splitter all wrong now
----------------------------------------------------------------------------------------
-TODO NEXT
----------------------------------------------------------------------------------------
-trier les json avec une metric par categorie et juste model: score, path:... 1 ligne par experiment
-ajouter date dans le folder.
-
-- load folder, replay action
-
-Fix predict metrics (absent coz in training_params), but doing predict on load config !
-
-
-# Config Generator
-
-experiment name optional to replace the hash_id
-
-
-# Dataset loader
-- reactivate all possible data configs
-
-Refactor classification
----------------------------------------------------------------------------------------
-Bug
----------------------------------------------------------------------------------------
-# Augmentations
-- Manage apply on global or not as a transformation option
-# Nirs4all
-- transformermixin have no get_params thus config serialization is wrong
-# model_manager
-- sortir le get metrics et regler/uniformiser nommage abrégés et nommage longs. REVOIR TOUT LE CHARGEMENT DES METRICS
-
----------------------------------------------------------------------------------------
-ROADMAP
----------------------------------------------------------------------------------------
-Nirs4all integration
-Stacking
-Torch / Keras / Jax
-Tests > 95%
-Documentation
-Finetune configs
-Pytorch
-Keras
-Jax
-Enhance configs and presets
-Queue and distributed workers
-WebApp
-Seed inits
-
-
-
----------------------------------------------------------------------------------------
-Feature missing:
----------------------------------------------------------------------------------------
-# classification
-- force num_classes in params (for now its pushed in num_classes)
-# finetuner:
-- HyperBand
+- groups loading and splitting
 - Torch
-# processor
+- stack
+- jax
+- true keras3
+- skrub ?
+- HyperBand
+
+# optional
 - fit test=True
 - transformation cache
 - uniformize get_transformer and execute step (same tests. should get_transformer at start then do cloning)
-# dataset + processor
-- test_set split then valid split
-# model manager
-- custom aggregation
-# splitter
-- clean config factory, clean sklearn import location
-
-
----------------------------------------------------------------------------------------
-Exciter
----------------------------------------------------------------------------------------
-Clean training / model_params source on finetune
-Refactor model_manager and finetuning to uniformize use of parameters and force_parameters, and avoid multiple instanciations
-
-Clean dataset signatures (too many identical functions)
-Add model summary in experiment folder
-
-
----------------------------------------------------------------------------------------
-Features skipped:
----------------------------------------------------------------------------------------
-# processor
-- pipeline for y (2d). Only single transformerMixin for now because of reverse_transform
-- seed propagated to processor
-- force test sample augmentation
-- force y sample augmentation and feature augmentation
-# runner
-- AbstractExperimentRunner to customize experiment loop
-
 
 
 ---------------------------------------------------------------------------------------
