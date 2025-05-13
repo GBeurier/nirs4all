@@ -172,9 +172,16 @@ class TestExperimentRunner:
             mock_dataset, "regression", return_all=True, raw_class_output=False
         )
         mock_model_manager.evaluate.assert_called_once()
-        mock_manager.save_results.assert_called_once_with(
-            mock_model_manager, y_pred, mock_dataset.y_test_init, metrics, None, [scores]
-        )
+        # Extract the actual call arguments
+        actual_call_args = mock_manager.save_results.call_args[0]
+
+        # Assert that the arguments match, using numpy.testing for array comparisons
+        np.testing.assert_array_equal(actual_call_args[1], y_pred)
+        np.testing.assert_array_equal(actual_call_args[2], mock_dataset.y_test_init)
+        assert actual_call_args[0] == mock_model_manager
+        assert actual_call_args[3] == metrics
+        assert actual_call_args[4] is None
+        assert actual_call_args[5] == [scores]
     
     @patch("nirs4all.core.runner.get_dataset")
     @patch("nirs4all.core.runner.run_pipeline")
