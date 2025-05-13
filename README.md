@@ -9,7 +9,7 @@
 
 NIRS4ALL is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
 
-<img src="docs/pipeline.jpg" width="700" alt="NIRS4ALL Pipeline">
+<!-- <img src="docs/pipeline.jpg" width="700" alt="NIRS4ALL Pipeline"> -->
 
 ## What is Near-Infrared Spectroscopy (NIRS)?
 
