@@ -1,7 +1,11 @@
 <img src="docs/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI version](https://img.shields.io/pypi/v/nirs4all.svg)](https://pypi.org/project/nirs4all/)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/release/python-370/)
+[![License: CECILL-2.1](https://img.shields.io/badge/license-CECILL--2.1-blue.svg)](LICENSE)
+<!-- [![Build](https://github.com/gbeurier/nirs4all/actions/workflows/CI.yml/badge.svg)](https://github.com/gbeurier/nirs4all/actions/workflows/CI.yml) -->
+<!-- [![Documentation Status](https://readthedocs.org/projects/nirs4all/badge/?version=latest)](https://nirs4all.readthedocs.io/) -->
+<!-- [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1234567.svg)](https://doi.org/10.5281/zenodo.1234567) -->
 
 NIRS4ALL is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
 
@@ -169,7 +173,7 @@ For more advanced usage, please refer to the [comprehensive walkthrough notebook
 
 ## Documentation
 
-Detailed documentation is available at [https://nirs4all.readthedocs.io/](https://nirs4all.readthedocs.io/)
+Detailed documentation will be soon available at [https://nirs4all.readthedocs.io/](https://nirs4all.readthedocs.io/)
 
 ## Dependencies
 
@@ -197,8 +201,8 @@ If you use NIRS4ALL in your research, please cite:
 
 ```
 @software{beurier2025nirs4all,
-  author = {Gregory Beurier},
-  title = {NIRS4ALL: A Pipeline for NIRS Analysis ReloadeD},
+  author = {Gregory Beurier and Denis Cornet and Lauriane Rouan},
+  title = {NIRS4ALL: Unlocking Spectroscopy for Everyone},
   url = {https://github.com/gbeurier/nirs4all},
   version = {0.0.1},
   year = {2025},
