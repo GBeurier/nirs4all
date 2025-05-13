@@ -1,0 +1,25 @@
+{
+  "dataset": "data/train_data_config",
+  "model": {
+    "class": "models.SimpleCNN",
+    "params": {
+      "input_shape": [100, 1],
+      "num_classes": 2
+    }
+  },
+  "optimizer": {
+    "class": "torch.optim.Adam",
+    "params": {
+      "lr": 0.001
+    }
+  },
+  "loss": {
+    "class": "torch.nn.CrossEntropyLoss"
+  },
+  "experiment": {
+    "name": "sample_training_run",
+    "epochs": 10,
+    "batch_size": 32
+  },
+  "seed": 42
+}

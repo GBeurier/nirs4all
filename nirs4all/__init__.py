@@ -1,1 +1,1 @@
-__all__ = ["core", "data", "data_splitters", "presets", "transformations", "utils"]
+__all__ = ["core", "data", "data_splitters", "presets", "transformations", "utils", "cli"]

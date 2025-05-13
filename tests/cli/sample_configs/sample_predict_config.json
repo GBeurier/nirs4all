@@ -1,0 +1,15 @@
+{
+  "dataset": "data/predict_data_config",
+  "model": {
+    "class": "models.SimpleCNN",
+    "params": {
+      "input_shape": [100, 1],
+      "num_classes": 2,
+      "weights_path": "path/to/pretrained_model.pth"
+    }
+  },
+  "experiment": {
+    "name": "sample_prediction_run",
+    "batch_size": 64
+  }
+}
