@@ -1,4 +1,5 @@
 {
+    "experiment": {"action": "train"},   
     "model": {
         "class": "sklearn.cross_decomposition.PLSRegression",
         "model_params": {
@@ -11,19 +12,21 @@
             "samples": [
                 "nirs4all.transformations.Rotate_Translate",
                 {
-                    "class": "nirs4all.transformations.Spline_X_Perturbations",
+                    "class": "nirs4all.transformations.Rotate_Translate",
                     "params": {
-                        "spline_degree": 5,
-                        "perturbation_density":0.1
+                        "p_range": 3,
+                        "y_factor": 5
                     }
                 }
             ]
         },
-        {
-            "class": "sklearn.model_selection.RepeatedKFold",
-            "params": {
-                "n_splits": 3,
-                "n_repeats": 1
+        { 
+            "split" :{
+                "class": "sklearn.model_selection.RepeatedKFold",
+                "params": {
+                    "n_splits": 3,
+                    "n_repeats": 1
+                }
             }
         },
         {
