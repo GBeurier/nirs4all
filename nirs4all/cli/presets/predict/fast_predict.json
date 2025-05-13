@@ -1,0 +1,10 @@
+{
+  "model": {
+    "params": {
+      "weights_path": "path/to/fast_predict_model.pth"
+    }
+  },
+  "experiment": {
+    "batch_size": 128
+  }
+}

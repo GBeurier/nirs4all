@@ -1,0 +1,12 @@
+{
+  "dataset": "data/slow_train_preset_data",
+  "optimizer": {
+    "params": {
+      "lr": 0.0001
+    }
+  },
+  "experiment": {
+    "epochs": 200,
+    "batch_size": 16
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "model": {
+    "class": "models.AdvancedCNN",
+    "params": {
+      "input_shape": [120, 1],
+      "num_classes": 3,
+      "dropout_rate": 0.5
+    }
+  },
+  "seed": 12345
+}
