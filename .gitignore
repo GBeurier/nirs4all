@@ -7,6 +7,7 @@ __pycache__/
 
 # Venv
 .venv/
+.smoke_env/
 
 # System
 .DS_Store
