@@ -50,19 +50,19 @@ jobs:
 #         with:
 #           repository-url: https://test.pypi.org/legacy/
 
-#   publish-pypi:
-#     needs: build
-#     if: github.event_name == 'release' && github.event.action == 'published'
-#     runs-on: ubuntu-latest
-#     environment: pypi
-#     permissions:
-#       id-token: write
-#       contents: read
-#     steps:
-#       - uses: actions/download-artifact@v4
-#         with:
-#           name: dist
-#           path: dist
+  publish-pypi:
+    needs: build
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
 
-#       - name: Upload to PyPI
-#         uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Upload to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
