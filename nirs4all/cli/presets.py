@@ -4,7 +4,7 @@ from nirs4all.core.config import Config
 from typing import Dict, Any
 import copy
 
-PRESET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "presets")
+PRESET_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "presets")
 
 def load_preset(preset_name: str) -> Dict[str, Any]:
     """
