@@ -10,9 +10,9 @@ import nirs4all.cli.presets as presets_module
 
 # Define paths to sample configs and presets relative to this test file
 # Assuming the test is run from the root of the project or in a way that resolves these paths
-BASE_DIR = Path(__file__).resolve().parent.parent.parent # Should be d:\Workspace\ML\NIRS\nirs4all
+BASE_DIR = Path(__file__).resolve().parent.parent.parent # Project root (nirs4all)
 SAMPLE_CONFIG_DIR = BASE_DIR / "tests" / "cli" / "sample_configs"
-NIRS4ALL_CLI_PRESETS_DIR = BASE_DIR / "nirs4all" / "cli" / "presets"
+PRESETS_DIR = BASE_DIR / "nirs4all" / "presets"
 
 
 def _create_dummy_data_dir(path_str: str, content_file_name: str = "data.txt", content: str = "dummy_data"):
@@ -36,26 +36,24 @@ class TestNirs4allCli:
 
     def setup_method(self):
         """Create necessary dummy preset and data dirs for tests."""
-        # Ensure preset directories exist (as created in previous steps by user)
-        (NIRS4ALL_CLI_PRESETS_DIR / "train").mkdir(parents=True, exist_ok=True)
-        (NIRS4ALL_CLI_PRESETS_DIR / "predict").mkdir(parents=True, exist_ok=True)
-        (NIRS4ALL_CLI_PRESETS_DIR / "finetune").mkdir(parents=True, exist_ok=True)
+        # Ensure global presets directory exists
+        PRESETS_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Create dummy preset files if they don't exist (mirroring what user created)
+        # Create dummy preset files in global presets dir
         _create_dummy_json_file(
-            NIRS4ALL_CLI_PRESETS_DIR / "train" / "slow_train.json",
-            {"dataset": "data/from_slow_train_preset", "experiment": {"epochs": 200}}
+            PRESETS_DIR / "slow_train.json",
+            {"dataset": "data/from_slow_train_preset"}
         )
         _create_dummy_json_file(
-            NIRS4ALL_CLI_PRESETS_DIR / "predict" / "fast_predict.json",
-            {"dataset": "data/from_fast_predict_preset", "model": {"type": "FastModel"}}
+            PRESETS_DIR / "fast_predict.json",
+            {"dataset": "data/from_fast_predict_preset"}
         )
         _create_dummy_json_file(
-            NIRS4ALL_CLI_PRESETS_DIR / "finetune" / "quick_finetune.json",
-            {"dataset": "data/from_quick_finetune_preset", "experiment": {"lr": 0.0005}}
+            PRESETS_DIR / "quick_finetune.json",
+            {"dataset": "data/from_quick_finetune_preset"}
         )
-        _create_dummy_json_file( # A generic preset
-            NIRS4ALL_CLI_PRESETS_DIR / "generic.json",
+        _create_dummy_json_file(
+            PRESETS_DIR / "generic.json",
             {"seed": 123, "dataset": "data/from_generic_preset"}
         )
 
@@ -90,25 +88,19 @@ class TestNirs4allCli:
 
     def test_load_global_config_train(self, tmp_path):
         sample_conf = SAMPLE_CONFIG_DIR / "sample_train_config.json"
-        # Ensure the data path mentioned in sample_train_config.json exists
-        _create_dummy_data_dir(str(tmp_path / "data" / "train_data_config"))
-        
-        # Modify sample_train_config.json to point to tmp_path for dataset
-        with open(sample_conf, 'r') as f:
-            config_data = json.load(f)
-        
-        original_dataset_path = config_data["dataset"]
-        temp_dataset_path_str = str(Path("data") / "train_data_config") # relative to how Config expects it
-        config_data["dataset"] = str(tmp_path / temp_dataset_path_str)
-        
-        temp_config_file = tmp_path / "temp_train_config.json"
-        with open(temp_config_file, 'w') as f:
-            json.dump(config_data, f)
+        # Create a dummy data directory and use it via --data-path
+        data_dir = tmp_path / "dummy_data"
+        _create_dummy_data_dir(str(data_dir))
 
-        result = self.runner.invoke(nirs4all_cli, ["--config", str(temp_config_file), "train"])
+        result = self.runner.invoke(nirs4all_cli, [
+            "--config", str(sample_conf),
+            "--data-path", str(data_dir),
+            "train"
+        ])
         assert result.exit_code == 0, result.output
-        assert f"Loaded global configuration from: {str(temp_config_file)}" in result.output
-        assert f"Final effective dataset path: {str(Path(config_data['dataset']).resolve())}" in result.output
+        assert f"Loaded global configuration from: {str(sample_conf)}" in result.output
+        assert f"Applied global --data-path override: {str(data_dir)}" in result.output
+        assert f"Final effective dataset path: {str(data_dir)}" in result.output
         assert "Executing CLI command: train" in result.output
 
     def test_global_data_path_override(self, tmp_path):

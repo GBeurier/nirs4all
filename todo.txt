@@ -1,4 +1,13 @@
-# d:\Workspace\ML\NIRS\nirs4all\TODO.md
+# In progress
+
+
+Config serialization:
+
+Each part of the config is serializable. Config can be obj, class, method, dict or str usually.
+
+
+
+---------------------------------------------------------------------------------
 
 # NIRS4ALL - Project TODO & Roadmap
 

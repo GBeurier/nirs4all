@@ -1,44 +1,9 @@
-import itertools
+# import itertools
 import dataclasses
-from typing import List, Optional, Union, Any, Dict
+from typing import Optional, Union, Any, Dict
 import json
-import inspect
 
-# Helper function to serialize components
-def _serialize_component(component: Any) -> Any:
-    if component is None:
-        return None
-    if isinstance(component, (str, int, float, bool)):
-        return component
-    if isinstance(component, dict):
-        # If it's a dict, assume it might be already in a serializable form
-        # or a representation of a class with params.
-        # We'll try to ensure keys like 'class' or 'method' are present if it's a custom object.
-        if 'class' in component or 'method' in component:
-            # Recursively serialize params if they exist
-            if 'params' in component and isinstance(component['params'], dict):
-                component['params'] = {k: _serialize_component(v) for k, v in component['params'].items()}
-            return component
-        # For general dicts, serialize their values
-        return {k: _serialize_component(v) for k, v in component.items()}
-    if isinstance(component, list):
-        return [_serialize_component(c) for c in component]
-    if inspect.isclass(component):
-        return {"class": f"{component.__module__}.{component.__name__}"}
-    # For instances (e.g., scikit-learn transformers, models)
-    if hasattr(component, 'get_params') and callable(component.get_params):
-        try:
-            params = component.get_params(deep=True)
-            # Recursively serialize parameter values
-            serialized_params = {k: _serialize_component(v) for k, v in params.items()}
-            return {
-                "class": f"{component.__class__.__module__}.{component.__class__.__name__}",
-                "params": serialized_params
-            }
-        except Exception:  # Fallback if get_params fails or params are not easily serializable
-            return {"class": f"{component.__class__.__module__}.{component.__class__.__name__}"}
-    # Fallback for other object types: just represent them by their class name
-    return {"class": f"{component.__class__.__module__}.{component.__class__.__name__}"}
+from nirs4all.utils.serialization import _serialize_component, _deserialize_component
 
 
 @dataclasses.dataclass
@@ -51,15 +16,34 @@ class Config:
     seed: Optional[int] = None
 
     def to_dict(self) -> dict:
-        """Converts the Config object to a dictionary suitable for JSON serialization."""
-        return {
-            "dataset": _serialize_component(self.dataset),
-            "x_pipeline": _serialize_component(self.x_pipeline),
-            "y_pipeline": _serialize_component(self.y_pipeline),
-            "model": _serialize_component(self.model),
-            "experiment": _serialize_component(self.experiment),  # Experiments can have nested serializable components
-            "seed": self.seed
-        }
+        """Converts the Config object to a dictionary suitable for JSON serialization.
+        Only includes attributes that don't have default values."""
+        result = {}
+        
+        # Get all fields and their default values from the dataclass
+        fields = {field.name: field for field in dataclasses.fields(self.__class__)}
+        
+        for field_name, field in fields.items():
+            value = getattr(self, field_name)
+            
+            # Skip if the value is the default
+            if field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING:
+                # No default, always include
+                result[field_name] = _serialize_component(value)
+            elif field.default is not dataclasses.MISSING and value == field.default:
+                # Has default and matches default, skip
+                continue
+            elif field.default_factory is not dataclasses.MISSING:
+                # Has default_factory, we need to create an instance to compare
+                default_value = field.default_factory()
+                if value == default_value:
+                    continue
+                result[field_name] = _serialize_component(value)
+            else:
+                # Value differs from default, include it
+                result[field_name] = _serialize_component(value)
+        
+        return result
 
     def to_json_file(self, filepath: str, indent: int = 4) -> None:
         """Saves the Config object to a JSON file."""
@@ -69,16 +53,19 @@ class Config:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Config":
         """Creates a Config object from a dictionary."""
+        # First deserialize any special formats like tuples
+        deserialized_data = {
+            "dataset": _deserialize_component(data.get("dataset")),
+            "x_pipeline": _deserialize_component(data.get("x_pipeline")),
+            "y_pipeline": _deserialize_component(data.get("y_pipeline")),
+            "model": _deserialize_component(data.get("model")),
+            "experiment": _deserialize_component(data.get("experiment")),
+            "seed": data.get("seed")  # Primitive type, no special handling needed
+        }
+        
         # The downstream components (get_transformer, model_builder, etc.)
         # are expected to handle the string/dict representations.
-        return cls(
-            dataset=data.get("dataset"),
-            x_pipeline=data.get("x_pipeline"),
-            y_pipeline=data.get("y_pipeline"),
-            model=data.get("model"),
-            experiment=data.get("experiment"),
-            seed=data.get("seed")
-        )
+        return cls(**deserialized_data)
 
     @classmethod
     def from_json_file(cls, filepath: str) -> "Config":
