@@ -122,6 +122,14 @@ class ExperimentManager:
             dataset_name = dataset_config
         elif hasattr(dataset_config, 'name'):
             dataset_name = dataset_config.name
+        elif isinstance(dataset_config, dict):
+            if 'name' in dataset_config:
+                dataset_name = dataset_config['name']
+            elif 'path' in dataset_config:
+                # dataset_name = os.path.splitext(os.path.basename(dataset_config['path']))[0]
+                dataset_name = dataset_config['path']
+            else:
+                dataset_name = 'unknown_dataset'
         else:
             dataset_name = 'unknown_dataset'
         return sanitize_folder_name(dataset_name)
