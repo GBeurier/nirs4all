@@ -1,3 +1,37 @@
+# Verifier test_dataset_loader avec NA en Y
+
+############### CLARIFIER VAL / TEST et warning méchant quand le test est utilisé en VAL . 
+
+Use case 1: Denis: generator >> PENTESTER
+Use case 2: user lambda - train et voir le meilleur > barplot par dataset et modele, residu par experiment > output graphique sur les scenario >> NOOB USER
+- split robustess. 
+Use case 3: Jeux de données réfractaires. Bruits / classification >> DEV INTENSIVE
+
+- Export experiment to do predict(export, dataset)
+
+- GroupBy / Filter  step >
+- y, x sanity_check step
+- dataviz step
+
+- virer les extremum pour la robustesse (encore un split ou groupby/filter)
+
+- header / Verifier syntax avec folder loading.
+
+Xn Ym Metak
+*** 
+
+jit > multiple outputs with 1 model per output.
+- multiplexer model > Multiple source le modele s'adapte
+ >>>>> genre 500 wl ou 2500wl > small-nicon, nicon
+
+
+--- FUSION - multi sources ou separated source in multi source . Options:
+- multiple source or source separation
+- pre pipeline fusion | None
+- -- | multiple pipeline || single pipeline
+- -- | post pipeline fusion || multi model || single model with early / mid / late fusion
+- -- | -------------------- || stack, weight, best || ---
+
 # In progress
 
 
