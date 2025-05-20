@@ -13,15 +13,16 @@ range_selector_schema = {
         {
             "type": "object",
             "properties": {
-                "from": {"type": "integer"},
-                "to": {"type": "integer"}
+                "from": {"type": "integer", "minimum": 0, "maximum": 100},
+                "to": {"type": "integer", "minimum": 0, "maximum": 100},
             },
             "oneOf": [
                 {"required": ["from"]},
                 {"required": ["to"]}
-            ]
+            ],
+            "additionalProperties": False,
         },
-        {"type": "array", "items": {"type": "integer"}, "minItems": 1}
+        {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 100}, "minItems": 1}
     ]
 }
 
@@ -33,9 +34,13 @@ data_params_schema = {
             "properties": {
                 "header": {
                     "oneOf": [
-                        {"type": "integer"},
-                        {"type": "array", "items": {"type": "integer"}},
-                        {"type": "string", "enum": ["infer"]},
+                        {"type": "integer", "minimum": 0, "maximum": 1},
+                        # {"type": "array", "items": {"type": "integer"}},
+                        # {"type": "string", "enum": ["infer"]},
+                        # {
+                        #     "type": "string",
+                        #     "pattern": "^[a-zA-Z]+$"
+                        # },
                         {"type": "null"}
                     ]
                 },
@@ -45,24 +50,24 @@ data_params_schema = {
             },
             "additionalProperties": False
         },
-        {
-            "type": "array",
-            "items": [
-                {
-                    "oneOf": [
-                        {"type": "integer"},
-                        {"type": "array", "items": {"type": "integer"}},
-                        {"type": "string", "enum": ["infer"]},
-                        {"type": "null"}
-                    ]
-                },
-                {"type": "string", "enum": [",", ";", "\t"]},
-                {"type": "string", "enum": [".", ","]},
-                {"type": "string", "enum": ["abort", "remove", "ignore", "replace", "auto"]}
-            ],
-            "minItems": 0,
-            "maxItems": 4
-        }
+        # {
+        #     "type": "array",
+        #     "items": [
+        #         {
+        #             "oneOf": [
+        #                 {"type": "integer"},
+        #                 {"type": "array", "items": {"type": "integer"}},
+        #                 {"type": "string", "enum": ["infer"]},
+        #                 {"type": "null"}
+        #             ]
+        #         },
+        #         {"type": "string", "enum": [",", ";", "\t"]},
+        #         {"type": "string", "enum": [".", ","]},
+        #         {"type": "string", "enum": ["abort", "remove", "ignore", "replace", "auto"]}
+        #     ],
+        #     "minItems": 0,
+        #     "maxItems": 4
+        # }
     ]
 }
 
@@ -87,39 +92,40 @@ csvfile_schema = {
                 "filter": {"$ref": "#/definitions/selector"},
                 "params": {"$ref": "#/definitions/data_params"}
             },
+            "additionalProperties": False,
             "required": ["path"]
         },
-        {
-            "type": "array",
-            "items": [
-                {"$ref": "#/definitions/filepath"},
-                {
-                    "type": "object",
-                    "properties": {
-                        "filter": {"$ref": "#/definitions/selector"},
-                    },
-                    "required": ["filter"]
-                },
-            ],
-            "minItems": 2,
-            "maxItems": 2
-        },
-        {
-            "type": "array",
-            "items": [
-                {"$ref": "#/definitions/filepath"},
-                {
-                    "type": "object",
-                    "properties": {
-                        "filter": {"$ref": "#/definitions/selector"},
-                    },
-                    "required": ["filter"]
-                },
-                {"$ref": "#/definitions/data_params"}
-            ],
-            "minItems": 3,
-            "maxItems": 3
-        }
+        # {
+        #     "type": "array",
+        #     "items": [
+        #         {"$ref": "#/definitions/filepath"},
+        #         {
+        #             "type": "object",
+        #             "properties": {
+        #                 "filter": {"$ref": "#/definitions/selector"},
+        #             },
+        #             "required": ["filter"]
+        #         },
+        #     ],
+        #     "minItems": 2,
+        #     "maxItems": 2
+        # },
+        # {
+        #     "type": "array",
+        #     "items": [
+        #         {"$ref": "#/definitions/filepath"},
+        #         {
+        #             "type": "object",
+        #             "properties": {
+        #                 "filter": {"$ref": "#/definitions/selector"},
+        #             },
+        #             "required": ["filter"]
+        #         },
+        #         {"$ref": "#/definitions/data_params"}
+        #     ],
+        #     "minItems": 3,
+        #     "maxItems": 3
+        # }
     ]
 }
 
@@ -137,22 +143,23 @@ XYfile_schema = {
                 },
                 "params": {"$ref": "#/definitions/data_params"}
             },
+            "additionalProperties": False,
             "required": ["X", "Y"]
         },
-        {
-            "type": "array",
-            "items": [
-                {"$ref": "#/definitions/csvfile"},
-                {
-                    "anyOf": [
-                        {"$ref": "#/definitions/csvfile"},
-                        {"$ref": "#/definitions/selector"}
-                    ]
-                }
-            ],
-            "minItems": 2,
-            "maxItems": 2
-        }
+        # {
+        #     "type": "array",
+        #     "items": [
+        #         {"$ref": "#/definitions/csvfile"},
+        #         {
+        #             "anyOf": [
+        #                 {"$ref": "#/definitions/csvfile"},
+        #                 {"$ref": "#/definitions/selector"}
+        #             ]
+        #         }
+        #     ],
+        #     "minItems": 2,
+        #     "maxItems": 2
+        # }
     ]
 }
 
@@ -167,81 +174,82 @@ datafiles_schema = {
                 "valid": {"$ref": "#/definitions/XYfile_schema"},
                 "params": {"$ref": "#/definitions/data_params"}
             },
+            "additionalProperties": False,
             "required": ["train"]
         },
-        {
-            "type": "array",
-            "items": [
-                {"$ref": "#/definitions/XYfile_schema"},
-                {"$ref": "#/definitions/XYfile_schema"},
-                {"$ref": "#/definitions/XYfile_schema"},
-            ],
-            "minItems": 1,
-            "maxItems": 3
-        },
-        {
-            "type": "array",
-            "items": [
-                {"$ref": "#/definitions/csvfile"},
-                {
-                    "anyOf": [
-                        {"$ref": "#/definitions/csvfile"},
-                        {"$ref": "#/definitions/selector"}
-                    ]
-                }
-            ],
-            "minItems": 2,
-            "maxItems": 2
-        },
-        {
-            "type": "array",
-            "items": [
-                {"$ref": "#/definitions/csvfile"},
-                {
-                    "anyOf": [
-                        {"$ref": "#/definitions/csvfile"},
-                        {"$ref": "#/definitions/selector"}
-                    ]
-                },
-                {"$ref": "#/definitions/csvfile"},
-                {
-                    "anyOf": [
-                        {"$ref": "#/definitions/csvfile"},
-                        {"$ref": "#/definitions/selector"}
-                    ]
-                }
-            ],
-            "minItems": 4,
-            "maxItems": 4
-        },
-        {
-            "type": "array",
-            "items": [
-                {"$ref": "#/definitions/csvfile"},
-                {
-                    "anyOf": [
-                        {"$ref": "#/definitions/csvfile"},
-                        {"$ref": "#/definitions/selector"}
-                    ]
-                },
-                {"$ref": "#/definitions/csvfile"},
-                {
-                    "anyOf": [
-                        {"$ref": "#/definitions/csvfile"},
-                        {"$ref": "#/definitions/selector"}
-                    ]
-                },
-                {"$ref": "#/definitions/csvfile"},
-                {
-                    "anyOf": [
-                        {"$ref": "#/definitions/csvfile"},
-                        {"$ref": "#/definitions/selector"}
-                    ]
-                }
-            ],
-            "minItems": 6,
-            "maxItems": 6
-        }
+        # {
+        #     "type": "array",
+        #     "items": [
+        #         {"$ref": "#/definitions/XYfile_schema"},
+        #         {"$ref": "#/definitions/XYfile_schema"},
+        #         {"$ref": "#/definitions/XYfile_schema"},
+        #     ],
+        #     "minItems": 1,
+        #     "maxItems": 3
+        # },
+        # {
+        #     "type": "array",
+        #     "items": [
+        #         {"$ref": "#/definitions/csvfile"},
+        #         {
+        #             "anyOf": [
+        #                 {"$ref": "#/definitions/csvfile"},
+        #                 {"$ref": "#/definitions/selector"}
+        #             ]
+        #         }
+        #     ],
+        #     "minItems": 2,
+        #     "maxItems": 2
+        # },
+        # {
+        #     "type": "array",
+        #     "items": [
+        #         {"$ref": "#/definitions/csvfile"},
+        #         {
+        #             "anyOf": [
+        #                 {"$ref": "#/definitions/csvfile"},
+        #                 {"$ref": "#/definitions/selector"}
+        #             ]
+        #         },
+        #         {"$ref": "#/definitions/csvfile"},
+        #         {
+        #             "anyOf": [
+        #                 {"$ref": "#/definitions/csvfile"},
+        #                 {"$ref": "#/definitions/selector"}
+        #             ]
+        #         }
+        #     ],
+        #     "minItems": 4,
+        #     "maxItems": 4
+        # },
+        # {
+        #     "type": "array",
+        #     "items": [
+        #         {"$ref": "#/definitions/csvfile"},
+        #         {
+        #             "anyOf": [
+        #                 {"$ref": "#/definitions/csvfile"},
+        #                 {"$ref": "#/definitions/selector"}
+        #             ]
+        #         },
+        #         {"$ref": "#/definitions/csvfile"},
+        #         {
+        #             "anyOf": [
+        #                 {"$ref": "#/definitions/csvfile"},
+        #                 {"$ref": "#/definitions/selector"}
+        #             ]
+        #         },
+        #         {"$ref": "#/definitions/csvfile"},
+        #         {
+        #             "anyOf": [
+        #                 {"$ref": "#/definitions/csvfile"},
+        #                 {"$ref": "#/definitions/selector"}
+        #             ]
+        #         }
+        #     ],
+        #     "minItems": 6,
+        #     "maxItems": 6
+        # }
     ]
 }
 
@@ -254,28 +262,29 @@ datafolder_schema = {
                 "path": {"$ref": "#/definitions/folderpath"},
                 "params": {"$ref": "#/definitions/data_params"}
             },
+            "additionalProperties": False,
             "required": ["path"]
         },
-        {
-            "type": "array",
-            "items": [
-                {"$ref": "#/definitions/folderpath"},
-                {"$ref": "#/definitions/data_params"}
-            ],
-            "minItems": 2,
-            "maxItems": 2
-        }
+        # {
+        #     "type": "array",
+        #     "items": [
+        #         {"$ref": "#/definitions/folderpath"},
+        #         {"$ref": "#/definitions/data_params"}
+        #     ],
+        #     "minItems": 2,
+        #     "maxItems": 2
+        # }
     ]
 }
 
 data_schema = {
-    "type": "array",
-    "items": {
-        "anyOf": [
-            datafolder_schema,
-            datafiles_schema
-        ]
-    }
+    # "type": "array",
+    # "items": {
+    "oneOf": [
+        datafolder_schema,
+        datafiles_schema
+    ]
+    # }
 }
 
 schema = {
@@ -284,6 +293,7 @@ schema = {
     "properties": {
         "data": data_schema,
     },
+    "additionalProperties": False,
     "required": ["data"],
     "definitions": {
         "folderpath": folderpath_schema,
