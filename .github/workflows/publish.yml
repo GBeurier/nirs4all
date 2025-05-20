@@ -52,7 +52,9 @@ jobs:
 
   publish-pypi:
     needs: build
-    if: github.event_name == 'release' && github.event.action == 'published'
+    if: |
+      github.event_name == 'release' && github.event.action == 'published' ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

@@ -20,7 +20,7 @@ range_selector_schema = {
                 {"required": ["from"]},
                 {"required": ["to"]}
             ],
-            "additionalProperties": False,
+            "additionalProperties": False
         },
         {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 100}, "minItems": 1}
     ]
@@ -92,8 +92,8 @@ csvfile_schema = {
                 "filter": {"$ref": "#/definitions/selector"},
                 "params": {"$ref": "#/definitions/data_params"}
             },
-            "additionalProperties": False,
-            "required": ["path"]
+            "required": ["path"],
+            "additionalProperties": False
         },
         # {
         #     "type": "array",
@@ -143,8 +143,8 @@ XYfile_schema = {
                 },
                 "params": {"$ref": "#/definitions/data_params"}
             },
-            "additionalProperties": False,
-            "required": ["X", "Y"]
+            "required": ["X", "Y"],
+            "additionalProperties": False
         },
         # {
         #     "type": "array",
@@ -174,8 +174,8 @@ datafiles_schema = {
                 "valid": {"$ref": "#/definitions/XYfile_schema"},
                 "params": {"$ref": "#/definitions/data_params"}
             },
-            "additionalProperties": False,
-            "required": ["train"]
+            "required": ["train"],
+            "additionalProperties": False
         },
         # {
         #     "type": "array",
@@ -262,8 +262,8 @@ datafolder_schema = {
                 "path": {"$ref": "#/definitions/folderpath"},
                 "params": {"$ref": "#/definitions/data_params"}
             },
-            "additionalProperties": False,
-            "required": ["path"]
+            "required": ["path"],
+            "additionalProperties": False
         },
         # {
         #     "type": "array",

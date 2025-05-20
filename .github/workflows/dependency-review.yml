@@ -1,3 +1,4 @@
+# .github/workflows/dependency-review.yml
 # Dependency Review Action
 
 name: 'Dependency Review'
