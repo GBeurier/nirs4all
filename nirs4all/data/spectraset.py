@@ -55,80 +55,93 @@ class SpectraSet:
             spectra[source_name][sample_idx] -> list of 1D arrays (augmentation) len f_source
         target: shape (n_samples,) or (n_samples, n_vars)
         """
-        # 1) collect obs records across all sources
-        obs_records: list[tuple[int, int, Any, np.ndarray]] = []
-        for src, sample_list in spectra.items():
+        # --- 1) build a unique list of (sample, augmentation) pairs -------
+        pair_set = set()
+        for sample_list in spectra.values():
             for s_idx, aug_list in enumerate(sample_list):
-                for a_idx, arr in enumerate(aug_list):
-                    obs_records.append((s_idx, a_idx, src, arr))
-        # 2) build index arrays
-        sample_ids = [rec[0] for rec in obs_records]
-        aug_ids = [rec[1] for rec in obs_records]
-        source_ids = [rec[2] for rec in obs_records]
-        # 3) MultiIndex for obs
+                for a_idx, _ in enumerate(aug_list):
+                    pair_set.add((s_idx, a_idx))
+        pair_list = sorted(pair_set)  # deterministic
+        sample_ids, aug_ids = zip(*pair_list)
+
+        # 2) create a 2-level MultiIndex on obs
         obs_idx = pd.MultiIndex.from_arrays(
-            [sample_ids, aug_ids, source_ids],
-            names=("sample", "augmentation", "source")
+            [sample_ids, aug_ids],
+            names=("sample", "augmentation")
         )
         N_obs = len(obs_idx)
-        # 4) build Dataset: one variable per source (outer join on feature dims)
+
+        # 3) map each (sample, aug) → row index for filling
+        row_of = {pair: i for i, pair in enumerate(pair_list)}
+
+        # 4) build one DataArray per source, filling into the same rows
         spectral_data_arrays = {}
-        for src in spectra.keys():
-            current_feat_len = 0
-            if src in spectra and spectra[src]:
-                for aug_list_for_sample in spectra[src]:
-                    if aug_list_for_sample:
-                        current_feat_len = len(aug_list_for_sample[0])
-                        break
-            feats = np.full((N_obs, current_feat_len), np.nan, dtype=float)
-            for idx, rec_tuple in enumerate(obs_records):
-                s_idx_rec, a_idx_rec, rec_src_from_tuple, arr_from_tuple = rec_tuple
-                if rec_src_from_tuple == src:
-                    if len(arr_from_tuple) == current_feat_len and current_feat_len > 0:
-                        feats[idx, :] = arr_from_tuple
-            da = xr.DataArray(
+        for src, sample_list in spectra.items():
+            # find first non-empty to get feature length
+            feat_len = next(
+                len(arr)
+                for aug_list in sample_list
+                for arr in aug_list
+                if len(arr) > 0
+            )
+            feats = np.full((N_obs, feat_len), np.nan, dtype=float)
+
+            for s_idx, aug_list in enumerate(sample_list):
+                for a_idx, arr in enumerate(aug_list):
+                    row = row_of[(s_idx, a_idx)]
+                    feats[row, :] = arr
+
+            spectral_data_arrays[f"spectra_{src}"] = xr.DataArray(
                 feats,
                 dims=("obs", "feature"),
-                coords={"obs": obs_idx, "feature": np.arange(current_feat_len)}
+                coords={"obs": obs_idx, "feature": np.arange(feat_len)}
             )
-            spectral_data_arrays[f"spectra_{src}"] = da
+
         ds = xr.Dataset(spectral_data_arrays)
-        # 5) target: repeat per obs via sample_ids
+
+        # 5) build target, repeating per obs
         targ_arr = np.asarray(target)
         if targ_arr.ndim == 1:
             targ_arr = targ_arr[:, None]
         n_vars = targ_arr.shape[1]
-        targ_obs = np.vstack([targ_arr[s] for s in sample_ids])
+        # for each obs row, pick target[sample]
+        targ_obs = np.vstack([targ_arr[s] for s, _ in pair_list])
         ds["target"] = xr.DataArray(
             targ_obs,
             dims=("obs", "variable"),
-            coords={"obs": ds.coords["obs"],
-                    "variable": target_names or np.arange(n_vars)}
+            coords={
+                "obs": ds.coords["obs"],
+                "variable": target_names or np.arange(n_vars)
+            }
         )
+
         # 6) metadata per obs
         if metadata:
             for key, arr in metadata.items():
-                vals = [arr[s] for s in sample_ids]
+                vals = [arr[s] for s, _ in pair_list]
                 ds[f"metadata_{key}"] = xr.DataArray(
                     vals,
                     dims=("obs",),
                     coords={"obs": ds.coords["obs"]}
                 )
-        # 7) assign coords for split, folds, branch, groups via sample_ids
+
+        # 7) optional coords: splits, folds, branch, groups
         if splits is not None:
-            split_vals = [splits[s] for s in sample_ids]
+            split_vals = [splits[s] for s, _ in pair_list]
             ds = ds.assign_coords(split=("obs", split_vals))
         if folds is not None:
-            fold_vals = [folds[s] for s in sample_ids]
+            fold_vals = [folds[s] for s, _ in pair_list]
             ds = ds.assign_coords(fold_id=("obs", fold_vals))
         if branch is not None:
-            br_vals = [branch[s] for s in sample_ids]
+            br_vals = [branch[s] for s, _ in pair_list]
             ds = ds.assign_coords(branch=("obs", br_vals))
         if groups:
             for name, arr in groups.items():
-                grp_vals = [arr[s] for s in sample_ids]
+                grp_vals = [arr[s] for s, _ in pair_list]
                 ds = ds.assign_coords({f"group_id_{name}": ("obs", grp_vals)})
+
         return cls(ds)
+
 
     def X(
         self,
