@@ -43,7 +43,11 @@ class ExperimentRunner:
             model_manager = ModelManagerFactory.get_model_manager(model_config, dataset, task)
         
         self.logger.info("Running config > %s", self.manager.make_config_serializable(config))
-        self.manager.prepare_experiment(config)
+        try:
+            self.manager.prepare_experiment(config)
+        except RuntimeError as e:
+            print(f"{e}")
+            return None, None, None, None
         
         preds, scores, best_params = None, None, None
         if model_manager is None:
