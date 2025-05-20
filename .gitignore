@@ -29,3 +29,4 @@ test_experiment_manager/
 .coverage
 .coveragerc
 .coverage.*
+examples/.hypothesis/
