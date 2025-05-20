@@ -1,4 +1,89 @@
-Here’s the **final refined spec** for `SpectraSet`, **including** the ability to filter on **any auxiliary coordinate** (groups, folds, branches, etc.) in your `X`/`y` getters:
+**SpectraSet Class Specification**
+
+**Overview**
+`SpectraSet` is a specialized data container built on **xarray** for managing spectral (NIRS, MIR, Raman, etc.) datasets within machine learning and deep learning pipelines. It unifies raw measurements, target variables, and metadata, and provides flexible mechanisms for transformation, augmentation, splitting, grouping, and branching.
+
+---
+
+### 1. Core Data Structures
+
+* **X (Input Samples)**
+
+  * Each sample is represented as a vector (or stack of vectors) of floating-point values.
+  * Supports multiple spectral sources of varying dimensionality (e.g., Raman, NIRS, MIR).
+  * Internally stored as an xarray DataArray, preserving source identifiers and axis names.
+
+* **Y (Targets)**
+
+  * Can be either continuous (regression) or categorical (classification).
+  * Automatic encoding and decoding of categorical labels, with transparent inverse-mapping back to original class names.
+
+* **Metadata**
+
+  * Arbitrary tabular data associated with each sample (e.g., sample ID, acquisition date, experimental conditions).
+  * Stored as an xarray Dataset coordinate or auxiliary DataArray, allowing heterogeneous types (numerical, categorical, text).
+
+---
+
+### 2. Data Transformation & Augmentation
+
+* **Transformer Mixin**
+
+  * Apply any shape-preserving transformation to X, Y, or metadata via a consistent mixin interface.
+  * Examples: normalization, smoothing, baseline correction.
+
+* **Sample-Level Augmentation**
+
+  * Generate new samples by applying augmentation functions to X (e.g., noise injection, spectral shifting).
+  * Augmented samples are appended to the dataset; originals are retained.
+
+* **Feature-Level Augmentation**
+
+  * Derive additional features from X (e.g., derivative spectra, spectral indices).
+  * New features can be concatenated along the existing feature axis or introduced as a separate 2D “feature map” dimension.
+
+---
+
+### 3. Dataset Management
+
+* **Splitting & Folding**
+
+  * Create train/test/validation splits with support for k-fold and repeated cross-validation.
+  * Internally maintains index masks for each split and fold (including repeats), facilitating reproducible sampling across experiments.
+
+* **Aggregation & Packing**
+
+  * Group samples according to one or more keys (e.g., subject ID, batch).
+  * Compute group representatives via configurable functions (mean spectrum, centroid, median, etc.).
+  * Assign new group-level IDs while preserving links to constituent samples.
+
+* **Branching & Subsetting**
+
+  * Define multiple, named subsets (“branches”) of the dataset for parallel analyses.
+  * Branches can be nested or overlapping; operations on one branch do not affect others.
+
+---
+
+### 4. Extensibility & Integration
+
+* **Pipeline-Friendly API**
+
+  * Chain operations (transformations, augmentations, splits) in a fluent style.
+  * Easily integrate with scikit-learn, PyTorch, TensorFlow, or custom training loops.
+
+* **Index Persistence**
+
+  * All operations record indices and provenance, ensuring that any downstream estimator can trace back to original samples and metadata.
+
+* **Multiple Grouping Levels**
+
+  * Support hierarchical grouping (e.g., technical replicate → biological replicate → cohort).
+
+---
+
+**Summary**
+`SpectraSet` delivers a structured, extensible framework for spectral data preprocessing, augmentation, and management—streamlining the path from raw measurements to model-ready datasets while maintaining full traceability and reproducibility.
+
 
 ---
 
