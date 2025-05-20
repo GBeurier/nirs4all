@@ -274,6 +274,9 @@ class ModelBuilderFactory:
         if hasattr(model, '_mock_name') or str(type(model)).startswith("<class 'unittest.mock."):
             return 'sklearn'  # Par défaut, on considère que les mocks sont des objets sklearn
         
+        if hasattr(model, 'framework'):
+            return model.framework
+        
         if inspect.isclass(model):
             model_desc = f"{model.__module__}.{model.__name__}"
         else:
