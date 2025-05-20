@@ -184,10 +184,10 @@ class ExperimentManager:
 
     def is_experiment_completed(self, experiment_path: str) -> bool:
         """Check if the experiment is completed by verifying the presence and validity of model and metrics."""
-        model_path = os.path.join(experiment_path, 'model')
+        # model_path = os.path.join(experiment_path, 'model')
         metrics_path = os.path.join(experiment_path, 'metrics.json')
 
-        if not os.path.exists(model_path) or not os.path.exists(metrics_path):
+        if not os.path.exists(metrics_path):
             return False
 
         try:
