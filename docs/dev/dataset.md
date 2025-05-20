@@ -1,7 +1,7 @@
 **SpectraSet Class Specification**
 
 **Overview**
-`SpectraSet` is a specialized data container built on **xarray** for managing spectral (NIRS, MIR, Raman, etc.) datasets within machine learning and deep learning pipelines. It unifies raw measurements, target variables, and metadata, and provides flexible mechanisms for transformation, augmentation, splitting, grouping, and branching.
+`SpectraSet` is a specialized data container built on **xarray** for managing spectral (NIRS, MIR, Raman, etc.) datasets within machine learning and deep learning pipelines. It unifies raw measurements, target variables, and metadata, and provides flexible mechanisms to apply transformation, augmentation, splitting, grouping, and branching.
 
 ---
 
@@ -17,11 +17,16 @@
 
   * Can be either continuous (regression) or categorical (classification).
   * Automatic encoding and decoding of categorical labels, with transparent inverse-mapping back to original class names.
+  * Original y is always preserved for final metrics estimation on predictions.
 
 * **Metadata**
 
   * Arbitrary tabular data associated with each sample (e.g., sample ID, acquisition date, experimental conditions).
   * Stored as an xarray Dataset coordinate or auxiliary DataArray, allowing heterogeneous types (numerical, categorical, text).
+
+* **Predictions**
+
+  * Multiple predictions can be added for the dataset and can be queried with indexes or predictions id.
 
 ---
 
@@ -29,18 +34,20 @@
 
 * **Transformer Mixin**
 
-  * Apply any shape-preserving transformation to X, Y, or metadata via a consistent mixin interface.
-  * Examples: normalization, smoothing, baseline correction.
+  * Samples can be transformed (usually TranformerMixin). During the pipeline, one can request a set of sample and return a set of sample to replace the original ones (ie. replace() or set()). Only subsets or subparts can be replaced.
 
 * **Sample-Level Augmentation**
 
-  * Generate new samples by applying augmentation functions to X (e.g., noise injection, spectral shifting).
+  * Add new augmented version of the samples.
   * Augmented samples are appended to the dataset; originals are retained.
+  * Augmentation is applied for all sources, meaning one cannot provide new samples without provide a vector for all source or a single vector which is then dispatched in the sources.
+  * We can query the SpectraSet with or without augmentations or augmentations only ("all" or specific samples).
 
 * **Feature-Level Augmentation**
 
   * Derive additional features from X (e.g., derivative spectra, spectral indices).
   * New features can be concatenated along the existing feature axis or introduced as a separate 2D “feature map” dimension.
+  * When requesting X you can define the return shape ('concatenate', 'interlace', '2d', 'transpose2d'), concatenate is default.
 
 ---
 
@@ -54,13 +61,14 @@
 * **Aggregation & Packing**
 
   * Group samples according to one or more keys (e.g., subject ID, batch).
-  * Compute group representatives via configurable functions (mean spectrum, centroid, median, etc.).
+  * Compute group representatives via configurable functions (mean spectrum, centroid, median, etc.) or set a representative.
   * Assign new group-level IDs while preserving links to constituent samples.
 
 * **Branching & Subsetting**
 
   * Define multiple, named subsets (“branches”) of the dataset for parallel analyses.
   * Branches can be nested or overlapping; operations on one branch do not affect others.
+  * Manage copy is the full dataset is branched (meaning future distinctive processing on the data.)
 
 ---
 
@@ -68,12 +76,12 @@
 
 * **Pipeline-Friendly API**
 
-  * Chain operations (transformations, augmentations, splits) in a fluent style.
+  * Data can be use as input data for sklearn type pipeline (basically a custom pipeline with nearly the same signatures as sklearn pipelines.)
   * Easily integrate with scikit-learn, PyTorch, TensorFlow, or custom training loops.
 
 * **Index Persistence**
 
-  * All operations record indices and provenance, ensuring that any downstream estimator can trace back to original samples and metadata.
+  * All operations record indices and provenance, ensuring that any downstream estimator can trace back to original samples and metadata and revert y to original value.
 
 * **Multiple Grouping Levels**
 
