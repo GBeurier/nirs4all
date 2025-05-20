@@ -1,56 +1,21 @@
-"""
-spectraset.py
-
-An xarray-backed container for spectral ML pipelines (nirs4all), now supporting:
-- Multi-source spectra with *uneven* feature lengths via separate variables
-- Uneven augmentation counts per sample and source via a unified "obs" axis
-- Zero-copy, NumPy-array-like getters for sklearn compatibility
-- Filtering by split, folds, groups, branch
-- Predictions storage
-- Categorical target encoding/inversion
-
-Usage example:
-    # Build from dict of sources -> nested list of aug arrays per sample
-    spectra = {
-        'raman': [[...], [...], ...],  # list length n_samples, each sublist len vary, arrays len f_raman
-        'nirs': [[...], [...], ...],   # arrays len f_nirs
-    }
-    target = array([...])  # shape (n_samples,)
-    ss = SpectraSet.build(spectra=spectra, target=target)
-    X = ss.X(include_augmentations=False, flatten='concat')  # shape (n_obs, total_features)
-
-Dependencies: numpy, pandas, xarray, sklearn
-"""
 from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Sequence, Union, Literal
+
 import numpy as np
-import pandas as pd
 import xarray as xr
-from typing import Any, Dict, Sequence, Optional, Union, Literal, List # Added List
 from sklearn.preprocessing import LabelEncoder
 
-# Assuming SpectraSetConfig is defined elsewhere, or using a placeholder if not critical for this fix.
-# For now, let\'s assume it might be a simple config object.
-# If it\'s a more complex class, its definition would be needed.
-# As a placeholder, if it\'s not found, one might use:
-# class SpectraSetConfig: pass
-# Or, if it\'s just a dictionary of settings:
-# SpectraSetConfig = Dict[str, Any]
-# For the purpose of this fix, I will assume it\'s a class that can be instantiated.
-# If this causes issues, the actual definition of SpectraSetConfig will be required.
-# For now, to make the linter happy if it\'s not defined elsewhere in the project:
-try:
-    from .config import SpectraSetConfig # Assuming it might be in a local config.py
-except ImportError:
-    class SpectraSetConfig: # Placeholder
-        def __init__(self):
-            pass
+
+def _expand(
+    sample_level: Sequence[Any],
+    obs_sample_ids: List[Any],
+    lookup: Dict[Any, int],
+) -> List[Any]:
+    return [sample_level[lookup[sid]] for sid in obs_sample_ids]
 
 
 class SpectraSet:
-    """
-    Container for spectral data with ragged augmentation and multi-source support.
-    """
-
     def __init__(self, ds: xr.Dataset):
         self.ds = ds
         self._label_encoder: Optional[LabelEncoder] = None
@@ -58,342 +23,185 @@ class SpectraSet:
     @classmethod
     def build(
         cls,
+        *,
         spectra: Dict[str, List[List[np.ndarray]]],
         target: Optional[np.ndarray] = None,
         metadata: Optional[Dict[str, np.ndarray]] = None,
-        groups: Optional[Dict[str, np.ndarray]] = None, # Parameter for groups
-        splits: Optional[np.ndarray] = None,           # Parameter for splits
         sample_ids: Optional[List[Any]] = None,
         augmentation_ids: Optional[List[Any]] = None,
         feature_names: Optional[Dict[str, List[str]]] = None,
         target_names: Optional[List[str]] = None,
-        config: Optional[SpectraSetConfig] = None,
-        # Added fold_id_param and branch_param to pass these through if needed for coords
-        fold_id_param: Optional[np.ndarray] = None, 
-        branch_param: Optional[np.ndarray] = None
+        splits: Optional[np.ndarray] = None,
+        groups: Optional[Dict[str, np.ndarray]] = None,
+        fold_id_param: Optional[np.ndarray] = None,
+        branch_param: Optional[np.ndarray] = None,
     ) -> "SpectraSet":
-        current_config = config if config is not None else SpectraSetConfig()
-
         if not spectra:
-            raise ValueError("Spectra data must be provided.")
+            raise ValueError("'spectra' must contain at least one source.")
 
-        first_source_name = next(iter(spectra))
-        num_original_samples = len(spectra[first_source_name])
-
-        if num_original_samples == 0 and not any(s for s in spectra.values()):
-            raise ValueError("Cannot build SpectraSet with no samples and no spectral data.")
+        first_src = next(iter(spectra))
+        n_samples = len(spectra[first_src])
 
         if sample_ids is None:
-            actual_sample_ids = list(range(num_original_samples))
-        else:
-            if len(sample_ids) != num_original_samples:
+            sample_ids = list(range(n_samples))
+        if len(sample_ids) != n_samples:
+            raise ValueError("sample_ids length mismatch with samples")
+        lookup = {sid: i for i, sid in enumerate(sample_ids)}
+
+        aug_counts = [len(spectra[first_src][i]) for i in range(n_samples)]
+        for src, lst in spectra.items():
+            if len(lst) != n_samples:
+                raise ValueError(f"Source '{src}' length mismatch with '{first_src}'.")
+            if [len(lst[i]) for i in range(n_samples)] != aug_counts:
                 raise ValueError(
-                    f"Provided sample_ids length ({len(sample_ids)}) must match "
-                    f"number of samples ({num_original_samples})."
-                )
-            actual_sample_ids = sample_ids
+                    f"Augmentation counts for source '{src}' are not consistent across sources.")
 
-        num_augmentations_per_sample = [
-            len(sample_augs) for sample_augs in spectra[first_source_name]
-        ]
+        total_obs = sum(aug_counts)
 
-        for source_name, source_data_list in spectra.items():
-            if len(source_data_list) != num_original_samples:
-                raise ValueError(f"Source \'{source_name}\' has {len(source_data_list)} samples, expected {num_original_samples}.")
-            current_source_augs_per_sample = [len(s_augs) for s_augs in source_data_list]
-            if current_source_augs_per_sample != num_augmentations_per_sample:
-                raise ValueError(
-                    f"Source \'{source_name}\' has inconsistent augmentation counts "
-                    f"compared to source \'{first_source_name}\'."
-                )
+        if augmentation_ids is None:
+            augmentation_ids = [j for cnt in aug_counts for j in range(cnt)]
+        if len(augmentation_ids) != total_obs:
+            raise ValueError("augmentation_ids length must equal total observations")
 
-        total_observations = sum(num_augmentations_per_sample)
-        
-        if total_observations == 0 and num_original_samples > 0:
-            pass
+        obs_sample_ids: List[Any] = [sample_ids[i] for i, cnt in enumerate(aug_counts) for _ in range(cnt)]
 
+        obs_ids = np.arange(total_obs)  # simple integer index
+        coords: Dict[str, Any] = {
+            "obs": obs_ids,
+            "sample": ("obs", np.array(obs_sample_ids)),
+            "augmentation": ("obs", np.array(augmentation_ids)),
+        }
 
-        obs_aug_ids_expanded: List[Any] = []
-        obs_sample_ids_expanded: List[Any] = []
+        data_vars: Dict[str, xr.DataArray] = {}
 
-        default_aug_id_counter = 0
-        for i, num_augs in enumerate(num_augmentations_per_sample):
-            original_sample_id = actual_sample_ids[i]
-            if augmentation_ids and len(augmentation_ids) == total_observations:
-                obs_aug_ids_expanded.extend(augmentation_ids[default_aug_id_counter: default_aug_id_counter + num_augs])
-            else: # Default augmentation IDs
-                obs_aug_ids_expanded.extend(list(range(num_augs)))
-            
-            obs_sample_ids_expanded.extend([original_sample_id] * num_augs)
-            default_aug_id_counter += num_augs
-        
-        all_data_vars: Dict[str, Any] = {}
-        all_coords: Dict[str, Any] = {}
-
-        multi_idx = pd.MultiIndex.from_arrays(
-            [obs_sample_ids_expanded, obs_aug_ids_expanded],
-            names=("sample", "augmentation"),
-        )
-        all_coords["observation"] = multi_idx
-        observation_coords = all_coords["observation"]
-
-
-        for source_name, source_data_list in spectra.items():
-            if not isinstance(source_data_list, list) or not all(
-                isinstance(sample_augs, list) for sample_augs in source_data_list
-            ):
-                raise TypeError(
-                    f"Data for source \'{source_name}\' must be List[List[np.ndarray]]."
-                )
-
-            flat_source_spectra: List[np.ndarray] = []
-            for sample_idx, sample_augs_list in enumerate(source_data_list):
-                for aug_idx, aug_data in enumerate(sample_augs_list):
-                    if not isinstance(aug_data, np.ndarray):
-                        raise TypeError(
-                            f"Spectrum data for source \'{source_name}\', sample {sample_idx}, "
-                            f"augmentation {aug_idx} must be a numpy array."
-                        )
-                    if aug_data.ndim == 1:
-                        aug_data = aug_data.reshape(1, -1) # Ensure 2D: (1, n_features)
-                    if aug_data.ndim != 2 or aug_data.shape[0] != 1:
-                        raise ValueError(
-                            f"Each spectrum for source \'{source_name}\', sample {sample_idx}, "
-                            f"augmentation {aug_idx} must be effectively 2D with shape (1, n_features). "
-                            f"Got {aug_data.shape}."
-                        )
-                    flat_source_spectra.append(aug_data)
-            
-            if not flat_source_spectra:
-                if total_observations > 0:
-                    raise ValueError(f"No spectral data found for source \'{source_name}\' despite expecting {total_observations} observations.")
-                else: 
-                    continue
-
-            num_features_this_source = flat_source_spectra[0].shape[1]
-            if not all(s.shape[1] == num_features_this_source for s in flat_source_spectra):
-                raise ValueError(
-                    f"All spectra for source \'{source_name}\' must have the same number of features."
-                )
-
-            source_feature_dim_name = f"feature_{source_name}" 
-            source_feature_coords: Union[List[str], np.ndarray]
-            if feature_names and source_name in feature_names:
-                source_feature_coords = feature_names[source_name]
-                if len(source_feature_coords) != num_features_this_source:
-                    raise ValueError(
-                        f"Provided feature_names for source \'{source_name}\' has "
-                        f"{len(source_feature_coords)} names, but data has "
-                        f"{num_features_this_source} features."
-                    )
-            else:
-                source_feature_coords = [
-                    f"{source_name}_f{i}" for i in range(num_features_this_source)
-                ] 
-
-            if len(flat_source_spectra) != total_observations:
-                raise ValueError(
-                    f"Internal inconsistency: flattened spectra for source \'{source_name}\' "
-                    f"has {len(flat_source_spectra)} items, expected {total_observations}."
-                )
-
-            source_np_array = np.vstack(flat_source_spectra) if flat_source_spectra else np.empty((0, num_features_this_source))
-
-
-            data_array = xr.DataArray(
-                source_np_array,
-                coords={
-                    "observation": observation_coords,
-                    source_feature_dim_name: source_feature_coords, 
-                },
-                dims=("observation", source_feature_dim_name), 
-                name=f"spectra_{source_name}",
+        for src, lst in spectra.items():
+            rows: List[np.ndarray] = []
+            for i in range(n_samples):
+                for aug in lst[i]:
+                    arr = np.asarray(aug)
+                    if arr.ndim == 1:
+                        arr = arr[None, :]
+                    if arr.ndim != 2 or arr.shape[0] != 1:
+                        raise ValueError("Each augmentation must have shape (n_features,) or (1, n_features)")
+                    rows.append(arr)
+            matrix = np.vstack(rows)
+            n_feat = matrix.shape[1]
+            feat_dim = f"feature_{src}"
+            feat_names = (
+                feature_names[src] if feature_names and src in feature_names else [f"{src}_f{i}" for i in range(n_feat)]
             )
-            all_data_vars[f"spectra_{source_name}"] = data_array
-        
+            if len(feat_names) != n_feat:
+                raise ValueError(f"feature_names length mismatch for '{src}'")
+            data_vars[f"spectra_{src}"] = xr.DataArray(
+                matrix,
+                dims=("obs", feat_dim),
+                coords={"obs": obs_ids, feat_dim: feat_names},
+            )
+
         if target is not None:
-            targ_arr = np.asarray(target)
-            if targ_arr.ndim == 1:
-                targ_arr = targ_arr[:, None]
-            n_vars = targ_arr.shape[1]
-            targ_obs = np.vstack([targ_arr[actual_sample_ids.index(s)] for s, _ in obs_sample_ids_expanded]) # Ensure correct indexing if actual_sample_ids is not 0..N-1
-            all_data_vars["target"] = xr.DataArray(
-                targ_obs,
-                dims=("observation", "variable"),
-                coords={
-                    "observation": observation_coords,
-                    "variable": target_names or np.arange(n_vars)
-                }
+            targ = np.asarray(target)
+            if targ.ndim == 1:
+                targ = targ[:, None]
+            n_vars = targ.shape[1]
+            expanded_target = np.vstack(_expand(targ, obs_sample_ids, lookup))
+            data_vars["target"] = xr.DataArray(
+                expanded_target,
+                dims=("obs", "variable"),
+                coords={"obs": obs_ids, "variable": target_names or np.arange(n_vars)},
             )
 
         if metadata:
             for key, arr in metadata.items():
-                vals = [arr[actual_sample_ids.index(s)] for s, _ in obs_sample_ids_expanded] # Ensure correct indexing
-                all_data_vars[f"metadata_{key}"] = xr.DataArray(
-                    vals,
-                    dims=("observation",),
-                    coords={"observation": observation_coords}
-                )
+                arr = np.asarray(arr)
+                if len(arr) != n_samples:
+                    raise ValueError(f"Metadata '{key}' length mismatch with samples")
+                expanded = _expand(arr, obs_sample_ids, lookup)
+                data_vars[f"metadata_{key}"] = xr.DataArray(expanded, dims=("obs",), coords={"obs": obs_ids})
 
-        ds = xr.Dataset(all_data_vars, coords=all_coords) # Pass all_coords here
+        ds = xr.Dataset(data_vars, coords=coords)
 
-        if splits is not None:
-            # Ensure splits align with original samples before expanding
-            if len(splits) != num_original_samples:
-                raise ValueError(f"Splits length ({len(splits)}) must match number of original samples ({num_original_samples})")
-            split_vals = [splits[actual_sample_ids.index(s)] for s, _ in obs_sample_ids_expanded]
-            ds = ds.assign_coords(split=("observation", split_vals))
-        
-        # Handle fold_id_param and branch_param similarly to splits
-        if fold_id_param is not None:
-            if len(fold_id_param) != num_original_samples:
-                raise ValueError(f"fold_id_param length ({len(fold_id_param)}) must match number of original samples ({num_original_samples})")
-            fold_vals = [fold_id_param[actual_sample_ids.index(s)] for s, _ in obs_sample_ids_expanded]
-            ds = ds.assign_coords(fold_id=("observation", fold_vals))
+        def _add_coord(name: str, values: Optional[np.ndarray]):
+            if values is None:
+                return
+            if len(values) != n_samples:
+                raise ValueError(f"{name} length mismatch with samples")
+            ds.coords[name] = ("obs", _expand(values, obs_sample_ids, lookup))
 
-        if branch_param is not None:
-            if len(branch_param) != num_original_samples:
-                raise ValueError(f"branch_param length ({len(branch_param)}) must match number of original samples ({num_original_samples})")
-            br_vals = [branch_param[actual_sample_ids.index(s)] for s, _ in obs_sample_ids_expanded]
-            ds = ds.assign_coords(branch=("observation", br_vals))
-
+        _add_coord("split", splits)
+        _add_coord("fold_id", fold_id_param)
+        _add_coord("branch", branch_param)
         if groups:
-            for name, arr in groups.items():
-                if len(arr) != num_original_samples:
-                     raise ValueError(f"Group \'{name}\' length ({len(arr)}) must match number of original samples ({num_original_samples})")
-                grp_vals = [arr[actual_sample_ids.index(s)] for s, _ in obs_sample_ids_expanded]
-                ds = ds.assign_coords({f"group_id_{name}": ("observation", grp_vals)})
+            for gname, arr in groups.items():
+                _add_coord(f"group_id_{gname}", arr)
 
         return cls(ds)
 
     @property
     def feature_names(self) -> Dict[str, List[str]]:
-        """Names of features for each spectral source."""
-        names: Dict[str, List[str]] = {}
-        for var_key in self.ds.data_vars:
-            var_name = str(var_key)
-            if var_name.startswith("spectra_"):
-                source_name = var_name.replace("spectra_", "")
-                feature_dim_for_source = f"feature_{source_name}"
-                
-                data_array = self.ds[var_name]
-                if feature_dim_for_source in data_array.dims:
-                    if feature_dim_for_source in data_array.coords:
-                        names[source_name] = list(data_array.coords[feature_dim_for_source].values.astype(str)) # Ensure strings
-                    else:
-                        dim_idx = data_array.dims.index(feature_dim_for_source)
-                        num_features = data_array.shape[dim_idx]
-                        names[source_name] = [f"{source_name}_f{i}" for i in range(num_features)]
-        return names
+        """Return a dict ``{source_name: [feature_names...]}``."""
+        out: Dict[str, List[str]] = {}
+        for var in self.ds.data_vars:
+            if var.startswith("spectra_"):
+                src = var.replace("spectra_", "")
+                out[src] = list(self.ds[var].coords[f"feature_{src}"].astype(str).values)
+        return out
+
+    def _filter_ds(
+        self,
+        split: Optional[Union[str, Sequence[str]]] = None,
+        fold_id: Optional[Union[int, Sequence[int]]] = None,
+        groups: Optional[Dict[str, Any]] = None,
+        branch: Optional[Union[str, Sequence[str]]] = None,
+        augment: Literal["all", "original", "augmented"] = "all",
+    ) -> xr.Dataset:
+        ds = self.ds
+        mask = np.ones(ds.sizes["obs"], dtype=bool)
+
+        def _apply(coord: str, vals):
+            nonlocal mask
+            if coord in ds.coords and vals is not None:
+                mask &= np.isin(ds.coords[coord].values, np.atleast_1d(vals))
+
+        _apply("split", split)
+        _apply("fold_id", fold_id)
+        _apply("branch", branch)
+        if groups:
+            for gname, v in groups.items():
+                _apply(f"group_id_{gname}", v)
+
+        # augment filtering (0 ==> original, >0 ==> augmented)
+        if augment == "original":
+            mask &= ds.coords["augmentation"].values == 0
+        elif augment == "augmented":
+            mask &= ds.coords["augmentation"].values > 0
+        # "all" – no extra mask
+
+        return ds.isel(obs=mask)
 
     def X(
         self,
-        split: Optional[Union[str, List[str]]] = None,
-        fold_id: Optional[Union[int, List[int]]] = None,
-        groups: Optional[Dict[str, Union[Any, List[Any]]]] = None,
-        branch: Optional[str] = None,
-        include_sources: Optional[Union[bool, str, Sequence[str]]] = None,
+        *,
+        split: Optional[Union[str, Sequence[str]]] = None,
+        fold_id: Optional[Union[int, Sequence[int]]] = None,
+        groups: Optional[Dict[str, Any]] = None,
+        branch: Optional[Union[str, Sequence[str]]] = None,
+        sources: Optional[Union[bool, str, Sequence[str]]] = None,
+        augment: Literal["all", "original", "augmented"] = "all",
     ) -> np.ndarray:
-        ds_filtered = self._filter_ds(split, fold_id, groups, branch) # Corrected to _filter_ds
+        ds = self._filter_ds(split, fold_id, groups, branch, augment)
+        all_src_vars = sorted(v for v in ds.data_vars if v.startswith("spectra_"))
+        if sources is None or sources is True:
+            chosen = all_src_vars
+        elif sources is False:
+            chosen = []
+        elif isinstance(sources, str):
+            chosen = [f"spectra_{sources}"] if f"spectra_{sources}" in ds.data_vars else []
+        else:  # sequence
+            chosen = [f"spectra_{s}" for s in sources if f"spectra_{s}" in ds.data_vars]
 
-        all_spectral_vars_in_ds = sorted([str(k) for k in self.ds.data_vars if str(k).startswith("spectra_")])
-        
-        source_variable_names_to_use: List[str] = []
-
-        if include_sources is None or include_sources is True:
-            source_variable_names_to_use = all_spectral_vars_in_ds
-        elif isinstance(include_sources, str):
-            var_name = f"spectra_{include_sources}"
-            if var_name in all_spectral_vars_in_ds:
-                source_variable_names_to_use = [var_name]
-        elif isinstance(include_sources, Sequence): 
-            for s_name_candidate in include_sources:
-                s_name = str(s_name_candidate) 
-                var_name = f"spectra_{s_name}"
-                if var_name in all_spectral_vars_in_ds:
-                    source_variable_names_to_use.append(var_name)
-        elif include_sources is False:
-            pass 
-        else:
-            raise TypeError(f"Unsupported type for include_sources: {type(include_sources)}")
-
-        if ds_filtered.observation.size == 0:
-            # If no observations match filter, return empty array with correct number of features
-            if not source_variable_names_to_use:
-                return np.empty((0, 0))
-            
-            total_features = 0
-            for var_name_str in source_variable_names_to_use:
-                if var_name_str in self.ds.data_vars: # Check original ds for feature count
-                    source_da = self.ds[var_name_str]
-                    feature_dim_name = f"feature_{var_name_str.replace('spectra_', '')}"
-                    if feature_dim_name in source_da.dims: # Ensure it's a valid dimension
-                        dim_idx = source_da.dims.index(feature_dim_name)
-                        total_features += source_da.shape[dim_idx]
-            return np.empty((0, total_features))
-
-        if not source_variable_names_to_use: # No sources selected or found valid
-            return np.empty((ds_filtered.observation.size, 0))
-
-        # If only one source is requested
-        if len(source_variable_names_to_use) == 1:
-            single_source_var_name = source_variable_names_to_use[0]
-            if single_source_var_name in ds_filtered.data_vars:
-                return ds_filtered[single_source_var_name].data # Use .data to get numpy array
-            else:
-                num_features_single_source = 0
-                if single_source_var_name in self.ds.data_vars:
-                    source_da = self.ds[single_source_var_name]
-                    feature_dim_name = f"feature_{single_source_var_name.replace('spectra_', '')}"
-                    if feature_dim_name in source_da.dims:
-                        dim_idx = source_da.dims.index(feature_dim_name)
-                        num_features_single_source = source_da.shape[dim_idx]
-                return np.empty((ds_filtered.observation.size, num_features_single_source))
-
-        # Multiple sources: get .data from each and hstack
-        arrays_to_stack = []
-        for var_name in source_variable_names_to_use: 
-            if var_name in ds_filtered.data_vars:
-                arrays_to_stack.append(ds_filtered[var_name].data) # Use .data
-            else:
-                num_features_this_source = 0
-                if var_name in self.ds.data_vars:
-                    source_da = self.ds[var_name]
-                    feature_dim_name = f"feature_{var_name.replace('spectra_', '')}"
-                    if feature_dim_name in source_da.dims:
-                        dim_idx = source_da.dims.index(feature_dim_name)
-                        num_features_this_source = source_da.shape[dim_idx]
-                arrays_to_stack.append(np.empty((ds_filtered.observation.size, num_features_this_source)))
-
-
-        if not arrays_to_stack: # Should be caught by earlier checks on source_variable_names_to_use
-            return np.empty((ds_filtered.observation.size, 0))
-        
-        # Ensure all arrays are 2D before hstack
-        processed_arrays_to_stack = []
-        for arr in arrays_to_stack:
-            if arr.ndim == 1:
-                # This case should ideally not happen if data is (obs, features)
-                # If it does, it implies an empty feature dimension for some observations,
-                # which needs careful handling or prevention upstream.
-                # For now, reshape to (n_obs, 1) if it's 1D and has data,
-                # or ensure it's (n_obs, 0) if truly empty features.
-                if arr.size > 0 : # Has elements
-                     processed_arrays_to_stack.append(arr.reshape(-1,1))
-                else: # No elements, ensure it's (n_obs, 0)
-                     processed_arrays_to_stack.append(arr.reshape(ds_filtered.observation.size,0))
-
-            elif arr.ndim == 2:
-                processed_arrays_to_stack.append(arr)
-            else:
-                # This would be an unexpected shape
-                raise ValueError(f"Unexpected array dimension {arr.ndim} for hstack.")
-        
-        if not processed_arrays_to_stack: # if all arrays were empty and resulted in empty list
-             return np.empty((ds_filtered.observation.size, 0))
-
-
-        return np.hstack(processed_arrays_to_stack)
+        if not chosen:
+            return np.empty((ds.sizes["obs"], 0))
+        return np.hstack([ds[v].values for v in chosen])
 
     def y(
         self,
@@ -401,20 +209,18 @@ class SpectraSet:
         split: Optional[Union[str, Sequence[str]]] = None,
         fold_id: Optional[Union[int, Sequence[int]]] = None,
         groups: Optional[Dict[str, Any]] = None,
-        branch: Optional[Union[str, Sequence[str]]] = None
+        branch: Optional[Union[str, Sequence[str]]] = None,
+        augment: Literal["all", "original", "augmented"] = "all",
     ) -> np.ndarray:
-        """Return target array (n_obs, n_vars) with filters."""
-        ds = self._filter_ds(split, fold_id, groups, branch)
-        arr = ds['target'].values
-        # label encode if needed
-        if arr.dtype.kind in ('U', 'S', 'O'):
-            flat = arr.ravel()
-            le = LabelEncoder().fit(flat)
+        ds = self._filter_ds(split, fold_id, groups, branch, augment)
+        arr = ds["target"].values
+        if arr.dtype.kind in ("U", "S", "O"):
+            le = LabelEncoder().fit(arr.ravel())
             self._label_encoder = le
-            transformed_flat = le.transform(flat)
-            arr = transformed_flat.reshape(arr.shape)  # type: ignore[attr-defined]
+            arr = le.transform(arr.ravel()).reshape(arr.shape)
         return arr
 
+  
     def add_prediction(
         self,
         model_id: str,
@@ -423,27 +229,16 @@ class SpectraSet:
         split: Optional[Union[str, Sequence[str]]] = None,
         fold_id: Optional[Union[int, Sequence[int]]] = None,
         groups: Optional[Dict[str, Any]] = None,
-        branch: Optional[Union[str, Sequence[str]]] = None
+        branch: Optional[Union[str, Sequence[str]]] = None,
     ) -> None:
-        """Store prediction per obs aligned with filters without alignment errors."""
         name = f"pred_{model_id}"
-        ds = self.ds
-        # filter dataset to find target obs positions
         ds_f = self._filter_ds(split, fold_id, groups, branch)
-        # boolean mask over full obs axis
-        mask = np.isin(ds.obs.values, ds_f.obs.values)
-        # full-length array (always float to support np.nan)
-        full = np.full(len(ds.obs), np.nan, dtype=float)
+        if ds_f.sizes["obs"] != len(y_pred):
+            raise ValueError("Length of y_pred does not match filtered observations")
+        full = np.full(self.ds.sizes["obs"], np.nan, dtype=float)
+        mask = np.isin(self.ds.coords["obs"].values, ds_f.coords["obs"].values)
         full[mask] = y_pred
-        # create DataArray without extra coords to avoid re-alignment
-        da = xr.DataArray(
-            full,
-            dims=("obs",),
-            coords={"obs": ds.obs},
-            name=name
-        )
-        # assign by directly setting data_vars to bypass alignment
-        self.ds = self.ds.assign({name: da})
+        self.ds[name] = xr.DataArray(full, dims=("obs",), coords={"obs": self.ds.coords["obs"]})
 
     def get_prediction(
         self,
@@ -452,64 +247,37 @@ class SpectraSet:
         split: Optional[Union[str, Sequence[str]]] = None,
         fold_id: Optional[Union[int, Sequence[int]]] = None,
         groups: Optional[Dict[str, Any]] = None,
-        branch: Optional[Union[str, Sequence[str]]] = None
+        branch: Optional[Union[str, Sequence[str]]] = None,
     ) -> np.ndarray:
         name = f"pred_{model_id}"
         if name not in self.ds:
-            raise KeyError(f"No predictions for '{model_id}'")
+            raise KeyError(f"No prediction stored for '{model_id}'")
         ds_f = self._filter_ds(split, fold_id, groups, branch)
-        mask = np.isin(self.ds.obs.values, ds_f.obs.values)
+        mask = np.isin(self.ds.coords["obs"].values, ds_f.coords["obs"].values)
         return self.ds[name].values[mask]
 
-    def subset_by_samples(self, sample_idx: Sequence[int]) -> SpectraSet:
-        """View restricted to given sample indices."""
+    def subset_by_samples(self, sample_idx: Sequence[Any]) -> SpectraSet:
+        """Return a view containing only the given sample IDs (all augmentations)."""
         mask = np.isin(self.ds.coords['sample'].values, sample_idx)
-        return SpectraSet(self.ds.sel(obs=mask))
+        return SpectraSet(self.ds.isel(obs=mask))
 
     def subset_by_obs(self, obs_idx: Sequence[int]) -> SpectraSet:
-        """View restricted to given obs indices."""
+        """Return a view containing only the given observation indices."""
         return SpectraSet(self.ds.isel(obs=obs_idx))
 
     def __array__(self) -> np.ndarray:
-        """Default array interface: X_train()."""
+        """Allow numpy coercion to default to X(all)."""
         return self.X()
 
     def __len__(self) -> int:
-        """Number of observations."""
-        return len(self.ds.coords['obs'])
+        """Total number of observations in the set."""
+        return self.ds.sizes['obs']
 
-    def __getitem__(self, idx: Union[int, slice, np.ndarray]) -> SpectraSet:
-        """Index into obs axis, returning a view."""
-        if isinstance(idx, slice):
-            # Convert slice to a sequence of indices
-            start, stop, step = idx.indices(len(self))
-            obs_indices = list(range(start, stop, step))
-            return self.subset_by_obs(obs_indices)
-        return self.subset_by_obs(np.atleast_1d(idx).tolist())  # type: ignore[arg-type]
+    def __getitem__(self, key: Union[int, slice, np.ndarray]) -> SpectraSet:
+        """Index along the obs axis (int, slice, or boolean mask)."""
+        if isinstance(key, slice):
+            indices = np.arange(len(self))[key]
+        else:
+            indices = np.atleast_1d(key)
 
-    def _filter_ds(
-        self,
-        split: Optional[Union[str, Sequence[str]]] = None,
-        fold_id: Optional[Union[int, Sequence[int]]] = None,
-        groups: Optional[Dict[str, Any]] = None,
-        branch: Optional[Union[str, Sequence[str]]] = None
-    ) -> xr.Dataset:
-        """Filter dataset by coord values on obs."""
-        ds = self.ds
-        mask = np.ones(len(ds.coords['obs']), dtype=bool)
-        coords = ds.coords
-        if split is not None and 'split' in coords:
-            vals = np.atleast_1d(split)
-            mask &= np.isin(coords['split'].values, vals)
-        if fold_id is not None and 'fold_id' in coords:
-            vals = np.atleast_1d(fold_id)
-            mask &= np.isin(coords['fold_id'].values, vals)
-        if branch is not None and 'branch' in coords:
-            vals = np.atleast_1d(branch)
-            mask &= np.isin(coords['branch'].values, vals)
-        if groups:
-            for name, v in groups.items():
-                coord = f'group_id_{name}'
-                if coord in coords:
-                    mask &= np.isin(coords[coord].values, np.atleast_1d(v))
-        return ds.sel(obs=mask)
+        return self.subset_by_obs(list(indices))
