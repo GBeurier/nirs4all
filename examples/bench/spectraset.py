@@ -18,10 +18,10 @@ class SpectraDataset:
         "processing", "augmentation", "branch"
     )
     _DEFAULT_VALUES: dict[str, Any] = {
-        "set":        "train",
+        "set": "train",
         "processing": "raw",
         "augmentation": "raw",
-        "branch":       0,
+        "branch": 0,
     }
 
     def __init__(self) -> None:
@@ -68,8 +68,8 @@ class SpectraDataset:
                 data[k] = [default] * n
 
         data["spectrum"] = [list(vec) for vec in spectra]
-        data["target"]   = list(tgt)
-        data["row_id"]   = list(range(self._next_id, self._next_id + n))
+        data["target"] = list(tgt)
+        data["row_id"] = list(range(self._next_id, self._next_id + n))
         self._next_id += n
 
         new_df = pl.DataFrame(data)
@@ -171,7 +171,7 @@ class SpectraDataset:
         pad: bool = False,
         pad_value: float = np.nan,
         as_arrow: bool = False,
-        return_ids: bool = True,
+        return_ids: bool = False,
         **filters: Any,
     ) -> Union[np.ndarray, tuple[Union[np.ndarray, "pyarrow.ListArray"], np.ndarray]]:
         sub = self._select(**filters)
