@@ -1,0 +1,34 @@
+{
+    "model": {
+        "class": "sklearn.cross_decomposition.PLSRegression",
+        "model_params": {
+            "n_components": 21
+        }
+    },
+    "x_pipeline": [
+        "sklearn.preprocessing.RobustScaler",
+        {
+            "samples": [
+                "nirs4all.transformations.Rotate_Translate"
+            ]
+        },
+        {
+            "class": "sklearn.model_selection.RepeatedKFold",
+            "params": {
+                "n_splits": 3,
+                "n_repeats": 1
+            }
+        },
+        {
+            "features": [
+                null,
+                {"class": "nirs4all.transformations.Gaussian", "params": {"order": 2, "sigma": 2}},
+                "nirs4all.transformations.SavitzkyGolay",
+                "nirs4all.transformations.StandardNormalVariate",
+                "nirs4all.transformations.Derivate"
+            ]
+        },
+        "sklearn.preprocessing.MinMaxScaler"
+    ],
+    "y_pipeline": "sklearn.preprocessing.MinMaxScaler"
+}

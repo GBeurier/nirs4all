@@ -1,20 +1,82 @@
-# config.py
-import itertools
+# import itertools
 import dataclasses
-from typing import List, Optional, Union
+from typing import Optional, Union, Any, Dict
+import json
+
+from nirs4all.utils.serialization import _serialize_component, _deserialize_component
+
 
 @dataclasses.dataclass
 class Config:
-    dataset: Union[str, object]
-    x_pipeline: Optional[Union[str, object]] = None
-    y_pipeline: Optional[Union[str, object]] = None
-    model: Optional[Union[str, object]] = None
+    dataset: Union[str, dict]  # For JSON, dataset path or a data config dict
+    x_pipeline: Optional[Any] = None
+    y_pipeline: Optional[Any] = None
+    model: Optional[Any] = None
     experiment: Optional[dict] = None
     seed: Optional[int] = None
 
+    def to_dict(self) -> dict:
+        """Converts the Config object to a dictionary suitable for JSON serialization.
+        Only includes attributes that don't have default values."""
+        result = {}
+        
+        # Get all fields and their default values from the dataclass
+        fields = {field.name: field for field in dataclasses.fields(self.__class__)}
+        
+        for field_name, field in fields.items():
+            value = getattr(self, field_name)
+            
+            # Skip if the value is the default
+            if field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING:
+                # No default, always include
+                result[field_name] = _serialize_component(value)
+            elif field.default is not dataclasses.MISSING and value == field.default:
+                # Has default and matches default, skip
+                continue
+            elif field.default_factory is not dataclasses.MISSING:
+                # Has default_factory, we need to create an instance to compare
+                default_value = field.default_factory()
+                if value == default_value:
+                    continue
+                result[field_name] = _serialize_component(value)
+            else:
+                # Value differs from default, include it
+                result[field_name] = _serialize_component(value)
+        
+        return result
+
+    def to_json_file(self, filepath: str, indent: int = 4) -> None:
+        """Saves the Config object to a JSON file."""
+        with open(filepath, 'w') as f:
+            json.dump(self.to_dict(), f, indent=indent)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Config":
+        """Creates a Config object from a dictionary."""
+        # First deserialize any special formats like tuples
+        deserialized_data = {
+            "dataset": _deserialize_component(data.get("dataset")),
+            "x_pipeline": _deserialize_component(data.get("x_pipeline")),
+            "y_pipeline": _deserialize_component(data.get("y_pipeline")),
+            "model": _deserialize_component(data.get("model")),
+            "experiment": _deserialize_component(data.get("experiment")),
+            "seed": data.get("seed")  # Primitive type, no special handling needed
+        }
+        
+        # The downstream components (get_transformer, model_builder, etc.)
+        # are expected to handle the string/dict representations.
+        return cls(**deserialized_data)
+
+    @classmethod
+    def from_json_file(cls, filepath: str) -> "Config":
+        """Loads a Config object from a JSON file."""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+        return cls.from_dict(data)
 
     def validate(self, dataset_instance):
         experiment_config = self.experiment or {}
+        
         finetune_params = experiment_config.get('finetune_params', {})
         training_params = experiment_config.get('training_params', {})
         action = experiment_config.get('action', 'train')
@@ -36,7 +98,7 @@ class Config:
                     if metrics is None:
                         metrics = ['mse', 'mae']
             elif metrics is not None:
-                if any(metric in classification_metrics for metric in metrics):
+                if any(metric in classification_metrics for metric in metrics):  # Corrected syntax for any() and comment spacing
                     task = 'classification'
                     if dataset_instance.num_classes is None:
                         raise ValueError("Number of classes is not defined in dataset. Please specify the number of classes in the dataset config.")
@@ -69,13 +131,12 @@ class Config:
         experiment_config['task'] = task
         if task == 'classification':
             experiment_config['num_classes'] = dataset_instance.num_classes
-        self.experiment = experiment_config
+        
+        # Ensure self.experiment is updated with the processed experiment_config
+        # This is important if defaults were added or task was inferred.
+        self.experiment = experiment_config 
         
         return action, metrics, training_params, finetune_params, task
-
-
-
-
 
 # @dataclasses.dataclass
 # class Configs_Generator:
