@@ -27,8 +27,15 @@ def get_splitter(split_config: Dict[str, Any]) -> BaseCrossValidator:
     if isinstance(split_config, object) and hasattr(split_config, 'split'):
         return split_config
     
-    method = split_config.get('method')
+    method = split_config.get('method', split_config.get('class', None))
+    if method is None:
+        raise ValueError("No 'method' or 'class' key found in the split configuration.")
     params = split_config.get('params', {})
+    
+    print("=========================")
+    print(f"Splitter method: {method}")
+    print(f"Splitter params: {params}")
+    print("=========================")
 
     if isinstance(method, str):
         # Mapping of known scikit-learn splitters
@@ -58,10 +65,14 @@ def get_splitter(split_config: Dict[str, Any]) -> BaseCrossValidator:
                 module_name, class_name = method.rsplit('.', 1)
                 module = importlib.import_module(module_name)
                 splitter_class = getattr(module, class_name)
-                if issubclass(splitter_class, BaseCrossValidator):
+                print(f"Loaded splitter class: {splitter_class}")
+                # check if the class is a subclass of BaseCrossValidator or has a split method
+                if hasattr(splitter_class, 'split') and callable(getattr(splitter_class, 'split')):
+                    return splitter_class(**params)
+                elif issubclass(splitter_class, BaseCrossValidator):
                     return splitter_class(**params)
                 else:
-                    raise ValueError(f"The class {class_name} is not a subclass of BaseCrossValidator.")
+                    raise ValueError(f"The class {class_name} is not a splitter class or a subclass of BaseCrossValidator.")
             except (ImportError, AttributeError, ValueError) as e:
                 raise ValueError(f"Invalid splitter method: {method}.") from e
             

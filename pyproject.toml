@@ -24,7 +24,8 @@ dependencies = [
     "jsonschema>=3.2.0",
     "kennard-stone>=0.5.0",
     "twinning>=0.0.5",
-    "optuna>=2.0.0"
+    "optuna>=2.0.0",
+    "click>=8.0.0",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +45,9 @@ dev = [
     "pytest-cov",
     "build"
 ]
+
+[project.scripts]
+nirs4all = "nirs4all.cli.main:nirs4all_cli"
 
 [tool.setuptools.packages.find]
 include = ["nirs4all*"]
