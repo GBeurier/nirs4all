@@ -1,82 +1,114 @@
-from __future__ import annotations
-
 import numpy as np
 import polars as pl
 from typing import Any, Sequence, Union
 
 class SpectraDataset:
     """
-    Dataset ultra-rapide pour ML basé sur polars/Arrow.
-    
-    Chaque spectre est stocké dans une colonne 'spectrum' de type List[Float64],
-    et un identifiant unique 'row_id' est assigné à chaque entrée.
-    Les index par défaut sont gérés dynamiquement, avec broadcast ou vecteur dédié.
+    3-table dataset: features, labels, predictions for pipeline processing.
+    fold management
     """
+    
+    ## X => sample_id, original_sample_id (for augmentation), type (nirs, raman, mir, etc.), set (train/test), processing (hash of transformation), branch (pipeline branch), experiment_id (for reuse in cache (none when exp is finished)), group (custom cluster option), optional(feature_augmentation_id), optional(sample_augmentation_id)
+    ## y => sample_id, targets, metadata
+    ## results => sample_id, model, fold, seed, prediction, stack_index, branch, source, type, experiment_id
+    ## folds a list of list of sample_id
 
-    DEFAULT_INDEX = (
-        "origin", "sample", "type", "set",
-        "processing", "augmentation", "branch"
-    )
-    _DEFAULT_VALUES: dict[str, Any] = {
+## Transformation
+#  take all samples X, or y, fit on train, transform on train and test, update processing with hash (transformer + old_processing)
+
+## Sample augmentation for list of samples / or balance groups - 
+#  Warning if features are already augmented.
+#  take all samples from the X train set or the list of samples that are not augmented, copy, fit_transform and append to the train set. update processing with hash (transformer + old_processing), original_sample_id and sample_augmentation_id
+
+##  Feature augmentation for list of samples
+#  take all samples from the X, copy, fit on train, transform on train and test, update processing with hash (transformer + old_processing), original_sample_id and feature_augmentation_id, append to X
+
+
+    DEFAULT_STATIC_INDEX = ("origin", "sample", "type", "set", "processing", "branch")
+
+    _DEFAULT_VALUES = {
         "set": "train",
         "processing": "raw",
-        "augmentation": "raw",
         "branch": 0,
+        "augmentation": "raw",
     }
 
     def __init__(self) -> None:
-        self.df: pl.DataFrame | None = None
-        self._next_id: int = 0
+        self.features: pl.DataFrame | None = None
+        self.labels: pl.DataFrame | None = None
+        self.results: pl.DataFrame | None = None
+        self._next_row_id: int = 0
+        self._next_source_id: int = 0
 
     def _mask(self, **filters: Any) -> pl.Expr:
         exprs = []
-        for key, val in filters.items():
-            if isinstance(val, (list, tuple, set, np.ndarray)):
-                exprs.append(pl.col(key).is_in(val))
+        for k, v in filters.items():
+            if isinstance(v, (list, tuple, set, np.ndarray)):
+                exprs.append(pl.col(k).is_in(v))
             else:
-                exprs.append(pl.col(key) == val)
+                exprs.append(pl.col(k) == v)
         return exprs[0] if len(exprs) == 1 else pl.all_horizontal(exprs)
-
+    
     def _select(self, **filters: Any) -> pl.DataFrame:
-        if self.df is None:
+        if self.features is None:
             return pl.DataFrame()
-        return self.df.filter(self._mask(**filters)) if filters else self.df
+        return self.features.filter(self._mask(**filters)) if filters else self.features
 
     def add_spectra(
         self,
         spectra: Sequence[Sequence[float]],
-        target: Sequence[Any] | None = None,
-        **index_values: Union[Any, Sequence[Any]],
+        target: Any,
+        **metadata: Any,
     ) -> None:
+        """
+        Add a group of augmented spectra for a single source.
+        `spectra`: list of n spectral vectors.
+        `target`: label for this source.
+        metadata: static metadata keys must be scalar:
+           origin, sample, type, set, processing, branch.
+        augmentation: scalar or sequence of length n.
+        """
         n = len(spectra)
-        tgt = target if target is not None else [None] * n
-        if len(tgt) != n:
-            raise ValueError("La longueur de 'target' ne correspond pas au nombre de spectres")
-
-        data: dict[str, list[Any]] = {}
-        for k in self.DEFAULT_INDEX:
-            if k in index_values:
-                v = index_values[k]
-                if isinstance(v, Sequence) and not isinstance(v, (str, bytes)):
-                    if len(v) != n:
-                        raise ValueError(f"Index '{k}' longueur {len(v)} != {n}")
-                    data[k] = list(v)
-                else:
-                    data[k] = [v] * n
-            else:
-                default = self._DEFAULT_VALUES.get(k)
-                data[k] = [default] * n
-
-        data["spectrum"] = [list(vec) for vec in spectra]
-        data["target"] = list(tgt)
-        data["row_id"] = list(range(self._next_id, self._next_id + n))
-        self._next_id += n
-
-        new_df = pl.DataFrame(data)
-        if self.df is None:
-            self.df = new_df
+        # Validate static metadata
+        for key in self.DEFAULT_STATIC_INDEX:
+            v = metadata.get(key, self._DEFAULT_VALUES.get(key))
+            if isinstance(v, Sequence) and not isinstance(v, (str, bytes)):
+                raise ValueError(f"Static metadata '{key}' must be scalar, got sequence")
+        # Handle augmentation
+        aug = metadata.get(self.DEFAULT_AUGMENTATION_KEY, self._DEFAULT_VALUES[self.DEFAULT_AUGMENTATION_KEY])
+        if isinstance(aug, Sequence) and not isinstance(aug, (str, bytes)):
+            if len(aug) != n:
+                raise ValueError(f"Augmentation sequence length {len(aug)} != spectra count {n}")
+            aug_list = list(aug)
         else:
-            self.df = pl.concat([self.df, new_df], how="vertical")
+            aug_list = [aug] * n
+
+        # Assign new source_id
+        source_id = self._next_source_id
+        self._next_source_id += 1
+
+        # Build features rows
+        rows = []
+        for i, spec in enumerate(spectra):
+            row_id = self._next_row_id
+            self._next_row_id += 1
+            rows.append({
+                "row_id": row_id,
+                "source_id": source_id,
+                "spectrum": list(spec),
+                self.DEFAULT_AUGMENTATION_KEY: aug_list[i],
+            })
+
+        new_feats = pl.DataFrame(rows)
+        self.features = new_feats if self.features is None else pl.concat([self.features, new_feats], how="vertical")
+
+        # Build labels row (one per source)
+        static_row = {"source_id": source_id, "target": target}
+        for key in self.DEFAULT_STATIC_INDEX:
+            static_row[key] = metadata.get(key, self._DEFAULT_VALUES.get(key))
+        new_label = pl.DataFrame([static_row])
+        self.labels = new_label if self.labels is None else pl.concat([self.labels, new_label], how="vertical")
+
 
     def change_spectra(
         self,
@@ -197,8 +229,53 @@ class SpectraDataset:
         return out
 
     def y(self, **filters: Any) -> np.ndarray:
-        sub = self._select(**filters)
-        return sub["target"].to_numpy()
+        """
+        Return target array for features matching filters.
+        Filters on features-level and label-level columns are supported.
+        """
+        if self.features is None or self.labels is None:
+            return np.array([])
+
+        feat_cols = set(self.features.columns)
+        label_cols = set(self.labels.columns)
+
+        feat_filters = {k: v for k, v in filters.items() if k in feat_cols}
+        label_filters = {k: v for k, v in filters.items() if k in label_cols}
+
+        # Validate filters
+        unknown = [k for k in filters if k not in feat_cols and k not in label_cols]
+        if unknown:
+            raise KeyError(f"Unknown filter key(s): {unknown}")
+
+        feats = (
+            self.features.filter(self._mask(**feat_filters))
+            if feat_filters else self.features
+        )
+        labs = (
+            self.labels.filter(self._mask(**label_filters))
+            if label_filters else self.labels
+        )
+
+        joined = feats.join(labs, on="source_id", how="inner")
+        return joined["target"].to_numpy()
+
+    def add_prediction(self, model: str, fold: int, seed: int, preds: Sequence[float], **filters: Any) -> None:
+        """
+        Add predictions for features matching optional filters.
+        """
+        if self.features is None:
+            raise ValueError("No features to predict on.")
+        feats = self.features.filter(self._mask(**filters)) if filters else self.features
+        row_ids = feats["row_id"].to_list()
+        if len(row_ids) != len(preds):
+            raise ValueError("Number of predictions does not match number of selected features.")
+        rows = [
+            {"row_id": rid, "model": model, "fold": fold, "seed": seed, "prediction": p}
+            for rid, p in zip(row_ids, preds)
+        ]
+        new_preds = pl.DataFrame(rows)
+        self.results = new_preds if self.results is None else pl.concat([self.results, new_preds], how="vertical")
+
 
     def to_arrow_table(self) -> "pyarrow.Table":
         return self.df.to_arrow()  # type: ignore
@@ -209,3 +286,7 @@ class SpectraDataset:
     def __repr__(self) -> str:
         cols = self.df.columns if self.df is not None else []
         return f"SpectraDataset(n={len(self)}, cols={cols})"
+
+
+
+### X _ courant > ori + transform
