@@ -243,3 +243,23 @@ class SpectraSet:
 ```
 
 With this, **any** auxiliary group becomes a first‐class filter in your getters—no more missing samples or augmentations when you request `X(groups={"my_group": 3})`.
+
+
+
+
+
+
+
+
+
+
+
+| Type d’objet (API)                                                    | Méthodes à appeler dans le pipeline                                                                                                                                                                                                                                                       | Rôle principal dans le flot                                         |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Transformer** `sklearn.base.TransformerMixin`                       | - `fit(X, y=None)`  <br> - `transform(X)`  <br> - `fit_transform(X, y=None)`  <br> - `inverse_transform(X)` (optionnel)  <br> - `get_params(deep=True)` / `set_params(**params)`                                                                                                          | Pré-traitement, feature engineering                                 |
+| **Splitter / Folder** `sklearn.model_selection.*Splitter`             | - `get_n_splits(X=None, y=None, groups=None)`  <br> - `split(X, y=None, groups=None) -> Iterator[(train_idx, test_idx)]`                                                                                                                                                                  | Génération d’indices d’entraînement/validation/test ou des folds CV |
+| **Clusterer** `sklearn.cluster.ClusterMixin`                          | - `fit(X, y=None, sample_weight=None)`  <br> - `fit_predict(X, y=None, sample_weight=None)`  <br> - `predict(X)` (algos à centres explicites : *KMeans*, *Birch*…)  <br> - `transform(X)` ou `fit_transform(X, …)` (selon l’algo)  <br> - `score(X, y=None)` (cohésion interne, –inertie) | Regrouper/étiqueter des observations sans supervision               |
+| **Modèle supervisé** `sklearn.base.BaseEstimator`                     | - `fit(X, y)`  <br> - `predict(X)`  <br> - `predict_proba(X)` ou `decision_function(X)` (classif)  <br> - `score(X, y)`  <br> - `get_params` / `set_params`                                                                                                                               | Apprentissage et inférence « classique »                            |
+| **Modèle** **TensorFlow /Keras** `tf.keras.Model`                     | - `compile(optimizer, loss, metrics=None, …)`  <br> - `fit(X, y=None, batch_size=None, epochs=1, validation_data=None, …)`  <br> - `evaluate(X, y=None, …)`  <br> - `predict(X, batch_size=None, …)`  <br> - `save(filepath)` / `keras.models.load_model(path)`                           | DL : compilation, entraînement, évaluation, inférence               |
+| **Modèle** **PyTorch** `torch.nn.Module` *(hors wrapper haut-niveau)* | - `train()` / `eval()` (mode)  <br> - `forward(*inputs)` ou appel direct `model(*inputs)`  <br> - `parameters()` / `state_dict()` / `load_state_dict()`  <br> - Boucle perso : `optimizer.zero_grad()` → `loss.backward()` → `optimizer.step()`                                           | DL : appel avant/arrière ; boucle d’entraînement manuelle           |
+| **Modèle** **JAX** (Flax/Haiku – style fonctionnel)                   | - `init(rng, input_shape)` → `params`  <br> - `apply(params, inputs)`  <br> - `loss_fn(params, batch)` (défini par l’utilisateur)  <br> - `update(params, grads, opt_state)` (step d’optimisation)                                                                                        | DL fonctionnel : initialisation, application, update explicite      |
