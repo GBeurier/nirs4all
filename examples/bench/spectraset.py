@@ -13,33 +13,36 @@ class SpectraDataset:
     ## results => sample_id, model, fold, seed, prediction, stack_index, branch, source, type, experiment_id
     ## folds a list of list of sample_id
 
-## Transformation
-#  take all samples X, or y, fit on train, transform on train and test, update processing with hash (transformer + old_processing)
+    ## Transformation
+    #  take all samples X, or y, fit on train, transform on train and test, update processing with hash (transformer + old_processing)
 
-## Sample augmentation for list of samples / or balance groups - 
-#  Warning if features are already augmented.
-#  take all samples from the X train set or the list of samples that are not augmented, copy, fit_transform and append to the train set. update processing with hash (transformer + old_processing), original_sample_id and sample_augmentation_id
+    ## Sample augmentation for list of samples / or balance groups - 
+    #  Warning if features are already augmented.
+    #  take all samples from the X train set or the list of samples that are not augmented, copy, fit_transform and append to the train set. update processing with hash (transformer + old_processing), original_sample_id and sample_augmentation_id
 
-##  Feature augmentation for list of samples
-#  take all samples from the X, copy, fit on train, transform on train and test, update processing with hash (transformer + old_processing), original_sample_id and feature_augmentation_id, append to X
+    ##  Feature augmentation for list of samples
+    #  take all samples from the X, copy, fit on train, transform on train and test, update processing with hash (transformer + old_processing), original_sample_id and feature_augmentation_id, append to X
 
-
-    DEFAULT_STATIC_INDEX = ("origin", "sample", "type", "set", "processing", "branch")
-
-    _DEFAULT_VALUES = {
+    _DEFAULT_INDEXES_VALUES = {
+        "origin": None,
+        "sample": None,
+        "type": "nirs",
         "set": "train",
-        "processing": "raw",
+        "processing": None,
         "branch": 0,
-        "augmentation": "raw",
+        "augmentation": None,
     }
+    
+    DEFAULT_AUGMENTATION_KEY = "augmentation"
 
     def __init__(self) -> None:
         self.features: pl.DataFrame | None = None
         self.labels: pl.DataFrame | None = None
         self.results: pl.DataFrame | None = None
+        self.folds: list[list[int]] = []
         self._next_row_id: int = 0
-        self._next_source_id: int = 0
-
+        self._next_source_id: int = 0    
+        
     def _mask(self, **filters: Any) -> pl.Expr:
         exprs = []
         for k, v in filters.items():
@@ -50,9 +53,37 @@ class SpectraDataset:
         return exprs[0] if len(exprs) == 1 else pl.all_horizontal(exprs)
     
     def _select(self, **filters: Any) -> pl.DataFrame:
+        """Select features with optional join to labels for filtering."""
         if self.features is None:
             return pl.DataFrame()
-        return self.features.filter(self._mask(**filters)) if filters else self.features
+        
+        if not filters:
+            return self.features
+        
+        # Separate feature-level and label-level filters
+        feat_cols = set(self.features.columns)
+        label_cols = set(self.labels.columns) if self.labels is not None else set()
+        
+        feat_filters = {k: v for k, v in filters.items() if k in feat_cols}
+        label_filters = {k: v for k, v in filters.items() if k in label_cols}
+        
+        # Start with features
+        result = self.features
+        
+        # Apply feature-level filters
+        if feat_filters:
+            feat_mask = self._mask(**feat_filters)
+            result = result.filter(feat_mask)
+        
+        # Apply label-level filters by joining
+        if label_filters and self.labels is not None:
+            label_mask = self._mask(**label_filters)
+            filtered_labels = self.labels.filter(label_mask)
+            result = result.join(filtered_labels, on="source_id", how="inner")
+            # Keep only original feature columns
+            result = result.select(self.features.columns)
+        
+        return result
 
     def add_spectra(
         self,
@@ -60,73 +91,15 @@ class SpectraDataset:
         target: Any,
         **metadata: Any,
     ) -> None:
-        """
-        Add a group of augmented spectra for a single source.
-        `spectra`: list of n spectral vectors.
-        `target`: label for this source.
-        metadata: static metadata keys must be scalar:
-           origin, sample, type, set, processing, branch.
-        augmentation: scalar or sequence of length n.
-        """
-        n = len(spectra)
-        # Validate static metadata
-        for key in self.DEFAULT_STATIC_INDEX:
-            v = metadata.get(key, self._DEFAULT_VALUES.get(key))
-            if isinstance(v, Sequence) and not isinstance(v, (str, bytes)):
-                raise ValueError(f"Static metadata '{key}' must be scalar, got sequence")
-        # Handle augmentation
-        aug = metadata.get(self.DEFAULT_AUGMENTATION_KEY, self._DEFAULT_VALUES[self.DEFAULT_AUGMENTATION_KEY])
-        if isinstance(aug, Sequence) and not isinstance(aug, (str, bytes)):
-            if len(aug) != n:
-                raise ValueError(f"Augmentation sequence length {len(aug)} != spectra count {n}")
-            aug_list = list(aug)
-        else:
-            aug_list = [aug] * n
-
-        # Assign new source_id
-        source_id = self._next_source_id
-        self._next_source_id += 1
-
-        # Build features rows
-        rows = []
-        for i, spec in enumerate(spectra):
-            row_id = self._next_row_id
-            self._next_row_id += 1
-            rows.append({
-                "row_id": row_id,
-                "source_id": source_id,
-                "spectrum": list(spec),
-                self.DEFAULT_AUGMENTATION_KEY: aug_list[i],
-            })
-
-        new_feats = pl.DataFrame(rows)
-        self.features = new_feats if self.features is None else pl.concat([self.features, new_feats], how="vertical")
-
-        # Build labels row (one per source)
-        static_row = {"source_id": source_id, "target": target}
-        for key in self.DEFAULT_STATIC_INDEX:
-            static_row[key] = metadata.get(key, self._DEFAULT_VALUES.get(key))
-        new_label = pl.DataFrame([static_row])
-        self.labels = new_label if self.labels is None else pl.concat([self.labels, new_label], how="vertical")
-
-
-    def change_spectra(
+        ## Add spectra to the dataset
+        
+    def swap_spectra(
         self,
         new_spectra: Sequence[Sequence[float]],
+        old_spectra_ids: Sequence[int],
         **filters: Any,
     ) -> None:
-        if self.df is None:
-            return
-        mask = self._mask(**filters)
-        n = self.df.filter(mask).height
-        if n != len(new_spectra):
-            raise ValueError("new_spectra count mismatch")
-        self.df = self.df.with_columns(
-            pl.when(mask)
-              .then(pl.Series(new_spectra, dtype=pl.List(pl.Float64)))
-              .otherwise(pl.col("spectrum"))
-              .alias("spectrum")
-        )
+        # replace old spectra with new ones based on row_id
 
     def add_tag(
         self,
@@ -134,35 +107,73 @@ class SpectraDataset:
         tag_values: Union[Any, Sequence[Any]],
         **filters: Any,
     ) -> None:
-        """
-        Ajoute une nouvelle colonne `tag_name`.
-        - Si `tag_values` scalaire → broadcast sur toutes les lignes filtrées.
-        - Si `tag_values` séquence de longueur m → assigné séquentiellement aux m lignes filtrées.
-        """
-        if self.df is None:
-            raise ValueError("Dataset vide.")
-        if tag_name in self.df.columns:
-            raise ValueError(f"Le tag '{tag_name}' existe déjà ; utilisez set_tag.")
-
-        df = self.df
-        mask_series = df.select(self._mask(**filters).alias("_mask"))
-        mask = mask_series.to_series()
-        total = len(mask)
-        # Construire liste complète
-        full: list[Any] = [None] * total
-        if isinstance(tag_values, Sequence) and not isinstance(tag_values, (str, bytes)):
-            values = list(tag_values)
-            if sum(mask) != len(values):
-                raise ValueError("Le nombre de 'tag_values' ne correspond pas aux lignes filtrées")
-            it = iter(values)
-            for i, m in enumerate(mask):
-                if m:
-                    full[i] = next(it)
+        """Add a new tag column to features or labels table."""
+        if tag_name in ["row_id", "source_id", "spectrum"]:
+            raise ValueError(f"Cannot add reserved tag '{tag_name}'")
+        
+        # Determine target table based on tag context
+        if tag_name in ["target", "origin", "sample", "type", "set", "processing", "branch"]:
+            # Label-level tags
+            if self.labels is None:
+                raise ValueError("No labels table to add tag to")
+            target_df = self.labels
+            id_col = "source_id"
         else:
-            for i, m in enumerate(mask):
-                if m:
-                    full[i] = tag_values
-        self.df = df.with_columns(pl.Series(tag_name, full))
+            # Feature-level tags
+            if self.features is None:
+                raise ValueError("No features table to add tag to")
+            target_df = self.features
+            id_col = "row_id"
+        
+        if tag_name in target_df.columns:
+            raise ValueError(f"Tag '{tag_name}' already exists; use set_tag")
+        
+        # Filter and apply values
+        if filters:
+            if tag_name in ["target", "origin", "sample", "type", "set", "processing", "branch"]:
+                # For label-level tags, filter labels table
+                filtered = target_df.filter(self._mask(**filters))
+            else:
+                # For feature-level tags, need to join with labels for filtering
+                if self.labels is not None:
+                    joined = self.features.join(self.labels, on="source_id", how="inner")
+                    filtered = joined.filter(self._mask(**filters))
+                    filtered = filtered.select(self.features.columns)
+                else:
+                    filtered = self.features.filter(self._mask(**filters))
+        else:
+            filtered = target_df
+        
+        n_filtered = filtered.height
+        
+        # Handle tag values
+        if isinstance(tag_values, Sequence) and not isinstance(tag_values, (str, bytes)):
+            if len(tag_values) != n_filtered:
+                raise ValueError(f"Tag values count ({len(tag_values)}) != filtered rows ({n_filtered})")
+            values_list = list(tag_values)
+        else:
+            values_list = [tag_values] * n_filtered
+        
+        # Add the tag column
+        if tag_name in ["target", "origin", "sample", "type", "set", "processing", "branch"]:
+            # Update labels table
+            target_ids = filtered["source_id"].to_list()
+            for i, (target_id, value) in enumerate(zip(target_ids, values_list)):
+                self.labels = self.labels.with_columns(
+                    pl.when(pl.col("source_id") == target_id)
+                      .then(pl.lit(value))
+                      .otherwise(pl.col(tag_name) if tag_name in self.labels.columns else pl.lit(None))
+                      .alias(tag_name)
+                )
+        else:
+            # Update features table
+            target_ids = filtered["row_id"].to_list()
+            full_values = [None] * self.features.height
+            for target_id, value in zip(target_ids, values_list):
+                idx = self.features["row_id"].to_list().index(target_id)
+                full_values[idx] = value
+            
+            self.features = self.features.with_columns(pl.Series(tag_name, full_values))
 
     def set_tag(
         self,
@@ -170,33 +181,67 @@ class SpectraDataset:
         new_value: Union[Any, Sequence[Any]],
         **filters: Any,
     ) -> None:
-        """
-        Change les valeurs d'un tag existant.
-        - Si `new_value` scalaire → broadcast.
-        - Si `new_value` séquence de longueur m → assigné séquentiellement aux m lignes filtrées.
-        """
-        if self.df is None:
-            raise ValueError("Dataset vide.")
-        if tag_name not in self.df.columns:
-            raise KeyError(f"Tag '{tag_name}' inexistant.")
-
-        df = self.df
-        mask_series = df.select(self._mask(**filters).alias("_mask")).to_series()
-        total = len(mask_series)
-        full = df.get_column(tag_name).to_list()
-        if isinstance(new_value, Sequence) and not isinstance(new_value, (str, bytes)):
-            vals = list(new_value)
-            if sum(mask_series) != len(vals):
-                raise ValueError("Le nombre de 'new_value' ne correspond pas aux lignes filtrées")
-            it = iter(vals)
-            for i, m in enumerate(mask_series):
-                if m:
-                    full[i] = next(it)
+        """Update an existing tag."""
+        # Determine target table
+        if tag_name in ["target", "origin", "sample", "type", "set", "processing", "branch"]:
+            target_df = self.labels
+        elif self.features is not None and tag_name in self.features.columns:
+            target_df = self.features
         else:
-            for i, m in enumerate(mask_series):
-                if m:
-                    full[i] = new_value
-        self.df = df.with_columns(pl.Series(tag_name, full))
+            raise KeyError(f"Tag '{tag_name}' not found")
+        
+        if target_df is None:
+            raise ValueError("Target table is None")
+        
+        # Filter and update
+        if filters:
+            if tag_name in ["target", "origin", "sample", "type", "set", "processing", "branch"]:
+                filtered = target_df.filter(self._mask(**filters))
+                target_ids = filtered["source_id"].to_list()
+                id_col = "source_id"
+            else:
+                if self.labels is not None:
+                    joined = self.features.join(self.labels, on="source_id", how="inner")
+                    filtered = joined.filter(self._mask(**filters))
+                    target_ids = filtered["row_id"].to_list()
+                    id_col = "row_id"
+                else:
+                    filtered = self.features.filter(self._mask(**filters))
+                    target_ids = filtered["row_id"].to_list()
+                    id_col = "row_id"
+        else:
+            if tag_name in ["target", "origin", "sample", "type", "set", "processing", "branch"]:
+                target_ids = target_df["source_id"].to_list()
+                id_col = "source_id"
+            else:
+                target_ids = target_df["row_id"].to_list()
+                id_col = "row_id"
+        
+        # Handle new values
+        if isinstance(new_value, Sequence) and not isinstance(new_value, (str, bytes)):
+            if len(new_value) != len(target_ids):
+                raise ValueError(f"New values count ({len(new_value)}) != filtered rows ({len(target_ids)})")
+            values_list = list(new_value)
+        else:
+            values_list = [new_value] * len(target_ids)
+        
+        # Update the appropriate table
+        if tag_name in ["target", "origin", "sample", "type", "set", "processing", "branch"]:
+            for target_id, value in zip(target_ids, values_list):
+                self.labels = self.labels.with_columns(
+                    pl.when(pl.col("source_id") == target_id)
+                      .then(pl.lit(value))
+                      .otherwise(pl.col(tag_name))
+                      .alias(tag_name)
+                )
+        else:
+            for target_id, value in zip(target_ids, values_list):
+                self.features = self.features.with_columns(
+                    pl.when(pl.col("row_id") == target_id)
+                      .then(pl.lit(value))
+                      .otherwise(pl.col(tag_name))
+                      .alias(tag_name)
+                )
 
     def X(
         self,
@@ -276,17 +321,35 @@ class SpectraDataset:
         new_preds = pl.DataFrame(rows)
         self.results = new_preds if self.results is None else pl.concat([self.results, new_preds], how="vertical")
 
-
-    def to_arrow_table(self) -> "pyarrow.Table":
-        return self.df.to_arrow()  # type: ignore
+    def to_arrow_table(self):
+        if self.features is not None:
+            return self.features.to_arrow()
+        return None
 
     def __len__(self) -> int:
-        return self.df.height if self.df is not None else 0
+        return self.features.height if self.features is not None else 0
 
     def __repr__(self) -> str:
-        cols = self.df.columns if self.df is not None else []
+        cols = self.features.columns if self.features is not None else []
         return f"SpectraDataset(n={len(self)}, cols={cols})"
 
+    def get_fold_data(self, fold: int, set_type: str = "train"):
+        """Get data for a specific fold and set type."""
+        return self._select(fold=fold, set=set_type)
 
+    def get_unique_values(self, column: str, table: str = "features"):
+        """Get unique values from a column in features or labels table."""
+        if table == "features" and self.features is not None:
+            if column in self.features.columns:
+                return self.features[column].unique().to_list()
+        elif table == "labels" and self.labels is not None:
+            if column in self.labels.columns:
+                return self.labels[column].unique().to_list()
+        return []
 
-### X _ courant > ori + transform
+    def get_predictions(self, **filters):
+        """Get predictions matching filters."""
+        if self.results is None:
+            return pl.DataFrame()
+        return self.results.filter(self._mask(**filters)) if filters else self.results
+

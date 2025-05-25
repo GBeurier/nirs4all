@@ -1,10 +1,7 @@
 import logging
 import hashlib
-import numpy as np
-import polars as pl
 
 from sklearn.base import TransformerMixin, ClusterMixin, BaseEstimator
-from sklearn.model_selection import StratifiedKFold, RepeatedStratifiedKFold
 
 logger = logging.getLogger(__name__)
 
@@ -201,105 +198,6 @@ class PipelineRunner:
                 p(f"  Fold {fold}: {len(train_sources)} train, {len(test_sources)} test")
                 break  # For now, just use first split
 
-    def _handle_kfold_validation(self, step, data, prefix=""):
-        """Handle k-fold cross-validation."""
-        def p(msg, end="\n"):
-            print(prefix + msg, end=end)
-
-        # Extract k-fold parameters
-        n_splits = step.get("n_splits", 5)
-        n_repeats = step.get("n_repeats", 1)
-        random_state = step.get("random_state", 42)
-        
-        p(f"K-Fold Cross-Validation: {n_splits} folds, {n_repeats} repeats")
-
-        # Create cross-validator
-        if n_repeats > 1:
-            cv = RepeatedStratifiedKFold(n_splits=n_splits, n_repeats=n_repeats, random_state=random_state)
-        else:
-            cv = StratifiedKFold(n_splits=n_splits, random_state=random_state)
-
-        # Get source-level data for splitting
-        if data.labels is None:
-            p("  No labels available for splitting")
-            return
-
-        source_ids = data.labels["source_id"].to_list()
-        y = data.labels["target"].to_list()
-
-        # Perform k-fold splits
-        fold_idx = 0
-        for train_idx, test_idx in cv.split(source_ids, y):
-            train_sources = [source_ids[i] for i in train_idx]
-            test_sources = [source_ids[i] for i in test_idx]            # Set fold information
-            data.set_tag("set", "train", source_id=train_sources)
-            data.set_tag("set", "test", source_id=test_sources)
-            data.add_tag("fold", fold_idx)
-
-            p(f"  Fold {fold_idx}: {len(train_sources)} train, {len(test_sources)} test")
-            
-            # Execute fold pipeline if provided
-            if "pipeline" in step:
-                p("    Executing fold pipeline")
-                for fold_step in step["pipeline"]:
-                    self.run(fold_step, data, {"branch": 0, "fold": fold_idx}, prefix=prefix + "      ")
-            
-            fold_idx += 1
-
-    def _handle_performance_evaluation(self, step, data, prefix=""):
-        """Handle performance evaluation and metrics calculation."""
-        def p(msg, end="\n"):
-            print(prefix + msg, end=end)
-
-        if data.results is None or data.results.height == 0:
-            p("No predictions available for evaluation")
-            return
-
-        # Get predictions and true values
-        results_with_targets = data.results.join(
-            data.features.select(["row_id", "source_id"]), 
-            on="row_id", 
-            how="inner"
-        ).join(
-            data.labels.select(["source_id", "target"]), 
-            on="source_id", 
-            how="inner"
-        )
-
-        if results_with_targets.height == 0:
-            p("No matching results and targets found")
-            return
-
-        # Calculate metrics by model and fold
-        models = results_with_targets["model"].unique().to_list()
-        folds = results_with_targets["fold"].unique().to_list()
-
-        p(f"Evaluating {len(models)} model(s) across {len(folds)} fold(s)")
-
-        for model in models:
-            model_results = results_with_targets.filter(pl.col("model") == model)
-            
-            for fold in folds:
-                fold_results = model_results.filter(pl.col("fold") == fold)
-                
-                if fold_results.height > 0:
-                    y_true = fold_results["target"].to_numpy()
-                    y_pred = fold_results["prediction"].to_numpy()
-                    
-                    # Calculate basic metrics
-                    mae = np.mean(np.abs(y_true - y_pred))
-                    rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
-                    r2 = np.corrcoef(y_true, y_pred)[0, 1] ** 2 if len(y_true) > 1 else 0
-                    
-                    p(f"  {model} Fold {fold}: MAE={mae:.4f}, RMSE={rmse:.4f}, R²={r2:.4f}")
-
-    def _update_processing_hash(self, data, step_name, context_processing=None):
-        """Update processing hash for transformation tracking."""
-        base_processing = context_processing or "raw"
-        processing_hash = hashlib.md5(f"{step_name}_{base_processing}".encode()).hexdigest()[:8]
-        data.set_tag("processing", processing_hash)
-        return processing_hash
-
     def run(self, step, data, context, prefix=""):
         def p(msg, end="\n"):
             print(prefix + msg, end=end)
@@ -322,10 +220,6 @@ class PipelineRunner:
                 self._handle_sample_augmentation(spec, data, prefix=prefix + "  ")
             elif key in ("feature_augmentation", "features", "F"):
                 self._handle_feature_augmentation(spec, data, prefix=prefix + "  ")
-            elif key in ("kfold", "cross_validation", "cv"):
-                self._handle_kfold_validation(spec, data, prefix=prefix + "  ")
-            elif key in ("evaluate", "metrics", "eval"):
-                self._handle_performance_evaluation(spec, data, prefix=prefix + "  ")
             elif key == "branch":
                 for branch in spec:
                     self.run(branch, data, context, prefix=prefix + "  ")
