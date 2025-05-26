@@ -51,3 +51,14 @@ nirs4all = "nirs4all.cli.main:nirs4all_cli"
 
 [tool.setuptools.packages.find]
 include = ["nirs4all*"]
+
+[tool.pylint.'MESSAGES CONTROL']
+disable = ["invalid-name", "trailing-whitespace", "line-too-long"]
+
+[tool.pylint.'FORMAT']
+max-line-length = 220
+
+[tool.flake8]
+max-line-length = 220
+ignore = ["E402","F841","F401","E302","E305","W293","W901","W291"]
+exclude = ["build", "dist", ".venv", "docs", "sample_data"]
