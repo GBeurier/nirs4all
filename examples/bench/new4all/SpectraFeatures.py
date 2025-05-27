@@ -1,8 +1,5 @@
-from typing import Any, Sequence, Mapping, List, Optional, Union
-
 import numpy as np
-import pandas as pd
-import polars as pl
+from typing import Optional, Union, List
 
 class SpectraFeatures:
     """Efficient multi-source spectral features with lazy operations."""
@@ -10,7 +7,6 @@ class SpectraFeatures:
     def __init__(self, sources: Union[np.ndarray, List[np.ndarray]]):
         if isinstance(sources, np.ndarray):
             sources = [sources]
-
         self.sources = sources
         self._validate_sources()
 
@@ -25,10 +21,9 @@ class SpectraFeatures:
         self.total_width = start
 
     def _validate_sources(self):
-        """Ensure all sources have same number of samples."""
+        """Ensure all sources have the same number of samples."""
         if not self.sources:
             return
-
         n_samples = len(self.sources[0])
         for i, source in enumerate(self.sources[1:], 1):
             if len(source) != n_samples:
@@ -38,8 +33,8 @@ class SpectraFeatures:
         return len(self.sources[0]) if self.sources else 0
 
     def get_by_rows(self, row_indices: np.ndarray,
-                   source_indices: Optional[Union[int, List[int]]] = None,
-                   concatenate: bool = True) -> Union[np.ndarray, List[np.ndarray]]:
+                    source_indices: Optional[Union[int, List[int]]] = None,
+                    concatenate: bool = True) -> Union[np.ndarray, List[np.ndarray]]:
         """Efficient row-based selection with optional source filtering."""
         if not self.sources:
             return np.array([])
@@ -60,11 +55,10 @@ class SpectraFeatures:
             return [src[row_indices] for src in selected_sources]
 
     def update_rows(self, row_indices: np.ndarray, new_data: Union[np.ndarray, List[np.ndarray]],
-                   source_indices: Optional[Union[int, List[int]]] = None):
+                    source_indices: Optional[Union[int, List[int]]] = None):
         """Update specific rows with new data."""
         if isinstance(new_data, np.ndarray):
             if source_indices is None:
-                # Single source update - need to split if multiple sources
                 if len(self.sources) == 1:
                     self.sources[0][row_indices] = new_data
                 else:
@@ -77,7 +71,6 @@ class SpectraFeatures:
             else:
                 self.sources[source_indices][row_indices] = new_data
         else:
-            # List of arrays - update each source
             if source_indices is None:
                 source_indices = list(range(len(new_data)))
             for i, data in enumerate(new_data):
