@@ -107,7 +107,7 @@ class PipelineRunner:
             print(prefix + msg, end=end)
 
         if hasattr(step, "transform") and issubclass(step.__class__, TransformerMixin):
-            self._run_transformation(step, data, prefix)
+            data._run_transformation(selector=self.selector, transformer=step)
 
         elif hasattr(step, "split"):
             self._run_splitting(step, data, prefix)
@@ -130,19 +130,10 @@ class PipelineRunner:
             p(f"Unknown step: {step}")
 
 
-    def _run_transformation(self, transformer: TransformerMixin, data: SpectraDataset, prefix: str):
-        """Applique une transformation simple - remplace les données transformées."""
-        print(f"{prefix}Transforming with {transformer}")
 
-        # add partition to context if not present
-        self.selector["partition"] = "train"
-        x_train = data.x(self.selector)
-        print(x_train.shape)
-        transformer.fit(x_train)
 
-        x = data.x(self.selector)
-        x = transformer.transform(x)
-        print(x[0])
+        # Update the spectra with transformed data
+
 
         #
         # print(f"{prefix}  Filters: {filters}")
