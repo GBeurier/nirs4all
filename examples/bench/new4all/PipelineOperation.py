@@ -2,9 +2,15 @@ from abc import ABC, abstractmethod
 from sklearn.base import TransformerMixin, ClusterMixin, BaseEstimator
 import hashlib
 from typing import Optional, List
-from .SpectraDataset import SpectraDataset
-from .PipelineContext import PipelineContext
-from .DatasetView import DatasetView
+
+try:
+    from SpectraDataset import SpectraDataset
+    from PipelineContext import PipelineContext
+    from DatasetView import DatasetView
+except ImportError:
+    from SpectraDataset import SpectraDataset
+    from PipelineContext import PipelineContext
+    from DatasetView import DatasetView
 
 class PipelineOperation(ABC):
     """Base class for pipeline operations."""

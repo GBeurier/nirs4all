@@ -28,6 +28,16 @@ class PipelineContext:
             self.predictions[model_name] = []
         self.predictions[model_name].append(predictions)
 
+    def get_predictions(self) -> Dict[str, Any]:
+        """Get all stored predictions."""
+        # Flatten the predictions structure for easier access
+        flattened = {}
+        for model_name, pred_list in self.predictions.items():
+            if pred_list:
+                # Take the most recent predictions for each model
+                flattened[model_name] = pred_list[-1]
+        return flattened
+
     @property
     def current_branch(self) -> int:
         return self.branch_stack[-1]

@@ -1,13 +1,19 @@
 import numpy as np
 import polars as pl
 from typing import Any, Sequence, Union, List, Optional, Dict
-from .SpectraFeatures import SpectraFeatures
-from .TargetManager import TargetManager
+
+try:
+    from SpectraFeatures import SpectraFeatures
+    from TargetManager import TargetManager
+except ImportError:
+    # Fallback for direct execution
+    from SpectraFeatures import SpectraFeatures
+    from TargetManager import TargetManager
 
 
 class SpectraDataset:
     """Main dataset class with efficient operations and clear interface."""
-    
+
     def __init__(self, float64: bool = True, task_type: str = "auto"):
         self.float64 = float64
 
@@ -89,18 +95,21 @@ class SpectraDataset:
     def select(self, **filters) -> 'DatasetView':
         """Create an efficient view of the dataset with filters applied."""
         # Import here to avoid circular import
-        from .DatasetView import DatasetView
+        try:
+            from DatasetView import DatasetView
+        except ImportError:
+            from DatasetView import DatasetView
         return DatasetView(self, filters)
 
     def get_features(self, row_indices: np.ndarray,
-                    source_indices: Optional[Union[int, List[int]]] = None,
-                    concatenate: bool = True) -> Union[np.ndarray, List[np.ndarray]]:
+                     source_indices: Optional[Union[int, List[int]]] = None,
+                     concatenate: bool = False) -> Union[np.ndarray, List[np.ndarray]]:
         """Direct feature access by row indices."""
         if self.features is None:
             return np.array([])
         return self.features.get_by_rows(row_indices, source_indices, concatenate)
 
-    def get_targets(self, sample_ids: List[int], 
+    def get_targets(self, sample_ids: List[int],
                    representation: str = "auto",
                    transformer_key: Optional[str] = None) -> np.ndarray:
         """Get targets for specific samples using TargetManager."""
@@ -121,14 +130,14 @@ class SpectraDataset:
         )
 
     # Target management methods
-    def fit_transform_targets(self, sample_ids: List[int], 
+    def fit_transform_targets(self, sample_ids: List[int],
                             transformers: List[Any],
                             representation: str = "auto",
                             transformer_key: str = "default") -> np.ndarray:
         """Fit target transformers and return transformed targets."""
         return self.target_manager.fit_transform_targets(
             sample_ids, transformers, representation, transformer_key)
-    
+
     def inverse_transform_predictions(self, predictions: np.ndarray,
                                     representation: str = "auto",
                                     transformer_key: str = "default",
@@ -136,22 +145,27 @@ class SpectraDataset:
         """Inverse transform predictions back to original format."""
         return self.target_manager.inverse_transform_predictions(
             predictions, representation, transformer_key, to_original)
-    
+
     def get_target_info(self) -> Dict[str, Any]:
         """Get information about targets."""
         return self.target_manager.get_info()
-    
+
     @property
     def task_type(self) -> str:
         """Get the task type."""
         return self.target_manager.task_type
-    
-    @property 
+
+    @property
     def n_classes(self) -> int:
         """Get number of classes for classification tasks."""
         return self.target_manager.n_classes_
-    
+
     @property
     def classes_(self) -> Optional[np.ndarray]:
         """Get class labels for classification tasks."""
         return self.target_manager.classes_
+
+    @property
+    def is_binary(self) -> bool:
+        """Check if this is a binary classification task."""
+        return self.target_manager.is_binary
