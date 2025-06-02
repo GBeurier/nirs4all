@@ -8,7 +8,10 @@ class DatasetView:
 
     def __init__(self, dataset: 'SpectraDataset', filters: Dict[str, Any]):
         # Import here to avoid circular import
-        from .SpectraDataset import SpectraDataset
+        try:
+            from SpectraDataset import SpectraDataset
+        except ImportError:
+            from SpectraDataset import SpectraDataset
         self.dataset = dataset
         self.filters = filters
         self._cached_selection = None
@@ -42,7 +45,7 @@ class DatasetView:
         return self._get_selection()["row"].to_numpy()
 
     def get_features(self, source_indices: Optional[Union[int, List[int]]] = None,
-                    concatenate: bool = True) -> Union[np.ndarray, List[np.ndarray]]:
+                     concatenate: bool = False) -> Union[np.ndarray, List[np.ndarray]]:
         """Get features for this view."""
         return self.dataset.get_features(self.row_indices, source_indices, concatenate)
 
