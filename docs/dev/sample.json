@@ -51,6 +51,10 @@
           "y_pipeline": { "class": "sklearn.preprocessing.StandardScaler" }
         },
         {
+          "model": "nirs4all.presets.ref_models.decon",
+          "y_pipeline": { "class": "sklearn.preprocessing.StandardScaler" }
+        },
+        {
           "model": {
             "class": "sklearn.svm.SVC",
             "params": { "kernel": "linear", "C": 1.0, "random_state": 42 }
