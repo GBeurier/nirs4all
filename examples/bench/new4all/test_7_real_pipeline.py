@@ -10,15 +10,22 @@ This test demonstrates:
 
 Based on the sample.py configuration format.
 """
+
 import os
+os.environ["PYTHONWARNINGS"] = "ignore"       # Forwarded automatically to joblib workers
+
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+
 import sys
 import json
 import pickle
-import warnings
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
 
 # Suppress TensorFlow and Keras warnings if available
 try:
@@ -37,19 +44,15 @@ except ImportError:
 # Add the new4all directory to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Import required transformations and models
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.svm import SVC
-from sklearn.model_selection import RepeatedStratifiedKFold, ShuffleSplit
-from sklearn.cluster import KMeans
-
+# Import necessary modules from new4all
 from SpectraDataset import SpectraDataset
 from Pipeline import Pipeline
 from PipelineBuilder import PipelineBuilder
 from PipelineConfig import PipelineConfig
+from PipelineSerializer import PipelineSerializer
 from sample import config as sample_config
+
+
 
 NIRS4ALL_AVAILABLE = True
 print("Successfully imported config from sample.py")
@@ -120,7 +123,7 @@ def create_nirs_raman_dataset():
     sample_ids = dataset.add_data(
         features=[X_nirs, X_raman],
         targets=protein_levels,
-        partition="all",
+        partition="train",
         group=1,
         processing="raw"
     )
@@ -169,10 +172,10 @@ def test_real_pipeline():
         # Step 6: Save results
         print("Saving results...")
 
-        # Save config as JSON
+        # Save config as JSON using PipelineSerializer
         config_path = output_dir / "sample_test.json"
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(sample_config, f, indent=2)
+        serializer = PipelineSerializer()
+        serializer.serialize_to_file(sample_config, config_path)
         print(f"Config saved to: {config_path}")
 
         # Save pipeline
@@ -207,12 +210,23 @@ def test_real_pipeline():
         print(f"Pipeline execution failed: {e}")
         print("This might be due to missing dependencies or configuration issues")
 
-        # Still save the config for reference
+        # Still save the config for reference using PipelineSerializer
         config_path = output_dir / "sample_test.json"
-        print(sample_config)
-        with open(config_path, 'w') as f:
-            json.dump(sample_config, f, indent=2)
-        print(f"Config saved to: {config_path}")
+        try:
+            serializer = PipelineSerializer()
+            serializer.serialize_to_file(sample_config, config_path)
+            print(f"Config saved to: {config_path}")
+        except Exception as save_error:
+            print(f"Failed to save config: {save_error}")
+            # Save a summary instead
+            config_summary = {
+                "experiment": sample_config.get("experiment", {}),
+                "pipeline_steps": len(sample_config.get("pipeline", [])),
+                "error": "Failed to serialize full config due to complex objects"
+            }
+            with open(config_path, 'w') as f:
+                json.dump(config_summary, f, indent=2)
+            print(f"Config summary saved to: {config_path}")
 
 
 def main():

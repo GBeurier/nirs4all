@@ -53,6 +53,36 @@ class SpectraDataset:
     def __len__(self) -> int:
         return len(self.indices)
 
+    def __repr__(self) -> str | tuple[Any, ...]:
+        text = ""
+        if self.features is not None:
+            for source in self.features.sources:
+                text += f"{source.shape[0]}x{source.shape[1]} "
+                feature_mean = np.mean(source, axis=0)
+                text += f"Mean: {feature_mean.mean():.2f}, Std: {feature_mean.std():.2f} "
+        if self.target_manager is not None:
+            text += f"Targets: {self.target_manager.task_type} "
+        if self.task_type is not None:
+            text += f"Task: {self.task_type} "
+        if self.float64:
+            text += "Float64 enabled "
+        else:
+            text += "Float64 disabled "
+        if not text:
+            text = "Empty Dataset"
+
+        text += "\n"
+        text += f"Samples: {self._next_sample}, Rows: {self._next_row}, Features: {len(self.features.sources) if self.features else 0}\n"
+        text += f"Partitions: {self.indices['partition'].unique().to_list()}\n"
+        for partition in self.indices['partition'].unique():
+            text += f"  {partition}: {len(self.indices.filter(pl.col('partition') == partition))} samples\n"
+        text += f"Groups: {self.indices['group'].unique().to_list()}\n"
+        text += f"Branches: {self.indices['branch'].unique().to_list()}\n"
+        text += f"Processing: {self.indices['processing'].unique().to_list()}\n"
+        text += f"Targets: {self.target_manager.get_info()}\n"
+        text += f"Results: {self.get_results_summary()}\n"
+        return text
+
     def add_data(self,
                  features: Union[np.ndarray, List[np.ndarray]],
                  targets: Optional[np.ndarray] = None,
@@ -60,7 +90,8 @@ class SpectraDataset:
                  group: int = 0,
                  branch: int = 0,
                  processing: str = "raw",
-                 origin: Optional[Union[int, List[int]]] = None) -> List[int]:
+                 origin: Optional[Union[int, List[int]]] = None,
+                 sample_ids: Optional[List[int]] = None) -> List[int]:
         """Add new data and return sample IDs."""
 
         if isinstance(features, np.ndarray):
@@ -69,7 +100,10 @@ class SpectraDataset:
         n_samples = len(features[0])
 
         # Generate sample IDs
-        sample_ids = list(range(self._next_sample, self._next_sample + n_samples))
+        if sample_ids is not None:
+            sample_ids = sample_ids
+        else:
+            sample_ids = list(range(self._next_sample, self._next_sample + n_samples))
         row_ids = list(range(self._next_row, self._next_row + n_samples))
 
         # Add features
@@ -115,7 +149,8 @@ class SpectraDataset:
             from DatasetView import DatasetView
         return DatasetView(self, filters)
 
-    def get_features(self, row_indices: np.ndarray,
+    def get_features(self,
+                     row_indices: np.ndarray,
                      source_indices: Optional[Union[int, List[int]]] = None,
                      concatenate: bool = False) -> Union[np.ndarray, List[np.ndarray]]:
         """Direct feature access by row indices."""

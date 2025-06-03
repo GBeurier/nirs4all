@@ -132,16 +132,18 @@ class PipelineBuilder:
 
         for aug_config in aug_list:
             if isinstance(aug_config, list):
-                # Handle nested augmentations
+                # Handle nested augmentations (pipeline or multiple aug paths)
                 for sub_aug in aug_config:
                     if sub_aug is not None:
                         transformer = self._resolve_transformer(sub_aug)
                         if transformer:
-                            operations.append(TransformationOperation(transformer=transformer))
+                            # use correct mode for augmentation
+                            operations.append(TransformationOperation(transformer=transformer, mode=aug_type))
             elif aug_config is not None:
                 transformer = self._resolve_transformer(aug_config)
                 if transformer:
-                    operations.append(TransformationOperation(transformer=transformer))
+                    # use correct mode for augmentation
+                    operations.append(TransformationOperation(transformer=transformer, mode=aug_type))
 
         return operations
 

@@ -7,7 +7,8 @@ class VisualizationOperation:
         self.plot_type = plot_type
 
     def execute(self, dataset, context):
-        pass
+        print(dataset)
+        print(context)
 
     def get_name(self):
         return f"VisualizationOperation({self.plot_type})"
