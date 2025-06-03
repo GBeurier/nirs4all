@@ -11,7 +11,7 @@ from sklearn.svm import SVR, SVC
 
 from PipelineOperation import PipelineOperation
 from TransformationOperation import TransformationOperation
-from ModelOperation import ModelOperation
+from ModelOperation import SklearnModelOperation
 from MergeSourcesOperation import MergeSourcesOperation
 from ClusteringOperation import ClusteringOperation
 from SplitOperation import SplitOperation
@@ -22,11 +22,10 @@ class OperationFactory:
     """Factory for creating pipeline operations from configuration"""
 
     def __init__(self):
-        """Initialize operation factory"""
-        # Register operation types
+        """Initialize operation factory"""        # Register operation types
         self.operation_types = {
             'transformation': TransformationOperation,
-            'model': ModelOperation,
+            'model': SklearnModelOperation,
             'merge_sources': MergeSourcesOperation,
             'clustering': ClusteringOperation,
             'split': SplitOperation,
@@ -117,7 +116,7 @@ class OperationFactory:
             **operation_params
         )
 
-    def create_model_operation(self, config: Dict[str, Any]) -> ModelOperation:
+    def create_model_operation(self, config: Dict[str, Any]) -> SklearnModelOperation:
         """Create model operation from config"""
         model_config = config.get('model', {})
         model_type = model_config.get('type')
@@ -131,9 +130,7 @@ class OperationFactory:
             model_params = {k: v for k, v in model_config.items() if k != 'type'}
             model = model_class(**model_params)
         else:
-            raise ValueError(f"Unknown model type: {model_type}")
-
-        # Map config parameters to ModelOperation parameters
+            raise ValueError(f"Unknown model type: {model_type}")        # Map config parameters to ModelOperation parameters
         operation_params = {}
         for k, v in config.items():
             if k not in ['type', 'model']:
@@ -144,7 +141,7 @@ class OperationFactory:
                 else:
                     operation_params[k] = v
 
-        return ModelOperation(
+        return SklearnModelOperation(
             model=model,
             **operation_params
         )
