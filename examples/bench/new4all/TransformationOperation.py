@@ -229,11 +229,11 @@ class TransformationOperation(PipelineOperation):
                 pipeline_name = "_".join([t.__class__.__name__ for t in current_pipeline])
             else:
                 # Single transformer
-                pipeline_name = current_pipeline[0].__class__.__name__
-
-            # Process all current data in each specified partition
+                pipeline_name = current_pipeline[0].__class__.__name__            # Process all current data in each specified partition
             for partition in partitions_to_augment:
-                partition_view = dataset.select(partition=partition, **context.current_filters)
+                # Only select original data (not previously augmented data)
+                # Use the same processing filter that would have been used when fitting
+                partition_view = dataset.select(partition=partition, processing="raw", **context.current_filters)
                 if len(partition_view) == 0:
                     continue
 
@@ -251,39 +251,33 @@ class TransformationOperation(PipelineOperation):
                     for fitted_transformer in fitted_pipeline:
                         X_current = fitted_transformer.transform(X_current)
 
-                    X_augmented.append(X_current)
-
-                # Get original sample IDs and targets
+                    X_augmented.append(X_current)                # Get original sample IDs and targets
                 original_sample_ids = partition_view.sample_ids
                 try:
-                    y_partition = dataset.get_targets(original_sample_ids)
+                    y_partition = partition_view.get_targets("auto")
                     has_targets = True
                 except (AttributeError, ValueError, IndexError):
                     y_partition = None
-                    has_targets = False
+                    has_targets = False                # For feature augmentation, add transformed data with same sample IDs but different processing
+                new_sample_ids = dataset.add_data(
+                    features=X_augmented,
+                    targets=y_partition if has_targets else None,
+                    partition=partition,
+                    processing=pipeline_name,
+                    origin=original_sample_ids
+                    # Note: Don't pass sample_ids here, let it auto-generate and then update
+                )
 
-            # For feature augmentation, add transformed data with same sample IDs but different processing
-            new_sample_ids = dataset.add_data(
-                features=X_augmented,
-                targets=y_partition if has_targets else None,
-                partition=partition,
-                processing=pipeline_name,
-                origin=original_sample_ids,
-                sample_ids=original_sample_ids  # Keep original sample IDs
-            )
-
-            # Update the sample IDs in the indices to match the original ones
-            import polars as pl
-            # Find the rows that were just added
-            mask = dataset.indices['sample'].is_in(new_sample_ids)
-            # Replace the auto-generated sample IDs with the original ones
-            for new_id, orig_id in zip(new_sample_ids, original_sample_ids):
-                dataset.indices = dataset.indices.with_columns([
-                    pl.when(pl.col('sample') == new_id)
-                    .then(orig_id)
-                    .otherwise(pl.col('sample'))
-                    .alias('sample')
-                ])
+                # Update the sample IDs in the indices to match the original ones
+                import polars as pl
+                # Replace the auto-generated sample IDs with the original ones
+                for new_id, orig_id in zip(new_sample_ids, original_sample_ids):
+                    dataset.indices = dataset.indices.with_columns([
+                        pl.when(pl.col('sample') == new_id)
+                        .then(orig_id)
+                        .otherwise(pl.col('sample'))
+                        .alias('sample')
+                    ])
 
         self.is_fitted = True
 

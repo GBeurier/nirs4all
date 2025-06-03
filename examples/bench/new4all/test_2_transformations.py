@@ -297,12 +297,11 @@ def test_feature_augmentation():
     assert new_size == initial_size * 2, f"Expected {initial_size * 2}, got {new_size}"
     assert new_unique_samples == initial_unique_samples, "Sample IDs should remain the same"
 
-    print("✓ Single transformer feature augmentation verified")
-
-    # Test 2: Multiple transformer feature augmentation
+    print("✓ Single transformer feature augmentation verified")    # Test 2: Multiple transformer feature augmentation
     print("\n2. Testing multiple transformer feature augmentation...")
 
     dataset2 = create_transformation_test_dataset()
+    context2 = PipelineContext()  # Create fresh context
     split_pipeline.execute(dataset2)
 
     initial_size2 = len(dataset2)
@@ -315,7 +314,7 @@ def test_feature_augmentation():
         mode="feature_augmentation"
     )
 
-    multi_feature_aug_op.execute(dataset2, context)
+    multi_feature_aug_op.execute(dataset2, context2)
 
     final_size = len(dataset2)
     expected_final_size = initial_size2 * 3  # Original + 2 augmented versions
@@ -377,11 +376,10 @@ def test_target_aware_transformations():
 
     # Check results
     new_size = len(dataset)
-    print(f"Dataset size: {initial_size} -> {new_size}")
-
-    # Check StandardScaler features (target-aware mode)
-    scaler_view = dataset.select(processing="StandardScaler")
-    scaler_features = scaler_view.get_features(concatenate=True)
+    print(f"Dataset size: {initial_size} -> {new_size}")    # Check StandardScaler features (target-aware mode)
+    # In transformation mode, the processing tag is "transformed_XXXX", not "StandardScaler"
+    transformed_view = dataset.select(partition="train")  # Just get transformed train data
+    scaler_features = transformed_view.get_features(concatenate=True)
 
     print(f"StandardScaler features shape: {scaler_features.shape}")
     print(f"StandardScaler preserved {scaler_features.shape[1]} features")
@@ -416,7 +414,9 @@ def test_transformation_with_complex_pipeline():
         fit_partition="train",
         transform_partitions=["train"],
         mode="sample_augmentation"
-    ))    # Step 4: Feature augmentation on all data (use StandardScaler instead of PCA)
+    ))
+
+    # Step 4: Feature augmentation on all data (use StandardScaler instead of PCA)
     pipeline.add_operation(TransformationOperation(
         transformer=StandardScaler(),
         fit_partition="train",
@@ -439,7 +439,9 @@ def test_transformation_with_complex_pipeline():
 
     # Check processing types
     processing_types = dataset.indices['processing'].unique().to_list()
-    print(f"Processing types: {processing_types}")    # Should have multiple processing types (based on actual patterns observed)
+    print(f"Processing types: {processing_types}")
+
+    # Should have multiple processing types (based on actual patterns observed)
     expected_types = ['transformed_', 'augmented_MinMaxScaler_', 'augmented_RobustScaler_']
     for proc_type in expected_types:
         assert any(proc_type in pt for pt in processing_types), f"Missing processing type containing: {proc_type}"
