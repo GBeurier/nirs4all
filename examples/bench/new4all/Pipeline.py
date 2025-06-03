@@ -1,5 +1,5 @@
 """
-Pipeline - Main pipeline execution engine
+Pipeline - Main pipeline execution engine with configuration support
 """
 import numpy as np
 from typing import Dict, List, Optional, Any, Union
@@ -9,13 +9,15 @@ from pathlib import Path
 from PipelineOperation import PipelineOperation
 from SpectraDataset import SpectraDataset
 from PipelineContext import PipelineContext
-# from OperationFactory import OperationFactory  # Avoid circular import
+from PipelineConfig import PipelineConfig
+from PipelineBuilder import PipelineBuilder
+from PipelineSerializer import PipelineSerializer
 
 
 class Pipeline:
-    """Main pipeline execution engine"""
+    """Main pipeline execution engine with configuration support"""
 
-    def __init__(self, name: str = "Pipeline"):
+    def __init__(self, name: str = "Pipeline", config: Optional[PipelineConfig] = None):
         """
         Initialize pipeline
 
@@ -23,16 +25,24 @@ class Pipeline:
         -----------
         name : str
             Name of the pipeline
+        config : PipelineConfig, optional
+            Pipeline configuration
         """
         self.name = name
         self.operations = []
         self.context = PipelineContext()
-        self.factory = None  # Will be created on demand to avoid circular import
+        self.config = config
+        self.builder = PipelineBuilder()
+        self.serializer = PipelineSerializer()
 
         # Execution state
         self.is_fitted = False
         self.execution_history = []
         self.current_step = 0
+
+        # Build operations from config if provided
+        if config:
+            self.operations = self.builder.build_from_config(config)
 
     def add_operation(self, operation: PipelineOperation) -> 'Pipeline':
         """Add operation to pipeline"""
@@ -58,8 +68,8 @@ class Pipeline:
 
                 print(f"\nStep {self.current_step}/{len(self.operations)}: {operation.get_name()}")
 
-                # Check if operation can execute
-                if not operation.can_execute(dataset, self.context):
+                # Check if operation can execute (if method exists)
+                if hasattr(operation, 'can_execute') and not operation.can_execute(dataset, self.context):
                     error_msg = f"Operation {operation.get_name()} cannot execute"
                     print(f"Skipping: {error_msg}")
 
@@ -95,7 +105,8 @@ class Pipeline:
                     })
 
                     # Check if we should continue on error
-                    if not getattr(self.context, 'continue_on_error', False):
+                    continue_on_error = getattr(self.context, 'continue_on_error', False)
+                    if not continue_on_error:
                         raise RuntimeError(error_msg) from e
 
             self.is_fitted = True
@@ -131,84 +142,82 @@ class Pipeline:
 
         # Execute pipeline in prediction mode
         old_mode = getattr(self.context, 'mode', 'fit')
-        self.context.mode = 'predict'
+        setattr(self.context, 'mode', 'predict')
 
         try:
             self.execute(dataset)
             return getattr(self.context, 'predictions', {})
         finally:
-            self.context.mode = old_mode
+            setattr(self.context, 'mode', old_mode)
 
     @classmethod
-    def from_config(cls, config: Union[str, Path, Dict[str, Any]], name: str = None) -> 'Pipeline':
+    def from_config(cls, config: Union[str, Path, Dict[str, Any], PipelineConfig], name: Optional[str] = None) -> 'Pipeline':
         """Create pipeline from configuration"""
-        if isinstance(config, (str, Path)):
-            config_path = Path(config)
-
-            if config_path.suffix.lower() == '.yaml' or config_path.suffix.lower() == '.yml':
-                with open(config_path, 'r') as f:
-                    config_dict = yaml.safe_load(f)
-            elif config_path.suffix.lower() == '.json':
-                with open(config_path, 'r') as f:
-                    config_dict = json.load(f)
-            else:
-                raise ValueError(f"Unsupported config file format: {config_path.suffix}")
+        if isinstance(config, PipelineConfig):
+            pipeline_config = config
+        elif isinstance(config, (str, Path)):
+            pipeline_config = PipelineConfig.from_file(config)
         else:
-            config_dict = config
+            # Dictionary config (like sample.py)
+            if 'experiment' in config and 'pipeline' in config:
+                # Already in expected format
+                pipeline_config = PipelineConfig.from_dict(config)
+            else:
+                # Python config format (sample.py style), need to serialize first
+                serializer = PipelineSerializer()
+                serialized_config = serializer.serialize_config(config)
+                pipeline_config = PipelineConfig.from_dict(serialized_config)
 
-        # Create pipeline
-        pipeline_name = name or config_dict.get('name', 'ConfigPipeline')
-        pipeline = cls(pipeline_name)
-
-        # Set pipeline-level configuration
-        pipeline_config = config_dict.get('pipeline', {})
-        pipeline.context.continue_on_error = pipeline_config.get('continue_on_error', False)
-          # Create operations from config
-        operations_config = config_dict.get('operations', [])
-        from OperationFactory import OperationFactory  # Import here to avoid circular dependency
-        factory = OperationFactory()
-
-        for op_config in operations_config:
-            operation = factory.create_operation(op_config)
-            pipeline.add_operation(operation)
+        # Create pipeline with config
+        pipeline_name = name or pipeline_config.name
+        pipeline = cls(name=pipeline_name, config=pipeline_config)
 
         return pipeline
 
-    def to_config(self) -> Dict[str, Any]:
+    @classmethod
+    def from_python_config(cls, python_config: Dict[str, Any], name: Optional[str] = None) -> 'Pipeline':
+        """Create pipeline from Python configuration (like sample.py)"""
+        return cls.from_config(python_config, name)
+
+    def to_config(self) -> PipelineConfig:
         """Export pipeline to configuration"""
-        config = {
+        if self.config:
+            return self.config.clone()
+
+        # Create config from current state
+        config_dict = {
             'name': self.name,
-            'pipeline': {
-                'continue_on_error': getattr(self.context, 'continue_on_error', False)
-            },
-            'operations': []
+            'experiment': {},
+            'pipeline': self._operations_to_config(),
+            'metadata': {
+                'is_fitted': self.is_fitted,
+                'execution_history': self.execution_history
+            }
         }
 
+        return PipelineConfig.from_dict(config_dict)
+
+    def _operations_to_config(self) -> List[Dict[str, Any]]:
+        """Convert operations to configuration format"""
+        config_list = []
+
         for operation in self.operations:
-            # This would need to be implemented in each operation
+            # Try to serialize the operation
             if hasattr(operation, 'to_config'):
-                config['operations'].append(operation.to_config())
+                config_list.append(operation.to_config())
             else:
-                config['operations'].append({
+                # Basic serialization
+                config_list.append({
                     'type': operation.__class__.__name__,
                     'name': operation.get_name()
                 })
 
-        return config
+        return config_list
 
     def save_config(self, filepath: Union[str, Path]) -> None:
         """Save pipeline configuration to file"""
-        filepath = Path(filepath)
         config = self.to_config()
-
-        if filepath.suffix.lower() in ['.yaml', '.yml']:
-            with open(filepath, 'w') as f:
-                yaml.dump(config, f, default_flow_style=False, indent=2)
-        elif filepath.suffix.lower() == '.json':
-            with open(filepath, 'w') as f:
-                json.dump(config, f, indent=2)
-        else:
-            raise ValueError(f"Unsupported config file format: {filepath.suffix}")
+        config.save(filepath)
 
     def get_execution_summary(self) -> Dict[str, Any]:
         """Get summary of pipeline execution"""
@@ -233,20 +242,23 @@ class Pipeline:
     def get_dataset_summary(self, dataset: SpectraDataset) -> Dict[str, Any]:
         """Get summary of dataset state after pipeline"""
         summary = {
-            'n_sources': len(dataset.X),
+            'n_sources': len(getattr(dataset, 'X', {})),
             'sources': {}
         }
 
-        for source_name, source_data in dataset.X.items():
-            summary['sources'][source_name] = {
-                'shape': source_data.shape,
-                'dtype': str(source_data.dtype)
-            }
+        # Safely access dataset attributes
+        if hasattr(dataset, 'X') and dataset.X:
+            for source_name, source_data in dataset.X.items():
+                summary['sources'][source_name] = {
+                    'shape': source_data.shape,
+                    'dtype': str(source_data.dtype)
+                }
 
         # Add target information if available
         if hasattr(dataset, 'target_manager') and dataset.target_manager is not None:
-            target_info = dataset.target_manager.get_summary()
-            summary['targets'] = target_info
+            if hasattr(dataset.target_manager, 'get_summary'):
+                target_info = dataset.target_manager.get_summary()
+                summary['targets'] = target_info
 
         # Add context information
         summary['context'] = {
@@ -270,10 +282,25 @@ class Pipeline:
             if not hasattr(operation, 'execute'):
                 issues.append(f"Operation {i} ({operation.__class__.__name__}) missing execute method")
 
-            if not hasattr(operation, 'can_execute'):
-                issues.append(f"Operation {i} ({operation.__class__.__name__}) missing can_execute method")
+            if not hasattr(operation, 'get_name'):
+                issues.append(f"Operation {i} ({operation.__class__.__name__}) missing get_name method")
+
+        # Validate config if present
+        if self.config:
+            config_issues = self.config.validate()
+            issues.extend(config_issues)
 
         return issues
+
+    def clone(self) -> 'Pipeline':
+        """Create a copy of the pipeline"""
+        if self.config:
+            return Pipeline(name=self.name, config=self.config.clone())
+        else:
+            # Clone without config
+            new_pipeline = Pipeline(name=self.name)
+            new_pipeline.operations = self.operations.copy()
+            return new_pipeline
 
     def __repr__(self) -> str:
         """String representation of pipeline"""

@@ -83,10 +83,52 @@ class ClusteringOperation(PipelineOperation):
         }
 
         # Add cluster labels as new targets if possible
-        self.add_cluster_targets(dataset)
+        self.add_cluster_targets(dataset)        # Store centroids in dataset and set selection to centroids
+        if self.store_centroids and self.centroids is not None:
+            self._store_centroids_in_dataset(dataset, context)
+            # Set pipeline context to work with centroids
+            old_filters = context.push_filters(processing="centroids")
+            context.centroid_filters = old_filters  # Store for unclustering
+
         print(f"Clustering completed: {len(np.unique(self.cluster_labels))} clusters found")
         if self.clustering_metrics:
-            print(f"Clustering metrics: {self.clustering_metrics}")
+            for metric, value in self.clustering_metrics.items():
+                print(f"  {metric}: {value:.4f}")
+
+    def _store_centroids_in_dataset(self, dataset: SpectraDataset, context: PipelineContext) -> None:
+        """Store cluster centroids as new samples in the dataset"""
+        try:
+            # Add centroids as new samples with special processing tag
+            centroid_sample_ids = dataset.add_data(
+                features=[self.centroids],  # Centroids as single source
+                targets=None,  # Centroids don't have targets initially
+                partition="centroids",
+                processing="centroids",
+                group=0,
+                branch=context.current_branch
+            )
+
+            # Mark these samples as centroids in indices
+            import polars as pl
+            mask = dataset.indices['sample'].is_in(centroid_sample_ids)
+            dataset.indices = dataset.indices.with_columns([
+                pl.when(mask)
+                .then(pl.lit("centroids"))
+                .otherwise(pl.col('processing'))
+                .alias('processing')
+            ])
+
+            # Store centroid mapping for unclustering
+            context.centroid_mapping = {
+                'centroid_sample_ids': centroid_sample_ids,
+                'cluster_labels': self.cluster_labels,
+                'original_sample_count': len(self.cluster_labels)
+            }
+
+            print(f"Stored {len(centroid_sample_ids)} centroids in dataset")
+
+        except Exception as e:
+            print(f"Could not store centroids in dataset: {e}")
 
     def can_execute(self, dataset: SpectraDataset, context: PipelineContext) -> bool:
         """Check if clustering can be executed"""
@@ -190,9 +232,7 @@ class ClusteringOperation(PipelineOperation):
         else:
             # For methods without predict (like DBSCAN), assign to nearest centroid
             if self.centroids is None:
-                raise ValueError("No centroids available for prediction")
-
-            # Compute distances to centroids
+                raise ValueError("No centroids available for prediction")            # Compute distances to centroids
             distances = np.linalg.norm(
                 X_new[:, np.newaxis, :] - self.centroids[np.newaxis, :, :],
                 axis=2
@@ -206,7 +246,7 @@ class ClusteringOperation(PipelineOperation):
 
         unique_labels = np.unique(self.cluster_labels)
         cluster_sizes = {int(label): np.sum(self.cluster_labels == label)
-                        for label in unique_labels}
+                         for label in unique_labels}
 
         summary = {
             'n_clusters': len(unique_labels[unique_labels >= 0]),
@@ -264,3 +304,109 @@ class ClusteringStrategy:
             ))
 
         return operations
+
+
+class UnclusterOperation(PipelineOperation):
+    """Operation to uncluster data and restore full sample selection"""
+
+    def __init__(self):
+        """Initialize uncluster operation"""
+        super().__init__()
+
+    def execute(self, dataset: SpectraDataset, context: PipelineContext) -> None:
+        """Execute unclustering operation"""
+        if not self.can_execute(dataset, context):
+            print("Cannot execute unclustering: no clustering results found")
+            return
+
+        # Check if we have centroid mapping
+        if not hasattr(context, 'centroid_mapping') or context.centroid_mapping is None:
+            print("Warning: No centroid mapping found, cannot properly uncluster")
+            # Just restore filters
+            if hasattr(context, 'centroid_filters'):
+                context.pop_filters(context.centroid_filters)
+                delattr(context, 'centroid_filters')
+            return
+
+        # Get clustering results from context
+        clustering_results = getattr(context, 'clustering_results', {})
+        cluster_labels = clustering_results.get('labels')
+        centroid_mapping = context.centroid_mapping
+
+        if cluster_labels is None:
+            print("Warning: No cluster labels found")
+            return
+
+        # Assign samples to cluster groups based on their cluster labels
+        self._assign_samples_to_groups(dataset, cluster_labels)
+
+        # Remove centroids from dataset (optional - depends on use case)
+        # self._remove_centroids_from_dataset(dataset, centroid_mapping)
+
+        # Restore original filters (remove centroid selection)
+        if hasattr(context, 'centroid_filters'):
+            context.pop_filters(context.centroid_filters)
+            delattr(context, 'centroid_filters')
+
+        # Clear centroid mapping
+        context.centroid_mapping = None
+
+        print("Unclustering completed: restored full sample selection")
+
+    def _assign_samples_to_groups(self, dataset: SpectraDataset, cluster_labels: np.ndarray) -> None:
+        """Assign samples to groups based on cluster labels"""
+        try:
+            import polars as pl
+
+            # Get original samples (not centroids)
+            original_mask = dataset.indices['processing'] != "centroids"
+            original_indices = dataset.indices.filter(original_mask)
+
+            if len(original_indices) != len(cluster_labels):
+                print(f"Warning: Sample count mismatch. Expected {len(cluster_labels)}, got {len(original_indices)}")
+                return
+
+            # Create mapping of sample_id to cluster group
+            sample_ids = original_indices['sample'].to_list()
+
+            # Update group column based on cluster labels
+            for sample_id, cluster_group in zip(sample_ids, cluster_labels):
+                dataset.indices = dataset.indices.with_columns([
+                    pl.when(pl.col('sample') == sample_id)
+                    .then(int(cluster_group))
+                    .otherwise(pl.col('group'))
+                    .alias('group')
+                ])
+
+            print(f"Assigned {len(sample_ids)} samples to {len(np.unique(cluster_labels))} cluster groups")
+
+        except Exception as e:
+            print(f"Error assigning samples to groups: {e}")
+
+    def _remove_centroids_from_dataset(self, dataset: SpectraDataset, centroid_mapping: dict) -> None:
+        """Remove centroid samples from dataset"""
+        try:
+            import polars as pl
+
+            centroid_sample_ids = centroid_mapping.get('centroid_sample_ids', [])
+
+            # Remove centroids from indices
+            mask = ~dataset.indices['sample'].is_in(centroid_sample_ids)
+            dataset.indices = dataset.indices.filter(mask)
+
+            # Note: In a full implementation, we'd also need to remove from features
+            # This would require more complex feature management in SpectraDataset
+
+            print(f"Removed {len(centroid_sample_ids)} centroid samples")
+
+        except Exception as e:
+            print(f"Error removing centroids: {e}")
+
+    def can_execute(self, dataset: SpectraDataset, context: PipelineContext) -> bool:
+        """Check if unclustering can be executed"""
+        return (hasattr(context, 'clustering_results') and
+                context.clustering_results is not None)
+
+    def get_name(self) -> str:
+        """Get operation name"""
+        return "UnclusterOperation"
