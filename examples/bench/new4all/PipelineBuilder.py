@@ -2,13 +2,14 @@
 PipelineBuilder - Build pipeline operations from configuration
 """
 from typing import Dict, List, Any, Union, Optional
+import inspect
 from PipelineOperation import PipelineOperation
 from PipelineConfig import PipelineConfig
 from PipelineSerializer import PipelineSerializer
 from TransformationOperation import TransformationOperation
 from ClusteringOperation import ClusteringOperation, UnclusterOperation
 from OptimizationOperation import OptimizationOperation
-from DummyOperations import VisualizationOperation  # Keep only visualization as dummy
+from DummyOperations import VisualizationOperation
 
 
 class PipelineBuilder:
@@ -76,7 +77,9 @@ class PipelineBuilder:
     def _build_string_operation(self, operation_name: str) -> Optional[PipelineOperation]:
         """Build operation from string name"""
         if operation_name in self.operation_builders:
-            return self.operation_builders[operation_name](operation_name)        # Try to import as preset
+            return self.operation_builders[operation_name](operation_name)
+
+        # Try to import as preset
         try:
             from TransformationOperation import TransformationOperation
             return TransformationOperation(transformer=operation_name)
@@ -98,125 +101,109 @@ class PipelineBuilder:
             return self._build_transformer_operation(transformer)
 
         # Check for known operation types
-        for op_type in self.operation_builders:
-            if op_type in operation_dict:
-                return self.operation_builders[op_type](operation_dict)
+        for key, builder in self.operation_builders.items():
+            if key in operation_dict:
+                return builder(operation_dict)
 
-        # Check for model specification
+        # Handle as a complex model configuration
         if 'model' in operation_dict:
             return self._build_model(operation_dict)
 
-        return None
+        # If none of the above, try as transformer
+        try:
+            transformer = self.serializer._deserialize_component(operation_dict)
+            return self._build_transformer_operation(transformer)
+        except:
+            return None
 
     def _build_transformation(self, config: Any) -> PipelineOperation:
         """Build transformation operation"""
-        from TransformationOperation import TransformationOperation
-
-        if isinstance(config, str):
-            # Simple transformation by name
-            return TransformationOperation(transformer=config)
-        elif isinstance(config, dict):
-            transformer = config.get('transformer', config)
-            if isinstance(transformer, dict) and 'class' in transformer:
-                transformer = self.serializer._deserialize_component(transformer)
-            return TransformationOperation(transformer=transformer)
-        else:
-            return TransformationOperation(transformer=config)
+        return TransformationOperation(transformer=config)
 
     def _build_augmentation(self, config: Dict[str, Any]) -> List[PipelineOperation]:
-        """Build augmentation operations using TransformationOperation"""
+        """Build augmentation operations"""
         operations = []
 
-        # Determine augmentation type
-        aug_type = 'sample_augmentation' if 'sample_augmentation' in config else 'feature_augmentation'
-        augmentations = config[aug_type]
+        aug_type = 'feature_augmentation' if 'feature_augmentation' in config else 'sample_augmentation'
+        aug_list = config[aug_type]
 
-        if not isinstance(augmentations, list):
-            augmentations = [augmentations]
-
-        for aug_config in augmentations:
-            if aug_config is None:
-                continue
-
-            # Handle different augmentation formats
+        for aug_config in aug_list:
             if isinstance(aug_config, list):
-                # Multiple augmentations in parallel
+                # Handle nested augmentations
                 for sub_aug in aug_config:
                     if sub_aug is not None:
                         transformer = self._resolve_transformer(sub_aug)
                         if transformer:
-                            operations.append(TransformationOperation(
-                                transformer=transformer,
-                                mode=aug_type
-                            ))
-            else:
-                # Single augmentation
+                            operations.append(TransformationOperation(transformer=transformer))
+            elif aug_config is not None:
                 transformer = self._resolve_transformer(aug_config)
                 if transformer:
-                    operations.append(TransformationOperation(
-                        transformer=transformer,
-                        mode=aug_type
-                    ))
+                    operations.append(TransformationOperation(transformer=transformer))
 
         return operations
 
     def _build_split(self, config: Any) -> PipelineOperation:
-        """Build split operation"""
+        """Build splitting operation"""
         from SplitOperation import SplitOperation
-
-        if isinstance(config, dict) and 'class' in config:
-            splitter = self.serializer._deserialize_component(config)
-        else:
-            splitter = config
-
-        return SplitOperation(splitter=splitter)
+        return SplitOperation(splitter=config)
 
     def _build_cluster(self, config: Dict[str, Any]) -> PipelineOperation:
         """Build clustering operation"""
-        from ClusteringOperation import ClusteringOperation
+        clusterer = config['cluster']
 
-        cluster_config = config['cluster']
-        if isinstance(cluster_config, dict) and 'class' in cluster_config:
-            clusterer = self.serializer._deserialize_component(cluster_config)
+        # Extract clustering parameters from the clusterer object
+        if hasattr(clusterer, '__class__') and clusterer.__class__.__name__ == 'KMeans':
+            return ClusteringOperation(
+                clustering_method="kmeans",
+                n_clusters=getattr(clusterer, 'n_clusters', 3),
+                random_state=getattr(clusterer, 'random_state', None)
+            )
         else:
-            clusterer = cluster_config
+            # Default clustering operation
+            return ClusteringOperation(clustering_method="kmeans", n_clusters=3)
 
-        return ClusteringOperation(clusterer=clusterer)
-
-    def _build_dispatch(self, config: Dict[str, Any]) -> PipelineOperation:
-        """Build dispatch operation"""
+    def _build_dispatch(self, config: Dict[str, Any]) -> List[PipelineOperation]:
+        """Build dispatch operations"""
         from DispatchOperation import DispatchOperation
 
-        dispatch_configs = config['dispatch']
-        branches = []
+        branches = config['dispatch']
+        branch_operations = []
 
-        for branch_config in dispatch_configs:
-            branch_operations = []
-
-            # Build each operation in the branch
-            for op_config in self._flatten_branch_config(branch_config):
-                operation = self._build_operation(op_config)
-                if operation:
-                    if isinstance(operation, list):
-                        branch_operations.extend(operation)
+        for branch in branches:
+            if isinstance(branch, list):
+                # Handle list-style branch
+                branch_ops = []
+                for step in branch:
+                    op = self._build_operation(step)
+                    if op:
+                        if isinstance(op, list):
+                            branch_ops.extend(op)
+                        else:
+                            branch_ops.append(op)
+                branch_operations.append(branch_ops)
+            else:
+                # Handle dict-style branch - convert dict to operations
+                branch_ops = []
+                op = self._build_operation(step)
+                if op:
+                    if isinstance(op, list):
+                        branch_ops.extend(op)
                     else:
-                        branch_operations.append(operation)
+                        branch_ops.append(op)
 
-            branches.append(branch_operations)
-
-        return DispatchOperation(branches=branches)
+        return [DispatchOperation(operations=branch_operations)]
 
     def _build_stack(self, config: Dict[str, Any]) -> PipelineOperation:
         """Build stacking operation"""
-        from StackOperation import StackOperation
+        from StackingOperation import StackingOperation
 
         stack_config = config['stack']
+        main_model_config = {
+            'model': stack_config['model'],
+            'y_pipeline': stack_config.get('y_pipeline')
+        }
+        main_model = self._resolve_model(main_model_config.get('model'))
 
-        # Main model
-        main_model_config = stack_config['model']
-        main_model = self._resolve_model(main_model_config)
-
-        # Base learners
         base_learners = []
         for base_config in stack_config.get('base_learners', []):
             base_model = self._resolve_model(base_config.get('model'))
@@ -225,29 +212,41 @@ class PipelineBuilder:
                 'y_pipeline': base_config.get('y_pipeline'),
                 'finetune_params': base_config.get('finetune_params')
             })
-
-        return StackOperation(
-            meta_model=main_model,
+        return StackingOperation(
+            main_model=main_model,
             base_learners=base_learners,
-            y_pipeline=stack_config.get('y_pipeline')
+            y_pipeline=main_model_config.get('y_pipeline')
         )
 
-    def _build_model(self, config: Dict[str, Any]) -> PipelineOperation:
-        """Build model operation"""
+    def _build_model(self, config: Dict[str, Any]) -> Union[PipelineOperation, List[PipelineOperation]]:
+        """Build model operation and related operations"""
         from ModelOperation import SklearnModelOperation
 
         model_config = config.get('model', config)
         model = self._resolve_model(model_config)
 
-        # Extract additional parameters
-        y_pipeline = config.get('y_pipeline')
-        finetune_params = config.get('finetune_params')
+        # Build the main model operation
+        operations = []
 
-        return SklearnModelOperation(
-            model=model,
-            y_pipeline=y_pipeline,
-            finetune_params=finetune_params
-        )
+        # Add y_pipeline operation if present
+        if 'y_pipeline' in config and config['y_pipeline'] is not None:
+            y_pipeline_op = self._build_y_pipeline(config['y_pipeline'])
+            operations.append(y_pipeline_op)
+
+        # Add the model operation
+        model_op = SklearnModelOperation(model=model)
+        operations.append(model_op)
+
+        # Add finetune operation if present
+        if 'finetune_params' in config and config['finetune_params'] is not None:
+            finetune_op = self._build_finetune(config['finetune_params'])
+            operations.append(finetune_op)
+
+        # Return single operation or list of operations
+        if len(operations) == 1:
+            return operations[0]
+        else:
+            return operations
 
     def _build_finetune(self, config: Any) -> PipelineOperation:
         """Build fine-tuning operation"""
@@ -265,15 +264,13 @@ class PipelineBuilder:
                 transformer = self._resolve_transformer(t_config)
                 if transformer:
                     transformers.append(transformer)
-            return TransformationOperation(transformer=transformers, target_transformation=True)
+            return TransformationOperation(transformer=transformers)
         else:
             transformer = self._resolve_transformer(config)
-            return TransformationOperation(transformer=transformer, target_transformation=True)
+            return TransformationOperation(transformer=transformer)
 
     def _build_plot(self, config: Any) -> PipelineOperation:
         """Build plotting operation"""
-        from VisualizationOperation import VisualizationOperation
-
         plot_type = config if isinstance(config, str) else config.__class__.__name__
         return VisualizationOperation(plot_type=plot_type)
 
@@ -295,9 +292,21 @@ class PipelineBuilder:
             return config
 
     def _resolve_model(self, config: Any) -> Any:
-        """Resolve model from configuration"""
-        if isinstance(config, dict) and 'class' in config:
-            return self.serializer._deserialize_component(config)
+        """Resolve model from configuration with support for TensorFlow models that need input_shape"""
+
+        if isinstance(config, dict):
+            if 'class' in config:
+                return self.serializer._deserialize_component(config)
+            elif 'factory' in config:
+                # Handle model factories that need input shape
+                factory = config['factory']
+                if config.get('requires_input_shape', False):
+                    # Return a lambda that will be called with dataset during execution
+                    return lambda dataset: factory(self._get_input_shape_from_dataset(dataset))
+                else:
+                    return factory()
+            else:
+                return config
         elif isinstance(config, str):
             # Try preset mappings
             if config in self.serializer.preset_mappings:
@@ -306,7 +315,68 @@ class PipelineBuilder:
             else:
                 return config
         else:
-            return config
+            # Check if this is a function that needs input_shape
+            if callable(config):
+                # Check if it has a framework decorator
+                if hasattr(config, 'framework'):
+                    framework = config.framework
+                    if framework in ['tensorflow', 'pytorch']:
+                        # Check if the function signature has input_shape parameter
+                        try:
+                            sig = inspect.signature(config)
+                            if 'input_shape' in sig.parameters:
+                                # Return a function wrapper that will be called with dataset
+                                def model_factory(dataset):
+                                    input_shape = self._get_input_shape_from_dataset(dataset)
+                                    return config(input_shape)
+                                return model_factory
+                            else:
+                                # Call the function normally
+                                return config()
+                        except (ValueError, TypeError):
+                            # If signature inspection fails, try calling it
+                            return config()
+                    else:
+                        # sklearn or other framework
+                        return config()
+                else:
+                    # No framework decorator, check signature for input_shape
+                    try:
+                        sig = inspect.signature(config)
+                        if 'input_shape' in sig.parameters:
+                            # Return a function wrapper that will be called with dataset
+                            def model_factory(dataset):
+                                input_shape = self._get_input_shape_from_dataset(dataset)
+                                return config(input_shape)
+                            return model_factory
+                        else:
+                            # Regular function call
+                            return config()
+                    except (ValueError, TypeError):
+                        # If signature inspection fails, try calling it
+                        return config()
+            else:
+                # Regular model instance
+                return config
+
+    def _get_input_shape_from_dataset(self, dataset):
+        """Get input shape from dataset for TensorFlow models"""
+        # Get a sample from the dataset to determine shape
+        sample_view = dataset.select(partition="train")
+        if len(sample_view) == 0:
+            sample_view = dataset.select(partition="all")
+
+        if len(sample_view) > 0:
+            features = sample_view.get_features(concatenate=True)
+            if len(features.shape) == 2:
+                # Return shape for 2D input (samples, features)
+                return (features.shape[1],)
+            else:
+                # Return shape for 3D input (samples, timesteps, features)
+                return features.shape[1:]
+        else:
+            # Fallback shape
+            return (1000,)
 
     def _flatten_branch_config(self, branch_config: Dict[str, Any]) -> List[Any]:
         """Flatten branch configuration into list of operations"""

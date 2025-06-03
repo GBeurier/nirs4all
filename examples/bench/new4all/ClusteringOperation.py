@@ -151,7 +151,6 @@ class ClusteringOperation(PipelineOperation):
         if self.clustering_method == "kmeans":
             return KMeans(
                 n_clusters=self.n_clusters,
-                random_state=42,
                 **self.clustering_params
             )
         elif self.clustering_method == "dbscan":
