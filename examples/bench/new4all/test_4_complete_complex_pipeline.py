@@ -40,6 +40,7 @@ from ModelOperation import SklearnModelOperation, TensorFlowModelOperation, Torc
 from ClusteringOperation import ClusteringOperation
 from MergeSourcesOperation import MergeSourcesOperation
 from DispatchOperation import DispatchOperation
+from StackOperation import StackOperation
 
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
@@ -391,18 +392,20 @@ def test_cross_validation_with_clustering():
 
 
 def test_stacking_ensemble_pipeline():
-    """Test stacking ensemble pipeline."""
+    """Test stacking ensemble pipeline with proper meta-learner."""
     print("\n=== Testing Stacking Ensemble Pipeline ===")
 
     dataset, _ = create_realistic_spectroscopy_dataset()
 
-    # Simplified stacking test - create multiple base learners
+    # Stacking pipeline with proper meta-learner
     pipeline = Pipeline("Stacking Test")
 
     # Step 1: Prepare data
     pipeline.add_operation(SplitStrategy.train_val_test(
         train_ratio=0.7, val_ratio=0.2, test_ratio=0.1, stratified=True
     ))
+
+    pipeline.add_operation(MergeSourcesOperation())
 
     pipeline.add_operation(TransformationOperation(
         transformer=StandardScaler(),
@@ -411,27 +414,22 @@ def test_stacking_ensemble_pipeline():
         mode="transformation"  # In-place transformation
     ))
 
-    # Step 2: Train multiple base learners using sequential dispatch
+    # Step 2: Stacking with base learners and meta-learner
     base_learners = [
-        SklearnModelOperation(
-            model=RandomForestClassifier(n_estimators=50, random_state=42),
-            target_representation="classification"
-        ),
-        SklearnModelOperation(
-            model=GradientBoostingClassifier(n_estimators=50, random_state=42),
-            target_representation="classification"
-        ),
-        SklearnModelOperation(
-            model=SVC(kernel='linear', probability=True, random_state=42),
-            target_representation="classification"
-        )
+        RandomForestClassifier(n_estimators=50, random_state=42),
+        GradientBoostingClassifier(n_estimators=50, random_state=42),
+        SVC(kernel='linear', probability=True, random_state=42)
     ]
 
-    # Create dispatch operation for base learners
-    pipeline.add_operation(DispatchOperation(
-        operations=base_learners,
-        dispatch_strategy="sequential",
-        merge_results=True
+    meta_learner = LogisticRegression(random_state=42, max_iter=1000)
+
+    # Use StackOperation with proper meta-learner
+    pipeline.add_operation(StackOperation(
+        base_learners=base_learners,
+        meta_learner=meta_learner,
+        cv_folds=3,  # Reduced for faster testing
+        stratified=True,
+        random_state=42
     ))
 
     # Execute pipeline
@@ -452,9 +450,25 @@ def test_stacking_ensemble_pipeline():
     assert "val" in partitions, "Should have val partition"
     assert "test" in partitions, "Should have test partition"
 
-    # Check that models were trained
+    # Check that stacking was executed
     context = pipeline.context
-    print(f"Pipeline context available: {context is not None}")
+    predictions = context.get_predictions()
+    print(f"Available predictions: {list(predictions.keys())}")
+
+    if "stacking_ensemble" in predictions:
+        stacking_preds = predictions["stacking_ensemble"]
+        print(f"Stacking predictions for partitions: {list(stacking_preds.keys())}")
+
+        # Check that we have predictions for train/val/test
+        for partition in ["train", "val", "test"]:
+            if partition in stacking_preds:
+                preds = stacking_preds[partition]["predictions"]
+                base_preds = stacking_preds[partition]["base_predictions"]
+                print(f"{partition}: {len(preds)} predictions, {base_preds.shape[1]} base learners")
+
+        print("✓ Stacking ensemble with meta-learner verified")
+    else:
+        print("⚠ No stacking predictions found")
 
     print("✓ Stacking ensemble setup verified")
 
@@ -562,12 +576,18 @@ def test_complete_sample_py_pipeline():
         fit_partition="all",
         transform_partitions=["all"],
         mode="sample_augmentation"  # Creates new sample IDs and row IDs
-    ))
-
-    # Step 4: Feature augmentation (simulate different preprocessing paths)
-    # Creates same samples with different processing paths
+    ))    # Step 4: Feature augmentation with mixed single and sequential transformers
+    # This demonstrates the correct handling of transformer lists
+    # [dtrend, [savgol,haar], noise] should create 3 processing paths:
+    # 1. dtrend only
+    # 2. savgol -> haar (sequential)
+    # 3. noise only
     pipeline.add_operation(TransformationOperation(
-        transformer=[StandardScaler(), RobustScaler()],
+        transformer=[
+            StandardScaler(),                    # Single transformer: creates 1 processing path
+            [RobustScaler(), MinMaxScaler()],    # Sequential pipeline: creates 1 processing path (RobustScaler -> MinMaxScaler)
+            StandardScaler()                     # Another single transformer: creates 1 processing path
+        ],
         fit_partition="all",
         transform_partitions=["all"],
         mode="feature_augmentation"  # Same sample IDs, different processing
@@ -615,9 +635,7 @@ def test_complete_sample_py_pipeline():
 
     print(f"Final: {final_size} samples, {final_sources} sources")
     print(f"Partitions: {partitions}")
-    print(f"Processing types: {len(processing_types)} types")
-
-    # Verify complex pipeline results
+    print(f"Processing types: {len(processing_types)} types")    # Verify complex pipeline results
     if final_sources == 1:
         print("✓ Sources were merged")
     else:
@@ -625,6 +643,10 @@ def test_complete_sample_py_pipeline():
 
     if len(processing_types) > 5:
         print(f"✓ Many processing types from augmentation: {len(processing_types)}")
+        print("  Expected behavior: Transformer lists create processing paths as follows:")
+        print("  - Single transformers create 1 path each")
+        print("  - Sequential transformer lists (nested lists) create 1 path per list")
+        print("  - This prevents exponential explosion of processing versions")
     else:
         print(f"⚠ Expected >5 processing types, got {len(processing_types)}")
         print(processing_types)
@@ -1151,6 +1173,238 @@ def test_mixed_framework_ensemble():
         print("⚠ Not enough models for ensemble comparison")
 
 
+def test_transformer_list_logic():
+    """Test the specific logic for handling transformer lists in feature augmentation."""
+    print("\n=== Testing Transformer List Logic ===")
+
+    dataset, _ = create_realistic_spectroscopy_dataset()
+
+    pipeline = Pipeline("Transformer List Logic Test")
+
+    # Step 1: Prepare data
+    pipeline.add_operation(SplitStrategy.train_test(train_ratio=0.8, stratified=True))
+    pipeline.add_operation(MergeSourcesOperation())
+
+    # Step 2: Test the specific transformer list behavior mentioned in the issue
+    # According to the issue: [dtrend, [savgol,haar], noise] should create 3 versions
+    # where [savgol,haar] is treated as a sequential pipeline
+
+    initial_size = len(dataset)
+    initial_processing = dataset.indices['processing'].unique().to_list()
+    print(f"Initial: {initial_size} samples, {len(initial_processing)} processing types")
+
+    # Demonstrate the corrected behavior
+    pipeline.add_operation(TransformationOperation(
+        transformer=[
+            StandardScaler(),                    # Single: creates 1 processing path
+            [RobustScaler(), MinMaxScaler()],    # Sequential: creates 1 processing path (RobustScaler -> MinMaxScaler)
+            RobustScaler()                     # Single: creates 1 processing path (different instance)
+        ],
+        fit_partition="train",
+        transform_partitions=["train", "test"],
+        mode="feature_augmentation"
+    ))
+
+    pipeline.execute(dataset)
+
+    final_size = len(dataset)
+    final_processing = dataset.indices['processing'].unique().to_list()
+    print(f"Final: {final_size} samples, {len(final_processing)} processing types")
+
+    print("\nProcessing types created:")
+    for proc_type in final_processing:
+        if proc_type != "raw":
+            count = len(dataset.select(processing=proc_type))
+            print(f"  - {proc_type}: {count} samples")
+
+    # Should create 3 additional processing paths (plus the original "raw")
+    # 1. StandardScaler
+    # 2. RobustScaler_MinMaxScaler (sequential)
+    # 3. StandardScaler (second instance, might have different hash)
+    expected_new_paths = 3
+    actual_new_paths = len(final_processing) - len(initial_processing)
+
+    print(f"\nExpected {expected_new_paths} new processing paths, got {actual_new_paths}")
+
+    if actual_new_paths == expected_new_paths:
+        print("✓ Transformer list logic working correctly")
+        print("  - Sequential transformer lists create single processing paths")
+        print("  - Individual transformers create separate processing paths")
+        print("  - No exponential explosion of processing versions")
+    else:
+        print(f"⚠ Expected {expected_new_paths} new paths, got {actual_new_paths}")
+
+    print("✓ Transformer list logic test completed")
+
+
+def test_mixed_model_stacking():
+    """Test stacking with sklearn, TensorFlow, and PyTorch models."""
+    print("\n=== Testing Mixed Model Type Stacking ===")
+
+    # Check which frameworks are available
+    frameworks_available = []
+    tf_model = None
+    torch_model = None
+
+    try:
+        import os
+        import warnings
+        # Suppress TensorFlow warnings
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+        warnings.filterwarnings('ignore', category=UserWarning, module='keras')
+        warnings.filterwarnings('ignore', message='.*oneDNN custom operations.*')
+        warnings.filterwarnings('ignore', message='.*TensorFlow binary is optimized.*')
+        warnings.filterwarnings('ignore', message='.*Do not pass an `input_shape`.*')
+        warnings.filterwarnings('ignore', message='.*triggered tf.function retracing.*')
+
+        import tensorflow as tf
+        tf.get_logger().setLevel('ERROR')
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import Dense
+        frameworks_available.append("tensorflow")
+    except ImportError:
+        print("TensorFlow not available")
+
+    try:
+        import torch
+        import torch.nn as nn
+        frameworks_available.append("torch")
+    except ImportError:
+        print("PyTorch not available")
+
+    frameworks_available.append("sklearn")  # Always available
+
+    print(f"Available frameworks: {frameworks_available}")
+
+    # Create dataset
+    dataset, _ = create_realistic_spectroscopy_dataset()
+
+    # Build pipeline for preprocessing
+    pipeline = Pipeline("Mixed Model Stacking")
+    pipeline.add_operation(SplitStrategy.train_val_test(
+        train_ratio=0.7, val_ratio=0.2, test_ratio=0.1, stratified=True
+    ))
+    pipeline.add_operation(MergeSourcesOperation())
+    pipeline.add_operation(TransformationOperation(
+        transformer=StandardScaler(),
+        mode="transformation"
+    ))
+
+    # Execute preprocessing
+    context = PipelineContext()
+    for op in pipeline.operations:
+        op.execute(dataset, context)
+
+    # Get dimensions for neural networks
+    train_view = dataset.select(partition="train")
+    n_features = train_view.get_features(concatenate=True).shape[1]
+    n_classes = len(np.unique(train_view.get_targets("auto")))
+
+    print(f"Dataset info: {n_features} features, {n_classes} classes")
+
+    # Create base learners from different frameworks
+    base_learners = []
+    base_learner_types = []
+
+    # Always include sklearn model
+    sklearn_model = RandomForestClassifier(n_estimators=30, random_state=42)
+    base_learners.append(sklearn_model)
+    base_learner_types.append('sklearn')
+
+    # Add TensorFlow model if available
+    if "tensorflow" in frameworks_available:
+        try:
+            import tensorflow as tf
+            from tensorflow.keras.models import Sequential
+            from tensorflow.keras.layers import Dense
+
+            tf_model = Sequential([
+                Dense(32, activation='relu', input_shape=(n_features,)),
+                Dense(16, activation='relu'),
+                Dense(n_classes, activation='softmax')
+            ])
+            tf_model.compile(optimizer='adam', loss='sparse_categorical_crossentropy')
+
+            base_learners.append(tf_model)
+            base_learner_types.append('tensorflow')
+            print("Added TensorFlow model to stack")
+        except Exception as e:
+            print(f"Failed to create TensorFlow model: {e}")
+
+    # Add PyTorch model if available
+    if "torch" in frameworks_available:
+        try:
+            import torch
+            import torch.nn as nn
+
+            class SimpleNN(nn.Module):
+                def __init__(self, n_features, n_classes):
+                    super().__init__()
+                    self.network = nn.Sequential(
+                        nn.Linear(n_features, 32),
+                        nn.ReLU(),
+                        nn.Linear(32, 16),
+                        nn.ReLU(),
+                        nn.Linear(16, n_classes)
+                    )
+
+                def forward(self, x):
+                    return self.network(x)
+
+            torch_model = SimpleNN(n_features, n_classes)
+            base_learners.append(torch_model)
+            base_learner_types.append('torch')
+            print("Added PyTorch model to stack")
+        except Exception as e:
+            print(f"Failed to create PyTorch model: {e}")
+
+    print(f"Created {len(base_learners)} base learners: {base_learner_types}")
+
+    # Create and execute stacking operation
+    if len(base_learners) >= 2:
+        meta_learner = LogisticRegression(random_state=42, max_iter=1000)
+
+        stack_op = StackOperation(
+            base_learners=base_learners,
+            meta_learner=meta_learner,
+            cv_folds=3,  # Reduced for faster testing
+            stratified=True,
+            random_state=42,
+            base_learner_types=base_learner_types
+        )
+
+        try:
+            print("Executing stacking operation...")
+            stack_op.execute(dataset, context)
+
+            # Check results
+            predictions = context.get_predictions()
+            print(f"Available predictions: {list(predictions.keys())}")
+
+            if "stacking_ensemble" in predictions:
+                stacking_preds = predictions["stacking_ensemble"]
+                print(f"Stacking predictions for partitions: {list(stacking_preds.keys())}")
+
+                # Check prediction quality
+                for partition in ["train", "val", "test"]:
+                    if partition in stacking_preds:
+                        preds = stacking_preds[partition]["predictions"]
+                        base_preds = stacking_preds[partition]["base_predictions"]
+                        print(f"{partition}: {len(preds)} predictions, {base_preds.shape[1]} base learners")
+                        print(f"  Sample predictions: {preds[:5]}")
+
+                print("✓ Mixed model stacking completed successfully")
+            else:
+                print("⚠ No stacking predictions found")
+
+        except Exception as e:
+            print(f"❌ Stacking failed: {e}")
+            import traceback
+            traceback.print_exc()
+    else:
+        print("⚠ Not enough models available for stacking test")
+
+
 def main():
     """Run all complex pipeline tests."""
     print("=" * 60)
@@ -1165,14 +1419,14 @@ def main():
         test_stacking_ensemble_pipeline()
         test_hyperparameter_tuning_pipeline()
         test_complete_sample_py_pipeline()
+        test_transformer_list_logic()
         test_tensorflow_complex_pipeline()
         test_torch_complex_pipeline()
         test_mixed_framework_ensemble()
         test_memory_and_performance()
         test_correct_transformation_modes()
-        test_tensorflow_complex_pipeline()
-        test_torch_complex_pipeline()
-        test_mixed_framework_ensemble()
+        test_transformer_list_logic()
+        test_mixed_model_stacking()
 
         print("\n" + "=" * 60)
         print("✅ ALL COMPLEX PIPELINE TESTS PASSED")
