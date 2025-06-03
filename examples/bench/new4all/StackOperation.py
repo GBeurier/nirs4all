@@ -16,8 +16,7 @@ class StackOperation(PipelineOperation):
     """
     Generic stacking operation that supports sklearn, TensorFlow, and PyTorch models.
 
-    This implements proper stacking where:
-    1. Base learners are trained on K-1 folds and predict on the held-out fold
+    This implements proper stacking where:    1. Base learners are trained on K-1 folds and predict on the held-out fold
     2. Meta-features are constructed from out-of-fold predictions
     3. Meta-learner is trained on these meta-features
     4. Final predictions use base learners trained on full training set + meta-learner
@@ -25,7 +24,7 @@ class StackOperation(PipelineOperation):
 
     def __init__(self,
                  base_learners: List[Union[BaseEstimator, Any]],
-                 meta_learner: Optional[BaseEstimator] = None,
+                 meta_learner: Optional[Union[BaseEstimator, Any]] = None,
                  cv_folds: int = 5,
                  stratified: bool = True,
                  random_state: int = 42,
@@ -44,7 +43,7 @@ class StackOperation(PipelineOperation):
             base_learner_types: Types of base learners ('sklearn', 'tensorflow', 'torch')
         """
         self.base_learners = base_learners
-        self.meta_learner = meta_learner or LogisticRegression(random_state=random_state)
+        self.meta_learner = meta_learner if meta_learner is not None else LogisticRegression(random_state=random_state)
         self.cv_folds = cv_folds
         self.stratified = stratified
         self.random_state = random_state

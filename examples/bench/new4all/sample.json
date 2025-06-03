@@ -60,7 +60,7 @@
           {
             "model": {
               "class": "sklearn.ensemble.RandomForestClassifier",
-              "params": { "random_state": 42, "n_estimators": 100, "max_depth": 10 }
+              "params": { "random_state": 42, "max_depth": 10 }
             },
             "y_pipeline": { "class": "sklearn.preprocessing.StandardScaler" }
           }
@@ -84,7 +84,7 @@
           "stack": {
             "model": {
               "class": "sklearn.ensemble.RandomForestClassifier",
-              "params": { "random_state": 42, "n_estimators": 100, "max_depth": 10 }
+              "params": { "random_state": 42, "max_depth": 10 }
             },
             "y_pipeline": { "class": "sklearn.preprocessing.StandardScaler" },
             "base_learners": [
