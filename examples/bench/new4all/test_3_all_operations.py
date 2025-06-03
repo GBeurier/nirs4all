@@ -256,9 +256,9 @@ def test_model_operations():
     transform_op.execute(dataset, context)    # Train classification model
     model_op = ModelOperation(
         model=RandomForestClassifier(n_estimators=50, random_state=42),
-        target_representation="auto",
-        train_on="train",
-        predict_on=["train", "val", "test"]
+        # target_representation="auto",
+        # train_on="train",
+        # predict_on=["train", "val", "test"]
     )
 
     model_op.execute(dataset, context)    # Check predictions

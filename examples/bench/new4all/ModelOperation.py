@@ -5,7 +5,9 @@ Simplified ModelOperation for testing the fold-based architecture
 class ModelOperation:
     """Simplified model operation for testing."""
 
-    def __init__(self, model, model_name=None):
+    def __init__(self, model, model_name=None, target_representation="auto",
+            train_on="train",
+            predict_on=["all"]):
         self.model = model
         self.model_name = model_name
 
@@ -23,9 +25,7 @@ class ModelOperation:
         test_view = dataset.select(partition="test")
         if len(test_view) > 0:
             X_test = test_view.get_features(concatenate=True)
-            y_pred = self.model.predict(X_test)
-
-            # Store predictions in dataset
+            y_pred = self.model.predict(X_test)            # Store predictions in dataset
             dataset.add_predictions(
                 sample_ids=test_view.sample_ids,
                 predictions=y_pred,
@@ -33,6 +33,18 @@ class ModelOperation:
                 partition="test",
                 fold=-1,
                 prediction_type="raw"
+            )
+
+            # Also store in context for testing/validation
+            context.add_predictions(
+                model_name=self.get_name(),
+                predictions={
+                    "test": {
+                        "predictions": y_pred,
+                        "sample_ids": test_view.sample_ids,
+                        "fold": -1
+                    }
+                }
             )
 
     def get_name(self):
