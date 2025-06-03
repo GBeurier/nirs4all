@@ -99,10 +99,10 @@ class Pipeline:
                         raise RuntimeError(error_msg) from e
 
             self.is_fitted = True
-            print(f"\\nPipeline '{self.name}' completed successfully!")
+            print(f"\nPipeline '{self.name}' completed successfully!")
 
         except Exception as e:
-            print(f"\\nPipeline '{self.name}' failed at step {self.current_step}: {str(e)}")
+            print(f"\nPipeline '{self.name}' failed at step {self.current_step}: {str(e)}")
             raise
 
         return dataset

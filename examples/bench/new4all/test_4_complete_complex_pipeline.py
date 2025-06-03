@@ -36,7 +36,7 @@ from PipelineContext import PipelineContext
 from OperationFactory import OperationFactory
 from SplitOperation import SplitStrategy, SplitOperation
 from TransformationOperation import TransformationOperation
-from ModelOperation import ModelOperation
+from ModelOperation import SklearnModelOperation, TensorFlowModelOperation, TorchModelOperation
 from ClusteringOperation import ClusteringOperation
 from MergeSourcesOperation import MergeSourcesOperation
 from DispatchOperation import DispatchOperation
@@ -156,10 +156,8 @@ def test_basic_branching_pipeline():
             fit_partition="train",
             transform_partitions=["train", "test"],
             mode="transformation"
-        ),
-        ModelOperation(
-            model=RandomForestClassifier(n_estimators=100, random_state=42),
-            target_representation="classification"
+        ),        SklearnModelOperation(
+            model=RandomForestClassifier(n_estimators=100, random_state=42)
         )
     ]
 
@@ -170,10 +168,8 @@ def test_basic_branching_pipeline():
             fit_partition="train",
             transform_partitions=["train", "test"],
             mode="transformation"
-        ),
-        ModelOperation(
-            model=LogisticRegression(max_iter=1000, random_state=42),
-            target_representation="classification"
+        ),        SklearnModelOperation(
+            model=LogisticRegression(max_iter=1000, random_state=42)
         )
     ]
 
@@ -310,7 +306,7 @@ def test_sample_augmentation_only():
     ))
 
     # Step 4: Model training on sample-augmented data
-    pipeline.add_operation(ModelOperation(
+    pipeline.add_operation(SklearnModelOperation(
         model=RandomForestClassifier(n_estimators=50, random_state=42),
         target_representation="classification"
     ))
@@ -417,15 +413,15 @@ def test_stacking_ensemble_pipeline():
 
     # Step 2: Train multiple base learners using sequential dispatch
     base_learners = [
-        ModelOperation(
+        SklearnModelOperation(
             model=RandomForestClassifier(n_estimators=50, random_state=42),
             target_representation="classification"
         ),
-        ModelOperation(
+        SklearnModelOperation(
             model=GradientBoostingClassifier(n_estimators=50, random_state=42),
             target_representation="classification"
         ),
-        ModelOperation(
+        SklearnModelOperation(
             model=SVC(kernel='linear', probability=True, random_state=42),
             target_representation="classification"
         )
@@ -486,7 +482,7 @@ def test_hyperparameter_tuning_pipeline():
 
     # Step 2: Test different hyperparameter combinations using sequential dispatch
     param_models = [
-        ModelOperation(
+        SklearnModelOperation(
             model=RandomForestClassifier(
                 n_estimators=50,
                 max_depth=10,
@@ -494,7 +490,7 @@ def test_hyperparameter_tuning_pipeline():
             ),
             target_representation="classification"
         ),
-        ModelOperation(
+        SklearnModelOperation(
             model=RandomForestClassifier(
                 n_estimators=100,
                 max_depth=20,
@@ -502,7 +498,7 @@ def test_hyperparameter_tuning_pipeline():
             ),
             target_representation="classification"
         ),
-        ModelOperation(
+        SklearnModelOperation(
             model=RandomForestClassifier(
                 n_estimators=200,
                 max_depth=None,
@@ -588,11 +584,11 @@ def test_complete_sample_py_pipeline():
 
     # Step 7: Model training with dispatch
     model_operations = [
-        ModelOperation(
+        SklearnModelOperation(
             model=RandomForestClassifier(random_state=42, n_estimators=50, max_depth=10),
             target_representation="classification"
         ),
-        ModelOperation(
+        SklearnModelOperation(
             model=SVC(kernel='linear', C=1.0, random_state=42),
             target_representation="classification"
         )
@@ -631,6 +627,7 @@ def test_complete_sample_py_pipeline():
         print(f"✓ Many processing types from augmentation: {len(processing_types)}")
     else:
         print(f"⚠ Expected >5 processing types, got {len(processing_types)}")
+        print(processing_types)
 
     # Check for train/test partitions
     if "train" in partitions and "test" in partitions:
@@ -678,7 +675,7 @@ def test_memory_and_performance():
         transform_partitions=["train", "test"],
         mode="transformation"
     ))
-    pipeline.add_operation(ModelOperation(
+    pipeline.add_operation(SklearnModelOperation(
         model=RandomForestClassifier(n_estimators=20, random_state=42),
         target_representation="classification"
     ))
@@ -838,14 +835,329 @@ def test_correct_transformation_modes():
     print("\n✓ Feature packing strategies demonstrated")
 
 
+def test_tensorflow_complex_pipeline():
+    """Test complex pipeline with TensorFlow models."""
+    print("\n=== Testing TensorFlow Complex Pipeline ===")
+
+    try:
+        import os
+        import warnings
+        # Suppress TensorFlow warnings
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+        warnings.filterwarnings('ignore', category=UserWarning, module='keras')
+        warnings.filterwarnings('ignore', message='.*oneDNN custom operations.*')
+        warnings.filterwarnings('ignore', message='.*TensorFlow binary is optimized.*')
+        warnings.filterwarnings('ignore', message='.*Do not pass an `input_shape`.*')
+        warnings.filterwarnings('ignore', message='.*triggered tf.function retracing.*')
+
+        import tensorflow as tf
+        tf.get_logger().setLevel('ERROR')
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import Dense, Dropout
+    except ImportError:
+        print("TensorFlow not available, skipping tests")
+        return
+
+    dataset, _ = create_realistic_spectroscopy_dataset()
+
+    # Create pipeline with TensorFlow model
+    pipeline = Pipeline("TensorFlow Complex Pipeline")
+
+    # Step 1: Split data
+    pipeline.add_operation(SplitStrategy.train_test(train_ratio=0.8, stratified=True))
+
+    # Step 2: Merge sources for TensorFlow
+    pipeline.add_operation(MergeSourcesOperation())
+
+    # Step 3: Preprocessing
+    pipeline.add_operation(TransformationOperation(
+        transformer=StandardScaler(),
+        fit_partition="train",
+        transform_partitions=["train", "test"],
+        mode="transformation"
+    ))
+
+    # Step 4: Get feature dimensions and create TensorFlow model
+    # We'll do this after preprocessing to get the right dimensions
+    initial_size = len(dataset)
+    print(f"Initial dataset size: {initial_size}")
+
+    # Execute preprocessing steps first
+    for op in pipeline.operations[:-1]:  # All except the last (model) operation
+        if hasattr(op, 'execute'):
+            op.execute(dataset, PipelineContext())
+
+    # Now get feature dimensions
+    train_view = dataset.select(partition="train")
+    n_features = train_view.get_features(concatenate=True).shape[1]
+    n_classes = len(np.unique(train_view.get_targets("auto")))
+
+    # Create TensorFlow model
+    tf_model = Sequential([
+        Dense(128, activation='relu', input_shape=(n_features,)),
+        Dropout(0.3),
+        Dense(64, activation='relu'),
+        Dropout(0.2),
+        Dense(n_classes, activation='softmax')
+    ])
+
+    tf_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+    # Add TensorFlow model operation
+    pipeline.add_operation(TensorFlowModelOperation(
+        model=tf_model,
+        epochs=5,  # Reduced for faster testing
+        batch_size=16,
+        verbose=0
+    ))
+
+    # Execute the model operation
+    context = PipelineContext()
+    pipeline.operations[-1].execute(dataset, context)
+
+    final_size = len(dataset)
+    print(f"Final dataset size: {final_size}")
+
+    # Check predictions
+    predictions = context.get_predictions()
+    if predictions:
+        model_name = list(predictions.keys())[-1]
+        test_preds = predictions[model_name].get("test", {}).get("predictions", [])
+        if len(test_preds) > 0:
+            print(f"TensorFlow predictions: {len(test_preds)} values")
+            print("✓ TensorFlow complex pipeline verified")
+        else:
+            print("⚠ No TensorFlow predictions found")
+    else:
+        print("⚠ No predictions in context")
+
+
+def test_torch_complex_pipeline():
+    """Test complex pipeline with PyTorch models."""
+    print("\n=== Testing PyTorch Complex Pipeline ===")
+
+    try:
+        import torch
+        import torch.nn as nn
+    except ImportError:
+        print("PyTorch not available, skipping tests")
+        return
+
+    dataset, _ = create_realistic_spectroscopy_dataset()
+
+    # Create pipeline with PyTorch model
+    pipeline = Pipeline("PyTorch Complex Pipeline")
+
+    # Step 1: Split data
+    pipeline.add_operation(SplitStrategy.train_test(train_ratio=0.8, stratified=True))
+
+    # Step 2: Merge sources for PyTorch
+    pipeline.add_operation(MergeSourcesOperation())
+
+    # Step 3: Preprocessing
+    pipeline.add_operation(TransformationOperation(
+        transformer=StandardScaler(),
+        fit_partition="train",
+        transform_partitions=["train", "test"],
+        mode="transformation"
+    ))
+
+    initial_size = len(dataset)
+    print(f"Initial dataset size: {initial_size}")
+
+    # Execute preprocessing steps first
+    for op in pipeline.operations:
+        if hasattr(op, 'execute'):
+            op.execute(dataset, PipelineContext())
+
+    # Now get feature dimensions and create PyTorch model
+    train_view = dataset.select(partition="train")
+    n_features = train_view.get_features(concatenate=True).shape[1]
+    n_classes = len(np.unique(train_view.get_targets("auto")))
+
+    class AdvancedClassifier(nn.Module):
+        def __init__(self, n_features, n_classes):
+            super().__init__()
+            self.network = nn.Sequential(
+                nn.Linear(n_features, 128),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(128, 64),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(64, 32),
+                nn.ReLU(),
+                nn.Linear(32, n_classes)
+            )
+
+        def forward(self, x):
+            return self.network(x)
+
+    torch_model = AdvancedClassifier(n_features, n_classes)
+
+    # Add PyTorch model operation
+    torch_op = TorchModelOperation(
+        model=torch_model,
+        epochs=5,  # Reduced for faster testing
+        batch_size=16,
+        learning_rate=0.001,
+        device="cpu"
+    )
+
+    # Execute PyTorch model
+    context = PipelineContext()
+    torch_op.execute(dataset, context)
+
+    final_size = len(dataset)
+    print(f"Final dataset size: {final_size}")
+
+    # Check predictions
+    predictions = context.get_predictions()
+    if predictions:
+        model_name = list(predictions.keys())[-1]
+        test_preds = predictions[model_name].get("test", {}).get("predictions", [])
+        if len(test_preds) > 0:
+            print(f"PyTorch predictions: {len(test_preds)} values")
+            print("✓ PyTorch complex pipeline verified")
+        else:
+            print("⚠ No PyTorch predictions found")
+    else:
+        print("⚠ No predictions in context")
+
+
+def test_mixed_framework_ensemble():
+    """Test ensemble with different ML frameworks."""
+    print("\n=== Testing Mixed Framework Ensemble ===")
+
+    # Check if frameworks are available
+    frameworks_available = []
+    try:
+        import os
+        import warnings
+        # Suppress TensorFlow warnings
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+        warnings.filterwarnings('ignore', category=UserWarning, module='keras')
+        warnings.filterwarnings('ignore', message='.*oneDNN custom operations.*')
+        warnings.filterwarnings('ignore', message='.*TensorFlow binary is optimized.*')
+        warnings.filterwarnings('ignore', message='.*Do not pass an `input_shape`.*')
+        warnings.filterwarnings('ignore', message='.*triggered tf.function retracing.*')
+
+        import tensorflow as tf
+        tf.get_logger().setLevel('ERROR')
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import Dense
+        frameworks_available.append("tensorflow")
+    except ImportError:
+        pass
+
+    try:
+        import torch
+        import torch.nn as nn
+        frameworks_available.append("torch")
+    except ImportError:
+        pass
+
+    frameworks_available.append("sklearn")  # Always available
+
+    print(f"Available frameworks: {frameworks_available}")
+
+    dataset, _ = create_realistic_spectroscopy_dataset()
+
+    # Create pipeline with mixed models
+    pipeline = Pipeline("Mixed Framework Ensemble")
+
+    # Prepare data
+    pipeline.add_operation(SplitStrategy.train_test(train_ratio=0.8, stratified=True))
+    pipeline.add_operation(MergeSourcesOperation())
+    pipeline.add_operation(TransformationOperation(
+        transformer=StandardScaler(),
+        mode="transformation"
+    ))
+
+    # Execute preprocessing
+    context = PipelineContext()
+    for op in pipeline.operations:
+        op.execute(dataset, context)
+
+    # Get dimensions for neural networks
+    train_view = dataset.select(partition="train")
+    n_features = train_view.get_features(concatenate=True).shape[1]
+    n_classes = len(np.unique(train_view.get_targets("auto")))
+
+    # Create models from different frameworks
+    models = []
+
+    # Sklearn model
+    models.append(SklearnModelOperation(
+        model=RandomForestClassifier(n_estimators=50, random_state=42),
+        model_name="sklearn_rf"
+    ))
+
+    # TensorFlow model (if available)
+    if "tensorflow" in frameworks_available:
+        tf_model = Sequential([
+            Dense(64, activation='relu', input_shape=(n_features,)),
+            Dense(32, activation='relu'),
+            Dense(n_classes, activation='softmax')
+        ])
+        tf_model.compile(optimizer='adam', loss='categorical_crossentropy')
+
+        models.append(TensorFlowModelOperation(
+            model=tf_model,
+            model_name="tensorflow_nn",
+            epochs=3,
+            verbose=0
+        ))
+
+    # PyTorch model (if available)
+    if "torch" in frameworks_available:
+        class SimpleNN(nn.Module):
+            def __init__(self, n_features, n_classes):
+                super().__init__()
+                self.layers = nn.Sequential(
+                    nn.Linear(n_features, 64),
+                    nn.ReLU(),
+                    nn.Linear(64, 32),
+                    nn.ReLU(),
+                    nn.Linear(32, n_classes)
+                )
+
+            def forward(self, x):
+                return self.layers(x)
+
+        torch_model = SimpleNN(n_features, n_classes)
+        models.append(TorchModelOperation(
+            model=torch_model,
+            model_name="torch_nn",
+            epochs=3,
+            device="cpu"
+        ))
+
+    # Execute all models
+    all_predictions = {}
+    for model_op in models:
+        model_op.execute(dataset, context)
+        predictions = context.get_predictions()
+        model_name = model_op.get_name()
+        if model_name in predictions and "test" in predictions[model_name]:
+            all_predictions[model_name] = predictions[model_name]["test"]["predictions"]
+
+    print(f"Models trained: {list(all_predictions.keys())}")
+    print(f"Prediction counts: {[(name, len(preds)) for name, preds in all_predictions.items()]}")
+
+    if len(all_predictions) >= 2:
+        print("✓ Mixed framework ensemble verified")
+    else:
+        print("⚠ Not enough models for ensemble comparison")
+
+
 def main():
     """Run all complex pipeline tests."""
     print("=" * 60)
     print("TEST 4: COMPLETE COMPLEX PIPELINE")
     print("=" * 60)
 
-    try:
-        # Complex pipeline tests
+    try:        # Complex pipeline tests
         test_basic_branching_pipeline()
         test_feature_augmentation_only()
         test_sample_augmentation_only()
@@ -853,8 +1165,14 @@ def main():
         test_stacking_ensemble_pipeline()
         test_hyperparameter_tuning_pipeline()
         test_complete_sample_py_pipeline()
+        test_tensorflow_complex_pipeline()
+        test_torch_complex_pipeline()
+        test_mixed_framework_ensemble()
         test_memory_and_performance()
         test_correct_transformation_modes()
+        test_tensorflow_complex_pipeline()
+        test_torch_complex_pipeline()
+        test_mixed_framework_ensemble()
 
         print("\n" + "=" * 60)
         print("✅ ALL COMPLEX PIPELINE TESTS PASSED")

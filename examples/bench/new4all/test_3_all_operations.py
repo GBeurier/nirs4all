@@ -25,7 +25,7 @@ from Pipeline import Pipeline
 from PipelineContext import PipelineContext
 from SplitOperation import SplitOperation, SplitStrategy
 from TransformationOperation import TransformationOperation
-from ModelOperation import ModelOperation
+from ModelOperation import SklearnModelOperation, TensorFlowModelOperation, TorchModelOperation
 from ClusteringOperation import ClusteringOperation
 from MergeSourcesOperation import MergeSourcesOperation
 from DispatchOperation import DispatchOperation
@@ -254,11 +254,8 @@ def test_model_operations():
         mode="transformation"
     )
     transform_op.execute(dataset, context)    # Train classification model
-    model_op = ModelOperation(
+    model_op = SklearnModelOperation(
         model=RandomForestClassifier(n_estimators=50, random_state=42),
-        # target_representation="auto",
-        # train_on="train",
-        # predict_on=["train", "val", "test"]
     )
 
     model_op.execute(dataset, context)    # Check predictions
@@ -315,11 +312,8 @@ def test_model_operations():
     transform_op.execute(reg_dataset, context)
 
     # Train regression model
-    reg_model_op = ModelOperation(
-        model=RandomForestRegressor(n_estimators=50, random_state=42),
-        target_representation="auto",
-        train_on="train",
-        predict_on=["test"]
+    reg_model_op = SklearnModelOperation(
+        model=RandomForestRegressor(n_estimators=50, random_state=42)
     )
 
     reg_model_op.execute(reg_dataset, context)
@@ -342,6 +336,166 @@ def test_model_operations():
         assert len(test_preds) == test_size, f"Should predict for test set: expected {test_size}, got {len(test_preds)}"
 
     print("✓ Regression model verified")
+
+    test_tensorflow_model_operations()
+    test_torch_model_operations()
+
+
+def test_tensorflow_model_operations():
+    """Test TensorFlow/Keras model operations."""
+    print("\n=== Testing TensorFlow Model Operations ===")
+
+    try:
+        import os
+        import warnings
+        # Suppress TensorFlow warnings
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+        warnings.filterwarnings('ignore', category=UserWarning, module='keras')
+        warnings.filterwarnings('ignore', message='.*oneDNN custom operations.*')
+        warnings.filterwarnings('ignore', message='.*TensorFlow binary is optimized.*')
+        warnings.filterwarnings('ignore', message='.*Do not pass an `input_shape`.*')
+        warnings.filterwarnings('ignore', message='.*triggered tf.function retracing.*')
+
+        import tensorflow as tf
+        tf.get_logger().setLevel('ERROR')
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import Dense, Dropout
+
+
+    except ImportError:
+        print("TensorFlow not available, skipping tests")
+        return
+
+    dataset = create_comprehensive_test_dataset()
+    context = PipelineContext()
+
+    # Prepare dataset
+    split_op = SplitStrategy.train_val_test(train_ratio=0.7, val_ratio=0.2, test_ratio=0.1)
+    split_op.execute(dataset, context)
+
+    transform_op = TransformationOperation(
+        transformer=StandardScaler(),
+        mode="transformation"
+    )
+    transform_op.execute(dataset, context)    # Create Keras model for classification
+    train_view = dataset.select(partition="train")
+    n_features = train_view.get_features(concatenate=True).shape[1]
+    n_classes = len(np.unique(train_view.get_targets("auto")))
+
+    # Suppress Keras warnings
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = Sequential([
+            Dense(64, activation='relu', input_shape=(n_features,)),
+            Dropout(0.3),
+            Dense(32, activation='relu'),
+            Dropout(0.2),
+            Dense(n_classes, activation='softmax')
+        ])
+
+        model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+    # Train TensorFlow model
+    tf_model_op = TensorFlowModelOperation(
+        model=model,
+        epochs=10,
+        batch_size=16,
+        verbose=0
+    )
+
+    tf_model_op.execute(dataset, context)
+
+    # Check predictions
+    all_predictions = context.get_predictions()
+    assert all_predictions, "Should have TensorFlow predictions"
+
+    model_name = list(all_predictions.keys())[-1]  # Get the last model (TensorFlow)
+    predictions = all_predictions[model_name]
+
+    if 'test' in predictions:
+        test_preds = predictions['test']['predictions']
+        unique_classes = np.unique(test_preds)
+        print(f"TensorFlow test predictions: {len(test_preds)} values")
+        print(f"Predicted classes: {unique_classes}")
+        assert len(test_preds) > 0, "Should have TensorFlow predictions"
+
+    print("✓ TensorFlow model verified")
+
+
+def test_torch_model_operations():
+    """Test PyTorch model operations."""
+    print("\n=== Testing PyTorch Model Operations ===")
+
+    try:
+        import torch
+        import torch.nn as nn
+    except ImportError:
+        print("PyTorch not available, skipping tests")
+        return
+
+    dataset = create_comprehensive_test_dataset()
+    context = PipelineContext()
+
+    # Prepare dataset
+    split_op = SplitStrategy.train_val_test(train_ratio=0.7, val_ratio=0.2, test_ratio=0.1)
+    split_op.execute(dataset, context)
+
+    transform_op = TransformationOperation(
+        transformer=StandardScaler(),
+        mode="transformation"
+    )
+    transform_op.execute(dataset, context)
+
+    # Create PyTorch model for classification
+    train_view = dataset.select(partition="train")
+    n_features = train_view.get_features(concatenate=True).shape[1]
+    n_classes = len(np.unique(train_view.get_targets("auto")))
+
+    class SimpleClassifier(nn.Module):
+        def __init__(self, n_features, n_classes):
+            super().__init__()
+            self.network = nn.Sequential(
+                nn.Linear(n_features, 64),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(64, 32),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(32, n_classes)
+            )
+
+        def forward(self, x):
+            return self.network(x)
+
+    model = SimpleClassifier(n_features, n_classes)
+
+    # Train PyTorch model
+    torch_model_op = TorchModelOperation(
+        model=model,
+        epochs=10,
+        batch_size=16,
+        learning_rate=0.001,
+        device="cpu"
+    )
+
+    torch_model_op.execute(dataset, context)
+
+    # Check predictions
+    all_predictions = context.get_predictions()
+    assert all_predictions, "Should have PyTorch predictions"
+
+    model_name = list(all_predictions.keys())[-1]  # Get the last model (PyTorch)
+    predictions = all_predictions[model_name]
+
+    if 'test' in predictions:
+        test_preds = predictions['test']['predictions']
+        unique_classes = np.unique(test_preds)
+        print(f"PyTorch test predictions: {len(test_preds)} values")
+        print(f"Predicted classes: {unique_classes}")
+        assert len(test_preds) > 0, "Should have PyTorch predictions"
+
+    print("✓ PyTorch model verified")
 
 
 def test_clustering_operations():
@@ -442,23 +596,14 @@ def test_dispatch_operation():
     # Test dispatch with multiple models
     print("\n1. Testing dispatch with multiple models...")    # Create actual operation objects instead of config dictionaries
     operations = [
-        ModelOperation(
-            model=RandomForestClassifier(n_estimators=30, random_state=42),
-            target_representation="auto",
-            train_on="train",
-            predict_on=["test"]
+        SklearnModelOperation(
+            model=RandomForestClassifier(n_estimators=30, random_state=42)
         ),
-        ModelOperation(
-            model=SVC(kernel='linear', random_state=42),
-            target_representation="auto",
-            train_on="train",
-            predict_on=["test"]
+        SklearnModelOperation(
+            model=SVC(kernel='linear', random_state=42)
         ),
-        ModelOperation(
-            model=LogisticRegression(random_state=42, max_iter=1000),
-            target_representation="auto",
-            train_on="train",
-            predict_on=["test"]
+        SklearnModelOperation(
+            model=LogisticRegression(random_state=42, max_iter=1000)
         )
     ]
 
@@ -533,9 +678,8 @@ def test_operation_factory():
         "model": {"type": "RandomForestClassifier", "n_estimators": 100},
         "target_representation": "classification"
     }
-
     model_op = factory.create_operation(model_config)
-    assert isinstance(model_op, ModelOperation), "Should create ModelOperation"
+    assert isinstance(model_op, SklearnModelOperation), "Should create SklearnModelOperation"
     print("✓ Model operation creation verified")
 
     # Test 3: Create split operation
@@ -574,12 +718,8 @@ def test_complex_operation_sequence():
         transform_partitions=["train", "val", "test"],
         mode="transformation"
     ))
-
-    pipeline.add_operation(ModelOperation(
-        model=RandomForestClassifier(n_estimators=50, random_state=42),
-        target_representation="classification",
-        train_on="train",
-        predict_on=["val", "test"]
+    pipeline.add_operation(SklearnModelOperation(
+        model=RandomForestClassifier(n_estimators=50, random_state=42)
     ))
 
     # Execute pipeline
@@ -613,11 +753,12 @@ def main():
     print("TEST 3: ALL OPERATIONS")
     print("=" * 60)
 
-    try:
-        # Test individual operations
+    try:        # Test individual operations
         test_split_operations()
         test_transformation_operations()
         test_model_operations()
+        test_tensorflow_model_operations()
+        test_torch_model_operations()
         test_clustering_operations()
         test_merge_sources_operation()
         test_dispatch_operation()
