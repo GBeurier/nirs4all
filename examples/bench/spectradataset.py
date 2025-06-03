@@ -1,4 +1,6 @@
-# spectradataset.py
+# spectradataset.py OLD VERSION
+
+
 """A module for handling spectral datasets with features, indices, targets, and results."""
 
 from typing import Any, Sequence, Mapping, List, Optional, Union

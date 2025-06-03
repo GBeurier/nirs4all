@@ -1,6 +1,7 @@
 import numpy as np
 import polars as pl
 from typing import Any, Sequence, Union, List, Optional, Dict
+from datetime import datetime
 
 try:
     from SpectraFeatures import SpectraFeatures
@@ -9,6 +10,20 @@ except ImportError:
     # Fallback for direct execution
     from SpectraFeatures import SpectraFeatures
     from TargetManager import TargetManager
+
+# Schema for prediction results
+results_schema = {
+    "sample": pl.Int64,
+    "seed": pl.Int64,
+    "branch": pl.Int64,
+    "model": pl.Utf8,
+    "fold": pl.Int64,
+    "stack_index": pl.Int64,
+    "prediction": pl.Float64,
+    "datetime": pl.Datetime,
+    "partition": pl.Utf8,
+    "prediction_type": pl.Utf8,
+}
 
 
 class SpectraDataset:
@@ -31,6 +46,10 @@ class SpectraDataset:
 
         # Target management
         self.target_manager = TargetManager(task_type=task_type)
+
+        # Results and folds management
+        self.results = pl.DataFrame(schema=results_schema)
+        self.folds = []  # List of fold definitions
 
         # Counters
         self._next_row = 0
@@ -168,4 +187,178 @@ class SpectraDataset:
     @property
     def is_binary(self) -> bool:
         """Check if this is a binary classification task."""
-        return self.target_manager.is_binary
+        return self.target_manager.is_binary    # Results management methods
+    def add_predictions(self,
+                       sample_ids: List[int],
+                       predictions: np.ndarray,
+                       model_name: str,
+                       partition: str = "test",
+                       fold: int = -1,
+                       seed: int = 42,
+                       branch: int = 0,
+                       stack_index: int = 0,
+                       prediction_type: str = "raw") -> None:
+        """Add predictions to the results DataFrame."""
+        # Create datetime for this prediction batch
+        prediction_time = datetime.now()
+
+        # Prepare data for results DataFrame with proper types
+        results_data = {
+            "sample": [int(sid) for sid in sample_ids],  # Ensure int type, polars will convert to Int64
+            "seed": [int(seed)] * len(sample_ids),  # Ensure int type, polars will convert to Int64
+            "branch": [int(branch)] * len(sample_ids),  # Ensure int type, polars will convert to Int32
+            "model": [str(model_name)] * len(sample_ids),
+            "fold": [int(fold)] * len(sample_ids),  # Ensure int type, polars will convert to Int32
+            "stack_index": [int(stack_index)] * len(sample_ids),  # Ensure int type, polars will convert to Int32
+            "prediction": predictions.flatten().astype(float),  # Ensure float64
+            "datetime": [prediction_time] * len(sample_ids),
+            "partition": [str(partition)] * len(sample_ids),
+            "prediction_type": [str(prediction_type)] * len(sample_ids),
+        }
+
+        # Define schema locally to ensure proper typing
+        schema = {
+            "sample": pl.Int64,
+            "seed": pl.Int64,
+            "branch": pl.Int32,
+            "model": pl.Utf8,
+            "fold": pl.Int32,
+            "stack_index": pl.Int32,
+            "prediction": pl.Float64,
+            "datetime": pl.Datetime,
+            "partition": pl.Utf8,
+            "prediction_type": pl.Utf8,
+        }
+        new_results = pl.DataFrame(results_data, schema=schema)
+
+        self.results = pl.concat([self.results, new_results])
+
+    def get_predictions(self,
+                       sample_ids: Optional[List[int]] = None,
+                       model: Optional[str] = None,
+                       fold: Optional[int] = None,
+                       partition: Optional[str] = None,
+                       prediction_type: Optional[str] = None,
+                       as_dict: bool = False) -> Union[pl.DataFrame, Dict[str, np.ndarray]]:
+        """Get predictions with optional filtering."""
+
+        filtered = self.results        # Apply filters
+        if sample_ids is not None:
+            filtered = filtered.filter(pl.col("sample").is_in(sample_ids))
+        if model is not None:
+            filtered = filtered.filter(pl.col("model") == model)
+        if fold is not None:
+            filtered = filtered.filter(pl.col("fold") == fold)
+        if partition is not None:
+            filtered = filtered.filter(pl.col("partition") == partition)
+        if prediction_type is not None:
+            filtered = filtered.filter(pl.col("prediction_type") == prediction_type)
+
+        if as_dict:
+            return {
+                "sample_ids": filtered["sample"].to_numpy(),
+                "predictions": filtered["prediction"].to_numpy(),
+                "model": filtered["model"].to_numpy(),
+                "fold": filtered["fold"].to_numpy(),
+                "partition": filtered["partition"].to_numpy(),
+                "prediction_type": filtered["prediction_type"].to_numpy(),
+            }
+
+        return filtered
+
+    def get_fold_predictions(self,
+                           model_name: str,
+                           aggregation: str = "mean",
+                           partition: str = "test",
+                           prediction_type: str = "raw") -> Dict[str, np.ndarray]:
+        """Get aggregated predictions across folds."""
+
+        # Get all predictions for this model (returns DataFrame)
+        fold_preds = self.get_predictions(
+            model=model_name,
+            partition=partition,
+            prediction_type=prediction_type,
+            as_dict=False  # Ensure we get DataFrame
+        )
+
+        if len(fold_preds) == 0:
+            return {"sample_ids": np.array([]), "predictions": np.array([])}
+
+        if aggregation == "mean":
+            # Simple mean across folds
+            assert isinstance(fold_preds, pl.DataFrame), "Expected DataFrame"
+            grouped = fold_preds.group_by("sample").agg([
+                pl.col("prediction").mean().alias("mean_prediction")
+            ])
+            return {
+                "sample_ids": grouped["sample"].to_numpy(),
+                "predictions": grouped["mean_prediction"].to_numpy()
+            }
+
+        elif aggregation == "weighted":
+            # For now, simple mean (would need loss information for true weighting)
+            # TODO: Implement loss-weighted aggregation when loss tracking is added
+            return self.get_fold_predictions(model_name, "mean", partition, prediction_type)
+
+        else:
+            raise ValueError(f"Unknown aggregation method: {aggregation}")
+
+    def get_reconstructed_train_predictions(self, model_name: str) -> Dict[str, np.ndarray]:
+        """Get out-of-fold predictions for training samples (useful for stacking)."""        # Get all fold predictions for training partition (returns DataFrame)
+        fold_preds = self.get_predictions(
+            model=model_name,
+            partition="train",
+            prediction_type="raw",
+            as_dict=False  # Ensure we get DataFrame
+        )
+
+        if len(fold_preds) == 0:
+            return {"sample_ids": np.array([]), "predictions": np.array([])}        # For each sample, we want the prediction from the fold where it was NOT in training
+        # This requires fold information to be properly stored
+        # For now, return the available predictions
+        assert isinstance(fold_preds, pl.DataFrame), "Expected DataFrame"
+        unique_samples = fold_preds.group_by("sample").agg([
+            pl.col("prediction").first().alias("oof_prediction")
+        ])
+
+        return {
+            "sample_ids": unique_samples["sample"].to_numpy(),
+            "predictions": unique_samples["oof_prediction"].to_numpy()
+        }
+
+    # Fold management methods
+    def add_folds(self, fold_definitions: List[Dict[str, Any]]) -> None:
+        """Add fold definitions to the dataset."""
+        self.folds = fold_definitions
+
+    def get_fold(self, fold_id: int) -> Optional[Dict[str, Any]]:
+        """Get a specific fold definition."""
+        for fold in self.folds:
+            if fold.get("fold_id") == fold_id:
+                return fold
+        return None
+
+    def iter_folds(self):
+        """Iterate over all folds."""
+        for fold in self.folds:
+            yield fold
+
+    def clear_results(self, model: Optional[str] = None) -> None:
+        """Clear results, optionally for a specific model."""
+        if model is not None:
+            self.results = self.results.filter(pl.col("model") != model)
+        else:
+            self.results = pl.DataFrame(schema=results_schema)
+
+    def get_results_summary(self) -> Dict[str, Any]:
+        """Get a summary of stored results."""
+        if len(self.results) == 0:
+            return {"n_predictions": 0, "models": [], "partitions": [], "folds": []}
+
+        return {
+            "n_predictions": len(self.results),
+            "models": self.results["model"].unique().to_list(),
+            "partitions": self.results["partition"].unique().to_list(),
+            "folds": sorted(self.results["fold"].unique().to_list()),
+            "prediction_types": self.results["prediction_type"].unique().to_list(),
+        }
