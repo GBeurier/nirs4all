@@ -65,6 +65,11 @@ def create_multi_source_multi_target_dataset():
     train_size = 100
     val_size = 30
     test_size = 20
+    sizes = {
+        'train': train_size,
+        'val': val_size,
+        'test': test_size
+    }
 
     # Add training data
     train_ids = dataset.add_data(
@@ -103,10 +108,14 @@ def create_multi_source_multi_target_dataset():
     print(f"Dataset created with {len(dataset)} samples")
     print(f"Sources: {len(dataset.features.sources)}")
     print(f"Source shapes: {[s.shape for s in dataset.features.sources]}")
-    print(f"Partitions: {sorted(dataset.indices['partition'].unique().to_list())}")
     print(f"Task type: {dataset.task_type}")
     print(f"Classes: {dataset.classes_}")
     print(f"Target distribution: {dict(zip(*np.unique(protein_levels, return_counts=True)))}")
+    dataset_partitions = dataset.indices['partition'].unique().to_list()
+    print(f"Partitions: {dataset_partitions}")
+    for part in dataset_partitions:
+        print(f"  {part}: {len(dataset.select(partition=part))} samples / {sizes[part]} expected")
+
 
     return dataset, {
         'moisture': moisture_content,

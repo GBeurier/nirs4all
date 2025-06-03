@@ -1,29 +1,10 @@
 import numpy as np
 import polars as pl
-from typing import Any, Sequence, Union, List, Optional, Dict
+from typing import Any, Union, List, Optional, Dict
 from datetime import datetime
 
-try:
-    from SpectraFeatures import SpectraFeatures
-    from TargetManager import TargetManager
-except ImportError:
-    # Fallback for direct execution
-    from SpectraFeatures import SpectraFeatures
-    from TargetManager import TargetManager
-
-# Schema for prediction results
-results_schema = {
-    "sample": pl.Int64,
-    "seed": pl.Int64,
-    "branch": pl.Int64,
-    "model": pl.Utf8,
-    "fold": pl.Int64,
-    "stack_index": pl.Int64,
-    "prediction": pl.Float64,
-    "datetime": pl.Datetime,
-    "partition": pl.Utf8,
-    "prediction_type": pl.Utf8,
-}
+from SpectraFeatures import SpectraFeatures
+from TargetManager import TargetManager
 
 
 class SpectraDataset:
@@ -45,10 +26,24 @@ class SpectraDataset:
         })
 
         # Target management
-        self.target_manager = TargetManager(task_type=task_type)
+        self.target_manager = TargetManager(task_type=task_type)        # Results and folds management
+        # Initialize with empty DataFrame but with proper schema and one dummy row to ensure correct types
+        dummy_data = {
+            "sample": [0],
+            "seed": [0],
+            "branch": [0],
+            "model": [""],
+            "fold": [0],
+            "stack_index": [0],
+            "prediction": [0.0],
+            "datetime": [datetime.now()],
+            "partition": [""],
+            "prediction_type": [""],
+        }
+        self.results = pl.DataFrame(dummy_data)
+        # Remove the dummy row to get an empty DataFrame with proper schema
+        self.results = self.results.filter(pl.col("sample") == -1)  # This will create empty DataFrame
 
-        # Results and folds management
-        self.results = pl.DataFrame(schema=results_schema)
         self.folds = []  # List of fold definitions
 
         # Counters
@@ -200,16 +195,14 @@ class SpectraDataset:
                        prediction_type: str = "raw") -> None:
         """Add predictions to the results DataFrame."""
         # Create datetime for this prediction batch
-        prediction_time = datetime.now()
-
-        # Prepare data for results DataFrame with proper types
+        prediction_time = datetime.now()        # Prepare data for results DataFrame with proper types
         results_data = {
             "sample": [int(sid) for sid in sample_ids],  # Ensure int type, polars will convert to Int64
             "seed": [int(seed)] * len(sample_ids),  # Ensure int type, polars will convert to Int64
-            "branch": [int(branch)] * len(sample_ids),  # Ensure int type, polars will convert to Int32
+            "branch": [int(branch)] * len(sample_ids),  # Ensure int type, polars will convert to Int64
             "model": [str(model_name)] * len(sample_ids),
-            "fold": [int(fold)] * len(sample_ids),  # Ensure int type, polars will convert to Int32
-            "stack_index": [int(stack_index)] * len(sample_ids),  # Ensure int type, polars will convert to Int32
+            "fold": [int(fold)] * len(sample_ids),  # Ensure int type, polars will convert to Int64
+            "stack_index": [int(stack_index)] * len(sample_ids),  # Ensure int type, polars will convert to Int64
             "prediction": predictions.flatten().astype(float),  # Ensure float64
             "datetime": [prediction_time] * len(sample_ids),
             "partition": [str(partition)] * len(sample_ids),
@@ -220,10 +213,10 @@ class SpectraDataset:
         schema = {
             "sample": pl.Int64,
             "seed": pl.Int64,
-            "branch": pl.Int32,
+            "branch": pl.Int64,
             "model": pl.Utf8,
-            "fold": pl.Int32,
-            "stack_index": pl.Int32,
+            "fold": pl.Int64,
+            "stack_index": pl.Int64,
             "prediction": pl.Float64,
             "datetime": pl.Datetime,
             "partition": pl.Utf8,
@@ -348,6 +341,19 @@ class SpectraDataset:
         if model is not None:
             self.results = self.results.filter(pl.col("model") != model)
         else:
+            # Define schema to match the initialization schema
+            results_schema = {
+                "sample": pl.Int64,
+                "seed": pl.Int64,
+                "branch": pl.Int64,
+                "model": pl.Utf8,
+                "fold": pl.Int64,
+                "stack_index": pl.Int64,
+                "prediction": pl.Float64,
+                "datetime": pl.Datetime,
+                "partition": pl.Utf8,
+                "prediction_type": pl.Utf8,
+            }
             self.results = pl.DataFrame(schema=results_schema)
 
     def get_results_summary(self) -> Dict[str, Any]:
