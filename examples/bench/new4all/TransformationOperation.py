@@ -146,8 +146,7 @@ class TransformationOperation(PipelineOperation):
                 X_augmented.append(X_transformed)
 
             # Add augmented data with new sample/row IDs and origin pointing to original samples
-            dataset.add_data(
-                features=X_augmented,
+            dataset.add_data(                features=X_augmented,
                 targets=y_train if has_targets else None,
                 partition=self.fit_partition,
                 processing=f"augmented_{transformer.__class__.__name__}_{transformer_idx}",
@@ -167,33 +166,70 @@ class TransformationOperation(PipelineOperation):
 
         X_fit = fit_view.get_features(concatenate=False)
         if isinstance(X_fit, np.ndarray):
-            X_fit = [X_fit]        # Fit all transformers per source
-        fitted_transformers_per_source = []
+            X_fit = [X_fit]
+
+        # Process transformers: if a transformer is a list, treat it as a sequential pipeline
+        # Otherwise, treat each transformer as a separate augmentation path
+        processed_transformers = []
         for transformer in self.transformers:
-            source_transformers = []
+            if isinstance(transformer, list):
+                # Sequential pipeline: treat as one augmentation path
+                processed_transformers.append(transformer)
+            else:
+                # Single transformer: treat as one augmentation path
+                processed_transformers.append([transformer])
+
+        # Fit all transformer pipelines per source
+        fitted_pipelines_per_source = []
+        for transformer_pipeline in processed_transformers:
+            source_pipelines = []
             for source_idx, X_fit_source in enumerate(X_fit):
-                fitted_transformer = clone(transformer)
+                # Fit the entire pipeline sequentially for this source
+                fitted_pipeline = []
+                X_current = X_fit_source.copy()
 
-                # Check if transformer requires targets (like LDA)
-                # Look for common supervised transformers that require targets
-                requires_targets = (self.target_aware or
-                                    hasattr(fitted_transformer, '__class__') and
-                                    any(cls_name in fitted_transformer.__class__.__name__
-                                        for cls_name in ['LDA', 'LinearDiscriminantAnalysis',
-                                                        'QuadraticDiscriminantAnalysis']))
+                for step_transformer in transformer_pipeline:
+                    fitted_transformer = clone(step_transformer)
 
-                if requires_targets:
-                    y_fit = fit_view.get_targets("auto")
-                    fitted_transformer.fit(X_fit_source, y_fit)
-                else:
-                    fitted_transformer.fit(X_fit_source)
+                    # Check if transformer requires targets
+                    requires_targets = (self.target_aware or
+                                        hasattr(fitted_transformer, '__class__') and
+                                        any(cls_name in fitted_transformer.__class__.__name__
+                                            for cls_name in ['LDA', 'LinearDiscriminantAnalysis',
+                                                           'QuadraticDiscriminantAnalysis']))
 
-                source_transformers.append(fitted_transformer)
-            fitted_transformers_per_source.append(source_transformers)
+                    if requires_targets:
+                        y_fit = fit_view.get_targets("auto")
+                        fitted_transformer.fit(X_current, y_fit)
+                    else:
+                        fitted_transformer.fit(X_current)
 
-        # For each transformer, create feature-augmented copies of all specified partitions
-        for transformer_idx, source_transformers in enumerate(fitted_transformers_per_source):
-            current_transformer = self.transformers[transformer_idx]  # Get the original transformer for naming
+                    # Transform for the next step
+                    X_current = fitted_transformer.transform(X_current)
+                    fitted_pipeline.append(fitted_transformer)
+
+                source_pipelines.append(fitted_pipeline)
+            fitted_pipelines_per_source.append(source_pipelines)
+
+        print(f"Feature augmentation: {len(processed_transformers)} processing paths")
+        for i, pipeline in enumerate(processed_transformers):
+            pipeline_names = [t.__class__.__name__ for t in pipeline]
+            if len(pipeline) > 1:
+                print(f"  Path {i+1}: Sequential pipeline {' -> '.join(pipeline_names)}")
+            else:
+                print(f"  Path {i+1}: Single transformer {pipeline_names[0]}")
+
+        # For each transformer pipeline, create feature-augmented copies of all specified partitions
+        for pipeline_idx, source_pipelines in enumerate(fitted_pipelines_per_source):
+            current_pipeline = processed_transformers[pipeline_idx]
+
+            # Create a name for this processing path
+            if len(current_pipeline) > 1:
+                # Sequential pipeline
+                pipeline_name = "_".join([t.__class__.__name__ for t in current_pipeline])
+            else:
+                # Single transformer
+                pipeline_name = current_pipeline[0].__class__.__name__
 
             for partition in partitions_to_augment:
                 # For feature augmentation, only process original data (not previously augmented data)
@@ -201,15 +237,21 @@ class TransformationOperation(PipelineOperation):
                 if len(partition_view) == 0:
                     continue
 
-                # Get features and transform them
+                # Get features and transform them through the entire pipeline
                 X_partition = partition_view.get_features(concatenate=False)
                 if isinstance(X_partition, np.ndarray):
                     X_partition = [X_partition]
+
                 X_augmented = []
                 for source_idx, X_source in enumerate(X_partition):
-                    fitted_transformer = source_transformers[source_idx]
-                    X_transformed = fitted_transformer.transform(X_source)
-                    X_augmented.append(X_transformed)
+                    fitted_pipeline = source_pipelines[source_idx]
+                    X_current = X_source.copy()
+
+                    # Apply each step of the pipeline sequentially
+                    for fitted_transformer in fitted_pipeline:
+                        X_current = fitted_transformer.transform(X_current)
+
+                    X_augmented.append(X_current)
 
                 # Get original sample IDs and targets
                 original_sample_ids = partition_view.sample_ids
@@ -218,12 +260,14 @@ class TransformationOperation(PipelineOperation):
                     has_targets = True
                 except (AttributeError, ValueError, IndexError):
                     y_partition = None
-                    has_targets = False                # For feature augmentation, add transformed data with same sample IDs but different processing
+                    has_targets = False
+
+                # For feature augmentation, add transformed data with same sample IDs but different processing
                 new_sample_ids = dataset.add_data(
                     features=X_augmented,
                     targets=y_partition if has_targets else None,
                     partition=partition,
-                    processing=f"{current_transformer.__class__.__name__}",
+                    processing=pipeline_name,
                     origin=original_sample_ids
                 )
 
