@@ -36,22 +36,25 @@ config = {
     },
 
     "pipeline": [
+        "PlotModelPerformance",
         MinMaxScaler(),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
+        "PlotModelPerformance",
         {"feature_augmentation": [None, SG, [SNV, GS]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
+        "PlotModelPerformance",
         {"sample_augmentation": [RT, RT(p_range=3)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
-
+        "PlotModelPerformance",
         ShuffleSplit(),  # First one is target:test by default
-
+        "PlotModelPerformance",
         {"cluster": KMeans(n_clusters=5, random_state=42)},  # add groups indices to the dataset, which are the cluster ids. The dataset is now clustered.
         # The following operations will be applied to the centroids of the clusters, not to the original samples.
-
+        "PlotModelPerformance",
         RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
-
+        "PlotModelPerformance",
         "uncluster",  # stop using centroids and use all the original samples. If the centroids are constructed (sample = None), they are discarded or hidden.
 
         "PlotData",  # mockup for now, just print the dataset information
-        "PlotClusters",  # mockup for now, just print the clusters information
-        "PlotResults",  # mockup for now, just print the results information
+        # "PlotClusters",  # mockup for now, just print the clusters information
+        # "PlotResults",  # mockup for now, just print the results information
 
         {
             "dispatch": [  # create as many branches in the pipeline as there are objects in the list. Data from train partition are copied to each branch. Can be used also to split the pipeline per source of data.
@@ -61,7 +64,8 @@ config = {
                     {
                         "model": RandomForestClassifier(random_state=42, max_depth=10),  # here's a sklearn model, dataset is automatically converted to 2d
                         "y_pipeline": StandardScaler(),  # preprocess target data
-                    }
+                    },
+                    "PlotModelPerformance",
                 ],
                 {
                     "model": decon,  # here's a tf conv model (@framework decorator) . dataset is automatically converted to 3d

@@ -231,9 +231,9 @@ class TransformationOperation(PipelineOperation):
                 # Single transformer
                 pipeline_name = current_pipeline[0].__class__.__name__
 
+            # Process all current data in each specified partition
             for partition in partitions_to_augment:
-                # For feature augmentation, only process original data (not previously augmented data)
-                partition_view = dataset.select(partition=partition, processing="raw", **context.current_filters)
+                partition_view = dataset.select(partition=partition, **context.current_filters)
                 if len(partition_view) == 0:
                     continue
 
@@ -262,27 +262,28 @@ class TransformationOperation(PipelineOperation):
                     y_partition = None
                     has_targets = False
 
-                # For feature augmentation, add transformed data with same sample IDs but different processing
-                new_sample_ids = dataset.add_data(
-                    features=X_augmented,
-                    targets=y_partition if has_targets else None,
-                    partition=partition,
-                    processing=pipeline_name,
-                    origin=original_sample_ids
-                )
+            # For feature augmentation, add transformed data with same sample IDs but different processing
+            new_sample_ids = dataset.add_data(
+                features=X_augmented,
+                targets=y_partition if has_targets else None,
+                partition=partition,
+                processing=pipeline_name,
+                origin=original_sample_ids,
+                sample_ids=original_sample_ids  # Keep original sample IDs
+            )
 
-                # Update the sample IDs in the indices to match the original ones
-                import polars as pl
-                # Find the rows that were just added
-                mask = dataset.indices['sample'].is_in(new_sample_ids)
-                # Replace the auto-generated sample IDs with the original ones
-                for new_id, orig_id in zip(new_sample_ids, original_sample_ids):
-                    dataset.indices = dataset.indices.with_columns([
-                        pl.when(pl.col('sample') == new_id)
-                        .then(orig_id)
-                        .otherwise(pl.col('sample'))
-                        .alias('sample')
-                    ])
+            # Update the sample IDs in the indices to match the original ones
+            import polars as pl
+            # Find the rows that were just added
+            mask = dataset.indices['sample'].is_in(new_sample_ids)
+            # Replace the auto-generated sample IDs with the original ones
+            for new_id, orig_id in zip(new_sample_ids, original_sample_ids):
+                dataset.indices = dataset.indices.with_columns([
+                    pl.when(pl.col('sample') == new_id)
+                    .then(orig_id)
+                    .otherwise(pl.col('sample'))
+                    .alias('sample')
+                ])
 
         self.is_fitted = True
 
