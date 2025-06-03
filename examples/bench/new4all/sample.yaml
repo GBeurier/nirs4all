@@ -35,7 +35,6 @@ pipeline:
           class: sklearn.ensemble.RandomForestClassifier
           params:
             random_state: 42
-            n_estimators: 100
             max_depth: 10
         y_pipeline:
           class: sklearn.preprocessing.StandardScaler
@@ -62,7 +61,6 @@ pipeline:
             class: sklearn.ensemble.RandomForestClassifier
             params:
               random_state: 42
-              n_estimators: 100
               max_depth: 10
           y_pipeline:
             class: sklearn.preprocessing.StandardScaler

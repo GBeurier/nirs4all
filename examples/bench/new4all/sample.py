@@ -59,7 +59,7 @@ config = {
                     MinMaxScaler(),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
                     {"feature_augmentation": [None, SG, [SNV, GS]]},
                     {
-                        "model": RandomForestClassifier(random_state=42, n_estimators=100, max_depth=10),  # here's a sklearn model, dataset is automatically converted to 2d
+                        "model": RandomForestClassifier(random_state=42, max_depth=10),  # here's a sklearn model, dataset is automatically converted to 2d
                         "y_pipeline": StandardScaler(),  # preprocess target data
                     }
                 ],
@@ -76,7 +76,7 @@ config = {
                 },
                 {
                     "stack": {  # create a stack of models, each model is trained on the same data and the predictions are used as features for the next model.
-                        "model": RandomForestClassifier(random_state=42, n_estimators=100, max_depth=10),  # the main model of the stack, trained on the predictions of the base learners
+                        "model": RandomForestClassifier(random_state=42, max_depth=10),  # the main model of the stack, trained on the predictions of the base learners
                         "y_pipeline": StandardScaler(),
                         "base_learners": [  # the base learners of the stack, trained on the same data as the main model
                             {

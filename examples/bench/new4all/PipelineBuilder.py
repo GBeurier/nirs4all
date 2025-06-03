@@ -56,11 +56,14 @@ class PipelineBuilder:
         """Build a single operation from configuration step"""
         # Handle string operations (presets or simple operations)
         if isinstance(step, str):
-            return self._build_string_operation(step)
-
-        # Handle class instances (already instantiated)
-        if hasattr(step, '__class__') and hasattr(step, 'fit'):
-            return self._build_transformer_operation(step)
+            return self._build_string_operation(step)        # Handle class instances (sklearn objects)
+        if hasattr(step, '__class__'):
+            # Check if it's a splitter (has split method but not fit method for transformation)
+            if hasattr(step, 'split') and not (hasattr(step, 'fit') and hasattr(step, 'transform')):
+                return self._build_split(step)
+            # Check if it's a transformer (has fit method)
+            elif hasattr(step, 'fit'):
+                return self._build_transformer_operation(step)
 
         # Handle dictionaries (complex operations)
         if isinstance(step, dict):
@@ -145,7 +148,34 @@ class PipelineBuilder:
     def _build_split(self, config: Any) -> PipelineOperation:
         """Build splitting operation"""
         from SplitOperation import SplitOperation
-        return SplitOperation(splitter=config)
+
+        # Handle sklearn splitter objects
+        if hasattr(config, 'split'):
+            # Extract parameters from sklearn splitter
+            if hasattr(config, 'test_size') and config.test_size is not None:
+                train_size = 1.0 - config.test_size
+                split_ratios = {"train": train_size, "test": config.test_size}
+            elif hasattr(config, 'train_size') and config.train_size is not None:
+                test_size = 1.0 - config.train_size
+                split_ratios = {"train": config.train_size, "test": test_size}
+            else:
+                split_ratios = {"train": 0.8, "test": 0.2}  # Default
+
+            # Determine if it's stratified
+            stratified = 'Stratified' in config.__class__.__name__
+
+            # Get random state if available
+            random_state = getattr(config, 'random_state', 42)
+
+            return SplitOperation(
+                split_strategy="stratified" if stratified else "random",
+                split_ratios=split_ratios,
+                stratified=stratified,
+                random_state=random_state
+            )
+        else:
+            # Handle other configurations
+            return SplitOperation()
 
     def _build_cluster(self, config: Dict[str, Any]) -> PipelineOperation:
         """Build clustering operation"""
@@ -184,38 +214,31 @@ class PipelineBuilder:
             else:
                 # Handle dict-style branch - convert dict to operations
                 branch_ops = []
-                op = self._build_operation(step)
+                op = self._build_operation(branch)
                 if op:
                     if isinstance(op, list):
                         branch_ops.extend(op)
                     else:
                         branch_ops.append(op)
+                branch_operations.append(branch_ops)
 
         return [DispatchOperation(operations=branch_operations)]
 
     def _build_stack(self, config: Dict[str, Any]) -> PipelineOperation:
         """Build stacking operation"""
-        from StackingOperation import StackingOperation
+        from StackOperation import StackOperation
 
         stack_config = config['stack']
-        main_model_config = {
-            'model': stack_config['model'],
-            'y_pipeline': stack_config.get('y_pipeline')
-        }
-        main_model = self._resolve_model(main_model_config.get('model'))
+        main_model = self._resolve_model(stack_config['model'])
 
         base_learners = []
         for base_config in stack_config.get('base_learners', []):
             base_model = self._resolve_model(base_config.get('model'))
-            base_learners.append({
-                'model': base_model,
-                'y_pipeline': base_config.get('y_pipeline'),
-                'finetune_params': base_config.get('finetune_params')
-            })
-        return StackingOperation(
-            main_model=main_model,
+            base_learners.append(base_model)
+
+        return StackOperation(
             base_learners=base_learners,
-            y_pipeline=main_model_config.get('y_pipeline')
+            meta_learner=main_model,
         )
 
     def _build_model(self, config: Dict[str, Any]) -> Union[PipelineOperation, List[PipelineOperation]]:
@@ -288,6 +311,13 @@ class PipelineBuilder:
                 return self.serializer._load_class(f"sklearn.preprocessing.{config}")()
             except:
                 return config
+        elif isinstance(config, type):
+            # If it's a class (not an instance), instantiate it
+            try:
+                return config()
+            except Exception as e:
+                print(f"Warning: Could not instantiate transformer class {config}: {e}")
+                return None
         else:
             return config
 
