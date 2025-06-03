@@ -298,6 +298,194 @@ def test_deterministic_serialization():
     return all_same and all_same_length
 
 
+def test_sample_py_full_serialization():
+    """Test full serialization/deserialization using the actual sample.py config"""
+    print("\n=== Testing Full Sample.py Config Serialization ===")
+
+    # Import the actual sample.py config directly
+    try:
+        from sample import config as sample_config
+        print("✓ Successfully imported sample.py config")
+    except ImportError as e:
+        print(f"✗ Failed to import sample.py: {e}")
+        return False
+
+    # Test 1: Basic serialization
+    print("\n--- Test 1: Basic Serialization ---")
+    serializer = PipelineSerializer()
+
+    try:
+        serialized_config = serializer.serialize_config(sample_config)
+        print("✓ Sample config serialized successfully")
+        print(f"  Experiment action: {serialized_config.get('experiment', {}).get('action', 'N/A')}")
+        print(f"  Pipeline steps: {len(serialized_config.get('pipeline', []))}")
+    except Exception as e:
+        print(f"✗ Serialization failed: {e}")
+        return False
+
+    # Test 2: Deserialization
+    print("\n--- Test 2: Deserialization ---")
+    try:
+        deserialized_config = serializer.deserialize_config(serialized_config)
+        print("✓ Sample config deserialized successfully")
+        print(f"  Experiment action: {deserialized_config.get('experiment', {}).get('action', 'N/A')}")
+        print(f"  Pipeline steps: {len(deserialized_config.get('pipeline', []))}")
+    except Exception as e:
+        print(f"✗ Deserialization failed: {e}")
+        return False
+
+    # Test 3: Round-trip validation
+    print("\n--- Test 3: Round-trip Validation ---")
+    try:
+        # Serialize again and compare structure
+        second_serialized = serializer.serialize_config(deserialized_config)
+
+        # Compare key structural elements
+        orig_pipeline_len = len(serialized_config.get('pipeline', []))
+        roundtrip_pipeline_len = len(second_serialized.get('pipeline', []))
+
+        if orig_pipeline_len == roundtrip_pipeline_len:
+            print("✓ Round-trip maintains pipeline structure")
+        else:
+            print(f"✗ Round-trip changed pipeline length: {orig_pipeline_len} -> {roundtrip_pipeline_len}")
+            return False
+
+        # Check experiment section
+        orig_exp = serialized_config.get('experiment', {})
+        roundtrip_exp = second_serialized.get('experiment', {})
+        if orig_exp == roundtrip_exp:
+            print("✓ Round-trip maintains experiment configuration")
+        else:
+            print("✗ Round-trip changed experiment configuration")
+            return False
+
+    except Exception as e:
+        print(f"✗ Round-trip validation failed: {e}")
+        return False
+
+    # Test 4: PipelineConfig creation
+    print("\n--- Test 4: PipelineConfig Creation ---")
+    try:
+        pipeline_config = PipelineConfig.from_python_config(sample_config)
+        print(f"✓ PipelineConfig created successfully: {pipeline_config.name}")
+
+        # Validate the config
+        validation_issues = pipeline_config.validate()
+        if not validation_issues:
+            print("✓ Pipeline config validation passed")
+        else:
+            print(f"⚠ Pipeline config validation issues: {len(validation_issues)} issues found")
+            for i, issue in enumerate(validation_issues[:3]):  # Show first 3 issues
+                print(f"    {i+1}. {issue}")
+            if len(validation_issues) > 3:
+                print(f"    ... and {len(validation_issues) - 3} more issues")
+    except Exception as e:
+        print(f"✗ PipelineConfig creation failed: {e}")
+        return False
+
+    # Test 5: File I/O with sample config
+    print("\n--- Test 5: File I/O Operations ---")
+    try:
+        # Save to JSON
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json_path = f.name
+
+        pipeline_config.save(json_path)
+        print("✓ Sample config saved to JSON")
+
+        # Load from JSON
+        loaded_config = PipelineConfig.from_file(json_path)
+        print(f"✓ Sample config loaded from JSON: {loaded_config.name}")
+
+        # Clean up
+        os.unlink(json_path)
+
+        # Save to YAML
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            yaml_path = f.name
+
+        pipeline_config.save(yaml_path)
+        print("✓ Sample config saved to YAML")
+
+        # Load from YAML
+        loaded_yaml_config = PipelineConfig.from_file(yaml_path)
+        print(f"✓ Sample config loaded from YAML: {loaded_yaml_config.name}")
+
+        # Clean up
+        os.unlink(yaml_path)
+
+    except Exception as e:
+        print(f"✗ File I/O operations failed: {e}")
+        return False
+
+    # Test 6: Pipeline creation from sample config
+    print("\n--- Test 6: Pipeline Object Creation ---")
+    try:
+        pipeline = Pipeline.from_python_config(sample_config, name="SamplePipeline")
+        print(f"✓ Pipeline created from sample config: {pipeline.name}")
+        print(f"  Operations count: {len(pipeline.operations)}")
+
+        # Test pipeline validation
+        pipeline_issues = pipeline.validate()
+        if not pipeline_issues:
+            print("✓ Pipeline validation passed")
+        else:
+            print(f"⚠ Pipeline validation issues: {len(pipeline_issues)} issues found")
+            for i, issue in enumerate(pipeline_issues[:2]):  # Show first 2 issues
+                print(f"    {i+1}. {issue}")
+
+        # Test config extraction
+        extracted_config = pipeline.to_config()
+        print(f"✓ Config extracted from pipeline: {extracted_config.name}")
+
+    except Exception as e:
+        print(f"✗ Pipeline creation failed: {e}")
+        return False
+
+    # Test 7: Complex nested structure handling
+    print("\n--- Test 7: Complex Structure Analysis ---")
+    try:
+        # Analyze the complex structures in sample.py
+        pipeline_steps = sample_config.get('pipeline', [])
+
+        complex_structures = []
+        for i, step in enumerate(pipeline_steps):
+            if isinstance(step, dict):
+                if 'dispatch' in step:
+                    complex_structures.append(f"Step {i}: Dispatch with {len(step['dispatch'])} branches")
+                elif 'feature_augmentation' in step:
+                    complex_structures.append(f"Step {i}: Feature augmentation")
+                elif 'sample_augmentation' in step:
+                    complex_structures.append(f"Step {i}: Sample augmentation")
+                elif 'cluster' in step:
+                    complex_structures.append(f"Step {i}: Clustering")
+                elif 'stack' in step:
+                    complex_structures.append(f"Step {i}: Model stacking")
+                else:
+                    complex_structures.append(f"Step {i}: Other dict structure")
+
+        print(f"✓ Complex structures identified: {len(complex_structures)}")
+        for structure in complex_structures:
+            print(f"    {structure}")
+
+        # Test serialization of these complex structures
+        for i, step in enumerate(pipeline_steps):
+            if isinstance(step, dict) and any(key in step for key in ['dispatch', 'stack', 'feature_augmentation']):
+                try:
+                    step_serialized = serializer._serialize_component(step)
+                    step_deserialized = serializer._deserialize_component(step_serialized)
+                    print(f"✓ Complex step {i} serialization successful")
+                except Exception as e:
+                    print(f"⚠ Complex step {i} serialization issue: {e}")
+
+    except Exception as e:
+        print(f"✗ Complex structure analysis failed: {e}")
+        return False
+
+    print("\n✓ All sample.py full serialization tests completed successfully!")
+    return True
+
+
 def main():
     """Run all configuration system tests"""
     print("Testing Configuration-based Pipeline System\n")
@@ -308,7 +496,8 @@ def main():
         test_sample_py_compatibility,
         test_pipeline_from_config,
         test_json_yaml_roundtrip,
-        test_deterministic_serialization
+        test_deterministic_serialization,
+        test_sample_py_full_serialization
     ]
 
     results = []
