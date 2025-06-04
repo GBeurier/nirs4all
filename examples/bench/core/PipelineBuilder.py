@@ -13,10 +13,10 @@ from typing import Any, Dict, Union
 from sklearn.base import clone, BaseEstimator
 
 from PipelineOperation import PipelineOperation
-from TransformationOperation import TransformationOperation
-from ClusteringOperation import ClusteringOperation
-from ModelOperation import ModelOperation
-from StackOperation import StackOperation
+# from TransformationOperation import TransformationOperation
+# from ClusteringOperation import ClusteringOperation
+# from ModelOperation import ModelOperation
+# from StackOperation import StackOperation
 
 
 class PipelineBuilder:
@@ -24,14 +24,9 @@ class PipelineBuilder:
 
     def __init__(self):
         # Import serialization utilities
-        try:
-            from nirs4all.utils.serialization import _serialize_component, _deserialize_component
-            self._serialize = _serialize_component
-            self._deserialize = _deserialize_component
-        except ImportError:
-            # Fallback if serialization utils not available
-            self._serialize = None
-            self._deserialize = None
+        from nirs4all.utils.serialization import _serialize_component, _deserialize_component
+        self._serialize = _serialize_component
+        self._deserialize = _deserialize_component
 
         # Preset mappings
         self.presets = {
@@ -41,17 +36,6 @@ class PipelineBuilder:
             'KMeans': ('sklearn.cluster', 'KMeans'),
             # Add more presets as needed
         }
-
-        # Track fitted operations for serialization
-        self.fitted_operations: Dict[str, Any] = {}
-
-    def get_fitted_operations(self) -> Dict[str, Any]:
-        """Return all fitted operations for serialization"""
-        return self.fitted_operations.copy()
-
-    def store_fitted_operation(self, operation_id: str, operation: Any):
-        """Store a fitted operation for later serialization"""
-        self.fitted_operations[operation_id] = operation
 
     def build_operation(self, step: Any) -> PipelineOperation:
         """
@@ -112,7 +96,7 @@ class PipelineBuilder:
 
         # Handle different dict formats
         if 'class' in step:
-            # Generic pipeline operation format: {"class": ..., "params": ..."}
+            # Generic pipeline operation format: {"class": ..., "params": ...}
             class_spec = step['class']
             params = step.get('params', {})
 
