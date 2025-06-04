@@ -23,11 +23,11 @@ except ImportError as e:
 
 def demo_pipeline_runner_concept():
     """Demonstrate the PipelineRunner concept and philosophy"""
-    
+
     print("=" * 60)
     print("PIPELINE RUNNER DEMONSTRATION")
     print("=" * 60)
-    
+
     # Sample configuration similar to sample.py
     demo_config = {
         "experiment": {
@@ -68,43 +68,43 @@ def demo_pipeline_runner_concept():
             "PlotModelPerformance"
         ]
     }
-    
+
     print("\n1. PIPELINE RUNNER APPROACH:")
     print("-" * 30)
-    
+
     # Simulated PipelineRunner execution
     print("🚀 PipelineRunner starting...")
     print("📋 Direct config interpretation:")
-    
+
     current_step = 0
     current_filters = {}
-    
+
     for step in demo_config["pipeline"]:
         current_step += 1
-        
+
         if isinstance(step, str):
             print(f"  Step {current_step}: String '{step}'")
             if step == "uncluster":
                 if 'group' in current_filters:
                     del current_filters['group']
                 print(f"    🔓 Updated filters: {current_filters}")
-                
+
         elif isinstance(step, dict):
             keys = list(step.keys())
             print(f"  Step {current_step}: Dict {keys}")
-            
+
             if "feature_augmentation" in step:
                 print(f"    🔧 Feature augmentation with {len(step['feature_augmentation'])} methods")
-                
+
             elif "cluster" in step:
                 current_filters['group'] = True
                 print("    🎯 Clustering applied")
                 print(f"    🏷️  Updated filters: {current_filters}")
-                
+
             elif "dispatch" in step:
                 branches = step["dispatch"]
                 print(f"    🌳 Dispatch: {len(branches)} parallel branches")
-                
+
                 for i, branch in enumerate(branches):
                     print(f"      Branch {i+1}:")
                     if isinstance(branch, list):
@@ -113,9 +113,9 @@ def demo_pipeline_runner_concept():
                             print(f"          - {sub_step}")
                     else:
                         print(f"        🔧 {branch}")
-                        
+
                 print("    ✅ All branches executed")
-    
+
     print("\n2. TRADITIONAL PIPELINE APPROACH:")
     print("-" * 30)
     print("📦 Pipeline building...")
@@ -126,7 +126,7 @@ def demo_pipeline_runner_concept():
     print("  - Sequential operation execution")
     print("  - Operations handle branching internally")
     print("  - Context updates hidden in operations")
-    
+
     print("\n3. KEY DIFFERENCES:")
     print("-" * 30)
     print("PipelineRunner Philosophy:")
@@ -136,14 +136,14 @@ def demo_pipeline_runner_concept():
     print("  ✅ Clear execution flow")
     print("  ✅ No intermediate operation objects")
     print("  ✅ Better debugging and monitoring")
-    
+
     print("\nTraditional Pipeline:")
     print("  ❌ Config -> Operations -> Execution")
     print("  ❌ Hidden context in operations")
     print("  ❌ Operations manage sub-pipelines")
     print("  ❌ Less visible execution flow")
     print("  ❌ Harder to debug complex branches")
-    
+
     print("\n4. CONTEXT TRACKING EXAMPLE:")
     print("-" * 30)
     print("Initial context filters: {}")
@@ -152,7 +152,7 @@ def demo_pipeline_runner_concept():
     print("Branch 1 context: {'branch': 1}")
     print("Branch 2 context: {'branch': 2}")
     print("Merged context: predictions from all branches")
-    
+
     print("\n5. PARALLEL EXECUTION EXAMPLE:")
     print("-" * 30)
     print("Sequential mode:")
@@ -160,7 +160,7 @@ def demo_pipeline_runner_concept():
     print("Parallel mode (with ThreadPoolExecutor):")
     print("  Branch 1 ∥ Branch 2 ∥ Branch 3")
     print("  → Merge results")
-    
+
     print("\n6. CONFIGURATION VISIBILITY:")
     print("-" * 30)
     print("The pipeline structure is preserved and visible:")
@@ -168,7 +168,7 @@ def demo_pipeline_runner_concept():
     print("- Branching is explicit")
     print("- Context updates are logged")
     print("- Parallel vs sequential choice is clear")
-    
+
     print("\n" + "=" * 60)
     print("CONCLUSION: PipelineRunner provides better visibility,")
     print("control, and understanding of complex pipeline execution")
@@ -177,14 +177,14 @@ def demo_pipeline_runner_concept():
 
 def demo_api_integration():
     """Show how PipelineRunner integrates with current API"""
-    
+
     print("\n" + "=" * 60)
     print("API INTEGRATION EXAMPLE")
     print("=" * 60)
-    
+
     print("\nUsage with current API:")
     print("-" * 30)
-    
+
     code_example = '''
 # Create runner with parallel support
 runner = PipelineRunner(max_workers=4, continue_on_error=True)
@@ -194,7 +194,7 @@ dataset = SpectraDataset.from_csv("data/sample_data.csv")
 
 # Execute with different config types
 result1 = runner.run_pipeline(sample_config, dataset)  # Python config
-result2 = runner.run_pipeline("config.yaml", dataset)   # YAML config  
+result2 = runner.run_pipeline("config.yaml", dataset)   # YAML config
 result3 = runner.run_pipeline(pipeline_list, dataset)   # Direct list
 
 # Get execution summary
@@ -207,9 +207,9 @@ predictions = summary['predictions']
 for model_name, preds in predictions.items():
     print(f"Model {model_name}: {preds.shape}")
 '''
-    
+
     print(code_example)
-    
+
     print("\nIntegration with existing operations:")
     print("-" * 30)
     print("- TransformationOperation: Used for preprocessing")
@@ -217,7 +217,7 @@ for model_name, preds in predictions.items():
     print("- ModelOperation: Used for model training")
     print("- StackOperation: Used for ensemble methods")
     print("- OptimizationOperation: Used for hyperparameter tuning")
-    
+
     print("\nContext management integration:")
     print("-" * 30)
     print("- PipelineContext: Enhanced for branch tracking")
