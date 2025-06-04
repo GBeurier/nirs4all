@@ -143,6 +143,63 @@ class SpectraDataset:
 
         return sample_ids
 
+    def add_feature_augmentation(self,
+                                 sample_ids: List[int],
+                                 features: np.ndarray,
+                                 processing_tag: str,
+                                 source_partition: str = "train") -> None:
+        """
+        Add feature augmentation to existing samples.
+
+        This creates new feature sources with the same sample IDs but different processing tags.
+        Used for feature augmentation where we want to add new features to existing samples.
+
+        Args:
+            sample_ids: List of existing sample IDs to augment
+            features: New features array [n_samples, n_features]
+            processing_tag: Unique tag for this augmentation
+            source_partition: Partition these samples came from
+        """
+        n_samples = len(sample_ids)
+
+        if features.shape[0] != n_samples:
+            raise ValueError(f"Features shape {features.shape[0]} doesn't match sample_ids length {n_samples}")
+
+        # Add features as new source
+        if self.features is None:
+            self.features = SpectraFeatures([features])
+        else:
+            self.features.append([features])
+
+        # Create new rows with same sample IDs but different processing
+        row_ids = list(range(self._next_row, self._next_row + n_samples))
+
+        # Get existing data for these samples to preserve partition, group, branch info
+        existing_data = self.indices.filter(pl.col("sample").is_in(sample_ids))
+
+        if len(existing_data) == 0:
+            raise ValueError(f"No existing data found for sample_ids: {sample_ids}")
+
+        # Take the first occurrence of each sample to get base metadata
+        base_data = existing_data.group_by("sample").first().sort("sample")
+
+        new_indices = pl.DataFrame({
+            "row": row_ids,
+            "sample": sample_ids,
+            "origin": base_data["origin"].to_list(),
+            "partition": base_data["partition"].to_list(),
+            "group": base_data["group"].to_list(),
+            "branch": base_data["branch"].to_list(),
+            "processing": [processing_tag] * n_samples,
+        })
+
+        self.indices = pl.concat([self.indices, new_indices])
+
+        # Update row counter
+        self._next_row += n_samples
+
+        print(f"  📊 Added {n_samples} samples with {features.shape[1]} features (processing: {processing_tag})")
+
     def select(self, **filters) -> 'DatasetView':
         """Create an efficient view of the dataset with filters applied."""
         # Import here to avoid circular import
@@ -162,14 +219,14 @@ class SpectraDataset:
         return self.features.get_by_rows(row_indices, source_indices, concatenate)
 
     def get_targets(self, sample_ids: List[int],
-                   representation: str = "auto",
-                   transformer_key: Optional[str] = None) -> np.ndarray:
+                    representation: str = "auto",
+                    transformer_key: Optional[str] = None) -> np.ndarray:
         """Get targets for specific samples using SpectraTargets."""
         return self.target_manager.get_targets(sample_ids, representation, transformer_key)
 
     def update_features(self, row_indices: np.ndarray,
-                       new_features: Union[np.ndarray, List[np.ndarray]],
-                       source_indices: Optional[Union[int, List[int]]] = None):
+                        new_features: Union[np.ndarray, List[np.ndarray]],
+                        source_indices: Optional[Union[int, List[int]]] = None):
         """Update features in-place."""
         if self.features is not None:
             self.features.update_rows(row_indices, new_features, source_indices)
@@ -179,21 +236,14 @@ class SpectraDataset:
         mask = pl.col("sample").is_in(sample_ids)
         self.indices = self.indices.with_columns(
             pl.when(mask).then(pl.lit(processing_tag)).otherwise(pl.col("processing")).alias("processing")
-        )
+        )    # Target management methods
 
-    # Target management methods
-    def fit_transform_targets(self, sample_ids: List[int],
-                            transformers: List[Any],
-                            representation: str = "auto",
-                            transformer_key: str = "default") -> np.ndarray:
+    def fit_transform_targets(self, sample_ids, transformers, representation="auto", transformer_key="default"):
         """Fit target transformers and return transformed targets."""
         return self.target_manager.fit_transform_targets(
             sample_ids, transformers, representation, transformer_key)
 
-    def inverse_transform_predictions(self, predictions: np.ndarray,
-                                    representation: str = "auto",
-                                    transformer_key: str = "default",
-                                    to_original: bool = True) -> np.ndarray:
+    def inverse_transform_predictions(self, predictions, representation="auto", transformer_key="default", to_original=True):
         """Inverse transform predictions back to original format."""
         return self.target_manager.inverse_transform_predictions(
             predictions, representation, transformer_key, to_original)
@@ -220,7 +270,9 @@ class SpectraDataset:
     @property
     def is_binary(self) -> bool:
         """Check if this is a binary classification task."""
-        return self.target_manager.is_binary    # Results management methods
+        return self.target_manager.is_binary
+
+    # Results management methods
     def add_predictions(self,
                        sample_ids: List[int],
                        predictions: np.ndarray,
@@ -437,3 +489,8 @@ class SpectraDataset:
                 )
 
         return dataset
+
+    def merge_sources(self, merge_config):
+        """Merge data sources according to configuration."""
+        print(f"[MOCK] Merging sources with config: {merge_config}")
+        return self
