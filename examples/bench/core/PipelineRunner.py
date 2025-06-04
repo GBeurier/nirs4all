@@ -9,7 +9,6 @@ Features:
 """
 import json
 from typing import Any, Dict, List, Optional, Union, Tuple
-import yaml
 import copy
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +20,7 @@ from PipelineBuilder import PipelineBuilder
 from PipelineHistory import PipelineHistory
 from ConfigSerializer import ConfigSerializer
 from PipelineTree import PipelineTree
+from FittedPipeline import FittedPipeline
 
 class PipelineRunner:
 
@@ -34,14 +34,13 @@ class PipelineRunner:
         self.context = PipelineContext()
         self.history = PipelineHistory()
         self.current_step = 0
-        self.current_step_hash = ""
-
-        # New serialization support
+        self.current_step_hash = ""        # New serialization support
         self.config_serializer = ConfigSerializer()
         self.fitted_tree = None
+        self.fitted_pipeline = None
         self.normalized_config = None
 
-    def run(self, config: Union[Dict, str], dataset: SpectraDataset) -> Tuple[SpectraDataset, PipelineHistory]:
+    def run(self, config: Union[Dict, str], dataset: SpectraDataset) -> Tuple[SpectraDataset, Any, PipelineHistory, Any]:
         print("🚀 Starting Pipeline Runner")
 
         # Reset pipeline state
@@ -61,9 +60,11 @@ class PipelineRunner:
         if not isinstance(steps, list):
             raise ValueError("Pipeline configuration must contain a 'pipeline' list")
 
-        try:
-            # Build fitted tree during execution
+        try:            # Build fitted tree during execution
             self.fitted_tree = self._build_fitted_tree(steps, dataset)
+
+            # Create fitted pipeline
+            self.fitted_pipeline = FittedPipeline(self.fitted_tree)
 
             for step in steps:
                 self._run_step(step, dataset)
@@ -77,16 +78,17 @@ class PipelineRunner:
             print(f"❌ Pipeline failed: {str(e)}")
             raise
 
-        return dataset, self.history
+        return dataset, self.fitted_pipeline, self.history, self.fitted_tree
 
     def _run_step(self, step: Any, dataset: SpectraDataset, prefix: str = ""):
         """
-        MAIN PARSING LOGIC - Clean execution with builder delegation
+        MAIN PARSING LOGIC - Enhanced to handle all nested pipeline structures
 
         Control flow:
         1. Identify step type
         2. Delegate execution to appropriate handler
         3. Track execution in history
+        4. Build fitted tree structure
         """
         self.current_step += 1
         step_description = self._get_step_description(step)
@@ -102,20 +104,40 @@ class PipelineRunner:
         try:
             # Control structures
             if isinstance(step, dict):
-                if "context_filter" in step:
-                    self._run_context_filter(step["context_filter"], dataset, prefix + "  ")
-                elif "sample_augmentation" in step:
-                    self._run_sample_augmentation(step["sample_augmentation"], dataset, prefix + "  ")
-                elif "feature_augmentation" in step:
-                    self._run_feature_augmentation(step["feature_augmentation"], dataset, prefix + "  ")
+                # Dataset controllers
+                if "sample_augmentation" in step or "samples" in step or "S" in step:
+                    key = next(k for k in ["sample_augmentation", "samples", "S"] if k in step)
+                    self._run_sample_augmentation(step[key], dataset, prefix + "  ")
+                elif "feature_augmentation" in step or "features" in step or "F" in step:
+                    key = next(k for k in ["feature_augmentation", "features", "F"] if k in step)
+                    self._run_feature_augmentation(step[key], dataset, prefix + "  ")
+
+                # Flow controllers
+                elif "branch" in step:
+                    self._run_branch(step["branch"], dataset, prefix + "  ")
                 elif "dispatch" in step:
                     self._run_dispatch(step["dispatch"], dataset, prefix + "  ")
+
+                # Model operations
                 elif "model" in step:
-                    self._run_model(step["model"], dataset, prefix + "  ")
+                    self._run_model(step, dataset, prefix + "  ")
                 elif "stack" in step:
-                    self._run_stacking(step["stack"], dataset, prefix + "  ")
+                    self._run_stack(step, dataset, prefix + "  ")
+
+                # Scope controllers
+                elif "scope" in step:
+                    self._run_scope(step["scope"], dataset, prefix + "  ")
+                elif "cluster" in step:
+                    self._run_cluster(step["cluster"], dataset, prefix + "  ")
+
+                # Special operations
+                elif "merge" in step:
+                    self._run_merge(step["merge"], dataset, prefix + "  ")
+                elif "context_filter" in step:
+                    self._run_context_filter(step["context_filter"], dataset, prefix + "  ")
+
                 else:
-                    # Direct operation dict
+                    # Direct operation dict (class-based operation)
                     operation = self.builder.build_operation(step)
                     self._execute_operation(operation, dataset, prefix + "  ")
 
@@ -127,8 +149,15 @@ class PipelineRunner:
 
             # String reference (preset, operation name, etc.)
             elif isinstance(step, str):
-                operation = self.builder.build_operation(step)
-                self._execute_operation(operation, dataset, prefix + "  ")            # Direct operation object
+                if step == "uncluster":
+                    self._run_uncluster(dataset, prefix + "  ")
+                elif step == "unscope":
+                    self._run_unscope(dataset, prefix + "  ")
+                else:
+                    operation = self.builder.build_operation(step)
+                    self._execute_operation(operation, dataset, prefix + "  ")
+
+            # Direct operation object
             else:
                 operation = self.builder.build_operation(step)
                 self._execute_operation(operation, dataset, prefix + "  ")
@@ -394,9 +423,121 @@ class PipelineRunner:
         operation = self.builder.build_operation({"stack": stack_config})
         self._execute_operation(operation, dataset, prefix)
 
-    # =================================================================
+    def _run_branch(self, branches: List[Any], dataset: SpectraDataset, prefix: str):
+        """Execute branch - parallel processing WITH data copy"""
+        print(f"{prefix}🌿 Branch with {len(branches)} branches (data copy)")
+
+        if self.max_workers != 1 and len(branches) > 1:
+            self._run_branch_parallel(branches, dataset, prefix)
+        else:
+            self._run_branch_sequential(branches, dataset, prefix)
+
+    def _run_branch_sequential(self, branches: List[Any], dataset: SpectraDataset, prefix: str):
+        """Execute branches sequentially with data copy"""
+        for i, branch in enumerate(branches):
+            print(f"{prefix}  🌿 Branch {i+1}/{len(branches)} (sequential)")
+            # Create dataset copy for each branch
+            dataset_copy = copy.deepcopy(dataset)
+            self._run_step(branch, dataset_copy, f"{prefix}    ")
+
+    def _run_branch_parallel(self, branches: List[Any], dataset: SpectraDataset, prefix: str):
+        """Execute branches in parallel with data copy using joblib"""
+        print(f"{prefix}  🔀 Running {len(branches)} branches in parallel (with data copy)")
+
+        try:
+            # Create dataset copies for parallel execution
+            dataset_copies = [copy.deepcopy(dataset) for _ in branches]
+
+            # Execute branches in parallel
+            results = Parallel(
+                n_jobs=self.max_workers,
+                backend=self.backend,
+                verbose=self.verbose
+            )(
+                delayed(self._run_step)(branch, dataset_copy, f"{prefix}    ")
+                for branch, dataset_copy in zip(branches, dataset_copies)
+            )
+
+            # All branches completed successfully
+            for i in range(len(branches)):
+                print(f"{prefix}  ✅ Branch {i+1} completed")
+
+        except Exception as e:
+            print(f"{prefix}  ❌ Parallel branch failed: {str(e)}")
+            if not self.continue_on_error:
+                raise
+
+    def _run_stack(self, step_config: Dict, dataset: SpectraDataset, prefix: str):
+        """Execute stack operation - enhanced model with base learners"""
+        print(f"{prefix}📚 Stack operation")
+
+        stack_config = step_config.get("stack", step_config)
+
+        # Handle y_pipeline if present
+        if "y_pipeline" in stack_config:
+            print(f"{prefix}  🔧 Y-pipeline processing")
+            y_pipeline = stack_config["y_pipeline"]
+            if isinstance(y_pipeline, list):
+                for y_step in y_pipeline:
+                    y_operation = self.builder.build_operation(y_step)
+                    self._execute_operation(y_operation, dataset, f"{prefix}    ")
+            else:
+                y_operation = self.builder.build_operation(y_pipeline)
+                self._execute_operation(y_operation, dataset, f"{prefix}    ")
+
+        # Handle base learners
+        if "base_learners" in stack_config:
+            base_learners = stack_config["base_learners"]
+            print(f"{prefix}  📊 Processing {len(base_learners)} base learners")
+
+            for i, base_learner in enumerate(base_learners):
+                print(f"{prefix}    🔸 Base learner {i+1}/{len(base_learners)}")
+                self._run_model(base_learner, dataset, f"{prefix}      ")
+
+        # Handle the main model
+        if "model" in stack_config:
+            print(f"{prefix}  🤖 Meta-learner")
+            self._run_model({"model": stack_config["model"]}, dataset, f"{prefix}    ")
+
+    def _run_scope(self, scope_config: Any, dataset: SpectraDataset, prefix: str):
+        """Apply scope modification to dataset"""
+        print(f"{prefix}🎯 Scope: {scope_config}")
+        # For MVP: just track the scope change in context
+        self.context.current_filters["scope"] = scope_config
+
+    def _run_cluster(self, cluster_config: Any, dataset: SpectraDataset, prefix: str):
+        """Execute clustering operation"""
+        print(f"{prefix}🎯 Cluster operation")
+        operation = self.builder.build_operation(cluster_config)
+        self._execute_operation(operation, dataset, prefix)
+
+        # Mark that we're now in clustered mode
+        self.context.current_filters["clustered"] = True
+
+    def _run_merge(self, merge_config: str, dataset: SpectraDataset, prefix: str):
+        """Execute merge operation"""
+        print(f"{prefix}🔗 Merge: {merge_config}")
+        # For MVP: just log the merge operation
+        if hasattr(dataset, 'merge_sources'):
+            dataset.merge_sources(merge_config)
+        else:
+            print(f"{prefix}  💡 Dataset merge not implemented - would merge {merge_config}")
+
+    def _run_uncluster(self, dataset: SpectraDataset, prefix: str):
+        """Remove clustering scope"""
+        print(f"{prefix}🎯 Uncluster - removing cluster scope")
+        if "clustered" in self.context.current_filters:
+            del self.context.current_filters["clustered"]
+
+    def _run_unscope(self, dataset: SpectraDataset, prefix: str):
+        """Remove scope modifications"""
+        print(f"{prefix}🎯 Unscope - removing scope modifications")
+        if "scope" in self.context.current_filters:
+            del self.context.current_filters["scope"]    # =================================================================
     # PIPELINE SERIALIZATION AND SAVING
-    # =================================================================    def _build_fitted_tree(self, steps: List[Any], dataset: SpectraDataset) -> PipelineTree:
+    # =================================================================
+
+    def _build_fitted_tree(self, steps: List[Any], dataset: SpectraDataset) -> PipelineTree:
         """
         Build a fitted pipeline tree during execution
 
@@ -463,7 +604,7 @@ class PipelineRunner:
         else:
             # Fallback to simple JSON save
             filepath_obj = Path(filepath)
-            with open(filepath_obj, 'w') as f:
+            with open(filepath_obj, 'w', encoding='utf-8') as f:
                 json.dump(pipeline_data, f, indent=2, default=str)
 
         print(f"💾 Pipeline saved to: {filepath}")

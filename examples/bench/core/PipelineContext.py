@@ -55,3 +55,7 @@ class PipelineContext:
     def pop_branch(self):
         if len(self.branch_stack) > 1:
             self.branch_stack.pop()
+
+    def apply_filters(self, filters: Dict[str, Any]):
+        """Apply context filters - update current filters with new ones."""
+        self.current_filters.update(filters)
