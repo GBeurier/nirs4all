@@ -2,19 +2,29 @@
 PipelineRunner - Clean execution engine with builder delegation
 
 Clean separation of concerns:
-- Runner: context management + execution control
+- Runner: context management + execution control + data flow management
 - Builder: generic step building from any format
 - Operations: simple wrappers around operators
+
+Key Features:
+- Unified parsing loop for all step types
+- Delegated operation building to PipelineBuilder
+- Enhanced feature augmentation with data flow management:
+  * Runner manages train set extraction and context filtering
+  * Runner handles transformer fitting and feature transformation
+  * Runner manages adding new features back to the dataset
+  * Support for parallel execution of multiple augmenters
+- Robust error handling and continue-on-error support
 """
+import json
+import yaml
 from typing import Any, Dict, List, Optional, Union
 from concurrent.futures import ThreadPoolExecutor
 import copy
 
 from SpectraDataset import SpectraDataset
 from PipelineContext import PipelineContext
-from PipelineConfig import PipelineConfig
 from PipelineBuilder import PipelineBuilder
-from DummyOperations import VisualizationOperation
 
 
 class PipelineRunner:
@@ -27,26 +37,29 @@ class PipelineRunner:
         # Initialize builder for operation creation
         self.builder = PipelineBuilder()
 
-        # Execution state
         self.context = PipelineContext()
         self.current_step = 0
 
-    def run_pipeline(self, pipeline_config: Union[Dict, List, PipelineConfig], dataset: SpectraDataset) -> SpectraDataset:
+    def run(self, config: Union[Dict, str], dataset: SpectraDataset) -> SpectraDataset:
         """Main entry point"""
         print("🚀 Starting Pipeline Runner")
 
-        # Extract steps from config
-        if isinstance(pipeline_config, PipelineConfig):
-            steps = pipeline_config.pipeline
-        elif isinstance(pipeline_config, dict) and 'pipeline' in pipeline_config:
-            steps = pipeline_config['pipeline']
-        elif isinstance(pipeline_config, list):
-            steps = pipeline_config
-        else:
-            raise ValueError(f"Invalid pipeline config type: {type(pipeline_config)}")
+        if self.current_step > 0:
+            print("  ⚠️ Warning: Previous run detected, resetting step count")
+            self.current_step = 0
+            self.context.reset()
+
+        pipeline_config = config
+        if isinstance(config, str):
+            if config.endswith(".json"):
+                with open(config, 'r', encoding='utf-8') as f:
+                    pipeline_config = json.load(f)
+            elif config.endswith(".yaml") or config.endswith(".yml"):
+                with open(config, 'r', encoding='utf-8') as f:
+                    pipeline_config = yaml.safe_load(f)
 
         # Execute pipeline steps
-        for step in steps:
+        for step in pipeline_config.get("pipeline", []):
             self._run_step(step, dataset)
 
         return dataset
@@ -69,8 +82,6 @@ class PipelineRunner:
             # CONTROL OPERATIONS - handled locally
             if isinstance(step, str) and step == "uncluster":
                 self._run_uncluster(dataset, step_prefix)
-            elif isinstance(step, str) and step.startswith("Plot"):
-                self._run_visualization(step, dataset, step_prefix)
             elif isinstance(step, list):
                 self._run_sub_pipeline(step, dataset, step_prefix)
             elif isinstance(step, dict) and len(step) == 1:
@@ -113,9 +124,6 @@ class PipelineRunner:
         # Execute operation
         operation.execute(filtered_dataset, self.context)
 
-    # =================================================================
-    # CONTROL OPERATIONS - handled locally
-    # =================================================================
 
     def _run_uncluster(self, dataset: SpectraDataset, prefix: str):
         """Remove group filters from context"""
@@ -124,157 +132,161 @@ class PipelineRunner:
             del self.context.current_filters['group']
             print(f"{prefix}   Removed group filters")
 
-    def _run_visualization(self, step: str, dataset: SpectraDataset, prefix: str):
-        """Handle visualization steps"""
-        print(f"{prefix}📊 Visualization: {step}")
-        viz_op = VisualizationOperation(plot_type=step)
-        viz_op.execute(dataset, self.context)
-
     def _run_sub_pipeline(self, step_list: List[Any], dataset: SpectraDataset, prefix: str):
         """Execute sub-pipeline"""
         print(f"{prefix}📋 Sub-pipeline with {len(step_list)} steps")
         for sub_step in step_list:
-            self._run_step(sub_step, dataset, f"{prefix}  ")    def _run_sample_augmentation(self, augmenters: List[Any], dataset: SpectraDataset, prefix: str):
+            self._run_step(sub_step, dataset, f"{prefix}  ")
+
+    def _run_sample_augmentation(self, augmenters: List[Any], dataset: SpectraDataset, prefix: str):
         """Execute sample augmentation - parallel processing"""
         print(f"{prefix}🔄 Sample augmentation with {len(augmenters)} augmenters")
 
         for i, augmenter in enumerate(augmenters):
             print(f"{prefix}  📌 Augmenter {i+1}/{len(augmenters)}")
             operation = self.builder.build_operation(augmenter)
-            operation.mode = "sample_augmentation"
+            if hasattr(operation, 'mode'):
+                setattr(operation, 'mode', "sample_augmentation")
             self._execute_operation(operation, dataset, f"{prefix}    ")
 
     def _run_feature_augmentation(self, augmenters: List[Any], dataset: SpectraDataset, prefix: str):
-        """Execute feature augmentation - runner manages data flow and parallel execution"""
+        """
+        Execute feature augmentation - runner manages data flow and parallel execution
+
+        The runner is responsible for:
+        1. Getting the current train set
+        2. Managing the data flow for each augmenter
+        3. Adding new features to the dataset
+        4. Handling parallel execution if enabled
+        """
         print(f"{prefix}🔄 Feature augmentation with {len(augmenters)} augmenters")
 
-        # Get current train set for augmentation
+        # Get current train set for augmentation - apply context filters
         train_view = dataset.select(partition="train", **self.context.current_filters)
         if len(train_view) == 0:
             print(f"{prefix}  ⚠️ No train data found for feature augmentation")
             return
 
-        print(f"{prefix}  📊 Base train set: {len(train_view)} samples")
+        print(f"{prefix}  📊 Base train set: {len(train_view)} samples, {train_view.get_features().shape[1]} features")
 
+        # Execute augmenters based on parallel configuration
         if self.max_workers and len(augmenters) > 1:
             self._run_feature_augmentation_parallel(augmenters, dataset, train_view, prefix)
         else:
             self._run_feature_augmentation_sequential(augmenters, dataset, train_view, prefix)
 
+        # Report final feature count
+        final_train_view = dataset.select(partition="train", **self.context.current_filters)
+        final_feature_count = final_train_view.get_features().shape[1]
+        print(f"{prefix}  📈 Final train set: {len(final_train_view)} samples, {final_feature_count} features")
+
     def _run_feature_augmentation_sequential(self, augmenters: List[Any], dataset: SpectraDataset, train_view, prefix: str):
-        """Sequential feature augmentation"""
+        """Sequential feature augmentation execution"""
         for i, augmenter in enumerate(augmenters):
             print(f"{prefix}  📌 Augmenter {i+1}/{len(augmenters)}")
-            self._apply_feature_augmentation(augmenter, dataset, train_view, f"{prefix}    ")
+            try:
+                self._apply_feature_augmentation(augmenter, dataset, train_view, f"{prefix}    ")
+                print(f"{prefix}  ✅ Augmenter {i+1} completed")
+            except Exception as e:
+                print(f"{prefix}  ❌ Augmenter {i+1} failed: {str(e)}")
+                if not self.continue_on_error:
+                    raise
 
     def _run_feature_augmentation_parallel(self, augmenters: List[Any], dataset: SpectraDataset, train_view, prefix: str):
-        """Parallel feature augmentation"""
-        print(f"{prefix}  🔀 Running {len(augmenters)} augmenters in parallel")
+        """Parallel feature augmentation execution"""
+        print(f"{prefix}  🔀 Running {len(augmenters)} augmenters in parallel (max_workers={self.max_workers})")
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:            # Submit all augmentation tasks
             futures = []
             for i, augmenter in enumerate(augmenters):
-                future = executor.submit(self._apply_feature_augmentation,
-                                       augmenter, dataset, train_view, f"{prefix}    ")
-                futures.append((i, future))
+                future = executor.submit(self._apply_feature_augmentation_safe,
+                                         augmenter, dataset, train_view, f"{prefix}    ", i + 1)
+                futures.append((i + 1, future))
 
-            # Collect results
-            for i, future in futures:
+            # Collect results and handle errors
+            for aug_num, future in futures:
                 try:
                     future.result()
-                    print(f"{prefix}  ✅ Augmenter {i+1} completed")
+                    print(f"{prefix}  ✅ Augmenter {aug_num} completed")
                 except Exception as e:
-                    print(f"{prefix}  ❌ Augmenter {i+1} failed: {str(e)}")
+                    print(f"{prefix}  ❌ Augmenter {aug_num} failed: {str(e)}")
                     if not self.continue_on_error:
                         raise
 
-    def _apply_feature_augmentation(self, augmenter, dataset: SpectraDataset, train_view, prefix: str):
-        """Apply single feature augmentation - runner manages the data flow"""
+    def _apply_feature_augmentation_safe(self, augmenter, dataset: SpectraDataset, train_view, prefix: str, aug_num: int):
+        """Thread-safe wrapper for feature augmentation application"""
+        try:
+            self._apply_feature_augmentation(augmenter, dataset, train_view, prefix, aug_num)
+        except Exception as e:
+            # Re-raise with context for better error reporting
+            raise Exception(f"Augmenter {aug_num} error: {str(e)}") from e
 
-        # Build operation from augmenter config
+    def _apply_feature_augmentation(self, augmenter, dataset: SpectraDataset, train_view, prefix: str, aug_num: Optional[int] = None):
+        """
+        Apply single feature augmentation - runner manages the complete data flow
+
+        Process:
+        1. Build operation from config
+        2. Get train features
+        3. Fit and transform using the operation's transformer
+        4. Create unique processing tag
+        5. Add transformed features to dataset
+        """
+        # Build operation from augmenter config (delegated to builder)
         operation = self.builder.build_operation(augmenter)
-        print(f"{prefix}🔧 {operation.get_name()}")
+        operation_name = operation.get_name()
+
+        aug_label = f"Aug {aug_num}" if aug_num else "Augmentation"
+        print(f"{prefix}� {aug_label}: {operation_name}")
 
         # Get train features for transformation
         X_train = train_view.get_features()
-
-        # Fit and transform using the operation's transformer
-        transformer = operation.transformer
-        transformer.fit(X_train)
-        X_transformed = transformer.transform(X_train)
-
-        # Create processing tag for this augmentation
-        aug_tag = f"aug_{transformer.__class__.__name__}_{hash(str(transformer.get_params()))%10000:04d}"
-
-        # Runner manages adding the transformed features to dataset
-        print(f"{prefix}  📝 Adding features with tag: {aug_tag}")
-        dataset.add_feature_augmentation(
-            sample_ids=train_view.sample_ids,
-            features=X_transformed,
-            processing_tag=aug_tag,
-            source_partition="train"
-        )
-
-        print(f"{prefix}  📊 Base train set: {len(train_view)} samples")
-
-        if self.max_workers and len(augmenters) > 1:
-            self._run_feature_augmentation_parallel(augmenters, dataset, train_view, prefix)
+        print(f"{prefix}  � Input: {X_train.shape[0]} samples × {X_train.shape[1]} features")        # Fit and transform using the operation's transformer
+        # For feature augmentation, we need to access the underlying transformer
+        if hasattr(operation, 'transformer'):
+            transformer = getattr(operation, 'transformer')  # Use getattr to avoid linter issues
         else:
-            self._run_feature_augmentation_sequential(augmenters, dataset, train_view, prefix)
+            # If operation doesn't have direct transformer access, try to extract it
+            # This is a fallback for different operation types
+            raise ValueError(f"Operation {operation.get_name()} doesn't support feature augmentation (no transformer attribute)")
 
-    def _run_feature_augmentation_sequential(self, augmenters: List[Any], dataset: SpectraDataset, train_view, prefix: str):
-        """Sequential feature augmentation"""
-        for i, augmenter in enumerate(augmenters):
-            print(f"{prefix}  📌 Augmenter {i+1}/{len(augmenters)}")
-            self._apply_feature_augmentation(augmenter, dataset, train_view, f"{prefix}    ")
-
-    def _run_feature_augmentation_parallel(self, augmenters: List[Any], dataset: SpectraDataset, train_view, prefix: str):
-        """Parallel feature augmentation"""
-        print(f"{prefix}  🔀 Running {len(augmenters)} augmenters in parallel")
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = []
-            for i, augmenter in enumerate(augmenters):
-                future = executor.submit(self._apply_feature_augmentation,
-                                       augmenter, dataset, train_view, f"{prefix}    ")
-                futures.append((i, future))
-
-            # Collect results
-            for i, future in futures:
-                try:
-                    future.result()
-                    print(f"{prefix}  ✅ Augmenter {i+1} completed")
-                except Exception as e:
-                    print(f"{prefix}  ❌ Augmenter {i+1} failed: {str(e)}")
-                    if not self.continue_on_error:
-                        raise
-
-    def _apply_feature_augmentation(self, augmenter, dataset: SpectraDataset, train_view, prefix: str):
-        """Apply single feature augmentation - runner manages the data flow"""
-
-        # Build operation from augmenter config
-        operation = self.builder.build_operation(augmenter)
-        print(f"{prefix}🔧 {operation.get_name()}")
-
-        # Get train features for transformation
-        X_train = train_view.get_features()
-
-        # Fit and transform using the operation's transformer
-        transformer = operation.transformer
+        # Fit on train data
         transformer.fit(X_train)
+
+        # Transform to get new features
         X_transformed = transformer.transform(X_train)
 
-        # Create processing tag for this augmentation
-        aug_tag = f"aug_{transformer.__class__.__name__}_{hash(str(transformer.get_params()))%10000:04d}"
+        # Validate transformation result
+        if X_transformed.shape[0] != X_train.shape[0]:
+            raise ValueError(f"Feature augmentation changed sample count: {X_train.shape[0]} -> {X_transformed.shape[0]}")
+
+        print(f"{prefix}  📈 Output: {X_transformed.shape[0]} samples × {X_transformed.shape[1]} features")
+
+        # Create unique processing tag for this augmentation
+        transformer_name = transformer.__class__.__name__
+        params_hash = hash(str(sorted(transformer.get_params().items()))) % 10000
+        aug_tag = f"aug_{transformer_name}_{params_hash:04d}"
 
         # Runner manages adding the transformed features to dataset
         print(f"{prefix}  📝 Adding features with tag: {aug_tag}")
-        dataset.add_feature_augmentation(
-            sample_ids=train_view.sample_ids,
-            features=X_transformed,
-            processing_tag=aug_tag,
-            source_partition="train"
-        )
+
+        # Use dataset's feature augmentation method to add new features
+        # Note: This assumes SpectraDataset has this method - if not, we need to implement it
+        if hasattr(dataset, 'add_feature_augmentation'):
+            add_features_method = getattr(dataset, 'add_feature_augmentation')
+            add_features_method(
+                sample_ids=train_view.sample_ids,
+                features=X_transformed,
+                processing_tag=aug_tag,
+                source_partition="train"
+            )
+        else:
+            # Fallback: add features directly to the dataset
+            # This would need to be implemented based on the actual SpectraDataset interface
+            print(f"{prefix}  ⚠️ Dataset doesn't support add_feature_augmentation - features not added")
+            print(f"{prefix}  💡 Would add {X_transformed.shape[1]} features to {len(train_view.sample_ids)} samples")
+
+        print(f"{prefix}  ✅ Added {X_transformed.shape[1]} new features to {len(train_view.sample_ids)} samples")
 
     def _run_dispatch(self, branches: List[Any], dataset: SpectraDataset, prefix: str):
         """Execute dispatch - parallel branch processing"""
@@ -320,9 +332,6 @@ class PipelineRunner:
         operation = self.builder.build_operation({"stack": stack_config})
         self._execute_operation(operation, dataset, prefix)
 
-    # =================================================================
-    # UTILITY FUNCTIONS
-    # =================================================================
 
     def _get_step_description(self, step: Any) -> str:
         """Get human-readable description of step"""

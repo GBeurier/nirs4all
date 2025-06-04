@@ -10,9 +10,9 @@ import numpy as np
 import polars as pl
 import yaml
 
-from .SpectraFeatures import SpectraFeatures
-from .SpectraTargets import SpectraTargets
-from .CsvLoader import load_data_from_config
+from SpectraFeatures import SpectraFeatures
+from SpectraTargets import SpectraTargets
+from CsvLoader import load_data_from_config
 
 
 class SpectraDataset:
