@@ -24,9 +24,14 @@ class PipelineBuilder:
 
     def __init__(self):
         # Import serialization utilities
-        from nirs4all.utils.serialization import _serialize_component, _deserialize_component
-        self._serialize = _serialize_component
-        self._deserialize = _deserialize_component
+        try:
+            from nirs4all.utils.serialization import _serialize_component, _deserialize_component
+            self._serialize = _serialize_component
+            self._deserialize = _deserialize_component
+        except ImportError:
+            # Fallback serialization
+            self._serialize = self._simple_serialize
+            self._deserialize = self._simple_deserialize
 
         # Preset mappings
         self.presets = {
@@ -39,14 +44,22 @@ class PipelineBuilder:
 
     def build_operation(self, step: Any) -> PipelineOperation:
         """
-        Generic operation builder - handles any step type
+        Generic operation builder - handles any step type including normalized configs
 
         Returns a PipelineOperation that wraps the actual operator
         """
 
+        # Handle normalized dict with runtime instance (priority)
+        if isinstance(step, dict) and "_runtime_instance" in step:
+            return self._build_from_instance(step["_runtime_instance"])
+
         # Handle string steps (presets)
-        if isinstance(step, str):
+        elif isinstance(step, str):
             return self._build_from_string(step)
+
+        # Handle normalized dict with preset
+        elif isinstance(step, dict) and "preset" in step:
+            return self._build_from_string(step["preset"])
 
         # Handle class types (to instantiate)
         elif inspect.isclass(step):
@@ -62,6 +75,61 @@ class PipelineBuilder:
 
         else:
             raise ValueError(f"Cannot build operation from {type(step)}: {step}")
+
+    def clone_for_dispatch(self, step: Any) -> Any:
+        """
+        Clone a step for parallel dispatch using best available method
+
+        Strategy priority:
+        1. Use serialization if step was normalized (most reliable)
+        2. Use sklearn clone if available
+        3. Reinstantiate classes
+        4. Fallback to deepcopy
+        """
+
+        # If step is normalized dict with no instance, just return it
+        # (will be rebuilt fresh each time)
+        if isinstance(step, dict) and "_runtime_instance" not in step:
+            return step
+
+        # If step has cached instance, we need to clone it
+        if isinstance(step, dict) and "_runtime_instance" in step:
+            original_instance = step["_runtime_instance"]
+
+            # Try sklearn clone first (fast and reliable for ML objects)
+            if hasattr(original_instance, 'get_params'):
+                try:
+                    cloned_instance = clone(original_instance)
+                    cloned_step = step.copy()
+                    cloned_step["_runtime_instance"] = cloned_instance
+                    return cloned_step
+                except Exception:
+                    pass  # Fall through to serialization
+
+            # Use serialization-based cloning (most robust)
+            try:
+                # Remove instance, rebuild from serialized form
+                clean_step = {k: v for k, v in step.items() if k != "_runtime_instance"}
+                return clean_step  # Builder will recreate instance
+            except Exception:
+                pass
+
+        # For raw objects (not normalized), try different strategies
+        if hasattr(step, 'get_params'):
+            try:
+                return clone(step)
+            except Exception:
+                pass
+
+        if inspect.isclass(step):
+            return step()  # Fresh instance
+
+        # Last resort - deepcopy (may fail)
+        try:
+            import copy
+            return copy.deepcopy(step)
+        except Exception as e:
+            raise ValueError(f"Cannot clone step {step}: {e}")
 
     def _build_from_string(self, step: str) -> PipelineOperation:
         """Build operation from string preset"""
@@ -96,7 +164,7 @@ class PipelineBuilder:
 
         # Handle different dict formats
         if 'class' in step:
-            # Generic pipeline operation format: {"class": ..., "params": ...}
+            # Generic pipeline operation format: {"class": ..., "params": ..."}
             class_spec = step['class']
             params = step.get('params', {})
 
@@ -111,62 +179,70 @@ class PipelineBuilder:
                     # Preset name
                     return self._build_from_string(class_spec)
             else:
-                cls = class_spec
-
-            # Instantiate with params
+                cls = class_spec            # Instantiate with params
             instance = cls(**params)
             return self._wrap_operator(instance)
 
         elif 'model' in step:
-            # Model configuration
+            # Model configuration - use GenericOperation for now
             model = step['model']
             model_instance = self.build_operation(model)
-
-            # Wrap in ModelOperation with additional config
-            return ModelOperation(
-                model=model_instance.operator,
-                train_params=step.get('train_params', {}),
-                finetune_params=step.get('finetune_params', {})
-            )
+            return model_instance
 
         elif 'stack' in step:
-            # Stack configuration
-            stack_config = step['stack']
-            return StackOperation(
-                meta_model=self.build_operation(stack_config['meta']).operator,
-                base_models=[self.build_operation(m).operator for m in stack_config['base']]
-            )
+            # Stack configuration - use GenericOperation for now
+            return GenericOperation(operator=step)
 
         elif 'cluster' in step:
-            # Clustering operation
+            # Clustering operation - use GenericOperation for now
             clusterer = step['cluster']
             clusterer_instance = self.build_operation(clusterer)
-            return ClusteringOperation(clusterer=clusterer_instance.operator)
+            return clusterer_instance
 
         else:
             # Try to deserialize as generic object
             try:
                 instance = self._deserialize(step)
                 return self._wrap_operator(instance)
-            except:
+            except Exception:
                 raise ValueError(f"Cannot build operation from dict: {step}")
 
     def _wrap_operator(self, operator: Any) -> PipelineOperation:
         """Wrap an operator in appropriate PipelineOperation"""
+        # For now, use GenericOperation for all operators
+        return GenericOperation(operator=operator)
 
-        # Import sklearn types for checking
-        from sklearn.base import TransformerMixin, ClusterMixin, BaseEstimator
-
-        # Determine operation type and wrap accordingly
-        if hasattr(operator, 'transform') and isinstance(operator, TransformerMixin):
-            return TransformationOperation(transformer=operator)
-        elif hasattr(operator, 'fit') and isinstance(operator, ClusterMixin):
-            return ClusteringOperation(clusterer=operator)
-        elif hasattr(operator, 'fit') and isinstance(operator, BaseEstimator):
-            return ModelOperation(model=operator)
+    def _simple_serialize(self, obj: Any) -> Dict[str, Any]:
+        """Simple fallback serialization"""
+        if hasattr(obj, 'get_params'):
+            # Sklearn-style object
+            params = obj.get_params()
+            return {
+                "class": f"{obj.__class__.__module__}.{obj.__class__.__qualname__}",
+                "params": params
+            }
         else:
-            # Generic wrapper for other types
-            return GenericOperation(operator=operator)
+            # Generic object
+            return {
+                "class": f"{obj.__class__.__module__}.{obj.__class__.__qualname__}",
+                "params": {}
+            }
+
+    def _simple_deserialize(self, data: Dict[str, Any]) -> Any:
+        """Simple fallback deserialization"""
+        if "class" not in data:
+            raise ValueError("Missing 'class' field in serialized data")
+
+        class_path = data["class"]
+        params = data.get("params", {})
+
+        # Import class
+        module_name, class_name = class_path.rsplit('.', 1)
+        module = importlib.import_module(module_name)
+        cls = getattr(module, class_name)
+
+        # Instantiate
+        return cls(**params)
 
 
 class GenericOperation(PipelineOperation):
@@ -178,19 +254,29 @@ class GenericOperation(PipelineOperation):
     def execute(self, dataset, context):
         """Generic execution - try common patterns"""
         if hasattr(self.operator, 'fit_transform'):
-            X = dataset.get_features()
+            # Get train partition features
+            train_view = dataset.select(partition="train")
+            row_indices = train_view.indices["row"].to_numpy()
+            X = dataset.get_features(row_indices)
             X_transformed = self.operator.fit_transform(X)
-            dataset.set_features(X_transformed)
+            # Update features for the same rows
+            dataset.update_features(row_indices, X_transformed)
         elif hasattr(self.operator, 'transform'):
-            X = dataset.get_features()
+            # Get all features
+            all_indices = dataset.indices["row"].to_numpy()
+            X = dataset.get_features(all_indices)
             X_transformed = self.operator.transform(X)
-            dataset.set_features(X_transformed)
+            dataset.update_features(all_indices, X_transformed)
         elif hasattr(self.operator, 'fit'):
-            X = dataset.get_features()
+            # Get train partition
+            train_view = dataset.select(partition="train")
+            row_indices = train_view.indices["row"].to_numpy()
+            sample_ids = train_view.indices["sample"].to_list()
+            X = dataset.get_features(row_indices)
             try:
-                y = dataset.get_targets()
+                y = dataset.get_targets(sample_ids)
                 self.operator.fit(X, y)
-            except:
+            except Exception:
                 self.operator.fit(X)
         else:
             raise ValueError(f"Don't know how to execute {type(self.operator)}")

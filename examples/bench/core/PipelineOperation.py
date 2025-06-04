@@ -12,6 +12,7 @@ class PipelineOperation(ABC):
 
     @abstractmethod
     def execute(self, dataset: SpectraDataset, context: 'PipelineContext') -> None:
+        print(f"Executing {self.get_name()} operation")
         pass
 
     @abstractmethod
