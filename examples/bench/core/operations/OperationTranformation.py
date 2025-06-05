@@ -23,7 +23,7 @@ class OperationTransformation(PipelineOperation):
     def __init__(self,
                  transformer: TransformerMixin,
                  fit_partition: str = "train",
-                 transform_partitions: Optional[List[str]] = None,
+                 transform_partitions: Optional[List[str]] = ['train', 'test'],
                  operation_name: Optional[str] = None):
         """
         Initialize transformation operation
@@ -49,10 +49,8 @@ class OperationTransformation(PipelineOperation):
         # Get fitting data from specified partition
         fit_view = dataset.select(partition=self.fit_partition, **context.current_filters)
         if len(fit_view) == 0:
-            raise ValueError(f"No data found in partition '{self.fit_partition}' for fitting")
-
-        # Get features per source (keep sources separate)
-        X_fit = fit_view.get_features(concatenate=False)
+            raise ValueError(f"No data found in partition '{self.fit_partition}' for fitting")        # Get features per source (keep sources separate)
+        X_fit = fit_view.get_features(representation="2d_separate")
         if isinstance(X_fit, np.ndarray):
             X_fit = [X_fit]
 
@@ -81,23 +79,19 @@ class OperationTransformation(PipelineOperation):
                 print(f"  ⚠️ Skipping partition '{partition}' - no data found")
                 continue
 
-            print(f"  🔄 Transforming partition '{partition}': {len(partition_view)} samples")
-
-            # Get features per source
-            X_partition = partition_view.get_features(concatenate=False)
+            print(f"  🔄 Transforming partition '{partition}': {len(partition_view)} samples")            # Get features per source
+            X_partition = partition_view.get_features(representation="2d_separate")
             if isinstance(X_partition, np.ndarray):
                 X_partition = [X_partition]
 
             # Transform each source and update dataset
             for source_idx, (X_source, transformer) in enumerate(zip(X_partition, self.fitted_transformers)):
-                X_transformed = transformer.transform(X_source)
-
-                # Update features in dataset
-                dataset.update_features(partition_view.row_indices, X_transformed, source_idx)
+                X_transformed = transformer.transform(X_source)                # Update features in dataset
+                dataset.update_features(partition_view.get_row_indices(), X_transformed, source_idx)
                 print(f"    ✅ Source {source_idx}: {X_source.shape} → {X_transformed.shape}")
 
             # Update processing index for all samples in this partition
-            sample_ids = partition_view.sample_ids
+            sample_ids = partition_view.get_sample_ids()
             for sample_id in sample_ids:
                 dataset.update_processing([sample_id], f"transformed_{self.transformation_hash}")
 
@@ -106,7 +100,11 @@ class OperationTransformation(PipelineOperation):
     def _compute_transformation_hash(self) -> str:
         """Compute hash of transformation for processing index"""
         # Create hash based on transformer class and parameters
-        transformer_info = f"{self.transformer.__class__.__name__}_{str(self.transformer.get_params())}"
+        try:
+            params = self.transformer.get_params() if hasattr(self.transformer, 'get_params') else str(self.transformer)
+            transformer_info = f"{self.transformer.__class__.__name__}_{str(params)}"
+        except Exception:
+            transformer_info = f"{self.transformer.__class__.__name__}_{str(self.transformer)}"
         return hashlib.md5(transformer_info.encode()).hexdigest()[:8]
 
     def get_name(self) -> str:

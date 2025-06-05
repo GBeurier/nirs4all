@@ -172,6 +172,12 @@ class PipelineBuilder:
 
         # Handle different dict formats
         if 'class' in step:
+            instance = step['runtime_instance'] if '_runtime_instance' in step else None
+            if instance is not None:
+                # If instance is provided, clone it
+                return self._wrap_operator(instance)
+
+
             # Generic pipeline operation format: {"class": ..., "params": ..."}
             class_spec = step['class']
             params = step.get('params', {})
@@ -217,7 +223,19 @@ class PipelineBuilder:
 
     def _wrap_operator(self, operator: Any) -> PipelineOperation:
         """Wrap an operator in appropriate PipelineOperation"""
-        # For now, use GenericOperation for all operators
+        # Check if it's a sklearn transformer
+        from sklearn.base import TransformerMixin
+        if isinstance(operator, TransformerMixin):
+            print(f"🔄 Wrapping sklearn transformer: {operator.__class__.__name__}")
+            # Import OperationTransformation
+            try:
+                from operations.OperationTranformation import OperationTransformation
+                return OperationTransformation(transformer=operator)
+            except ImportError:
+                print(f"⚠️ Could not import OperationTransformation, falling back to GenericOperation")
+                return GenericOperation(operator=operator)
+
+        # For other operators, use GenericOperation for now
         return GenericOperation(operator=operator)
 
     def _simple_serialize(self, obj: Any) -> Dict[str, Any]:
@@ -263,7 +281,6 @@ class GenericOperation(PipelineOperation):
         """Generic execution - try common patterns"""
         print(f"  ⚙️ Executing {self.get_name()}")
 
-        # For MVP: don't actually execute, just log what would happen
         if hasattr(self.operator, 'fit_transform'):
             print(f"    📊 Would fit_transform on training data")
         elif hasattr(self.operator, 'transform'):

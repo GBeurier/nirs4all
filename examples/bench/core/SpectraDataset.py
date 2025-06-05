@@ -240,6 +240,99 @@ class SpectraDataset:
 
         return new_sample_ids
 
+    def sample_augmentation_by_indices(self,
+                                       sample_indices_to_augment: List[int],
+                                       processing_tag: str = "balanced_augmented",
+                                       partition: Optional[str] = None) -> List[int]:
+        """
+        Sample augmentation by specific indices: Create copies of specified samples.
+
+        This method allows for flexible sample balancing by specifying exactly which
+        samples to augment. Sample indices can appear multiple times in the list to
+        create multiple copies for class balancing.
+
+        Args:
+            sample_indices_to_augment: List of sample indices to augment. Can contain
+                                     duplicates to create multiple copies of the same sample.
+            processing_tag: Processing tag for augmented samples
+            partition: Optional partition filter - if provided, only augment samples
+                      from this partition. If None, augment from any partition.
+
+        Returns:
+            List of new sample IDs created
+
+        Example:
+            # Balance classes by augmenting minority class samples multiple times
+            minority_samples = [1, 5, 10]  # Sample IDs of minority class
+            # Augment each minority sample 3 times for balancing
+            indices_to_augment = minority_samples * 3
+            new_ids = dataset.sample_augmentation_by_indices(indices_to_augment)
+        """
+        if not sample_indices_to_augment:
+            return []
+
+        new_sample_ids = []
+
+        # Process each sample index in the list (allowing duplicates)
+        for sample_id_to_augment in sample_indices_to_augment:
+            # Find the original sample row
+            base_filter = (pl.col("sample") == sample_id_to_augment)
+            if partition is not None:
+                base_filter = base_filter & (pl.col("partition") == partition)
+
+            # Get the first matching row for this sample (should use most recent processing)
+            matching_rows = self.indices.filter(base_filter)
+            if len(matching_rows) == 0:
+                print(f"Warning: Sample ID {sample_id_to_augment} not found" +
+                      (f" in partition '{partition}'" if partition else ""))
+                continue
+
+            # Use the most recent row (last processing) for this sample
+            original_row_data = matching_rows.row(-1, named=True)
+            original_row_id = original_row_data["row"]
+
+            # Create new sample and row IDs
+            new_sample_id = self._next_sample
+            new_row_id = self._next_row
+            new_sample_ids.append(new_sample_id)
+
+            # Copy features from original row
+            if self.features is not None:
+                original_features = []
+                for source_idx in range(len(self.features.sources)):
+                    source_features = self.features.get_source(source_idx, np.array([original_row_id]))
+                    original_features.append(source_features)
+                self.features.append(original_features)
+
+            # Create new index entry
+            new_index_data = {
+                "row": new_row_id,
+                "sample": new_sample_id,
+                "origin": original_row_data["origin"],  # Keep original origin
+                "partition": original_row_data["partition"],
+                "group": original_row_data["group"],
+                "branch": original_row_data["branch"],
+                "processing": processing_tag,
+            }
+
+            new_indices = pl.DataFrame([new_index_data])
+            self.indices = pl.concat([self.indices, new_indices])
+
+            # Copy targets if they exist
+            try:
+                original_targets = self.target_manager.get_targets([sample_id_to_augment])
+                if original_targets is not None and len(original_targets) > 0:
+                    self.target_manager.add_targets([new_sample_id], original_targets)
+            except (AttributeError, ValueError, IndexError):
+                # No targets to copy
+                pass
+
+            # Update counters
+            self._next_row += 1
+            self._next_sample += 1
+
+        return new_sample_ids
+
     def feature_augmentation(self, processing_tag: str = "feat_augmented") -> None:
         """
         Feature augmentation: For all samples, create copies with different processing.
@@ -792,3 +885,64 @@ class SpectraDataset:
         """Merge data sources according to configuration."""
         print(f"[MOCK] Merging sources with config: {merge_config}")
         return self
+
+    def get_sample_indices_by_class(self,
+                                    partition: str = "train",
+                                    processing: Optional[str] = None) -> Dict[Any, List[int]]:
+        """
+        Get sample indices grouped by class/target values for class balancing.
+
+        Args:
+            partition: Partition to get samples from
+            processing: Optional processing filter
+
+        Returns:
+            Dictionary mapping class values to lists of sample indices
+
+        Example:
+            # Get samples by class for balancing
+            class_samples = dataset.get_sample_indices_by_class("train")
+            # Result: {'class_A': [1, 3, 5], 'class_B': [2, 4, 6, 7, 8]}
+
+            # Balance by augmenting minority class
+            min_class_size = min(len(samples) for samples in class_samples.values())
+            max_class_size = max(len(samples) for samples in class_samples.values())
+
+            indices_to_augment = []
+            for class_val, sample_ids in class_samples.items():
+                if len(sample_ids) < max_class_size:
+                    # Augment minority class samples
+                    n_needed = max_class_size - len(sample_ids)
+                    augment_samples = np.random.choice(sample_ids, n_needed, replace=True)
+                    indices_to_augment.extend(augment_samples)
+
+            dataset.sample_augmentation_by_indices(indices_to_augment)
+        """
+        # Filter indices by partition and processing
+        base_filter = pl.col("partition") == partition
+        if processing is not None:
+            base_filter = base_filter & (pl.col("processing") == processing)
+
+        filtered_indices = self.indices.filter(base_filter)
+        sample_ids = filtered_indices["sample"].unique().to_list()
+
+        if not sample_ids:
+            return {}
+
+        # Get targets for these samples
+        try:
+            targets = self.target_manager.get_targets(sample_ids)
+            if targets is None:
+                return {}
+                  # Group sample indices by target value
+            class_to_samples = {}
+            for sample_id, target in zip(sample_ids, targets):
+                if target not in class_to_samples:
+                    class_to_samples[target] = []
+                class_to_samples[target].append(sample_id)
+
+            return class_to_samples
+
+        except (AttributeError, ValueError, IndexError):
+            # No targets available
+            return {}
