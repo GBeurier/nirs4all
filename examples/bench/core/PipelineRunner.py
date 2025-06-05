@@ -112,18 +112,13 @@ class PipelineRunner:
 
     def _run_step(self, step: Any, dataset: SpectraDataset, prefix: str = ""):
         """
-        MAIN PARSING LOGIC - Enhanced to handle all nested pipeline structures
-
-        Control flow:
-        1. Identify step type
-        2. Delegate execution to appropriate handler
-        3. Track execution in history
-        4. Build fitted tree structure
+        Run a single pipeline step with enhanced context management and DatasetView support.
         """
         self.current_step += 1
         step_description = self._get_step_description(step)
         print(f"{prefix}🔹 Step {self.current_step}: {step_description}")
-        print(dataset)
+        print(f"{prefix}🔹 Current context: {self.context}")
+        print(f"{prefix}🔹 Step config: {step}")
 
         # Start step tracking
         step_execution = self.history.start_step(
@@ -211,6 +206,12 @@ class PipelineRunner:
                 print(f"{prefix}  ⚠️ Unexpected error but continuing: {str(e)}")
             else:
                 raise RuntimeError(f"Pipeline step failed: {str(e)}") from e
+        finally:
+            print("-" * 200)
+            print(f"Step {self.current_step} completed: {step_description}")
+            print(f"Dataset state after step {self.current_step}:")
+            print(dataset)
+            print("-" * 200)
 
     def _execute_operation(self, operation: Any, dataset: SpectraDataset, prefix: str):
         """Execute a built operation with proper context management and DatasetView"""
