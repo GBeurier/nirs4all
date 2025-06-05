@@ -1,46 +1,39 @@
+# pipeline/operation.py
+from nirs4all.core import RUNNER_REGISTRY
 
-from abc import ABC, abstractmethod
-from typing import Dict, Any
-
-from SpectraDataset import SpectraDataset
-
-class PipelineOperation(ABC):
-    """Base class for pipeline operations."""
-
-    @abstractmethod
-    def execute(self, dataset: SpectraDataset, context: Dict[str, Any]) -> None:
-        """Execute operation with simplified context dict containing only branch info"""
-        print(f"Executing {self.get_name()} operation")
-
-    @abstractmethod
-    def get_name(self) -> str:
-        pass
-
-
-class GenericOperation(PipelineOperation):
-    """Generic wrapper for operators that don't fit standard categories"""
-
-    def __init__(self, operator: Any):
+class PipelineOperation:
+    """Class to represent a pipeline operation that can execute a specific operator."""
+    def __init__(self, operator=None, *, keyword: str | None = None, params=None):
         self.operator = operator
+        self.keyword = keyword
+        self.params = params or {}
+        self.runner = self._select_operator()
 
-    def execute(self, dataset, context=None):
-        """Generic execution - try common patterns"""
-        print(f"  ⚙️ Executing {self.get_name()}")
+    def _select_operator(self):
+        for runner_cls in RUNNER_REGISTRY:
+            if runner_cls.matches(self.operator, self.keyword):
+                return runner_cls()
+        raise TypeError(f"No matching operator found for {self.operator} with keyword {self.keyword}. Available operators: {[cls.__name__ for cls in RUNNER_REGISTRY]}")
 
-        if self.operator is None:
-            print("    ❗ No operator provided, nothing to execute")
-            return
+    def execute(self, dataset, context):
+        """ Execute the operation using the selected operator runner."""
+        return self.runner.run(self.operator, self.params, context, dataset)
 
-        if hasattr(self.operator, 'fit_transform'):
-            print(f"    📊 Would fit_transform on training data")
-        elif hasattr(self.operator, 'transform'):
-            print(f"    🔄 Would transform all data")
-        elif hasattr(self.operator, 'fit'):
-            print(f"    🎯 Would fit on training data")
-        else:
-            print(f"    💡 Would execute {type(self.operator)}")
 
-    def get_name(self) -> str:
-        if self.operator is None:
-            return "GenericOperation(None)"
-        return f"Generic({self.operator.__class__.__name__})"
+
+# # pipeline/runners/torch_runner.py
+# import torch.nn as nn
+# from . import register_runner
+# from .base import BaseOpRunner
+
+# @register_runner
+# class TorchRunner(BaseOpRunner):
+#     priority = 30
+
+#     @classmethod
+#     def matches(cls, op, keyword):
+#         return isinstance(op, nn.Module)
+
+#     def run(self, op, params, context, dataset):
+#         # boucle d’apprentissage simplifiée ...
+#         ...
