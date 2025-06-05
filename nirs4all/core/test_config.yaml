@@ -1,0 +1,87 @@
+- class: sklearn.preprocessing._data.MinMaxScaler
+  params:
+    feature_range:
+    - 0.2
+    - 0.8
+- feature_augmentation:
+  - null
+  - nirs4all.transformations._nirs.SavitzkyGolay
+  - - sklearn.preprocessing._data.StandardScaler
+    - nirs4all.transformations._standard.Gaussian
+- sample_augmentation:
+  - nirs4all.transformations._random_augmentation.Rotate_Translate
+  - class: nirs4all.transformations._random_augmentation.Rotate_Translate
+    params:
+      p_range: 3
+- class: sklearn.model_selection._split.ShuffleSplit
+- cluster:
+    class: sklearn.cluster._kmeans.KMeans
+    params:
+      n_clusters: 5
+      random_state: 42
+- class: sklearn.model_selection._split.RepeatedStratifiedKFold
+  params:
+    n_repeats: 2
+    random_state: 42
+- uncluster
+- dispatch:
+  - - class: sklearn.preprocessing._data.MinMaxScaler
+    - feature_augmentation:
+      - null
+      - nirs4all.transformations._nirs.SavitzkyGolay
+      - - sklearn.preprocessing._data.StandardScaler
+        - nirs4all.transformations._standard.Gaussian
+    - model:
+        class: sklearn.ensemble._forest.RandomForestClassifier
+        params:
+          max_depth: 10
+          random_state: 42
+      y_pipeline: sklearn.preprocessing._data.StandardScaler
+  - model:
+      function: nirs4all.presets.ref_models.decon
+    y_pipeline:
+      class: sklearn.preprocessing._data.StandardScaler
+  - finetune_params:
+      C:
+      - 0.1
+      - 1.0
+      - 10.0
+    model:
+      class: sklearn.svm._classes.SVC
+      params:
+        kernel: linear
+        random_state: 42
+    y_pipeline:
+    - sklearn.preprocessing._data.MinMaxScaler
+    - class: sklearn.preprocessing._data.RobustScaler
+      params:
+        with_centering: false
+  - stack:
+      base_learners:
+      - model:
+          class: sklearn.ensemble._gb.GradientBoostingClassifier
+          params:
+            max_depth: 5
+            random_state: 42
+        y_pipeline:
+          class: sklearn.preprocessing._data.MinMaxScaler
+      - finetune_params:
+          max_depth:
+          - 3
+          - 5
+          - 7
+        model:
+          class: sklearn.tree._classes.DecisionTreeClassifier
+          params:
+            max_depth: 5
+            random_state: 42
+        y_pipeline:
+          class: sklearn.preprocessing._data.MinMaxScaler
+      model:
+        class: sklearn.ensemble._forest.RandomForestClassifier
+        params:
+          max_depth: 10
+          random_state: 42
+      y_pipeline:
+        class: sklearn.preprocessing._data.StandardScaler
+- PlotConfusionMatrix

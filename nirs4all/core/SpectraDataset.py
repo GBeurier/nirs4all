@@ -30,7 +30,7 @@ class SpectraDataset:
         "group": pl.Series([], dtype=pl.Int64),        # Group identifier for splits
         "branch": pl.Series([], dtype=pl.Int64),       # Pipeline branch identifier
         "processing": pl.Series([], dtype=pl.Utf8),    # Processing level/stage
-        "replication": pl.Series([], dtype=pl.Int64),  # Replication index (if applicable)
+        # "replication": pl.Series([], dtype=pl.Int64),  # Replication index (if applicable)
     }
 
     RESULTS_SCHEMA = {
