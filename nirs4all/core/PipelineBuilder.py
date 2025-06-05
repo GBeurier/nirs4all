@@ -23,6 +23,31 @@ from OperationPresets import presets as operation_presets
 
 class PipelineBuilder:
     """Generic operation builder using serialization logic"""
+    def __init__(self):
+        self.preset_mappings = {}
+        self._register_common_presets()
+
+    def _register_common_presets(self):
+        """Register common preset mappings"""
+        # Common sklearn imports
+        self.preset_mappings.update({
+            'StandardScaler': 'sklearn.preprocessing.StandardScaler',
+            'MinMaxScaler': 'sklearn.preprocessing.MinMaxScaler',
+            'RobustScaler': 'sklearn.preprocessing.RobustScaler',
+            'RandomForestClassifier': 'sklearn.ensemble.RandomForestClassifier',
+            'RandomForestRegressor': 'sklearn.ensemble.RandomForestRegressor',
+            'SVC': 'sklearn.svm.SVC',
+            'SVR': 'sklearn.svm.SVR',
+            'LogisticRegression': 'sklearn.linear_model.LogisticRegression',
+            'LinearRegression': 'sklearn.linear_model.LinearRegression',
+            'PCA': 'sklearn.decomposition.PCA',
+            'KMeans': 'sklearn.cluster.KMeans',
+            'StratifiedKFold': 'sklearn.model_selection.StratifiedKFold',
+            'RepeatedStratifiedKFold': 'sklearn.model_selection.RepeatedStratifiedKFold',
+            'ShuffleSplit': 'sklearn.model_selection.ShuffleSplit',
+            'DecisionTreeClassifier': 'sklearn.tree.DecisionTreeClassifier',
+            'GradientBoostingClassifier': 'sklearn.ensemble.GradientBoostingClassifier'
+        })
 
     def build_operation(self, step: Any) -> PipelineOperation:
         """
