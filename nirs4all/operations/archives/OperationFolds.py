@@ -11,7 +11,7 @@ import numpy as np
 from typing import Optional, List, Union, Dict
 from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold
 
-from PipelineOperation import PipelineOperation
+from nirs4all.pipeline.PipelineOperation import PipelineOperation
 from SpectraDataset import SpectraDataset
 from PipelineContext import PipelineContext
 

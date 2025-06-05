@@ -11,7 +11,7 @@ import numpy as np
 from typing import Optional, List, Dict, Union
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit, GroupShuffleSplit
 
-from PipelineOperation import PipelineOperation
+from nirs4all.pipeline.PipelineOperation import PipelineOperation
 from SpectraDataset import SpectraDataset
 from PipelineContext import PipelineContext
 

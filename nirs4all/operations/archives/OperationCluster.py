@@ -12,7 +12,7 @@ import hashlib
 from typing import Optional, List, Union, Dict
 from sklearn.base import ClusterMixin, clone
 
-from PipelineOperation import PipelineOperation
+from nirs4all.pipeline.PipelineOperation import PipelineOperation
 from SpectraDataset import SpectraDataset
 from PipelineContext import PipelineContext
 

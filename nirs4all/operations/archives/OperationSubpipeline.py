@@ -9,7 +9,7 @@ This operation:
 """
 from typing import List, Optional, Any, Dict
 
-from PipelineOperation import PipelineOperation
+from nirs4all.pipeline.PipelineOperation import PipelineOperation
 from SpectraDataset import SpectraDataset
 from PipelineContext import PipelineContext
 
