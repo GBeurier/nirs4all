@@ -4,44 +4,52 @@ import importlib
 import json
 
 
-def _serialize_component(obj: Any) -> Any:
+def serialize_component(obj: Any, include_runtime: bool = True) -> Any:
     """Return something that json.dumps can handle."""
-    
+
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
     if isinstance(obj, dict):
-        return {k: _serialize_component(v) for k, v in obj.items()}
+        return {k: serialize_component(v, include_runtime) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_serialize_component(x) for x in obj]
+        return [serialize_component(x, include_runtime) for x in obj]
     if isinstance(obj, tuple):
-        return [_serialize_component(x) for x in obj]
-        # return ["__tuple__", *(_serialize_component(x) for x in obj)]
+        return [serialize_component(x, include_runtime) for x in obj]
 
     if inspect.isclass(obj):
-        return {"class": f"{obj.__module__}.{obj.__qualname__}"}
-    
-    params = changed_kwargs(obj)
-    
+        return f"{obj.__module__}.{obj.__qualname__}"
+
+    params = _changed_kwargs(obj)
+
     if inspect.isfunction(obj) or inspect.isbuiltin(obj):
         func_serialized = {
             "function": f"{obj.__module__}.{obj.__name__}"
         }
         if params:
-            func_serialized["params"] = params
+            func_serialized["params"] = serialize_component(params, include_runtime)
         return func_serialized
 
-    def_serialized = {
-        "instance": f"{obj.__class__.__module__}.{obj.__class__.__qualname__}",
-    }
+    def_serialized = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
+
     if params:
-        def_serialized["params"] = params
-    
+        def_serialized = {
+            "class": def_serialized,
+            "params": serialize_component(params),
+        }
+        if include_runtime:
+            def_serialized["_runtime_instance"] = obj
+    elif include_runtime:
+        def_serialized = {
+            "class": def_serialized,
+            "_runtime_instance": obj
+        }
+
     return def_serialized
 
 
 
-def _deserialize_component(blob: Any, infer_type: Any = None) -> Any:
-    """Turn the output of _serialize_component back into live objects."""
+def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
+    """Turn the output of serialize_component back into live objects."""
     # --- trivial cases ------------------------------------------------------ #
     if blob is None or isinstance(blob, (bool, int, float, str)):
         if infer_type is not None:
@@ -49,15 +57,15 @@ def _deserialize_component(blob: Any, infer_type: Any = None) -> Any:
                 print(f"Type mismatch: {type(blob)} != {infer_type}")
                 return blob
         return blob
-    
+
     if isinstance(blob, list):
         if infer_type is not None and isinstance(infer_type, type):
             if issubclass(infer_type, tuple):
-                return tuple(_deserialize_component(x) for x in blob)
-        #     return tuple(_deserialize_component(x, infer_type=resolve_type(infer_type, str(i))) for i, x in enumerate(blob))
+                return tuple(deserialize_component(x) for x in blob)
+        #     return tuple(deserialize_component(x, infer_type=_resolve_type(infer_type, str(i))) for i, x in enumerate(blob))
         # if infer_type is not None and infer_type is tuple:
-        #     return tuple(_deserialize_component(x) for x in blob)
-        return [_deserialize_component(x) for x in blob]
+        #     return tuple(deserialize_component(x) for x in blob)
+        return [deserialize_component(x) for x in blob]
 
     if isinstance(blob, dict):
         if any(key in blob for key in ("class", "function", "instance")):
@@ -68,15 +76,15 @@ def _deserialize_component(blob: Any, infer_type: Any = None) -> Any:
                 cls_or_func = getattr(mod, cls_or_func_name)
             except (ImportError, AttributeError):
                 return blob
-            
+
             params = {}
             if "params" in blob:
                 # print(blob)
                 for k, v in blob["params"].items():
-                    resolved_type = resolve_type(cls_or_func, k)
+                    resolved_type = _resolve_type(cls_or_func, k)
                     # print(k, v, resolved_type)
-                    params[k] = _deserialize_component(v, resolve_type(cls_or_func, k))
-                
+                    params[k] = deserialize_component(v, _resolve_type(cls_or_func, k))
+
             try:
                 if key == "instance":
                     return cls_or_func(**params)
@@ -94,14 +102,14 @@ def _deserialize_component(blob: Any, infer_type: Any = None) -> Any:
                 allowed = {n for n in sig.parameters if n != "self"}
                 filtered = {k: v for k, v in params.items() if k in allowed}
                 return cls_or_func(**filtered)
-        
-        return {k: _deserialize_component(v) for k, v in blob.items()}
+
+        return {k: deserialize_component(v) for k, v in blob.items()}
 
     # should not reach here
     return blob
 
 
-def changed_kwargs(obj):
+def _changed_kwargs(obj):
     """Return {param: value} for every __init__ param whose current
     value differs from its default."""
     sig = inspect.signature(obj.__class__.__init__)
@@ -127,7 +135,7 @@ def changed_kwargs(obj):
     return out
 
 
-def resolve_type(obj_or_cls: Any, name: str) -> type | Any | None:
+def _resolve_type(obj_or_cls: Any, name: str) -> type | Any | None:
     """Resolve the type of a parameter in a class or function
     based on its signature or type hints.
     If the parameter is not found, return None.
@@ -139,7 +147,7 @@ def resolve_type(obj_or_cls: Any, name: str) -> type | Any | None:
     """
     if obj_or_cls is None:
         return None
-    
+
     cls = obj_or_cls if inspect.isclass(obj_or_cls) else obj_or_cls.__class__
     sig = inspect.signature(cls.__init__)
 
@@ -151,7 +159,7 @@ def resolve_type(obj_or_cls: Any, name: str) -> type | Any | None:
                 while get_origin(ann) is Annotated:
                     ann = get_args(ann)[0]
                 origin = get_origin(ann)
-                
+
                 if origin is not None:
                     return origin
                 else:
@@ -163,11 +171,11 @@ def resolve_type(obj_or_cls: Any, name: str) -> type | Any | None:
                     return None
         else:
             return type(sig.parameters[name].default)
-    
+
     class_hints = get_type_hints(cls, include_extras=True)
     if name in class_hints:
         return class_hints[name]
-    
+
     init_hints = get_type_hints(cls.__init__, include_extras=True)
     init_hints.pop('return', None)
     if name in init_hints:

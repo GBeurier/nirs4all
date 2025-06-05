@@ -1,115 +1,137 @@
-# """
-# PipelineConfig - Configuration management for pipelines
-# """
-# import json
-# import yaml
-# import copy
-# from typing import Dict, List, Optional, Any, Union
-# from pathlib import Path
-# from dataclasses import dataclass, field
+"""
+PipelineConfig.py
+"""
 
+import json
+import logging
+from pathlib import Path
+from typing import List, Any, Dict, Union
+import yaml
 
-# @dataclass
-# class PipelineConfig:
-#     """Pipeline configuration storage and management"""
+from nirs4all.utils.serialization import serialize_component
 
-#     name: str = "Pipeline"
-#     experiment: Optional[Dict[str, Any]] = None
-#     pipeline: List[Any] = field(default_factory=list)
-#     metadata: Dict[str, Any] = field(default_factory=dict)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-#     def __post_init__(self):
-#         """Post-initialization processing"""
-#         if self.experiment is None:
-#             self.experiment = {}
+class PipelineConfig:
+    """
+    Class to hold the configuration for a pipeline.
+    """
+    def __init__(self, definition: Union[Dict, List[Any], str], name: str = "Default Pipeline", description: str = "No description provided"):
+        """
+        Initialize the pipeline configuration.
+        """
+        self.name = name
+        self.description = description
+        self.steps = self._load_steps(definition)
+        self.steps = serialize_component(self.steps, include_runtime=True)
 
-#     @classmethod
-#     def from_dict(cls, config_dict: Dict[str, Any]) -> 'PipelineConfig':
-#         """Create config from dictionary"""
-#         return cls(
-#             name=config_dict.get('name', 'Pipeline'),
-#             experiment=config_dict.get('experiment', {}),
-#             pipeline=config_dict.get('pipeline', []),
-#             metadata=config_dict.get('metadata', {})
-#         )
+    def _load_steps(self, definition: Union[Dict, List[Any], str]) -> List[Any]:
+        """
+        Load steps from a definition which can be a dict, list, or string.
+        """
+        if isinstance(definition, str):
+            return self._load_str_steps(definition)
+        elif isinstance(definition, list):
+            return definition
+        elif isinstance(definition, dict):
+            if "pipeline" in definition:
+                return definition["pipeline"]
+            else:
+                raise ValueError("Invalid pipeline definition format. Expected a list, dict with 'pipeline' key, or string.")
+        else:
+            raise TypeError("Pipeline definition must be a list, dict, or string.")
 
-#     @classmethod
-#     def from_file(cls, filepath: Union[str, Path]) -> 'PipelineConfig':
-#         """Load config from file (JSON or YAML)"""
-#         filepath = Path(filepath)
+    def _load_str_steps(self, definition: str) -> List[Any]:
+        """
+        Load steps from a string definition which can be a JSON or YAML file path, or a JSON/YAML string.
+        """
+        if definition.endswith('.json') or definition.endswith('.yaml') or definition.endswith('.yml'):
+            if not Path(definition).is_file():
+                raise FileNotFoundError(f"Configuration file {definition} does not exist.")
 
-#         if not filepath.exists():
-#             raise FileNotFoundError(f"Config file not found: {filepath}")
+            pipeline_definition = None
 
-#         with open(filepath, 'r') as f:
-#             if filepath.suffix.lower() in ['.yaml', '.yml']:
-#                 config_dict = yaml.safe_load(f)
-#             elif filepath.suffix.lower() == '.json':
-#                 config_dict = json.load(f)
-#             else:
-#                 raise ValueError(f"Unsupported config format: {filepath.suffix}")
+            if definition.endswith('.json'):
+                try:
+                    with open(definition, 'r', encoding='utf-8') as f:
+                        pipeline_definition = json.load(f)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Invalid JSON file: {definition}") from exc
+            elif definition.endswith('.yaml') or definition.endswith('.yml'):
+                try:
+                    with open(definition, 'r', encoding='utf-8') as f:
+                        pipeline_definition = yaml.safe_load(f)
+                except yaml.YAMLError as exc:
+                    raise ValueError(f"Invalid YAML file: {definition}") from exc
+        else:
+            try:
+                pipeline_definition = json.loads(definition)
+            except json.JSONDecodeError as exc:
+                try:
+                    return yaml.safe_load(definition)
+                except yaml.YAMLError as exc2:
+                    raise ValueError("Invalid pipeline definition string. Must be a valid JSON or YAML format.") from exc2
 
-#         return cls.from_dict(config_dict)
-#     @classmethod
-#     def from_python_config(cls, python_config: Dict[str, Any]) -> 'PipelineConfig':
-#         """Create config from Python dictionary (like sample.py)"""
-#         from .PipelineSerializer import PipelineSerializer
+        if not pipeline_definition:
+            raise ValueError("Pipeline definition is empty or invalid.")
 
-#         serializer = PipelineSerializer()
-#         serialized_config = serializer.serialize_config(python_config)
+        return self._load_steps(pipeline_definition)
 
-#         return cls.from_dict(serialized_config)
+    def __repr__(self):
+        return f"PipelineConfig(name={self.name}, description={self.description}\nsteps={self.json_steps()})"
 
-#     def to_dict(self) -> Dict[str, Any]:
-#         """Convert config to dictionary"""
-#         return {
-#             'name': self.name,
-#             'dataset': self.experiment,
-#             'pipeline': self.pipeline,
-#             'metadata': self.metadata
-#         }
+    def save(self, filepath: str) -> None:
+        """
+        Save the pipeline configuration to a file in JSON or YAML format.
+        """
+        path = Path(filepath)
+        serializable_steps = self.serializable_steps()
+        if not serializable_steps:
+            raise ValueError("No steps to save in the pipeline configuration.")
 
-#     def to_python_config(self) -> Dict[str, Any]:
-#         """Convert config to Python objects (like sample.py)"""
-#         from .PipelineSerializer import PipelineSerializer
+        if path.suffix.lower() == '.json':
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(serializable_steps, f, indent=2, default=str)
+        elif path.suffix.lower() in ['.yaml', '.yml']:
+            with open(path, 'w', encoding='utf-8') as f:
+                yaml.safe_dump(serializable_steps, f, default_flow_style=False)
+        else:
+            raise ValueError("Unsupported format. Use 'json' or 'yaml'.")
 
-#         serializer = PipelineSerializer()
-#         return serializer.deserialize_config(self.to_dict())
+        logger.info("Pipeline configuration saved to %s", path)
 
-#     def save(self, filepath: Union[str, Path]) -> None:
-#         """Save config to file"""
-#         filepath = Path(filepath)
-#         config_dict = self.to_dict()
+    def json_steps(self, indent: int = 2, include_runtime: bool = True) -> str:
+        """
+        Display the pipeline steps as indented JSON while preserving
+        the representation of _runtime_instance objects.
+        """
+        def make_displayable(obj):
+            """Convert objects to displayable format, preserving runtime instance info"""
+            if isinstance(obj, dict):
+                result = {}
+                for k, v in obj.items():
+                    if k == "_runtime_instance" and include_runtime:
+                        result[k] = f"<{type(v).__name__} object at {hex(id(v))}>"
+                    else:
+                        result[k] = make_displayable(v)
+                return result
+            elif isinstance(obj, list):
+                return [make_displayable(item) for item in obj]
+            else:
+                return obj
 
-#         filepath.parent.mkdir(parents=True, exist_ok=True)
+        displayable_steps = make_displayable(self.steps)
+        return json.dumps(displayable_steps, indent=indent, default=str)
 
-#         with open(filepath, 'w') as f:
-#             if filepath.suffix.lower() in ['.yaml', '.yml']:
-#                 yaml.dump(config_dict, f, default_flow_style=False, indent=2)
-#             elif filepath.suffix.lower() == '.json':
-#                 json.dump(config_dict, f, indent=2)
-#             else:
-#                 raise ValueError(f"Unsupported config format: {filepath.suffix}")
+    def serializable_steps(self) -> Any:
+        """Remove runtime instances from the configuration"""
+        def clean_recursive(obj):
+            if isinstance(obj, dict):
+                return {k: clean_recursive(v) for k, v in obj.items() if k != "_runtime_instance"}
+            elif isinstance(obj, list):
+                return [clean_recursive(item) for item in obj]
+            else:
+                return obj
 
-#     def validate(self) -> List[str]:
-#         """Validate configuration"""
-#         issues = []
-
-#         if not self.name:
-#             issues.append("Pipeline name is required")
-
-#         if not self.pipeline:
-#             issues.append("Pipeline must have at least one operation")
-
-#         # Validate experiment config
-#         if self.experiment:
-#             if 'action' not in self.experiment:
-#                 issues.append("Experiment must specify 'action'")
-#             if 'dataset' not in self.experiment:
-#                 issues.append("Experiment must specify 'dataset'")
-
-#         return issues
-
-#     def clone(self) -> 'PipelineConfig':
-#         """Create a deep copy of the config"""
-#         return PipelineConfig.from_dict(copy.deepcopy(self.to_dict()))
+        return clean_recursive(self.steps)
