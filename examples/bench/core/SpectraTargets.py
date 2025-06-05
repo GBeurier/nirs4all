@@ -265,11 +265,11 @@ class SpectraTargets:
     def get_info(self) -> Dict[str, Any]:
         """Get information about the target manager."""
         return {
-            "task_type": self.task_type,
-            "n_classes": self.n_classes_,
-            "is_binary": self.is_binary,
+            # "task_type": self.task_type,
+            # "n_classes": self.n_classes_,
+            # "is_binary": self.is_binary,
             "classes": self.classes_.tolist() if self.classes_ is not None else None,
             "n_samples": len(self.targets),
-            "regression_transformers": list(self.regression_transformers.keys()),
-            "classification_transformers": list(self.classification_transformers.keys()),
+            # "regression_transformers": list(self.regression_transformers.keys()),
+            # "classification_transformers": list(self.classification_transformers.keys()),
         }

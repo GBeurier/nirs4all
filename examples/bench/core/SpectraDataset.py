@@ -5,7 +5,7 @@ This module defines the SpectraDataset class, which manages spectral data, featu
 
 from datetime import datetime
 import json
-from typing import Any, Union, List, Optional, Dict
+from typing import Any, Union, List, Optional, Dict, TYPE_CHECKING
 import numpy as np
 import polars as pl
 import yaml
@@ -14,23 +14,42 @@ from SpectraFeatures import SpectraFeatures
 from SpectraTargets import SpectraTargets
 from CsvLoader import load_data_from_config
 
+if TYPE_CHECKING:
+    from DatasetView import DatasetView
+
 
 class SpectraDataset:
     """Main dataset class with efficient operations and clear interface."""
 
     def __init__(self, float64: bool = True, task_type: str = "auto"):
-        self.float64 = float64
-
-        # Core data
+        self.float64 = float64        # Core data
         self.features: Optional[SpectraFeatures] = None
+
+        # Enhanced index schema for complex pipeline operations
         self.indices = pl.DataFrame({
-            "row": pl.Series([], dtype=pl.Int64),
-            "sample": pl.Series([], dtype=pl.Int64),
-            "origin": pl.Series([], dtype=pl.Int64),
-            "partition": pl.Series([], dtype=pl.Utf8),
-            "group": pl.Series([], dtype=pl.Int64),
-            "branch": pl.Series([], dtype=pl.Int64),
-            "processing": pl.Series([], dtype=pl.Utf8),
+            # Core identification
+            "row": pl.Series([], dtype=pl.Int64),          # Original row index
+            "sample": pl.Series([], dtype=pl.Int64),       # Sample identifier
+
+            # Source and origin tracking
+            "origin": pl.Series([], dtype=pl.Int64),       # Original source identifier
+
+            # Data partitioning
+            "partition": pl.Series([], dtype=pl.Utf8),     # train/val/test/etc.
+            "group": pl.Series([], dtype=pl.Int64),        # Group identifier for splits
+
+            # Pipeline execution context
+            "branch": pl.Series([], dtype=pl.Int64),       # Pipeline branch identifier
+            "processing": pl.Series([], dtype=pl.Utf8),    # Processing level/stage
+
+            # # Advanced features for complex operations
+            # "cluster": pl.Series([], dtype=pl.Int64),      # Cluster assignment
+            # "centroid": pl.Series([], dtype=pl.Boolean),   # Centroid designation
+            # "weight": pl.Series([], dtype=pl.Float64),     # Sample weight
+
+            # Temporal and versioning
+            # "timestamp": pl.Series([], dtype=pl.Datetime),  # Processing timestamp
+            # "version": pl.Series([], dtype=pl.Int64),      # Data version
         })
 
         # Target management
@@ -52,9 +71,7 @@ class SpectraDataset:
         # Remove the dummy row to get an empty DataFrame with proper schema
         self.results = self.results.filter(pl.col("sample") == -1)  # This will create empty DataFrame
 
-        self.folds = []  # List of fold definitions
-
-        # Counters
+        self.folds = []  # List of fold definitions        # Counters
         self._next_row = 0
         self._next_sample = 0
 
@@ -62,14 +79,14 @@ class SpectraDataset:
         return len(self.indices)
 
     def __repr__(self) -> str | tuple[Any, ...]:
-        text = ""
+        text = "\n"
         if self.features is not None:
-            for source in self.features.sources:
-                text += f"{source.shape[0]}x{source.shape[1]} "
-                feature_mean = np.mean(source, axis=0)
-                text += f"Mean: {feature_mean.mean():.2f}, Std: {feature_mean.std():.2f} "
-        if self.target_manager is not None:
-            text += f"for {self.target_manager.task_type} "
+            for i, source in enumerate(self.features.sources):
+                text += f"Source {i}: "
+                if isinstance(source, np.ndarray):
+                    text += f"{source.shape[0]}x{source.shape[1]} "
+                    feature_mean = np.mean(source, axis=0)
+                    text += f"Mean: {feature_mean.mean():.2f}, Std: {feature_mean.std():.2f}\n"
 
         if not text:
             text = "Empty Dataset"
@@ -79,12 +96,24 @@ class SpectraDataset:
         text += f"Partitions: {self.indices['partition'].unique().to_list()}\n"
         for partition in self.indices['partition'].unique():
             text += f"  {partition}: {len(self.indices.filter(pl.col('partition') == partition))} samples\n"
-        text += f"Groups: {self.indices['group'].unique().to_list()}\n"
-        text += f"Branches: {self.indices['branch'].unique().to_list()}\n"
+        text += f"Groups: {self.indices['group'].unique().to_list()} - "
+        text += f"Branches: {self.indices['branch'].unique().to_list()} - "
         text += f"Processing: {self.indices['processing'].unique().to_list()}\n"
         text += f"Targets: {self.target_manager.get_info()}\n"
         text += f"Results: {self.get_results_summary()}\n"
         return text
+
+    def copy(self):
+        """Create a deep copy of the dataset"""
+        import copy
+        new_dataset = SpectraDataset(float64=self.float64)
+        new_dataset.features = copy.deepcopy(self.features)
+        new_dataset.indices = self.indices.clone()
+        new_dataset.target_manager = copy.deepcopy(self.target_manager)
+        new_dataset.results = self.results.clone()
+        new_dataset._next_sample = self._next_sample
+        new_dataset._next_row = self._next_row
+        return new_dataset
 
     def add_data(self,
                  features: Union[np.ndarray, List[np.ndarray]],
@@ -131,9 +160,7 @@ class SpectraDataset:
             "processing": [processing] * n_samples,
         })
 
-        self.indices = pl.concat([self.indices, new_indices])
-
-        # Add targets if provided
+        self.indices = pl.concat([self.indices, new_indices])        # Add targets if provided
         if targets is not None:
             self.target_manager.add_targets(sample_ids, targets)
 
@@ -143,12 +170,276 @@ class SpectraDataset:
 
         return sample_ids
 
+    def sample_augmentation(self,
+                            partition: str = "train",
+                            n_copies: int = 1,
+                            processing_tag: str = "augmented",
+                            group_filter: Optional[int] = None) -> List[int]:
+        """
+        Sample augmentation: Copy train samples to create new rows with new sample IDs.
+
+        Args:
+            partition: Source partition to augment (default: "train")
+            n_copies: Number of copies to create for each original sample
+            processing_tag: Processing tag for augmented samples
+            group_filter: Optional group filter to augment only specific groups
+
+        Returns:
+            List of new sample IDs created
+        """
+        # Get original train samples (origin == sample_id and partition == train)
+        base_filter = (pl.col("origin") == pl.col("sample")) & (pl.col("partition") == partition)
+        if group_filter is not None:
+            base_filter = base_filter & (pl.col("group") == group_filter)
+
+        original_indices = self.indices.filter(base_filter)
+
+        if len(original_indices) == 0:
+            return []
+
+        original_row_ids = original_indices["row"].to_list()
+        original_sample_ids = original_indices["sample"].to_list()
+
+        new_sample_ids = []
+
+        for copy_idx in range(n_copies):
+            # Create new sample IDs
+            copy_sample_ids = list(range(self._next_sample, self._next_sample + len(original_sample_ids)))
+            new_sample_ids.extend(copy_sample_ids)
+
+            # Create new row IDs
+            copy_row_ids = list(range(self._next_row, self._next_row + len(original_sample_ids)))
+
+            # Copy features for all sources
+            if self.features is not None:
+                original_features = []
+                for source_idx in range(len(self.features.sources)):
+                    source_features = self.features.get_source(source_idx, np.array(original_row_ids))
+                    original_features.append(source_features)
+                self.features.append(original_features)
+              # Create new indices preserving origin but with new sample IDs
+            new_indices_data = []
+            for i, (orig_row, orig_sample) in enumerate(zip(original_row_ids, original_sample_ids)):
+                orig_data = original_indices.filter(pl.col("row") == orig_row).row(0, named=True)
+                new_indices_data.append({
+                    "row": copy_row_ids[i],
+                    "sample": copy_sample_ids[i],
+                    "origin": orig_data["origin"],  # Keep original origin
+                    "partition": orig_data["partition"],
+                    "group": orig_data["group"],
+                    "branch": orig_data["branch"],
+                    "processing": processing_tag,
+                })
+
+            new_indices = pl.DataFrame(new_indices_data)
+            self.indices = pl.concat([self.indices, new_indices])
+
+            # Update counters
+            self._next_row += len(original_sample_ids)
+            self._next_sample += len(original_sample_ids)
+
+        return new_sample_ids
+
+    def feature_augmentation(self, processing_tag: str = "feat_augmented") -> None:
+        """
+        Feature augmentation: For all samples, create copies with different processing.
+
+        This creates new rows for each existing sample with the same sample_id and origin,
+        but different processing tags. The features are initially copied but can be
+        modified by transformers later.
+
+        Args:
+            processing_tag: New processing tag for augmented features
+        """
+        if self.features is None or len(self.indices) == 0:
+            return
+
+        # Get all current samples
+        current_indices = self.indices.to_pandas()
+
+        new_indices_data = []
+        new_features_data = []
+
+        # For each source, copy all features
+        for source_idx in range(len(self.features.sources)):
+            source_features = self.features.sources[source_idx].copy()
+            new_features_data.append(source_features)
+
+        # Create new rows with same sample IDs but different processing
+        for _, row in current_indices.iterrows():
+            new_row_id = self._next_row
+            self._next_row += 1
+
+            new_indices_data.append({
+                "row": new_row_id,
+                "sample": row["sample"],
+                "origin": row["origin"],
+                "partition": row["partition"],
+                "group": row["group"],
+                "branch": row["branch"],
+                "processing": processing_tag,
+            })
+
+        # Add new features
+        self.features.append(new_features_data)
+
+        # Add new indices
+        new_indices = pl.DataFrame(new_indices_data)
+        self.indices = pl.concat([self.indices, new_indices])
+
+    def branch_dataset(self, n_branches: int) -> None:
+        """
+        Branching: Copy all train data for each branch with different branch IDs.
+
+        Args:
+            n_branches: Number of branches to create
+        """
+        if len(self.indices) == 0:
+            return
+
+        # Get all train data
+        train_indices = self.indices.filter(pl.col("partition") == "train")
+
+        if len(train_indices) == 0:
+            return
+
+        train_row_ids = train_indices["row"].to_list()
+
+        for branch_id in range(1, n_branches):  # Branch 0 already exists
+            # Create new row IDs
+            new_row_ids = list(range(self._next_row, self._next_row + len(train_row_ids)))
+
+            # Copy features for all sources
+            if self.features is not None:
+                branch_features = []
+                for source_idx in range(len(self.features.sources)):
+                    source_features = self.features.get_source(source_idx, np.array(train_row_ids))
+                    branch_features.append(source_features)
+                self.features.append(branch_features)
+
+            # Create new indices with different branch ID
+            new_indices_data = []
+            for i, old_row_id in enumerate(train_row_ids):
+                orig_data = train_indices.filter(pl.col("row") == old_row_id).row(0, named=True)
+                new_indices_data.append({
+                    "row": new_row_ids[i],
+                    "sample": orig_data["sample"],
+                    "origin": orig_data["origin"],
+                    "partition": orig_data["partition"],
+                    "group": orig_data["group"],
+                    "branch": branch_id,
+                    "processing": orig_data["processing"],
+                })
+
+            new_indices = pl.DataFrame(new_indices_data)
+            self.indices = pl.concat([self.indices, new_indices])
+
+            # Update counter
+            self._next_row += len(train_row_ids)
+
+    def get_features_2d(self,
+                        filters: Optional[Dict] = None,
+                        concatenate_sources: bool = True,
+                        concatenate_processing: bool = True) -> np.ndarray:
+        """
+        Get features in 2D format with various concatenation options.
+
+        Args:
+            filters: Dictionary of filters to apply
+            concatenate_sources: Whether to concatenate different sources
+            concatenate_processing: Whether to concatenate different processing levels
+
+        Returns:
+            2D numpy array of features
+        """
+        # Apply filters
+        if filters:
+            indices = self.indices
+            for key, value in filters.items():
+                if isinstance(value, list):
+                    indices = indices.filter(pl.col(key).is_in(value))
+                else:
+                    indices = indices.filter(pl.col(key) == value)
+        else:
+            indices = self.indices
+
+        if len(indices) == 0:
+            return np.array([]).reshape(0, 0)
+
+        if self.features is None:
+            return np.array([]).reshape(0, 0)
+
+        row_ids = indices["row"].to_numpy()
+
+        if concatenate_sources and concatenate_processing:
+            # Simple concatenation of all features
+            result = self.features.get_by_rows(row_ids, concatenate=True)
+            if isinstance(result, list):
+                return np.concatenate(result, axis=1)
+            return result
+        else:
+            # More complex logic for different concatenation strategies
+            all_features = []
+            for source_idx in range(len(self.features.sources)):
+                source_features = self.features.get_source(source_idx, row_ids)
+                all_features.append(source_features)
+
+            if concatenate_sources:
+                return np.concatenate(all_features, axis=1)
+            else:
+                # Return concatenated array for now
+                return np.concatenate(all_features, axis=1)
+
+    def get_features_3d(self,
+                        filters: Optional[Dict] = None,
+                        axis_order: str = "samples_features_processing") -> np.ndarray:
+        """
+        Get features in 3D format for deep learning.
+
+        Args:
+            filters: Dictionary of filters to apply
+            axis_order: Order of axes - "samples_features_processing" or "samples_processing_features"
+
+        Returns:
+            3D numpy array of features
+        """
+        # This is a placeholder for 3D feature extraction
+        # Implementation would depend on how processing levels are organized
+        indices = self.indices
+        if filters:
+            for key, value in filters.items():
+                if isinstance(value, list):
+                    indices = indices.filter(pl.col(key).is_in(value))
+                else:
+                    indices = indices.filter(pl.col(key) == value)
+
+        if len(indices) == 0 or self.features is None:
+            return np.array([]).reshape(0, 0, 0)
+
+        # Group by sample and processing to create 3D structure
+        # This is a simplified implementation
+        row_ids = indices["row"].to_numpy()
+        result = self.features.get_by_rows(row_ids, concatenate=True)
+
+        if isinstance(result, list):
+            features_2d = np.concatenate(result, axis=1)
+        else:
+            features_2d = result
+
+        # For now, just add a dimension
+        if axis_order == "samples_features_processing":
+            return features_2d.reshape(features_2d.shape[0], features_2d.shape[1], 1)
+        else:
+            return features_2d.reshape(features_2d.shape[0], 1, features_2d.shape[1])
+
     def add_feature_augmentation(self,
                                  sample_ids: List[int],
                                  features: np.ndarray,
                                  processing_tag: str,
                                  source_partition: str = "train") -> None:
         """
+        DEPRECATED: Use feature_augmentation() instead.
+
         Add feature augmentation to existing samples.
 
         This creates new feature sources with the same sample IDs but different processing tags.
@@ -193,9 +484,7 @@ class SpectraDataset:
             "processing": [processing_tag] * n_samples,
         })
 
-        self.indices = pl.concat([self.indices, new_indices])
-
-        # Update row counter
+        self.indices = pl.concat([self.indices, new_indices])        # Update row counter
         self._next_row += n_samples
 
         print(f"  📊 Added {n_samples} samples with {features.shape[1]} features (processing: {processing_tag})")
@@ -204,9 +493,18 @@ class SpectraDataset:
         """Create an efficient view of the dataset with filters applied."""
         # Import here to avoid circular import
         try:
-            from DatasetView import DatasetView
+            from .DatasetView import DatasetView
         except ImportError:
-            from DatasetView import DatasetView
+            try:
+                from DatasetView import DatasetView
+            except ImportError:
+                # Last resort: assume DatasetView is available in globals
+                import sys
+                import os
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                if current_dir not in sys.path:
+                    sys.path.insert(0, current_dir)
+                from DatasetView import DatasetView
         return DatasetView(self, filters)
 
     def get_features(self,
