@@ -31,7 +31,7 @@ from nirs4all.transformations import (
 
 config = {
     "dataset": {  # define the experiment type and dataset. An experiment is related to a source dataset. action will be removed in the future to allow classif and regression on the same dataset.
-        "type": "classification", # 'auto', 'regression'
+        "type": "classification",  # 'auto', 'regression'
         "folder": "./sample_data"  # dataset definition is dicted by the json schema. Can load single or multiple files with metadata, and many indices predefined if needed, and folds also.
     },
 
