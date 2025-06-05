@@ -9,12 +9,11 @@ This operation:
 """
 import numpy as np
 import hashlib
-from typing import Optional, List, Union
+from typing import Optional, List, Dict, Any
 from sklearn.base import TransformerMixin, clone
 
 from PipelineOperation import PipelineOperation
 from SpectraDataset import SpectraDataset
-from PipelineContext import PipelineContext
 
 
 class OperationTransformation(PipelineOperation):
@@ -23,7 +22,7 @@ class OperationTransformation(PipelineOperation):
     def __init__(self,
                  transformer: TransformerMixin,
                  fit_partition: str = "train",
-                 transform_partitions: Optional[List[str]] = ['train', 'test'],
+                 transform_partitions: Optional[List[str]] = None,
                  operation_name: Optional[str] = None):
         """
         Initialize transformation operation
@@ -36,25 +35,30 @@ class OperationTransformation(PipelineOperation):
         """
         self.transformer = transformer
         self.fit_partition = fit_partition
-        self.transform_partitions = transform_partitions
+        self.transform_partitions = transform_partitions or ['train', 'test']
         self.operation_name = operation_name
         self.fitted_transformers = []  # One per source
         self.is_fitted = False
         self.transformation_hash = None
 
-    def execute(self, dataset: SpectraDataset, context: PipelineContext) -> None:
+    def execute(self, dataset: SpectraDataset, context: Dict[str, Any]) -> None:
         """Execute transformation: fit on train, transform specified partitions"""
         print(f"🔄 Executing {self.get_name()}")
 
-        # Get fitting data from specified partition
-        fit_view = dataset.select(partition=self.fit_partition, **context.current_filters)
+        # Get branch from context (simplified context)
+        branch = context.get('branch', 0)
+
+        # Get fitting data from specified partition using simple branch filtering
+        fit_view = dataset.select(partition=self.fit_partition, branch=branch)
         if len(fit_view) == 0:
-            raise ValueError(f"No data found in partition '{self.fit_partition}' for fitting")        # Get features per source (keep sources separate)
+            raise ValueError(f"No data found in partition '{self.fit_partition}' for branch {branch}")
+
+        # Get features per source (keep sources separate)
         X_fit = fit_view.get_features(representation="2d_separate")
         if isinstance(X_fit, np.ndarray):
             X_fit = [X_fit]
 
-        print(f"  📊 Fitting on {len(fit_view)} samples from '{self.fit_partition}' partition")
+        print(f"  📊 Fitting on {len(fit_view)} samples from '{self.fit_partition}' partition, branch {branch}")
         print(f"  🔧 {len(X_fit)} sources detected, fitting transformer per source")
 
         # Fit one transformer per source
@@ -67,26 +71,28 @@ class OperationTransformation(PipelineOperation):
 
         # Generate transformation hash for processing index
         self.transformation_hash = self._compute_transformation_hash()
-        self.is_fitted = True
-
-        # Determine partitions to transform
-        partitions_to_transform = self.transform_partitions or dataset.get_partition_names()
+        self.is_fitted = True        # Determine partitions to transform
+        partitions_to_transform = self.transform_partitions
 
         # Transform each partition
         for partition in partitions_to_transform:
-            partition_view = dataset.select(partition=partition, **context.current_filters)
+            partition_view = dataset.select(partition=partition, branch=branch)
             if len(partition_view) == 0:
-                print(f"  ⚠️ Skipping partition '{partition}' - no data found")
+                print(f"  ⚠️ Skipping partition '{partition}' - no data found for branch {branch}")
                 continue
 
-            print(f"  🔄 Transforming partition '{partition}': {len(partition_view)} samples")            # Get features per source
+            print(f"  🔄 Transforming partition '{partition}': {len(partition_view)} samples, branch {branch}")
+
+            # Get features per source
             X_partition = partition_view.get_features(representation="2d_separate")
             if isinstance(X_partition, np.ndarray):
                 X_partition = [X_partition]
 
             # Transform each source and update dataset
             for source_idx, (X_source, transformer) in enumerate(zip(X_partition, self.fitted_transformers)):
-                X_transformed = transformer.transform(X_source)                # Update features in dataset
+                X_transformed = transformer.transform(X_source)
+
+                # Update features in dataset
                 dataset.update_features(partition_view.get_row_indices(), X_transformed, source_idx)
                 print(f"    ✅ Source {source_idx}: {X_source.shape} → {X_transformed.shape}")
 
@@ -113,7 +119,8 @@ class OperationTransformation(PipelineOperation):
             return self.operation_name
         return f"Transform({self.transformer.__class__.__name__})"
 
-    def can_execute(self, dataset: SpectraDataset, context: PipelineContext) -> bool:
+    def can_execute(self, dataset: SpectraDataset, context: Dict[str, Any]) -> bool:
         """Check if transformation can be executed"""
-        fit_view = dataset.select(partition=self.fit_partition, **context.current_filters)
+        branch = context.get('branch', 0)
+        fit_view = dataset.select(partition=self.fit_partition, branch=branch)
         return len(fit_view) > 0

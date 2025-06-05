@@ -11,8 +11,10 @@ import inspect
 import importlib
 from typing import Any, Dict, Union
 from sklearn.base import clone, BaseEstimator
+from nirs4all.utils.serialization import _serialize_component, _deserialize_component
 
-from PipelineOperation import PipelineOperation
+from PipelineOperation import PipelineOperation, GenericOperation
+from OperationPresets import presets as operation_presets
 # from TransformationOperation import TransformationOperation
 # from ClusteringOperation import ClusteringOperation
 # from ModelOperation import ModelOperation
@@ -21,26 +23,6 @@ from PipelineOperation import PipelineOperation
 
 class PipelineBuilder:
     """Generic operation builder using serialization logic"""
-
-    def __init__(self):
-        # Import serialization utilities
-        try:
-            from nirs4all.utils.serialization import _serialize_component, _deserialize_component
-            self._serialize = _serialize_component
-            self._deserialize = _deserialize_component
-        except ImportError:
-            # Fallback serialization
-            self._serialize = self._simple_serialize
-            self._deserialize = self._simple_deserialize
-
-        # Preset mappings
-        self.presets = {
-            'MinMaxScaler': ('sklearn.preprocessing', 'MinMaxScaler'),
-            'StandardScaler': ('sklearn.preprocessing', 'StandardScaler'),
-            'PCA': ('sklearn.decomposition', 'PCA'),
-            'KMeans': ('sklearn.cluster', 'KMeans'),
-            # Add more presets as needed
-        }
 
     def build_operation(self, step: Any) -> PipelineOperation:
         """
@@ -140,8 +122,8 @@ class PipelineBuilder:
             return MockOperation(name=step)
 
         # Handle standard presets
-        if step in self.presets:
-            module_name, class_name = self.presets[step]
+        if step in operation_presets:
+            module_name, class_name = operation_presets[step]
             module = importlib.import_module(module_name)
             cls = getattr(module, class_name)
             instance = cls()
@@ -269,40 +251,3 @@ class PipelineBuilder:
 
         # Instantiate
         return cls(**params)
-
-
-class GenericOperation(PipelineOperation):
-    """Generic wrapper for operators that don't fit standard categories"""
-
-    def __init__(self, operator: Any):
-        self.operator = operator
-
-    def execute(self, dataset, context=None):
-        """Generic execution - try common patterns"""
-        print(f"  ⚙️ Executing {self.get_name()}")
-
-        if hasattr(self.operator, 'fit_transform'):
-            print(f"    📊 Would fit_transform on training data")
-        elif hasattr(self.operator, 'transform'):
-            print(f"    🔄 Would transform all data")
-        elif hasattr(self.operator, 'fit'):
-            print(f"    🎯 Would fit on training data")
-        else:
-            print(f"    💡 Would execute {type(self.operator)}")
-
-    def get_name(self) -> str:
-        return f"Generic({self.operator.__class__.__name__})"
-
-
-class MockOperation(PipelineOperation):
-    """Mock operation for MVP testing - doesn't actually execute anything"""
-
-    def __init__(self, name: str):
-        self.name = name
-
-    def execute(self, dataset, context=None):
-        """Mock execution - just log what would happen"""
-        print(f"  🎭 Mock execution: {self.name}")
-
-    def get_name(self) -> str:
-        return f"Mock({self.name})"
