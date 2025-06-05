@@ -11,7 +11,7 @@ from .PipelineConfig import PipelineConfig
 from .PipelineContext import PipelineContext, ScopeState
 from .PipelineHistory import PipelineHistory, PipelineExecution, StepExecution
 from .PipelineOperation import PipelineOperation
-from .PipelineOperatorWrapper import PipelineOperatorWrapper
+from ..operations.OperatorController import PipelineOperatorWrapper
 from .PipelineRunner import PipelineRunner
 from .PipelineTree import PipelineTree
 

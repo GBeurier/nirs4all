@@ -1,13 +1,7 @@
 # pipeline/operation.py
 from typing import Any
-from .PipelineOperatorWrapper import PipelineOperatorWrapper
+from ..operations.OperatorController import OperatorController
 
-WRAPPER_REGISTRY = []
-def register_wrapper(wrapper_cls: PipelineOperatorWrapper):
-    """Decorator to register a wrapper class."""
-    WRAPPER_REGISTRY.append(wrapper_cls)
-    WRAPPER_REGISTRY.sort(key=lambda c: c.priority)
-    return wrapper_cls
 
 
 class PipelineOperation:
@@ -20,7 +14,7 @@ class PipelineOperation:
 
     def _select_wrapper(self):
         for wrapper_cls in WRAPPER_REGISTRY:
-            if wrapper_cls.matches(self.step):
+            if wrapper_cls.matches(self.step, self.operator, self.keyword):
                 return wrapper_cls()
         raise TypeError(f"No matching wrapper found for {self.step}. Available wrappers: {[cls.__name__ for cls in WRAPPER_REGISTRY]}")
 

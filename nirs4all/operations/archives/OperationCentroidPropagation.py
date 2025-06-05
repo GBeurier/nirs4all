@@ -10,7 +10,7 @@ This operation:
 import numpy as np
 from typing import Optional, List, Dict, Any
 
-from PipelineOperation import PipelineOperation
+from nirs4all.pipeline.PipelineOperation import PipelineOperation
 from SpectraDataset import SpectraDataset
 from PipelineContext import PipelineContext
 
