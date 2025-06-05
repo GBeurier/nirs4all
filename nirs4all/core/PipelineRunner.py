@@ -7,21 +7,18 @@ Features:
 - Basic branching support
 - Simplified data selection
 """
-import json
-from typing import Any, Dict, List, Optional, Union, Tuple
-import copy
-from datetime import datetime
-from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-from SpectraDataset import SpectraDataset
-from PipelineBuilder import PipelineBuilder
-from PipelineHistory import PipelineHistory
-from ConfigSerializer import ConfigSerializer
-from PipelineTree import PipelineTree
-from FittedPipeline import FittedPipeline
+from nirs4all.core.SpectraDataset import SpectraDataset
+from nirs4all.core.PipelineBuilder import PipelineBuilder
+from nirs4all.core.PipelineHistory import PipelineHistory
+from nirs4all.core.PipelineConfig import PipelineConfig
+from nirs4all.core.PipelineOperation import PipelineOperation
+from nirs4all.core.Pipeline import Pipeline
 
 
 class PipelineRunner:
+    """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
     def __init__(self, max_workers: Optional[int] = None, continue_on_error: bool = False, backend: str = 'threading', verbose: int = 0):
         self.max_workers = max_workers or -1  # -1 means use all available cores
         self.continue_on_error = continue_on_error
@@ -31,51 +28,41 @@ class PipelineRunner:
         self.builder = PipelineBuilder()
         self.history = PipelineHistory()
         self.current_step = 0
-        self.current_step_hash = ""
         self.context = {"branch": 0}
 
         # Serialization support
-        self.config_serializer = ConfigSerializer()
-        self.fitted_tree = None
-        self.fitted_pipeline = None
-        self.normalized_config = None
+        self.pipeline = Pipeline()
 
-    def run(self, config: Union[Dict, str], dataset: SpectraDataset) -> Tuple[SpectraDataset, Any, PipelineHistory, Any]:
+    def run(self, config: PipelineConfig, dataset: SpectraDataset) -> Tuple[SpectraDataset, Any, PipelineHistory, Any]:
+        """Run the pipeline with the given configuration and dataset."""
+
         print("🚀 Starting Pipeline Runner")
 
         # Reset pipeline state
         if self.current_step > 0:
-            print("  ⚠️ Warning: Previous run detected, resetting step count")
+            print("  ⚠️ Warning: Previous run detected, resetting step count and context")
             self.current_step = 0
             self.context = {"branch": 0}
 
-        # Normalize config to unified format
-        self.normalized_config = self.config_serializer.normalize_config(config)
-
         # Start pipeline execution tracking
-        self.history.start_execution(self.normalized_config)
-
-        # Execute pipeline steps
-        steps = self.normalized_config.get("pipeline", [])
+        # self.history.start_execution(config.steps)
 
         try:
-            # Build pipeline structure for save/load
-            self.fitted_tree = self._build_fitted_tree(steps, dataset)
-            self.fitted_pipeline = FittedPipeline(self.fitted_tree)
-
-            for step in steps:
+            for step in config.steps:
                 self._run_step(step, dataset)
 
             # Complete pipeline execution
-            self.history.complete_execution()
+            # self.history.complete_execution()
             print("✅ Pipeline completed successfully")
 
         except Exception as e:
-            self.history.fail_execution(str(e))
-            print(f"❌ Pipeline failed: {str(e)}")
+            # self.history.fail_execution(str(e))
+            # print(f"❌ Pipeline failed: {str(e)}")
             raise
 
-        return dataset, self.fitted_pipeline, self.history, self.fitted_tree
+        return dataset, self.history, self.pipeline
+
+    command_operators = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack", "scope", "cluster", "merge"]
 
     def _run_step(self, step: Any, dataset: SpectraDataset, prefix: str = ""):
         """
@@ -88,11 +75,11 @@ class PipelineRunner:
         print(f"{prefix}🔹 Step config: {step}")
 
         # Start step tracking
-        step_execution = self.history.start_step(
-            step_number=self.current_step,
-            step_description=step_description,
-            step_config=step
-        )
+        # step_execution = self.history.start_step(
+        #     step_number=self.current_step,
+        #     step_description=step_description,
+        #     step_config=step
+        # )
 
         try:
             # Control structures

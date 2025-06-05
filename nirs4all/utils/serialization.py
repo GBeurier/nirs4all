@@ -2,7 +2,7 @@ import inspect
 from typing import Any, get_type_hints, get_origin, get_args, Annotated
 import importlib
 import json
-
+from nirs4all.core import build_aliases
 
 def serialize_component(obj: Any, include_runtime: bool = True) -> Any:
     """Return something that json.dumps can handle."""
@@ -51,20 +51,28 @@ def serialize_component(obj: Any, include_runtime: bool = True) -> Any:
 def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
     """Turn the output of serialize_component back into live objects."""
     # --- trivial cases ------------------------------------------------------ #
-    if blob is None or isinstance(blob, (bool, int, float, str)):
+    if blob is None or isinstance(blob, (bool, int, float)):
         if infer_type is not None:
             if not isinstance(blob, infer_type):
                 print(f"Type mismatch: {type(blob)} != {infer_type}")
                 return blob
         return blob
 
+    if isinstance(blob, str):
+        if blob in build_aliases:
+            blob = build_aliases[blob]
+        try:
+            # try to import the module and get the class or function
+            mod_name, _, cls_or_func_name = blob.rpartition(".")
+            mod = importlib.import_module(mod_name)
+            cls_or_func = getattr(mod, cls_or_func_name)
+        except (ImportError, AttributeError):
+            return blob
+
     if isinstance(blob, list):
         if infer_type is not None and isinstance(infer_type, type):
             if issubclass(infer_type, tuple):
                 return tuple(deserialize_component(x) for x in blob)
-        #     return tuple(deserialize_component(x, infer_type=_resolve_type(infer_type, str(i))) for i, x in enumerate(blob))
-        # if infer_type is not None and infer_type is tuple:
-        #     return tuple(deserialize_component(x) for x in blob)
         return [deserialize_component(x) for x in blob]
 
     if isinstance(blob, dict):
@@ -81,7 +89,7 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
             if "params" in blob:
                 # print(blob)
                 for k, v in blob["params"].items():
-                    resolved_type = _resolve_type(cls_or_func, k)
+                    # resolved_type = _resolve_type(cls_or_func, k)
                     # print(k, v, resolved_type)
                     params[k] = deserialize_component(v, _resolve_type(cls_or_func, k))
 
