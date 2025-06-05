@@ -18,39 +18,39 @@ if TYPE_CHECKING:
     from DatasetView import DatasetView
 
 
+
 class SpectraDataset:
     """Main dataset class with efficient operations and clear interface."""
+
+    INDICES_SCHEMA = {
+        "row": pl.Series([], dtype=pl.Int64),          # Original row index
+        "sample": pl.Series([], dtype=pl.Int64),       # Sample identifier
+        "origin": pl.Series([], dtype=pl.Int64),       # Original source identifier
+        "partition": pl.Series([], dtype=pl.Utf8),     # train/val/test/etc.
+        "group": pl.Series([], dtype=pl.Int64),        # Group identifier for splits
+        "branch": pl.Series([], dtype=pl.Int64),       # Pipeline branch identifier
+        "processing": pl.Series([], dtype=pl.Utf8),    # Processing level/stage
+        "replication": pl.Series([], dtype=pl.Int64),  # Replication index (if applicable)
+    }
+
+    RESULTS_SCHEMA = {
+        "sample": pl.Series([], dtype=pl.Int64),       # Sample identifier
+        "seed": pl.Series([], dtype=pl.Int64),         # Random seed used for this prediction
+        "branch": pl.Series([], dtype=pl.Int64),       # Branch identifier
+        "model": pl.Series([], dtype=pl.Utf8),         # Model name
+        "fold": pl.Series([], dtype=pl.Int64),         # Fold index (for cross-validation)
+        "stack_index": pl.Series([], dtype=pl.Int64),  # Stack index (if applicable)
+        "prediction": pl.Series([], dtype=pl.Float64), # Prediction values
+        "datetime": pl.Series([], dtype=pl.Datetime),  # Timestamp of prediction
+        "partition": pl.Series([], dtype=pl.Utf8),     # Partition this prediction belongs to
+        "prediction_type": pl.Series([], dtype=pl.Utf8)  # Type of prediction (e.g., raw, transformed)
+    }
 
     def __init__(self, float64: bool = True, task_type: str = "auto"):
         self.float64 = float64        # Core data
         self.features: Optional[SpectraFeatures] = None
 
-        # Enhanced index schema for complex pipeline operations
-        self.indices = pl.DataFrame({
-            # Core identification
-            "row": pl.Series([], dtype=pl.Int64),          # Original row index
-            "sample": pl.Series([], dtype=pl.Int64),       # Sample identifier
-
-            # Source and origin tracking
-            "origin": pl.Series([], dtype=pl.Int64),       # Original source identifier
-
-            # Data partitioning
-            "partition": pl.Series([], dtype=pl.Utf8),     # train/val/test/etc.
-            "group": pl.Series([], dtype=pl.Int64),        # Group identifier for splits
-
-            # Pipeline execution context
-            "branch": pl.Series([], dtype=pl.Int64),       # Pipeline branch identifier
-            "processing": pl.Series([], dtype=pl.Utf8),    # Processing level/stage
-
-            # # Advanced features for complex operations
-            # "cluster": pl.Series([], dtype=pl.Int64),      # Cluster assignment
-            # "centroid": pl.Series([], dtype=pl.Boolean),   # Centroid designation
-            # "weight": pl.Series([], dtype=pl.Float64),     # Sample weight
-
-            # Temporal and versioning
-            # "timestamp": pl.Series([], dtype=pl.Datetime),  # Processing timestamp
-            # "version": pl.Series([], dtype=pl.Int64),      # Data version
-        })
+        self.indices = pl.DataFrame(self.INDICES_SCHEMA)  # Indices DataFrame with proper schema
 
         # Target management
         self.target_manager = SpectraTargets(task_type=task_type)        # Results and folds management

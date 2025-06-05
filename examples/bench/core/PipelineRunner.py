@@ -1,36 +1,24 @@
 """
-PipelineRunner - Enhanced execution engine with robust context management
+PipelineRunner - Simplified execution engine with branch-based context
 
 Features:
-- Advanced pipeline context and scoping
-- DatasetView-based data selection
-- Complex branching and augmentation support
-- Unified parsing loop for all step types
+- Simple branch-based context
+- Direct operation execution
+- Basic branching support
+- Simplified data selection
 """
 import json
 from typing import Any, Dict, List, Optional, Union, Tuple
 import copy
 from datetime import datetime
 from pathlib import Path
-from joblib import Parallel, delayed
 
 from SpectraDataset import SpectraDataset
-from PipelineContext import PipelineContext
 from PipelineBuilder import PipelineBuilder
 from PipelineHistory import PipelineHistory
 from ConfigSerializer import ConfigSerializer
 from PipelineTree import PipelineTree
 from FittedPipeline import FittedPipeline
-
-# Import DatasetView and DataSelector with proper error handling
-try:
-    from DatasetView import DatasetView
-    from DataSelector import DataSelector
-except ImportError:
-    # Fallback for development
-    DatasetView = None
-    DataSelector = None
-    DataSelector = None
 
 
 class PipelineRunner:
@@ -41,13 +29,10 @@ class PipelineRunner:
         self.verbose = verbose
 
         self.builder = PipelineBuilder()
-        self.context = PipelineContext()
         self.history = PipelineHistory()
         self.current_step = 0
         self.current_step_hash = ""
-
-        # Enhanced context management
-        self.data_selector = DataSelector() if DataSelector else None
+        self.context = {"branch": 0}
 
         # Serialization support
         self.config_serializer = ConfigSerializer()
@@ -62,38 +47,20 @@ class PipelineRunner:
         if self.current_step > 0:
             print("  ⚠️ Warning: Previous run detected, resetting step count")
             self.current_step = 0
-            self.context.reset()
+            self.context = {"branch": 0}
 
         # Normalize config to unified format
         self.normalized_config = self.config_serializer.normalize_config(config)
-
-        # Check if normalization failed and handle string configs manually
-        if isinstance(self.normalized_config, str):
-            print(f"⚠️ Config normalization returned string, trying manual file loading...")
-            if self.normalized_config.endswith('.json'):
-                import json
-                with open(self.normalized_config, 'r') as f:
-                    self.normalized_config = json.load(f)
-            elif self.normalized_config.endswith('.yaml') or self.normalized_config.endswith('.yml'):
-                import yaml
-                with open(self.normalized_config, 'r') as f:
-                    self.normalized_config = yaml.safe_load(f)
-            else:
-                raise ValueError(f"Cannot handle config: {self.normalized_config}")
 
         # Start pipeline execution tracking
         self.history.start_execution(self.normalized_config)
 
         # Execute pipeline steps
         steps = self.normalized_config.get("pipeline", [])
-        if not isinstance(steps, list):
-            raise ValueError("Pipeline configuration must contain a 'pipeline' list")
 
         try:
-            # Build fitted tree during execution
+            # Build pipeline structure for save/load
             self.fitted_tree = self._build_fitted_tree(steps, dataset)
-
-            # Create fitted pipeline
             self.fitted_pipeline = FittedPipeline(self.fitted_tree)
 
             for step in steps:
@@ -130,40 +97,38 @@ class PipelineRunner:
         try:
             # Control structures
             if isinstance(step, dict):
-                # Dataset controllers
-                if "sample_augmentation" in step or "samples" in step or "S" in step:
-                    key = next(k for k in ["sample_augmentation", "samples", "S"] if k in step)
-                    self._run_sample_augmentation(step[key], dataset, prefix + "  ")
-                elif "feature_augmentation" in step or "features" in step or "F" in step:
-                    key = next(k for k in ["feature_augmentation", "features", "F"] if k in step)
-                    self._run_feature_augmentation(step[key], dataset, prefix + "  ")
 
-                # Flow controllers
+                if "sample_augmentation" in step:
+                    self._run_sample_augmentation(step["sample_augmentation"], dataset, prefix + "  ")
+
+                elif "feature_augmentation" in step:
+                    self._run_feature_augmentation(step["feature_augmentation"], dataset, prefix + "  ")
+
                 elif "branch" in step:
                     self._run_branch(step["branch"], dataset, prefix + "  ")
+
                 elif "dispatch" in step:
                     self._run_dispatch(step["dispatch"], dataset, prefix + "  ")
 
-                # Model operations
                 elif "model" in step:
                     self._run_model(step, dataset, prefix + "  ")
+
                 elif "stack" in step:
                     self._run_stack(step, dataset, prefix + "  ")
 
-                # Scope controllers
                 elif "scope" in step:
                     self._run_scope(step["scope"], dataset, prefix + "  ")
+
                 elif "cluster" in step:
                     self._run_cluster(step["cluster"], dataset, prefix + "  ")
 
-                # Special operations
                 elif "merge" in step:
                     self._run_merge(step["merge"], dataset, prefix + "  ")
+
                 elif "context_filter" in step:
                     self._run_context_filter(step["context_filter"], dataset, prefix + "  ")
 
                 else:
-                    # Direct operation dict (class-based operation)
                     operation = self.builder.build_operation(step)
                     self._execute_operation(operation, dataset, prefix + "  ")
 
@@ -213,6 +178,11 @@ class PipelineRunner:
             print(dataset)
             print("-" * 200)
 
+
+
+
+
+
     def _execute_operation(self, operation: Any, dataset: SpectraDataset, prefix: str):
         """Execute a built operation with proper context management and DatasetView"""
         operation_name = operation.get_name() if hasattr(operation, 'get_name') else str(operation)
@@ -241,57 +211,57 @@ class PipelineRunner:
             if not self.continue_on_error:
                 raise
 
-    def _execute_fit_phase(self, operation: Any, dataset: SpectraDataset, prefix: str):
-        """Execute the fit phase with proper data scoping"""
-        fit_filters = self.data_selector.get_enhanced_scope(operation, self.context, phase='fit')
-        fit_view = DatasetView(dataset, filters=fit_filters)
+    # def _execute_fit_phase(self, operation: Any, dataset: SpectraDataset, prefix: str):
+    #     """Execute the fit phase with proper data scoping"""
+    #     fit_filters = self.data_selector.get_enhanced_scope(operation, self.context, phase='fit')
+    #     fit_view = DatasetView(dataset, filters=fit_filters)
 
-        print(f"{prefix}  📊 Fitting on: {len(fit_view)} samples with filters {fit_filters}")
+    #     print(f"{prefix}  📊 Fitting on: {len(fit_view)} samples with filters {fit_filters}")
 
-        X = fit_view.get_features()
+    #     X = fit_view.get_features()
 
-        if hasattr(operation, 'fit'):
-            # Check if operation needs targets
-            try:
-                y = fit_view.get_targets()
-                operation.fit(X, y)
-                print(f"{prefix}  ✅ Fitted with targets: X={X.shape}, y={y.shape}")
-            except:
-                # Unsupervised learning or transformer
-                operation.fit(X)
-                print(f"{prefix}  ✅ Fitted without targets: X={X.shape}")
+    #     if hasattr(operation, 'fit'):
+    #         # Check if operation needs targets
+    #         try:
+    #             y = fit_view.get_targets()
+    #             operation.fit(X, y)
+    #             print(f"{prefix}  ✅ Fitted with targets: X={X.shape}, y={y.shape}")
+    #         except:
+    #             # Unsupervised learning or transformer
+    #             operation.fit(X)
+    #             print(f"{prefix}  ✅ Fitted without targets: X={X.shape}")
 
-    def _execute_transform_phase(self, operation: Any, dataset: SpectraDataset, prefix: str):
-        """Execute the transform phase with proper data scoping"""
-        transform_filters = self.data_selector.get_enhanced_scope(operation, self.context, phase='transform')
-        transform_view = DatasetView(dataset, filters=transform_filters)
+    # def _execute_transform_phase(self, operation: Any, dataset: SpectraDataset, prefix: str):
+    #     """Execute the transform phase with proper data scoping"""
+    #     transform_filters = self.data_selector.get_enhanced_scope(operation, self.context, phase='transform')
+    #     transform_view = DatasetView(dataset, filters=transform_filters)
 
-        print(f"{prefix}  🔄 Transforming: {len(transform_view)} samples with filters {transform_filters}")
+    #     print(f"{prefix}  🔄 Transforming: {len(transform_view)} samples with filters {transform_filters}")
 
-        X = transform_view.get_features()
-        X_transformed = operation.transform(X)
+    #     X = transform_view.get_features()
+    #     X_transformed = operation.transform(X)
 
-        # Update dataset with transformed features
-        # This is a simplified version - in practice we'd need to update the dataset properly
-        print(f"{prefix}  ✅ Transformed: {X.shape} -> {X_transformed.shape}")
+    #     # Update dataset with transformed features
+    #     # This is a simplified version - in practice we'd need to update the dataset properly
+    #     print(f"{prefix}  ✅ Transformed: {X.shape} -> {X_transformed.shape}")
 
-    def _execute_predict_phase(self, operation: Any, dataset: SpectraDataset, prefix: str):
-        """Execute the predict phase with proper data scoping"""
-        predict_filters = self.data_selector.get_enhanced_scope(operation, self.context, phase='predict')
-        predict_view = DatasetView(dataset, filters=predict_filters)
+    # def _execute_predict_phase(self, operation: Any, dataset: SpectraDataset, prefix: str):
+    #     """Execute the predict phase with proper data scoping"""
+    #     predict_filters = self.data_selector.get_enhanced_scope(operation, self.context, phase='predict')
+    #     predict_view = DatasetView(dataset, filters=predict_filters)
 
-        print(f"{prefix}  🎯 Predicting: {len(predict_view)} samples with filters {predict_filters}")
+    #     print(f"{prefix}  🎯 Predicting: {len(predict_view)} samples with filters {predict_filters}")
 
-        X = predict_view.get_features()
+    #     X = predict_view.get_features()
 
-        if hasattr(operation, 'predict_proba'):
-            predictions = operation.predict_proba(X)
-            print(f"{prefix}  ✅ Predicted probabilities: {X.shape} -> {predictions.shape}")
-        elif hasattr(operation, 'predict'):
-            predictions = operation.predict(X)
-            print(f"{prefix}  ✅ Predicted: {X.shape} -> {predictions.shape}")
-        else:
-            print(f"{prefix}  ⚠️ No prediction method available")
+    #     if hasattr(operation, 'predict_proba'):
+    #         predictions = operation.predict_proba(X)
+    #         print(f"{prefix}  ✅ Predicted probabilities: {X.shape} -> {predictions.shape}")
+    #     elif hasattr(operation, 'predict'):
+    #         predictions = operation.predict(X)
+    #         print(f"{prefix}  ✅ Predicted: {X.shape} -> {predictions.shape}")
+    #     else:
+    #         print(f"{prefix}  ⚠️ No prediction method available")
 
     # =================================================================
     # CONTROL STRUCTURE HANDLERS - Enhanced with DatasetView
