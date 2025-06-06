@@ -5,18 +5,18 @@ This module contains pipeline classes for processing workflows.
 """
 
 # Import main pipeline classes
-from .FittedPipeline import FittedPipeline
-from .Pipeline import Pipeline
-from .PipelineConfig import PipelineConfig
-from .PipelineContext import PipelineContext, ScopeState
-from .PipelineHistory import PipelineHistory, PipelineExecution, StepExecution
-from .PipelineOperation import PipelineOperation
-from ..operations.OperatorController import PipelineOperatorWrapper
-from .PipelineRunner import PipelineRunner
-from .PipelineTree import PipelineTree
+from .fitted_pipeline import FittedPipeline
+from .pipeline import Pipeline
+from .pipeline_config import PipelineConfig
+from .pipeline_context import PipelineContext, ScopeState
+from .pipeline_history import PipelineHistory, PipelineExecution, StepExecution
+from .pipeline_operation import PipelineOperation
+# from ..operations.operator_controller import PipelineOperatorWrapper  # Not found
+from .pipeline_runner import PipelineRunner
+from .pipeline_tree import PipelineTree
 
-# Import the presets dictionary from OperationPresets.py
-from ..operations import OperationPresets
+# Import the presets dictionary from operation_presets.py
+from ..operations import operation_presets
 
 __all__ = [
     'FittedPipeline',
@@ -25,11 +25,11 @@ __all__ = [
     'PipelineContext',
     'PipelineHistory',
     'PipelineOperation',
-    'PipelineOperatorWrapper',
+    # 'PipelineOperatorWrapper',  # Not found
     'PipelineRunner',
     'PipelineTree',
     'ScopeState',
     'PipelineExecution',
     'StepExecution',
-    'OperationPresets',
+    'operation_presets',
 ]

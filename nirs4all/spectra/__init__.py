@@ -6,10 +6,10 @@ It imports the main classes and functions used for handling spectral data,
 features, and targets in the NIRS4ALL project.
 """
 
-from .SpectraDataset import SpectraDataset
-from .SpectraFeatures import SpectraFeatures
-from .SpectraTargets import SpectraTargets
-# from .SpectraResults import SpectraResults
+from .spectra_dataset import SpectraDataset
+from .spectra_features import SpectraFeatures
+from .spectra_targets import SpectraTargets
+# from .spectra_results import SpectraResults
 
 __all__ = [
     "SpectraDataset",
