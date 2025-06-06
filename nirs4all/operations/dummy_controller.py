@@ -20,14 +20,13 @@ class DummyController(OperatorController):
         """Check if the operator matches the step and keyword."""
         return True  # Always matches for testing
 
-    @classmethod
     def execute(
         cls,
         step: Any,
+        operator: Any,
         dataset: 'SpectraDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner'
     ):
         """Run the operator with the given parameters and context."""
         print(f"Executing dummy operation for step: {step}, keyword: {context.get('keyword', '')}")
-        return dataset  # Return the dataset unchanged

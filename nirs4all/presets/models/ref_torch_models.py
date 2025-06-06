@@ -200,7 +200,7 @@ def _build_transformer(input_shape: Tuple[int, int], params: Dict, *, num_classe
 #  Public API — function names must match the original tensorflow file
 # -----------------------------------------------------------------------------
 
-from nirs4all.core.discarded.utils import framework  # noqa: E402, pylint: disable=C0413
+from nirs4all.utils.backend_utils import framework
 
 # --- DECON family ------------------------------------------------------------
 
