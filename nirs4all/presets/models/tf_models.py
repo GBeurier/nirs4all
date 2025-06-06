@@ -32,10 +32,10 @@ from tensorflow.keras.layers import (
 
 from keras.models import Model, Sequential
 from nirs4all.utils import framework
-from nirs4all.presets.models.legacy.Inception_1DCNN import Inception
-from nirs4all.presets.models.legacy.ResNet_v2_1DCNN import ResNetv2
-from nirs4all.presets.models.legacy.SE_ResNet_1DCNN import SEResNet
-from nirs4all.presets.models.legacy.VGG_1DCNN import VGG
+from nirs4all.presets.models.legacy.inception_1d_cnn import Inception
+from nirs4all.presets.models.legacy.resnet_v2_1d_cnn import ResNetv2
+from nirs4all.presets.models.legacy.se_resnet_1d_cnn import SEResNet
+from nirs4all.presets.models.legacy.vgg_1d_cnn import VGG
 
 
 @framework('tensorflow')
