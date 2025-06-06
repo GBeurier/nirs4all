@@ -19,11 +19,11 @@ class OperatorController(ABC):
         """Check if the operator matches the step and keyword."""
         raise NotImplementedError("Subclasses must implement this method.")
 
-    @classmethod
     @abstractmethod
     def execute(
-        cls,
+        self,
         step: Any,
+        operator: Any,
         dataset: SpectraDataset,
         context: Dict[str, Any],
         runner: "PipelineRunner"

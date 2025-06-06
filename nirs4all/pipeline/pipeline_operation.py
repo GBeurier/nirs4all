@@ -1,9 +1,7 @@
 # pipeline/operation.py
+"""Pipeline operation module for nirs4all package."""
 from typing import Any
-from ..operations.operator_controller import OperatorController
-from ..operations.operator_registry import CONTROLLER_REGISTRY
-
-
+from nirs4all.operations import CONTROLLER_REGISTRY
 
 class PipelineOperation:
     """Class to represent a pipeline operation that can execute a specific operator."""
@@ -11,17 +9,17 @@ class PipelineOperation:
         self.step = step
         self.operator = operator
         self.keyword = keyword
-        self.wrapper = self._select_wrapper()
+        self.controller = self._select_controller()
 
-    def _select_wrapper(self):
-        for wrapper_cls in CONTROLLER_REGISTRY:
-            if wrapper_cls.matches(self.step, self.operator, self.keyword):
-                return wrapper_cls()
-        raise TypeError(f"No matching wrapper found for {self.step}. Available wrappers: {[cls.__name__ for cls in CONTROLLER_REGISTRY]}")
+    def _select_controller(self):
+        for controller_cls in CONTROLLER_REGISTRY:
+            if controller_cls.matches(self.step, self.operator, self.keyword):
+                return controller_cls()
+        raise TypeError(f"No matching controller found for {self.step}. Available controllers: {[cls.__name__ for cls in CONTROLLER_REGISTRY]}")
 
     def execute(self, dataset, context, runner):
-        """ Execute the operation using the selected operator wrapper."""
-        return self.wrapper.execute(self.step, dataset, context, runner)
+        """ Execute the operation using the selected operator controller."""
+        return self.controller.execute(self.step, self.operator, dataset, context, runner)
 
     # def get_name(self):
     #     """Get the name of the operation."""
