@@ -3,7 +3,7 @@ import random
 import numpy as np
 import scipy.interpolate as interpolate
 
-from .augmenter import Augmenter
+from .abc_augmenter import Augmenter
 
 
 def segment_length(x1, y1, x2, y2):

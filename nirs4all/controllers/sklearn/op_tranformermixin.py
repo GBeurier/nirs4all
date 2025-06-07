@@ -6,7 +6,7 @@ from nirs4all.operations.operator_controller import OperatorController
 from nirs4all.operations.operator_registry import register_controller
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.pipeline_runner import PipelineRunner
+    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.spectra.spectra_dataset import SpectraDataset
 
 
