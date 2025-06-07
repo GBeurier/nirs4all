@@ -13,9 +13,9 @@ from joblib import Parallel, delayed, parallel_backend
 
 from .serialization import deserialize_component
 from nirs4all.spectra.spectra_dataset import SpectraDataset
-from .pipeline_history import PipelineHistory
-from .pipeline_config import PipelineConfig
-from .pipeline_operation import PipelineOperation
+from .history import PipelineHistory
+from .config import PipelineConfig
+from .operation import PipelineOperation
 from .pipeline import Pipeline
 
 
