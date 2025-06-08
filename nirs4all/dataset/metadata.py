@@ -4,8 +4,9 @@ Metadata management for SpectroDataset.
 This module contains MetadataBlock for key-value metadata storage.
 """
 
-import polars as pl
 from typing import Dict, Any, Optional
+
+import polars as pl
 
 
 class MetadataBlock:
@@ -21,16 +22,15 @@ class MetadataBlock:
 
         Args:
             meta_df: DataFrame with 'sample' column and arbitrary metadata fields
-        """
-        # Validate required columns
+        """        # Validate required columns
         if "sample" not in meta_df.columns:
             raise ValueError("Missing required column: sample")
 
         if self.table is None:
             self.table = meta_df.clone()
         else:
-            # Append new data
-            self.table = pl.concat([self.table, meta_df], how="vertical")
+            # Append new data (allow missing columns)
+            self.table = pl.concat([self.table, meta_df], how="diagonal") ### TODO Check strategy validity here
 
     def meta(self, filter_dict: Dict[str, Any]) -> pl.DataFrame:
         """
@@ -43,14 +43,17 @@ class MetadataBlock:
             Filtered metadata DataFrame
         """
         if self.table is None:
-            raise ValueError("No metadata available")
-
-        # Apply filter
+            raise ValueError("No metadata available")        # Apply filter
         filtered_df = self.table
         for column, value in filter_dict.items():
             if column not in self.table.columns:
                 raise ValueError(f"Column '{column}' not found in metadata")
-            filtered_df = filtered_df.filter(pl.col(column) == value)
+
+            # Handle list values for filtering
+            if isinstance(value, (list, tuple)):
+                filtered_df = filtered_df.filter(pl.col(column).is_in(value))
+            else:
+                filtered_df = filtered_df.filter(pl.col(column) == value)
 
         return filtered_df
 

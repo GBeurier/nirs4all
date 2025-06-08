@@ -73,27 +73,100 @@ x_exists(filter: dict[str, Any]) -> bool
 
 #### 4 · Targets (`Y`)
 
-##### 4.1 Storage Columns
+##### 4.1 Architecture
 
-* `sample`, `processing`, user-defined **target columns** (any dtype).
+The TargetBlock uses a **zero-copy, type-aware architecture** with separate source classes for different target types:
 
-##### 4.2 Reserved `processing` values
+* **`TargetSource`** (abstract base) - Zero-copy target data management
+* **`RegressionTargetSource`** - Continuous numeric targets (float32/float64)
+* **`ClassificationTargetSource`** - Categorical targets with lazy label encoding
+* **`MultilabelTargetSource`** - Multi-label binary targets with one-hot encoding
 
-* `"raw"` – untouched ground-truth value as added
-* `"regression"` – numeric continuous representation
-* `"category"` – integer class index
-* `"ohe"` – one-hot encoded vector
+##### 4.2 Target Types
 
-##### 4.3 Public API
+| Type             | Description                                          | Encoding Strategy              | Data Types               |
+| ---------------- | ---------------------------------------------------- | ------------------------------ | ------------------------ |
+| `REGRESSION`     | Continuous numeric values                            | No encoding (direct use)       | float32, float64         |
+| `CLASSIFICATION` | Single-class categorical labels                      | Lazy LabelEncoder from sklearn | str, int (converted)     |
+| `MULTILABEL`     | Multiple binary labels per sample                    | One-hot encoding               | bool, int (0/1), float   |
+
+##### 4.3 Storage Model
+
+Each target source stores:
+* **Raw data** as numpy arrays with appropriate dtypes
+* **Sample mapping** for alignment with features (via sample IDs)
+* **Processing version** identifier for data lineage
+* **Lazy encoded data** (computed on-demand for classification/multilabel)
+* **Zero-copy subsets** through advanced indexing
+
+##### 4.4 Reserved `processing` values
+
+* `"raw"` – untouched ground-truth values as originally added
+* Custom processing IDs for transformed versions (e.g., "standardized", "log_transformed")
+
+##### 4.5 Public API
 
 ```python
-add_targets(y_df: polars.DataFrame,
-            meta_df: polars.DataFrame | None = None) -> None
-y(filter, processed: bool = True) -> np.ndarray
-get_indexed_targets(filter) -> list[tuple[np.ndarray, polars.DataFrame]]
-update_y(new_values: np.ndarray,
-         indexes: polars.DataFrame,
-         processing_hash: str) -> None
+# Adding targets (type-specific methods)
+add_regression_targets(name: str, data: np.ndarray, samples: np.ndarray,
+                      processing: str = "raw") -> None
+add_classification_targets(name: str, data: np.ndarray, samples: np.ndarray,
+                          processing: str = "raw") -> None
+add_multilabel_targets(name: str, data: np.ndarray, samples: np.ndarray,
+                      processing: str = "raw") -> None
+
+# Accessing targets (unified interface)
+y(filter_dict: Dict[str, Any] = {}, target_name: Optional[str] = None,
+  processing: str = "raw", encoded: bool = True) -> np.ndarray
+
+# Advanced access with indices
+get_indexed_targets(filter_dict: Dict[str, Any] = {}, target_name: Optional[str] = None,
+                   processing: str = "raw") -> Tuple[np.ndarray, np.ndarray]
+
+# Utility and introspection methods
+get_target_names() -> List[str]
+get_processing_versions(target_name: str) -> List[str]
+get_target_info(target_name: str, processing: str = "raw") -> Dict[str, Any]
+
+# Update method (for transformed versions)
+update_y(new_data: np.ndarray, samples: np.ndarray,
+         target_name: str, processing: str) -> None
+```
+
+##### 4.6 Zero-Copy Guarantees
+
+* All `y()` and `get_indexed_targets()` calls return **views** of underlying arrays
+* Subset operations use advanced indexing to maintain zero-copy
+* Lazy encoding preserves memory efficiency (encoded data computed once, cached)
+* Multiple processing versions of same target share sample alignment
+
+##### 4.7 Error Handling & Warnings
+
+* **Nonexistent target names**: Raises `ValueError` with descriptive message
+* **Nonexistent processing versions**: Returns empty array + emits `UserWarning`
+* **Type mismatches**: Automatic detection and conversion where possible
+* **Empty filter results**: Returns empty array with appropriate shape/dtype
+
+##### 4.8 Usage Examples
+
+```python
+# Adding different target types
+dataset.add_regression_targets("moisture", moisture_data, sample_ids)
+dataset.add_classification_targets("species", species_labels, sample_ids)
+dataset.add_multilabel_targets("traits", trait_matrix, sample_ids)
+
+# Accessing targets with filtering
+moisture = dataset.y({"partition": "train"}, "moisture")  # regression
+species = dataset.y({"group": 1}, "species", encoded=True)  # classification (encoded)
+traits = dataset.y({}, "traits")  # multilabel (one-hot)
+
+# Getting both data and sample indices
+data, indices = dataset.get_indexed_targets({"partition": "test"}, "species")
+
+# Introspection
+target_names = dataset.get_target_names()  # ["moisture", "species", "traits"]
+versions = dataset.get_processing_versions("moisture")  # ["raw", "standardized"]
+info = dataset.get_target_info("species")  # type, shape, classes, etc.
 ```
 
 ---
@@ -215,7 +288,7 @@ examples/                ← smoke tests here in a notebook (smoketest.ipynb) or
 | **`SpectroDataset`** (`dataset.py`)      | Orchestrator that owns four blocks, handles global invariants (row counts, sample IDs) | `add_data`, `x`, `y`, `save`, `load`, `print_summary`                                                                            |
 | **`FeatureBlock`** (`features.py`)       | Manages *N* aligned NumPy sources + a Polars index                                     | `add_features`, `x`, `get_indexed_features`, `update_x`, `augment_samples_x`, `augment_features_x`, `merge`, `split`, `x_exists` |
 | **`FeatureSource`** (`features.py`)      | Wrapper for a single `(rows, dims)` float array                                        | internal slicing helpers                                                                                                         |
-| **`TargetBlock`** (`targets.py`)         | Polars table for target versions                                                       | `add_targets`, `y`, `get_indexed_targets`, `update_y`                                                                            |
+| **`TargetBlock`** (`targets.py`)         | Type-aware target management with zero-copy architecture                               | `add_regression_targets`, `add_classification_targets`, `add_multilabel_targets`, `y`, `get_indexed_targets`, `update_y`        |
 | **`MetadataBlock`** (`metadata.py`)      | Key-value metadata store                                                               | `add_meta`, `meta`                                                                                                               |
 | **`FoldsManager`** (`folds.py`)          | Simple list-of-dict folds + data generators                                            | `set_folds`, `get_data`                                                                                                          |
 | **`PredictionBlock`** (`predictions.py`) | Polars table of model outputs                                                          | `add_prediction`, `prediction`, `inverse_transform_prediction`                                                                   |
@@ -305,30 +378,38 @@ print("train shape:", x_train.shape)   # (15,2)
 
 ## Phase 3 · Targets & Metadata (1–2 days)
 
-| #   | Task                                                                                                                                                                                   | File               | Notes |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ----- |
-| 3-1 | **`TargetBlock`**: Polars table (`sample`, `targets` (list col) , `processing`). Implement:<br> • `add_targets(df)` – raw rows only.<br> • `y(filter, processed=True)` – stack arrays. | `dataset/targets.py`  |       |
-| 3-2 | `update_y(np_array, index_df, processing_id)` – overwrite / append target version.                                                                                                     | idem               |       |
-| 3-3 | **`MetadataBlock`**: simple Polars table (`sample`, …); CRUD methods.                                                                                                                  | `dataset/metadata.py` |       |
-| 3-4 | Wire these blocks into `SpectroDataset` (attributes + pass-through).                                                                                                                   | `dataset/dataset.py`  |       |
+| #   | Task                                                                                                                                                                                                                                                      | File               | Notes |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ----- |
+| 3-1 | **`TargetBlock`**: Type-aware architecture with separate source classes. Implement:<br> • `add_regression_targets(name, data, samples)` – continuous targets.<br> • `add_classification_targets(name, data, samples)` – categorical with lazy encoding.<br> • `add_multilabel_targets(name, data, samples)` – binary multi-label.<br> • `y(filter, target_name, processing, encoded)` – unified access. | `dataset/targets.py`  |       |
+| 3-2 | `update_y(new_data, samples, target_name, processing)` – add processed versions of targets.                                                                                                                                                                  | idem               |       |
+| 3-3 | **`MetadataBlock`**: simple Polars table (`sample`, …); CRUD methods.                                                                                                                                                                                        | `dataset/metadata.py` |       |
+| 3-4 | Wire these blocks into `SpectroDataset` (attributes + pass-through).                                                                                                                                                                                         | `dataset/dataset.py`  |       |
 
 **Smoke Test P3 – `smoke/step03_targets_meta.py`**
 
 ```python
 from spectrodataset.core.dataset import SpectroDataset
-import polars as pl
 import numpy as np
 
 ds = SpectroDataset()
 ds.add_features([np.zeros((5,3), dtype="float32")])
-# targets
-raw_df = pl.DataFrame({"sample":[0,1,2,3,4], "targets":[[0.1],[0.2],[0.3],[0.4],[0.5]], "processing":["raw"]*5})
-ds.targets.add_targets(raw_df)
-# create a processed version (regression) for first 3 samples
-idx = ds.targets.table.filter(pl.col("sample")<3)
-vals = np.array([[10.],[20.],[30.]], dtype="float32")
-ds.targets.update_y(vals, idx, processing_id="regression")
-print(ds.targets.table)
+
+# Add regression targets
+regression_data = np.array([0.1, 0.2, 0.3, 0.4, 0.5])
+sample_ids = np.array([0, 1, 2, 3, 4])
+ds.add_regression_targets("moisture", regression_data, sample_ids)
+
+# Add classification targets
+class_data = np.array(["A", "B", "A", "C", "B"])
+ds.add_classification_targets("species", class_data, sample_ids)
+
+# Access targets
+moisture = ds.y({}, "moisture")  # regression
+species = ds.y({}, "species", encoded=True)  # classification (encoded)
+
+print("Target names:", ds.get_target_names())
+print("Moisture shape:", moisture.shape)
+print("Species shape:", species.shape)
 ```
 
 ---
@@ -378,11 +459,15 @@ for fold in ds.folds.get_data(ds, layout="2d"):
 
 ```python
 from spectrodataset.core.dataset import SpectroDataset
-import numpy as np, polars as pl
+import numpy as np
 
 ds = SpectroDataset()
 ds.add_features([np.random.rand(3,4).astype("float32")])
-ds.targets.add_targets(pl.DataFrame({"sample":[0,1,2], "targets":[[0.],[1.],[0.]], "processing":["raw"]*3}))
+
+# Add classification targets using new API
+class_data = np.array(["class_0", "class_1", "class_0"])
+sample_ids = np.array([0, 1, 2])
+ds.add_classification_targets("species", class_data, sample_ids)
 
 preds = np.array([[0.2],[0.8],[0.1]], dtype="float32")
 meta  = {"model":"logreg", "fold":0, "repeat":0, "partition":"val",

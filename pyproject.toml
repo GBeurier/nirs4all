@@ -53,7 +53,7 @@ nirs4all = "nirs4all.cli.main:nirs4all_cli"
 include = ["nirs4all*"]
 
 [tool.pylint.'MESSAGES CONTROL']
-disable = ["invalid-name", "trailing-whitespace", "line-too-long"]
+disable = ["invalid-name", "trailing-whitespace", "line-too-long", "import-outside-toplevel"]
 
 [tool.pylint.'FORMAT']
 max-line-length = 220
