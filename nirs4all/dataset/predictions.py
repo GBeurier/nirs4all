@@ -5,9 +5,10 @@ This module contains PredictionBlock for storing and managing model predictions
 with metadata about models, folds, processing steps, etc.
 """
 
+from typing import Dict, Any, List, Callable, Optional
+
 import numpy as np
 import polars as pl
-from typing import Dict, Any, List, Callable, Optional
 
 
 class PredictionBlock:
@@ -83,19 +84,24 @@ class PredictionBlock:
             if isinstance(value, (list, tuple, np.ndarray)):
                 filtered_df = filtered_df.filter(pl.col(column).is_in(value))
             else:
-                filtered_df = filtered_df.filter(pl.col(column) == value)
-
-        # Extract and stack prediction arrays
+                filtered_df = filtered_df.filter(pl.col(column) == value)        # Extract and stack prediction arrays
         pred_lists = filtered_df.select("preds").to_numpy().flatten()
         if len(pred_lists) == 0:
-            return np.array([])
+            # Determine number of output columns from existing data
+            if self.table.height > 0:
+                # Get the first prediction to determine shape
+                first_pred = self.table.select("preds").limit(1).to_numpy().flatten()[0]
+                n_cols = len(first_pred)
+                return np.empty((0, n_cols), dtype=np.float32)
+            else:
+                return np.array([])
 
-        # Stack all predictions into a single array
-        predictions = np.vstack(pred_lists)
+        # Convert lists back to arrays and stack
+        pred_arrays = [np.array(pred_list) for pred_list in pred_lists]
+        predictions = np.vstack(pred_arrays)
         return predictions
 
-    def inverse_transform_prediction(self, transformers: List[Callable[[np.ndarray], np.ndarray]],
-                                   filter_dict: Dict[str, Any]) -> np.ndarray:
+    def inverse_transform_prediction(self, transformers: List[Callable[[np.ndarray], np.ndarray]], filter_dict: Dict[str, Any]) -> np.ndarray:
         """
         Apply inverse transformers to predictions and return transformed view.
 

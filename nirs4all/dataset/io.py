@@ -7,9 +7,10 @@ storing features as numpy files and metadata as parquet files.
 
 import os
 import json
+from typing import TYPE_CHECKING
+
 import numpy as np
 import polars as pl
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .dataset import SpectroDataset
@@ -42,12 +43,37 @@ def save(ds: "SpectroDataset", path: str) -> None:
     # Save index if available
     if ds.features.index_df is not None:
         index_path = os.path.join(path, "index.parquet")
-        ds.features.index_df.write_parquet(index_path)
+        ds.features.index_df.write_parquet(index_path)    # Save targets if available
+    if ds.targets.sources:
+        # For the new TargetBlock, we need to serialize the sources
+        # For now, let's save the raw target data - this is a simplified implementation
+        # A more complete implementation would serialize all the source metadata
+        import polars as pl
+        target_rows = []
+        for key, source in ds.targets.sources.items():
+            # Extract name and processing from key
+            parts = key.rsplit('_', 1)
+            name = parts[0] if len(parts) > 1 else key
+            processing = parts[1] if len(parts) > 1 else "raw"
 
-    # Save targets if available
-    if ds.targets.table is not None:
-        targets_path = os.path.join(path, "targets.parquet")
-        ds.targets.table.write_parquet(targets_path)
+            # Convert source data to table format
+            data = source.get_raw_data()
+            if data.ndim == 1:
+                data = data.reshape(-1, 1)
+
+            for i, sample_id in enumerate(source.samples):
+                target_rows.append({
+                    'sample': int(sample_id),
+                    'targets': data[i].tolist(),
+                    'processing': processing,
+                    'target_type': source.target_type.value,
+                    'name': name
+                })
+
+        if target_rows:
+            targets_df = pl.DataFrame(target_rows)
+            targets_path = os.path.join(path, "targets.parquet")
+            targets_df.write_parquet(targets_path)
 
     # Save metadata if available
     if ds.metadata.table is not None:
@@ -62,7 +88,7 @@ def save(ds: "SpectroDataset", path: str) -> None:
     # Save folds if available
     if ds.folds.folds:
         folds_path = os.path.join(path, "folds.json")
-        with open(folds_path, 'w') as f:
+        with open(folds_path, 'w', encoding='utf-8') as f:
             json.dump(ds.folds.folds, f, indent=2)
 
 
@@ -75,17 +101,24 @@ def load(path: str) -> "SpectroDataset":
 
     Returns:
         Reconstructed SpectroDataset instance
+
+    Raises:
+        FileNotFoundError: If the directory does not exist
     """
     from .dataset import SpectroDataset
+
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Dataset directory not found: {path}")
+
+    if not os.path.isdir(path):
+        raise NotADirectoryError(f"Path is not a directory: {path}")
 
     ds = SpectroDataset()
 
     # Load features with memory mapping
     features_base = os.path.join(path, "features")
     if os.path.exists(f"{features_base}_src0.npy"):
-        ds.features.load_numpy(features_base, mmap_mode="r")
-
-    # Load index if available
+        ds.features.load_numpy(features_base, mmap_mode="r")    # Load index if available
     index_path = os.path.join(path, "index.parquet")
     if os.path.exists(index_path):
         ds.features.index_df = pl.read_parquet(index_path)
@@ -93,7 +126,34 @@ def load(path: str) -> "SpectroDataset":
     # Load targets if available
     targets_path = os.path.join(path, "targets.parquet")
     if os.path.exists(targets_path):
-        ds.targets.table = pl.read_parquet(targets_path)
+        targets_df = pl.read_parquet(targets_path)
+
+        # Group by name and processing to reconstruct sources
+        if 'name' in targets_df.columns and 'target_type' in targets_df.columns:
+            # New format with explicit target metadata
+            for (name, processing, target_type), group in targets_df.group_by(['name', 'processing', 'target_type']):
+                samples = group['sample'].to_numpy()
+                targets_list = group['targets'].to_list()
+                target_data = np.array(targets_list, dtype=np.float32)
+
+                # Convert to strings for type safety
+                name_str = str(name)
+                processing_str = str(processing)
+                target_type_str = str(target_type)
+
+                if target_type_str == 'regression':
+                    ds.targets.add_regression_targets(name_str, target_data, samples, processing_str)
+                elif target_type_str == 'classification':
+                    ds.targets.add_classification_targets(name_str, target_data.flatten().astype(int), samples, processing_str)
+                elif target_type_str == 'multilabel':
+                    ds.targets.add_multilabel_targets(name_str, target_data, samples, processing_str)
+        else:
+            # Legacy format - assume regression
+            samples = targets_df['sample'].to_numpy()
+            targets_list = targets_df['targets'].to_list()
+            target_data = np.array(targets_list, dtype=np.float32)
+            processing = targets_df['processing'].to_list()[0] if 'processing' in targets_df.columns else "raw"
+            ds.targets.add_regression_targets("target", target_data, samples, processing)
 
     # Load metadata if available
     metadata_path = os.path.join(path, "metadata.parquet")
@@ -108,7 +168,7 @@ def load(path: str) -> "SpectroDataset":
     # Load folds if available
     folds_path = os.path.join(path, "folds.json")
     if os.path.exists(folds_path):
-        with open(folds_path, 'r') as f:
+        with open(folds_path, 'r', encoding='utf-8') as f:
             ds.folds.folds = json.load(f)
 
     return ds

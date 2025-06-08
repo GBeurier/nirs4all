@@ -5,9 +5,10 @@ This module contains FeatureBlock and FeatureSource classes for managing
 multi-source spectroscopy features with zero-copy semantics.
 """
 
+from typing import List, Optional, Dict, Any, Tuple, Union
+
 import numpy as np
 import polars as pl
-from typing import List, Optional, Dict, Any, Tuple, Union
 
 
 class FeatureSource:
@@ -97,6 +98,7 @@ class FeatureBlock:
             "processing": ["raw"] * n_rows
         })
 
+    @property
     def n_samples(self) -> int:
         """Get the number of samples (rows) across all sources."""
         if not self.sources:
@@ -105,43 +107,8 @@ class FeatureBlock:
 
     def __repr__(self):
         n_sources = len(self.sources)
-        n_samples = self.n_samples()
+        n_samples = self.n_samples
         return f"FeatureBlock(sources={n_sources}, samples={n_samples})"
-
-    def slice(self, row_indices: Union[List[int], slice]) -> "FeatureBlock":
-        """
-        Slice the feature block by row indices.
-
-        Args:
-            row_indices: List of row indices or a slice object
-
-        Returns:
-            A new FeatureBlock instance containing the sliced data
-        """
-        sliced_block = FeatureBlock()
-        for source in self.sources:
-            sliced_array = source.array[row_indices]
-            sliced_block.add_features([sliced_array])
-        if self.index_df is not None:
-            sliced_block.index_df = self.index_df[row_indices]
-        return sliced_block
-
-    def to_numpy(self) -> np.ndarray:
-        """Convert the feature block to a 3D numpy array (n_sources, n_rows, n_dims)."""
-        return np.array([source.array for source in self.sources])
-
-    def from_numpy(self, array: np.ndarray) -> None:
-        """
-        Populate the feature block from a 3D numpy array.
-
-        Args:
-            array: 3D numpy array of shape (n_sources, n_rows, n_dims)
-        """
-        if array.ndim != 3:
-            raise ValueError("array must be a 3-dimensional numpy array")
-        n_sources, n_rows, n_dims = array.shape
-        for i in range(n_sources):
-            self.add_features([array[i]])
 
     def _apply_filter(self, filter_dict: Dict[str, Any]) -> pl.DataFrame:
         """
@@ -272,8 +239,7 @@ class FeatureBlock:
         else:
             raise ValueError(f"Unknown layout: {layout}")
 
-    def get_indexed_features(self, filter_dict: Dict[str, Any], layout: str = "2d",
-                           src_concat: bool = False) -> Tuple[Tuple[np.ndarray, ...], pl.DataFrame]:
+    def get_indexed_features(self, filter_dict: Dict[str, Any], layout: str = "2d", src_concat: bool = False) -> Tuple[Tuple[np.ndarray, ...], pl.DataFrame]:
         """
         Get feature arrays and corresponding index DataFrame.
 

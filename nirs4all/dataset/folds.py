@@ -5,8 +5,9 @@ This module handles cross-validation fold definitions and provides
 data generators that yield train/validation splits using the dataset blocks.
 """
 
-import numpy as np
 from typing import List, Dict, Tuple, Any, Generator, Iterable
+
+import numpy as np
 
 
 class FoldsManager:
