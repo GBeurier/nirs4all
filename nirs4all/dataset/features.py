@@ -4,6 +4,7 @@ import numpy as np
 import polars as pl
 
 from nirs4all.dataset.feature_source import FeatureSource
+from nirs4all.dataset.indexer import SampleIndexManager
 
 
 class Features:
@@ -13,42 +14,101 @@ class Features:
         """Initialize empty feature block."""
         self.sources: List[FeatureSource] = []
         self.index: Optional[pl.DataFrame] = None
+        self.indexer: Optional[SampleIndexManager] = None
 
-    def add_features(self, filter_dict: Dict[str, Any], x_list: List[np.ndarray]) -> None:
-        """
-        Add feature arrays as new sources.
+    def add_features(
+        self,
+        filter_dict: Dict[str, Any],
+        x_list: List[np.ndarray],
+    ) -> None:
 
-        Args:
-            x_list: List of 2D numpy arrays, all with the same number of rows
-        """
+        # -------------------------- validations ---------------------------
         if not x_list:
             raise ValueError("x_list cannot be empty")
 
         n_rows = x_list[0].shape[0]
         for i, arr in enumerate(x_list):
+            if arr.ndim != 2:
+                raise ValueError(f"Array {i} must be 2-D, got shape {arr.shape}")
             if arr.shape[0] != n_rows:
-                raise ValueError(f"Array {i} has {arr.shape[0]} rows, expected {n_rows}")
+                raise ValueError(
+                    f"Array {i} has {arr.shape[0]} rows, expected {n_rows}"
+                )
 
-        if self.sources and self.sources[0].num_samples != n_rows:
-            raise ValueError(f"New arrays have {n_rows} rows, existing sources have {self.sources[0].num_samples}")
+        # -----------------------------------------------------------------
+        #  CAS 1 : première insertion  → création des sources + indexer
+        # -----------------------------------------------------------------
+        if not self.sources:
+            # 1) création des sources
+            for arr in x_list:
+                self.sources.append(FeatureSource(arr))
 
-        for arr in x_list:
-            self.sources.append(FeatureSource(arr))
+            # 2) création de l’index initial
+            self._build_initial_index(n_rows, overrides=filter_dict)
 
-        if self.index is None:
-            self._build_initial_index(n_rows)
+            # 3) indexer avec valeurs par défaut de base
+            base_defaults = {
+                "partition": "train",
+                "group": 0,
+                "branch": 0,
+                "processing": "raw",
+            }
+            self.indexer = SampleIndexManager(
+                self.index, default_values=base_defaults
+            )
 
-    def _build_initial_index(self, n_rows: int) -> None:
-        """Build the initial index DataFrame with optimized data types."""
-        self.index = pl.DataFrame({
-            "row": pl.Series(range(n_rows), dtype=pl.Int32),
-            "sample": pl.Series(range(n_rows), dtype=pl.Int32),
-            "origin": pl.Series(range(n_rows), dtype=pl.Int32),
+        # -----------------------------------------------------------------
+        #  CAS 2 : sources déjà présentes  → on AJOUTE des échantillons
+        # -----------------------------------------------------------------
+        else:
+            if len(x_list) != len(self.sources):
+                raise ValueError(
+                    f"Expected {len(self.sources)} arrays (one per source), "
+                    f"got {len(x_list)}"
+                )
+
+            # 1) ajout des échantillons dans chaque source
+            for src, new_arr in zip(self.sources, x_list):
+                src.add_samples(new_arr)
+
+            # 2) ajout des lignes dans l’index (avec overrides éventuels)
+            self.indexer.add_rows(n_rows, overrides=filter_dict)
+
+        # -----------------------------------------------------------------
+        #  Synchronisation de la copie locale de l’index
+        # -----------------------------------------------------------------
+        self.index = self.indexer.df
+
+    def _build_initial_index(
+        self,
+        n_rows: int,
+        overrides: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Construit l'index de base + injection d'overrides éventuels.
+        """
+        data = {
+            "row":       pl.Series(range(n_rows), dtype=pl.Int32),
+            "sample":    pl.Series(range(n_rows), dtype=pl.Int32),
+            "origin":    pl.Series(range(n_rows), dtype=pl.Int32),
             "partition": pl.Series(["train"] * n_rows, dtype=pl.Categorical),
-            "group": pl.Series([0] * n_rows, dtype=pl.Int8),
-            "branch": pl.Series([0] * n_rows, dtype=pl.Int8),
-            "processing": pl.Series(["raw"] * n_rows, dtype=pl.Categorical)
-        })
+            "group":     pl.Series([0] * n_rows, dtype=pl.Int8),
+            "branch":    pl.Series([0] * n_rows, dtype=pl.Int8),
+            "processing": pl.Series(["raw"] * n_rows, dtype=pl.Categorical),
+        }
+
+        overrides = overrides or {}
+        for col, val in overrides.items():
+            if isinstance(val, list):
+                if len(val) != n_rows:
+                    raise ValueError(
+                        f"Override list for '{col}' must have {n_rows} elements"
+                    )
+                data[col] = pl.Series(val)
+            else:
+                data[col] = pl.Series([val] * n_rows)
+
+        self.index = pl.DataFrame(data)
 
     @property
     def num_samples(self) -> int:

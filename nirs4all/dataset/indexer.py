@@ -9,16 +9,28 @@ class SampleIndexManager:
     des accès contigus et gestion des filtres.
     """
 
-    def __init__(self, df: pl.DataFrame, index_col: str = "sample"):
+    def __init__(
+        self,
+        df: Optional[pl.DataFrame] = None,
+        *,
+        default_values: Optional[Dict[str, Any]] = None,
+        index_col: str = "sample",
+    ):
         """
-        Initialise le gestionnaire avec un DataFrame Polars.
-
-        Args:
-            df: DataFrame Polars contenant les métadonnées des samples
-            index_col: Nom de la colonne contenant les index des samples
+        Args
+        ----
+        df              DataFrame de départ (facultatif).
+        default_values  Valeurs par défaut supplémentaires/overrides.
+        index_col       Colonne identifiant univoquement le sample.
         """
-        self.df = df
         self.index_col = index_col
+        self.default_values = default_values or {}
+
+        if df is None:
+            self.df = pl.DataFrame({self.index_col: pl.Series([], dtype=pl.Int32)})
+        else:
+            self.df = df.clone()
+
         self._ensure_sorted()
 
     def _ensure_sorted(self):
@@ -29,6 +41,39 @@ class SampleIndexManager:
 
         if not is_sorted:
             self.df = self.df.sort(self.index_col)
+
+    def add_rows(
+        self,
+        n_rows: int,
+        overrides: Optional[Dict[str, Any]] = None,
+    ) -> None:
+
+        if n_rows <= 0:
+            return
+
+        overrides = overrides or {}
+
+        max_idx = int(self.df[self.index_col].max()) if len(self.df) else -1
+        sample_indices = list(range(max_idx + 1, max_idx + 1 + n_rows))
+
+        # Construction colonne par colonne
+        cols: Dict[str, pl.Series] = {
+            self.index_col: pl.Series(sample_indices, dtype=pl.Int32)
+        }
+
+        for col, default_val in self.default_values.items():
+            val = overrides.get(col, default_val)
+
+            if isinstance(val, list):
+                if len(val) != n_rows:
+                    raise ValueError(
+                        f"Override list for '{col}' doit avoir {n_rows} éléments"
+                    )
+                cols[col] = pl.Series(val)
+            else:
+                cols[col] = pl.Series([val] * n_rows)
+
+        self.add_samples(pl.DataFrame(cols))
 
     def get_indices(self, filters: Dict[str, Any]) -> List[int]:
         """
