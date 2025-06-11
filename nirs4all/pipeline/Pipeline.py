@@ -1,152 +1,66 @@
-"""
-FittedPipeline - Reusable fitted pipeline for prediction and re-execution
+# pipeline/runtime_pipeline.py
+import json, uuid
+from typing import Dict, List
+from .serialization import serialize_component, deserialize_component
 
-Loads a saved PipelineTree and provides methods for:
-- Prediction on new data
-- Full re-execution with new training
-- Partial execution (transform only)
-"""
-from typing import Any, Dict, List, Union
-from pathlib import Path
-import numpy as np
+class RuntimeNode:
+    def __init__(self, op, parents: list[str] | None = None):
+        self.id: str = op.id                      # hérite de PipelineOperation
+        self.parents: list[str] = parents or []
+        self.step_cfg = serialize_component(op.step, include_runtime=False)
+        self.operator_cfg = serialize_component(op.operator, include_runtime=False)
+        self.controller = op.controller.__class__.__name__
 
-from nirs4all.spectra.spectra_dataset import SpectraDataset
-from .pipeline_tree import PipelineTree
-
-
-class FittedPipeline:
-    """Reusable fitted pipeline that preserves structure"""
-
-    def __init__(self, fitted_tree: PipelineTree):
-        self.tree = fitted_tree
-        self.structure = fitted_tree.structure
-        self.metadata = fitted_tree.metadata
-
-    def predict(self, dataset: SpectraDataset) -> Dict[str, Any]:
-        """Apply fitted pipeline for prediction"""
-        predictions = {}
-
-        # Apply transformations and collect predictions
-        dataset_copy = dataset.copy() if hasattr(dataset, 'copy') else dataset
-
-        self._apply_structure_for_prediction(self.structure, dataset_copy, predictions, "")
-
-        return predictions
-
-    def _apply_structure_for_prediction(self, structure, dataset, predictions, path=""):
-        """Recursively apply fitted objects for prediction"""
-
-        if isinstance(structure, list):
-            for i, item in enumerate(structure):
-                self._apply_structure_for_prediction(item, dataset, predictions, f"{path}[{i}]")
-
-        elif isinstance(structure, dict):
-            if "dispatch" in structure:
-                # For dispatch, we'll use the first branch for simplicity
-                # In practice, you might want to aggregate all branches
-                for i, branch in enumerate(structure["dispatch"]):
-                    branch_predictions = {}
-                    dataset_branch = dataset.copy() if hasattr(dataset, 'copy') else dataset
-                    self._apply_structure_for_prediction(branch, dataset_branch, branch_predictions, f"{path}.dispatch[{i}]")
-                    predictions.update(branch_predictions)
-            else:
-                for k, v in structure.items():
-                    self._apply_structure_for_prediction(v, dataset, predictions, f"{path}.{k}")
-
-        else:
-            # This is a fitted object - use it for prediction/transformation
-            if structure is not None:
-                self._apply_fitted_object(structure, dataset, predictions, path)
-
-    def _apply_fitted_object(self, fitted_obj, dataset, predictions, path):
-        """Apply a single fitted object to the dataset"""
-        try:
-            if hasattr(fitted_obj, 'predict'):
-                # Model - make predictions
-                features = self._extract_features(dataset)
-                if features is not None:
-                    pred = fitted_obj.predict(features)
-                    predictions[f"model_{path}"] = pred
-
-            elif hasattr(fitted_obj, 'transform'):
-                # Transformer - apply transformation
-                features = self._extract_features(dataset)
-                if features is not None:
-                    transformed = fitted_obj.transform(features)
-                    self._update_dataset_features(dataset, transformed)
-
-            elif hasattr(fitted_obj, 'predict_proba'):
-                # Classifier with probabilities
-                features = self._extract_features(dataset)
-                if features is not None:
-                    proba = fitted_obj.predict_proba(features)
-                    predictions[f"proba_{path}"] = proba
-
-        except Exception as e:
-            print(f"⚠️ Failed to apply fitted object at {path}: {e}")
-
-    def _extract_features(self, dataset):
-        """Extract features from dataset"""
-        try:
-            if hasattr(dataset, 'get_features'):
-                return dataset.get_features()
-            elif hasattr(dataset, 'features'):
-                return dataset.features.get_features() if hasattr(dataset.features, 'get_features') else dataset.features
-            else:
-                return None
-        except:
-            return None
-
-    def _update_dataset_features(self, dataset, new_features):
-        """Update dataset with transformed features"""
-        try:
-            if hasattr(dataset, 'set_features'):
-                dataset.set_features(new_features)
-            elif hasattr(dataset, 'features') and hasattr(dataset.features, 'set_features'):
-                dataset.features.set_features(new_features)
-        except Exception as e:
-            print(f"⚠️ Failed to update features: {e}")
-
-    def get_info(self) -> Dict[str, Any]:
-        """Get pipeline information"""
+    # --- (dé-)sérialisation -------------------------------------------------
+    def to_dict(self):
         return {
-            "creation_date": self.metadata.get("creation_timestamp", "unknown"),
-            "feature_count": len(self.metadata.get("feature_names", [])),
-            "config_summary": str(self.metadata.get("original_config", {}))[:200] + "...",
-            "execution_summary": self.metadata.get("execution_summary", {}),
+            "id": self.id,
+            "parents": self.parents,
+            "step": self.step_cfg,
+            "operator": self.operator_cfg,
+            "controller": self.controller,
         }
 
-    def get_model_names(self) -> List[str]:
-        """Get names of all models in the pipeline"""
-        models = []
-        self._collect_models(self.structure, models, "")
-        return models
+    @classmethod
+    def from_dict(cls, d):
+        dummy = type("Dummy", (), {})()           # petit hack pour porter l’id
+        dummy.id = d["id"]
+        node = cls.__new__(cls)
+        RuntimeNode.__init__(node, dummy)         # type: ignore
+        node.parents = d["parents"]
+        node.step_cfg = d["step"]
+        node.operator_cfg = d["operator"]
+        node.controller = d["controller"]
+        return node
 
-    def _collect_models(self, structure, models, path=""):
-        """Recursively collect model names"""
-        if isinstance(structure, list):
-            for i, item in enumerate(structure):
-                self._collect_models(item, models, f"{path}[{i}]")
+    @property
+    def operator(self):
+        return deserialize_component(self.operator_cfg)
 
-        elif isinstance(structure, dict):
-            if "dispatch" in structure:
-                for i, branch in enumerate(structure["dispatch"]):
-                    self._collect_models(branch, models, f"{path}.dispatch[{i}]")
-            else:
-                for k, v in structure.items():
-                    self._collect_models(v, models, f"{path}.{k}")
+class RuntimePipeline:
+    def __init__(self):
+        self.nodes: Dict[str, RuntimeNode] = {}
 
-        else:
-            if structure is not None and hasattr(structure, 'predict'):
-                models.append(f"model_{path}")
+    # -----------------------------------------------------------------------
+    def add_op(self, op, parents: list[str] | None = None):
+        node = RuntimeNode(op, parents)
+        self.nodes[node.id] = node
+        return node.id
+
+    # -----------------------------------------------------------------------
+    def save(self, path: str):
+        with open(path, "w") as f:
+            json.dump(
+                {"nodes": [n.to_dict() for n in self.nodes.values()]},
+                f, indent=2
+            )
 
     @classmethod
-    def load(cls, filepath: Union[str, Path]) -> 'FittedPipeline':
-        """Load fitted pipeline from saved tree"""
-        tree = PipelineTree.load(filepath)
-        return cls(tree)
-
-
-def load_pipeline(filepath: Union[str, Path]) -> FittedPipeline:
-    """Convenience function to load a fitted pipeline"""
-    return FittedPipeline.load(filepath)
+    def load(cls, path: str):
+        with open(path) as f:
+            j = json.load(f)
+        rt = cls()
+        for nd in j["nodes"]:
+            node = RuntimeNode.from_dict(nd)
+            rt.nodes[node.id] = node
+        return rt

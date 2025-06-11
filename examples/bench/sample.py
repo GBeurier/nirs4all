@@ -20,8 +20,8 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
-from nirs4all.presets.models.ref_models import decon
-from nirs4all.presets.transformations import (
+from nirs4all.operators.models.cirad_tf import decon
+from nirs4all.operators.transformations import (
     Gaussian as GS,
     Rotate_Translate as RT,
     SavitzkyGolay as SG,

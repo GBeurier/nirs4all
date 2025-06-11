@@ -3,7 +3,7 @@ from typing import List, Tuple, Dict, Any, Optional
 import numpy as np
 import polars as pl
 
-from feature_source import FeatureSource
+from nirs4all.dataset.feature_source import FeatureSource
 
 
 class Features:
@@ -13,9 +13,8 @@ class Features:
         """Initialize empty feature block."""
         self.sources: List[FeatureSource] = []
         self.index: Optional[pl.DataFrame] = None
-        self._filtered_cache: Dict[str, pl.DataFrame] = {}  # Cache for frequent filters
 
-    def add_features(self, x_list: List[np.ndarray]) -> None:
+    def add_features(self, filter_dict: Dict[str, Any], x_list: List[np.ndarray]) -> None:
         """
         Add feature arrays as new sources.
 
@@ -63,55 +62,8 @@ class Features:
         n_samples = self.num_samples
         return f"FeatureBlock(sources={n_sources}, samples={n_samples})"
 
-    def _apply_filter(self, filter_dict: Dict[str, Any]) -> pl.DataFrame:
-        """
-        Apply filter to index DataFrame efficiently and return filtered view.
 
-        Args:
-            filter_dict: Dictionary of column: value pairs for exact matching
-
-        Returns:
-            Filtered DataFrame view
-        """
-        if self.index is None:
-            raise ValueError("No index available - add features first")
-
-        # Generate a cache key from filter_dict
-        cache_key = str(sorted(filter_dict.items()))
-        if cache_key in self._filtered_cache:
-            return self._filtered_cache[cache_key]
-
-        # Combine all conditions into a single expression
-        conditions = []
-        for column, value in filter_dict.items():
-            if column not in self.index.columns:
-                raise ValueError(f"Column '{column}' not found in index")
-            if isinstance(value, (list, tuple, np.ndarray)):
-                conditions.append(pl.col(column).is_in(value))
-            else:
-                conditions.append(pl.col(column) == value)
-
-        # Combine conditions with logical AND
-        if len(conditions) == 1:
-            combined_condition = conditions[0]
-        else:
-            # Use fold to combine multiple conditions with AND
-            combined_condition = pl.fold(
-                acc=conditions[0],
-                function=lambda acc, x: acc & x,
-                exprs=conditions[1:]
-            )
-
-        # Apply all filters at once with lazy evaluation
-        filtered_df = self.index.lazy().filter(combined_condition).select("row").collect()
-
-        # Cache the result for reuse
-        self._filtered_cache[cache_key] = filtered_df
-        return filtered_df
-
-    def _get_row_indices(self, filtered_df: pl.DataFrame) -> np.ndarray:
-        """Get row indices from filtered DataFrame."""
-        return filtered_df["row"].to_numpy()
+    #####################################################################################
 
     def x(self, filter_dict: Dict[str, Any], layout: str = "2d", src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
         """
@@ -128,19 +80,17 @@ class Features:
         if not self.sources:
             raise ValueError("No features available")
 
-        filtered_df = self._apply_filter(filter_dict)
-        row_indices = self._get_row_indices(filtered_df)
-
+        row_ranges = self.indexer.get_contiguous_ranges(filter_dict)
         res = []
         for source in self.sources:
             if layout == "2d":
-                res.append(source.layout_2d(row_indices))
+                res.append(source.layout_2d(row_ranges))
             elif layout == "2d_interleaved":
-                res.append(source.layout_2d_interleaved(row_indices))
+                res.append(source.layout_2d_interleaved(row_ranges))
             elif layout == "3d":
-                res.append(source.layout_3d(row_indices))
+                res.append(source.layout_3d(row_ranges))
             elif layout == "3d_transpose":
-                res.append(source.layout_3d_transpose(row_indices))
+                res.append(source.layout_3d_transpose(row_ranges))
             else:
                 raise ValueError(f"Unknown layout: {layout}")
 
@@ -149,28 +99,15 @@ class Features:
 
         return tuple(res)
 
-    def update_index(self, indices: np.ndarray | List[int], column: str, value: Any) -> None:
-        """
-        Update index DataFrame efficiently with new values for a specific column.
 
-        Args:
-            indices: Array of row indices to update
-            column: Column name to update
-            value: New value to set
-        """
-        if self.index is None:
-            raise ValueError("No index available - add features first")
+    # def update_processing(self, processing_id: str | int, new_data: np.ndarray, new_processing: str) -> None:
+    #     pass
 
-        if column not in self.index.columns:
-            raise ValueError(f"Column '{column}' not found in index")
+    # def augment_samples(self, count: Union[int, List[int]], indices: List[int] | None = None) -> None:
+    #     pass
 
-        indices = np.asarray(indices)
-        if not np.all(np.isin(indices, self.index["row"].to_numpy())):
-            raise ValueError("Some indices are out of bounds")
+    # def add_samples(self, new_samples: np.ndarray) -> None:
+    #     pass
 
-        # Perform update in a single vectorized operation
-        self.index = self.index.with_columns(
-            pl.when(pl.col("row").is_in(indices)).then(pl.lit(value)).otherwise(pl.col(column)).alias(column)
-        )
-        # Clear cache since index has changed
-        self._filtered_cache.clear()
+    # def add_processings(self, processing_id: Union[str, List[str]]) -> None:
+    #     pass
