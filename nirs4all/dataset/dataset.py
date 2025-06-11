@@ -5,15 +5,15 @@ This module contains the main facade that coordinates all dataset blocks
 and provides the primary public API for users.
 """
 
-from typing import List, Dict, Any, Tuple
+from typing import Union, List, Dict, Any, Tuple
 
 import numpy as np
 
-from nirs4all.dataset.features_bak import FeatureBlock
-from nirs4all.dataset.targets import TargetBlock
-from nirs4all.dataset.metadata import MetadataBlock
-from nirs4all.dataset.folds import FoldsManager
-from nirs4all.dataset.predictions import PredictionBlock
+from nirs4all.dataset.features import Features
+# from nirs4all.dataset.targets import TargetBlock
+# from nirs4all.dataset.metadata import MetadataBlock
+# from nirs4all.dataset.folds import FoldsManager
+# from nirs4all.dataset.predictions import PredictionBlock
 
 
 class SpectroDataset:
@@ -23,53 +23,75 @@ class SpectroDataset:
     """
     def __init__(self):
         """Initialize an empty SpectroDataset."""
-        self.features = FeatureBlock()
-        self.targets = TargetBlock()
-        self.metadata = MetadataBlock()
-        self.predictions = PredictionBlock()
-        self.folds = FoldsManager()
+        self.features = Features()
+        # self.targets = TargetBlock()
+        # self.metadata = MetadataBlock()
+        # self.predictions = PredictionBlock()
+        # self.folds = FoldsManager()
 
-    ## SETTERS AND ADDERS ##
-    def add_features(self, x_list: List[np.ndarray]) -> None:
-        self.features.add_features(x_list)
-
-    def add_targets(self, y_list: List[np.ndarray]) -> None:
-        self.targets.add_targets(y_list)
-
-    def add_meta(self, meta_df: pd.DataFrame) -> None:
-        self.metadata.add_meta(meta_df)
-
-    def add_folds(self, folds_dict: Dict[str, List[int]]) -> None:
-        self.folds.add_folds(folds_dict)
-
-    def add_predictions(self, filter_dict: Dict[str, Any], predictions: np.ndarray) -> None:
-        self.predictions.add_predictions(filter_dict, predictions)
-
-
-    ## GETTERS AND DATA ACCESSORS ##
-    def x(self, filter_dict: Dict[str, Any], layout: str = "2d", src_concat: bool = False) -> Tuple[np.ndarray, ...]:
+    # FEATURES
+    def x(self, filter_dict: Dict[str, Any], layout: str = "2d", src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
         return self.features.x(filter_dict, layout, src_concat)
 
-    def x_indexed(self, filter_dict: Dict[str, Any], layout: str = "2d", src_concat: bool = False) -> Tuple[Tuple[np.ndarray, ...], Any]:
-        return self.features.x_indexed(filter_dict, layout, src_concat)
 
-    def x_update(self, new_values: np.ndarray, indexes: Any, processing_id: str) -> None:
-        self.features.x_update(new_values, indexes, processing_id)
+    def add_features(self, filter_dict: Dict[str, Any], x: np.ndarray | List[np.ndarray]) -> None:
+        self.features.add_features(filter_dict, x)
 
-    def x_copy(self, indexes: Any, copy_count: Any ) -> np.ndarray:
-        return self.features.x_copy(indexes, copy_count)
 
-    def y(self, filter_dict, processed=True, encoding="auto") -> np.ndarray:
-        return self.targets.y(filter_dict, processed=processed, encoding=encoding) # auto, float, int, ohe, raw |
+    # def sample_augmentation(self, count: Union[int, List[int]], indices: List[int] | None = None, filter_dict: Dict[str, Any] | None = None) -> np.ndarray:
+    #     """
+    #     Augment the dataset by duplicating samples.
 
-    def y_indexed(self, filter_dict, processed=True, encoding="auto") -> Tuple[np.ndarray, Any]:
-        return self.targets.y_indexed(filter_dict, processed=processed, encoding=encoding)
+    #     Args:
+    #         count: Number of times to duplicate each sample, or a list of counts for each sample
+    #         indices: Specific indices to augment, if None all samples are augmented
+    #         filter_dict: Optional filters to apply before augmentation
 
-    def y_update(self, new_values: np.ndarray, indexes: Any, processing_id: str) -> None:
-        self.targets.y_update(new_values, indexes, processing_id)
+    #     Returns:
+    #         Augmented feature array
+    #     """
+    #     return self.features.sample_augmentation(count, indices, filter_dict)
 
-    def meta(self, filter_dict):
-        return self.metadata.meta(filter_dict)
+
+    # def add_features(self, x_list: List[np.ndarray]) -> None:
+    #     self.features.add_features(x_list)
+
+    # def add_targets(self, y_list: List[np.ndarray]) -> None:
+    #     self.targets.add_targets(y_list)
+
+    # def add_meta(self, meta_df: pd.DataFrame) -> None:
+    #     self.metadata.add_meta(meta_df)
+
+    # def add_folds(self, folds_dict: Dict[str, List[int]]) -> None:
+    #     self.folds.add_folds(folds_dict)
+
+    # def add_predictions(self, filter_dict: Dict[str, Any], predictions: np.ndarray) -> None:
+    #     self.predictions.add_predictions(filter_dict, predictions)
+
+
+    # ## GETTERS AND DATA ACCESSORS ##
+
+
+    # def x_indexed(self, filter_dict: Dict[str, Any], layout: str = "2d", src_concat: bool = False) -> Tuple[Tuple[np.ndarray, ...], Any]:
+    #     return self.features.x_indexed(filter_dict, layout, src_concat)
+
+    # def x_update(self, new_values: np.ndarray, indexes: Any, processing_id: str) -> None:
+    #     self.features.x_update(new_values, indexes, processing_id)
+
+    # def x_copy(self, indexes: Any, copy_count: Any ) -> np.ndarray:
+    #     return self.features.x_copy(indexes, copy_count)
+
+    # def y(self, filter_dict, processed=True, encoding="auto") -> np.ndarray:
+    #     return self.targets.y(filter_dict, processed=processed, encoding=encoding) # auto, float, int, ohe, raw |
+
+    # def y_indexed(self, filter_dict, processed=True, encoding="auto") -> Tuple[np.ndarray, Any]:
+    #     return self.targets.y_indexed(filter_dict, processed=processed, encoding=encoding)
+
+    # def y_update(self, new_values: np.ndarray, indexes: Any, processing_id: str) -> None:
+    #     self.targets.y_update(new_values, indexes, processing_id)
+
+    # def meta(self, filter_dict):
+    #     return self.metadata.meta(filter_dict)
 
 
 

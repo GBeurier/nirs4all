@@ -12,11 +12,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from joblib import Parallel, delayed, parallel_backend
 
 from .serialization import deserialize_component
-from nirs4all.spectra.spectra_dataset import SpectraDataset
 from .history import PipelineHistory
 from .config import PipelineConfig
 from .operation import PipelineOperation
 from .pipeline import Pipeline
+from nirs4all.spectra.spectra_dataset import SpectraDataset
+
 
 
 class PipelineRunner:
@@ -31,8 +32,6 @@ class PipelineRunner:
         self.backend = backend
         self.verbose = verbose
         self.history = PipelineHistory()
-
-        # serialization datamodel
         self.pipeline = Pipeline()
 
     def run(self, config: PipelineConfig, dataset: SpectraDataset) -> Tuple[SpectraDataset, PipelineHistory, Pipeline]:
