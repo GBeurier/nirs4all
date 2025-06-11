@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from nirs4all.dataset.config import parse_config
 from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.dataset.csv_loader import load_csv
 from typing import Dict, Tuple, Union
 
 def _merge_params(local_params, handler_params, global_params):
@@ -388,8 +389,8 @@ def get_dataset(data_config, disjoint=False) -> SpectroDataset | Dict[str, np.nd
                 "train_y": y_train,
                 "test_x": x_test,
                 "test_y": y_test,
-                "train_report": x_train_report,
-                "test_report": x_test_report
+                # "train_report": x_train_report,
+                # "test_report": x_test_report
             }
         # else:
         #     dataset.add_data(

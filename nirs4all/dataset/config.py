@@ -175,11 +175,11 @@ def parse_config(data_config):
     if isinstance(data_config, str):
         return browse_folder(data_config)
     elif isinstance(data_config, dict):
-        if "path" in data_config:  # If path is present, browse folder
-            return browse_folder(data_config["path"], data_config.get("params"))
+        if "folder" in data_config:  # If folder is present, browse folder
+            return browse_folder(data_config["folder"], data_config.get("params"))
         else:  # Otherwise, assume it's an already parsed config dictionary
             # TODO: Add more robust validation here if needed in the future
-            # For now, if it's a dict without 'path', assume it's usable by get_dataset
+            # For now, if it's a dict without 'folder', assume it's usable by get_dataset
             required_keys_pattern = ['train_x', 'test_x']  # Basic check
             if all(key in data_config for key in required_keys_pattern):
                 return data_config
