@@ -19,12 +19,25 @@ class Features:
     def add_features(
         self,
         filter_dict: Dict[str, Any],
-        x_list: List[np.ndarray],
+        x_list: np.ndarray | List[np.ndarray],
     ) -> None:
 
-        # -------------------------- validations ---------------------------
         if not x_list:
             raise ValueError("x_list cannot be empty")
+
+        if not isinstance(x_list, list):
+            if isinstance(x_list, np.ndarray):
+                x_list = [x_list]
+            else:
+                raise TypeError(
+                    f"x_list must be a list or a numpy array, got {type(x_list)}"
+                )
+
+        if not all(isinstance(arr, np.ndarray) for arr in x_list):
+            raise TypeError("All elements in x_list must be numpy arrays")
+
+        if not all(arr.ndim == 2 for arr in x_list):
+            raise ValueError("All arrays in x_list must be 2-D numpy arrays")
 
         n_rows = x_list[0].shape[0]
         for i, arr in enumerate(x_list):
