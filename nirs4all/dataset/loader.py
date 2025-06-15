@@ -364,7 +364,7 @@ def handle_data(config, t_set):
     return x, y, x_report, y_report
 
 
-def get_dataset(data_config, disjoint=False) -> SpectroDataset | Dict[str, np.ndarray]:
+def get_dataset(data_config, disjoint=False) -> Union[SpectroDataset, Dict[str, np.ndarray]]:
     """
     Load dataset based on the data configuration.
 
