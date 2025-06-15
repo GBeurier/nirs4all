@@ -1,7 +1,7 @@
 # pipeline/operation.py
 """Pipeline operation module for nirs4all package."""
 from typing import Any
-from nirs4all.operations import CONTROLLER_REGISTRY
+from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 
 class PipelineOperation:
     """Class to represent a pipeline operation that can execute a specific operator."""

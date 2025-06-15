@@ -3,6 +3,7 @@ import json, uuid
 from typing import Dict, List
 from .serialization import serialize_component, deserialize_component
 
+
 class RuntimeNode:
     def __init__(self, op, parents: list[str] | None = None):
         self.id: str = op.id                      # hérite de PipelineOperation
@@ -37,7 +38,7 @@ class RuntimeNode:
     def operator(self):
         return deserialize_component(self.operator_cfg)
 
-class RuntimePipeline:
+class Pipeline:
     def __init__(self):
         self.nodes: Dict[str, RuntimeNode] = {}
 

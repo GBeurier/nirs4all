@@ -28,11 +28,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from nirs4all.core.discarded.utils import framework
-from nirs4all.presets.legacy.Inception_1DCNN import Inception      # assumed PyTorch port
-from nirs4all.presets.legacy.ResNet_v2_1DCNN import ResNetv2       # assumed PyTorch port
-from nirs4all.presets.legacy.SE_ResNet_1DCNN import SEResNet       # assumed PyTorch port
-from nirs4all.presets.legacy.VGG_1DCNN import VGG                  # assumed PyTorch port
+from nirs4all.utils import framework
 
 
 # --------------------------------------------------------------------------- #
