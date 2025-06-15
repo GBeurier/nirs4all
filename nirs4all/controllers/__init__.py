@@ -15,14 +15,13 @@ This module contains all operation classes for pipeline processing.
 # from .archives.op_transformer_mixin import OpTransformerMixin
 
 # Import working modules
-from .operator_controller import OperatorController
-from .operator_registry import register_controller, CONTROLLER_REGISTRY
+from .controller import OperatorController
+from .registry import register_controller, CONTROLLER_REGISTRY
 
 # Import actions FIRST to ensure controllers get registered before anything else uses the registry
-from . import actions
+# from . import actions
 
-from .operation_presets import *
-from .dummy_controller import DummyController
+from .log.op_dummy import DummyController
 
 __all__ = [
     'OperatorController',

@@ -7,7 +7,7 @@ from nirs4all.operations.operator_registry import register_controller
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
-    from nirs4all.spectra.spectra_dataset import SpectraDataset
+    from nirs4all.spectra.spectra_dataset import SpectroDataset
 
 
 @register_controller
@@ -22,7 +22,7 @@ class TransformerMixinController(OperatorController):
         self,
         step: Any,
         operator: Any,
-        dataset: 'SpectraDataset',
+        dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner'
     ):

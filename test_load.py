@@ -2,11 +2,11 @@
 
 # Test simple du chargement
 from pathlib import Path
-from nirs4all.dataset import SpectraDataset
+from nirs4all.dataset import SpectroDataset
 
-print("Testing SpectraDataset loading...")
+print("Testing SpectroDataset loading...")
 
-ds = SpectraDataset.load(Path("data/coffee_spectra"))
+ds = SpectroDataset.load(Path("data/coffee_spectra"))
 
 print(f"Dataset loaded")
 print(f"Index: {ds.index}")

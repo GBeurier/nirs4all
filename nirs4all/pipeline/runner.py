@@ -16,7 +16,7 @@ from .history import PipelineHistory
 from .config import PipelineConfig
 from .operation import PipelineOperation
 from .pipeline import Pipeline
-from nirs4all.spectra.spectra_dataset import SpectraDataset
+from nirs4all.dataset.dataset import SpectroDataset
 
 
 
@@ -34,7 +34,7 @@ class PipelineRunner:
         self.history = PipelineHistory()
         self.pipeline = Pipeline()
 
-    def run(self, config: PipelineConfig, dataset: SpectraDataset) -> Tuple[SpectraDataset, PipelineHistory, Pipeline]:
+    def run(self, config: PipelineConfig, dataset: SpectroDataset) -> Tuple[SpectroDataset, PipelineHistory, Pipeline]:
         """Run the pipeline with the given configuration and dataset."""
 
         print("🚀 Starting Pipeline Runner")
@@ -52,7 +52,7 @@ class PipelineRunner:
 
         return dataset, self.history, self.pipeline
 
-    def run_steps(self, steps: List[Any], dataset: SpectraDataset, context: Dict[str, Any], execution: str = "sequential") -> None:
+    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Dict[str, Any], execution: str = "sequential") -> None:
         """Run a list of steps with enhanced context management and DatasetView support."""
         if not isinstance(steps, list):
             steps = [steps]
@@ -65,7 +65,7 @@ class PipelineRunner:
             with parallel_backend(self.backend, n_jobs=self.max_workers):
                 Parallel()(delayed(self._run_step)(step, dataset, context) for step in steps)
 
-    def _run_step(self, step: Any, dataset: SpectraDataset, context: Dict[str, Any]):
+    def _run_step(self, step: Any, dataset: SpectroDataset, context: Dict[str, Any]):
         """
         Run a single pipeline step with enhanced context management and DatasetView support.
         """

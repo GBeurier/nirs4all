@@ -4,7 +4,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, TYPE_CHECKING
 
-from nirs4all.spectra.spectra_dataset import SpectraDataset
+from nirs4all.dataset.dataset import SpectroDataset
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -24,7 +24,7 @@ class OperatorController(ABC):
         self,
         step: Any,
         operator: Any,
-        dataset: SpectraDataset,
+        dataset: SpectroDataset,
         context: Dict[str, Any],
         runner: "PipelineRunner"
     ):

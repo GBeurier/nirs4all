@@ -3,7 +3,7 @@ OperatorRegistry.py
 A registry for operator controllers in the nirs4all pipeline.
 """
 
-from .operator_controller import OperatorController
+from .controller import OperatorController
 
 CONTROLLER_REGISTRY = []
 def register_controller(operator_cls: OperatorController):
