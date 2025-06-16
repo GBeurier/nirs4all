@@ -30,7 +30,7 @@ class SpectroDataset:
         # self.folds = FoldsManager()
 
     # FEATURES
-    def x(self, filter_dict: Dict[str, Any], layout: str = "2d", src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
+    def x(self, filter_dict: Dict[str, Any] = {}, layout: str = "2d", src_concat: bool = True) -> np.ndarray | Tuple[np.ndarray, ...]:
         return self.features.x(filter_dict, layout, src_concat)
 
 
@@ -140,55 +140,59 @@ class SpectroDataset:
         else:
             print("📊 Features: No data")
         print()        # Targets summary
-        if self.targets.sources:
-            n_targets = len(self.targets.sources)
-            target_names = self.targets.get_target_names()
-            processing_versions = []
-            for name in target_names:
-                versions = self.targets.get_processing_versions(name)
-                processing_versions.extend(versions)
-            processing_versions = list(set(processing_versions))
-            print(f"🎯 Targets: {n_targets} source(s)")
-            print(f"   Target names: {target_names}")
-            print(f"   Processing versions: {processing_versions}")
-        else:
-            print("🎯 Targets: No data")
-        print()
+        # if self.targets.sources:
+        #     n_targets = len(self.targets.sources)
+        #     target_names = self.targets.get_target_names()
+        #     processing_versions = []
+        #     for name in target_names:
+        #         versions = self.targets.get_processing_versions(name)
+        #         processing_versions.extend(versions)
+        #     processing_versions = list(set(processing_versions))
+        #     print(f"🎯 Targets: {n_targets} source(s)")
+        #     print(f"   Target names: {target_names}")
+        #     print(f"   Processing versions: {processing_versions}")
+        # else:
+        #     print("🎯 Targets: No data")
+        # print()
 
-        # Metadata summary
-        if self.metadata.table is not None:
-            n_meta = len(self.metadata.table)
-            meta_cols = self.metadata.table.columns
-            print(f"📋 Metadata: {n_meta} entries")
-            print(f"   Columns: {meta_cols}")
-        else:
-            print("📋 Metadata: No data")
-        print()
+        # # Metadata summary
+        # if self.metadata.table is not None:
+        #     n_meta = len(self.metadata.table)
+        #     meta_cols = self.metadata.table.columns
+        #     print(f"📋 Metadata: {n_meta} entries")
+        #     print(f"   Columns: {meta_cols}")
+        # else:
+        #     print("📋 Metadata: No data")
+        # print()
 
-        # Folds summary
-        if self.folds.folds:
-            n_folds = len(self.folds.folds)
-            fold_sizes = [(len(f["train"]), len(f["val"])) for f in self.folds.folds]
-            print(f"🔄 Folds: {n_folds} fold(s)")
-            for i, (train_size, val_size) in enumerate(fold_sizes):
-                print(f"   Fold {i}: {train_size} train, {val_size} val")
-        else:
-            print("🔄 Folds: No data")
-        print()
+        # # Folds summary
+        # if self.folds.folds:
+        #     n_folds = len(self.folds.folds)
+        #     fold_sizes = [(len(f["train"]), len(f["val"])) for f in self.folds.folds]
+        #     print(f"🔄 Folds: {n_folds} fold(s)")
+        #     for i, (train_size, val_size) in enumerate(fold_sizes):
+        #         print(f"   Fold {i}: {train_size} train, {val_size} val")
+        # else:
+        #     print("🔄 Folds: No data")
+        # print()
 
-        # Predictions summary
-        if self.predictions.table is not None:
-            n_preds = len(self.predictions.table)
-            models = self.predictions.table.select("model").unique().to_series().to_list()
-            partitions = self.predictions.table.select("partition").unique().to_series().to_list()
-            print(f"🔮 Predictions: {n_preds} entries")
-            print(f"   Models: {models}")
-            print(f"   Partitions: {partitions}")
-        else:
-            print("🔮 Predictions: No data")
-        print()
+        # # Predictions summary
+        # if self.predictions.table is not None:
+        #     n_preds = len(self.predictions.table)
+        #     models = self.predictions.table.select("model").unique().to_series().to_list()
+        #     partitions = self.predictions.table.select("partition").unique().to_series().to_list()
+        #     print(f"🔮 Predictions: {n_preds} entries")
+        #     print(f"   Models: {models}")
+        #     print(f"   Partitions: {partitions}")
+        # else:
+        #     print("🔮 Predictions: No data")
+        # print()
 
-        print("=" * 30)
+        # print("=" * 30)
 
     def __repr__(self):
-        return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
+        return self.features
+
+    def __str__(self):
+        return str(self.features)
+        # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
