@@ -18,7 +18,6 @@ class Features:
     def init_index(self) -> None:
         """Initialize the indexer with an empty DataFrame."""
         self.index = pl.DataFrame({
-            "row": pl.Series([], dtype=pl.Int32),
             "sample": pl.Series([], dtype=pl.Int32),
             "origin": pl.Series([], dtype=pl.Int32),
             "partition": pl.Series([], dtype=pl.Categorical),
@@ -43,12 +42,20 @@ class Features:
             filter_dict: Dictionary of column: value pairs for filtering
             x_list: List of numpy arrays or a single 2D numpy array to add
         """
+        if isinstance(x_list, np.ndarray):
+            x_list = [x_list]
+
         self.validate_added_features(filter_dict, x_list)
 
+        if len(self.sources) == 0:
+            for i in range(len(x_list)):
+                self.sources.append(FeatureSource(f"source_{i}"))
+
         for src, new_arr in zip(self.sources, x_list):
+
             src.add_samples(new_arr)
 
-        self.indexer.add_rows(n_rows, overrides=filter_dict)
+        self.indexer.add_rows(x_list[0].shape[0], overrides=filter_dict)
 
     def validate_added_features(self, filter_dict: Dict[str, Any], x_list: np.ndarray | List[np.ndarray]) -> None:
         if not isinstance(filter_dict, dict):

@@ -31,16 +31,37 @@ class SampleIndexManager:
         else:
             self.df = df.clone()
 
+        if "row" not in self.df.columns:
+            self.df = self.df.with_columns(pl.Series([], dtype=pl.Int32).alias("row"))
+
         self._ensure_sorted()
 
     def _ensure_sorted(self):
-        """S'assure que le DataFrame est trié par l'index des samples."""
+        """ensure the DataFrame is sorted by the index column."""
         # Vérifier si le DataFrame est déjà trié
         indices = self.df.select(pl.col(self.index_col)).to_series().to_list()
         is_sorted = all(indices[i] <= indices[i + 1] for i in range(len(indices) - 1))
 
         if not is_sorted:
             self.df = self.df.sort(self.index_col)
+
+    def next_row_index(self) -> int:
+        """
+        Return the next available row index for new samples.
+        If the DataFrame is empty, returns 0.
+        """
+        if len(self.df) == 0:
+            return 0
+        return int(self.df["row"].max()) + 1
+
+    def next_index_col(self) -> int:
+        """
+        Return the next available index for new samples.
+        If the DataFrame is empty, returns 0.
+        """
+        if len(self.df) == 0:
+            return 0
+        return int(self.df[self.index_col].max()) + 1
 
     def add_rows(
         self,
@@ -53,27 +74,46 @@ class SampleIndexManager:
 
         overrides = overrides or {}
 
-        max_idx = int(self.df[self.index_col].max()) if len(self.df) else -1
-        sample_indices = list(range(max_idx + 1, max_idx + 1 + n_rows))
+        next_row_index = self.next_row_index()
+        next_index_col = self.next_index_col()
 
-        # Construction colonne par colonne
-        cols: Dict[str, pl.Series] = {
-            self.index_col: pl.Series(sample_indices, dtype=pl.Int32)
-        }
+        cols: Dict[str, pl.Series] = {}
+        for col in self.df.columns:
+            if col == "row":
+                row_indices = range(next_row_index, next_row_index + n_rows)
+                cols[col] = pl.Series(row_indices, dtype=pl.Int32)
+                continue
+            if col == self.index_col:
+                if col in overrides:
+                    val = overrides[col]
+                    if isinstance(val, list):
+                        if len(val) != n_rows:
+                            raise ValueError(
+                                f"Override list for '{col}' should have {n_rows} elements"
+                            )
+                        cols[col] = pl.Series(val)
+                    else:
+                        cols[col] = pl.Series([val] * n_rows)
+                else:
+                    index_values = range(next_index_col, next_index_col + n_rows)
+                    cols[col] = pl.Series(index_values, dtype=pl.Int32)
+                continue
 
-        for col, default_val in self.default_values.items():
-            val = overrides.get(col, default_val)
+            val = overrides.get(col, self.default_values.get(col, None))
+            expected_dtype = self.df.schema[col]
 
             if isinstance(val, list):
                 if len(val) != n_rows:
                     raise ValueError(
-                        f"Override list for '{col}' doit avoir {n_rows} éléments"
+                        f"Override list for '{col}' should have {n_rows} elements"
                     )
-                cols[col] = pl.Series(val)
+                cols[col] = pl.Series(val, dtype=expected_dtype)
             else:
-                cols[col] = pl.Series([val] * n_rows)
+                cols[col] = pl.Series([val] * n_rows, dtype=expected_dtype)
 
-        self.add_samples(pl.DataFrame(cols))
+        new_df = pl.DataFrame(cols)
+        self.df = pl.concat([self.df, new_df], how="vertical")
+        self._ensure_sorted()
 
     def get_indices(self, filters: Dict[str, Any]) -> List[int]:
         """
@@ -185,15 +225,6 @@ class SampleIndexManager:
                 pl.when(condition).then(pl.lit(value)).otherwise(pl.col(col)).alias(col)
             )
 
-    def add_samples(self, new_df: pl.DataFrame) -> None:
-        """
-        Ajoute de nouveaux samples au DataFrame.
-
-        Args:
-            new_df: DataFrame contenant les nouveaux samples
-        """
-        self.df = pl.concat([self.df, new_df], how="vertical")
-        self._ensure_sorted()
 
     def get_stats(self, group_by: List[str] = None) -> pl.DataFrame:
         """

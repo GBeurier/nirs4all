@@ -11,7 +11,7 @@ from typing import List, Dict, Union
 class FeatureSource:
     """Wrapper for a single (rows, dims) float array."""
 
-    def __init__(self, array: np.ndarray, padding: bool = True, pad_value: float = 0.0):
+    def __init__(self, padding: bool = True, pad_value: float = 0.0):
         """
         Initialize a FeatureSource with a 2D numpy array.
         Args:
@@ -19,15 +19,18 @@ class FeatureSource:
             padding: Whether to pad the array if necessary.
             pad_value: Value to use for padding if padding is enabled.
         """
-        if array.ndim != 2 or not np.issubdtype(array.dtype, np.floating):
-            raise ValueError("FeatureSource requires a 2D numpy array of floats")
-
-        self._array = array.astype(np.float32)
-        self._array = self._array[:, np.newaxis, :]
-        self._processing_ids: List[str] = ["raw"]  # Default processing ID
-        self._processing_id_to_index: Dict[str, int] = {"raw": 0}  # Maps processing ID to index
         self.padding = padding
         self.pad_value = pad_value
+        self._array = np.empty((0, 1, 0), dtype=np.float32)  # Initialize with empty shape
+        self._processing_ids: List[str] = ["raw"]  # Default processing ID
+        self._processing_id_to_index: Dict[str, int] = {"raw": 0}  # Maps processing ID to index
+
+        # self._array = array.astype(np.float32)
+        # self._array = self._array[:, np.newaxis, :]
+        # self._processing_ids: List[str] = ["raw"]  # Default processing ID
+        # self._processing_id_to_index: Dict[str, int] = {"raw": 0}  # Maps processing ID to index
+        # self.padding = padding
+        # self.pad_value = pad_value
 
     def __repr__(self):
         return f"FeatureSource(shape={self._array.shape}, dtype={self._array.dtype}, processing_ids={self._processing_ids})"
@@ -47,43 +50,7 @@ class FeatureSource:
         """Get the number of features (dimensions) in the source."""
         return self._array.shape[2]
 
-    def add_processings(self, processing_id: Union[str, List[str]]) -> None:
-        """Add a new processing ID to the source.
-
-        Args:
-            processing_id: A new processing ID to add. If a list is provided, all IDs will be added.
-
-        Raises:
-            ValueError: If the processing ID already exists.
-            TypeError: If processing_id is not a string or list of strings.
-        """
-        if isinstance(processing_id, str):
-            processing_id = [processing_id]
-        elif not isinstance(processing_id, list):
-            raise TypeError("processing_id must be a string or a list of strings")
-
-        for pid in processing_id:
-            if not isinstance(pid, str):
-                raise TypeError("All processing IDs must be strings")
-            if pid in self._processing_id_to_index:
-                raise ValueError(f"Processing ID '{pid}' already exists")
-
-        current_num_processings = self._array.shape[1]
-        new_num_processings = current_num_processings + len(processing_id)
-        new_shape = (self.num_samples, new_num_processings, self.num_features)
-
-        new_array = np.empty(new_shape, dtype=self._array.dtype)
-        new_array[:, :current_num_processings, :] = self._array
-        for i in range(len(processing_id)):
-            new_array[:, current_num_processings + i, :] = self._array[:, 0, :]
-
-        self._array = new_array
-
-        for i, pid in enumerate(processing_id):
-            self._processing_ids.append(pid)
-            self._processing_id_to_index[pid] = current_num_processings + i
-
-    def add_samples(self, new_samples: np.ndarray) -> None:
+    def add_samples(self, new_samples: np.ndarray, processing: str = "raw") -> None:
         """
         Add new samples to the source.
         Args:
@@ -91,28 +58,90 @@ class FeatureSource:
         Raises:
             ValueError: If new_samples is not a 2D array with the correct number of features.
         """
-        if new_samples.ndim == 1:
-            new_samples = new_samples[:, np.newaxis]
+        if new_samples.ndim != 2:
+            raise ValueError(f"new_samples must be a 2D array, got {new_samples.ndim} dimensions")
 
-        if new_samples.shape[1] > self.num_features:
-            raise ValueError(f"new_samples must have {self.num_features} features, got {new_samples.shape[1]}")
-        elif new_samples.shape[1] < self.num_features:
+        if self.num_samples > 0 and new_samples.shape[1] != self.num_features:
+            if new_samples.shape[1] > self.num_features:
+                raise ValueError(f"new_samples must have less than {self.num_features} features, got {new_samples.shape[1]}")
+
             if self.padding:
-                # Pad new_samples to match num_features
                 padded_samples = np.full((new_samples.shape[0], self.num_features), self.pad_value, dtype=new_samples.dtype)
                 padded_samples[:, :new_samples.shape[1]] = new_samples
                 new_samples = padded_samples
             else:
                 raise ValueError(f"new_samples must have {self.num_features} features, got {new_samples.shape[1]}")
 
-        new_num_samples = self.num_samples + new_samples.shape[0]
-        new_shape = (new_num_samples, self._array.shape[1], self.num_features)
+        processing_index = -1
+        if processing not in self._processing_id_to_index:
+            processing_index = self.num_processings
+            self._processing_id_to_index[processing] = processing_index
+            self._processing_ids.append(processing)
+        else:
+            processing_index = self._processing_id_to_index[processing]
 
-        new_array = np.empty(new_shape, dtype=self._array.dtype)
-        new_array[:self.num_samples, :, :] = self._array
-        new_array[self.num_samples:, :, :] = new_samples[:, np.newaxis, :]
+        if processing_index >= self._array.shape[1]:
+            if self.num_samples != new_samples.shape[0]:
+                raise ValueError(f"new_samples must have {self.num_samples} samples, got {new_samples.shape[0]}")
 
-        self._array = new_array
+            new_shape = (self.num_samples, processing_index + 1, self.num_features)
+            new_array = np.empty(new_shape, dtype=self._array.dtype)
+            new_array[:, :self._array.shape[1], :] = self._array
+            new_array[:, processing_index, :] = new_samples
+            self._array = new_array
+        else:
+            if self.num_processings > 1:
+                raise ValueError(
+                    f"Processing '{processing}' already exists at index {processing_index}, cannot add new samples"
+                )
+
+            new_samples_count = self.num_samples + new_samples.shape[0]
+            new_num_features = self.num_features if self.num_samples > 0 else new_samples.shape[1]
+            new_shape = (new_samples_count, self._array.shape[1], new_num_features)
+
+            new_array = np.empty(new_shape, dtype=self._array.dtype)
+            new_array[:self.num_samples, :self._array.shape[1], :self._array.shape[2]] = self._array
+            new_array[self.num_samples:, :, :] = new_samples[:, np.newaxis, :]
+
+            self._array = new_array
+
+    # def add_processings(self, processing_id: Union[str, List[str]]) -> None:
+    #     """Add a new processing ID to the source.
+
+    #     Args:
+    #         processing_id: A new processing ID to add. If a list is provided, all IDs will be added.
+
+    #     Raises:
+    #         ValueError: If the processing ID already exists.
+    #         TypeError: If processing_id is not a string or list of strings.
+    #     """
+    #     if isinstance(processing_id, str):
+    #         processing_id = [processing_id]
+    #     elif not isinstance(processing_id, list):
+    #         raise TypeError("processing_id must be a string or a list of strings")
+
+    #     for pid in processing_id:
+    #         if not isinstance(pid, str):
+    #             raise TypeError("All processing IDs must be strings")
+    #         if pid in self._processing_id_to_index:
+    #             raise ValueError(f"Processing ID '{pid}' already exists")
+
+    #     current_num_processings = self._array.shape[1]
+    #     new_num_processings = current_num_processings + len(processing_id)
+    #     new_shape = (self.num_samples, new_num_processings, self.num_features)
+
+    #     new_array = np.empty(new_shape, dtype=self._array.dtype)
+    #     new_array[:, :current_num_processings, :] = self._array
+    #     for i in range(len(processing_id)):
+    #         new_array[:, current_num_processings + i, :] = self._array[:, 0, :]
+
+    #     self._array = new_array
+
+    #     for i, pid in enumerate(processing_id):
+    #         self._processing_ids.append(pid)
+    #         self._processing_id_to_index[pid] = current_num_processings + i
+
+
 
     def augment_samples(self, count: Union[int, List[int]], indices: List[int] | None = None) -> None:
         """
