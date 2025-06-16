@@ -91,9 +91,9 @@ class SampleIndexManager:
                             raise ValueError(
                                 f"Override list for '{col}' should have {n_rows} elements"
                             )
-                        cols[col] = pl.Series(val)
+                        cols[col] = pl.Series(val, dtype=pl.Int32)
                     else:
-                        cols[col] = pl.Series([val] * n_rows)
+                        cols[col] = pl.Series([val] * n_rows, dtype=pl.Int32)
                 else:
                     index_values = range(next_index_col, next_index_col + n_rows)
                     cols[col] = pl.Series(index_values, dtype=pl.Int32)
@@ -115,7 +115,7 @@ class SampleIndexManager:
         self.df = pl.concat([self.df, new_df], how="vertical")
         self._ensure_sorted()
 
-    def get_indices(self, filters: Dict[str, Any]) -> List[int]:
+    def get_indices(self, filters: Dict[str, Any]) -> List[np.int32]:
         """
         Récupère la liste des index de samples selon les filtres spécifiés.
 
@@ -123,16 +123,18 @@ class SampleIndexManager:
             filters: Dictionnaire de filtres {colonne: valeur}
 
         Returns:
-            Liste triée des index de samples correspondants
+            Liste triée et unique des index de samples correspondants (type np.int32)
 
         Example:
             >>> manager.get_indices({"partition": "train", "branch": 0})
             [0, 1, 2, 5, 7, 8, 9]
         """
-        filtered_df = self._apply_filters(filters)
-        return filtered_df.select(pl.col(self.index_col)).to_series().to_list()
+        filtered_df = self._apply_filters(filters) if filters else self.df
+        # Get as numpy array of int32, ensure uniqueness and sort
+        indices = filtered_df.select(pl.col(self.index_col)).to_series().to_numpy().astype(np.int32)
+        return sorted(set(indices.tolist()))
 
-    def get_contiguous_ranges(self, filters: Dict[str, Any]) -> List[Tuple[int, int]]:
+    def get_contiguous_ranges(self, filters: Dict[str, Any]) -> np.ndarray:
         """
         Récupère les ranges contigus d'index pour optimiser les accès numpy.
 
@@ -150,7 +152,7 @@ class SampleIndexManager:
         if not indices:
             return []
 
-        return self._indices_to_ranges(indices)
+        return np.array(indices)
 
     def get_indices_from_list(self, index_list: List[int]) -> List[int]:
         """
@@ -331,3 +333,6 @@ class SampleIndexManager:
         """
         indices = self.get_indices(filters)
         return {sample_idx: pos for pos, sample_idx in enumerate(indices)}
+
+    def __repr__(self):
+        return str(self.df)

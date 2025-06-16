@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any, Optional, Union
 
 import numpy as np
 import polars as pl
@@ -17,7 +17,7 @@ class Features:
 
     def init_index(self) -> None:
         """Initialize the indexer with an empty DataFrame."""
-        self.index = pl.DataFrame({
+        index_df = pl.DataFrame({
             "sample": pl.Series([], dtype=pl.Int32),
             "origin": pl.Series([], dtype=pl.Int32),
             "partition": pl.Series([], dtype=pl.Categorical),
@@ -33,9 +33,9 @@ class Features:
             "processing": "raw",
         }
 
-        self.indexer = SampleIndexManager(self.index, default_values=INDEX_DEFAULT_VALUES)
+        self.index = SampleIndexManager(index_df, default_values=INDEX_DEFAULT_VALUES)
 
-    def add_features(self, filter_dict: Dict[str, Any], x_list: np.ndarray | List[np.ndarray]) -> None:
+    def add_features(self, filter_dict: Dict[str, Any], x_list: Union[np.ndarray, List[np.ndarray]], source: Union[int, List[int]] = -1) -> None:
         """
         Add new features to the block.
         Args:
@@ -43,27 +43,42 @@ class Features:
             x_list: List of numpy arrays or a single 2D numpy array to add
         """
         if isinstance(x_list, np.ndarray):
-            x_list = [x_list]
+            if isinstance(source, List):
+                raise ValueError("Cannot specify multiple sources with a single numpy array")
+        elif isinstance(x_list, list):
+            if isinstance(source, int) and source > -1:
+                raise ValueError("Cannot specify a single source with a list of numpy arrays")
 
-        self.validate_added_features(filter_dict, x_list)
-
+        n_added_sources = 1 if isinstance(x_list, np.ndarray) else len(x_list)
+        n_added_rows = x_list[0].shape[0] if isinstance(x_list, list) else x_list.shape[0]
         if len(self.sources) == 0:
-            for i in range(len(x_list)):
-                self.sources.append(FeatureSource(f"source_{i}"))
+            for _ in range(n_added_sources):
+                self.sources.append(FeatureSource())
 
-        for src, new_arr in zip(self.sources, x_list):
+        kwargs = {}
+        if "processing" in filter_dict:
+            kwargs["processing"] = filter_dict["processing"]
+            filter_dict["sample"] = self.index.get_indices({})
 
-            src.add_samples(new_arr)
+        for i in range(n_added_sources):
+            src_index = i
+            if isinstance(source, List):
+                src_index = source[i]
+            elif isinstance(source, int) and source > -1:
+                src_index = source
+            src = self.sources[src_index]
 
-        self.indexer.add_rows(x_list[0].shape[0], overrides=filter_dict)
+            new_x = x_list[i] if isinstance(x_list, list) else x_list
+            src.add_samples(new_x, **kwargs)
+
+        self.index.add_rows(n_added_rows, overrides=filter_dict)
 
     def validate_added_features(self, filter_dict: Dict[str, Any], x_list: np.ndarray | List[np.ndarray]) -> None:
         if not isinstance(filter_dict, dict):
             raise TypeError(
                 f"filter_dict must be a dictionary, got {type(filter_dict)}"
             )
-        if not filter_dict:
-            raise ValueError("filter_dict cannot be empty")
+
         if not x_list:
             raise ValueError("x_list cannot be empty")
         if not isinstance(x_list, (list, np.ndarray)):
@@ -94,36 +109,15 @@ class Features:
                     f"Array {i} has {arr.shape[0]} rows, expected {n_rows}"
                 )
 
-    # def _build_initial_index(
-    #     self,
-    #     n_rows: int,
-    #     overrides: Optional[Dict[str, Any]] = None,
-    # ) -> None:
-    #     """
-    #     Construit l'index de base + injection d'overrides éventuels.
-    #     """
-    #     data = {
-    #         "row":       pl.Series(range(n_rows), dtype=pl.Int32),
-    #         "sample":    pl.Series(range(n_rows), dtype=pl.Int32),
-    #         "origin":    pl.Series(range(n_rows), dtype=pl.Int32),
-    #         "partition": pl.Series(["train"] * n_rows, dtype=pl.Categorical),
-    #         "group":     pl.Series([0] * n_rows, dtype=pl.Int8),
-    #         "branch":    pl.Series([0] * n_rows, dtype=pl.Int8),
-    #         "processing": pl.Series(["raw"] * n_rows, dtype=pl.Categorical),
-    #     }
+    def update_index(self, indices: List[int], filter_dict: Dict[str, Any]) -> None:
+        """
+        Update the index with new rows based on the provided filter_dict.
+        Args:
+            indices: List of indices to update
+            filter_dict: Dictionary of column: value pairs for filtering
+        """
+        self.index.update_by_indices(indices, filter_dict)
 
-    #     overrides = overrides or {}
-    #     for col, val in overrides.items():
-    #         if isinstance(val, list):
-    #             if len(val) != n_rows:
-    #                 raise ValueError(
-    #                     f"Override list for '{col}' must have {n_rows} elements"
-    #                 )
-    #             data[col] = pl.Series(val)
-    #         else:
-    #             data[col] = pl.Series([val] * n_rows)
-
-    #     self.index = pl.DataFrame(data)
 
     @property
     def num_samples(self) -> int:
@@ -155,22 +149,23 @@ class Features:
         if not self.sources:
             raise ValueError("No features available")
 
-        row_ranges = self.indexer.get_contiguous_ranges(filter_dict)
+        indices = self.index.get_contiguous_ranges(filter_dict)
+        print(indices)
         res = []
         for source in self.sources:
             if layout == "2d":
-                res.append(source.layout_2d(row_ranges))
+                res.append(source.layout_2d(indices))
             elif layout == "2d_interleaved":
-                res.append(source.layout_2d_interleaved(row_ranges))
+                res.append(source.layout_2d_interleaved(indices))
             elif layout == "3d":
-                res.append(source.layout_3d(row_ranges))
+                res.append(source.layout_3d(indices))
             elif layout == "3d_transpose":
-                res.append(source.layout_3d_transpose(row_ranges))
+                res.append(source.layout_3d_transpose(indices))
             else:
                 raise ValueError(f"Unknown layout: {layout}")
 
         if src_concat:
-            return np.concatenate(res, axis=1)
+            return np.concatenate(res, axis=res[0].ndim - 1)
 
         return tuple(res)
 

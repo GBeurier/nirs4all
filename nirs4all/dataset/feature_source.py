@@ -230,17 +230,19 @@ class FeatureSource:
         Returns:
             A 2D numpy array with shape (len(row_indices), num_processings * num_features).
         """
-        if not isinstance(row_indices, np.ndarray) or row_indices.ndim != 1:
-            raise ValueError("row_indices must be a 1D numpy array")
+        # if not isinstance(row_indices, np.ndarray) or row_indices.ndim != 1:
+        #     raise ValueError("row_indices must be a 1D numpy array")
 
-        if len(row_indices) == 0:
-            return np.empty((0, self.num_processings * self.num_features), dtype=self._array.dtype)
+        # if len(row_indices) == 0:
+        #     return np.empty((0, self.num_processings * self.num_features), dtype=self._array.dtype)
 
-        # Ensure row indices are within bounds
-        if np.any(row_indices < 0) or np.any(row_indices >= self.num_samples):
-            raise IndexError("Row indices out of bounds")
+        # # Ensure row indices are within bounds
+        # if np.any(row_indices < 0) or np.any(row_indices >= self.num_samples):
+        #     raise IndexError("Row indices out of bounds")
 
         # Extract the specified rows and concatenate processing variants
+        # print(row_indices, self._array.shape)
+
         selected_data = self._array[row_indices, :, :].reshape(len(row_indices), -1)
         return selected_data
 

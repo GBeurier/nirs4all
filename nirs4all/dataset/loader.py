@@ -392,13 +392,11 @@ def get_dataset(data_config, disjoint=False) -> Union[SpectroDataset, Dict[str, 
                 # "train_report": x_train_report,
                 # "test_report": x_test_report
             }
-        # else:
-        #     dataset.add_data(
-        #         x_train=x_train, y_train=y_train,
-        #         x_test=x_test, y_test=y_test,
-        #         x_train_report=x_train_report, y_train_report=y_train_report,
-        #         x_test_report=x_test_report, y_test_report=y_test_report
-        #     )
+        else:
+            dataset.add_features({}, x_train)
+            dataset.add_features({"partition": "test"}, x_test)
+            # dataset.add_targets({}, y_train)
+            # dataset.add_targets({"partition": "test"}, y_test)
 
 
     except Exception as e:
