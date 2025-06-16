@@ -4,7 +4,7 @@ from typing import Any, Dict, TYPE_CHECKING
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-
+from sklearn.base import TransformerMixin
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.dataset.dataset import SpectroDataset
@@ -20,55 +20,20 @@ class DummyController(OperatorController):
         """Check if the operator matches the step and keyword."""
         return True  # Always matches for testing
 
+    @classmethod
+    def use_multi_source(cls) -> bool:
+        """Check if the operator supports multi-source datasets."""
+        return False
+
     def execute(
-        cls,
+        self,
         step: Any,
         operator: Any,
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
-        runner: 'PipelineRunner'
+        runner: 'PipelineRunner',
+        source: int = -1
     ):
-
-        # # raw train branch-2 spectra, 3-D tensor
-        # X_train = ds.get_features({"partition":"train", "branch":2}, layout="3d")
-
-        # # fetch targets only for augmented group-4 samples
-        # y_aug = ds.y({"group":4, "augmented":True}, columns=["y_bin","float1"])
-
-        # # explicit row IDs still work
-        # rows = [0, 7, 9]
-        # X_subset = ds.x(rows, layout="2d_concat")
-
-
-
-
-        # 1) fetch + fit
-        # batch_tr = ds.x({"partition":"train"})
-        # tf_mm    = ds.fit_transformer(batch_tr, MinMaxScaler())
-
-        # # 2) apply everywhere
-        # ds.apply_transformer(tf_mm, "all")
-
-        # # 3) gaussian-noise augmentation of augmented==False train rows
-        # class GaussianNoise:
-        #     def __init__(self, std=0.01): self.std = std
-        #     def __call__(self, X): return X + np.random.randn(*X.shape)*self.std
-
-        # ds.augment({"partition":"train","augmented":False},
-        #         [GaussianNoise(std=0.02)],
-        #         copies=2)
-
-
-
-
-        # splits = KFold(n_splits=5, shuffle=True).split(ds.x({"partition":"train"}))
-        # row_splits = [[rows[idx] for idx in fold] for _, fold in splits]
-        # ds.set_folds(row_splits)
-
-        # for tr_rows, val_rows in ds.fold_iter(5):
-        #     X_tr = ds.x(tr_rows, layout="3d")
-        #     ...
-
-
         """Run the operator with the given parameters and context."""
-        print(f"Executing dummy operation for step: {step}, keyword: {context.get('keyword', '')}")
+        print(f"Executing dummy operation for step: {step}, keyword: {context.get('keyword', '')}, source: {source}")
+
