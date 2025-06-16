@@ -87,6 +87,7 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
                 mod = importlib.import_module(mod_name)
                 cls_or_func = getattr(mod, cls_or_func_name)
             except (ImportError, AttributeError):
+                print(f"Failed to import {blob[key]}")
                 return blob
 
             params = {}
@@ -98,7 +99,7 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
                     params[k] = deserialize_component(v, _resolve_type(cls_or_func, k))
 
             try:
-                if key == "instance":
+                if key == "class" or key == "instance" or key == "function":
                     return cls_or_func(**params)
                 if len(params) == 0:
                     return cls_or_func

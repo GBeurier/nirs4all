@@ -12,10 +12,11 @@ class PipelineOperation:
         self.controller = self._select_controller()
 
     def _select_controller(self):
-        for controller_cls in CONTROLLER_REGISTRY:
-            if controller_cls.matches(self.step, self.operator, self.keyword):
-                return controller_cls()
-        raise TypeError(f"No matching controller found for {self.step}. Available controllers: {[cls.__name__ for cls in CONTROLLER_REGISTRY]}")
+        matches = [cls for cls in CONTROLLER_REGISTRY if cls.matches(self.step, self.operator, self.keyword)]
+        if not matches:
+            raise TypeError(f"No matching controller found for {self.step}. Available controllers: {[cls.__name__ for cls in CONTROLLER_REGISTRY]}")
+        matches.sort(key=lambda c: c.priority)
+        return matches[0]()
 
     def execute(self, dataset, context, runner):
         """ Execute the operation using the selected operator controller."""

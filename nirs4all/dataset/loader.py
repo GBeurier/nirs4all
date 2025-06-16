@@ -393,6 +393,10 @@ def get_dataset(data_config, disjoint=False) -> Union[SpectroDataset, Dict[str, 
                 # "test_report": x_test_report
             }
         else:
+            # ##TEST MULTIPLE SOURCES
+            # dataset.add_features({}, [x_train, x_train])
+            # dataset.add_features({"partition": "test"}, [x_test, x_test])
+            # ##
             dataset.add_features({}, x_train)
             dataset.add_features({"partition": "test"}, x_test)
             # dataset.add_targets({}, y_train)

@@ -35,6 +35,11 @@ class FeatureSource:
     def __repr__(self):
         return f"FeatureSource(shape={self._array.shape}, dtype={self._array.dtype}, processing_ids={self._processing_ids})"
 
+    def __str__(self) -> str:
+        mean_value = np.mean(self._array) if self._array.size > 0 else 0.0
+        variance_value = np.var(self._array) if self._array.size > 0 else 0.0
+        return f"FeatureSource(shape={self._array.shape}, dtype={self._array.dtype}, processing_ids={self._processing_ids}, mean={mean_value}, variance={variance_value})"
+
     @property
     def num_samples(self) -> int:
         """Get the number of samples (rows) in the source."""
@@ -49,6 +54,11 @@ class FeatureSource:
     def num_features(self) -> int:
         """Get the number of features (dimensions) in the source."""
         return self._array.shape[2]
+
+    @property
+    def num_2d_features(self) -> int:
+        """Get the number of 2D features (flattened dimensions) in the source."""
+        return self._array.shape[1] * self._array.shape[2]
 
     def add_samples(self, new_samples: np.ndarray, processing: str = "raw") -> None:
         """
@@ -105,41 +115,6 @@ class FeatureSource:
 
             self._array = new_array
 
-    # def add_processings(self, processing_id: Union[str, List[str]]) -> None:
-    #     """Add a new processing ID to the source.
-
-    #     Args:
-    #         processing_id: A new processing ID to add. If a list is provided, all IDs will be added.
-
-    #     Raises:
-    #         ValueError: If the processing ID already exists.
-    #         TypeError: If processing_id is not a string or list of strings.
-    #     """
-    #     if isinstance(processing_id, str):
-    #         processing_id = [processing_id]
-    #     elif not isinstance(processing_id, list):
-    #         raise TypeError("processing_id must be a string or a list of strings")
-
-    #     for pid in processing_id:
-    #         if not isinstance(pid, str):
-    #             raise TypeError("All processing IDs must be strings")
-    #         if pid in self._processing_id_to_index:
-    #             raise ValueError(f"Processing ID '{pid}' already exists")
-
-    #     current_num_processings = self._array.shape[1]
-    #     new_num_processings = current_num_processings + len(processing_id)
-    #     new_shape = (self.num_samples, new_num_processings, self.num_features)
-
-    #     new_array = np.empty(new_shape, dtype=self._array.dtype)
-    #     new_array[:, :current_num_processings, :] = self._array
-    #     for i in range(len(processing_id)):
-    #         new_array[:, current_num_processings + i, :] = self._array[:, 0, :]
-
-    #     self._array = new_array
-
-    #     for i, pid in enumerate(processing_id):
-    #         self._processing_ids.append(pid)
-    #         self._processing_id_to_index[pid] = current_num_processings + i
 
 
 
@@ -176,149 +151,75 @@ class FeatureSource:
 
         self._array = new_array
 
-    def update_processing(self, processing_id: str | int, new_data: np.ndarray, new_processing: str) -> None:
-        """
-        Update the data for a specific processing ID.
+    # def update_processing(self, processing_id: str | int, new_data: np.ndarray, new_processing: str) -> None:
+    #     """
+    #     Update the data for a specific processing ID.
 
-        Args:
-            processing_id: The processing ID to update.
-            new_data: A 2D numpy array of shape (num_samples, num_features).
-            new_processing: The new processing ID to assign to the updated data.
-        Raises:
-            ValueError: If the processing ID does not exist or if new_data has incorrect shape.
-        """
-        if new_processing is None or not isinstance(new_processing, str):
-            raise ValueError("new_processing must be a non-empty string")
+    #     Args:
+    #         processing_id: The processing ID to update.
+    #         new_data: A 2D numpy array of shape (num_samples, num_features).
+    #         new_processing: The new processing ID to assign to the updated data.
+    #     Raises:
+    #         ValueError: If the processing ID does not exist or if new_data has incorrect shape.
+    #     """
+    #     if new_processing is None or not isinstance(new_processing, str):
+    #         raise ValueError("new_processing must be a non-empty string")
 
-        if new_processing in self._processing_id_to_index:
-            raise ValueError(f"Processing ID '{new_processing}' already exists") # TODO here warning and return current
+    #     if new_processing in self._processing_id_to_index:
+    #         raise ValueError(f"Processing ID '{new_processing}' already exists") # TODO here warning and return current
 
-        if processing_id not in self._processing_id_to_index:
-            raise ValueError(f"Processing ID '{processing_id}' does not exist")
+    #     if processing_id not in self._processing_id_to_index:
+    #         raise ValueError(f"Processing ID '{processing_id}' does not exist")
 
-        if new_data.ndim != 2 or new_data.shape[1] != self.num_features:
-            raise ValueError(f"new_data must be a 2D array with {self.num_features} features")
+    #     if new_data.ndim != 2 or new_data.shape[1] != self.num_features:
+    #         raise ValueError(f"new_data must be a 2D array with {self.num_features} features")
 
-        if isinstance(processing_id, str):
-            idx = self._processing_id_to_index[processing_id]
-        else:
-            idx = processing_id
+    #     if isinstance(processing_id, str):
+    #         idx = self._processing_id_to_index[processing_id]
+    #     else:
+    #         idx = processing_id
 
-        if self.padding:
-            if new_data.shape[0] < self.num_samples:
-                padded_data = np.full((self.num_samples, self.num_features), self.pad_value, dtype=new_data.dtype)
-                padded_data[:new_data.shape[0], :] = new_data
-                new_data = padded_data
-            elif new_data.shape[0] > self.num_samples:
-                raise ValueError("new_data has more samples than the source, padding is not allowed in this case")
-        else:
-            if new_data.shape[0] != self.num_samples:
-                raise ValueError(f"new_data must have {self.num_samples} samples when padding is False")
+    #     if self.padding:
+    #         if new_data.shape[0] < self.num_samples:
+    #             padded_data = np.full((self.num_samples, self.num_features), self.pad_value, dtype=new_data.dtype)
+    #             padded_data[:new_data.shape[0], :] = new_data
+    #             new_data = padded_data
+    #         elif new_data.shape[0] > self.num_samples:
+    #             raise ValueError("new_data has more samples than the source, padding is not allowed in this case")
+    #     else:
+    #         if new_data.shape[0] != self.num_samples:
+    #             raise ValueError(f"new_data must have {self.num_samples} samples when padding is False")
 
-        if new_processing not in self._processing_id_to_index:
-            self.add_processings(new_processing)
+    #     if new_processing not in self._processing_id_to_index:
+    #         self.add_processings(new_processing)
 
-        self._array[:, idx, :] = new_data
+    #     self._array[:, idx, :] = new_data
 
     def layout_2d(self, row_indices: np.ndarray) -> np.ndarray:
-        """
-        Get a 2D layout of the source data for specified row indices. Concatenates processing variants along axis=1.
-
-        Args:
-            row_indices: A 1D numpy array of row indices to extract.
-
-        Returns:
-            A 2D numpy array with shape (len(row_indices), num_processings * num_features).
-        """
-        # if not isinstance(row_indices, np.ndarray) or row_indices.ndim != 1:
-        #     raise ValueError("row_indices must be a 1D numpy array")
-
-        # if len(row_indices) == 0:
-        #     return np.empty((0, self.num_processings * self.num_features), dtype=self._array.dtype)
-
-        # # Ensure row indices are within bounds
-        # if np.any(row_indices < 0) or np.any(row_indices >= self.num_samples):
-        #     raise IndexError("Row indices out of bounds")
-
-        # Extract the specified rows and concatenate processing variants
-        # print(row_indices, self._array.shape)
-
         selected_data = self._array[row_indices, :, :].reshape(len(row_indices), -1)
         return selected_data
 
     def layout_2d_interleaved(self, row_indices: np.ndarray) -> np.ndarray:
-        """
-        Get a 2D interleaved layout of the source data for specified row indices.
-        Interleaves features from different processing variants along axis=1, so that
-        features are ordered as [proc1_f1, proc2_f1, ..., procN_f1, proc1_f2, proc2_f2, ..., procN_f2, ...].
-
-        Args:
-            row_indices: A 1D numpy array of row indices to extract.
-
-        Returns:
-            A 2D numpy array with shape (len(row_indices), num_processings * num_features).
-        """
-        if not isinstance(row_indices, np.ndarray) or row_indices.ndim != 1:
-            raise ValueError("row_indices must be a 1D numpy array")
-
-        if len(row_indices) == 0:
-            return np.empty((0, self.num_processings * self.num_features), dtype=self._array.dtype)
-
-        # Ensure row indices are within bounds
-        if np.any(row_indices < 0) or np.any(row_indices >= self.num_samples):
-            raise IndexError("Row indices out of bounds")
-
-        # Extract rows, transpose to interleave features, and reshape to 2D
         selected_data = self._array[row_indices, :, :]  # Shape: (len(row_indices), num_processings, num_features)
         interleaved = np.transpose(selected_data, (0, 2, 1)).reshape(len(row_indices), -1)
         return interleaved
 
     def layout_3d(self, row_indices: np.ndarray) -> np.ndarray:
-        """
-        Get a 3D layout of the source data for specified row indices.
-        Stacks processing variants along a new axis, resulting in shape (len(row_indices), num_processings, num_features).
-
-        Args:
-            row_indices: A 1D numpy array of row indices to extract.
-
-        Returns:
-            A 3D numpy array with shape (len(row_indices), num_processings, num_features).
-        """
-        if not isinstance(row_indices, np.ndarray) or row_indices.ndim != 1:
-            raise ValueError("row_indices must be a 1D numpy array")
-
-        if len(row_indices) == 0:
-            return np.empty((0, self.num_processings, self.num_features), dtype=self._array.dtype)
-
-        # Ensure row indices are within bounds
-        if np.any(row_indices < 0) or np.any(row_indices >= self.num_samples):
-            raise IndexError("Row indices out of bounds")
-
-        # Extract the specified rows
         selected_data = self._array[row_indices, :, :]
         return selected_data
 
     def layout_3d_transpose(self, row_indices: np.ndarray) -> np.ndarray:
-        """
-        Get a 3D layout of the source data for specified row indices with transposed last two axes.
-        This results in shape (len(row_indices), num_features, num_processings).
-
-        Args:
-            row_indices: A 1D numpy array of row indices to extract.
-
-        Returns:
-            A 3D numpy array with shape (len(row_indices), num_features, num_processings).
-        """
-        if not isinstance(row_indices, np.ndarray) or row_indices.ndim != 1:
-            raise ValueError("row_indices must be a 1D numpy array")
-
-        if len(row_indices) == 0:
-            return np.empty((0, self.num_features, self.num_processings), dtype=self._array.dtype)
-
-        # Ensure row indices are within bounds
-        if np.any(row_indices < 0) or np.any(row_indices >= self.num_samples):
-            raise IndexError("Row indices out of bounds")
-
-        # Extract the specified rows and transpose last two axes
         selected_data = self._array[row_indices, :, :]
         return np.transpose(selected_data, (0, 2, 1))
+
+    def update_features(self, indices: np.ndarray, new_data: np.ndarray, layout: str) -> None:
+        if layout == "2d":
+            self._array[indices, :, :] = new_data.reshape(len(indices), -1, self.num_features)
+        elif layout == "2d_interleaved":
+            self._array[indices, :, :] = np.transpose(new_data.reshape(len(indices), self.num_features, -1), (0, 2, 1))
+        elif layout == "3d":
+            self._array[indices, :, :] = new_data
+        elif layout == "3d_transpose":
+            self._array[indices, :, :] = np.transpose(new_data, (0, 2, 1))
+        else:
+            raise ValueError(f"Unknown layout: {layout}")

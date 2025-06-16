@@ -5,7 +5,7 @@ This module contains the main facade that coordinates all dataset blocks
 and provides the primary public API for users.
 """
 
-from typing import Union, List, Dict, Any, Tuple
+from typing import Union, List, Dict, Any, Tuple, Optional
 
 import numpy as np
 
@@ -30,12 +30,47 @@ class SpectroDataset:
         # self.folds = FoldsManager()
 
     # FEATURES
-    def x(self, filter_dict: Dict[str, Any] = {}, layout: str = "2d", src_concat: bool = True) -> np.ndarray | Tuple[np.ndarray, ...]:
-        return self.features.x(filter_dict, layout, src_concat)
+    def x(self, filter_dict: Dict[str, Any] = {}, layout: str = "2d", source: Union[int, List[int]] = -1, src_concat: bool = True) -> np.ndarray | Tuple[np.ndarray, ...]:
+        return self.features.x(filter_dict, layout, source, src_concat)
 
+    def set_x(self,
+              filter_dict: Dict[str, Any],
+              x: np.ndarray | List[np.ndarray],
+              layout: str = "2d",
+              filter_update: Optional[Dict[str, Any]] = None,
+              src_concat: bool = True,
+              source: Union[int, List[int]] = -1) -> None:
+        """
+        Set feature data for the dataset.
+
+        Args:
+            filter_dict: Dictionary to filter which samples to update
+            x: Feature data as a numpy array or list of numpy arrays
+            source: Index of the source to update, -1 for all sources
+        """
+        self.features.set_x(filter_dict, x, layout=layout, filter_update=filter_update, src_concat=src_concat, source=source)
 
     def add_features(self, filter_dict: Dict[str, Any], x: np.ndarray | List[np.ndarray]) -> None:
         self.features.add_features(filter_dict, x)
+
+    def is_multi_source(self) -> bool:
+        """
+        Check if the dataset has multiple feature sources.
+
+        Returns:
+            True if there are multiple sources, False otherwise.
+        """
+        return len(self.features.sources) > 1
+
+    @property
+    def n_sources(self) -> int:
+        """
+        Get the number of feature sources in the dataset.
+
+        Returns:
+            Number of feature sources.
+        """
+        return len(self.features.sources)
 
 
     # def sample_augmentation(self, count: Union[int, List[int]], indices: List[int] | None = None, filter_dict: Dict[str, Any] | None = None) -> np.ndarray:
@@ -137,6 +172,7 @@ class SpectroDataset:
             for i, dims in enumerate(feature_dims):
                 rows = self.features.sources[i].n_rows
                 print(f"   Source {i}: {rows} rows x {dims} dims")
+            print(self.features)
         else:
             print("📊 Features: No data")
         print()        # Targets summary

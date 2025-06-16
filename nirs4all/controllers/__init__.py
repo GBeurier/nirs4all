@@ -22,11 +22,13 @@ from .registry import register_controller, CONTROLLER_REGISTRY
 # from . import actions
 
 from .log.op_dummy import DummyController
+from .sklearn.op_transformermixin import TransformerMixinController
 
 __all__ = [
     'OperatorController',
     'register_controller',
     'CONTROLLER_REGISTRY',
     'DummyController',
+    'TransformerMixinController',
     # Archived operations not included
 ]

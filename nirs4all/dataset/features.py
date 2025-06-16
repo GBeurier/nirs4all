@@ -131,10 +131,21 @@ class Features:
         n_samples = self.num_samples
         return f"FeatureBlock(sources={n_sources}, samples={n_samples})"
 
+    def __str__(self):
+        n_sources = len(self.sources)
+        n_samples = self.num_samples
+        summary = f"FeatureBlock with {n_sources} sources and {n_samples} samples"
+        for i, source in enumerate(self.sources):
+            summary += f"\nSource {i}: {source}"
+        if n_sources == 0:
+            summary += "\nNo sources available"
+
+        return summary
+
 
     #####################################################################################
 
-    def x(self, filter_dict: Dict[str, Any], layout: str = "2d", src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
+    def x(self, filter_dict: Dict[str, Any], layout: str = "2d", source: Union[int, List[int]] = -1, src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
         """
         Get feature arrays with specified layout and filtering.
 
@@ -150,24 +161,79 @@ class Features:
             raise ValueError("No features available")
 
         indices = self.index.get_contiguous_ranges(filter_dict)
-        print(indices)
+        if isinstance(source, int):
+            source = [source] if source != -1 else list(range(len(self.sources)))
+
         res = []
-        for source in self.sources:
+        for i, source_avai in enumerate(self.sources):
+            if i not in source:
+                continue
             if layout == "2d":
-                res.append(source.layout_2d(indices))
+                res.append(source_avai.layout_2d(indices))
             elif layout == "2d_interleaved":
-                res.append(source.layout_2d_interleaved(indices))
+                res.append(source_avai.layout_2d_interleaved(indices))
             elif layout == "3d":
-                res.append(source.layout_3d(indices))
+                res.append(source_avai.layout_3d(indices))
             elif layout == "3d_transpose":
-                res.append(source.layout_3d_transpose(indices))
+                res.append(source_avai.layout_3d_transpose(indices))
             else:
                 raise ValueError(f"Unknown layout: {layout}")
 
-        if src_concat:
+        if src_concat and len(res) > 1:
             return np.concatenate(res, axis=res[0].ndim - 1)
 
+        if len(res) == 1:
+            return res[0]
+
         return tuple(res)
+
+    def set_x(self,
+              filter_dict: Dict[str, Any],
+              x: Union[np.ndarray, List[np.ndarray]],
+              layout: str = "2d",
+              filter_update: Optional[Dict[str, Any]] = None,
+              src_concat: bool = False,
+              source: Union[int, List[int]] = -1) -> None:
+        """
+        Set feature data for the dataset.
+
+        Args:
+            filter_dict: Dictionary to filter which samples to update
+            x: Feature data as a numpy array or list of numpy arrays
+            layout: Layout type ("2d", "2d_interleaved", "3d", "3d_transpose")
+            src_concat: Whether to concatenate sources along axis=1
+            source: Index of the source to update, -1 for all sources
+        """
+        if src_concat and isinstance(x, list):
+            raise ValueError("Cannot split sources when x is a list")
+
+        indices = self.index.get_indices(filter_dict)
+
+        if src_concat:
+            last_index = 0
+            for i, source_avai in enumerate(self.sources):
+                if isinstance(source, int) and source != -1 and i != source:
+                    continue
+                if layout == "2d" or layout == "2d_interleaved":
+                    n_features = source_avai.num_2d_features
+                elif layout == "3d" or layout == "3d_transpose":
+                    n_features = source_avai.num_features
+                else:
+                    raise ValueError(f"Unknown layout: {layout}")
+
+                # split vertically x
+                source_x = x[last_index:last_index + n_features]
+                source_avai.update_features(indices, source_x, layout=layout)
+                last_index += n_features
+        else:
+            for i, source_x in enumerate(x):
+                self.sources[i].update_features(indices, source_x, layout=layout)
+
+        # if filter_update is None:
+            # filter_update = {}
+        # self.index.update_by_filter(filter_dict, filter_update)
+
+
 
 
     # def update_processing(self, processing_id: str | int, new_data: np.ndarray, new_processing: str) -> None:

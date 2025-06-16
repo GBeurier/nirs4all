@@ -19,6 +19,12 @@ class OperatorController(ABC):
         """Check if the operator matches the step and keyword."""
         raise NotImplementedError("Subclasses must implement this method.")
 
+    @classmethod
+    @abstractmethod
+    def use_multi_source(cls) -> bool:
+        """Check if the operator supports multi-source datasets."""
+        return False
+
     @abstractmethod
     def execute(
         self,
@@ -26,9 +32,11 @@ class OperatorController(ABC):
         operator: Any,
         dataset: SpectroDataset,
         context: Dict[str, Any],
-        runner: "PipelineRunner"
+        runner: "PipelineRunner",
+        source: int = -1,
     ):
         """Run the operator with the given parameters and context."""
         raise NotImplementedError("Subclasses must implement this method.")
+
 
 
