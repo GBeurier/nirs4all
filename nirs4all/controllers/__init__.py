@@ -23,6 +23,7 @@ from .registry import register_controller, CONTROLLER_REGISTRY
 
 from .log.op_dummy import DummyController
 from .sklearn.op_transformermixin import TransformerMixinController
+from .dataset.op_feature_augmentation import FeatureAugmentationController
 
 __all__ = [
     'OperatorController',
@@ -30,5 +31,6 @@ __all__ = [
     'CONTROLLER_REGISTRY',
     'DummyController',
     'TransformerMixinController',
+    'FeatureAugmentationController',
     # Archived operations not included
 ]

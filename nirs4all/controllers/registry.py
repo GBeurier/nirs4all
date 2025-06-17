@@ -8,8 +8,17 @@ from .controller import OperatorController
 CONTROLLER_REGISTRY = []
 def register_controller(operator_cls: OperatorController):
     """Decorator to register a controller class."""
+    global CONTROLLER_REGISTRY
+    if not issubclass(operator_cls, OperatorController):
+        raise TypeError(f"Operator class {operator_cls.__name__} must inherit from OperatorController")
     print(f"Registering controller: {operator_cls.__name__}")
     CONTROLLER_REGISTRY.append(operator_cls)
     CONTROLLER_REGISTRY.sort(key=lambda c: c.priority)
-    print(f"Registry now has {len(CONTROLLER_REGISTRY)} controllers: {[c.__name__ for c in CONTROLLER_REGISTRY]}")
+    # print(f"Registry now has {len(CONTROLLER_REGISTRY)} controllers: {[c.__name__ for c in CONTROLLER_REGISTRY]}")
     return operator_cls
+
+def reset_registry():
+    """Reset the controller registry."""
+    global CONTROLLER_REGISTRY
+    CONTROLLER_REGISTRY = []
+    print("Controller registry has been reset.")

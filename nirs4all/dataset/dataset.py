@@ -40,14 +40,6 @@ class SpectroDataset:
               filter_update: Optional[Dict[str, Any]] = None,
               src_concat: bool = True,
               source: Union[int, List[int]] = -1) -> None:
-        """
-        Set feature data for the dataset.
-
-        Args:
-            filter_dict: Dictionary to filter which samples to update
-            x: Feature data as a numpy array or list of numpy arrays
-            source: Index of the source to update, -1 for all sources
-        """
         self.features.set_x(filter_dict, x, layout=layout, filter_update=filter_update, src_concat=src_concat, source=source)
 
     def add_features(self, filter_dict: Dict[str, Any], x: np.ndarray | List[np.ndarray]) -> None:
@@ -71,6 +63,88 @@ class SpectroDataset:
             Number of feature sources.
         """
         return len(self.features.sources)
+
+
+
+
+    ### PRINTING AND SUMMARY ###
+    def print_summary(self) -> None:
+        """
+        Print a comprehensive summary of the dataset.
+
+        Shows counts, dimensions, number of sources, target versions, predictions, etc.
+        """
+        print("=== SpectroDataset Summary ===")
+        print()        # Features summary
+        if self.features.sources:
+            total_samples = self.features.n_samples
+            n_sources = len(self.features.sources)
+            feature_dims = [src.n_dims for src in self.features.sources]
+            print(f"📊 Features: {total_samples} samples, {n_sources} source(s)")
+            for i, dims in enumerate(feature_dims):
+                rows = self.features.sources[i].n_rows
+                print(f"   Source {i}: {rows} rows x {dims} dims")
+            print(self.features)
+        else:
+            print("📊 Features: No data")
+        print()        # Targets summary
+        # if self.targets.sources:
+        #     n_targets = len(self.targets.sources)
+        #     target_names = self.targets.get_target_names()
+        #     processing_versions = []
+        #     for name in target_names:
+        #         versions = self.targets.get_processing_versions(name)
+        #         processing_versions.extend(versions)
+        #     processing_versions = list(set(processing_versions))
+        #     print(f"🎯 Targets: {n_targets} source(s)")
+        #     print(f"   Target names: {target_names}")
+        #     print(f"   Processing versions: {processing_versions}")
+        # else:
+        #     print("🎯 Targets: No data")
+        # print()
+
+        # # Metadata summary
+        # if self.metadata.table is not None:
+        #     n_meta = len(self.metadata.table)
+        #     meta_cols = self.metadata.table.columns
+        #     print(f"📋 Metadata: {n_meta} entries")
+        #     print(f"   Columns: {meta_cols}")
+        # else:
+        #     print("📋 Metadata: No data")
+        # print()
+
+        # # Folds summary
+        # if self.folds.folds:
+        #     n_folds = len(self.folds.folds)
+        #     fold_sizes = [(len(f["train"]), len(f["val"])) for f in self.folds.folds]
+        #     print(f"🔄 Folds: {n_folds} fold(s)")
+        #     for i, (train_size, val_size) in enumerate(fold_sizes):
+        #         print(f"   Fold {i}: {train_size} train, {val_size} val")
+        # else:
+        #     print("🔄 Folds: No data")
+        # print()
+
+        # # Predictions summary
+        # if self.predictions.table is not None:
+        #     n_preds = len(self.predictions.table)
+        #     models = self.predictions.table.select("model").unique().to_series().to_list()
+        #     partitions = self.predictions.table.select("partition").unique().to_series().to_list()
+        #     print(f"🔮 Predictions: {n_preds} entries")
+        #     print(f"   Models: {models}")
+        #     print(f"   Partitions: {partitions}")
+        # else:
+        #     print("🔮 Predictions: No data")
+        # print()
+
+        # print("=" * 30)
+
+    def __repr__(self):
+        return self.features
+
+    def __str__(self):
+        return str(self.features)
+        # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
+
 
 
     # def sample_augmentation(self, count: Union[int, List[int]], indices: List[int] | None = None, filter_dict: Dict[str, Any] | None = None) -> np.ndarray:
@@ -153,82 +227,3 @@ class SpectroDataset:
     #     """
     #     from . import io
     #     return io.load(path)
-
-
-    ### PRINTING AND SUMMARY ###
-    def print_summary(self) -> None:
-        """
-        Print a comprehensive summary of the dataset.
-
-        Shows counts, dimensions, number of sources, target versions, predictions, etc.
-        """
-        print("=== SpectroDataset Summary ===")
-        print()        # Features summary
-        if self.features.sources:
-            total_samples = self.features.n_samples
-            n_sources = len(self.features.sources)
-            feature_dims = [src.n_dims for src in self.features.sources]
-            print(f"📊 Features: {total_samples} samples, {n_sources} source(s)")
-            for i, dims in enumerate(feature_dims):
-                rows = self.features.sources[i].n_rows
-                print(f"   Source {i}: {rows} rows x {dims} dims")
-            print(self.features)
-        else:
-            print("📊 Features: No data")
-        print()        # Targets summary
-        # if self.targets.sources:
-        #     n_targets = len(self.targets.sources)
-        #     target_names = self.targets.get_target_names()
-        #     processing_versions = []
-        #     for name in target_names:
-        #         versions = self.targets.get_processing_versions(name)
-        #         processing_versions.extend(versions)
-        #     processing_versions = list(set(processing_versions))
-        #     print(f"🎯 Targets: {n_targets} source(s)")
-        #     print(f"   Target names: {target_names}")
-        #     print(f"   Processing versions: {processing_versions}")
-        # else:
-        #     print("🎯 Targets: No data")
-        # print()
-
-        # # Metadata summary
-        # if self.metadata.table is not None:
-        #     n_meta = len(self.metadata.table)
-        #     meta_cols = self.metadata.table.columns
-        #     print(f"📋 Metadata: {n_meta} entries")
-        #     print(f"   Columns: {meta_cols}")
-        # else:
-        #     print("📋 Metadata: No data")
-        # print()
-
-        # # Folds summary
-        # if self.folds.folds:
-        #     n_folds = len(self.folds.folds)
-        #     fold_sizes = [(len(f["train"]), len(f["val"])) for f in self.folds.folds]
-        #     print(f"🔄 Folds: {n_folds} fold(s)")
-        #     for i, (train_size, val_size) in enumerate(fold_sizes):
-        #         print(f"   Fold {i}: {train_size} train, {val_size} val")
-        # else:
-        #     print("🔄 Folds: No data")
-        # print()
-
-        # # Predictions summary
-        # if self.predictions.table is not None:
-        #     n_preds = len(self.predictions.table)
-        #     models = self.predictions.table.select("model").unique().to_series().to_list()
-        #     partitions = self.predictions.table.select("partition").unique().to_series().to_list()
-        #     print(f"🔮 Predictions: {n_preds} entries")
-        #     print(f"   Models: {models}")
-        #     print(f"   Partitions: {partitions}")
-        # else:
-        #     print("🔮 Predictions: No data")
-        # print()
-
-        # print("=" * 30)
-
-    def __repr__(self):
-        return self.features
-
-    def __str__(self):
-        return str(self.features)
-        # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"

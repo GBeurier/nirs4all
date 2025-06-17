@@ -104,9 +104,9 @@ class Augmenter(TransformerMixin, BaseEstimator, metaclass=abc.ABCMeta):
         array-like
             Transformed data after augmentation.
         """
-        X = self._validate_data(
-            X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
-        )
+        # X = self._validate_data(
+        #     X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
+        # )
         if self.random_state is not None:
             random.seed(self.random_state)
             np.random.seed(self.random_state)
