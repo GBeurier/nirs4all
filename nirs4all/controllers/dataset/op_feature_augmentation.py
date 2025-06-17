@@ -37,8 +37,10 @@ class FeatureAugmentationController(OperatorController):
         # Apply the transformer to the dataset
         try:
             x_source = dataset.x(context, "2d", source=source)
+
             contexts = []
             steps = []
+
             for i, operation in enumerate(step["feature_augmentation"]):
                 if operation is None:
                     contexts.append(context)

@@ -11,10 +11,10 @@ class FeatureIndex:
 
     def __init__(self):
         self.df = pl.DataFrame({
-            "row": pl.Series([], dtype=pl.Int32),
-            "sample": pl.Series([], dtype=pl.Int32),
-            "origin": pl.Series([], dtype=pl.Int32),
-            "partition": pl.Series([], dtype=pl.Categorical),
+            "row": pl.Series([], dtype=pl.Int32), # row index
+            "sample": pl.Series([], dtype=pl.Int32), # index de sample, int = sample original, null = augmentation
+            "origin": pl.Series([], dtype=pl.Int32), # null = sample original, int = augmentation
+            "partition": pl.Series([], dtype=pl.Categorical), # train, test
             "group": pl.Series([], dtype=pl.Int8),
             "branch": pl.Series([], dtype=pl.Int8),
             "processing": pl.Series([], dtype=pl.Categorical),
