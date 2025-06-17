@@ -36,13 +36,11 @@ config = {
     },
     "pipeline": [
         MinMaxScaler(feature_range=(0.2,0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
-        # "spectra_charts",
-        {"sample_augmentation": [RT, RT(p_range=3)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
         "spectra_charts",
-        {"feature_augmentation": [None, SG, [SNV, GS]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
-        # "spectra_charts",
-        MinMaxScaler(feature_range=(0,1)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
+        {"sample_augmentation": [RT, RT(p_range=3)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
         {"balance_augmentation":"groups"},
+        {"feature_augmentation": [None, SG, [SNV, GS]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
+        MinMaxScaler(feature_range=(0,1)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
         RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
         # MinMaxScaler(feature_range=(0.2,0.8)),
         # ShuffleSplit(),  # First one is target:test by default
