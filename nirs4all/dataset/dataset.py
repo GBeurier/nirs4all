@@ -45,8 +45,8 @@ class SpectroDataset:
     def add_features(self, filter_dict: Dict[str, Any], x: np.ndarray | List[np.ndarray]) -> None:
         self.features.add_features(filter_dict, x)
 
-    def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]]) -> List[int]:
-        return self.features.augment_samples(filter_dict, count)
+    def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
+        return self.features.augment_samples(filter_dict, count, augmentation_id=augmentation_id)
 
     def is_multi_source(self) -> bool:
         """

@@ -39,6 +39,14 @@ class FeatureIndex:
             return 0
         return int(self.df["sample"].max()) + 1
 
+    def uniques(self, col: str) -> List[Any]:
+        """
+        Retourne les valeurs uniques d'une colonne.
+        """
+        if col not in self.df.columns:
+            raise ValueError(f"Column '{col}' does not exist in the DataFrame.")
+        return self.df.select(pl.col(col)).unique().to_series().to_list()
+
     def add_rows(
         self,
         n_rows: int,
