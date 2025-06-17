@@ -18,6 +18,7 @@ class FeatureIndex:
             "group": pl.Series([], dtype=pl.Int8),
             "branch": pl.Series([], dtype=pl.Int8),
             "processing": pl.Series([], dtype=pl.Categorical),
+            "augmentation": pl.Series([], dtype=pl.Categorical),
         })
 
         self.default_values = {
@@ -42,10 +43,10 @@ class FeatureIndex:
         self,
         n_rows: int,
         overrides: Optional[Dict[str, Any]] = None,
-    ) -> None:
+    ) -> List[int]:
 
         if n_rows <= 0:
-            return
+            return []
 
         overrides = overrides or {}
 
@@ -88,7 +89,25 @@ class FeatureIndex:
                 cols[col] = pl.Series([val] * n_rows, dtype=expected_dtype)
 
         new_df = pl.DataFrame(cols)
+        indices = new_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32).tolist()
         self.df = pl.concat([self.df, new_df], how="vertical")
+        return indices
+
+    def augment_rows(self, samples: List[int], count: Union[int, List[int]], augmentation_id: str) -> List[int]:
+
+        if isinstance(count, int):
+            count = [count] * len(samples)
+
+        if len(count) != len(samples):
+            raise ValueError("count must be an int or a list with the same length as samples")
+
+        overrides = {"origin": samples.copy()}
+        filtered_df = self.df.filter(pl.col("sample").is_in(samples))
+        processings = filtered_df.select(pl.col("processing")).to_series().to_list()
+        overrides["processing"] = [processings[i] * count[i] for i in range(len(samples))]
+        overrides["augmentation"] = augmentation_id
+
+        return self.add_rows(sum(count), overrides=overrides)
 
     def get_indices(self, filters: Dict[str, Any]) -> Tuple[List[int], List[str]]:
         filtered_df = self._apply_filters(filters) if filters else self.df
@@ -117,6 +136,8 @@ class FeatureIndex:
                 continue
             if isinstance(value, list):
                 conditions.append(pl.col(col).is_in(value))
+            elif value is None:
+                conditions.append(pl.col(col).is_null())
             else:
                 conditions.append(pl.col(col) == value)
 

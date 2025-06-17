@@ -97,9 +97,9 @@ class FeatureSource:
 
             self._array = new_array
 
-    def augment_samples(self, count: Union[int, List[int]], indices: List[int] | None = None) -> None:
-        if indices is None:
-            indices = list(range(self.num_samples))
+    def augment_samples(self, indices: List[int], count: Union[int, List[int]] | None = None) -> None:
+        if count is None:
+            count = 1
 
         if isinstance(count, int):
             count = [count] * len(indices)
@@ -116,9 +116,9 @@ class FeatureSource:
         new_array[:self.num_samples, :, :] = self._array
 
         for i, (idx, c) in enumerate(zip(indices, count)):
-            new_array[self.num_samples + sum(count[:i]), :, :] = self._array[idx, :, :]
+            new_array[self.num_samples + sum(count[:i]), :, :] = self._array[idx, :, :].copy()
             for j in range(1, c):
-                new_array[self.num_samples + sum(count[:i]) + j, :, :] = self._array[idx, :, :]
+                new_array[self.num_samples + sum(count[:i]) + j, :, :] = self._array[idx, :, :].copy()
 
         self._array = new_array
 

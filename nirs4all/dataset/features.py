@@ -56,6 +56,18 @@ class Features:
 
         self.index.add_rows(n_added_rows, overrides=filter_dict)
 
+    def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]]) -> List[int]:
+        augmentation_id = filter_dict.get("augmentation", "unk_aug")
+        del filter_dict["augmentation"]
+        indices, _ = self.index.get_indices(filter_dict)
+
+        for src in self.sources:
+            src.augment_samples(indices, count)
+
+        return self.index.augment_rows(indices, count, augmentation_id)
+
+
+
     def x(self, filter_dict: Dict[str, Any], layout: str = "2d", source: Union[int, List[int]] = -1, src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
         if not self.sources:
             raise ValueError("No features available")

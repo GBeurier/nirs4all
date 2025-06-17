@@ -62,6 +62,7 @@ class PipelineRunner:
         if not isinstance(steps, list):
             steps = [steps]
         print(f"🔄 Running {len(steps)} steps in {execution} mode")
+        print(dataset)
 
         if execution == "sequential":
             if isinstance(context, list) and len(context) == len(steps):

@@ -36,13 +36,13 @@ config = {
     },
     "pipeline": [
         MinMaxScaler(feature_range=(0.2,0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
+        {"sample_augmentation": [RT, RT(p_range=3)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
         {"feature_augmentation": [None, SG, [SNV, GS]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
         MinMaxScaler(feature_range=(0,1)),
+        # RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
         # MinMaxScaler(feature_range=(0.2,0.8)),
-        # {"sample_augmentation": [RT, RT(p_range=3)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
         # ShuffleSplit(),  # First one is target:test by default
         # {"cluster": KMeans(n_clusters=5, random_state=42)},  # add groups indices to the dataset, which are the cluster ids. The dataset is now clustered.
-        # RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
         # "uncluster",  # stop using centroids and use all the original samples. If the centroids are constructed (sample = None), they are discarded or hidden.
         # {
         #     "dispatch": [  # create as many branches in the pipeline as there are objects in the list. Data from train partition are copied to each branch. Can be used also to split the pipeline per source of data.
