@@ -70,6 +70,7 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
             mod_name, _, cls_or_func_name = blob.rpartition(".")
             mod = importlib.import_module(mod_name)
             cls_or_func = getattr(mod, cls_or_func_name)
+            return cls_or_func()
         except (ImportError, AttributeError):
             return blob
 

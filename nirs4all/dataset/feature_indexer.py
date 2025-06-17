@@ -3,48 +3,40 @@ from typing import Dict, List, Tuple, Union, Any, Optional
 import numpy as np
 
 
-class SampleIndexManager:
+class FeatureIndex:
     """
     Gestionnaire d'index de samples pour analyses ML/DL avec optimisation
     des accès contigus et gestion des filtres.
     """
 
-    def __init__(
-        self,
-        df: Optional[pl.DataFrame] = None,
-        *,
-        default_values: Optional[Dict[str, Any]] = None,
-        index_col: str = "sample",
-    ):
-        self.index_col = index_col
-        self.default_values = default_values or {}
+    def __init__(self):
+        self.df = pl.DataFrame({
+            "row": pl.Series([], dtype=pl.Int32),
+            "sample": pl.Series([], dtype=pl.Int32),
+            "origin": pl.Series([], dtype=pl.Int32),
+            "partition": pl.Series([], dtype=pl.Categorical),
+            "group": pl.Series([], dtype=pl.Int8),
+            "branch": pl.Series([], dtype=pl.Int8),
+            "processing": pl.Series([], dtype=pl.Categorical),
+        })
 
-        if df is None:
-            self.df = pl.DataFrame({self.index_col: pl.Series([], dtype=pl.Int32)})
-        else:
-            self.df = df.clone()
+        self.default_values = {
+            "partition": "train",
+            "group": 0,
+            "branch": 0,
+            "processing": "raw",
+        }
 
-        if "row" not in self.df.columns:
-            self.df = self.df.with_columns(pl.Series([], dtype=pl.Int32).alias("row"))
-
-        self._ensure_sorted()
-
-    def _ensure_sorted(self):
-        indices = self.df.select(pl.col(self.index_col)).to_series().to_list()
-        is_sorted = all(indices[i] <= indices[i + 1] for i in range(len(indices) - 1))
-
-        if not is_sorted:
-            self.df = self.df.sort(self.index_col)
 
     def next_row_index(self) -> int:
         if len(self.df) == 0:
             return 0
         return int(self.df["row"].max()) + 1
 
-    def next_index_col(self) -> int:
+    def next_sample_index(self) -> int:
         if len(self.df) == 0:
             return 0
-        return int(self.df[self.index_col].max()) + 1
+        return int(self.df["sample"].max()) + 1
 
     def add_rows(
         self,
@@ -58,7 +50,7 @@ class SampleIndexManager:
         overrides = overrides or {}
 
         next_row_index = self.next_row_index()
-        next_index_col = self.next_index_col()
+        next_sample_index = self.next_sample_index()
 
         cols: Dict[str, pl.Series] = {}
         for col in self.df.columns:
@@ -66,7 +58,7 @@ class SampleIndexManager:
                 row_indices = range(next_row_index, next_row_index + n_rows)
                 cols[col] = pl.Series(row_indices, dtype=pl.Int32)
                 continue
-            if col == self.index_col:
+            if col == "sample":
                 if col in overrides:
                     val = overrides[col]
                     if isinstance(val, list):
@@ -78,8 +70,9 @@ class SampleIndexManager:
                     else:
                         cols[col] = pl.Series([val] * n_rows, dtype=pl.Int32)
                 else:
-                    index_values = range(next_index_col, next_index_col + n_rows)
+                    index_values = range(next_sample_index, next_sample_index + n_rows)
                     cols[col] = pl.Series(index_values, dtype=pl.Int32)
+                    cols["origin"] = pl.Series(index_values, dtype=pl.Int32)
                 continue
 
             val = overrides.get(col, self.default_values.get(col, None))
@@ -96,19 +89,18 @@ class SampleIndexManager:
 
         new_df = pl.DataFrame(cols)
         self.df = pl.concat([self.df, new_df], how="vertical")
-        self._ensure_sorted()
 
-    def get_indices(self, filters: Dict[str, Any]) -> List[np.int32]:
+    def get_indices(self, filters: Dict[str, Any]) -> Tuple[List[int], List[str]]:
         filtered_df = self._apply_filters(filters) if filters else self.df
 
-        indices = filtered_df.select(pl.col(self.index_col)).to_series().to_numpy().astype(np.int32)
-        return sorted(set(indices.tolist()))
+        indices = sorted(set(filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32).tolist()))
+        processings = sorted(set(filtered_df.select(pl.col("processing")).to_series().to_list()))
+
+        return indices, processings
 
     def update_by_filter(self, filters: Dict[str, Any], updates: Dict[str, Any]) -> None:
-        # Construire la condition de filtre
         condition = self._build_filter_condition(filters)
 
-        # Appliquer les mises à jour
         for col, value in updates.items():
             self.df = self.df.with_columns(
                 pl.when(condition).then(pl.lit(value)).otherwise(pl.col(col)).alias(col)
@@ -121,7 +113,8 @@ class SampleIndexManager:
     def _build_filter_condition(self, filters: Dict[str, Any]) -> pl.Expr:
         conditions = []
         for col, value in filters.items():
-
+            if col not in self.df.columns:
+                continue
             if isinstance(value, list):
                 conditions.append(pl.col(col).is_in(value))
             else:

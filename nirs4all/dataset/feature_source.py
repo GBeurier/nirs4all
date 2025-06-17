@@ -25,13 +25,6 @@ class FeatureSource:
         self._processing_ids: List[str] = ["raw"]  # Default processing ID
         self._processing_id_to_index: Dict[str, int] = {"raw": 0}  # Maps processing ID to index
 
-        # self._array = array.astype(np.float32)
-        # self._array = self._array[:, np.newaxis, :]
-        # self._processing_ids: List[str] = ["raw"]  # Default processing ID
-        # self._processing_id_to_index: Dict[str, int] = {"raw": 0}  # Maps processing ID to index
-        # self.padding = padding
-        # self.pad_value = pad_value
-
     def __repr__(self):
         return f"FeatureSource(shape={self._array.shape}, dtype={self._array.dtype}, processing_ids={self._processing_ids})"
 
@@ -42,32 +35,21 @@ class FeatureSource:
 
     @property
     def num_samples(self) -> int:
-        """Get the number of samples (rows) in the source."""
         return self._array.shape[0]
 
     @property
     def num_processings(self) -> int:
-        """Get the number of processing IDs in the source."""
         return len(self._processing_ids)
 
     @property
     def num_features(self) -> int:
-        """Get the number of features (dimensions) in the source."""
         return self._array.shape[2]
 
     @property
     def num_2d_features(self) -> int:
-        """Get the number of 2D features (flattened dimensions) in the source."""
         return self._array.shape[1] * self._array.shape[2]
 
     def add_samples(self, new_samples: np.ndarray, processing: str = "raw") -> None:
-        """
-        Add new samples to the source.
-        Args:
-            new_samples: A 2D numpy array of shape (num_new_samples, num_features).
-        Raises:
-            ValueError: If new_samples is not a 2D array with the correct number of features.
-        """
         if new_samples.ndim != 2:
             raise ValueError(f"new_samples must be a 2D array, got {new_samples.ndim} dimensions")
 
@@ -115,18 +97,7 @@ class FeatureSource:
 
             self._array = new_array
 
-
-
-
     def augment_samples(self, count: Union[int, List[int]], indices: List[int] | None = None) -> None:
-        """
-        Augment samples by repeating specified indices.
-
-        Args:
-            count: Number of times to repeat each index, or a list specifying counts for each index.
-            indices: List of indices to repeat.
-        """
-
         if indices is None:
             indices = list(range(self.num_samples))
 
@@ -150,6 +121,65 @@ class FeatureSource:
                 new_array[self.num_samples + sum(count[:i]) + j, :, :] = self._array[idx, :, :]
 
         self._array = new_array
+
+    def get_features(self, indices: List[int], processings: List[str], layout: str) -> np.ndarray:
+
+        processings_indices = sorted([self._processing_id_to_index[p] for p in processings if p in self._processing_id_to_index])
+
+        selected_data = self._array[indices, :, :]
+        selected_data = selected_data[:, processings_indices, :]
+        if layout == "2d":
+            selected_data = selected_data.reshape(len(indices), -1)
+        elif layout == "2d_interleaved":
+            selected_data = np.transpose(selected_data, (0, 2, 1)).reshape(len(indices), -1)
+        elif layout == "3d":
+            pass
+        elif layout == "3d_transpose":
+            selected_data = np.transpose(selected_data, (0, 2, 1))
+        else:
+            raise ValueError(f"Unknown layout: {layout}")
+        return selected_data
+
+    def update_features(self, indices: np.ndarray, processings: List[str], new_data: np.ndarray, layout: str) -> None:
+        if layout == "2d":
+            self._array[indices, :, :] = new_data.reshape(len(indices), -1, self.num_features)
+        elif layout == "2d_interleaved":
+            self._array[indices, :, :] = np.transpose(new_data.reshape(len(indices), self.num_features, -1), (0, 2, 1))
+        elif layout == "3d":
+            self._array[indices, :, :] = new_data
+        elif layout == "3d_transpose":
+            self._array[indices, :, :] = np.transpose(new_data, (0, 2, 1))
+        else:
+            raise ValueError(f"Unknown layout: {layout}")
+
+    def update_processing_ids(self, old_processing: Union[List[str], str], new_processing: Union[List[str], str]) -> None:
+
+        if isinstance(old_processing, list) and isinstance(new_processing, list):
+            if len(old_processing) != len(new_processing):
+                raise ValueError("old_processing and new_processing must have the same length")
+            for old, new in zip(old_processing, new_processing):
+                self.update_processing_ids(old, new)
+            return
+        elif isinstance(old_processing, str) and isinstance(new_processing, list):
+            if len(new_processing) != 1:
+                raise ValueError("new_processing must be a single string when old_processing is a string")
+            new_processing = new_processing[0]
+        elif isinstance(old_processing, list) and isinstance(new_processing, str):
+            if len(old_processing) != 1:
+                raise ValueError("old_processing must be a single string when new_processing is a string")
+            old_processing = old_processing[0]
+        elif not isinstance(old_processing, str) or not isinstance(new_processing, str):
+            raise ValueError("old_processing and new_processing must be strings or lists of strings")
+
+        if old_processing not in self._processing_id_to_index:
+            raise ValueError(f"Processing ID '{old_processing}' does not exist")
+
+        if new_processing in self._processing_id_to_index:
+            raise ValueError(f"Processing ID '{new_processing}' already exists")
+
+        idx = self._processing_id_to_index.pop(old_processing)
+        self._processing_ids[idx] = new_processing
+        self._processing_id_to_index[new_processing] = idx
 
     # def update_processing(self, processing_id: str | int, new_data: np.ndarray, new_processing: str) -> None:
     #     """
@@ -194,32 +224,3 @@ class FeatureSource:
     #         self.add_processings(new_processing)
 
     #     self._array[:, idx, :] = new_data
-
-    def layout_2d(self, row_indices: np.ndarray) -> np.ndarray:
-        selected_data = self._array[row_indices, :, :].reshape(len(row_indices), -1)
-        return selected_data
-
-    def layout_2d_interleaved(self, row_indices: np.ndarray) -> np.ndarray:
-        selected_data = self._array[row_indices, :, :]  # Shape: (len(row_indices), num_processings, num_features)
-        interleaved = np.transpose(selected_data, (0, 2, 1)).reshape(len(row_indices), -1)
-        return interleaved
-
-    def layout_3d(self, row_indices: np.ndarray) -> np.ndarray:
-        selected_data = self._array[row_indices, :, :]
-        return selected_data
-
-    def layout_3d_transpose(self, row_indices: np.ndarray) -> np.ndarray:
-        selected_data = self._array[row_indices, :, :]
-        return np.transpose(selected_data, (0, 2, 1))
-
-    def update_features(self, indices: np.ndarray, new_data: np.ndarray, layout: str) -> None:
-        if layout == "2d":
-            self._array[indices, :, :] = new_data.reshape(len(indices), -1, self.num_features)
-        elif layout == "2d_interleaved":
-            self._array[indices, :, :] = np.transpose(new_data.reshape(len(indices), self.num_features, -1), (0, 2, 1))
-        elif layout == "3d":
-            self._array[indices, :, :] = new_data
-        elif layout == "3d_transpose":
-            self._array[indices, :, :] = np.transpose(new_data, (0, 2, 1))
-        else:
-            raise ValueError(f"Unknown layout: {layout}")

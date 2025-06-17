@@ -4,7 +4,7 @@ import numpy as np
 import polars as pl
 
 from nirs4all.dataset.feature_source import FeatureSource
-from nirs4all.dataset.indexer import SampleIndexManager
+from nirs4all.dataset.feature_indexer import FeatureIndex
 
 
 class Features:
@@ -13,35 +13,16 @@ class Features:
     def __init__(self):
         """Initialize empty feature block."""
         self.sources: List[FeatureSource] = []
-        self.init_index()
+        self.index = FeatureIndex()
 
-    def init_index(self) -> None:
-        """Initialize the indexer with an empty DataFrame."""
-        index_df = pl.DataFrame({
-            "sample": pl.Series([], dtype=pl.Int32),
-            "origin": pl.Series([], dtype=pl.Int32),
-            "partition": pl.Series([], dtype=pl.Categorical),
-            "group": pl.Series([], dtype=pl.Int8),
-            "branch": pl.Series([], dtype=pl.Int8),
-            "processing": pl.Series([], dtype=pl.Categorical),
-        })
-
-        INDEX_DEFAULT_VALUES = {
-            "partition": "train",
-            "group": 0,
-            "branch": 0,
-            "processing": "raw",
-        }
-
-        self.index = SampleIndexManager(index_df, default_values=INDEX_DEFAULT_VALUES)
+    @property
+    def num_samples(self) -> int:
+        """Get the number of samples (rows) across all sources."""
+        if not self.sources:
+            return 0
+        return self.sources[0].num_samples
 
     def add_features(self, filter_dict: Dict[str, Any], x_list: Union[np.ndarray, List[np.ndarray]], source: Union[int, List[int]] = -1) -> None:
-        """
-        Add new features to the block.
-        Args:
-            filter_dict: Dictionary of column: value pairs for filtering
-            x_list: List of numpy arrays or a single 2D numpy array to add
-        """
         if isinstance(x_list, np.ndarray):
             if isinstance(source, List):
                 raise ValueError("Cannot specify multiple sources with a single numpy array")
@@ -51,6 +32,7 @@ class Features:
 
         n_added_sources = 1 if isinstance(x_list, np.ndarray) else len(x_list)
         n_added_rows = x_list[0].shape[0] if isinstance(x_list, list) else x_list.shape[0]
+
         if len(self.sources) == 0:
             for _ in range(n_added_sources):
                 self.sources.append(FeatureSource())
@@ -58,7 +40,8 @@ class Features:
         kwargs = {}
         if "processing" in filter_dict:
             kwargs["processing"] = filter_dict["processing"]
-            filter_dict["sample"] = self.index.get_indices({})
+            filter_dict["sample"], _ = self.index.get_indices({})
+            filter_dict["origin"], _ = self.index.get_indices({})
 
         for i in range(n_added_sources):
             src_index = i
@@ -73,94 +56,12 @@ class Features:
 
         self.index.add_rows(n_added_rows, overrides=filter_dict)
 
-    def validate_added_features(self, filter_dict: Dict[str, Any], x_list: np.ndarray | List[np.ndarray]) -> None:
-        if not isinstance(filter_dict, dict):
-            raise TypeError(
-                f"filter_dict must be a dictionary, got {type(filter_dict)}"
-            )
-
-        if not x_list:
-            raise ValueError("x_list cannot be empty")
-        if not isinstance(x_list, (list, np.ndarray)):
-            raise TypeError(
-                f"x_list must be a list or a numpy array, got {type(x_list)}"
-            )
-        if isinstance(x_list, np.ndarray):
-            if x_list.ndim != 2:
-                raise ValueError(f"x_list must be a 2-D numpy array, got {x_list.ndim}D")
-            x_list = [x_list]
-        elif not isinstance(x_list, list):
-            raise TypeError(
-                f"x_list must be a list of numpy arrays, got {type(x_list)}"
-            )
-
-        if not all(isinstance(arr, np.ndarray) for arr in x_list):
-            raise TypeError("All elements in x_list must be numpy arrays")
-
-        if not all(arr.ndim == 2 for arr in x_list):
-            raise ValueError("All arrays in x_list must be 2-D numpy arrays")
-
-        n_rows = x_list[0].shape[0]
-        for i, arr in enumerate(x_list):
-            if arr.ndim != 2:
-                raise ValueError(f"Array {i} must be 2-D, got shape {arr.shape}")
-            if arr.shape[0] != n_rows:
-                raise ValueError(
-                    f"Array {i} has {arr.shape[0]} rows, expected {n_rows}"
-                )
-
-    def update_index(self, indices: List[int], filter_dict: Dict[str, Any]) -> None:
-        """
-        Update the index with new rows based on the provided filter_dict.
-        Args:
-            indices: List of indices to update
-            filter_dict: Dictionary of column: value pairs for filtering
-        """
-        self.index.update_by_indices(indices, filter_dict)
-
-
-    @property
-    def num_samples(self) -> int:
-        """Get the number of samples (rows) across all sources."""
-        if not self.sources:
-            return 0
-        return self.sources[0].num_samples
-
-    def __repr__(self):
-        n_sources = len(self.sources)
-        n_samples = self.num_samples
-        return f"FeatureBlock(sources={n_sources}, samples={n_samples})"
-
-    def __str__(self):
-        n_sources = len(self.sources)
-        n_samples = self.num_samples
-        summary = f"FeatureBlock with {n_sources} sources and {n_samples} samples"
-        for i, source in enumerate(self.sources):
-            summary += f"\nSource {i}: {source}"
-        if n_sources == 0:
-            summary += "\nNo sources available"
-
-        return summary
-
-
-    #####################################################################################
-
     def x(self, filter_dict: Dict[str, Any], layout: str = "2d", source: Union[int, List[int]] = -1, src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
-        """
-        Get feature arrays with specified layout and filtering.
-
-        Args:
-            filter_dict: Dictionary of column: value pairs for filtering
-            layout: Layout type ("2d", "2d_interleaved", "3d", "3d_transpose")
-            src_concat: Whether to concatenate sources along axis=1
-
-        Returns:
-            Tuple of numpy arrays (zero-copy views)
-        """
         if not self.sources:
             raise ValueError("No features available")
 
-        indices = self.index.get_contiguous_ranges(filter_dict)
+        indices, processings = self.index.get_indices(filter_dict)
+
         if isinstance(source, int):
             source = [source] if source != -1 else list(range(len(self.sources)))
 
@@ -168,16 +69,7 @@ class Features:
         for i, source_avai in enumerate(self.sources):
             if i not in source:
                 continue
-            if layout == "2d":
-                res.append(source_avai.layout_2d(indices))
-            elif layout == "2d_interleaved":
-                res.append(source_avai.layout_2d_interleaved(indices))
-            elif layout == "3d":
-                res.append(source_avai.layout_3d(indices))
-            elif layout == "3d_transpose":
-                res.append(source_avai.layout_3d_transpose(indices))
-            else:
-                raise ValueError(f"Unknown layout: {layout}")
+            res.append(source_avai.get_features(indices, processings, layout))
 
         if src_concat and len(res) > 1:
             return np.concatenate(res, axis=res[0].ndim - 1)
@@ -207,7 +99,7 @@ class Features:
         if src_concat and isinstance(x, list):
             raise ValueError("Cannot split sources when x is a list")
 
-        indices = self.index.get_indices(filter_dict)
+        indices, processings = self.index.get_indices(filter_dict)
 
         if src_concat:
             last_index = 0
@@ -223,28 +115,92 @@ class Features:
 
                 # split vertically x
                 source_x = x[last_index:last_index + n_features]
-                source_avai.update_features(indices, source_x, layout=layout)
+                source_avai.update_features(indices, processings, source_x, layout=layout)
                 last_index += n_features
         else:
             for i, source_x in enumerate(x):
-                self.sources[i].update_features(indices, source_x, layout=layout)
+                self.sources[i].update_features(indices, processings, source_x, layout=layout)
 
-        # if filter_update is None:
-            # filter_update = {}
-        # self.index.update_by_filter(filter_dict, filter_update)
+        if filter_update:
+            if "processing" in filter_update and "processing" in filter_dict:
+                for source_avai in self.sources:
+                    source_avai.update_processing_ids(filter_dict["processing"], filter_update["processing"])
 
+                if isinstance(filter_dict["processing"], list):
+                    if isinstance(filter_update["processing"], list) and len(filter_dict["processing"]) == len(filter_update["processing"]):
+                        for i, proc in enumerate(filter_dict["processing"]):
+                            new_filter_dict = filter_dict.copy()
+                            new_filter_dict["processing"] = proc
+                            new_filter_update = filter_update.copy()
+                            new_filter_update["processing"] = filter_update["processing"][i]
+                            self.index.update_by_filter(new_filter_dict, new_filter_update)
+                    elif isinstance(filter_update["processing"], str):
+                        self.index.update_by_filter(filter_dict, filter_update)
+                elif isinstance(filter_update["processing"], str):
+                    if isinstance(filter_dict["processing"], list):
+                        raise ValueError("Cannot update processing with a string when filter_dict has a list of processings")
+                    else:
+                        self.index.update_by_filter(filter_dict, filter_update)
+            else:
+                self.index.update_by_filter(filter_dict, filter_update)
 
+    def __repr__(self):
+        n_sources = len(self.sources)
+        n_samples = self.num_samples
+        return f"FeatureBlock(sources={n_sources}, samples={n_samples})"
 
+    def __str__(self):
+        n_sources = len(self.sources)
+        n_samples = self.num_samples
+        summary = f"FeatureBlock with {n_sources} sources and {n_samples} samples"
+        for i, source in enumerate(self.sources):
+            summary += f"\nSource {i}: {source}"
+        if n_sources == 0:
+            summary += "\nNo sources available"
+        summary += f"\nIndex:\n{self.index.df}"
+        return summary
 
-    # def update_processing(self, processing_id: str | int, new_data: np.ndarray, new_processing: str) -> None:
-    #     pass
+    # def update_index(self, indices: List[int], filter_dict: Dict[str, Any]) -> None:
+    #     """
+    #     Update the index with new rows based on the provided filter_dict.
+    #     Args:
+    #         indices: List of indices to update
+    #         filter_dict: Dictionary of column: value pairs for filtering
+    #     """
+    #     self.index.update_by_indices(indices, filter_dict)
 
-    # def augment_samples(self, count: Union[int, List[int]], indices: List[int] | None = None) -> None:
-    #     pass
+    # def validate_added_features(self, filter_dict: Dict[str, Any], x_list: np.ndarray | List[np.ndarray]) -> None:
+    #     if not isinstance(filter_dict, dict):
+    #         raise TypeError(
+    #             f"filter_dict must be a dictionary, got {type(filter_dict)}"
+    #         )
 
-    # def add_samples(self, new_samples: np.ndarray) -> None:
-    #     pass
+    #     if not x_list:
+    #         raise ValueError("x_list cannot be empty")
+    #     if not isinstance(x_list, (list, np.ndarray)):
+    #         raise TypeError(
+    #             f"x_list must be a list or a numpy array, got {type(x_list)}"
+    #         )
+    #     if isinstance(x_list, np.ndarray):
+    #         if x_list.ndim != 2:
+    #             raise ValueError(f"x_list must be a 2-D numpy array, got {x_list.ndim}D")
+    #         x_list = [x_list]
+    #     elif not isinstance(x_list, list):
+    #         raise TypeError(
+    #             f"x_list must be a list of numpy arrays, got {type(x_list)}"
+    #         )
 
-    # def add_processings(self, processing_id: Union[str, List[str]]) -> None:
-    #     pass
+    #     if not all(isinstance(arr, np.ndarray) for arr in x_list):
+    #         raise TypeError("All elements in x_list must be numpy arrays")
 
+    #     if not all(arr.ndim == 2 for arr in x_list):
+    #         raise ValueError("All arrays in x_list must be 2-D numpy arrays")
+
+    #     n_rows = x_list[0].shape[0]
+    #     for i, arr in enumerate(x_list):
+    #         if arr.ndim != 2:
+    #             raise ValueError(f"Array {i} must be 2-D, got shape {arr.shape}")
+    #         if arr.shape[0] != n_rows:
+    #             raise ValueError(
+    #                 f"Array {i} has {arr.shape[0]} rows, expected {n_rows}"
+    #             )

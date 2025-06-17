@@ -16,7 +16,9 @@ class TransformerMixinController(OperatorController):
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
-        return isinstance(operator, TransformerMixin)
+        # print("==========", step, operator)
+        # print(isinstance(operator, TransformerMixin), issubclass(operator.__class__, TransformerMixin), type(operator))
+        return isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)
 
     @classmethod
     def use_multi_source(cls) -> bool:
@@ -32,17 +34,36 @@ class TransformerMixinController(OperatorController):
         runner: 'PipelineRunner',
         source: int = -1
     ):
-        print(f"Executing transformer operation for step: {step}, keyword: {context.get('keyword', '')}, source: {source}")
+        print(f"Executing transformer operation")
 
         # Apply the transformer to the dataset
         try:
-            fit_data = dataset.x({"partition": "train"}, "2d", source=source)
+            operator_id = operator.__class__.__name__ + f"_{context.get('step_id', 'unknown')}"
+
+            train_context = context.copy()
+            train_context["partition"] = "train"
+            fit_data = dataset.x(train_context, "2d", source=source)
+            print(f"🔄 Fitting operator {operator_id} with data shape: {fit_data.shape}")
             operator.fit(fit_data)
-            transformed_data = dataset.x({}, "2d", source=source)
+            transformed_data = dataset.x(context, "2d", source=source)
+            print(f"🔄 Transforming data with operator {operator_id} with data shape: {transformed_data.shape}")
             transformed_data = operator.transform(transformed_data)
-            dataset.set_x({}, transformed_data, layout="2d", source=source)
-            print(f"✅ Successfully applied {operator.__class__.__name__} transformation")
+            print(f"✅ Transformation complete, transformed data shape: {transformed_data.shape}")
+
+            processing_update = {}
+            if "processing" in context:
+                if isinstance(context["processing"], list):
+                    processing_update["processing"] = [p + f"_{operator_id}" for p in context["processing"]]
+                else:
+                    processing_update["processing"] = context["processing"] + f"_{operator_id}"
+
+            dataset.set_x(context, transformed_data, layout="2d", filter_update=processing_update, source=source)
+
+            print(f"✅ Successfully applied {operator_id} transformation")
 
         except Exception as e:
             print(f"❌ Error applying transformation: {e}")
             raise
+
+        context["processing"] = processing_update["processing"]
+        return context
