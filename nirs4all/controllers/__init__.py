@@ -25,7 +25,7 @@ from .log.op_dummy import DummyController
 from .sklearn.op_transformermixin import TransformerMixinController
 from .dataset.op_feature_augmentation import FeatureAugmentationController
 from .dataset.op_sample_augmentation import SampleAugmentationController
-
+from .chart.op_spectra_charts import SpectraChartController
 __all__ = [
     'OperatorController',
     'register_controller',
@@ -34,5 +34,6 @@ __all__ = [
     'TransformerMixinController',
     'FeatureAugmentationController',
     'SampleAugmentationController',
+    'SpectraChartController',
     # Archived operations not included
 ]

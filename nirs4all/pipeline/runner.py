@@ -26,7 +26,7 @@ from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 class PipelineRunner:
     """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
 
-    WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack", "scope", "cluster", "merge", "uncluster", "unscope"]
+    WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack", "scope", "cluster", "merge", "uncluster", "unscope", "spectra_charts"]
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     def __init__(self, max_workers: Optional[int] = None, continue_on_error: bool = False, backend: str = 'threading', verbose: int = 0, parallel: bool = True):
@@ -62,7 +62,6 @@ class PipelineRunner:
         if not isinstance(steps, list):
             steps = [steps]
         print(f"🔄 Running {len(steps)} steps in {execution} mode")
-        print(dataset)
 
         if execution == "sequential":
             if isinstance(context, list) and len(context) == len(steps):
@@ -117,9 +116,12 @@ class PipelineRunner:
                     else:
                         operator = deserialize_component(step)
                     controller = self._select_controller(step, operator=operator)
+                else:
+                    print(f"🔗 Running dict operation: {step}")
+                    controller = self._select_controller(step)
             elif isinstance(step, list):
                 print(f"🔗 Sub-pipeline with {len(step)} steps")
-                self.run_steps(step, dataset, context, execution="sequential")
+                return self.run_steps(step, dataset, context, execution="sequential")
 
             elif isinstance(step, str):
                 if key := next((s for s in step.split() if s in self.WORKFLOW_OPERATORS), None):
@@ -128,13 +130,14 @@ class PipelineRunner:
                 else:
                     print(f"📦 Deserializing str operation: {step}")
                     operator = deserialize_component(step)
-                    controller = self._select_controller(step, operator=operator)
+                    controller = self._select_controller(step, operator=operator, keyword=step)
 
             else:
                 print(f"🔍 Unknown step type: {type(step).__name__}, executing as operation")
                 controller = self._select_controller(step)
 
             if controller is not None:
+                print(f"🔄 Selected controller: {controller}")
                 context["step_id"] = self.step_number
                 return self._execute_controller(controller, step, operator, dataset, context)
 

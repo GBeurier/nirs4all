@@ -16,8 +16,6 @@ class TransformerMixinController(OperatorController):
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
-        # print("==========", step, operator)
-        # print(isinstance(operator, TransformerMixin), issubclass(operator.__class__, TransformerMixin), type(operator))
         return isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)
 
     @classmethod
@@ -42,12 +40,19 @@ class TransformerMixinController(OperatorController):
 
             train_context = context.copy()
             train_context["partition"] = "train"
+
             fit_data = dataset.x(train_context, "2d", source=source)
+
             print(f"🔄 Fitting operator {operator_id} with data shape: {fit_data.shape}")
+
             operator.fit(fit_data)
+
             transformed_data = dataset.x(context, "2d", source=source)
+
             print(f"🔄 Transforming data with operator {operator_id} with data shape: {transformed_data.shape}")
+
             transformed_data = operator.transform(transformed_data)
+
             print(f"✅ Transformation complete, transformed data shape: {transformed_data.shape}")
 
             processing_update = {}
