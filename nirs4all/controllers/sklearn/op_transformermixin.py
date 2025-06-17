@@ -38,7 +38,7 @@ class TransformerMixinController(OperatorController):
 
         # Apply the transformer to the dataset
         try:
-            operator_id = operator.__class__.__name__ + f"_{context.get('step_id', 'unknown')}"
+            operator_id = operator.__class__.__name__[0:6] + f"_{context.get('step_id', 'unknown')}"
 
             train_context = context.copy()
             train_context["partition"] = "train"
@@ -56,6 +56,13 @@ class TransformerMixinController(OperatorController):
                     processing_update["processing"] = [p + f"_{operator_id}" for p in context["processing"]]
                 else:
                     processing_update["processing"] = context["processing"] + f"_{operator_id}"
+            if "augmentation" in context:
+                if isinstance(context["augmentation"], list):
+                    processing_update["augmentation"] = [p + f"_{operator_id}" for p in context["augmentation"]]
+                else:
+                    processing_update["augmentation"] = context["augmentation"] + f"_{operator_id}"
+                if "processing" in processing_update:
+                    del processing_update["processing"]
 
             dataset.set_x(context, transformed_data, layout="2d", filter_update=processing_update, source=source)
 
@@ -65,5 +72,6 @@ class TransformerMixinController(OperatorController):
             print(f"❌ Error applying transformation: {e}")
             raise
 
-        context["processing"] = processing_update["processing"]
+        if "processing" in processing_update:
+            context["processing"] = processing_update["processing"]
         return context

@@ -45,7 +45,12 @@ class FeatureAugmentationController(OperatorController):
                     steps.append(None)
                     continue
                 local_context = context.copy()
-                local_context["processing"] = f"sample_augmentation_{i}"
+                local_context["processing"] = f"fa_{i}"
+                if "processing" in context:
+                    if isinstance(context["processing"], list):
+                        local_context["processing"] = [p + f"fa_{i}" for p in context["processing"]]
+                    else:
+                        local_context["processing"] = context["processing"] + f"fa_{i}"
                 dataset.add_features(local_context, x_source.copy())
                 contexts.append(local_context)
                 steps.append(operation)
