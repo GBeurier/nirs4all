@@ -22,7 +22,7 @@ class Features:
             return 0
         return self.sources[0].num_samples
 
-    def add_features(self, filter_dict: Dict[str, Any], x_list: Union[np.ndarray, List[np.ndarray]], source: Union[int, List[int]] = -1) -> None:
+    def add_features(self, overrides: Dict[str, Any], x_list: Union[np.ndarray, List[np.ndarray]], source: Union[int, List[int]] = -1) -> None:
         if isinstance(x_list, np.ndarray):
             if isinstance(source, List):
                 raise ValueError("Cannot specify multiple sources with a single numpy array")
@@ -38,10 +38,11 @@ class Features:
                 self.sources.append(FeatureSource())
 
         kwargs = {}
-        if "processing" in filter_dict:
-            kwargs["processing"] = filter_dict["processing"]
-            filter_dict["sample"], _ = self.index.get_indices({})
-            filter_dict["origin"], _ = self.index.get_indices({})
+        if "processing" in overrides:
+            kwargs["processing"] = overrides["processing"]
+            overrides["sample"], _ = self.index.get_indices({})
+            overrides["origin"], _ = self.index.get_indices({})
+
 
         for i in range(n_added_sources):
             src_index = i
@@ -54,19 +55,20 @@ class Features:
             new_x = x_list[i] if isinstance(x_list, list) else x_list
             src.add_samples(new_x, **kwargs)
 
-        self.index.add_rows(n_added_rows, overrides=filter_dict)
+        self.index.add_rows(n_added_rows, overrides=overrides)
 
-    def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]]) -> List[int]:
-        augmentation_id = filter_dict.get("augmentation", "unk_aug")
-        del filter_dict["augmentation"]
+    def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
+        if augmentation_id is None:
+            augmentation_id = filter_dict.get("augmentation", "unk_aug")
+        if "augmentation" in filter_dict:
+            del filter_dict["augmentation"]
+
         indices, _ = self.index.get_indices(filter_dict)
 
         for src in self.sources:
             src.augment_samples(indices, count)
 
-        return self.index.augment_rows(indices, count, augmentation_id)
-
-
+        return self.index.augment_rows(indices, count, augmentation_id=augmentation_id)
 
     def x(self, filter_dict: Dict[str, Any], layout: str = "2d", source: Union[int, List[int]] = -1, src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
         if not self.sources:
@@ -169,6 +171,8 @@ class Features:
             summary += f"\nSource {i}: {source}"
         if n_sources == 0:
             summary += "\nNo sources available"
+        # unique augmentations
+        summary += f"\nUnique augmentations: {self.index.uniques('augmentation')}"
         summary += f"\nIndex:\n{self.index.df}"
         return summary
 

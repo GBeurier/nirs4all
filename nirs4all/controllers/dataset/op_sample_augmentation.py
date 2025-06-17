@@ -39,6 +39,7 @@ class SampleAugmentationController(OperatorController):
             contexts = []
             steps = []
             for i, operation in enumerate(step["sample_augmentation"]):
+                augmentation_id=f"aug_{i}"
                 if operation is None:
                     contexts.append(context)
                     steps.append(None)
@@ -46,10 +47,9 @@ class SampleAugmentationController(OperatorController):
                 local_context = context.copy()
                 local_context["origin"] = None
                 local_context["partition"] = "train"
-                local_context["augmentation"] = f"aug_{i}"
-                indices = dataset.augment_samples(local_context, 1)
+                dataset.augment_samples(local_context, 1, augmentation_id=augmentation_id)
                 local_context = context.copy()
-                local_context["augmentation"] = f"aug_{i}"
+                local_context["augmentation"] = augmentation_id
                 contexts.append(local_context)
                 steps.append(operation)
 
