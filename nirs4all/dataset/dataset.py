@@ -10,10 +10,11 @@ from typing import Union, List, Dict, Any, Tuple, Optional
 import numpy as np
 
 from nirs4all.dataset.features import Features
-# from nirs4all.dataset.targets import TargetBlock
+from nirs4all.dataset.targets import Targets
 # from nirs4all.dataset.metadata import MetadataBlock
 # from nirs4all.dataset.folds import FoldsManager
 # from nirs4all.dataset.predictions import PredictionBlock
+from sklearn.base import TransformerMixin
 
 
 class SpectroDataset:
@@ -24,7 +25,7 @@ class SpectroDataset:
     def __init__(self):
         """Initialize an empty SpectroDataset."""
         self.features = Features()
-        # self.targets = TargetBlock()
+        self.targets = Targets()
         # self.metadata = MetadataBlock()
         # self.predictions = PredictionBlock()
         # self.folds = FoldsManager()
@@ -59,15 +60,16 @@ class SpectroDataset:
 
     @property
     def n_sources(self) -> int:
-        """
-        Get the number of feature sources in the dataset.
-
-        Returns:
-            Number of feature sources.
-        """
         return len(self.features.sources)
 
+    def y(self, filter_dict: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
+        return self.targets.y(filter_dict)
 
+    def set_y(self, filter_dict: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
+        self.targets.set_y(filter_dict, y, transformer, new_processing)
+
+    def add_targets(self, filter_dict: Dict[str, Any], y: np.ndarray) -> None:
+        self.targets.add_targets(y, overrides=filter_dict)
 
 
     ### PRINTING AND SUMMARY ###
@@ -88,6 +90,7 @@ class SpectroDataset:
                 rows = self.features.sources[i].n_rows
                 print(f"   Source {i}: {rows} rows x {dims} dims")
             print(self.features)
+            print(self.targets)
         else:
             print("📊 Features: No data")
         print()        # Targets summary
@@ -167,9 +170,9 @@ class SpectroDataset:
 
     # def add_features(self, x_list: List[np.ndarray]) -> None:
     #     self.features.add_features(x_list)
-
-    # def add_targets(self, y_list: List[np.ndarray]) -> None:
+# def add_targets(self, y_list: List[np.ndarray]) -> None:
     #     self.targets.add_targets(y_list)
+
 
     # def add_meta(self, meta_df: pd.DataFrame) -> None:
     #     self.metadata.add_meta(meta_df)
