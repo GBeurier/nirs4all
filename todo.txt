@@ -1,10 +1,42 @@
+- Split operators:
+  - If solo split (test set) > warning if test exists > val
+  - Fold + Split - operator
+- Balanced augmentation (groups)
+- Model sklearn: train, finetune, predict
+- Model tf: train, finetune, predict
+- Model torch: train, finetune, predict
+- metadata and update of group fold with meta fold, and balanced meta augmentation
+- Sauvegarde:
+   - results
+   - params
+   - binaries and pipeline
+- Prediction
+- Transfert
+- Branch, Scope, filter controller
+- Merge / Split source
+- Save controller
+- Generator
+- Test
+- ClusterMixin controller
+- shap controller + Shap visualization
+- CLI
+- dataviz controller
+
+
+
+##################
+ARCHIVES
+##################
+
+
+
 # Verifier test_dataset_loader avec NA en Y
 
-############### CLARIFIER VAL / TEST et warning méchant quand le test est utilisé en VAL . 
+############### CLARIFIER VAL / TEST et warning méchant quand le test est utilisé en VAL .
 
 Use case 1: Denis: generator >> PENTESTER
 Use case 2: user lambda - train et voir le meilleur > barplot par dataset et modele, residu par experiment > output graphique sur les scenario >> NOOB USER
-- split robustess. 
+- split robustess.
 Use case 3: Jeux de données réfractaires. Bruits / classification >> DEV INTENSIVE
 
 - Export experiment to do predict(export, dataset)
@@ -18,7 +50,7 @@ Use case 3: Jeux de données réfractaires. Bruits / classification >> DEV INTEN
 - header / Verifier syntax avec folder loading.
 
 Xn Ym Metak
-*** 
+***
 
 jit > multiple outputs with 1 model per output.
 - multiplexer model > Multiple source le modele s'adapte
@@ -59,7 +91,7 @@ This document organizes and details the main features, improvements, and priorit
   - [ ] Allow passing config files, model presets, and data paths as arguments.
   - [ ] Provide help and usage documentation.
   - [ ] Add CLI tests and examples.
-  
+
 ---
 
 ## 2. Easy Prediction on New Data ⭐️
@@ -215,7 +247,7 @@ This document organizes and details the main features, improvements, and priorit
 - **Goal:** Make nirs4all available on conda and docker.
 - **Tasks:** to be defined
 
-  
+
 ---
 
 # Legend

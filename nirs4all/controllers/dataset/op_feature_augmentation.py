@@ -57,7 +57,7 @@ class FeatureAugmentationController(OperatorController):
                 contexts.append(local_context)
                 steps.append(operation)
 
-            runner.run_steps(steps, dataset, contexts, execution="sequential")
+            runner.run_steps(steps, dataset, contexts, execution="parallel")
             res_context = context.copy()
             res_context["processing"] = [c["processing"] for c in contexts]
             return res_context
