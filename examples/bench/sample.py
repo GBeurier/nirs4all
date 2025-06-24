@@ -35,13 +35,17 @@ config = {
         "folder": "./sample_data"  # dataset definition is dicted by the json schema. Can load single or multiple files with metadata, and many indices predefined if needed, and folds also.
     },
     "pipeline": [
-        MinMaxScaler(feature_range=(0.2,0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
         "spectra_charts",
-        {"sample_augmentation": [RT, RT(p_range=3)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
-        {"balance_augmentation":"groups"},
-        {"feature_augmentation": [None, SG, [SNV, GS]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
+        # StandardScaler(feature_range=(0.2,0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
+        # "spectra_charts",
+        # {"sample_augmentation": [RT, RT(p_range=3)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
+        # "spectra_charts",
+        # {"balance_augmentation":"groups"},
+        {"feature_augmentation": [None, GS, [SNV, SG]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
+        "spectra_charts",
         MinMaxScaler(feature_range=(0,1)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
-        RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
+        "spectra_charts",
+        # RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
         # MinMaxScaler(feature_range=(0.2,0.8)),
         # ShuffleSplit(),  # First one is target:test by default
         # {"cluster": KMeans(n_clusters=5, random_state=42)},  # add groups indices to the dataset, which are the cluster ids. The dataset is now clustered.

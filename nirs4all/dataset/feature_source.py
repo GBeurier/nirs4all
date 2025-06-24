@@ -141,14 +141,26 @@ class FeatureSource:
         return selected_data
 
     def update_features(self, indices: np.ndarray, processings: List[str], new_data: np.ndarray, layout: str) -> None:
+        processings_indices = sorted([self._processing_id_to_index[p] for p in processings if p in self._processing_id_to_index])
+        print(f"Updating features at indices {indices} for processings {processings} with layout {layout}")
+        print(f"Add new_data shape: {new_data.shape}, expected shape: ({len(indices)}, {len(processings_indices)}, {self.num_features})")
         if layout == "2d":
-            self._array[indices, :, :] = new_data.reshape(len(indices), -1, self.num_features)
+            new_data = new_data.reshape(len(indices), len(processings_indices), self.num_features)
+            for i, p in enumerate(processings_indices):
+                print(f"Updating processing {p}")
+                self._array[indices, p, :] = new_data[:, i, :]
         elif layout == "2d_interleaved":
-            self._array[indices, :, :] = np.transpose(new_data.reshape(len(indices), self.num_features, -1), (0, 2, 1))
+            new_data = new_data.reshape(len(indices), len(processings_indices), self.num_features).transpose(0, 2, 1)
+            for i, p in enumerate(processings_indices):
+                print(f"Updating processing {p}")
+                self._array[indices, p, :] = new_data[:, i, :]
         elif layout == "3d":
-            self._array[indices, :, :] = new_data
+            for i, p in enumerate(processings_indices):
+                self._array[indices, p, :] = new_data[:, i, :]
         elif layout == "3d_transpose":
-            self._array[indices, :, :] = np.transpose(new_data, (0, 2, 1))
+            new_data = np.transpose(new_data, (0, 2, 1))  # Ensure new_data is in the correct shape
+            for i, p in enumerate(processings_indices):
+                self._array[indices, processings_indices, :] = new_data[:, i, :]
         else:
             raise ValueError(f"Unknown layout: {layout}")
 

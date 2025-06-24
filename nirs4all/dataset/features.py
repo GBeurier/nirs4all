@@ -115,6 +115,11 @@ class Features:
 
         indices, processings = self.index.get_indices(filter_dict)
 
+        print("=="*20)
+        print(f"Setting features with filter_dict: {filter_dict}, layout: {layout}, source: {source}, src_concat: {src_concat}")
+        print(f"Indices: {indices}, Processings: {processings}")
+        print("=="*20)
+
         if src_concat:
             last_index = 0
             for i, source_avai in enumerate(self.sources):
@@ -132,6 +137,8 @@ class Features:
                 source_avai.update_features(indices, processings, source_x, layout=layout)
                 last_index += n_features
         else:
+            if isinstance(x, np.ndarray):
+                x = [x]
             for i, source_x in enumerate(x):
                 self.sources[i].update_features(indices, processings, source_x, layout=layout)
 
