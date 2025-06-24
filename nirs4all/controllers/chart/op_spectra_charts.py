@@ -34,16 +34,17 @@ class SpectraChartController(OperatorController):
         print(f"Executing spectra charts for step: {step}, keyword: {context.get('keyword', '')}, source: {source}")
 
         local_context = context.copy()
-        local_context["partition"] = "train"
+        # local_context["partition"] = "train"
         spectra_data = dataset.x(local_context, "3d", source=source)
         print(">>>", spectra_data.shape)
         for i in range(spectra_data.shape[1]):
             sub_data = spectra_data[:, i, :]
             print(sub_data.shape)
             plt.figure(figsize=(15, 4))
+            processing_name = dataset.features.sources[0]._processing_ids[i]
             for j in range(sub_data.shape[0]):
                 plt.plot(sub_data[j, :], alpha=0.7)
-            plt.title(f'Spectra Chart for Processing {i+1}')
+            plt.title(f'Spectra Chart for {processing_name}: {sub_data.shape[0]} samples')
             plt.xlabel('Wavelength')
             plt.ylabel('Intensity')
             plt.legend()

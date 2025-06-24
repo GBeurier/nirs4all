@@ -39,7 +39,7 @@ class SpectroDataset:
               x: np.ndarray | List[np.ndarray],
               layout: str = "2d",
               filter_update: Optional[Dict[str, Any]] = None,
-              src_concat: bool = True,
+              src_concat: bool = False,
               source: Union[int, List[int]] = -1) -> None:
         self.features.set_x(filter_dict, x, layout=layout, filter_update=filter_update, src_concat=src_concat, source=source)
 

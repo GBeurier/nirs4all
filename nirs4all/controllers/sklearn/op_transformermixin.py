@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.spectra.spectra_dataset import SpectroDataset
 
+import numpy as np
 
 @register_controller
 class TransformerMixinController(OperatorController):
@@ -39,6 +40,8 @@ class TransformerMixinController(OperatorController):
             operator_id = operator.__class__.__name__[0:6] + f"_{context.get('step_id', 'unknown')}"
 
             train_context = context.copy()
+            print("🔄 Preparing training context for operator:", operator_id)
+            print(f"🔄 Current context: {context}")
             train_context["partition"] = "train"
 
             fit_data = dataset.x(train_context, "2d", source=source)
@@ -68,6 +71,9 @@ class TransformerMixinController(OperatorController):
                     processing_update["augmentation"] = context["augmentation"] + f"_{operator_id}"
                 if "processing" in processing_update:
                     del processing_update["processing"]
+
+            print(np.mean(transformed_data, axis=0))
+            print(f"from {dataset.x(context, '2d', source=source).shape} {context} to {transformed_data.shape}, filter_update={processing_update}")
 
             dataset.set_x(context, transformed_data, layout="2d", filter_update=processing_update, source=source)
 
