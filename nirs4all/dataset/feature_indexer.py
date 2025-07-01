@@ -125,6 +125,41 @@ class FeatureIndex:
 
         return indices, processings
 
+    def get_y_samples(self, filters: Dict[str, Any]) -> List[int]:
+        """
+        Returns samples for targets, using origin value when it differs from sample and is not null.
+
+        This is useful for targets where augmented samples should map back to their original
+        sample for evaluation purposes.
+
+        Args:
+            filters: Dictionary of column: value pairs for filtering
+
+        Returns:
+            List of sample indices, using origin when available and different from sample
+
+        Example:
+            >>> # DataFrame with samples and their origins:
+            >>> # sample=1, origin=null -> returns 1
+            >>> # sample=3, origin=1    -> returns 1 (augmented from sample 1)
+            >>> # sample=7, origin=null -> returns 7
+            >>> manager.get_y_samples({"partition": "train"})
+            [1, 2, 1, 1, 2, 2, 7]
+        """
+        filtered_df = self._apply_filters(filters) if filters else self.df
+
+        # Select sample and origin columns, then compute the target sample
+        result_df = filtered_df.select([
+            pl.col("sample"),
+            pl.col("origin"),
+            # Use origin if it's not null and different from sample, otherwise use sample
+            pl.when(
+                (pl.col("origin").is_not_null()) & (pl.col("origin") != pl.col("sample"))
+            ).then(pl.col("origin")).otherwise(pl.col("sample")).alias("target_sample")
+        ])
+
+        return result_df.select(pl.col("target_sample")).to_series().to_numpy().astype(np.int32).tolist()
+
     def update_by_filter(self, filters: Dict[str, Any], updates: Dict[str, Any]) -> None:
         condition = self._build_filter_condition(filters)
 

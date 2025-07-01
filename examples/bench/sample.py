@@ -39,7 +39,7 @@ config = {
         "spectra_charts",
         # StandardScaler(feature_range=(0.2,0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
         # "spectra_charts",
-        {"sample_augmentation": [RT, RT(p_range=5)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
+        # {"sample_augmentation": [RT, RT(p_range=5)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
         # "spectra_charts",
         # {"balance_augmentation":"groups"},
         {"feature_augmentation": [None, GS, [SNV, Haar]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
