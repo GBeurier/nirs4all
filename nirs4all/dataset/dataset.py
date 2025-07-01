@@ -63,13 +63,16 @@ class SpectroDataset:
         return len(self.features.sources)
 
     def y(self, filter_dict: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
-        return self.targets.y(filter_dict)
+        indices = self.features.index.get_y_samples(filter_dict)
+        print(len(indices), "indices")
+        print(indices)
+        return self.targets.y(indices=indices)
 
     def set_y(self, filter_dict: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
         self.targets.set_y(filter_dict, y, transformer, new_processing)
 
-    def add_targets(self, filter_dict: Dict[str, Any], y: np.ndarray) -> None:
-        self.targets.add_targets(y, overrides=filter_dict)
+    def add_targets(self, y: np.ndarray) -> None:
+        self.targets.add_targets(y)
 
 
     ### PRINTING AND SUMMARY ###
