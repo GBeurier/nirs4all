@@ -10,9 +10,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.dataset.dataset import SpectroDataset
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _needs(splitter: Any) -> Tuple[bool, bool]:
     """Return booleans *(needs_y, needs_groups)* for the given splitter.
@@ -39,19 +36,12 @@ def _needs(splitter: Any) -> Tuple[bool, bool]:
     return needs_y, needs_g
 
 
-# ---------------------------------------------------------------------------
-# Controller
-# ---------------------------------------------------------------------------
-
 @register_controller
 class CrossValidatorController(OperatorController):
     """Controller for **any** sklearn‑compatible splitter (native or custom)."""
 
-    priority = 20  # processed early but after mandatory pre‑processing steps
+    priority = 10  # processed early but after mandatory pre‑processing steps
 
-    # ------------------------------------------------------------------
-    # Framework integration helpers
-    # ------------------------------------------------------------------
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:  # noqa: D401
         """Return *True* if *operator* behaves like a splitter.
@@ -78,9 +68,6 @@ class CrossValidatorController(OperatorController):
         """Cross‑validators themselves are single‑source operators."""
         return False
 
-    # ------------------------------------------------------------------
-    # Core execution
-    # ------------------------------------------------------------------
     def execute(  # type: ignore[override]
         self,
         step: Any,
@@ -98,27 +85,16 @@ class CrossValidatorController(OperatorController):
         """
         print(f"🔄 Executing cross‑validation with {operator.__class__.__name__}")
 
-        # -----------------------------
-        # Retrieve data
-        # -----------------------------
-        X = dataset.x(context, layout="2d", source=source)
-        if isinstance(X, tuple):
-            # Keep first source to avoid mismatched lengths
-            X = X[0]
-        y = dataset.y(context)
-        groups = dataset.groups(context) if hasattr(dataset, "groups") else None
-
-        n_samples = X.shape[0] if hasattr(X, "shape") else len(X)
-        print(
-            f"🔄 Creating folds for {n_samples} samples using {operator.__class__.__name__}"
-        )
-
-        current_indices, _ = dataset.features.index.get_indices(context)
-
-        # -----------------------------
-        # Build kwargs for split()
-        # -----------------------------
+        local_context = context.copy()
+        local_context["partition"] = "train"
         needs_y, needs_g = _needs(operator)
+        X = dataset.x(local_context, layout="2d", source=source)
+        y = dataset.y(local_context) if needs_y else None
+        groups = dataset.groups(local_context) if needs_g else None
+
+        n_samples = X.shape[0]
+        print(f"🔄 Creating folds for {n_samples} samples using {operator.__class__.__name__}")
+        current_indices, _ = dataset.features.index.get_indices(context)
         kwargs: Dict[str, Any] = {}
         if needs_y:
             if y is None:
@@ -133,19 +109,8 @@ class CrossValidatorController(OperatorController):
                 )
             kwargs["groups"] = groups
 
-        # -----------------------------
-        # Generate splits
-        # -----------------------------
-        fold_splits = []
-        for fold_idx, (train_idx, val_idx) in enumerate(operator.split(X, **kwargs)):
-            train_samples = [current_indices[i] for i in train_idx]
-            val_samples = [current_indices[i] for i in val_idx]
-            fold_splits.append((train_samples, val_samples))
-            print(
-                f"   📊 Fold {fold_idx}: {len(train_samples)} train, {len(val_samples)} val samples"
-            )
-
-        dataset.set_folds(fold_splits)
+        folds = operator.split(X, **kwargs)
+        dataset.set_folds(folds)
         print(f"✅ Successfully created {len(fold_splits)} CV folds")
 
         return context
