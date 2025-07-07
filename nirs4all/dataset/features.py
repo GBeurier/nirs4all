@@ -36,6 +36,8 @@ class Features:
         if len(self.sources) == 0:
             for _ in range(n_added_sources):
                 self.sources.append(FeatureSource())
+        elif len(self.sources) != n_added_sources:
+            raise ValueError("Incompatible number of sources")
 
         kwargs = {}
         if "processing" in overrides:
