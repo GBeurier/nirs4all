@@ -36,7 +36,8 @@ class SpectraChartController(OperatorController):
         local_context = context.copy()
         # local_context["partition"] = "train"
         spectra_data = dataset.x(local_context, "3d", source=source)
-        print(">>>", spectra_data.shape)
+        y = dataset.y(local_context)
+        print(">>>", spectra_data.shape, y.shape)
         for i in range(spectra_data.shape[1]):
             sub_data = spectra_data[:, i, :]
             print(sub_data.shape)

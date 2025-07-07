@@ -46,6 +46,7 @@ config = {
         # "spectra_charts",
         MinMaxScaler(feature_range=(0,1)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
         # "spectra_charts",
+        "spectra_charts",
         RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
         # MinMaxScaler(feature_range=(0.2,0.8)),
         # ShuffleSplit(),  # First one is target:test by default

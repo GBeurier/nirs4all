@@ -43,7 +43,7 @@ class PipelineRunner:
         """Run the pipeline with the given configuration and dataset."""
 
         print("🚀 Starting Pipeline Runner")
-        context = {"branch": 0, "processing": "raw"}
+        context = {"branch": 0, "processing": "raw", "y": "numeric"}
 
         try:
             self.run_steps(config.steps, dataset, context, execution="sequential")

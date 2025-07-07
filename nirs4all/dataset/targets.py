@@ -173,7 +173,7 @@ class Targets:
         filter_dict = filter_dict or {}
 
         # Default to numeric processing if not specified
-        processing = filter_dict.get("processing", "numeric")
+        processing = filter_dict.get("y", "numeric")
 
         if processing not in self._data:
             available = list(self._data.keys())
@@ -189,8 +189,8 @@ class Targets:
                 return np.array([]).reshape(0, y_data.shape[1])
 
             # Convert to row indices for this processing
-            sample_indices = self._samples_to_rows(filtered_indices, processing)
-            return y_data[sample_indices]
+            # sample_indices = self._samples_to_rows(filtered_indices, processing)
+            return y_data[filtered_indices]
 
         return y_data
 
@@ -281,7 +281,7 @@ class Targets:
 
         # Apply each filter
         for column, value in filter_dict.items():
-            if column not in filtered.columns:
+            if column not in filtered.columns and column != "processing":
                 continue
 
             if isinstance(value, (list, tuple, np.ndarray)):

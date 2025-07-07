@@ -12,7 +12,6 @@ import numpy as np
 from nirs4all.dataset.features import Features
 from nirs4all.dataset.targets import Targets
 # from nirs4all.dataset.metadata import MetadataBlock
-from nirs4all.dataset.folds import FoldsManager
 # from nirs4all.dataset.predictions import PredictionBlock
 from sklearn.base import TransformerMixin
 
@@ -28,7 +27,7 @@ class SpectroDataset:
         self.targets = Targets()
         # self.metadata = MetadataBlock()
         # self.predictions = PredictionBlock()
-        self.folds = FoldsManager()
+        self.folds = []
 
     # FEATURES
     def x(self, filter_dict: Dict[str, Any] = {}, layout: str = "2d", source: Union[int, List[int]] = -1, src_concat: bool = True) -> np.ndarray | Tuple[np.ndarray, ...]:
@@ -58,6 +57,9 @@ class SpectroDataset:
         """
         return len(self.features.sources) > 1
 
+    def groups(self, filter_dict: Dict[str, Any] = {}) -> np.ndarray:
+        return self.features.groups(filter_dict)
+
     @property
     def n_sources(self) -> int:
         return len(self.features.sources)
@@ -70,6 +72,15 @@ class SpectroDataset:
 
     def add_targets(self, filter_dict: Dict[str, Any], y: np.ndarray) -> None:
         self.targets.add_targets(y, overrides=filter_dict)
+
+    def set_folds(self, folds_iterable) -> None:
+        """Set cross-validation folds from an iterable of (train_idx, val_idx) tuples."""
+        self.folds = list(folds_iterable)
+
+    @property
+    def num_folds(self) -> int:
+        """Return the number of folds."""
+        return len(self.folds)
 
 
     ### PRINTING AND SUMMARY ###
@@ -145,10 +156,14 @@ class SpectroDataset:
         # print("=" * 30)
 
     def __repr__(self):
-        return self.features
+        txt = str(self.features)
+        txt += "\n" + str(self.targets)
+        return txt
 
     def __str__(self):
-        return str(self.features)
+        txt = str(self.features)
+        txt += "\n" + str(self.targets)
+        return txt
         # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
 
 
@@ -236,11 +251,3 @@ class SpectroDataset:
 
     # FOLDS
 
-    def set_folds(self, folds_iterable) -> None:
-        """Set cross-validation folds from an iterable of (train_idx, val_idx) tuples."""
-        self.folds.set_folds(folds_iterable)
-
-    @property
-    def num_folds(self) -> int:
-        """Return the number of folds."""
-        return len(self.folds)

@@ -183,6 +183,9 @@ class Features:
         summary += f"\nIndex:\n{self.index.df}"
         return summary
 
+    def groups(self, filter_dict: Dict[str, Any] = {}) -> np.ndarray:
+        return self.index.get_column_values("group", filter_dict)
+
     # def update_index(self, indices: List[int], filter_dict: Dict[str, Any]) -> None:
     #     """
     #     Update the index with new rows based on the provided filter_dict.
