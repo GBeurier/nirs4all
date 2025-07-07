@@ -11,6 +11,7 @@ import numpy as np
 
 from nirs4all.dataset.features import Features
 from nirs4all.dataset.targets import Targets
+from nirs4all.dataset.indexer import Indexer
 # from nirs4all.dataset.metadata import MetadataBlock
 # from nirs4all.dataset.predictions import PredictionBlock
 from sklearn.base import TransformerMixin
@@ -23,14 +24,21 @@ class SpectroDataset:
     """
     def __init__(self):
         """Initialize an empty SpectroDataset."""
+        # self.indexer = Indexer()
         self.features = Features()
         self.targets = Targets()
+        self.folds = []
         # self.metadata = MetadataBlock()
         # self.predictions = PredictionBlock()
-        self.folds = []
 
     # FEATURES
-    def x(self, filter_dict: Dict[str, Any] = {}, layout: str = "2d", source: Union[int, List[int]] = -1, src_concat: bool = True) -> np.ndarray | Tuple[np.ndarray, ...]:
+    def x(self,
+          filter_dict: Dict[str, Any] = {},
+          layout: str = "2d",
+          source: Union[int, List[int]] = -1,
+          src_concat: bool = True) -> np.ndarray | Tuple[np.ndarray, ...]:
+
+        # x_indices, x_processings = self.indexer.get_indices(filter_dict)
         return self.features.x(filter_dict, layout, source, src_concat)
 
     def set_x(self,
@@ -40,7 +48,10 @@ class SpectroDataset:
               filter_update: Optional[Dict[str, Any]] = None,
               src_concat: bool = False,
               source: Union[int, List[int]] = -1) -> None:
+
+        # x_indices, x_processings = self.indexer.get_indices(filter_dict)
         self.features.set_x(filter_dict, x, layout=layout, filter_update=filter_update, src_concat=src_concat, source=source)
+
 
     def add_features(self, filter_dict: Dict[str, Any], x: np.ndarray | List[np.ndarray]) -> None:
         self.features.add_features(filter_dict, x)
@@ -48,21 +59,15 @@ class SpectroDataset:
     def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
         return self.features.augment_samples(filter_dict, count, augmentation_id=augmentation_id)
 
-    def is_multi_source(self) -> bool:
-        """
-        Check if the dataset has multiple feature sources.
 
-        Returns:
-            True if there are multiple sources, False otherwise.
-        """
-        return len(self.features.sources) > 1
+
+
+
 
     def groups(self, filter_dict: Dict[str, Any] = {}) -> np.ndarray:
         return self.features.groups(filter_dict)
 
-    @property
-    def n_sources(self) -> int:
-        return len(self.features.sources)
+
 
     def y(self, filter_dict: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
         return self.targets.y(filter_dict)
@@ -81,6 +86,20 @@ class SpectroDataset:
     def num_folds(self) -> int:
         """Return the number of folds."""
         return len(self.folds)
+
+
+
+    def is_multi_source(self) -> bool:
+        return len(self.features.sources) > 1
+
+    @property
+    def n_sources(self) -> int:
+        return len(self.features.sources)
+
+
+
+
+
 
 
     ### PRINTING AND SUMMARY ###
@@ -165,6 +184,17 @@ class SpectroDataset:
         txt += "\n" + str(self.targets)
         return txt
         # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
+
+
+
+
+
+
+
+
+
+
+
 
 
 
