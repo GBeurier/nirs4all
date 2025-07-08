@@ -36,6 +36,8 @@ class Features:
         if len(self.sources) == 0:
             for _ in range(n_added_sources):
                 self.sources.append(FeatureSource())
+        elif len(self.sources) != n_added_sources:
+            raise ValueError("Incompatible number of sources")
 
         kwargs = {}
         if "processing" in overrides:
@@ -182,6 +184,9 @@ class Features:
         summary += f"\nUnique augmentations: {self.index.uniques('augmentation')}"
         summary += f"\nIndex:\n{self.index.df}"
         return summary
+
+    def groups(self, filter_dict: Dict[str, Any] = {}) -> np.ndarray:
+        return self.index.get_column_values("group", filter_dict)
 
     # def update_index(self, indices: List[int], filter_dict: Dict[str, Any]) -> None:
     #     """
