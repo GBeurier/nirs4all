@@ -39,6 +39,27 @@ class FeatureIndex:
             return 0
         return int(self.df["sample"].max()) + 1
 
+    def get_column_values(self, col: str, filters: Optional[Dict[str, Any]] = None) -> List[Any]:
+        """
+        Return the array of values for a given column, optionally filtered.
+
+        Args:
+            col: Column name to retrieve values from
+            filters: Optional dictionary of filters to apply before retrieving values
+
+        Returns:
+            List of values from the specified column
+
+        Raises:
+            ValueError: If the column does not exist in the DataFrame
+        """
+        if col not in self.df.columns:
+            raise ValueError(f"Column '{col}' does not exist in the DataFrame.")
+
+        # Apply filters if provided, otherwise use the full dataframe
+        filtered_df = self._apply_filters(filters) if filters else self.df
+        return filtered_df.select(pl.col(col)).to_series().to_list()
+
     def uniques(self, col: str) -> List[Any]:
         """
         Retourne les valeurs uniques d'une colonne.
@@ -192,7 +213,8 @@ class FeatureIndex:
         return condition
 
 
-
+    def __repr__(self):
+        return str(self.df)
 
     # def get_contiguous_ranges(self, filters: Dict[str, Any]) -> np.ndarray:
     #     """
@@ -353,5 +375,3 @@ class FeatureIndex:
     #     indices = self.get_indices(filters)
     #     return {sample_idx: pos for pos, sample_idx in enumerate(indices)}
 
-    def __repr__(self):
-        return str(self.df)
