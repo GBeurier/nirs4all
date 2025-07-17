@@ -17,7 +17,7 @@ class Indexer:
             "partition": pl.Series([], dtype=pl.Categorical), # train, test
             "group": pl.Series([], dtype=pl.Int8),
             "branch": pl.Series([], dtype=pl.Int8),
-            "processing": pl.Series([], dtype=pl.Categorical),
+            "processings": pl.Series([], dtype=pl.Categorical),
             "augmentation": pl.Series([], dtype=pl.Categorical),
         })
 
@@ -25,7 +25,7 @@ class Indexer:
             "partition": "train",
             "group": 0,
             "branch": 0,
-            "processing": "raw",
+            "processings": ["raw"],
         }
 
     def _apply_filters(self, filters: Dict[str, Any]) -> pl.DataFrame:
@@ -64,73 +64,76 @@ class Indexer:
         )
         return result["y_index"].to_numpy().astype(np.int32)
 
-    def add_new_samples(
-        self,
-        samples: List[int],
-        partition: str = "train",
-        group: int = 0,
-        branch: int = 0,
-        processing: str = "raw",
-        augmentation: Optional[str] = None,
-    ) -> List[int]:
-        pass
+    def register_samples(self, count: int, partition: str = "train") -> List[int]:
+        new_samples_indices = list(range(self.next_sample_index(), self.next_sample_index() + count))
+        new_rows_indices = list(range(self.next_row_index(), self.next_row_index() + count))
+        self.df = self.df.vstack(pl.DataFrame({
+            "row": pl.Series(new_rows_indices, dtype=pl.Int32),
+            "sample": pl.Series(new_samples_indices, dtype=pl.Int32),
+            "origin": pl.Series(new_samples_indices * count, dtype=pl.Int32),
+            "partition": pl.Series([partition] * count, dtype=pl.Categorical),
+            "group": pl.Series(self.default_values["group"] * count, dtype=pl.Int8),
+            "branch": pl.Series(self.default_values["branch"] * count, dtype=pl.Int8),
+            "processings": pl.Series([self.default_values["processings"]] * count, dtype=pl.Categorical),
+            "augmentation": pl.Series([None] * count, dtype=pl.Categorical),
+        }))
 
-    # def add_samples(self, samples: List[int], partition: str = "train", group: int = 0)
+        return new_samples_indices
 
 
-    def add_rows(
-        self,
-        n_rows: int,
-        overrides: Optional[Dict[str, Any]] = None,
-    ) -> List[int]:
+    # def add_rows(
+    #     self,
+    #     n_rows: int,
+    #     overrides: Optional[Dict[str, Any]] = None,
+    # ) -> List[int]:
 
-        if n_rows <= 0:
-            return []
+    #     if n_rows <= 0:
+    #         return []
 
-        overrides = overrides or {}
+    #     overrides = overrides or {}
 
-        next_row_index = self.next_row_index()
-        next_sample_index = self.next_sample_index()
+    #     next_row_index = self.next_row_index()
+    #     next_sample_index = self.next_sample_index()
 
-        cols: Dict[str, pl.Series] = {}
-        for col in self.df.columns:
-            if col == "row":
-                row_indices = range(next_row_index, next_row_index + n_rows)
-                cols[col] = pl.Series(row_indices, dtype=pl.Int32)
-                continue
-            if col == "sample":
-                if col in overrides:
-                    val = overrides[col]
-                    if isinstance(val, list):
-                        if len(val) != n_rows:
-                            raise ValueError(
-                                f"Override list for '{col}' should have {n_rows} elements"
-                            )
-                        cols[col] = pl.Series(val, dtype=pl.Int32)
-                    else:
-                        cols[col] = pl.Series([val] * n_rows, dtype=pl.Int32)
-                else:
-                    index_values = range(next_sample_index, next_sample_index + n_rows)
-                    cols[col] = pl.Series(index_values, dtype=pl.Int32)
-                    cols["origin"] = pl.Series(index_values, dtype=pl.Int32)
-                continue
+    #     cols: Dict[str, pl.Series] = {}
+    #     for col in self.df.columns:
+    #         if col == "row":
+    #             row_indices = range(next_row_index, next_row_index + n_rows)
+    #             cols[col] = pl.Series(row_indices, dtype=pl.Int32)
+    #             continue
+    #         if col == "sample":
+    #             if col in overrides:
+    #                 val = overrides[col]
+    #                 if isinstance(val, list):
+    #                     if len(val) != n_rows:
+    #                         raise ValueError(
+    #                             f"Override list for '{col}' should have {n_rows} elements"
+    #                         )
+    #                     cols[col] = pl.Series(val, dtype=pl.Int32)
+    #                 else:
+    #                     cols[col] = pl.Series([val] * n_rows, dtype=pl.Int32)
+    #             else:
+    #                 index_values = range(next_sample_index, next_sample_index + n_rows)
+    #                 cols[col] = pl.Series(index_values, dtype=pl.Int32)
+    #                 cols["origin"] = pl.Series(index_values, dtype=pl.Int32)
+    #             continue
 
-            val = overrides.get(col, self.default_values.get(col, None))
-            expected_dtype = self.df.schema[col]
+    #         val = overrides.get(col, self.default_values.get(col, None))
+    #         expected_dtype = self.df.schema[col]
 
-            if isinstance(val, list):
-                if len(val) != n_rows:
-                    raise ValueError(
-                        f"Override list for '{col}' should have {n_rows} elements"
-                    )
-                cols[col] = pl.Series(val, dtype=expected_dtype)
-            else:
-                cols[col] = pl.Series([val] * n_rows, dtype=expected_dtype)
+    #         if isinstance(val, list):
+    #             if len(val) != n_rows:
+    #                 raise ValueError(
+    #                     f"Override list for '{col}' should have {n_rows} elements"
+    #                 )
+    #             cols[col] = pl.Series(val, dtype=expected_dtype)
+    #         else:
+    #             cols[col] = pl.Series([val] * n_rows, dtype=expected_dtype)
 
-        new_df = pl.DataFrame(cols)
-        indices = new_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32).tolist()
-        self.df = pl.concat([self.df, new_df], how="vertical")
-        return indices
+    #     new_df = pl.DataFrame(cols)
+    #     indices = new_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32).tolist()
+    #     self.df = pl.concat([self.df, new_df], how="vertical")
+    #     return indices
 
 
 

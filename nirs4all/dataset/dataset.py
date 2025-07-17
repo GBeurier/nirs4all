@@ -12,8 +12,8 @@ import numpy as np
 from nirs4all.dataset.features import Features
 from nirs4all.dataset.targets import Targets
 from nirs4all.dataset.indexer import Indexer
-# from nirs4all.dataset.metadata import MetadataBlock
-# from nirs4all.dataset.predictions import PredictionBlock
+from nirs4all.dataset.metadata import Metadata
+from nirs4all.dataset.predictions import Predictions
 from sklearn.base import TransformerMixin
 
 
@@ -23,86 +23,89 @@ class SpectroDataset:
     fold, and prediction blocks.
     """
     def __init__(self):
-        """Initialize an empty SpectroDataset."""
-        # self.indexer = Indexer()
-        self.features = Features()
-        self.targets = Targets()
-        self.folds = []
-        # self.metadata = MetadataBlock()
-        # self.predictions = PredictionBlock()
+        self._indexer = Indexer()
+        self._features = Features()
+        self._targets = Targets()
+        self._folds = []
+        self._metadata = Metadata()
+        self._predictions = Predictions()
 
     # FEATURES
-    def x(self,
-          filter_dict: Dict[str, Any] = {},
-          layout: str = "2d",
-          source: Union[int, List[int]] = -1,
-          src_concat: bool = True) -> np.ndarray | Tuple[np.ndarray, ...]:
+    def features(self, filter: Dict[str, Any] = {}, layout: str = "2d", source: Union[int, List[int]] = -1, concat_sources: bool = True) -> np.ndarray | Tuple[np.ndarray, ...]:
 
-        # x_indices, x_processings = self.indexer.get_indices(filter_dict)
-        return self.features.x(filter_dict, layout, source, src_concat)
+        indices = self._indexer.samples(filter)
+        return self._features.data(filter, layout, source, concat_sources)
 
-    def set_x(self,
-              filter_dict: Dict[str, Any],
-              x: np.ndarray | List[np.ndarray],
-              layout: str = "2d",
-              filter_update: Optional[Dict[str, Any]] = None,
-              src_concat: bool = False,
-              source: Union[int, List[int]] = -1) -> None:
+    def add_features(self, filter: Dict[str, Any], data: np.ndarray | List[np.ndarray]) -> None:
+        self._features.add_features(filter, data)
 
-        # x_indices, x_processings = self.indexer.get_indices(filter_dict)
-        self.features.set_x(filter_dict, x, layout=layout, filter_update=filter_update, src_concat=src_concat, source=source)
+    def set_features(self, filter: Dict[str, Any], data: np.ndarray | List[np.ndarray], layout: str = "2d", filter_update: Optional[Dict[str, Any]] = None, concat_sources: bool = False, source: Union[int, List[int]] = -1) -> None:
 
+        # x_indices, x_processings = self.indexer.get_indices(filter)
+        self._features.set_x(filter, x, layout=layout, filter_update=filter_update, concat_sources=concat_sources, source=source)
 
-    def add_features(self, filter_dict: Dict[str, Any], x: np.ndarray | List[np.ndarray]) -> None:
-        self.features.add_features(filter_dict, x)
+    def augment_samples(self, filter: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
+        return self.features.augment_samples(filter, count, augmentation_id=augmentation_id)
 
-    def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
-        return self.features.augment_samples(filter_dict, count, augmentation_id=augmentation_id)
-
-
-
-
-
-
-    def groups(self, filter_dict: Dict[str, Any] = {}) -> np.ndarray:
-        return self.features.groups(filter_dict)
-
-
-
-    def y(self, filter_dict: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
-        indices = self.features.index.get_y_samples(filter_dict)
-        print(len(indices), "indices")
-        print(indices)
-        return self.targets.y(indices=indices)
-
-    def set_y(self, filter_dict: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
-        self.targets.set_y(filter_dict, y, transformer, new_processing)
+    def targets(self, filter: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
+        indices = self._indexer.samples(filter)
+        return self._targets.y(indices=indices, encoding=encoding)
 
     def add_targets(self, y: np.ndarray) -> None:
-        self.targets.add_targets(y)
+        self._targets.add_targets(y)
+
+    def set_targets(self, filter: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
+        self._targets.set_y(filter, y, transformer, new_processing)
+
+    def metadata(self, filter: Dict[str, Any] = {}) -> pl.DataFrame:
+        return self._metadata.meta(filter)
+
+    def add_metadata(self, meta_df: pl.DataFrame) -> None:
+        self._metadata.add_meta(meta_df)
+
+    def predictions(self, filter: Dict[str, Any] = {}) -> pl.DataFrame:
+        return self._predictions.prediction(filter)
+
+    def add_predictions(self, np_arr: np.ndarray, meta_dict: Dict[str, Any]) -> None:
+        self._predictions.add_prediction(np_arr, meta_dict)
+
+    @property
+    def folds(self) -> List[Tuple[List[int], List[int]]]:
+        return self._folds
 
     def set_folds(self, folds_iterable) -> None:
         """Set cross-validation folds from an iterable of (train_idx, val_idx) tuples."""
-        self.folds = list(folds_iterable)
+        self._folds = list(folds_iterable)
+
+    def index_column(self, col: str, filter: Dict[str, Any] = {}) -> List[int]:
+        return self._indexer.get_column_values(col, filter)
+
+
+
 
     @property
     def num_folds(self) -> int:
         """Return the number of folds."""
-        return len(self.folds)
-
-
+        return len(self._folds)
 
     def is_multi_source(self) -> bool:
-        return len(self.features.sources) > 1
+        return len(self._features.sources) > 1
 
     @property
     def n_sources(self) -> int:
-        return len(self.features.sources)
+        return len(self._features.sources)
 
 
+    def __repr__(self):
+        txt = str(self._features)
+        txt += "\n" + str(self._targets)
+        return txt
 
-
-
+    def __str__(self):
+        txt = str(self._features)
+        txt += "\n" + str(self._targets)
+        return txt
+        # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
 
 
     ### PRINTING AND SUMMARY ###
@@ -114,149 +117,19 @@ class SpectroDataset:
         """
         print("=== SpectroDataset Summary ===")
         print()        # Features summary
-        if self.features.sources:
-            total_samples = self.features.n_samples
-            n_sources = len(self.features.sources)
-            feature_dims = [src.n_dims for src in self.features.sources]
+        if self._features.sources:
+            total_samples = self._features.n_samples
+            n_sources = len(self._features.sources)
+            feature_dims = [src.n_dims for src in self._features.sources]
             print(f"📊 Features: {total_samples} samples, {n_sources} source(s)")
             for i, dims in enumerate(feature_dims):
-                rows = self.features.sources[i].n_rows
+                rows = self._features.sources[i].n_rows
                 print(f"   Source {i}: {rows} rows x {dims} dims")
-            print(self.features)
-            print(self.targets)
+            print(self._features)
+            print(self._targets)
         else:
             print("📊 Features: No data")
-        print()        # Targets summary
-        # if self.targets.sources:
-        #     n_targets = len(self.targets.sources)
-        #     target_names = self.targets.get_target_names()
-        #     processing_versions = []
-        #     for name in target_names:
-        #         versions = self.targets.get_processing_versions(name)
-        #         processing_versions.extend(versions)
-        #     processing_versions = list(set(processing_versions))
-        #     print(f"🎯 Targets: {n_targets} source(s)")
-        #     print(f"   Target names: {target_names}")
-        #     print(f"   Processing versions: {processing_versions}")
-        # else:
-        #     print("🎯 Targets: No data")
-        # print()
-
-        # # Metadata summary
-        # if self.metadata.table is not None:
-        #     n_meta = len(self.metadata.table)
-        #     meta_cols = self.metadata.table.columns
-        #     print(f"📋 Metadata: {n_meta} entries")
-        #     print(f"   Columns: {meta_cols}")
-        # else:
-        #     print("📋 Metadata: No data")
-        # print()
-
-        # # Folds summary
-        # if self.folds.folds:
-        #     n_folds = len(self.folds.folds)
-        #     fold_sizes = [(len(f["train"]), len(f["val"])) for f in self.folds.folds]
-        #     print(f"🔄 Folds: {n_folds} fold(s)")
-        #     for i, (train_size, val_size) in enumerate(fold_sizes):
-        #         print(f"   Fold {i}: {train_size} train, {val_size} val")
-        # else:
-        #     print("🔄 Folds: No data")
-        # print()
-
-        # # Predictions summary
-        # if self.predictions.table is not None:
-        #     n_preds = len(self.predictions.table)
-        #     models = self.predictions.table.select("model").unique().to_series().to_list()
-        #     partitions = self.predictions.table.select("partition").unique().to_series().to_list()
-        #     print(f"🔮 Predictions: {n_preds} entries")
-        #     print(f"   Models: {models}")
-        #     print(f"   Partitions: {partitions}")
-        # else:
-        #     print("🔮 Predictions: No data")
-        # print()
-
-        # print("=" * 30)
-
-    def __repr__(self):
-        txt = str(self.features)
-        txt += "\n" + str(self.targets)
-        return txt
-
-    def __str__(self):
-        txt = str(self.features)
-        txt += "\n" + str(self.targets)
-        return txt
-        # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # def sample_augmentation(self, count: Union[int, List[int]], indices: List[int] | None = None, filter_dict: Dict[str, Any] | None = None) -> np.ndarray:
-    #     """
-    #     Augment the dataset by duplicating samples.
-
-    #     Args:
-    #         count: Number of times to duplicate each sample, or a list of counts for each sample
-    #         indices: Specific indices to augment, if None all samples are augmented
-    #         filter_dict: Optional filters to apply before augmentation
-
-    #     Returns:
-    #         Augmented feature array
-    #     """
-    #     return self.features.sample_augmentation(count, indices, filter_dict)
-
-
-    # def add_features(self, x_list: List[np.ndarray]) -> None:
-    #     self.features.add_features(x_list)
-# def add_targets(self, y_list: List[np.ndarray]) -> None:
-    #     self.targets.add_targets(y_list)
-
-
-    # def add_meta(self, meta_df: pd.DataFrame) -> None:
-    #     self.metadata.add_meta(meta_df)
-
-    # def add_folds(self, folds_dict: Dict[str, List[int]]) -> None:
-    #     self.folds.add_folds(folds_dict)
-
-    # def add_predictions(self, filter_dict: Dict[str, Any], predictions: np.ndarray) -> None:
-    #     self.predictions.add_predictions(filter_dict, predictions)
-
-
-    # ## GETTERS AND DATA ACCESSORS ##
-
-
-    # def x_indexed(self, filter_dict: Dict[str, Any], layout: str = "2d", src_concat: bool = False) -> Tuple[Tuple[np.ndarray, ...], Any]:
-    #     return self.features.x_indexed(filter_dict, layout, src_concat)
-
-    # def x_update(self, new_values: np.ndarray, indexes: Any, processing_id: str) -> None:
-    #     self.features.x_update(new_values, indexes, processing_id)
-
-    # def x_copy(self, indexes: Any, copy_count: Any ) -> np.ndarray:
-    #     return self.features.x_copy(indexes, copy_count)
-
-    # def y(self, filter_dict, processed=True, encoding="auto") -> np.ndarray:
-    #     return self.targets.y(filter_dict, processed=processed, encoding=encoding) # auto, float, int, ohe, raw |
-
-    # def y_indexed(self, filter_dict, processed=True, encoding="auto") -> Tuple[np.ndarray, Any]:
-    #     return self.targets.y_indexed(filter_dict, processed=processed, encoding=encoding)
-
-    # def y_update(self, new_values: np.ndarray, indexes: Any, processing_id: str) -> None:
-    #     self.targets.y_update(new_values, indexes, processing_id)
-
-    # def meta(self, filter_dict):
-    #     return self.metadata.meta(filter_dict)
-
-
+        print()
 
     ### io ###
     # def save(self, path: str) -> None:
