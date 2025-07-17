@@ -109,6 +109,9 @@ class CrossValidatorController(OperatorController):
                 )
             kwargs["groups"] = groups
 
+
+        print(f"X shape: {X.shape}, y shape: {y.shape if y is not None else 'N/A'}, groups shape: {groups.shape if groups is not None else 'N/A'}")
+        print(f"Current indices: {current_indices}")
         folds = operator.split(X, **kwargs)
         dataset.set_folds(folds)
         print(f"✅ Successfully created {len(fold_splits)} CV folds")
