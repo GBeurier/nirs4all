@@ -5,16 +5,18 @@ This module contains the main facade that coordinates all dataset blocks
 and provides the primary public API for users.
 """
 
-from typing import Union, List, Dict, Any, Tuple, Optional
+
 
 import numpy as np
 
+from nirs4all.dataset.types import Selector, SourceSelector, OutputData, InputData, Layout
 from nirs4all.dataset.features import Features
 from nirs4all.dataset.targets import Targets
 from nirs4all.dataset.indexer import Indexer
 from nirs4all.dataset.metadata import Metadata
 from nirs4all.dataset.predictions import Predictions
 from sklearn.base import TransformerMixin
+from typing import Literal
 
 
 class SpectroDataset:
@@ -31,10 +33,15 @@ class SpectroDataset:
         self._predictions = Predictions()
 
     # FEATURES
-    def features(self, filter: Dict[str, Any] = {}, layout: str = "2d", source: Union[int, List[int]] = -1, concat_sources: bool = True) -> np.ndarray | Tuple[np.ndarray, ...]:
+    def get_features(self,
+                     selector: Selector = {},
+                     layout: Layout = "2d",
+                     source: SourceSelector = -1,
+                     concat_sources: bool = True) -> OutputData:
 
-        indices = self._indexer.samples(filter)
-        return self._features.data(filter, layout, source, concat_sources)
+        indices, processings = self._indexer.get_samples_and_processings(selector)
+        return self._features.data(selector, layout, source, concat_sources)
+
 
     def add_features(self, filter: Dict[str, Any], data: np.ndarray | List[np.ndarray]) -> None:
         self._features.add_features(filter, data)
