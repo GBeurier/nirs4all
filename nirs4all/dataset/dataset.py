@@ -43,8 +43,11 @@ class SpectroDataset:
         return self._features.data(selector, layout, source, concat_sources)
 
 
-    def add_features(self, filter: Dict[str, Any], data: np.ndarray | List[np.ndarray]) -> None:
-        self._features.add_features(filter, data)
+    def add_features(self,
+                     data: InputData,
+                     data_index: Selector = {}) -> None:
+
+        self._features.add_features(data_index, data)
 
     def set_features(self, filter: Dict[str, Any], data: np.ndarray | List[np.ndarray], layout: str = "2d", filter_update: Optional[Dict[str, Any]] = None, concat_sources: bool = False, source: Union[int, List[int]] = -1) -> None:
 
