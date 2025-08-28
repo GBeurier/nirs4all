@@ -1,10 +1,8 @@
-import polars as pl
-from nirs4all.dataset.types import (
-    Selector, SourceSelector, OutputData, InputData, Layout,
-    SampleIndices, PartitionType, ProcessingList, SampleConfig
-)
 from typing import Dict, List, Union, Any, Optional
 import numpy as np
+import polars as pl
+
+from nirs4all.dataset.types import Selector, SampleIndices, PartitionType, ProcessingList
 
 
 class Indexer:
@@ -19,6 +17,9 @@ class Indexer:
     """
 
     def __init__(self):
+        # Enable StringCache for consistent categorical encodings
+        pl.enable_string_cache()
+
         self.df = pl.DataFrame({
             "row": pl.Series([], dtype=pl.Int32),  # row index - 1 value per line
             "sample": pl.Series([], dtype=pl.Int32),  # index of the sample in the db
