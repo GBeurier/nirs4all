@@ -1,8 +1,8 @@
-from typing import Dict, List, Union, Any, Optional
+from typing import Dict, List, Union, Any, Optional, overload
 import numpy as np
 import polars as pl
 
-from nirs4all.dataset.types import Selector, SampleIndices, PartitionType, ProcessingList
+from nirs4all.dataset.types import Selector, SampleIndices, PartitionType, ProcessingList, IndexDict
 
 
 class Indexer:
@@ -133,6 +133,29 @@ class Indexer:
         else:
             # Other cases - single processing for all samples
             return [str(processings)] * count
+
+    def _convert_indexdict_to_params(self, index_dict: IndexDict, count: int) -> Dict[str, Any]:
+        """Convert IndexDict to method parameters, similar to _apply_filters pattern."""
+        params = {}
+
+        # Handle special mappings
+        if "sample" in index_dict:
+            params["sample_indices"] = index_dict["sample"]
+        if "origin" in index_dict:
+            params["origin_indices"] = index_dict["origin"]
+
+        # Handle direct mappings
+        direct_mappings = ["partition", "group", "branch", "processings", "augmentation"]
+        for key in direct_mappings:
+            if key in index_dict:
+                params[key] = index_dict[key]
+
+        # Handle any other columns as overrides
+        for key, value in index_dict.items():
+            if key not in ["sample", "origin"] + direct_mappings:
+                params[key] = value
+
+        return params
 
     def _append(self,
                 count: int,
@@ -266,6 +289,47 @@ class Indexer:
             **kwargs
         )
 
+    def add_samples_dict(
+        self,
+        count: int,
+        indices: IndexDict,
+        **kwargs
+    ) -> List[int]:
+        """
+        Add multiple samples using dictionary-based parameter specification.
+
+        This method provides a cleaner API for specifying sample parameters
+        using a dictionary, similar to the filtering API pattern.
+
+        Args:
+            count: Number of samples to add
+            indices: Dictionary containing column specifications {
+                "partition": "train|test|val",
+                "sample": [list of sample IDs] or single ID,
+                "origin": [list of origin IDs] or single ID,
+                "group": [list of groups] or single group,
+                "branch": [list of branches] or single branch,
+                "processings": processing configuration,
+                "augmentation": augmentation type,
+                ... (any other column)
+            }
+            **kwargs: Additional column overrides (take precedence over indices)
+
+        Returns:
+            List of sample indices that were added
+
+        Example:
+            # Add samples with dictionary specification
+            indexer.add_samples_dict(3, {
+                "partition": "train",
+                "group": [1, 2, 1],
+                "processings": ["raw", "msc"]
+            })
+        """
+        params = self._convert_indexdict_to_params(indices, count)
+        params.update(kwargs)  # kwargs take precedence
+        return self._append(count, **params)
+
     def add_rows(self, n_rows: int, new_indices: Optional[Dict[str, Any]] = None) -> List[int]:
         """Add rows to the indexer with optional column overrides."""
         if n_rows <= 0:
@@ -298,9 +362,77 @@ class Indexer:
 
         return self._append(n_rows, **kwargs)
 
-    def register_samples(self, count: int, partition: str = "train") -> List[int]:
+    def add_rows_dict(
+        self,
+        n_rows: int,
+        indices: IndexDict,
+        **kwargs
+    ) -> List[int]:
+        """
+        Add rows using dictionary-based parameter specification.
+
+        This method provides a cleaner API for specifying row parameters
+        using a dictionary, similar to the filtering API pattern.
+
+        Args:
+            n_rows: Number of rows to add
+            indices: Dictionary containing column specifications {
+                "partition": "train|test|val",
+                "sample": [list of sample IDs] or single ID,
+                "origin": [list of origin IDs] or single ID,
+                "group": [list of groups] or single group,
+                "branch": [list of branches] or single branch,
+                "processings": processing configuration,
+                "augmentation": augmentation type,
+                ... (any other column)
+            }
+            **kwargs: Additional column overrides (take precedence over indices)
+
+        Returns:
+            List of sample indices that were added
+
+        Example:
+            # Add rows with dictionary specification
+            indexer.add_rows_dict(2, {
+                "partition": "val",
+                "sample": [100, 101],
+                "group": 5
+            })
+        """
+        if n_rows <= 0:
+            return []
+
+        params = self._convert_indexdict_to_params(indices, n_rows)
+        params.update(kwargs)  # kwargs take precedence
+        return self._append(n_rows, **params)
+
+    def register_samples(self, count: int, partition: PartitionType = "train") -> List[int]:
         """Register samples using the unified _append method."""
         return self._append(count, partition=partition)
+
+    def register_samples_dict(
+        self,
+        count: int,
+        indices: IndexDict,
+        **kwargs
+    ) -> List[int]:
+        """
+        Register samples using dictionary-based parameter specification.
+
+        Args:
+            count: Number of samples to register
+            indices: Dictionary containing column specifications
+            **kwargs: Additional column overrides (take precedence over indices)
+
+        Returns:
+            List of sample indices that were registered
+
+        Example:
+            indexer.register_samples_dict(5, {"partition": "test", "group": 2})
+        """
+        params = self._convert_indexdict_to_params(indices, count)
+        params.update(kwargs)  # kwargs take precedence
+        return self._append(count, **params)
 
     def update_by_filter(self, selector: Selector, updates: Dict[str, Any]) -> None:
         condition = self._build_filter_condition(selector)

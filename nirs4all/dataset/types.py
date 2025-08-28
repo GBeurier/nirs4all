@@ -1,7 +1,8 @@
 from typing import List, Dict, Any, Optional, Literal
 import numpy as np
 
-Selector = Optional[Dict[str, Any]]
+IndexDict = Dict[str, Any]
+Selector = Optional[IndexDict]
 SourceSelector = Optional[int | List[int]]
 OutputData = np.ndarray | List[np.ndarray]
 InputData = np.ndarray | List[np.ndarray]
