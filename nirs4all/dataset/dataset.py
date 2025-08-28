@@ -9,7 +9,7 @@ and provides the primary public API for users.
 
 import numpy as np
 
-from nirs4all.dataset.types import Selector, SourceSelector, OutputData, InputData, Layout
+from nirs4all.dataset.types import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict
 from nirs4all.dataset.features import Features
 from nirs4all.dataset.targets import Targets
 from nirs4all.dataset.indexer import Indexer
@@ -33,6 +33,12 @@ class SpectroDataset:
         self._predictions = Predictions()
 
     # FEATURES
+    def add_samples(self,
+                    data: InputData,
+                    indices: Optional[IndexDict] = None) -> None:
+
+        self._indexer.add_samples(data, indices)
+
     def get_features(self,
                      selector: Selector = {},
                      layout: Layout = "2d",
@@ -89,8 +95,6 @@ class SpectroDataset:
 
     def index_column(self, col: str, filter: Dict[str, Any] = {}) -> List[int]:
         return self._indexer.get_column_values(col, filter)
-
-
 
 
     @property

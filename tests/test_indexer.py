@@ -1212,6 +1212,296 @@ class TestUpdateByFilter:
         assert set(rotation_y.tolist()) == {0, 1}  # Original sample IDs
 
 
+class TestIndexDictAPI:
+    """Test the new IndexDict-based API for dictionary parameter specification."""
+
+    def test_add_samples_dict_basic(self):
+        """Test add_samples_dict with basic parameters."""
+        indexer = Indexer()
+
+        # Test using add_samples_dict
+        sample_ids = indexer.add_samples_dict(3, {"partition": "test", "group": 1, "branch": 2})
+
+        assert len(sample_ids) == 3
+        assert sample_ids == [0, 1, 2]
+
+        # Verify the values were set correctly
+        df_subset = indexer.df.filter(pl.col("sample").is_in(sample_ids))
+        partitions = df_subset.select(pl.col("partition")).to_series().to_list()
+        groups = df_subset.select(pl.col("group")).to_series().to_list()
+        branches = df_subset.select(pl.col("branch")).to_series().to_list()
+
+        assert all(p == "test" for p in partitions)
+        assert all(g == 1 for g in groups)
+        assert all(b == 2 for b in branches)
+
+    def test_add_samples_dict_with_processings(self):
+        """Test add_samples_dict with processing configurations."""
+        indexer = Indexer()
+
+        # Test with processing configuration
+        sample_ids = indexer.add_samples_dict(2, {"partition": "val", "group": 3, "processings": ["msc", "snv"]})
+
+        assert len(sample_ids) == 2
+        assert sample_ids == [0, 1]
+
+        # Verify the values were set correctly
+        df_subset = indexer.df.filter(pl.col("sample").is_in(sample_ids))
+        partitions = df_subset.select(pl.col("partition")).to_series().to_list()
+        groups = df_subset.select(pl.col("group")).to_series().to_list()
+        processings = df_subset.select(pl.col("processings")).to_series().to_list()
+
+        assert all(p == "val" for p in partitions)
+        assert all(g == 3 for g in groups)
+        assert all(proc == "['msc', 'snv']" for proc in processings)
+
+    def test_add_samples_dict_with_sample_and_origin_mapping(self):
+        """Test add_samples_dict with sample and origin key mappings."""
+        indexer = Indexer()
+
+        # Test with explicit sample indices
+        sample_ids = indexer.add_samples_dict(3, {
+            "sample": [10, 11, 12],
+            "origin": [1, 1, 2],
+            "partition": "train",
+            "augmentation": "rotation"
+        })
+
+        assert sample_ids == [10, 11, 12]
+
+        # Verify the mappings worked
+        df_subset = indexer.df.filter(pl.col("sample").is_in([10, 11, 12]))
+        samples = df_subset.select(pl.col("sample")).to_series().to_list()
+        origins = df_subset.select(pl.col("origin")).to_series().to_list()
+        augmentations = df_subset.select(pl.col("augmentation")).to_series().to_list()
+
+        assert samples == [10, 11, 12]
+        assert origins == [1, 1, 2]
+        assert all(aug == "rotation" for aug in augmentations)
+
+    def test_add_samples_dict_with_kwargs_override(self):
+        """Test add_samples_dict with additional kwargs override."""
+        indexer = Indexer()
+
+        # Test IndexDict with additional kwargs
+        sample_ids = indexer.add_samples_dict(2, {"partition": "test", "group": 1}, branch=5, extra_col="value")
+
+        assert len(sample_ids) == 2
+
+        df_subset = indexer.df.filter(pl.col("sample").is_in(sample_ids))
+        partitions = df_subset.select(pl.col("partition")).to_series().to_list()
+        groups = df_subset.select(pl.col("group")).to_series().to_list()
+        branches = df_subset.select(pl.col("branch")).to_series().to_list()
+
+        assert all(p == "test" for p in partitions)
+        assert all(g == 1 for g in groups)
+        assert all(b == 5 for b in branches)
+
+    def test_add_rows_dict_basic(self):
+        """Test add_rows_dict using IndexDict API."""
+        indexer = Indexer()
+
+        # Test add_rows_dict
+        row_ids = indexer.add_rows_dict(3, {
+            "partition": "val",
+            "group": 2,
+            "sample": [20, 21, 22],
+            "processings": ["raw", "savgol"]
+        })
+
+        assert row_ids == [20, 21, 22]
+
+        # Verify values
+        df_subset = indexer.df.filter(pl.col("sample").is_in([20, 21, 22]))
+        partitions = df_subset.select(pl.col("partition")).to_series().to_list()
+        groups = df_subset.select(pl.col("group")).to_series().to_list()
+        processings = df_subset.select(pl.col("processings")).to_series().to_list()
+
+        assert all(p == "val" for p in partitions)
+        assert all(g == 2 for g in groups)
+        assert all(proc == "['raw', 'savgol']" for proc in processings)
+
+    def test_register_samples_dict(self):
+        """Test register_samples_dict with IndexDict API."""
+        indexer = Indexer()
+
+        # Test traditional API first
+        traditional_ids = indexer.register_samples(2, partition="train")
+        assert traditional_ids == [0, 1]
+
+        # Test IndexDict API
+        dict_ids = indexer.register_samples_dict(2, {"partition": "test", "group": 5})
+        assert dict_ids == [2, 3]
+
+        # Verify values for IndexDict samples
+        df_subset = indexer.df.filter(pl.col("sample").is_in([2, 3]))
+        partitions = df_subset.select(pl.col("partition")).to_series().to_list()
+        groups = df_subset.select(pl.col("group")).to_series().to_list()
+
+        assert all(p == "test" for p in partitions)
+        assert all(g == 5 for g in groups)
+
+    def test_dict_api_complex_processing_lists(self):
+        """Test dictionary API with complex processing configurations."""
+        indexer = Indexer()
+
+        # Test with individual processing lists per sample
+        sample_ids = indexer.add_samples_dict(3, {
+            "partition": "train",
+            "processings": [
+                ["raw"],
+                ["raw", "msc"],
+                ["raw", "snv", "detrend"]
+            ]
+        })
+
+        assert len(sample_ids) == 3
+
+        # Verify processing configurations
+        df_subset = indexer.df.filter(pl.col("sample").is_in(sample_ids)).sort("sample")
+        processings = df_subset.select(pl.col("processings")).to_series().to_list()
+
+        expected = ["['raw']", "['raw', 'msc']", "['raw', 'snv', 'detrend']"]
+        assert processings == expected
+
+    def test_dict_api_with_list_values(self):
+        """Test dictionary API with list values for multi-sample parameters."""
+        indexer = Indexer()
+
+        # Test with lists for different samples
+        sample_ids = indexer.add_samples_dict(4, {
+            "partition": "train",
+            "group": [1, 1, 2, 2],
+            "branch": [0, 1, 0, 1],
+            "augmentation": ["flip", "rotation", "flip", "rotation"]
+        })
+
+        assert len(sample_ids) == 4
+
+        # Verify values
+        df_subset = indexer.df.filter(pl.col("sample").is_in(sample_ids)).sort("sample")
+        groups = df_subset.select(pl.col("group")).to_series().to_list()
+        branches = df_subset.select(pl.col("branch")).to_series().to_list()
+        augmentations = df_subset.select(pl.col("augmentation")).to_series().to_list()
+
+        assert groups == [1, 1, 2, 2]
+        assert branches == [0, 1, 0, 1]
+        assert augmentations == ["flip", "rotation", "flip", "rotation"]
+
+    def test_dict_api_error_handling(self):
+        """Test error handling in dictionary API."""
+        indexer = Indexer()
+
+        # Test with mismatched list lengths should raise error
+        with pytest.raises(ValueError, match="length.*must match count"):
+            indexer.add_samples_dict(3, {
+                "partition": "train",
+                "group": [1, 2]  # Length 2 doesn't match count 3
+            })
+
+    def test_dict_api_compatibility_with_filtering(self):
+        """Test that dictionary API-created samples work with filtering operations."""
+        indexer = Indexer()
+
+        # Create samples using dictionary API
+        indexer.add_samples_dict(3, {"partition": "train", "group": 1})
+        indexer.add_samples_dict(2, {"partition": "test", "group": 2})
+
+        # Test filtering works correctly
+        train_indices = indexer.x_indices({"partition": "train"})
+        test_indices = indexer.x_indices({"partition": "test"})
+        group1_indices = indexer.x_indices({"group": 1})
+        group2_indices = indexer.x_indices({"group": 2})
+
+        assert len(train_indices) == 3
+        assert len(test_indices) == 2
+        assert len(group1_indices) == 3
+        assert len(group2_indices) == 2
+
+        # Test update_by_filter works
+        indexer.update_by_filter({"group": 1}, {"branch": 10})
+
+        updated_branch = indexer.df.filter(pl.col("group") == 1).select(pl.col("branch")).to_series().to_list()
+        assert all(b == 10 for b in updated_branch)
+
+    def test_dict_api_mixed_with_traditional_api(self):
+        """Test mixing dictionary API calls with traditional API calls."""
+        indexer = Indexer()
+
+        # Mix different API styles
+        traditional_ids = indexer.add_samples(2, partition="train", group=1)
+        dict_ids1 = indexer.add_samples_dict(2, {"partition": "test", "group": 2})
+        dict_ids2 = indexer.add_rows_dict(2, {"partition": "val", "group": 3, "sample": [10, 11]})
+
+        assert len(indexer.df) == 6
+        assert traditional_ids == [0, 1]
+        assert dict_ids1 == [2, 3]
+        assert dict_ids2 == [10, 11]
+
+        # Verify all partitions are correct
+        train_count = len(indexer.df.filter(pl.col("partition") == "train"))
+        test_count = len(indexer.df.filter(pl.col("partition") == "test"))
+        val_count = len(indexer.df.filter(pl.col("partition") == "val"))
+
+        assert train_count == 2
+        assert test_count == 2
+        assert val_count == 2
+
+    def test_dict_api_comprehensive_example(self):
+        """Test a comprehensive example showing the power of the dictionary API."""
+        indexer = Indexer()
+
+        # Complex scenario with mixed parameter types
+        sample_ids = indexer.add_samples_dict(4, {
+            "partition": "train",
+            "sample": [100, 101, 102, 103],
+            "origin": [50, 50, 51, 51],  # Two samples with 2 augmentations each
+            "group": [1, 1, 2, 2],
+            "branch": [0, 1, 0, 1],
+            "processings": [
+                ["raw", "msc"],
+                ["raw", "snv"],
+                ["raw", "msc", "detrend"],
+                ["raw", "savgol"]
+            ],
+            "augmentation": "rotation"
+        })
+
+        # Additional override via kwargs
+        sample_ids2 = indexer.add_samples_dict(2, {
+            "partition": "test",
+            "group": 3
+        }, branch=5, custom_field="special")
+
+        assert sample_ids == [100, 101, 102, 103]
+        assert sample_ids2 == [104, 105]  # Auto-increment continues from explicit indices
+
+        # Verify complex configuration
+        df_complex = indexer.df.filter(pl.col("sample").is_in([100, 101, 102, 103])).sort("sample")
+
+        # Check origins
+        origins = df_complex.select(pl.col("origin")).to_series().to_list()
+        assert origins == [50, 50, 51, 51]
+
+        # Check groups
+        groups = df_complex.select(pl.col("group")).to_series().to_list()
+        assert groups == [1, 1, 2, 2]
+
+        # Check augmentation
+        augmentations = df_complex.select(pl.col("augmentation")).to_series().to_list()
+        assert all(aug == "rotation" for aug in augmentations)
+
+        # Check processings are different per sample
+        processings = df_complex.select(pl.col("processings")).to_series().to_list()
+        expected_processings = [
+            "['raw', 'msc']",
+            "['raw', 'snv']",
+            "['raw', 'msc', 'detrend']",
+            "['raw', 'savgol']"
+        ]
+        assert processings == expected_processings
+
+
 if __name__ == "__main__":
     # Run the tests
     pytest.main([__file__, "-v"])
