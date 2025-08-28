@@ -41,7 +41,7 @@ class TestIndexerInitialization:
         assert schema["partition"] == pl.Categorical
         assert schema["group"] == pl.Int8
         assert schema["branch"] == pl.Int8
-        assert schema["processings"] == pl.Categorical
+        assert schema["processings"] == pl.Utf8
         assert schema["augmentation"] == pl.Categorical
 
     def test_default_values(self):
@@ -357,10 +357,10 @@ class TestAddRows:
         assert indexer.add_rows(-1) == []
 
         # Test mismatched list lengths
-        with pytest.raises(ValueError, match="Override list.*should have.*elements"):
+        with pytest.raises(ValueError, match="sample_indices length.*must match count"):
             indexer.add_rows(3, new_indices={"sample": [1, 2]})  # Wrong length
 
-        with pytest.raises(ValueError, match="Override list.*should have.*elements"):
+        with pytest.raises(ValueError, match="group length.*must match count"):
             indexer.add_rows(2, new_indices={"group": [1, 2, 3]})  # Too many elements
 
     def test_add_rows_incremental_indices(self):
