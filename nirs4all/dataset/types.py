@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional, Literal, Union
+from typing import List, Dict, Any, Optional, Literal
 import numpy as np
 
 Selector = Optional[Dict[str, Any]]
@@ -8,7 +8,7 @@ InputData = np.ndarray | List[np.ndarray]
 Layout = Literal["2d", "3d", "2d_t", "3d_i"]
 
 # Indexer-specific types
-SampleIndices = Union[int, List[int], np.ndarray]
+SampleIndices = int | List[int] | np.ndarray
 PartitionType = Literal["train", "test", "val", "validation"]
 ProcessingList = List[str]
 SampleConfig = Dict[str, Any]

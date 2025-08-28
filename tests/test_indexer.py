@@ -907,6 +907,311 @@ class TestEdgeCases:
         assert stored_samples == large_indices
 
 
+class TestUpdateByFilter:
+    """Test suite for the update_by_filter method."""
+
+    def test_update_single_column_single_value(self):
+        """Test updating a single column with a single value."""
+        indexer = Indexer()
+
+        # Add test data
+        indexer.add_samples(5, partition="train", group=0)
+        indexer.add_samples(3, partition="test", group=1)
+
+        # Update partition for specific group
+        indexer.update_by_filter(
+            selector={"group": 0},
+            updates={"partition": "validation"}
+        )
+
+        # Verify updates
+        train_count = len(indexer.df.filter(pl.col("partition") == "train"))
+        test_count = len(indexer.df.filter(pl.col("partition") == "test"))
+        validation_count = len(indexer.df.filter(pl.col("partition") == "validation"))
+
+        assert train_count == 0  # All group 0 samples moved to validation
+        assert test_count == 3   # Group 1 samples unchanged
+        assert validation_count == 5  # All group 0 samples
+
+    def test_update_multiple_columns(self):
+        """Test updating multiple columns simultaneously."""
+        indexer = Indexer()
+
+        # Add test data
+        indexer.add_samples(4, partition="train", group=0, branch=0)
+        indexer.add_samples(3, partition="train", group=1, branch=0)
+
+        # Update multiple columns for specific group
+        indexer.update_by_filter(
+            selector={"group": 0},
+            updates={"partition": "test", "branch": 2}
+        )
+
+        # Verify updates
+        updated_samples = indexer.df.filter(pl.col("group") == 0)
+        partitions = updated_samples.select(pl.col("partition")).to_series().to_list()
+        branches = updated_samples.select(pl.col("branch")).to_series().to_list()
+
+        assert all(p == "test" for p in partitions)
+        assert all(b == 2 for b in branches)
+
+        # Verify other group unchanged
+        unchanged_samples = indexer.df.filter(pl.col("group") == 1)
+        unchanged_partitions = unchanged_samples.select(pl.col("partition")).to_series().to_list()
+        unchanged_branches = unchanged_samples.select(pl.col("branch")).to_series().to_list()
+
+        assert all(p == "train" for p in unchanged_partitions)
+        assert all(b == 0 for b in unchanged_branches)
+
+    def test_update_with_list_selector(self):
+        """Test updating with list-based selectors (multiple values)."""
+        indexer = Indexer()
+
+        # Add test data with different groups
+        indexer.add_samples(2, group=0, partition="train")
+        indexer.add_samples(2, group=1, partition="train")
+        indexer.add_samples(2, group=2, partition="train")
+        indexer.add_samples(2, group=3, partition="train")
+
+        # Update multiple groups at once
+        indexer.update_by_filter(
+            selector={"group": [0, 2]},  # Select groups 0 and 2
+            updates={"partition": "validation", "branch": 5}
+        )
+
+        # Verify selected groups updated
+        updated_groups = indexer.df.filter(pl.col("partition") == "validation")
+        group_values = updated_groups.select(pl.col("group")).to_series().to_list()
+        branch_values = updated_groups.select(pl.col("branch")).to_series().to_list()
+
+        assert sorted(set(group_values)) == [0, 2]
+        assert len(updated_groups) == 4  # 2 samples each from groups 0 and 2
+        assert all(b == 5 for b in branch_values)
+
+        # Verify other groups unchanged
+        unchanged_groups = indexer.df.filter(pl.col("partition") == "train")
+        unchanged_group_values = unchanged_groups.select(pl.col("group")).to_series().to_list()
+        assert sorted(set(unchanged_group_values)) == [1, 3]
+
+    def test_update_processings_column(self):
+        """Test updating the processings column (string type)."""
+        indexer = Indexer()
+
+        # Add samples with different processings
+        indexer.add_samples(3, processings=["raw"])
+        indexer.add_samples(2, processings=["raw", "savgol"])
+
+        # Update processings for samples with only "raw"
+        indexer.update_by_filter(
+            selector={"processings": "['raw']"},  # String representation
+            updates={"processings": "['raw', 'msc', 'snv']"}
+        )
+
+        # Verify updates
+        updated_processings = indexer.df.filter(
+            pl.col("processings") == "['raw', 'msc', 'snv']"
+        )
+        assert len(updated_processings) == 3
+
+        # Verify unchanged samples
+        unchanged_processings = indexer.df.filter(
+            pl.col("processings") == "['raw', 'savgol']"
+        )
+        assert len(unchanged_processings) == 2
+
+    def test_update_augmentation_column(self):
+        """Test updating the augmentation column (categorical type)."""
+        indexer = Indexer()
+
+        # Add original and augmented samples
+        original_ids = indexer.add_samples(3, partition="train")
+        aug_ids = indexer.augment_rows(original_ids, 1, "rotation")
+
+        # Update augmentation type for rotation samples
+        indexer.update_by_filter(
+            selector={"augmentation": "rotation"},
+            updates={"augmentation": "flip"}
+        )
+
+        # Verify updates
+        flip_count = len(indexer.df.filter(pl.col("augmentation") == "flip"))
+        rotation_count = len(indexer.df.filter(pl.col("augmentation") == "rotation"))
+
+        assert flip_count == 3  # All rotation samples changed to flip
+        assert rotation_count == 0  # No rotation samples left
+
+    def test_update_with_multiple_conditions(self):
+        """Test updating with multiple selector conditions (AND logic)."""
+        indexer = Indexer()
+
+        # Add samples with various combinations
+        indexer.add_samples(2, partition="train", group=0, branch=0)
+        indexer.add_samples(2, partition="train", group=0, branch=1)
+        indexer.add_samples(2, partition="train", group=1, branch=0)
+        indexer.add_samples(2, partition="test", group=0, branch=0)
+
+        # Update only train samples from group 0 and branch 0
+        indexer.update_by_filter(
+            selector={"partition": "train", "group": 0, "branch": 0},
+            updates={"partition": "validation"}
+        )
+
+        # Verify only the specific subset was updated
+        validation_count = len(indexer.df.filter(pl.col("partition") == "validation"))
+        train_count = len(indexer.df.filter(pl.col("partition") == "train"))
+        test_count = len(indexer.df.filter(pl.col("partition") == "test"))
+
+        assert validation_count == 2  # Only train+group0+branch0 samples
+        assert train_count == 4  # Remaining train samples
+        assert test_count == 2   # Test samples unchanged
+
+    def test_update_with_none_values(self):
+        """Test updating columns that contain None values."""
+        indexer = Indexer()
+
+        # Add original samples (augmentation is None)
+        original_ids = indexer.add_samples(3, partition="train")
+        # Add augmented samples
+        aug_ids = indexer.augment_rows(original_ids[:2], 1, "noise")
+
+        # Update original samples (where augmentation is None)
+        indexer.update_by_filter(
+            selector={"augmentation": None},
+            updates={"branch": 10}
+        )
+
+        # Verify updates
+        original_samples = indexer.df.filter(pl.col("augmentation").is_null())
+        branches = original_samples.select(pl.col("branch")).to_series().to_list()
+        assert all(b == 10 for b in branches)
+        assert len(branches) == 3  # All original samples
+
+        # Verify augmented samples unchanged
+        augmented_samples = indexer.df.filter(pl.col("augmentation").is_not_null())
+        aug_branches = augmented_samples.select(pl.col("branch")).to_series().to_list()
+        assert all(b == 0 for b in aug_branches)  # Default branch value
+
+    def test_update_with_empty_selector(self):
+        """Test updating with empty selector (should update all rows)."""
+        indexer = Indexer()
+
+        # Add test data
+        indexer.add_samples(5, partition="train")
+
+        # Update all rows
+        indexer.update_by_filter(
+            selector={},
+            updates={"branch": 99}
+        )
+
+        # Verify all rows updated
+        branches = indexer.df.select(pl.col("branch")).to_series().to_list()
+        assert all(b == 99 for b in branches)
+        assert len(branches) == 5
+
+    def test_update_nonexistent_rows(self):
+        """Test updating with selector that matches no rows."""
+        indexer = Indexer()
+
+        # Add test data
+        original_df = indexer.add_samples(3, partition="train", group=0)
+
+        # Try to update non-existent group
+        indexer.update_by_filter(
+            selector={"group": 99},  # Non-existent group
+            updates={"partition": "test"}
+        )
+
+        # Verify nothing changed
+        test_count = len(indexer.df.filter(pl.col("partition") == "test"))
+        train_count = len(indexer.df.filter(pl.col("partition") == "train"))
+
+        assert test_count == 0
+        assert train_count == 3
+
+    def test_update_preserves_other_columns(self):
+        """Test that update_by_filter preserves non-updated columns."""
+        indexer = Indexer()
+
+        # Add samples with various metadata
+        sample_ids = indexer.add_samples(
+            3,
+            partition="train",
+            group=5,
+            branch=2,
+            processings=["raw", "savgol"]
+        )
+
+        # Get original state
+        original_df = indexer.df.clone()
+
+        # Update only one column
+        indexer.update_by_filter(
+            selector={"group": 5},
+            updates={"partition": "validation"}
+        )
+
+        # Verify partition changed
+        partitions = indexer.df.select(pl.col("partition")).to_series().to_list()
+        assert all(p == "validation" for p in partitions)
+
+        # Verify other columns unchanged
+        groups = indexer.df.select(pl.col("group")).to_series().to_list()
+        branches = indexer.df.select(pl.col("branch")).to_series().to_list()
+        processings = indexer.df.select(pl.col("processings")).to_series().to_list()
+
+        assert all(g == 5 for g in groups)
+        assert all(b == 2 for b in branches)
+        assert all(p == "['raw', 'savgol']" for p in processings)
+
+    def test_update_with_type_casting(self):
+        """Test that update_by_filter properly casts values to column types."""
+        indexer = Indexer()
+
+        # Add test data
+        indexer.add_samples(3, group=0)
+
+        # Update with different type (should be cast to Int8)
+        indexer.update_by_filter(
+            selector={"group": 0},
+            updates={"group": 127}  # Within Int8 range
+        )
+
+        # Verify the update worked and type is preserved
+        groups = indexer.df.select(pl.col("group")).to_series().to_list()
+        assert all(g == 127 for g in groups)
+
+        # Verify schema preserved
+        assert indexer.df.schema["group"] == pl.Int8
+
+    def test_update_integration_with_filtering(self):
+        """Test update_by_filter integration with x_indices and y_indices."""
+        indexer = Indexer()
+
+        # Create a complex scenario
+        original_ids = indexer.add_samples(4, partition="train", group=0)
+        aug_ids = indexer.augment_rows(original_ids[:2], 1, "rotation")
+
+        # Update some samples
+        indexer.update_by_filter(
+            selector={"augmentation": "rotation"},
+            updates={"branch": 5}
+        )
+
+        # Test filtering after update
+        rotation_x = indexer.x_indices({"augmentation": "rotation"})
+        rotation_samples = indexer.df.filter(pl.col("augmentation") == "rotation")
+        branches = rotation_samples.select(pl.col("branch")).to_series().to_list()
+
+        assert len(rotation_x) == 2
+        assert all(b == 5 for b in branches)
+
+        # Test y_indices still works correctly
+        rotation_y = indexer.y_indices({"augmentation": "rotation"})
+        assert len(rotation_y) == 2
+        assert set(rotation_y.tolist()) == {0, 1}  # Original sample IDs
+
+
 if __name__ == "__main__":
     # Run the tests
     pytest.main([__file__, "-v"])

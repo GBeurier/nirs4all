@@ -16,7 +16,7 @@ from nirs4all.dataset.indexer import Indexer
 from nirs4all.dataset.metadata import Metadata
 from nirs4all.dataset.predictions import Predictions
 from sklearn.base import TransformerMixin
-from typing import Literal
+from typing import Optional
 
 
 class SpectroDataset:
