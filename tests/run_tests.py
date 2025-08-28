@@ -20,38 +20,6 @@ def run_all_tests():
     ]
     return pytest.main(test_args)
 
-
-def run_dataset_tests():
-    """Run only dataset tests."""
-    test_args = [
-        "tests/test_dataset.py",
-        "-v",
-        "--tb=short"
-    ]
-    return pytest.main(test_args)
-
-
-def run_indexer_tests():
-    """Run only indexer tests."""
-    test_args = [
-        "tests/test_indexer.py",
-        "-v",
-        "--tb=short"
-    ]
-    return pytest.main(test_args)
-
-
-def run_integration_tests():
-    """Run only integration tests."""
-    test_args = [
-        "tests/",
-        "-v",
-        "-k", "integration",
-        "--tb=short"
-    ]
-    return pytest.main(test_args)
-
-
 def run_with_coverage():
     """Run tests with coverage reporting."""
     test_args = [
@@ -82,12 +50,6 @@ if __name__ == "__main__":
 
         if command == "all":
             exit_code = run_all_tests()
-        elif command == "dataset":
-            exit_code = run_dataset_tests()
-        elif command == "indexer":
-            exit_code = run_indexer_tests()
-        elif command == "integration":
-            exit_code = run_integration_tests()
         elif command == "coverage":
             exit_code = run_with_coverage()
         elif command == "quick":
