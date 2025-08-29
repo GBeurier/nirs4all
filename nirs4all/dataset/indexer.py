@@ -292,7 +292,7 @@ class Indexer:
     def add_samples_dict(
         self,
         count: int,
-        indices: IndexDict,
+        indices: Optional[IndexDict] = None,
         **kwargs
     ) -> List[int]:
         """
@@ -326,8 +326,10 @@ class Indexer:
                 "processings": ["raw", "msc"]
             })
         """
+        if indices is None:
+            indices = {}
         params = self._convert_indexdict_to_params(indices, count)
-        params.update(kwargs)  # kwargs take precedence
+        params.update(kwargs)
         return self._append(count, **params)
 
     def add_rows(self, n_rows: int, new_indices: Optional[Dict[str, Any]] = None) -> List[int]:

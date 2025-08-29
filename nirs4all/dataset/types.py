@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any, Optional, Literal, Sequence
 import numpy as np
 
 IndexDict = Dict[str, Any]
@@ -7,6 +7,7 @@ SourceSelector = Optional[int | List[int]]
 OutputData = np.ndarray | List[np.ndarray]
 InputData = np.ndarray | List[np.ndarray]
 Layout = Literal["2d", "3d", "2d_t", "3d_i"]
+InputTarget = np.ndarray | Sequence
 
 # Indexer-specific types
 SampleIndices = int | List[int] | np.ndarray
