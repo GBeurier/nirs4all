@@ -4,23 +4,33 @@ import numpy as np
 import polars as pl
 
 from nirs4all.dataset.feature_source import FeatureSource
-from nirs4all.dataset.feature_indexer import FeatureIndex
-
+from nirs4all.dataset.types import InputData, ProcessingList
 
 class Features:
     """Manages N aligned NumPy sources + a Polars index."""
 
-    def __init__(self):
+    def __init__(self, cache: bool = False):
         """Initialize empty feature block."""
         self.sources: List[FeatureSource] = []
-        self.index = FeatureIndex()
+        self.cache = cache
 
-    @property
-    def num_samples(self) -> int:
-        """Get the number of samples (rows) across all sources."""
-        if not self.sources:
-            return 0
-        return self.sources[0].num_samples
+    def add_samples(self, data: InputData) -> None:
+        num_added_sources = 0
+        if isinstance(data, np.ndarray):
+            data = [data]
+            num_added_sources = 1
+        elif isinstance(data, list):
+            num_added_sources = len(data)
+
+        if len(self.sources) == 0:
+            for _ in range(num_added_sources):
+                self.sources.append(FeatureSource())
+        elif len(self.sources) != num_added_sources:
+            raise ValueError("Incompatible number of sources")
+
+        for i in range(num_added_sources):
+            self.sources[i].add_samples(data[i])
+
 
     def add_features(self, overrides: Dict[str, Any], x_list: Union[np.ndarray, List[np.ndarray]], source: Union[int, List[int]] = -1) -> None:
         if isinstance(x_list, np.ndarray):
@@ -58,6 +68,27 @@ class Features:
             src.add_samples(new_x, **kwargs)
 
         self.index.add_rows(n_added_rows, overrides=overrides)
+
+
+
+
+
+
+
+
+
+
+
+
+
+    @property
+    def num_samples(self) -> int:
+        """Get the number of samples (rows) across all sources."""
+        if not self.sources:
+            return 0
+        return self.sources[0].num_samples
+
+
 
     def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
         if augmentation_id is None:
