@@ -37,7 +37,9 @@ class SpectroDataset:
                     data: InputData,
                     indices: Optional[IndexDict] = None) -> None:
 
-        self._indexer.add_samples(data, indices)
+        num_samples = data.shape[0] if isinstance(data, np.ndarray) else len(data)
+        self._indexer.add_samples_dict(num_samples, indices)
+        self._features.add_samples(data)
 
     def get_features(self,
                      selector: Selector = {},
@@ -53,7 +55,7 @@ class SpectroDataset:
                      data: InputData,
                      data_index: Selector = {}) -> None:
 
-        self._features.add_features(data_index, data)
+        self._features.add_features(data, {})
 
     def set_features(self, filter: Dict[str, Any], data: np.ndarray | List[np.ndarray], layout: str = "2d", filter_update: Optional[Dict[str, Any]] = None, concat_sources: bool = False, source: Union[int, List[int]] = -1) -> None:
 
