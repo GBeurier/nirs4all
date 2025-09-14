@@ -4,7 +4,7 @@ Tests for CLI installation testing functionality.
 
 import pytest
 from unittest.mock import patch, MagicMock
-from nirs4all.cli.test_install import check_dependency, test_installation, full_test_installation
+from nirs4all.cli.test_install import check_dependency, test_installation, full_test_installation, test_integration
 
 
 class TestInstallationTesting:
@@ -59,3 +59,16 @@ class TestInstallationTesting:
             result = full_test_installation()
 
         assert result is False
+
+    @patch('nirs4all.cli.test_install.test_installation')
+    @patch('nirs4all.core.runner.ExperimentRunner')
+    def test_integration_test_basic_fail(self, mock_runner, mock_test_installation):
+        """Test integration test when basic installation test fails."""
+        mock_test_installation.return_value = False
+
+        with patch('builtins.print'):  # Suppress output during test
+            result = test_integration()
+
+        assert result is False
+        # ExperimentRunner should not be called if basic test fails
+        mock_runner.assert_not_called()
