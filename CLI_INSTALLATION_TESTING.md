@@ -36,6 +36,23 @@ This command will:
 - Check GPU availability for supported frameworks
 - Provide detailed functionality test results
 
+### Integration Test
+
+Run complete pipeline tests with real sample data including Random Forest, PLS fine-tuning, and CNN models:
+
+```bash
+nirs4all -test_integration
+```
+
+This command will:
+- Run the basic installation test first
+- Test Random Forest classification on binary data
+- Test PLS regression with hyperparameter fine-tuning (5-15 components optimization)
+- Test simple CNN (NICON model) with 3 epochs for fast training
+- Use real sample data from the `sample_data/` directory
+- Validate data loading, preprocessing, model training, fine-tuning, and prediction
+- Provide detailed pipeline execution results and performance metrics for all three model types
+
 ### Other Commands
 
 Show version information:
@@ -80,6 +97,82 @@ nirs4all --help
 🎉 Basic installation test PASSED!
 ✓ All required dependencies are available
 ✓ Available ML frameworks: tensorflow, keras
+```
+
+### Integration Test Success
+```
+NIRS4ALL Integration Test...
+==================================================
+Testing NIRS4ALL Installation...
+==================================================
+* Python: 3.10.11
+
+Required Dependencies:
+  * numpy: 2.2.5
+  * pandas: 2.2.3
+  * scipy: 1.15.3
+  * sklearn: 1.6.1
+  * pywt: 1.8.0
+  * joblib: 1.5.0
+  * jsonschema: 4.23.0
+
+Optional ML Frameworks:
+  * tensorflow: 2.20.0
+  ! torch: Not installed
+  * keras: 3.11.3
+  ! jax: Not installed
+
+NIRS4ALL Components:
+  * nirs4all.utils.backend_utils: OK
+  * nirs4all.core.runner: OK
+  * nirs4all.data.dataset_loader: OK
+  * nirs4all.transformations: OK
+
+Basic installation test PASSED!
+All required dependencies are available
+Available ML frameworks: tensorflow, keras
+
+==================================================
+Running Full Pipeline Integration Test...
+==================================================
+  * Successfully imported NIRS4ALL modules
+
+Test 1: Random Forest Classification
+  * Configuration created successfully
+
+Test 2: PLS Fine-tuning
+  * Configuration created successfully
+
+Test 3: Simple CNN (3 epochs)
+  * Configuration created successfully
+
+Running Random Forest Classification:
+    * Data shapes: X_train(300, 1665), Y_train(300, 1)
+    * Data shapes: X_test(129, 1665), Y_test(129, 1)
+    * Execution time: 1.25 seconds
+    * Model scores: {'accuracy': 0.94}
+    * Random Forest Classification completed successfully!
+
+Running PLS Fine-tuning:
+    * Data shapes: X_train(130, 2151), Y_train(130, 1)
+    * Data shapes: X_test(59, 2151), Y_test(59, 1)
+    * Execution time: 2.18 seconds
+    * Best parameters: {'n_components': 12}
+    * Model scores: {'mse': 285.3, 'r2': 0.27}
+    * PLS Fine-tuning completed successfully!
+
+Running Simple CNN:
+    * Data shapes: X_train(300, 1665), Y_train(300, 1)
+    * Data shapes: X_test(129, 1665), Y_test(129, 1)
+    * Execution time: 3.45 seconds
+    * Model scores: {'accuracy': 0.89}
+    * Simple CNN completed successfully!
+
+==================================================
+Integration test PASSED!
+* All 3 pipeline tests completed successfully
+* Random Forest, PLS fine-tuning, and CNN models work correctly
+* NIRS4ALL is ready for use!
 ```
 
 ### Installation Failure Example

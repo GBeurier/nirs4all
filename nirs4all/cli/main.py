@@ -4,7 +4,7 @@ Main CLI entry point for nirs4all.
 
 import argparse
 import sys
-from .test_install import test_installation, full_test_installation
+from .test_install import test_installation, full_test_installation, test_integration
 
 
 def main():
@@ -27,6 +27,12 @@ def main():
     )
 
     parser.add_argument(
+        '-test_integration', '--test-integration',
+        action='store_true',
+        help='Run integration test with sample data pipeline'
+    )
+
+    parser.add_argument(
         '--version',
         action='version',
         version='%(prog)s 0.0.3'
@@ -39,6 +45,9 @@ def main():
         sys.exit(0 if result else 1)
     elif args.full_test_install:
         result = full_test_installation()
+        sys.exit(0 if result else 1)
+    elif args.test_integration:
+        result = test_integration()
         sys.exit(0 if result else 1)
     else:
         parser.print_help()
