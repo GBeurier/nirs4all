@@ -7,6 +7,23 @@ import sys
 from .test_install import test_installation, full_test_installation, test_integration
 
 
+def get_version():
+    """Get the current version of nirs4all."""
+    try:
+        from .. import __version__
+        return __version__
+    except ImportError:
+        try:
+            from importlib.metadata import version
+            return version("nirs4all")
+        except ImportError:
+            try:
+                import pkg_resources
+                return pkg_resources.get_distribution("nirs4all").version
+            except Exception:
+                return "unknown"
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -35,7 +52,7 @@ def main():
     parser.add_argument(
         '--version',
         action='version',
-        version='%(prog)s 0.0.3'
+        version=f'%(prog)s {get_version()}'
     )
 
     args = parser.parse_args()
