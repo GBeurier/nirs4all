@@ -95,9 +95,9 @@ class Wavelet(TransformerMixin, BaseEstimator):
         if scipy.sparse.issparse(X):
             raise ValueError('Sparse matrices not supported!"')
 
-        X = self._validate_data(
-            X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
-        )
+        # X = self._validate_data(
+            # X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
+        # )
 
         return wavelet_transform(X, self.wavelet, mode=self.mode)
 
@@ -225,9 +225,9 @@ class SavitzkyGolay(TransformerMixin, BaseEstimator):
         if scipy.sparse.issparse(X):
             raise ValueError('Sparse matrices not supported!"')
 
-        X = self._validate_data(
-            X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
-        )
+        # X = self._validate_data(
+            # X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
+        # )
 
         return savgol(
             X,
@@ -261,7 +261,7 @@ class MultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
             raise TypeError("Normalization does not support scipy.sparse input")
 
         first_pass = not hasattr(self, "mean_")
-        X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
+        # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
 
         tmp_x = X
         if self.scale:
@@ -286,9 +286,9 @@ class MultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
     def transform(self, X):
         check_is_fitted(self)
 
-        X = self._validate_data(
-            X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
-        )
+        # X = self._validate_data(
+            # X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
+        # )
 
         if X.shape[1] != len(self.a_) or X.shape[1] != len(self.b_):
             raise ValueError(

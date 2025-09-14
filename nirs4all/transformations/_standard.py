@@ -59,7 +59,7 @@ class Baseline(TransformerMixin, BaseEstimator):
             raise TypeError("Baseline does not support scipy.sparse input")
 
         first_pass = not hasattr(self, "mean_")
-        X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
+        # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
 
         self.mean_ = np.mean(X, axis=0)
         return self
@@ -67,9 +67,9 @@ class Baseline(TransformerMixin, BaseEstimator):
     def transform(self, X, y=None):
         check_is_fitted(self)
 
-        X = self._validate_data(
-            X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
-        )
+        # X = self._validate_data(
+            # X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
+        # )
 
         X = X - self.mean_
         return X
@@ -189,9 +189,9 @@ class Detrend(TransformerMixin, BaseEstimator):
         if scipy.sparse.issparse(X):
             raise ValueError('Sparse matrices not supported!"')
 
-        X = self._validate_data(
-            X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
-        )
+        # X = self._validate_data(
+            # X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
+        # )
 
         X = detrend(X, bp=self.bp)
 
@@ -299,9 +299,9 @@ class Gaussian(TransformerMixin, BaseEstimator):
         if scipy.sparse.issparse(X):
             raise ValueError('Sparse matrices not supported!"')
 
-        X = self._validate_data(
-            X, reset=False, copy=self.copy, dtype=np.float64, estimator=self
-        )
+        # X = self._validate_data(
+            # X, reset=False, copy=self.copy, dtype=np.float64, estimator=self
+        # )
 
         X = gaussian(X, order=self.order, sigma=self.sigma)
 
