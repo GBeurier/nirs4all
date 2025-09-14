@@ -30,8 +30,12 @@ dependencies = [
     "pyyaml>=5.4.0",
     "seaborn>=0.11.0",
     "tensorflow>=2.10.0",
-    "h5py>=3.0.0"
+    "h5py>=3.0.0",
+    "packaging>=20.0"
 ]
+
+[project.scripts]
+nirs4all = "nirs4all.cli.main:main"
 
 [project.optional-dependencies]
 torch = ["torch>=2.0.0"]
