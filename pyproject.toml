@@ -38,6 +38,7 @@ dependencies = [
 nirs4all = "nirs4all.cli.main:main"
 
 [project.optional-dependencies]
+gpu = ["tensorflow[and-cuda]>=2.10.0"]  # Explicit GPU version
 torch = ["torch>=2.0.0"]
 keras = ["keras>=3.0.0"]
 jax = ["jax>=0.4.10", "jaxlib>=0.4.10"]
@@ -48,6 +49,14 @@ all = [
     "jax>=0.4.10",
     "jaxlib>=0.4.10"
 ]
+all-gpu = [
+    "tensorflow[and-cuda]>=2.10.0",
+    "torch>=2.0.0",
+    "keras>=3.0.0",
+    "jax>=0.4.10",
+    "jaxlib>=0.4.10"
+]
+
 dev = [
     "pytest",
     "pytest-cov",
