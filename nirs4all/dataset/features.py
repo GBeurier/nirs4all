@@ -4,7 +4,7 @@ import numpy as np
 import polars as pl
 
 from nirs4all.dataset.feature_source import FeatureSource
-from nirs4all.dataset.types import InputData, ProcessingList
+from nirs4all.dataset.helpers import InputData, ProcessingList
 
 class Features:
     """Manages N aligned NumPy sources + a Polars index."""
@@ -68,16 +68,6 @@ class Features:
             src.add_samples(new_x, **kwargs)
 
         self.index.add_rows(n_added_rows, overrides=overrides)
-
-
-
-
-
-
-
-
-
-
 
 
 
