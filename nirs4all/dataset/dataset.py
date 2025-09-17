@@ -9,7 +9,7 @@ and provides the primary public API for users.
 
 import numpy as np
 
-from nirs4all.dataset.types import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict
+from nirs4all.dataset.helpers import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict, get_num_samples
 from nirs4all.dataset.features import Features
 from nirs4all.dataset.targets import Targets
 from nirs4all.dataset.indexer import Indexer
@@ -37,7 +37,7 @@ class SpectroDataset:
                     data: InputData,
                     indices: Optional[IndexDict] = None) -> None:
 
-        num_samples = data.shape[0] if isinstance(data, np.ndarray) else len(data)
+        num_samples = get_num_samples(data)
         self._indexer.add_samples_dict(num_samples, indices)
         self._features.add_samples(data)
 

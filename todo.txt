@@ -1,3 +1,13 @@
+[train / finetune]
+[save]
+[predict / load]
+[generator]
+[bin with bounds or count + warning class assymetry]
+[CLI]
+[augmentation]
+
+
+
 - Split operators:
   - If solo split (test set) > warning if test exists > val
   - Fold + Split - operator
