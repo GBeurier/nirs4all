@@ -6,7 +6,9 @@
 [CLI]
 [augmentation]
 
+#### BUGS in SPECS
 
+- branching in index does not allow different features size in feature sources (ie different samples with different feature size)
 
 - Split operators:
   - If solo split (test set) > warning if test exists > val
