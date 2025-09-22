@@ -170,6 +170,94 @@ class FeatureSource:
 
         return new_data
 
+    def augment_samples(self,
+                        sample_indices: List[int],
+                        data: np.ndarray,
+                        processings: List[str],
+                        count_list: List[int]) -> None:
+        """
+        Create augmented samples by duplicating existing samples and adding new processing data.
+
+        Args:
+            sample_indices: List of sample indices to augment
+            data: Augmented feature data of shape (total_augmented_samples, n_features)
+            processings: Processing names for the augmented data
+            count_list: Number of augmentations per sample (list with same length as sample_indices)
+        """
+        if not sample_indices:
+            return
+
+        total_augmentations = sum(count_list)
+        if total_augmentations == 0:
+            return
+
+        # Validate input data shape
+        if data.ndim != 2:
+            raise ValueError(f"data must be a 2D array, got {data.ndim} dimensions")
+
+        if data.shape[0] != total_augmentations:
+            raise ValueError(f"data must have {total_augmentations} samples, got {data.shape[0]}")
+
+        # Handle processings
+        if isinstance(processings, str):
+            processings = [processings]
+
+        # Prepare the new processing data
+        prep_data = self._prepare_data_for_storage(data)
+
+        # First, expand the array to accommodate new samples
+        new_num_samples = self.num_samples + total_augmentations
+        # Keep the current number of processings for now, we'll add new ones separately
+        current_processings = self._array.shape[1]  # Actual current processings
+        new_shape = (new_num_samples, current_processings, self.num_features)
+
+        # Create expanded array and copy existing data
+        expanded_array = np.full(new_shape, self.pad_value, dtype=self._array.dtype)
+        expanded_array[:self.num_samples, :current_processings, :] = self._array
+
+        # Add augmented samples (copy from original samples first)
+        sample_idx = 0
+        for orig_idx, aug_count in zip(sample_indices, count_list):
+            for _ in range(aug_count):
+                # Copy all existing processings from the original sample
+                expanded_array[self.num_samples + sample_idx, :current_processings, :] = self._array[orig_idx, :current_processings, :]
+                sample_idx += 1
+
+        # Update the array
+        self._array = expanded_array
+
+        # Now add the new processing(s)
+        for proc_name in processings:
+            if proc_name not in self._processing_id_to_index:
+                # Add new processing dimension
+                self._add_new_processing(proc_name, prep_data, total_augmentations)
+
+    def _add_new_processing(self, proc_name: str, data: np.ndarray, total_augmentations: int) -> None:
+        """Helper method to add a new processing to augmented samples."""
+        # Get current processing count before adding new one
+        current_processings = self._array.shape[1]
+
+        # Expand array to include new processing
+        new_shape = (self.num_samples, current_processings + 1, self.num_features)
+        expanded_array = np.full(new_shape, self.pad_value, dtype=self._array.dtype)
+
+        # Copy existing data
+        expanded_array[:, :current_processings, :] = self._array
+
+        # Add new processing data only to the last augmented samples
+        augmented_start_idx = self.num_samples - total_augmentations
+
+        for i in range(total_augmentations):
+            augmented_sample_idx = augmented_start_idx + i
+            expanded_array[augmented_sample_idx, current_processings, :] = data[i, :]
+
+        # Update processing metadata
+        self._processing_ids.append(proc_name)
+        self._processing_id_to_index[proc_name] = current_processings
+
+        # Update array
+        self._array = expanded_array
+
     # def augment_samples(self, indices: List[int], count: Union[int, List[int]] | None = None) -> None:
     #     if count is None:
     #         count = 1
