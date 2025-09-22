@@ -9,7 +9,7 @@ and provides the primary public API for users.
 
 import numpy as np
 
-from nirs4all.dataset.helpers import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict, get_num_samples
+from nirs4all.dataset.helpers import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict, get_num_samples, InputFeatures, ProcessingList
 from nirs4all.dataset.features import Features
 from nirs4all.dataset.targets import Targets
 from nirs4all.dataset.indexer import Indexer
@@ -34,78 +34,90 @@ class SpectroDataset:
 
     # FEATURES
     def add_samples(self,
-                    data: InputData,
-                    indices: Optional[IndexDict] = None) -> None:
-
+                    data: InputData) -> None:
         num_samples = get_num_samples(data)
-        self._indexer.add_samples_dict(num_samples, indices)
+        self._indexer.add_samples_dict(num_samples)
         self._features.add_samples(data)
 
-    def get_features(self,
-                     selector: Selector = {},
-                     layout: Layout = "2d",
-                     source: SourceSelector = -1,
-                     concat_sources: bool = True) -> OutputData:
-
-        indices, processings = self._indexer.get_samples_and_processings(selector)
-        return self._features.data(selector, layout, source, concat_sources)
-
-
     def add_features(self,
-                     data: InputData,
-                     data_index: Selector = {}) -> None:
+                     features: InputFeatures,
+                     processings: ProcessingList) -> None:
+        self._features.update_features([], features, processings)
 
-        self._features.add_features(data, {})
+    def replace_features(self,
+                         source_processings: ProcessingList,
+                         features: InputFeatures,
+                         processings: ProcessingList) -> None:
+        self._features.update_features(source_processings, features, processings)
 
-    def set_features(self, filter: Dict[str, Any], data: np.ndarray | List[np.ndarray], layout: str = "2d", filter_update: Optional[Dict[str, Any]] = None, concat_sources: bool = False, source: Union[int, List[int]] = -1) -> None:
+    def update_features(self,
+                        source_processings: ProcessingList,
+                        features: InputFeatures,
+                        processings: ProcessingList) -> None:
+        self._features.update_features(source_processings, features, processings)
 
-        # x_indices, x_processings = self.indexer.get_indices(filter)
-        self._features.set_x(filter, x, layout=layout, filter_update=filter_update, concat_sources=concat_sources, source=source)
+    # def replace_features(self,
+    #                  selector: Selector = {},
+    #                  data: InputData) -> None:
+    #     samples = self._indexer.samples(selector)
+    #     self._features.replace_features(data, samples)
 
-    def augment_samples(self, filter: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
-        return self.features.augment_samples(filter, count, augmentation_id=augmentation_id)
+    # def get_features(self,
+    #                  selector: Selector = {},
+    #                  layout: Layout = "2d",
+    #                  source: SourceSelector = -1,
+    #                  concat_sources: bool = True) -> OutputData:
 
-    def targets(self, filter: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
-        indices = self._indexer.samples(filter)
-        return self._targets.y(indices=indices, encoding=encoding)
-
-    def add_targets(self, y: np.ndarray) -> None:
-        self._targets.add_targets(y)
-
-    def set_targets(self, filter: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
-        self._targets.set_y(filter, y, transformer, new_processing)
-
-    def metadata(self, filter: Dict[str, Any] = {}) -> pl.DataFrame:
-        return self._metadata.meta(filter)
-
-    def add_metadata(self, meta_df: pl.DataFrame) -> None:
-        self._metadata.add_meta(meta_df)
-
-    def predictions(self, filter: Dict[str, Any] = {}) -> pl.DataFrame:
-        return self._predictions.prediction(filter)
-
-    def add_predictions(self, np_arr: np.ndarray, meta_dict: Dict[str, Any]) -> None:
-        self._predictions.add_prediction(np_arr, meta_dict)
-
-    @property
-    def folds(self) -> List[Tuple[List[int], List[int]]]:
-        return self._folds
-
-    def set_folds(self, folds_iterable) -> None:
-        """Set cross-validation folds from an iterable of (train_idx, val_idx) tuples."""
-        self._folds = list(folds_iterable)
-
-    def index_column(self, col: str, filter: Dict[str, Any] = {}) -> List[int]:
-        return self._indexer.get_column_values(col, filter)
+    #     indices, processings = self._indexer.get_samples_and_processings(selector)
+    #     return self._features.data(selector, layout, source, concat_sources)
 
 
-    @property
-    def num_folds(self) -> int:
-        """Return the number of folds."""
-        return len(self._folds)
+    # def augment_samples(self, filter: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
+    #     return self.features.augment_samples(filter, count, augmentation_id=augmentation_id)
 
     def is_multi_source(self) -> bool:
         return len(self._features.sources) > 1
+
+
+
+    # def targets(self, filter: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
+    #     indices = self._indexer.samples(filter)
+    #     return self._targets.y(indices=indices, encoding=encoding)
+
+    # def add_targets(self, y: np.ndarray) -> None:
+    #     self._targets.add_targets(y)
+
+    # def set_targets(self, filter: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
+    #     self._targets.set_y(filter, y, transformer, new_processing)
+
+    # def metadata(self, filter: Dict[str, Any] = {}) -> pl.DataFrame:
+    #     return self._metadata.meta(filter)
+
+    # def add_metadata(self, meta_df: pl.DataFrame) -> None:
+    #     self._metadata.add_meta(meta_df)
+
+    # def predictions(self, filter: Dict[str, Any] = {}) -> pl.DataFrame:
+    #     return self._predictions.prediction(filter)
+
+    # def add_predictions(self, np_arr: np.ndarray, meta_dict: Dict[str, Any]) -> None:
+    #     self._predictions.add_prediction(np_arr, meta_dict)
+
+    # @property
+    # def folds(self) -> List[Tuple[List[int], List[int]]]:
+    #     return self._folds
+
+    # def set_folds(self, folds_iterable) -> None:
+    #     """Set cross-validation folds from an iterable of (train_idx, val_idx) tuples."""
+    #     self._folds = list(folds_iterable)
+
+    # def index_column(self, col: str, filter: Dict[str, Any] = {}) -> List[int]:
+    #     return self._indexer.get_column_values(col, filter)
+
+
+    # @property
+    # def num_folds(self) -> int:
+    #     """Return the number of folds."""
+    #     return len(self._folds)
 
     @property
     def n_sources(self) -> int:
@@ -123,7 +135,6 @@ class SpectroDataset:
         return txt
         # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
 
-
     ### PRINTING AND SUMMARY ###
     def print_summary(self) -> None:
         """
@@ -134,15 +145,13 @@ class SpectroDataset:
         print("=== SpectroDataset Summary ===")
         print()        # Features summary
         if self._features.sources:
-            total_samples = self._features.n_samples
+            total_samples = self._features.num_samples
             n_sources = len(self._features.sources)
-            feature_dims = [src.n_dims for src in self._features.sources]
             print(f"📊 Features: {total_samples} samples, {n_sources} source(s)")
-            for i, dims in enumerate(feature_dims):
-                rows = self._features.sources[i].n_rows
-                print(f"   Source {i}: {rows} rows x {dims} dims")
-            print(self._features)
-            print(self._targets)
+            print(f"Features: {self._features.num_features}, processings: {self._features.num_processings}")
+            print(f"Processing IDs: {self._features.preprocessing_str}")
+            # print(self._features)
+            # print(self._targets)
         else:
             print("📊 Features: No data")
         print()
