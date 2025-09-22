@@ -2,7 +2,7 @@ from typing import Dict, List, Union, Any, Optional, overload
 import numpy as np
 import polars as pl
 
-from nirs4all.dataset.types import Selector, SampleIndices, PartitionType, ProcessingList, IndexDict
+from nirs4all.dataset.helpers import Selector, SampleIndices, PartitionType, ProcessingList, IndexDict
 
 
 class Indexer:

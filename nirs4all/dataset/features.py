@@ -4,7 +4,7 @@ import numpy as np
 import polars as pl
 
 from nirs4all.dataset.feature_source import FeatureSource
-from nirs4all.dataset.helpers import InputData, ProcessingList
+from nirs4all.dataset.helpers import InputData, InputFeatures, ProcessingList
 
 class Features:
     """Manages N aligned NumPy sources + a Polars index."""
@@ -15,61 +15,30 @@ class Features:
         self.cache = cache
 
     def add_samples(self, data: InputData) -> None:
-        num_added_sources = 0
         if isinstance(data, np.ndarray):
             data = [data]
-            num_added_sources = 1
-        elif isinstance(data, list):
-            num_added_sources = len(data)
 
-        if len(self.sources) == 0:
-            for _ in range(num_added_sources):
-                self.sources.append(FeatureSource())
-        elif len(self.sources) != num_added_sources:
-            raise ValueError("Incompatible number of sources")
+        n_sources = len(data)
+        if not self.sources:
+            self.sources = [FeatureSource() for _ in range(n_sources)]
+        elif len(self.sources) != n_sources:
+            raise ValueError(f"Expected {len(self.sources)} sources, got {n_sources}")
 
-        for i in range(num_added_sources):
-            self.sources[i].add_samples(data[i])
+        for src, arr in zip(self.sources, data):
+            src.add_samples(arr)
 
+    def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList) -> None:
+        if isinstance(features[0], np.ndarray):
+            features = [features]
 
-    def add_features(self, overrides: Dict[str, Any], x_list: Union[np.ndarray, List[np.ndarray]], source: Union[int, List[int]] = -1) -> None:
-        if isinstance(x_list, np.ndarray):
-            if isinstance(source, List):
-                raise ValueError("Cannot specify multiple sources with a single numpy array")
-        elif isinstance(x_list, list):
-            if isinstance(source, int) and source > -1:
-                raise ValueError("Cannot specify a single source with a list of numpy arrays")
+        if len(self.sources) != len(features):
+            raise ValueError(f"Expected {len(self.sources)} sources, got {len(features)}")
 
-        n_added_sources = 1 if isinstance(x_list, np.ndarray) else len(x_list)
-        n_added_rows = x_list[0].shape[0] if isinstance(x_list, list) else x_list.shape[0]
+        if len(source_processings) == 0:
+            source_processings = [""] * len(processings)
 
-        if len(self.sources) == 0:
-            for _ in range(n_added_sources):
-                self.sources.append(FeatureSource())
-        elif len(self.sources) != n_added_sources:
-            raise ValueError("Incompatible number of sources")
-
-        kwargs = {}
-        if "processing" in overrides:
-            kwargs["processing"] = overrides["processing"]
-            overrides["sample"], _ = self.index.get_indices({})
-            overrides["origin"], _ = self.index.get_indices({})
-
-
-        for i in range(n_added_sources):
-            src_index = i
-            if isinstance(source, List):
-                src_index = source[i]
-            elif isinstance(source, int) and source > -1:
-                src_index = source
-            src = self.sources[src_index]
-
-            new_x = x_list[i] if isinstance(x_list, list) else x_list
-            src.add_samples(new_x, **kwargs)
-
-        self.index.add_rows(n_added_rows, overrides=overrides)
-
-
+        for src, arr in zip(self.sources, features):
+            src.update_features(source_processings, arr, processings)
 
     @property
     def num_samples(self) -> int:
@@ -78,115 +47,149 @@ class Features:
             return 0
         return self.sources[0].num_samples
 
-
-
-    def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
-        if augmentation_id is None:
-            augmentation_id = filter_dict.get("augmentation", "unk_aug")
-        if "augmentation" in filter_dict:
-            del filter_dict["augmentation"]
-
-        indices, _ = self.index.get_indices(filter_dict)
-
-        for src in self.sources:
-            src.augment_samples(indices, count)
-
-        return self.index.augment_rows(indices, count, augmentation_id=augmentation_id)
-
-    def x(self, filter_dict: Dict[str, Any], layout: str = "2d", source: Union[int, List[int]] = -1, src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
+    @property
+    def num_processings(self) -> List[int] | int:
+        """Get the number of unique processing IDs per source."""
         if not self.sources:
-            raise ValueError("No features available")
-
-        indices, processings = self.index.get_indices(filter_dict)
-
-        if isinstance(source, int):
-            source = [source] if source != -1 else list(range(len(self.sources)))
-
+            return 0
         res = []
-        for i, source_avai in enumerate(self.sources):
-            if i not in source:
-                continue
-            res.append(source_avai.get_features(indices, processings, layout))
-
-        if src_concat and len(res) > 1:
-            return np.concatenate(res, axis=res[0].ndim - 1)
-
+        for src in self.sources:
+            res.append(src.num_processings)
         if len(res) == 1:
             return res[0]
+        return res
 
-        return tuple(res)
+    @property
+    def preprocessing_str(self) -> List[List[str]] | List[str]:
+        """Get the list of processing IDs per source."""
+        if not self.sources:
+            return []
+        res = []
+        for src in self.sources:
+            res.append(src._processing_ids)
+        if len(res) == 1:
+            return res[0]
+        return res
 
-    def set_x(self,
-              filter_dict: Dict[str, Any],
-              x: Union[np.ndarray, List[np.ndarray]],
-              layout: str = "2d",
-              filter_update: Optional[Dict[str, Any]] = None,
-              src_concat: bool = False,
-              source: Union[int, List[int]] = -1) -> None:
-        """
-        Set feature data for the dataset.
+    @property
+    def num_features(self) -> List[int] | int:
+        """Get the number of features per source."""
+        if not self.sources:
+            return 0
+        res = []
+        for src in self.sources:
+            res.append(src.num_features)
+        if len(res) == 1:
+            return res[0]
+        return res
 
-        Args:
-            filter_dict: Dictionary to filter which samples to update
-            x: Feature data as a numpy array or list of numpy arrays
-            layout: Layout type ("2d", "2d_interleaved", "3d", "3d_transpose")
-            src_concat: Whether to concatenate sources along axis=1
-            source: Index of the source to update, -1 for all sources
-        """
-        if src_concat and isinstance(x, list):
-            raise ValueError("Cannot split sources when x is a list")
+    # def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
+    #     if augmentation_id is None:
+    #         augmentation_id = filter_dict.get("augmentation", "unk_aug")
+    #     if "augmentation" in filter_dict:
+    #         del filter_dict["augmentation"]
 
-        indices, processings = self.index.get_indices(filter_dict)
+    #     indices, _ = self.index.get_indices(filter_dict)
 
-        print("=="*20)
-        print(f"Setting features with filter_dict: {filter_dict}, layout: {layout}, source: {source}, src_concat: {src_concat}")
-        print(f"Indices: {indices}, Processings: {processings}")
-        print("=="*20)
+    #     for src in self.sources:
+    #         src.augment_samples(indices, count)
 
-        if src_concat:
-            last_index = 0
-            for i, source_avai in enumerate(self.sources):
-                if isinstance(source, int) and source != -1 and i != source:
-                    continue
-                if layout == "2d" or layout == "2d_interleaved":
-                    n_features = source_avai.num_2d_features
-                elif layout == "3d" or layout == "3d_transpose":
-                    n_features = source_avai.num_features
-                else:
-                    raise ValueError(f"Unknown layout: {layout}")
+    #     return self.index.augment_rows(indices, count, augmentation_id=augmentation_id)
 
-                # split vertically x
-                source_x = x[last_index:last_index + n_features]
-                source_avai.update_features(indices, processings, source_x, layout=layout)
-                last_index += n_features
-        else:
-            if isinstance(x, np.ndarray):
-                x = [x]
-            for i, source_x in enumerate(x):
-                self.sources[i].update_features(indices, processings, source_x, layout=layout)
+    # def x(self, filter_dict: Dict[str, Any], layout: str = "2d", source: Union[int, List[int]] = -1, src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
+    #     if not self.sources:
+    #         raise ValueError("No features available")
 
-        if filter_update:
-            if "processing" in filter_update and "processing" in filter_dict:
-                for source_avai in self.sources:
-                    source_avai.update_processing_ids(filter_dict["processing"], filter_update["processing"])
+    #     indices, processings = self.index.get_indices(filter_dict)
 
-                if isinstance(filter_dict["processing"], list):
-                    if isinstance(filter_update["processing"], list) and len(filter_dict["processing"]) == len(filter_update["processing"]):
-                        for i, proc in enumerate(filter_dict["processing"]):
-                            new_filter_dict = filter_dict.copy()
-                            new_filter_dict["processing"] = proc
-                            new_filter_update = filter_update.copy()
-                            new_filter_update["processing"] = filter_update["processing"][i]
-                            self.index.update_by_filter(new_filter_dict, new_filter_update)
-                    elif isinstance(filter_update["processing"], str):
-                        self.index.update_by_filter(filter_dict, filter_update)
-                elif isinstance(filter_update["processing"], str):
-                    if isinstance(filter_dict["processing"], list):
-                        raise ValueError("Cannot update processing with a string when filter_dict has a list of processings")
-                    else:
-                        self.index.update_by_filter(filter_dict, filter_update)
-            else:
-                self.index.update_by_filter(filter_dict, filter_update)
+    #     if isinstance(source, int):
+    #         source = [source] if source != -1 else list(range(len(self.sources)))
+
+    #     res = []
+    #     for i, source_avai in enumerate(self.sources):
+    #         if i not in source:
+    #             continue
+    #         res.append(source_avai.get_features(indices, processings, layout))
+
+    #     if src_concat and len(res) > 1:
+    #         return np.concatenate(res, axis=res[0].ndim - 1)
+
+    #     if len(res) == 1:
+    #         return res[0]
+
+    #     return tuple(res)
+
+    # def set_x(self,
+    #           filter_dict: Dict[str, Any],
+    #           x: Union[np.ndarray, List[np.ndarray]],
+    #           layout: str = "2d",
+    #           filter_update: Optional[Dict[str, Any]] = None,
+    #           src_concat: bool = False,
+    #           source: Union[int, List[int]] = -1) -> None:
+    #     """
+    #     Set feature data for the dataset.
+
+    #     Args:
+    #         filter_dict: Dictionary to filter which samples to update
+    #         x: Feature data as a numpy array or list of numpy arrays
+    #         layout: Layout type ("2d", "2d_interleaved", "3d", "3d_transpose")
+    #         src_concat: Whether to concatenate sources along axis=1
+    #         source: Index of the source to update, -1 for all sources
+    #     """
+    #     if src_concat and isinstance(x, list):
+    #         raise ValueError("Cannot split sources when x is a list")
+
+    #     indices, processings = self.index.get_indices(filter_dict)
+
+    #     print("=="*20)
+    #     print(f"Setting features with filter_dict: {filter_dict}, layout: {layout}, source: {source}, src_concat: {src_concat}")
+    #     print(f"Indices: {indices}, Processings: {processings}")
+    #     print("=="*20)
+
+    #     if src_concat:
+    #         last_index = 0
+    #         for i, source_avai in enumerate(self.sources):
+    #             if isinstance(source, int) and source != -1 and i != source:
+    #                 continue
+    #             if layout == "2d" or layout == "2d_interleaved":
+    #                 n_features = source_avai.num_2d_features
+    #             elif layout == "3d" or layout == "3d_transpose":
+    #                 n_features = source_avai.num_features
+    #             else:
+    #                 raise ValueError(f"Unknown layout: {layout}")
+
+    #             # split vertically x
+    #             source_x = x[last_index:last_index + n_features]
+    #             source_avai.update_features(indices, processings, source_x, layout=layout)
+    #             last_index += n_features
+    #     else:
+    #         if isinstance(x, np.ndarray):
+    #             x = [x]
+    #         for i, source_x in enumerate(x):
+    #             self.sources[i].update_features(indices, processings, source_x, layout=layout)
+
+    #     if filter_update:
+    #         if "processing" in filter_update and "processing" in filter_dict:
+    #             for source_avai in self.sources:
+    #                 source_avai.update_processing_ids(filter_dict["processing"], filter_update["processing"])
+
+    #             if isinstance(filter_dict["processing"], list):
+    #                 if isinstance(filter_update["processing"], list) and len(filter_dict["processing"]) == len(filter_update["processing"]):
+    #                     for i, proc in enumerate(filter_dict["processing"]):
+    #                         new_filter_dict = filter_dict.copy()
+    #                         new_filter_dict["processing"] = proc
+    #                         new_filter_update = filter_update.copy()
+    #                         new_filter_update["processing"] = filter_update["processing"][i]
+    #                         self.index.update_by_filter(new_filter_dict, new_filter_update)
+    #                 elif isinstance(filter_update["processing"], str):
+    #                     self.index.update_by_filter(filter_dict, filter_update)
+    #             elif isinstance(filter_update["processing"], str):
+    #                 if isinstance(filter_dict["processing"], list):
+    #                     raise ValueError("Cannot update processing with a string when filter_dict has a list of processings")
+    #                 else:
+    #                     self.index.update_by_filter(filter_dict, filter_update)
+    #         else:
+    #             self.index.update_by_filter(filter_dict, filter_update)
 
     def __repr__(self):
         n_sources = len(self.sources)
@@ -202,12 +205,11 @@ class Features:
         if n_sources == 0:
             summary += "\nNo sources available"
         # unique augmentations
-        summary += f"\nUnique augmentations: {self.index.uniques('augmentation')}"
-        summary += f"\nIndex:\n{self.index.df}"
+        # summary += f"\nUnique augmentations: {self.index.uniques('augmentation')}"
+        # summary += f"\nIndex:\n{self.index.df}"
         return summary
 
-    def groups(self, filter_dict: Dict[str, Any] = {}) -> np.ndarray:
-        return self.index.get_column_values("group", filter_dict)
+
 
     # def update_index(self, indices: List[int], filter_dict: Dict[str, Any]) -> None:
     #     """

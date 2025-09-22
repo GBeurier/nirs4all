@@ -6,6 +6,7 @@ Selector = Optional[IndexDict]
 SourceSelector = Optional[int | list[int]]
 OutputData = np.ndarray | list[np.ndarray]
 InputData = np.ndarray | list[np.ndarray]
+InputFeatures = list[np.ndarray] | list[list[np.ndarray]]
 Layout = Literal["2d", "3d", "2d_t", "3d_i"]
 InputTarget = np.ndarray | Sequence
 
