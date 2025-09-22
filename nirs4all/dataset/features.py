@@ -83,6 +83,38 @@ class Features:
             return res[0]
         return res
 
+    def augment_samples(self,
+                        sample_indices: List[int],
+                        data: InputData,
+                        processings: ProcessingList,
+                        count: Union[int, List[int]]) -> None:
+        """
+        Create augmented samples from existing ones.
+
+        Args:
+            sample_indices: List of sample indices to augment
+            data: Augmented feature data (single array or list of arrays for multi-source)
+            processings: Processing names for the augmented data
+            count: Number of augmentations per sample (int) or per sample list
+        """
+        if isinstance(data, np.ndarray):
+            data = [data]
+
+        if len(self.sources) != len(data):
+            raise ValueError(f"Expected {len(self.sources)} sources, got {len(data)}")
+
+        # Normalize count to list
+        if isinstance(count, int):
+            count_list = [count] * len(sample_indices)
+        else:
+            count_list = list(count)
+            if len(count_list) != len(sample_indices):
+                raise ValueError("count must be an int or a list with the same length as sample_indices")
+
+        # Add augmented data to each source
+        for src, arr in zip(self.sources, data):
+            src.augment_samples(sample_indices, arr, processings, count_list)
+
     # def augment_samples(self, filter_dict: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
     #     if augmentation_id is None:
     #         augmentation_id = filter_dict.get("augmentation", "unk_aug")
@@ -255,3 +287,4 @@ class Features:
     #             raise ValueError(
     #                 f"Array {i} has {arr.shape[0]} rows, expected {n_rows}"
     #             )
+

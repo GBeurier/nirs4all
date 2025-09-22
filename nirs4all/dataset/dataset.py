@@ -16,7 +16,7 @@ from nirs4all.dataset.indexer import Indexer
 from nirs4all.dataset.metadata import Metadata
 from nirs4all.dataset.predictions import Predictions
 from sklearn.base import TransformerMixin
-from typing import Optional
+from typing import Optional, Union, List
 
 
 class SpectroDataset:
@@ -56,24 +56,48 @@ class SpectroDataset:
                         processings: ProcessingList) -> None:
         self._features.update_features(source_processings, features, processings)
 
-    # def replace_features(self,
-    #                  selector: Selector = {},
-    #                  data: InputData) -> None:
-    #     samples = self._indexer.samples(selector)
-    #     self._features.replace_features(data, samples)
+    def augment_samples(self,
+                        data: InputData,
+                        processings: ProcessingList,
+                        augmentation_id: str,
+                        selector: Optional[Selector] = None,
+                        count: Union[int, List[int]] = 1) -> List[int]:
+        """
+        Create augmented samples from existing ones.
 
-    # def get_features(self,
-    #                  selector: Selector = {},
-    #                  layout: Layout = "2d",
-    #                  source: SourceSelector = -1,
-    #                  concat_sources: bool = True) -> OutputData:
+        Args:
+            data: Augmented feature data (same structure as add_samples)
+            processings: Processing names for the augmented data
+            augmentation_id: String identifier for the augmentation type
+            selector: Optional filter to select which samples to augment (default: all)
+            count: Number of augmentations per sample (int) or per sample list
 
-    #     indices, processings = self._indexer.get_samples_and_processings(selector)
-    #     return self._features.data(selector, layout, source, concat_sources)
+        Returns:
+            List of new sample indices for the augmented samples
+        """
+        # Get indices of samples to augment using selector
+        if selector is None:
+            # Augment all existing samples
+            sample_indices = list(range(self._features.num_samples))
+        else:
+            sample_indices = self._indexer.x_indices(selector).tolist()
+
+        if not sample_indices:
+            return []
+
+        # Add augmented samples to indexer first
+        augmented_sample_ids = self._indexer.augment_rows(
+            sample_indices, count, augmentation_id
+        )
+
+        # Add augmented data to features
+        self._features.augment_samples(
+            sample_indices, data, processings, count
+        )
+
+        return augmented_sample_ids
 
 
-    # def augment_samples(self, filter: Dict[str, Any], count: Union[int, List[int]], augmentation_id: Optional[str] = None) -> List[int]:
-    #     return self.features.augment_samples(filter, count, augmentation_id=augmentation_id)
 
     def is_multi_source(self) -> bool:
         return len(self._features.sources) > 1
