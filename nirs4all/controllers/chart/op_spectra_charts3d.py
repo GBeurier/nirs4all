@@ -13,13 +13,13 @@ if TYPE_CHECKING:
     from nirs4all.dataset.dataset import SpectroDataset
 
 @register_controller
-class SpectraChartController(OperatorController):
+class SpectraChartController3D(OperatorController):
 
     priority = 10
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
-        return keyword == "chart_2d"
+        return keyword == "chart_3d"
 
     @classmethod
     def use_multi_source(cls) -> bool:
@@ -61,9 +61,9 @@ class SpectraChartController(OperatorController):
                 x_sorted = x_2d[sorted_indices]
                 y_sorted = y_flat[sorted_indices]
 
-                # Create 2D plot
+                # Create 3D plot
                 fig = plt.figure(figsize=(12, 8))
-                ax = fig.add_subplot(111)
+                ax = fig.add_subplot(111, projection='3d')
 
                 # Create feature indices (wavelengths)
                 n_features = x_2d.shape[1]
@@ -79,15 +79,16 @@ class SpectraChartController(OperatorController):
                 else:
                     y_normalized = np.zeros_like(y_sorted)
 
-                # Plot each spectrum as a 2D line with gradient colors
-                for i, spectrum in enumerate(x_sorted):
+                # Plot each spectrum as a line in 3D space with gradient colors
+                for i, (spectrum, y_val) in enumerate(zip(x_sorted, y_sorted)):
                     color = colormap(y_normalized[i])
-                    ax.plot(feature_indices, spectrum,
+                    ax.plot(feature_indices, [y_val] * n_features, spectrum,
                             color=color, alpha=0.7, linewidth=1)
 
                 ax.set_xlabel('Feature Index (Wavelength)')
-                ax.set_ylabel('Spectral Intensity')
-                ax.set_title(f'2D Spectra Visualization - Processing {processing_idx}\n'
+                ax.set_ylabel('Target Values (sorted)')
+                ax.set_zlabel('Spectral Intensity')
+                ax.set_title(f'3D Spectra Visualization - Processing {processing_idx}\n'
                              f'Data Source: {sd_idx}, Samples: {len(y_sorted)}')
 
                 # Add colorbar to show the y-value gradient

@@ -397,8 +397,8 @@ def get_dataset(data_config, disjoint=False) -> Union[SpectroDataset, Dict[str, 
             # dataset.add_features({}, [x_train, x_train])
             # dataset.add_features({"partition": "test"}, [x_test, x_test])
             # ##
-            dataset.add_features({}, x_train)
-            dataset.add_features({"partition": "test"}, x_test)
+            dataset.add_samples(x_train, {"partition": "train"})
+            dataset.add_samples(x_test, {"partition": "test"})
             dataset.add_targets(y_train)
             dataset.add_targets(y_test)
 

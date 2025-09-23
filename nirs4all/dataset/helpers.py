@@ -11,7 +11,7 @@ Layout = Literal["2d", "3d", "2d_t", "3d_i"]
 InputTarget = np.ndarray | Sequence
 
 # Indexer-specific types
-SampleIndices = int | list[int] | np.ndarray
+SampleIndices = list[int] | np.ndarray
 PartitionType = Literal["train", "test", "val", "validation"]
 ProcessingList = list[str]
 SampleConfig = Dict[str, Any]

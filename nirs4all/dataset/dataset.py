@@ -32,11 +32,25 @@ class SpectroDataset:
         self._metadata = Metadata()
         self._predictions = Predictions()
 
+    def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
+        indices = self._indexer.x_indices(selector)
+        return self._features.x(indices, layout, concat_source)
+
+    def y(self, selector: Selector) -> np.ndarray:
+        indices = self._indexer.y_indices(selector)
+        if selector and "y" in selector:
+            processing = selector["y"]
+        else:
+            processing = "numeric"
+
+        return self._targets.y(indices, processing)
+
     # FEATURES
     def add_samples(self,
-                    data: InputData) -> None:
+                    data: InputData,
+                    indexes: Optional[IndexDict] = None) -> None:
         num_samples = get_num_samples(data)
-        self._indexer.add_samples_dict(num_samples)
+        self._indexer.add_samples_dict(num_samples, indexes)
         self._features.add_samples(data)
 
     def add_features(self,
@@ -62,19 +76,6 @@ class SpectroDataset:
                         augmentation_id: str,
                         selector: Optional[Selector] = None,
                         count: Union[int, List[int]] = 1) -> List[int]:
-        """
-        Create augmented samples from existing ones.
-
-        Args:
-            data: Augmented feature data (same structure as add_samples)
-            processings: Processing names for the augmented data
-            augmentation_id: String identifier for the augmentation type
-            selector: Optional filter to select which samples to augment (default: all)
-            count: Number of augmentations per sample (int) or per sample list
-
-        Returns:
-            List of new sample indices for the augmented samples
-        """
         # Get indices of samples to augment using selector
         if selector is None:
             # Augment all existing samples
@@ -108,8 +109,8 @@ class SpectroDataset:
     #     indices = self._indexer.samples(filter)
     #     return self._targets.y(indices=indices, encoding=encoding)
 
-    # def add_targets(self, y: np.ndarray) -> None:
-    #     self._targets.add_targets(y)
+    def add_targets(self, y: np.ndarray) -> None:
+        self._targets.add_targets(y)
 
     # def set_targets(self, filter: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
     #     self._targets.set_y(filter, y, transformer, new_processing)
@@ -151,11 +152,13 @@ class SpectroDataset:
     def __repr__(self):
         txt = str(self._features)
         txt += "\n" + str(self._targets)
+        txt += "\n" + str(self._indexer)
         return txt
 
     def __str__(self):
         txt = str(self._features)
         txt += "\n" + str(self._targets)
+        txt += "\n" + str(self._indexer)
         return txt
         # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
 
