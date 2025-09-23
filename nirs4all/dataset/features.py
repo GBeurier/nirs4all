@@ -4,7 +4,7 @@ import numpy as np
 import polars as pl
 
 from nirs4all.dataset.feature_source import FeatureSource
-from nirs4all.dataset.helpers import InputData, InputFeatures, ProcessingList
+from nirs4all.dataset.helpers import InputData, InputFeatures, ProcessingList, SampleIndices
 
 class Features:
     """Manages N aligned NumPy sources + a Polars index."""
@@ -28,16 +28,16 @@ class Features:
             src.add_samples(arr)
 
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList) -> None:
-        if isinstance(features[0], np.ndarray):
-            features = [features]
 
-        if len(self.sources) != len(features):
-            raise ValueError(f"Expected {len(self.sources)} sources, got {len(features)}")
+        feats = [features] if isinstance(features[0], np.ndarray) else features
+
+        if len(self.sources) != len(feats):
+            raise ValueError(f"Expected {len(self.sources)} sources, got {len(feats)}")
 
         if len(source_processings) == 0:
             source_processings = [""] * len(processings)
 
-        for src, arr in zip(self.sources, features):
+        for src, arr in zip(self.sources, feats):
             src.update_features(source_processings, arr, processings)
 
     @property
@@ -128,28 +128,21 @@ class Features:
 
     #     return self.index.augment_rows(indices, count, augmentation_id=augmentation_id)
 
-    # def x(self, filter_dict: Dict[str, Any], layout: str = "2d", source: Union[int, List[int]] = -1, src_concat: bool = False) -> np.ndarray | Tuple[np.ndarray, ...]:
-    #     if not self.sources:
-    #         raise ValueError("No features available")
+    def x(self, indices: SampleIndices, layout: str = "2d", concat_source: bool = True) -> np.ndarray | list[np.ndarray]:
+        if not self.sources:
+            raise ValueError("No features available")
 
-    #     indices, processings = self.index.get_indices(filter_dict)
+        res = []
+        for src in self.sources:
+            res.append(src.x(indices, layout))
 
-    #     if isinstance(source, int):
-    #         source = [source] if source != -1 else list(range(len(self.sources)))
+        if concat_source and len(res) > 1:
+            return np.concatenate(res, axis=res[0].ndim - 1)
 
-    #     res = []
-    #     for i, source_avai in enumerate(self.sources):
-    #         if i not in source:
-    #             continue
-    #         res.append(source_avai.get_features(indices, processings, layout))
+        if len(res) == 1:
+            return res[0]
 
-    #     if src_concat and len(res) > 1:
-    #         return np.concatenate(res, axis=res[0].ndim - 1)
-
-    #     if len(res) == 1:
-    #         return res[0]
-
-    #     return tuple(res)
+        return res
 
     # def set_x(self,
     #           filter_dict: Dict[str, Any],

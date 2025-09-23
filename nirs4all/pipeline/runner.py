@@ -26,7 +26,7 @@ from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 class PipelineRunner:
     """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
 
-    WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack", "scope", "cluster", "merge", "uncluster", "unscope", "spectra_charts"]
+    WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack", "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d"]
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     def __init__(self, max_workers: Optional[int] = None, continue_on_error: bool = False, backend: str = 'threading', verbose: int = 0, parallel: bool = True):
@@ -43,7 +43,8 @@ class PipelineRunner:
         """Run the pipeline with the given configuration and dataset."""
 
         print("🚀 Starting Pipeline Runner")
-        context = {"branch": 0, "processing": "raw", "y": "numeric"}
+        # context = {"branch": 0, "processing": "raw", "y": "numeric"}
+        context = {}
 
         try:
             self.run_steps(config.steps, dataset, context, execution="sequential")

@@ -43,7 +43,7 @@ def browse_folder(folder_path, global_params=None):
             # logging.warning("Multiple %s files found for %s.", key, dataset_name)
             continue
         if len(matched_files) == 0:
-            print(f"No {key} file found for {folder_path}.")
+            print(f"No file found for {key} data in {folder_path}. Continuing without it.")
             # logging.warning("No %s file found for %s.", key, dataset_name)
             continue
 

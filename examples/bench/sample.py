@@ -36,8 +36,9 @@ config = {
         "folder": "./sample_data"  # dataset definition is dicted by the json schema. Can load single or multiple files with metadata, and many indices predefined if needed, and folds also.
     },
     "pipeline": [
-        # "spectra_charts",
-        # StandardScaler(feature_range=(0.2,0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
+        "chart_3d",
+        "chart_2d",
+        # StandardScaler(with_std=False),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
         # "spectra_charts",
         # {"sample_augmentation": [RT, RT(p_range=5)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
         # "spectra_charts",

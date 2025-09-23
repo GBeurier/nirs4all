@@ -1,113 +1,152 @@
-from typing import Dict, List, Optional, Sequence, Tuple, Union, cast
+from typing import Dict, List, Optional, Union, Any
 
 import numpy as np
-import warnings
 from sklearn.base import TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder
 
+from nirs4all.dataset.helpers import SampleIndices
+
 
 class Targets:
-    """Light‑weight manager for target arrays and their processing pipelines.
+    """
+    Target manager that mimics FeatureSource behavior for target data.
 
-    * **Storage model** – A *processing version* (e.g. ``"raw"``, ``"numeric"``,
-      ``"scaled"``) maps to a **single** ``numpy.ndarray`` of shape
-      ``(n_samples, n_targets)``.  All versions share the **same sample order** so
-      a row index is unambiguous across versions.
-    * **Transformers** – For every derived processing we keep the tuple
-      ``(transformer, source_processing)`` so we can chain
-      ``inverse_transform`` calls back to an earlier version.
-    * **Mutability rules** – Targets must be added *once* via :pymeth:`add_targets`.
-      After additional processings have been created, calling
-      :pymeth:`add_targets` again would break alignment and is therefore
-      forbidden (raises :class:`ValueError`).
+    Manages target arrays with processing chains, automatically handling
+    non-numeric data conversion and maintaining processing ancestry.
     """
 
-    # ---------------------------------------------------------------------
-    # Construction helpers
-    # ---------------------------------------------------------------------
+    def __init__(self):
+        """Initialize empty target manager."""
+        self._array = np.empty((0, 1), dtype=np.float32)  # Shape: (samples, targets)
+        self._processing_ids: List[str] = []  # Processing names in order
+        self._processing_id_to_index: Dict[str, int] = {}  # Maps processing name to index in _data
+        self._data: Dict[str, np.ndarray] = {}  # Maps processing name to target array
+        self._ancestors: Dict[str, str] = {}  # Maps processing to its source processing
+        self._transformers: Dict[str, TransformerMixin] = {}  # Maps processing to its transformer
 
-    def __init__(self) -> None:
-        self._data: Dict[str, np.ndarray] = {}
-        # key -> (transformer, source_processing)
-        self._transformers: Dict[str, Tuple[TransformerMixin, str]] = {}
+    def __repr__(self):
+        return f"Targets(samples={self.num_samples}, targets={self.num_targets}, processings={self._processing_ids})"
 
-    # ------------------------------------------------------------------
-    # Public properties
-    # ------------------------------------------------------------------
+    def __str__(self) -> str:
+        if self.num_samples == 0:
+            return "Targets(empty)"
+
+        lines = [f"Targets with {self.num_samples} samples and {self.num_targets} targets"]
+        for proc_id in self._processing_ids:
+            data = self._data[proc_id]
+            ancestor = self._ancestors.get(proc_id, "none")
+            transformer = type(self._transformers.get(proc_id, type(None))).__name__
+            lines.append(f"  • {proc_id}: {data.shape}, ancestor={ancestor}, transformer={transformer}")
+        return "\n".join(lines)
 
     @property
-    def n_samples(self) -> int:
-        """Number of rows stored (0 if empty)."""
-        if "raw" not in self._data:
-            return 0
-        return int(self._data["raw"].shape[0])
+    def num_samples(self) -> int:
+        """Get the number of samples."""
+        return self._array.shape[0]
 
     @property
-    def processing_versions(self) -> List[str]:
-        """Sorted list of available processing names."""
-        return sorted(self._data)
+    def num_targets(self) -> int:
+        """Get the number of targets."""
+        return self._array.shape[1]
 
-    # ------------------------------------------------------------------
-    # Core API
-    # ------------------------------------------------------------------
+    @property
+    def num_processings(self) -> int:
+        """Get the number of unique processings."""
+        return len(self._processing_ids)
 
-    def add_targets(self, y: Union[np.ndarray, Sequence]) -> None:
-        """Register *raw* targets and automatically build a *numeric* version.
+    @property
+    def processing_ids(self) -> List[str]:
+        """Get the list of processing IDs."""
+        return self._processing_ids.copy()
 
-        Parameters
-        ----------
-        y
-            Array‑like of shape ``(n_samples,)`` or ``(n_samples, n_targets)``.
-
-        Raises
-        ------
-        ValueError
-            If targets were already added, i.e. any processing exists.
+    def add_targets(self, targets: Union[np.ndarray, List, tuple]) -> None:
         """
-        if len(self._transformers.keys()) > 2:  # "raw" + "numeric"
-            raise ValueError(
-                "Targets already added – you cannot append new samples once "
-                "derived processings have been created."
-            )
+        Add target samples. Can be called multiple times to append new targets.
 
-        y = np.asarray(y)
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
-
-        # Append new y to raw values
-        if "raw" in self._data:
-            self._data["raw"] = np.vstack([self._data["raw"], y])
-        else:
-            self._data["raw"] = y.copy()
-
-        # Build numeric representation + transformer
-        numeric, transformer = self._make_numeric(y)
-        if "numeric" in self._data:
-            self._data["numeric"] = np.vstack([self._data["numeric"], numeric])
-        else:
-            self._data["numeric"] = numeric
-
-        self._transformers["numeric"] = (transformer, "raw")
-
-    # ------------------------------------------------------------------
-    # Access helpers
-    # ------------------------------------------------------------------
-
-    def y(
-        self,
-        indices: Optional[Union[List[int], np.ndarray]] = None,
-        processing: str = "numeric",
-    ) -> np.ndarray:
-        """Return targets for *processing* and *indices*.
-
-        ``indices`` can be any 1‑D sequence convertible to ``np.ndarray``.  If
-        *None* every sample is returned (a view, *not* a copy).
+        Args:
+            targets: Target data as 1D array (single target) or 2D array (multiple targets)
         """
-        if processing not in self._data:
-            raise ValueError(
-                f"Unknown processing '{processing}'. Available: {self.processing_versions}"
-            )
+        if self.num_processings > 2:  # Allow if only "raw" and "numeric" exist
+            raise ValueError("Cannot add new samples after additional processings have been created.")
+
+        targets = np.asarray(targets)
+        if targets.ndim == 1:
+            targets = targets.reshape(-1, 1)
+        elif targets.ndim != 2:
+            raise ValueError(f"Targets must be 1D or 2D array, got {targets.ndim}D")
+
+        # First time: initialize structure
+        if self.num_processings == 0:
+            self._array = targets.astype(np.float32)
+            self._add_processing("raw", targets, ancestor=None, transformer=None)
+
+            # Automatically create "numeric" processing
+            numeric_data, transformer = self._make_numeric(targets)
+            self._add_processing("numeric", numeric_data, ancestor="raw", transformer=transformer)
+        else:
+            # Subsequent times: append to existing data
+            if targets.shape[1] != self.num_targets:
+                raise ValueError(f"Target data has {targets.shape[1]} targets, expected {self.num_targets}")
+
+            # Append to raw data
+            self._array = np.vstack([self._array, targets.astype(np.float32)])
+            self._data["raw"] = np.vstack([self._data["raw"], targets])
+
+            # Update numeric data using existing transformer
+            numeric_data, _ = self._make_numeric(targets)
+            self._data["numeric"] = np.vstack([self._data["numeric"], numeric_data])
+
+    def add_processed_targets(self,
+                              processing_name: str,
+                              targets: Union[np.ndarray, List, tuple],
+                              ancestor: str = "numeric",
+                              transformer: Optional[TransformerMixin] = None) -> None:
+        """
+        Add processed target data.
+
+        Args:
+            processing_name: Name for this processing
+            targets: Processed target data (must have same number of samples as existing data)
+            ancestor: Source processing name (default: "numeric")
+            transformer: Transformer used to create this processing
+        """
+        if processing_name in self._processing_id_to_index:
+            raise ValueError(f"Processing '{processing_name}' already exists")
+
+        if ancestor not in self._processing_id_to_index:
+            raise ValueError(f"Ancestor processing '{ancestor}' does not exist")
+
+        targets = np.asarray(targets)
+        if targets.ndim == 1:
+            targets = targets.reshape(-1, 1)
+        elif targets.ndim != 2:
+            raise ValueError(f"Targets must be 1D or 2D array, got {targets.ndim}D")
+
+        if targets.shape[0] != self.num_samples:
+            raise ValueError(f"Target data has {targets.shape[0]} samples, expected {self.num_samples}")
+
+        if targets.shape[1] != self.num_targets:
+            raise ValueError(f"Target data has {targets.shape[1]} targets, expected {self.num_targets}")
+
+        self._add_processing(processing_name, targets, ancestor, transformer)
+
+    def get_targets(self,
+                    processing: str = "numeric",
+                    indices: Optional[Union[List[int], np.ndarray]] = None) -> np.ndarray:
+        """
+        Get target data for a specific processing.
+
+        Args:
+            processing: Processing name (default: "numeric")
+            indices: Sample indices to retrieve (None for all samples)
+
+        Returns:
+            Target array of shape (n_samples, n_targets) or (selected_samples, n_targets)
+        """
+        if processing not in self._processing_id_to_index:
+            available = list(self._processing_id_to_index.keys())
+            raise ValueError(f"Processing '{processing}' not found. Available: {available}")
 
         data = self._data[processing]
 
@@ -117,117 +156,202 @@ class Targets:
         indices = np.asarray(indices, dtype=int)
         return data[indices]
 
-    # ------------------------------------------------------------------
-    # Transformation plumbing
-    # ------------------------------------------------------------------
+    def y(self, indices: SampleIndices, processing: str) -> np.ndarray:
+        return self.get_targets(processing, indices)
 
-    def set_y(
-        self,
-        y: Union[np.ndarray, Sequence],
-        transformer: TransformerMixin,
-        new_processing: str,
-        source_processing: str = "numeric",
-    ) -> None:
-        """Register an *already transformed* target array.
-
-        All rows *must* align with ``source_processing``.
+    def get_processing_ancestry(self, processing: str) -> List[str]:
         """
-        if new_processing in self._data:
-            warnings.warn(
-                f"Processing '{new_processing}' already exists – it will be overwritten.",
-                stacklevel=2,
-            )
+        Get the full ancestry chain for a processing.
 
-        if source_processing not in self._data:
-            raise ValueError(f"Source processing '{source_processing}' not found.")
+        Args:
+            processing: Processing name
 
-        y = np.asarray(y)
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
+        Returns:
+            List of processing names from root to the specified processing
+        """
+        if processing not in self._processing_id_to_index:
+            raise ValueError(f"Processing '{processing}' not found")
 
-        if y.shape[0] != self._data[source_processing].shape[0]:
-            raise ValueError(
-                "Shape mismatch – transformed data does not contain the same number "
-                "of samples as the source processing."
-            )
+        ancestry = []
+        current = processing
 
-        self._data[new_processing] = y.copy()
-        self._transformers[new_processing] = (transformer, source_processing)
+        while current is not None:
+            ancestry.append(current)
+            current = self._ancestors.get(current)
 
-    def invert_transform(
-        self,
-        y_pred: np.ndarray,
-        *,
-        from_processing: str,
-        to_processing: str = "raw",
-    ) -> np.ndarray:
-        """Inverse‑transform predictions from *from_processing* back to *to_processing*."""
+        return list(reversed(ancestry))
+
+    def invert_transform(self,
+                         y_pred: np.ndarray,
+                         from_processing: str,
+                         to_processing: str = "raw") -> np.ndarray:
+        """
+        Inverse transform predictions from one processing back to another.
+
+        Args:
+            y_pred: Predictions to transform
+            from_processing: Source processing name
+            to_processing: Target processing name (default: "raw")
+
+        Returns:
+            Inverse transformed predictions
+        """
         if from_processing == to_processing:
             return y_pred
 
-        if from_processing not in self._transformers:
-            raise ValueError(f"No transformer chain starting at '{from_processing}'.")
+        # Get ancestry chains
+        from_ancestry = self.get_processing_ancestry(from_processing)
+        to_ancestry = self.get_processing_ancestry(to_processing)
 
+        # Find common ancestor
+        common_ancestor = None
+        for ancestor in reversed(from_ancestry):
+            if ancestor in to_ancestry:
+                common_ancestor = ancestor
+                break
+
+        if common_ancestor is None:
+            raise ValueError(f"No common ancestor found between '{from_processing}' and '{to_processing}'")
+
+        # Inverse transform from from_processing to common_ancestor
         current = y_pred
-        processing = from_processing
-        visited = set()
+        current_proc = from_processing
 
-        while processing != to_processing:
-            if processing in visited:
-                raise ValueError("Circular transformer dependency detected.")
-            visited.add(processing)
+        while current_proc != common_ancestor:
+            ancestor = self._ancestors[current_proc]
+            transformer = self._transformers.get(current_proc)
 
-            transformer, source_proc = self._transformers[processing]
-            current = transformer.inverse_transform(current)
-            processing = source_proc
+            if transformer is not None and hasattr(transformer, 'inverse_transform'):
+                current = transformer.inverse_transform(current)
+
+            current_proc = ancestor
+
+        # Forward transform from common_ancestor to to_processing (if needed)
+        if common_ancestor != to_processing:
+            # This would require forward transformation capability
+            # For now, we'll only support inverse transformation up the ancestry chain
+            raise ValueError(f"Forward transformation from '{common_ancestor}' to '{to_processing}' not supported")
 
         return current
 
-    # ------------------------------------------------------------------
-    # Introspection helpers
-    # ------------------------------------------------------------------
+    def transform_predictions(self,
+                              y_pred: np.ndarray,
+                              from_processing: str,
+                              to_processing: str) -> np.ndarray:
+        """
+        Transform predictions from one processing state to another.
 
-    def get_processing_info(self) -> Dict[str, Dict[str, str]]:
-        """Return meta information for every stored processing version."""
-        info: Dict[str, Dict[str, str]] = {}
-        for name, data in self._data.items():
-            meta: Dict[str, str] = {
-                "shape": str(data.shape),
-                "dtype": str(data.dtype),
-            }
-            if name in self._transformers:
-                trf, src = self._transformers[name]
-                meta["transformer"] = type(trf).__name__
-                meta["source"] = src
-            info[name] = meta
-        return info
+        This is specifically designed for transforming model predictions back through
+        the processing chain. For example, transforming predictions from "minmax-detrend-standard"
+        back to "numeric" by applying inverse transforms in the correct order.
 
-    # ------------------------------------------------------------------
-    # Representation helpers
-    # ------------------------------------------------------------------
+        Args:
+            y_pred: Prediction array to transform
+            from_processing: Current processing state of the predictions
+            to_processing: Target processing state
 
-    def __str__(self) -> str:  # pragma: no cover – debugging aid
-        if not self._data:
-            return "Targets: <empty>"
-        lines = [f"Targets: {self.n_samples} samples"]
-        for p in self.processing_versions:
-            lines.append(f"  • {p}: {self._data[p].shape}")
-        return "\n".join(lines)
+        Returns:
+            Transformed predictions in the target processing state
 
-    __repr__ = __str__
+        Example:
+            # Model trained on "scaled" targets produces predictions
+            predictions = model.predict(X_test)
+            # Transform predictions back to "numeric" space
+            numeric_preds = targets.transform_predictions(predictions, "scaled", "numeric")
+        """
+        if from_processing == to_processing:
+            return y_pred.copy()
 
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
+        if from_processing not in self._processing_id_to_index:
+            available = list(self._processing_id_to_index.keys())
+            raise ValueError(f"From processing '{from_processing}' not found. Available: {available}")
 
-    def _make_numeric(self, y_raw: np.ndarray) -> Tuple[np.ndarray, TransformerMixin]:
-        """Convert *y_raw* to purely numeric data and return (numeric, transformer)."""
+        if to_processing not in self._processing_id_to_index:
+            available = list(self._processing_id_to_index.keys())
+            raise ValueError(f"To processing '{to_processing}' not found. Available: {available}")
+
+        # Get ancestry chains to understand the transformation path
+        from_ancestry = self.get_processing_ancestry(from_processing)
+        to_ancestry = self.get_processing_ancestry(to_processing)
+
+        # Find common ancestor
+        common_ancestor = None
+        for ancestor in reversed(from_ancestry):
+            if ancestor in to_ancestry:
+                common_ancestor = ancestor
+                break
+
+        if common_ancestor is None:
+            raise ValueError(f"No common ancestor found between '{from_processing}' and '{to_processing}'")
+
+        current_predictions = y_pred.copy()
+
+        # Step 1: Inverse transform from from_processing back to common_ancestor
+        current_proc = from_processing
+        while current_proc != common_ancestor:
+            ancestor = self._ancestors[current_proc]
+            transformer = self._transformers.get(current_proc)
+
+            if transformer is not None and hasattr(transformer, 'inverse_transform'):
+                try:
+                    current_predictions = transformer.inverse_transform(current_predictions)  # type: ignore
+                except Exception as e:
+                    raise ValueError(f"Failed to inverse transform from '{current_proc}' to '{ancestor}': {e}")
+            else:
+                raise ValueError(f"No inverse transformer available for processing '{current_proc}'")
+
+            current_proc = ancestor
+
+        # Step 2: Forward transform from common_ancestor to to_processing (if needed)
+        if common_ancestor != to_processing:
+            # Build path from common_ancestor to to_processing
+            target_ancestry = self.get_processing_ancestry(to_processing)
+            common_idx = target_ancestry.index(common_ancestor)
+            forward_path = target_ancestry[common_idx + 1:]
+
+            # Apply forward transformations
+            for next_proc in forward_path:
+                transformer = self._transformers.get(next_proc)
+
+                if transformer is not None and hasattr(transformer, 'transform'):
+                    try:
+                        current_predictions = transformer.transform(current_predictions)  # type: ignore
+                    except Exception as e:
+                        raise ValueError(f"Failed to forward transform to '{next_proc}': {e}")
+                else:
+                    raise ValueError(f"No forward transformer available for processing '{next_proc}'")
+
+        return current_predictions
+
+    def _add_processing(self,
+                        processing_name: str,
+                        data: np.ndarray,
+                        ancestor: Optional[str],
+                        transformer: Optional[TransformerMixin]) -> None:
+        """Internal method to add a processing."""
+        if processing_name not in self._processing_id_to_index:
+            # New processing: add to lists and mappings
+            idx = len(self._processing_ids)
+            self._processing_ids.append(processing_name)
+            self._processing_id_to_index[processing_name] = idx
+            self._data[processing_name] = data.copy()
+
+            if ancestor is not None:
+                self._ancestors[processing_name] = ancestor
+
+            if transformer is not None:
+                self._transformers[processing_name] = transformer
+        else:
+            # Existing processing: just update the data
+            self._data[processing_name] = data.copy()
+
+    def _make_numeric(self, y_raw: np.ndarray) -> tuple[np.ndarray, TransformerMixin]:
+        """Convert raw targets to purely numeric data and return (numeric, transformer)."""
         # If we already have a numeric transformer, reuse it
         if "numeric" in self._transformers:
-            existing_transformer, _ = self._transformers["numeric"]
-            # Check if transformer has transform method
+            existing_transformer = self._transformers["numeric"]
             if hasattr(existing_transformer, 'transform'):
-                y_numeric = existing_transformer.transform(y_raw)
+                y_numeric = existing_transformer.transform(y_raw)  # type: ignore
                 return y_numeric.astype(np.float32), existing_transformer
 
         # Otherwise, create a new transformer

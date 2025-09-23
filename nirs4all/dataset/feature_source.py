@@ -6,7 +6,7 @@ as well as to retrieve data in various layouts (2D, 3D).
 
 import numpy as np
 from typing import List, Dict, Optional
-from nirs4all.dataset.helpers import InputData, InputFeatures, ProcessingList
+from nirs4all.dataset.helpers import InputData, InputFeatures, ProcessingList, SampleIndices
 
 
 class FeatureSource:
@@ -43,14 +43,21 @@ class FeatureSource:
         return self._array.shape[1] * self._array.shape[2]
 
     def add_samples(self, new_samples: np.ndarray) -> None:
-        if self.num_samples > 0:
-            raise ValueError("Cannot add samples to a non-empty FeatureSource. Use replace_features or augment_samples instead.")
+        if self.num_processings > 1:
+            raise ValueError("Cannot add new samples to a dataset that already has been processed.")
 
         if new_samples.ndim != 2:
             raise ValueError(f"new_samples must be a 2D array, got {new_samples.ndim} dimensions")
 
         X = np.asarray(new_samples, dtype=self._array.dtype)
-        self._array = X[:, None, :]
+
+        # If this is the first data being added
+        if self.num_samples == 0:
+            self._array = X[:, None, :]
+        else:
+            prepared_data = self._prepare_data_for_storage(X)
+            new_data_3d = prepared_data[:, None, :]
+            self._array = np.concatenate((self._array, new_data_3d), axis=0)
 
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList) -> None:
         """
@@ -258,142 +265,20 @@ class FeatureSource:
         # Update array
         self._array = expanded_array
 
-    # def augment_samples(self, indices: List[int], count: Union[int, List[int]] | None = None) -> None:
-    #     if count is None:
-    #         count = 1
+    def x(self, indices: SampleIndices, layout: str) -> np.ndarray:
+        processings_indices = list(range(self.num_processings))
+        selected_data = self._array[indices, :, :]
+        selected_data = selected_data[:, processings_indices, :]
 
-    #     if isinstance(count, int):
-    #         count = [count] * len(indices)
-    #     elif len(count) != len(indices):
-    #         raise ValueError("count must be an int or a list with the same length as indices")
+        if layout == "2d":
+            selected_data = selected_data.reshape(len(indices), -1)
+        elif layout == "2d_interleaved":
+            selected_data = np.transpose(selected_data, (0, 2, 1)).reshape(len(indices), -1)
+        elif layout == "3d":
+            pass
+        elif layout == "3d_transpose":
+            selected_data = np.transpose(selected_data, (0, 2, 1))
+        else:
+            raise ValueError(f"Unknown layout: {layout}")
 
-    #     new_shape = (
-    #         self.num_samples + sum(count),
-    #         self.num_processings,
-    #         self.num_features
-    #     )
-
-    #     new_array = np.empty(new_shape, dtype=self._array.dtype)
-    #     new_array[:self.num_samples, :, :] = self._array
-
-    #     for i, (idx, c) in enumerate(zip(indices, count)):
-    #         new_array[self.num_samples + sum(count[:i]), :, :] = self._array[idx, :, :].copy()
-    #         for j in range(1, c):
-    #             new_array[self.num_samples + sum(count[:i]) + j, :, :] = self._array[idx, :, :].copy()
-
-    #     self._array = new_array
-
-    # def get_features(self, indices: List[int], processings: List[str], layout: str) -> np.ndarray:
-
-    #     processings_indices = sorted([self._processing_id_to_index[p] for p in processings if p in self._processing_id_to_index])
-
-    #     selected_data = self._array[indices, :, :]
-    #     selected_data = selected_data[:, processings_indices, :]
-    #     if layout == "2d":
-    #         selected_data = selected_data.reshape(len(indices), -1)
-    #     elif layout == "2d_interleaved":
-    #         selected_data = np.transpose(selected_data, (0, 2, 1)).reshape(len(indices), -1)
-    #     elif layout == "3d":
-    #         pass
-    #     elif layout == "3d_transpose":
-    #         selected_data = np.transpose(selected_data, (0, 2, 1))
-    #     else:
-    #         raise ValueError(f"Unknown layout: {layout}")
-    #     return selected_data
-
-    # def update_features(self, indices: np.ndarray, processings: List[str], new_data: np.ndarray, layout: str) -> None:
-    #     processings_indices = sorted([self._processing_id_to_index[p] for p in processings if p in self._processing_id_to_index])
-    #     print(f"Updating features at indices {indices} for processings {processings} with layout {layout}")
-    #     print(f"Add new_data shape: {new_data.shape}, expected shape: ({len(indices)}, {len(processings_indices)}, {self.num_features})")
-    #     if layout == "2d":
-    #         new_data = new_data.reshape(len(indices), len(processings_indices), self.num_features)
-    #         for i, p in enumerate(processings_indices):
-    #             print(f"Updating processing {p}")
-    #             self._array[indices, p, :] = new_data[:, i, :]
-    #     elif layout == "2d_interleaved":
-    #         new_data = new_data.reshape(len(indices), len(processings_indices), self.num_features).transpose(0, 2, 1)
-    #         for i, p in enumerate(processings_indices):
-    #             print(f"Updating processing {p}")
-    #             self._array[indices, p, :] = new_data[:, i, :]
-    #     elif layout == "3d":
-    #         for i, p in enumerate(processings_indices):
-    #             self._array[indices, p, :] = new_data[:, i, :]
-    #     elif layout == "3d_transpose":
-    #         new_data = np.transpose(new_data, (0, 2, 1))  # Ensure new_data is in the correct shape
-    #         for i, p in enumerate(processings_indices):
-    #             self._array[indices, processings_indices, :] = new_data[:, i, :]
-    #     else:
-    #         raise ValueError(f"Unknown layout: {layout}")
-
-    # def update_processing_ids(self, old_processing: Union[List[str], str], new_processing: Union[List[str], str]) -> None:
-
-    #     if isinstance(old_processing, list) and isinstance(new_processing, list):
-    #         if len(old_processing) != len(new_processing):
-    #             raise ValueError("old_processing and new_processing must have the same length")
-    #         for old, new in zip(old_processing, new_processing):
-    #             self.update_processing_ids(old, new)
-    #         return
-    #     elif isinstance(old_processing, str) and isinstance(new_processing, list):
-    #         if len(new_processing) != 1:
-    #             raise ValueError("new_processing must be a single string when old_processing is a string")
-    #         new_processing = new_processing[0]
-    #     elif isinstance(old_processing, list) and isinstance(new_processing, str):
-    #         if len(old_processing) != 1:
-    #             raise ValueError("old_processing must be a single string when new_processing is a string")
-    #         old_processing = old_processing[0]
-    #     elif not isinstance(old_processing, str) or not isinstance(new_processing, str):
-    #         raise ValueError("old_processing and new_processing must be strings or lists of strings")
-
-    #     if old_processing not in self._processing_id_to_index:
-    #         raise ValueError(f"Processing ID '{old_processing}' does not exist")
-
-    #     if new_processing in self._processing_id_to_index:
-    #         raise ValueError(f"Processing ID '{new_processing}' already exists")
-
-    #     idx = self._processing_id_to_index.pop(old_processing)
-    #     self._processing_ids[idx] = new_processing
-    #     self._processing_id_to_index[new_processing] = idx
-
-    # def update_processing(self, processing_id: str | int, new_data: np.ndarray, new_processing: str) -> None:
-    #     """
-    #     Update the data for a specific processing ID.
-
-    #     Args:
-    #         processing_id: The processing ID to update.
-    #         new_data: A 2D numpy array of shape (num_samples, num_features).
-    #         new_processing: The new processing ID to assign to the updated data.
-    #     Raises:
-    #         ValueError: If the processing ID does not exist or if new_data has incorrect shape.
-    #     """
-    #     if new_processing is None or not isinstance(new_processing, str):
-    #         raise ValueError("new_processing must be a non-empty string")
-
-    #     if new_processing in self._processing_id_to_index:
-    #         raise ValueError(f"Processing ID '{new_processing}' already exists") # TODO here warning and return current
-
-    #     if processing_id not in self._processing_id_to_index:
-    #         raise ValueError(f"Processing ID '{processing_id}' does not exist")
-
-    #     if new_data.ndim != 2 or new_data.shape[1] != self.num_features:
-    #         raise ValueError(f"new_data must be a 2D array with {self.num_features} features")
-
-    #     if isinstance(processing_id, str):
-    #         idx = self._processing_id_to_index[processing_id]
-    #     else:
-    #         idx = processing_id
-
-    #     if self.padding:
-    #         if new_data.shape[0] < self.num_samples:
-    #             padded_data = np.full((self.num_samples, self.num_features), self.pad_value, dtype=new_data.dtype)
-    #             padded_data[:new_data.shape[0], :] = new_data
-    #             new_data = padded_data
-    #         elif new_data.shape[0] > self.num_samples:
-    #             raise ValueError("new_data has more samples than the source, padding is not allowed in this case")
-    #     else:
-    #         if new_data.shape[0] != self.num_samples:
-    #             raise ValueError(f"new_data must have {self.num_samples} samples when padding is False")
-
-    #     if new_processing not in self._processing_id_to_index:
-    #         self.add_processings(new_processing)
-
-    #     self._array[:, idx, :] = new_data
+        return selected_data
