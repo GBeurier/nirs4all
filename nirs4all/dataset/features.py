@@ -66,9 +66,7 @@ class Features:
             return []
         res = []
         for src in self.sources:
-            res.append(src._processing_ids)
-        if len(res) == 1:
-            return res[0]
+            res.append(src.processing_ids)
         return res
 
     @property
@@ -224,11 +222,11 @@ class Features:
     def __str__(self):
         n_sources = len(self.sources)
         n_samples = self.num_samples
-        summary = f"FeatureBlock with {n_sources} sources and {n_samples} samples"
+        summary = f"Features (samples={n_samples}, sources={n_sources}):"
         for i, source in enumerate(self.sources):
-            summary += f"\nSource {i}: {source}"
+            summary += f"\n- Source {i}: {source}"
         if n_sources == 0:
-            summary += "\nNo sources available"
+            summary += "\n- No sources available"
         # unique augmentations
         # summary += f"\nUnique augmentations: {self.index.uniques('augmentation')}"
         # summary += f"\nIndex:\n{self.index.df}"

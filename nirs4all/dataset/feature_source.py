@@ -22,9 +22,9 @@ class FeatureSource:
         return f"FeatureSource(shape={self._array.shape}, dtype={self._array.dtype}, processing_ids={self._processing_ids})"
 
     def __str__(self) -> str:
-        mean_value = np.mean(self._array) if self._array.size > 0 else 0.0
-        variance_value = np.var(self._array) if self._array.size > 0 else 0.0
-        return f"FeatureSource(shape={self._array.shape}, dtype={self._array.dtype}, processing_ids={self._processing_ids}, mean={mean_value}, variance={variance_value})"
+        mean_value = round(float(np.mean(self._array)), 3) if self._array.size > 0 else 0.0
+        variance_value = round(float(np.var(self._array)), 3) if self._array.size > 0 else 0.0
+        return f"{self._array.shape}, processings={self._processing_ids}, mean={mean_value}, variance={variance_value})"
 
     @property
     def num_samples(self) -> int:
@@ -41,6 +41,10 @@ class FeatureSource:
     @property
     def num_2d_features(self) -> int:
         return self._array.shape[1] * self._array.shape[2]
+
+    @property
+    def processing_ids(self) -> List[str]:
+        return self._processing_ids.copy()
 
     def add_samples(self, new_samples: np.ndarray) -> None:
         if self.num_processings > 1:

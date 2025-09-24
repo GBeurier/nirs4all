@@ -17,14 +17,14 @@ class PipelineConfig:
     """
     Class to hold the configuration for a pipeline.
     """
-    def __init__(self, definition: Union[Dict, List[Any], str], name: str = "Default Pipeline", description: str = "No description provided"):
+    def __init__(self, definition: Union[Dict, List[Any], str], name: str = "", description: str = "No description provided"):
         """
         Initialize the pipeline configuration.
         """
-        self.name = name
         self.description = description
         self.steps = self._load_steps(definition)
         self.steps = serialize_component(self.steps, include_runtime=True)
+        self.name = self.get_hash() if name == "" else name
 
     def _load_steps(self, definition: Union[Dict, List[Any], str]) -> List[Any]:
         """
@@ -135,3 +135,11 @@ class PipelineConfig:
                 return obj
 
         return clean_recursive(self.steps)
+
+    def get_hash(self) -> str:
+        """
+        Generate a hash for the pipeline configuration.
+        """
+        import hashlib
+        serializable = json.dumps(self.serializable_steps(), sort_keys=True).encode('utf-8')
+        return hashlib.md5(serializable).hexdigest()[0:8]

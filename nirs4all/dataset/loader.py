@@ -364,7 +364,7 @@ def handle_data(config, t_set):
     return x, y, x_report, y_report
 
 
-def get_dataset(data_config, disjoint=False) -> Union[SpectroDataset, Dict[str, np.ndarray]]:
+def get_dataset(data_config) -> SpectroDataset:
     """
     Load dataset based on the data configuration.
 
@@ -374,37 +374,27 @@ def get_dataset(data_config, disjoint=False) -> Union[SpectroDataset, Dict[str, 
     Returns:
     - Dataset: Dataset object with loaded data and metadata.
     """
-    config = parse_config(data_config)
+    print("=" * 200)
+    print("Loading dataset:")
+    config, dataset_name = parse_config(data_config)
+
     if config is None:
         raise ValueError("Dataset configuration is None")
 
-    dataset = SpectroDataset()
+    dataset = SpectroDataset(dataset_name)
     try:
         x_train, y_train, x_train_report, y_train_report = handle_data(config, "train")
         x_test, y_test, x_test_report, y_test_report = handle_data(config, "test")
 
-        if disjoint:
-            return {
-                "train_x": x_train,
-                "train_y": y_train,
-                "test_x": x_test,
-                "test_y": y_test,
-                # "train_report": x_train_report,
-                # "test_report": x_test_report
-            }
-        else:
-            # ##TEST MULTIPLE SOURCES
-            # dataset.add_features({}, [x_train, x_train])
-            # dataset.add_features({"partition": "test"}, [x_test, x_test])
-            # ##
-            dataset.add_samples(x_train, {"partition": "train"})
-            dataset.add_samples(x_test, {"partition": "test"})
-            dataset.add_targets(y_train)
-            dataset.add_targets(y_test)
-
+        dataset.add_samples(x_train, {"partition": "train"})
+        dataset.add_samples(x_test, {"partition": "test"})
+        dataset.add_targets(y_train)
+        dataset.add_targets(y_test)
 
     except Exception as e:
         print("Error loading data:", e)
         raise
+
+    print(dataset)
 
     return dataset

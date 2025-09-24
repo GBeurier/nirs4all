@@ -6,8 +6,6 @@ def _s_(path: str) -> str:
     return Path(path).as_posix()
 
 def browse_folder(folder_path, global_params=None):
-    print(">> Browsing", folder_path)
-
     config = {
         "train_x": None, "train_x_filter": None, "train_x_params": None,
         "train_y": None, "train_y_filter": None, "train_y_params": None,
@@ -39,11 +37,11 @@ def browse_folder(folder_path, global_params=None):
                     matched_files.append(str(file))
 
         if len(matched_files) > 1:
-            print(f"Multiple {key} files found for {folder_path}.")
+            print(f"⚠️ Multiple {key} files found for {folder_path}.")
             # logging.warning("Multiple %s files found for %s.", key, dataset_name)
             continue
         if len(matched_files) == 0:
-            print(f"No file found for {key} data in {folder_path}. Continuing without it.")
+            print(f"⚠️ Dataset does not have data for {key}.")
             # logging.warning("No %s file found for %s.", key, dataset_name)
             continue
 
@@ -170,22 +168,35 @@ def browse_folder(folder_path, global_params=None):
 #         "global_params": global_params
 #     }
 
+def folder_to_name(folder_path):
+    path = Path(folder_path)
+    for part in reversed(path.parts):
+        clean_part = ''.join(c if c.isalnum() else '_' for c in part)
+        if clean_part:
+            return clean_part.lower()
+    return "Unknown_dataset"
+
+
+def file_to_name(file_path):
+    path = Path(file_path)
+    clean_name = ''.join(c if c.isalnum() else '_' for c in path.stem).lower()
+    return clean_name if clean_name else "unknown_data"
 
 def parse_config(data_config):
     if isinstance(data_config, str):
-        return browse_folder(data_config)
+        return browse_folder(data_config), folder_to_name(data_config)
     elif isinstance(data_config, dict):
         if "folder" in data_config:  # If folder is present, browse folder
-            return browse_folder(data_config["folder"], data_config.get("params"))
+            return browse_folder(data_config["folder"], data_config.get("params")), folder_to_name(data_config["folder"])
         else:  # Otherwise, assume it's an already parsed config dictionary
             # TODO: Add more robust validation here if needed in the future
             # For now, if it's a dict without 'folder', assume it's usable by get_dataset
             required_keys_pattern = ['train_x', 'test_x']  # Basic check
             if all(key in data_config for key in required_keys_pattern):
-                return data_config
+                return data_config, file_to_name(data_config.get("train_x") or data_config.get("test_x"))
             else:
-                print(f"CONFIG ERROR _ obj >> Missing one of {required_keys_pattern} in dict: {data_config}")
-                return None
+                print(f"❌ Error in config: Missing one of {required_keys_pattern} in dict: {data_config}")
+                return None, 'Unknown_dataset'
     # If data_config is not a string or a recognized dictionary structure, return None
-    print(f"CONFIG ERROR _ unsupported type or structure >> {type(data_config)}: {data_config}")
-    return None
+    print(f"❌ Error in config: unsupported type or structure >> {type(data_config)}: {data_config}")
+    return None, 'Unknown_dataset'

@@ -29,16 +29,16 @@ from nirs4all.operators.transformations import (
     Haar
 )
 
+dataset_config = {  # define the experiment type and dataset. An experiment is related to a source dataset. action will be removed in the future to allow classif and regression on the same dataset.
+    # "type": "classification",  # 'auto', 'regression'
+    "folder": "./sample_data"  # dataset definition is dicted by the json schema. Can load single or multiple files with metadata, and many indices predefined if needed, and folds also.
+}
 
-config = {
-    "dataset": {  # define the experiment type and dataset. An experiment is related to a source dataset. action will be removed in the future to allow classif and regression on the same dataset.
-        # "type": "classification",  # 'auto', 'regression'
-        "folder": "./sample_data"  # dataset definition is dicted by the json schema. Can load single or multiple files with metadata, and many indices predefined if needed, and folds also.
-    },
+pipeline_config = {
     "pipeline": [
         "chart_3d",
         "chart_2d",
-        # StandardScaler(with_std=False),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
+        StandardScaler(with_std=False),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
         # "spectra_charts",
         # {"sample_augmentation": [RT, RT(p_range=5)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
         # "spectra_charts",
