@@ -33,8 +33,8 @@ class Indexer:
 
         self.default_values = {
             "partition": "train",
-            "group": 0,
-            "branch": 0,
+            # "group": 0,
+            # "branch": 0,
             "processings": ["raw"],
         }
 
@@ -163,8 +163,8 @@ class Indexer:
                 partition: PartitionType = "train",
                 sample_indices: Optional[SampleIndices] = None,
                 origin_indices: Optional[SampleIndices] = None,
-                group: Union[int, List[int]] = 0,
-                branch: Union[int, List[int]] = 0,
+                group: Optional[Union[int, List[int]]] = None,
+                branch: Optional[Union[int, List[int]]] = None,
                 processings: Union[ProcessingList, List[ProcessingList], str, List[str], None] = None,
                 augmentation: Optional[Union[str, List[str]]] = None,
                 **overrides) -> List[int]:
@@ -254,8 +254,8 @@ class Indexer:
         partition: PartitionType = "train",
         sample_indices: Optional[SampleIndices] = None,
         origin_indices: Optional[SampleIndices] = None,
-        group: Union[int, List[int]] = 0,
-        branch: Union[int, List[int]] = 0,
+        group: Optional[Union[int, List[int]]] = None,
+        branch: Optional[Union[int, List[int]]] = None,
         processings: Union[ProcessingList, List[ProcessingList], None] = None,
         augmentation: Optional[Union[str, List[str]]] = None,
         **kwargs
@@ -536,8 +536,8 @@ class Indexer:
             total_augmentations,
             partition=partition,
             origin_indices=origin_indices,
-            group=groups[0] if len(set(groups)) == 1 else groups,
-            branch=branches[0] if len(set(branches)) == 1 else branches,
+            group=groups,
+            branch=branches,
             processings=processings_list,
             augmentation=augmentation_id
         )
@@ -546,3 +546,45 @@ class Indexer:
 
     def __repr__(self):
         return str(self.df)
+
+    def __str__(self):
+        # Get columns to include (excluding sample and origin, and row)
+        cols_to_include = [col for col in self.df.columns if col not in ["sample", "origin", "row"]]
+
+        if not cols_to_include:
+            return "No indexable columns found"
+
+        if len(self.df) == 0:
+            return "No rows found"
+
+        # Group by all columns and count (include null values)
+        combinations = self.df.select(cols_to_include).group_by(cols_to_include).agg(
+            pl.count().alias("count")
+        ).sort("count", descending=True)
+
+        # Format output
+        summary = []
+        for row in combinations.to_dicts():
+            # Build the combination string, skipping null values
+            parts = []
+            for col in cols_to_include:
+                value = row[col]
+                # Skip null values
+                if value is None:
+                    continue
+
+                if isinstance(value, str) and value.startswith("[") and value.endswith("]"):
+                    # Already formatted as list string
+                    parts.append(f"{value}")
+                else:
+                    # Format other values appropriately
+                    parts.append(f'"{value}"')
+
+            # Only add to summary if we have at least one non-null value
+            if parts:
+                combination_str = ", ".join(parts)
+                count = row["count"]
+                summary.append(f"{combination_str}: {count} samples")
+
+        parts_str = "\n- ".join(summary)
+        return f"Indexes:\n- {parts_str}"

@@ -13,11 +13,12 @@ from joblib import Parallel, delayed, parallel_backend
 
 # from nirs4all.controllers.controller import OperatorController
 
-from .serialization import deserialize_component
-from .history import PipelineHistory
-from .config import PipelineConfig
+from nirs4all.pipeline.serialization import deserialize_component
+from nirs4all.pipeline.history import PipelineHistory
+from nirs4all.pipeline.config import PipelineConfig
 # from .operation import PipelineOperation
-from .pipeline import Pipeline
+from nirs4all.pipeline.pipeline import Pipeline
+from nirs4all.pipeline.io import SimulationSaver
 from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 
@@ -29,7 +30,14 @@ class PipelineRunner:
     WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack", "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d"]
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
-    def __init__(self, max_workers: Optional[int] = None, continue_on_error: bool = False, backend: str = 'threading', verbose: int = 0, parallel: bool = True):
+    def __init__(self, ##TODO add resume / overwrite support / realtime viz
+                 max_workers: Optional[int] = None,
+                 continue_on_error: bool = False,
+                 backend: str = 'threading',
+                 verbose: int = 0,
+                 parallel: bool = False,
+                 results_path: Optional[str] = None):
+
         self.max_workers = max_workers or -1  # -1 means use all available cores
         self.continue_on_error = continue_on_error
         self.backend = backend
@@ -38,22 +46,26 @@ class PipelineRunner:
         self.pipeline = Pipeline()
         self.parallel = parallel
         self.step_number = 0  # Initialize step number for tracking
+        self.saver = SimulationSaver(results_path)
 
     def run(self, config: PipelineConfig, dataset: SpectroDataset) -> Tuple[SpectroDataset, PipelineHistory, Pipeline]:
         """Run the pipeline with the given configuration and dataset."""
-
-        print("🚀 Starting Pipeline Runner")
+        print("="*200)
+        print(f"🚀 Starting pipeline {config.name} on dataset {dataset.name}")
+        print("-" * 200)
+        self.saver.register(dataset.name, config.name)
+        self.saver.save_json("pipeline.json", config.serializable_steps())
         # context = {"branch": 0, "processing": "raw", "y": "numeric"}
         context = {}
 
         try:
             self.run_steps(config.steps, dataset, context, execution="sequential")
             # self.history.complete_execution()
-            print("✅ Pipeline completed successfully")
+            print("✅ Pipeline {config.name} completed successfully on dataset {dataset.name}")
 
         except Exception as e:
             # self.history.fail_execution(str(e))
-            print(f"❌ Pipeline failed: {str(e)}")
+            print(f"❌ Pipeline {config.name} on dataset {dataset.name} failed: \n{str(e)}")
             raise
 
         return dataset, self.history, self.pipeline
@@ -66,20 +78,20 @@ class PipelineRunner:
 
         if execution == "sequential":
             if isinstance(context, list) and len(context) == len(steps):
-                print("🔄 Running steps sequentially with separate contexts")
+                # print("🔄 Running steps sequentially with separate contexts")
                 for step, ctx in zip(steps, context):
                     self._run_step(step, dataset, ctx)
                 return context[-1]
             elif isinstance(context, dict):
-                print("🔄 Running steps sequentially with shared context")
+                # print("🔄 Running steps sequentially with shared context")
                 for step in steps:
                     context = self._run_step(step, dataset, context)
-                    print(f"🔹 Updated context after step: {context}")
+                    # print(f"🔹 Updated context after step: {context}")
 
                 return context
 
         elif execution == "parallel" and self.parallel:
-            print(f"🔄 Running steps in parallel with {self.max_workers} workers")
+            # print(f"🔄 Running steps in parallel with {self.max_workers} workers")
             with parallel_backend(self.backend, n_jobs=self.max_workers):
                 Parallel()(delayed(self._run_step)(step, dataset, context) for step, context in zip(steps, context))
 
@@ -87,14 +99,15 @@ class PipelineRunner:
         """
         Run a single pipeline step with enhanced context management and DatasetView support.
         """
+        before_dataset_str = str(dataset)
         step_description = self._get_step_description(step)
-        print(f"🔹 {self.step_number}: Step {step_description}")
-        print(f"🔹 Current context: {context}")
-        print(f"🔹 Step config: {step}")
-
         self.step_number += 1
+        print(f"🔷 Step {self.step_number}: {step_description}")
+        # print(f"🔹 Current context: {context}")
+        # print(f"🔹 Step config: {step}")
+
         if step is None:
-            print("🔹 No operation defined for this step, skipping.")
+            print("🔷 No operation defined for this step, skipping.")
             return context
 
         # Start step tracking
@@ -104,43 +117,41 @@ class PipelineRunner:
         #     step_config=step
         # )
 
-
-
         try:
             operator, controller = None, None
             if isinstance(step, dict):
                 if key := next((k for k in step if k in self.WORKFLOW_OPERATORS), None):
-                    print(f"📋 Workflow operation: {key}")
+                    # print(f"📋 Workflow operation: {key}")
                     controller = self._select_controller(step, keyword=key)
                 elif key := next((k for k in step if k in self.SERIALIZATION_OPERATORS), None):
-                    print(f"📦 Deserializing dict operation: {key}")
+                    # print(f"📦 Deserializing dict operation: {key}")
                     if '_runtime_instance' in step:
                         operator = step['_runtime_instance']
                     else:
                         operator = deserialize_component(step)
                     controller = self._select_controller(step, operator=operator)
                 else:
-                    print(f"🔗 Running dict operation: {step}")
+                    # print(f"🔗 Running dict operation: {step}")
                     controller = self._select_controller(step)
             elif isinstance(step, list):
-                print(f"🔗 Sub-pipeline with {len(step)} steps")
+                # print(f"🔗 Sub-pipeline with {len(step)} steps")
                 return self.run_steps(step, dataset, context, execution="sequential")
 
             elif isinstance(step, str):
                 if key := next((s for s in step.split() if s in self.WORKFLOW_OPERATORS), None):
-                    print(f"📋 Workflow operation: {key}")
+                    # print(f"📋 Workflow operation: {key}")
                     controller = self._select_controller(key, keyword=key)
                 else:
-                    print(f"📦 Deserializing str operation: {step}")
+                    # print(f"📦 Deserializing str operation: {step}")
                     operator = deserialize_component(step)
                     controller = self._select_controller(step, operator=operator, keyword=step)
 
             else:
-                print(f"🔍 Unknown step type: {type(step).__name__}, executing as operation")
+                # print(f"🔍 Unknown step type: {type(step).__name__}, executing as operation")
                 controller = self._select_controller(step)
 
             if controller is not None:
-                print(f"🔄 Selected controller: {controller}")
+                # print(f"🔄 Selected controller: {controller.__class__.__name__}")
                 context["step_id"] = self.step_number
                 return self._execute_controller(controller, step, operator, dataset, context)
 
@@ -159,9 +170,11 @@ class PipelineRunner:
 
         finally:
             print("-" * 200)
-            print(f"Dataset state after step {self.step_number}:")
-            print(dataset)
-            print("-" * 200)
+            after_dataset_str = str(dataset)
+            if before_dataset_str != after_dataset_str:
+                print(dataset)
+                print("-" * 200)
+            # print(f"Dataset state after step {self.step_number}:")
 
     def _select_controller(self, step: Any, operator: Any = None, keyword: str = ""):
         matches = [cls for cls in CONTROLLER_REGISTRY if cls.matches(step, operator, keyword)]
@@ -170,7 +183,7 @@ class PipelineRunner:
         matches.sort(key=lambda c: c.priority)
         return matches[0]()
 
-    def _execute_controller(
+    def _execute_controller( ## TODO Choose one option for multi-source datasets and parrallel execution
         self,
         controller: Any,
         step: Any,
@@ -180,26 +193,48 @@ class PipelineRunner:
         source: Union[int, List[int]] = -1
     ):
         """Execute the controller for the given step and operator."""
-        print(f"🔄 Executing controller {controller.__class__.__name__} for step: {step}, operator: {operator}, source: {source}, context: {context}")
-        if controller.use_multi_source():
-            if not dataset.is_multi_source():
-                source = 0
-            else:
-                source = [i for i in range(dataset.n_sources)]
-                operator = [operator]
-                for _ in range(len(source) - len(operator)):
-                    op = deserialize_component(step)
-                    print(f"🔄 Adding operator {op} for additional source")
-                    operator.append(op)
+        step_id = context.get("step_id", "unknown")
+        operator_name = operator.__class__.__name__ if operator else ""
+        controller_name = controller.__class__.__name__
+        operator_id = f"{step_id}_{controller_name}_{operator_name}"
 
-        if isinstance(operator, list) and self.parallel:
-            print(f"🔄 Running operators in parallel with {self.max_workers} workers")
-            with parallel_backend(self.backend, n_jobs=self.max_workers):
-                Parallel()(delayed(controller.execute)(step, op, dataset, context, self, src) for op, src in zip(operator, source))
-            return context
+
+        if operator:
+            print(f"🔹 Executing controller {controller_name} with operator {operator_name}")
         else:
-            print(f"🔄 Running single operator {operator} for step: {step}, source: {source}")
-            return controller.execute(step, operator, dataset, context, self, source)
+            print(f"🔹 Executing controller {controller_name} without operator")
+
+        context, binaries = controller.execute(
+            step,
+            operator,
+            dataset,
+            context,
+            self,
+            source
+        )
+
+        self.saver.save_binaries(self.step_number, binaries)
+        return context
+
+        # if controller.use_multi_source():
+        #     if not dataset.is_multi_source():
+        #         source = 0
+        #     else:
+        #         source = [i for i in range(dataset.n_sources)]
+        #         operator = [operator]
+        #         for _ in range(len(source) - len(operator)):
+        #             op = deserialize_component(step)
+        #             print(f"🔄 Adding operator {op} for additional source")
+        #             operator.append(op)
+
+        # if isinstance(operator, list) and self.parallel:
+        #     print(f"🔄 Running operators in parallel with {self.max_workers} workers")
+        #     with parallel_backend(self.backend, n_jobs=self.max_workers):
+        #         Parallel()(delayed(controller.execute)(step, op, dataset, context, self, src) for op, src in zip(operator, source))
+        #     return context
+        # else:
+        #     print(f"🔄 Running single operator {operator} for step: {step}, source: {source}")
+            # return controller.execute(step, operator, dataset, context, self, source)
 
     # Helper method to get a human-readable description of a step
     def _get_step_description(self, step: Any) -> str:

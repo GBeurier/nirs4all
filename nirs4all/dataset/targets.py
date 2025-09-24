@@ -30,15 +30,19 @@ class Targets:
 
     def __str__(self) -> str:
         if self.num_samples == 0:
-            return "Targets(empty)"
+            return "Targets:\n(empty)"
+        mean_value = round(float(np.mean(self._array)), 3) if self._array.size > 0 else 0.0
+        variance_value = round(float(np.var(self._array)), 3) if self._array.size > 0 else 0.0
 
-        lines = [f"Targets with {self.num_samples} samples and {self.num_targets} targets"]
-        for proc_id in self._processing_ids:
-            data = self._data[proc_id]
-            ancestor = self._ancestors.get(proc_id, "none")
-            transformer = type(self._transformers.get(proc_id, type(None))).__name__
-            lines.append(f"  • {proc_id}: {data.shape}, ancestor={ancestor}, transformer={transformer}")
-        return "\n".join(lines)
+        return f"Targets:\n- samples={self.num_samples}, targets={self.num_targets}, processings={self._processing_ids}, mean={mean_value}, variance={variance_value}"
+
+        # lines = [f"Targets with {self.num_samples} samples and {self.num_targets} targets"]
+        # for proc_id in self._processing_ids:
+        #     data = self._data[proc_id]
+        #     ancestor = self._ancestors.get(proc_id, "none")
+        #     transformer = type(self._transformers.get(proc_id, type(None))).__name__
+        #     lines.append(f"  • {proc_id}: {data.shape}, ancestor={ancestor}, transformer={transformer}")
+        # return "\n".join(lines)
 
     @property
     def num_samples(self) -> int:

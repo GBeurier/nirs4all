@@ -24,13 +24,14 @@ class SpectroDataset:
     Main dataset orchestrator that manages feature, target, metadata,
     fold, and prediction blocks.
     """
-    def __init__(self):
+    def __init__(self, name: str = "Unknown_dataset"):
         self._indexer = Indexer()
         self._features = Features()
         self._targets = Targets()
         self._folds = []
         self._metadata = Metadata()
         self._predictions = Predictions()
+        self.name = name
 
     def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
         indices = self._indexer.x_indices(selector)
@@ -98,6 +99,8 @@ class SpectroDataset:
 
         return augmented_sample_ids
 
+    def features_processings(self, src: int) -> List[str]:
+        return self._features.preprocessing_str[src]
 
 
     def is_multi_source(self) -> bool:
@@ -149,14 +152,15 @@ class SpectroDataset:
         return len(self._features.sources)
 
 
-    def __repr__(self):
-        txt = str(self._features)
-        txt += "\n" + str(self._targets)
-        txt += "\n" + str(self._indexer)
-        return txt
+    # def __repr__(self):
+    #     txt = str(self._features)
+    #     txt += "\n" + str(self._targets)
+    #     txt += "\n" + str(self._indexer)
+    #     return txt
 
     def __str__(self):
-        txt = str(self._features)
+        txt = f"📊 Dataset: {self.name}"
+        txt += "\n" + str(self._features)
         txt += "\n" + str(self._targets)
         txt += "\n" + str(self._indexer)
         return txt
