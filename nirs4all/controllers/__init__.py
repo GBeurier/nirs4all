@@ -29,6 +29,7 @@ from .dataset.op_sample_augmentation import SampleAugmentationController
 from .sklearn.op_split import CrossValidatorController
 from .chart.op_spectra_charts import SpectraChartController
 from .chart.op_fold_charts import FoldChartController
+from .chart.op_y_chart import YChartController
 __all__ = [
     'OperatorController',
     'register_controller',
@@ -41,5 +42,6 @@ __all__ = [
     'CrossValidatorController',
     'SpectraChartController',
     'FoldChartController',
+    'YChartController',
     # Archived operations not included
 ]
