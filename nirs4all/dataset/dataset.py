@@ -58,12 +58,16 @@ class SpectroDataset:
                      features: InputFeatures,
                      processings: ProcessingList) -> None:
         self._features.update_features([], features, processings)
+        # Update the indexer to add new processings to existing processing lists
+        self._indexer.add_processings(processings)
+
 
     def replace_features(self,
                          source_processings: ProcessingList,
                          features: InputFeatures,
                          processings: ProcessingList) -> None:
         self._features.update_features(source_processings, features, processings)
+        self._indexer.replace_processings(source_processings, processings)
 
     def update_features(self,
                         source_processings: ProcessingList,
@@ -101,6 +105,9 @@ class SpectroDataset:
 
     def features_processings(self, src: int) -> List[str]:
         return self._features.preprocessing_str[src]
+
+    def features_sources(self) -> int:
+        return len(self._features.sources)
 
 
     def is_multi_source(self) -> bool:

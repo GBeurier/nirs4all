@@ -45,7 +45,7 @@ class Indexer:
     def _build_filter_condition(self, selector: Selector) -> pl.Expr:
         conditions = []
         for col, value in selector.items():
-            if col not in self.df.columns:
+            if col not in self.df.columns or col == "processings":
                 continue
             if isinstance(value, list):
                 conditions.append(pl.col(col).is_in(value))
@@ -77,6 +77,64 @@ class Indexer:
             .otherwise(pl.col("origin")).cast(pl.Int32).alias("y_index")
         )
         return result["y_index"].to_numpy().astype(np.int32)
+
+    def replace_processings(self, source_processings: List[str], new_processings: List[str]) -> None:
+        """
+        Replace processing names for a specific source.
+
+        Args:
+            source_processings: List of existing processing names to replace
+            new_processings: List of new processing names to set
+        """
+        if not source_processings or not new_processings:
+            return
+
+        def replace_proc(proc_str: str) -> str:
+            try:
+                proc_list = eval(proc_str)
+                if not isinstance(proc_list, list):
+                    return proc_str
+
+                # Create a mapping from old to new processing names
+                replacement_map = {old: new for old, new in zip(source_processings, new_processings)}
+
+                # Replace each processing name if it exists in the map
+                updated = [replacement_map.get(proc, proc) for proc in proc_list]
+                return str(updated)
+            except Exception:
+                return proc_str
+
+        # Apply replacement to all rows (no filtering needed for replacement)
+        self.df = self.df.with_columns(
+            pl.col("processings").map_elements(replace_proc, return_dtype=pl.Utf8)
+        )
+
+    def add_processings(self, new_processings: List[str]) -> None:
+        """
+        Add new processing names to all existing processing lists.
+
+        Args:
+            new_processings: List of new processing names to add to existing lists
+        """
+        if not new_processings:
+            return
+
+        def append_processings(proc_str: str) -> str:
+            try:
+                proc_list = eval(proc_str)
+                if not isinstance(proc_list, list):
+                    proc_list = [proc_str]
+                # Add new processings to the existing list
+                updated_list = proc_list + new_processings
+                return str(updated_list)
+            except Exception:
+                # If parsing fails, create new list with new processings
+                return str(new_processings)
+
+        # Apply to all rows
+        self.df = self.df.with_columns(
+            pl.col("processings").map_elements(append_processings, return_dtype=pl.Utf8)
+        )
 
     def _normalize_indices(self, indices: SampleIndices, count: int, param_name: str) -> List[int]:
         """Normalize various index formats to a list of integers."""
