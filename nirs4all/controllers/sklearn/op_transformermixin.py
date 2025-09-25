@@ -19,7 +19,21 @@ class TransformerMixinController(OperatorController):
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
-        return isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)
+        """Match TransformerMixin objects."""
+        # Get the actual model object
+        model_obj = None
+        if isinstance(step, dict) and 'model' in step:
+            model_obj = step['model']
+            if isinstance(model_obj, dict) and '_runtime_instance' in model_obj:
+                model_obj = model_obj['_runtime_instance']
+        elif operator is not None:
+            model_obj = operator
+        else:
+            model_obj = step
+
+        # Check if it's a TransformerMixin
+        return (isinstance(model_obj, TransformerMixin) or
+                (hasattr(model_obj, '__class__') and issubclass(model_obj.__class__, TransformerMixin)))
 
     @classmethod
     def use_multi_source(cls) -> bool:

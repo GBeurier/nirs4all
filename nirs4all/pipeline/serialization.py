@@ -18,7 +18,15 @@ def serialize_component(obj: Any, include_runtime: bool = True) -> Any:
     if isinstance(obj, list):
         return [serialize_component(x, include_runtime) for x in obj]
     if isinstance(obj, tuple):
-        return [serialize_component(x, include_runtime) for x in obj]
+        # Preserve tuples that look like hyperparameter range specifications
+        # e.g., ('int', min, max) or ('float', min, max)
+        if (len(obj) == 3 and isinstance(obj[0], str) and
+                obj[0] in ['int', 'float'] and
+                isinstance(obj[1], (int, float)) and
+                isinstance(obj[2], (int, float))):
+            return obj  # Preserve tuple for hyperparameter ranges
+        else:
+            return [serialize_component(x, include_runtime) for x in obj]
 
     if inspect.isclass(obj):
         return f"{obj.__module__}.{obj.__qualname__}"

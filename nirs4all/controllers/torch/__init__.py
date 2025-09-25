@@ -1,8 +1,9 @@
 """
-Models module for nirs4all operations.
-
-This module contains model classes for operations.
-Note: This directory is currently empty.
+PyTorch controllers module.
 """
 
-__all__ = []
+from .op_model import PyTorchModelController
+
+__all__ = [
+    'PyTorchModelController'
+]
