@@ -173,12 +173,12 @@ class BaseModelController(OperatorController, ABC):
             if mode == ModelMode.FINETUNE and finetune_params:
                 return self._execute_finetune(
                     model_config, X_train, y_train, X_test, y_test,
-                    train_params, finetune_params, context, runner
+                    train_params, finetune_params, context, runner, dataset
                 )
             else:
                 return self._execute_train(
                     model_config, X_train, y_train, X_test, y_test,
-                    train_params, context, runner
+                    train_params, context, runner, dataset
                 )
 
     def _extract_model_config(self, step: Any) -> Dict[str, Any]:
@@ -294,7 +294,7 @@ class BaseModelController(OperatorController, ABC):
         _, finetune_binaries = self._execute_finetune(
             model_config, combined_X_train, combined_y_train,
             X_test_sample, y_test_sample, train_params, finetune_params,
-            context, runner
+            context, runner, dataset
         )
 
         # Extract best parameters from the finetuning process
@@ -324,7 +324,7 @@ class BaseModelController(OperatorController, ABC):
             # Train on this fold
             fold_context, fold_binaries = self._execute_train(
                 model_config, X_train, y_train, X_test, y_test,
-                train_params, context, runner, fold_idx
+                train_params, context, runner, dataset, fold_idx
             )
 
             # Add fold suffix to binary names
@@ -719,6 +719,7 @@ class BaseModelController(OperatorController, ABC):
         train_params: Dict[str, Any],
         context: Dict[str, Any],
         runner: 'PipelineRunner',
+        dataset: 'SpectroDataset',
         fold_idx: Optional[int] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute training mode."""
@@ -746,6 +747,19 @@ class BaseModelController(OperatorController, ABC):
         # Generate predictions
         y_pred = self._predict_model(trained_model, X_test_prep)
 
+        # Store predictions in dataset
+        self._store_predictions_in_dataset(
+            dataset=getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown',
+            pipeline=getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown',
+            model=model.__class__.__name__,
+            partition=f"test_fold_{fold_idx}" if fold_idx is not None else "test",
+            y_true=y_test,
+            y_pred=y_pred,
+            fold_idx=fold_idx,
+            context=context,
+            dataset_obj=dataset
+        )
+
         # Store results and serialize model
         binaries = self._store_results(trained_model, y_pred, y_test, runner, "trained")
 
@@ -764,6 +778,7 @@ class BaseModelController(OperatorController, ABC):
         finetune_params: Dict[str, Any],
         context: Dict[str, Any],
         runner: 'PipelineRunner',
+        dataset: 'SpectroDataset',
         fold_idx: Optional[int] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute fine-tuning mode with Optuna."""
@@ -779,7 +794,7 @@ class BaseModelController(OperatorController, ABC):
             print("⚠️ Optuna not available, falling back to training mode")
             return self._execute_train(
                 model_config, X_train, y_train, X_test, y_test,
-                train_params, context, runner
+                train_params, context, runner, dataset
             )        # Prepare data
         X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
         X_test_prep, _ = self._prepare_data(X_test, y_test, context)
@@ -909,6 +924,19 @@ class BaseModelController(OperatorController, ABC):
         # Generate final predictions with best model
         y_pred = self._predict_model(best_model, X_test_prep)
 
+        # Store predictions in dataset
+        self._store_predictions_in_dataset(
+            dataset=getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown',
+            pipeline=getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown',
+            model=best_model.__class__.__name__,
+            partition=f"test_fold_{fold_idx}" if fold_idx is not None else "test",
+            y_true=y_test,
+            y_pred=y_pred,
+            fold_idx=fold_idx,
+            context=context,
+            dataset_obj=dataset
+        )
+
         # Store results
         binaries = self._store_results(best_model, y_pred, y_test, runner, "finetuned")
 
@@ -1008,6 +1036,73 @@ class BaseModelController(OperatorController, ABC):
             elif isinstance(param_config, tuple):
                 pass  # Skip range parameters
         return search_space
+
+    def _store_predictions_in_dataset(
+        self,
+        dataset: str,
+        pipeline: str,
+        model: str,
+        partition: str,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        fold_idx: Optional[int] = None,
+        context: Optional[Dict[str, Any]] = None,
+        dataset_obj: Optional['SpectroDataset'] = None
+    ) -> None:
+        """
+        Store predictions in the dataset's prediction storage.
+
+        Args:
+            dataset: Dataset name
+            pipeline: Pipeline name
+            model: Model name
+            partition: Partition name
+            y_true: True values
+            y_pred: Predicted values
+            fold_idx: Fold index if applicable
+            context: Pipeline context with processing information
+            dataset_obj: Optional dataset object to store predictions in
+        """
+        if dataset_obj is None:
+            # Can't store predictions without dataset object
+            return
+
+        # Get current y processing from context
+        current_y_processing = context.get('y', 'numeric') if context else 'numeric'
+
+        # Inverse transform predictions to original space if possible
+        try:
+            if hasattr(dataset_obj, '_targets') and current_y_processing != 'numeric':
+                # Transform both y_true and y_pred back to numeric space
+                y_true_transformed = dataset_obj._targets.transform_predictions(
+                    y_true, from_processing=current_y_processing, to_processing='numeric'
+                )
+                y_pred_transformed = dataset_obj._targets.transform_predictions(
+                    y_pred, from_processing=current_y_processing, to_processing='numeric'
+                )
+            else:
+                y_true_transformed = y_true
+                y_pred_transformed = y_pred
+        except Exception as e:
+            print(f"⚠️ Could not inverse transform predictions: {e}")
+            y_true_transformed = y_true
+            y_pred_transformed = y_pred
+
+        # Store predictions
+        dataset_obj._predictions.add_prediction(
+            dataset=dataset,
+            pipeline=pipeline,
+            model=model,
+            partition=partition,
+            y_true=y_true_transformed,
+            y_pred=y_pred_transformed,
+            fold_idx=fold_idx,
+            metadata={
+                'y_processing': current_y_processing,
+                'model_type': model,
+                'partition': partition
+            }
+        )
 
     @abstractmethod
     def _evaluate_model(self, model: Any, X_val: Any, y_val: Any) -> float:
