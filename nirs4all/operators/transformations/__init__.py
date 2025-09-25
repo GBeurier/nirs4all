@@ -15,10 +15,10 @@ from .nirs import (Haar, MultiplicativeScatterCorrection, SavitzkyGolay, Wavelet
 from .scalers import (Derivate, Normalize, SimpleScale, derivate, norml, spl_norml)
 from .signal import Baseline, Detrend, Gaussian, baseline, detrend, gaussian
 from .features import CropTransformer, ResampleTransformer
-from ..augmentation.abc_augmenter import Augmenter, IdentityAugmenter
 
 
 __all__ = [
+    # Data augmentation
     "Spline_Smoothing",
     "Spline_X_Perturbations",
     "Spline_Y_Perturbations",
@@ -28,30 +28,38 @@ __all__ = [
     "Random_X_Operation",
     "Augmenter",
     "IdentityAugmenter",
+
+    # Sklearn aliases
     "IdentityTransformer",  # sklearn.preprocessing.FunctionTransformer alias
-    "Baseline",
     "StandardNormalVariate",  # sklearn.preprocessing.StandardScaler alias
-    "RobustNormalVariate",  # sklearn.preprocessing.RobusScaler alias
+    "RobustNormalVariate",  # sklearn.preprocessing.RobustScaler alias
+
+    # NIRS transformations
     "SavitzkyGolay",
     "Haar",
-    "Normalize",
-    "Detrend",
     "MultiplicativeScatterCorrection",
-    "Derivate",
-    "Gaussian",
     "Wavelet",
-    "SimpleScale",
-    "baseline",
     "savgol",
-    "norml",
-    "detrend",
     "msc",
     "wavelet_transform",
+
+    # Scalers
+    "Normalize",
+    "Derivate",
+    "SimpleScale",
+    "norml",
     "derivate",
     "spl_norml",
+
+    # Signal processing
+    "Baseline",
+    "Detrend",
+    "Gaussian",
+    "baseline",
+    "detrend",
     "gaussian",
+
+    # Features
     "CropTransformer",
-    "ResampleTransformer",
-    "Augmenter",
-    "IdentityAugmenter",
+    "ResampleTransformer"
 ]
