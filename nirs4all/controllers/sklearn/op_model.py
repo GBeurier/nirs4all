@@ -173,6 +173,10 @@ class SklearnModelController(BaseModelController):
             except Exception:
                 return float('inf')  # Return worst possible score
 
+    def get_preferred_layout(self) -> str:
+        """Return the preferred data layout for sklearn models."""
+        return "2d"
+
     def _sample_hyperparameters(self, trial, finetune_params: Dict[str, Any]) -> Dict[str, Any]:
         """Sample hyperparameters specific to sklearn models."""
         params = super()._sample_hyperparameters(trial, finetune_params)

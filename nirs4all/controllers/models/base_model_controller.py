@@ -10,11 +10,12 @@ All model controllers (sklearn, tensorflow, pytorch) inherit from this base clas
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, Optional, Union, TYPE_CHECKING
 import pickle
 import numpy as np
 from enum import Enum
 
+from nirs4all.dataset.helpers import Layout
 from nirs4all.controllers.controller import OperatorController
 
 if TYPE_CHECKING:
@@ -81,6 +82,11 @@ class BaseModelController(OperatorController, ABC):
         """Prepare data in framework-specific format (2D, 3D, tensors, etc.)."""
         pass
 
+    @abstractmethod
+    def get_preferred_layout(self) -> str:
+        """Return the preferred data layout for this model type ('2d' or '3d')."""
+        pass
+
     def execute(
         self,
         step: Any,
@@ -92,6 +98,7 @@ class BaseModelController(OperatorController, ABC):
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """
         Execute model controller in one of three modes: train, finetune, or predict.
+        Handles both single training and cross-validation with multiple folds.
 
         Args:
             step: Pipeline step configuration
@@ -115,26 +122,29 @@ class BaseModelController(OperatorController, ABC):
         mode = self._determine_mode(model_config)
         # print(f"🎯 Model mode: {mode.value}")
 
-        # Prepare data
-        X_train, y_train, X_test, y_test = self._prepare_train_test_data(dataset, context)
+        # Prepare data (can return single tuple or list of tuples for folds)
+        data_splits = self._prepare_train_test_data(dataset, context)
 
-        # Execute based on mode
-        if mode == ModelMode.FINETUNE and finetune_params:
-            return self._execute_finetune(
-                model_config, X_train, y_train, X_test, y_test,
-                train_params, finetune_params, context, runner
-            )
-        elif mode == ModelMode.TRAIN:
-            return self._execute_train(
-                model_config, X_train, y_train, X_test, y_test,
-                train_params, context, runner
+        # Check if we have folds (list of tuples) or single split (single tuple)
+        if isinstance(data_splits, list):
+            # Cross-validation mode: train one model per fold
+            return self._execute_cross_validation(
+                model_config, data_splits, train_params, finetune_params,
+                mode, context, runner, dataset
             )
         else:
-            # Default to train mode if no specific mode determined
-            return self._execute_train(
-                model_config, X_train, y_train, X_test, y_test,
-                train_params, context, runner
-            )
+            # Single training mode: no folds
+            X_train, y_train, X_test, y_test = data_splits
+            if mode == ModelMode.FINETUNE and finetune_params:
+                return self._execute_finetune(
+                    model_config, X_train, y_train, X_test, y_test,
+                    train_params, finetune_params, context, runner
+                )
+            else:
+                return self._execute_train(
+                    model_config, X_train, y_train, X_test, y_test,
+                    train_params, context, runner
+                )
 
     def _extract_model_config(self, step: Any) -> Dict[str, Any]:
         """Extract model configuration from step."""
@@ -170,28 +180,116 @@ class BaseModelController(OperatorController, ABC):
         self,
         dataset: 'SpectroDataset',
         context: Dict[str, Any]
-    ) -> Tuple[Any, Any, Any, Any]:
+    ) -> Union[Tuple[Any, Any, Any, Any], List[Tuple[Any, Any, Any, Any]]]:
         """
-        Prepare training and test data from dataset.
+        Prepare training and test data from dataset, handling cross-validation folds.
+
+        If dataset has folds, returns a list of (X_train, y_train, X_val, y_val) tuples, one per fold.
+        If no folds, returns a single tuple (X_train, y_train, X_test, y_test).
 
         Returns:
-            Tuple of (X_train, y_train, X_test, y_test)
+            Union[Tuple[Any, Any, Any, Any], List[Tuple[Any, Any, Any, Any]]]
         """
-        # Get training data
-        train_context = context.copy()
-        train_context["partition"] = "train"
-        X_train = dataset.x(train_context, "2d", concat_source=True)
-        y_train = dataset.y(train_context)
+        # Get the preferred layout for this model type
+        layout_str = self.get_preferred_layout()
+        layout: Layout = layout_str  # type: ignore
 
-        # Get test data (all data for now, will be filtered by folds if needed)
+        # Check if dataset has folds
+        if hasattr(dataset, 'num_folds') and dataset.num_folds > 0:
+            # Prepare fold-based train/validation splits
+            folds_data = []
+
+            # Get all training data first
+            train_context = context.copy()
+            train_context["partition"] = "train"
+            X_all_train = dataset.x(train_context, layout, concat_source=True)
+            y_all_train = dataset.y(train_context)
+
+            # For each fold, create train/validation splits
+            for fold_idx, (train_indices, val_indices) in enumerate(dataset.folds):
+                X_train_fold = X_all_train[train_indices]
+                y_train_fold = y_all_train[train_indices]
+                X_val_fold = X_all_train[val_indices]
+                y_val_fold = y_all_train[val_indices]
+
+                folds_data.append((X_train_fold, y_train_fold, X_val_fold, y_val_fold))
+                # print(f"📊 Fold {fold_idx+1}: Train {X_train_fold.shape}, Val {X_val_fold.shape}")
+
+            return folds_data
+        else:
+            # No folds: use standard train/test split
+            train_context = context.copy()
+            train_context["partition"] = "train"
+            X_train = dataset.x(train_context, layout, concat_source=True)
+            y_train = dataset.y(train_context)
+
+            test_context = context.copy()
+            test_context["partition"] = "test"
+            X_test = dataset.x(test_context, layout, concat_source=True)
+            y_test = dataset.y(test_context)
+
+            # print(f"📊 No folds - Train: X{X_train.shape}, y{y_train.shape} | Test: X{X_test.shape}, y{y_test.shape}")
+            return X_train, y_train, X_test, y_test
+
+    def _execute_cross_validation(
+        self,
+        model_config: Dict[str, Any],
+        data_splits: List[Tuple[Any, Any, Any, Any]],
+        train_params: Dict[str, Any],
+        finetune_params: Dict[str, Any],
+        mode: ModelMode,
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        dataset: 'SpectroDataset'
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        """Execute cross-validation training, creating one model per fold."""
+        verbose = train_params.get('verbose', 0)
+        all_binaries = []
+
+        # if verbose > 0:
+        #     print(f"🔄 Cross-validation: training {len(data_splits)} fold models...")
+
+        # Get test data for final evaluation (after training all folds)
         test_context = context.copy()
         test_context["partition"] = "test"
-        X_test = dataset.x(test_context, "2d", concat_source=True)
+        layout_str = self.get_preferred_layout()
+        layout: Layout = layout_str  # type: ignore
+        X_test = dataset.x(test_context, layout, concat_source=True)
         y_test = dataset.y(test_context)
 
-        # print(f"📊 Data shapes - Train: X{X_train.shape}, y{y_train.shape} | Test: X{X_test.shape}, y{y_test.shape}")
+        for fold_idx, (X_train, y_train, X_val, y_val) in enumerate(data_splits):
+            # if verbose > 0:
+            #     print(f"🏋️ Training fold {fold_idx+1}/{len(data_splits)}...")
 
-        return X_train, y_train, X_test, y_test
+            if mode == ModelMode.FINETUNE and finetune_params:
+                # Fine-tune for this fold
+                fold_context, fold_binaries = self._execute_finetune(
+                    model_config, X_train, y_train, X_val, y_val,
+                    train_params, finetune_params, context, runner, fold_idx
+                )
+            else:
+                # Train for this fold
+                fold_context, fold_binaries = self._execute_train(
+                    model_config, X_train, y_train, X_val, y_val,
+                    train_params, context, runner, fold_idx
+                )
+
+            # Add fold suffix to binary names
+            fold_binaries_renamed = []
+            for name, binary in fold_binaries:
+                name_parts = name.rsplit('.', 1)
+                if len(name_parts) == 2:
+                    new_name = f"{name_parts[0]}_fold{fold_idx+1}.{name_parts[1]}"
+                else:
+                    new_name = f"{name}_fold{fold_idx+1}"
+                fold_binaries_renamed.append((new_name, binary))
+
+            all_binaries.extend(fold_binaries_renamed)
+
+        # if verbose > 0:
+        #     print("✅ Cross-validation completed successfully")
+
+        return context, all_binaries
 
     def _execute_train(
         self,
@@ -202,7 +300,8 @@ class BaseModelController(OperatorController, ABC):
         y_test: Any,
         train_params: Dict[str, Any],
         context: Dict[str, Any],
-        runner: 'PipelineRunner'
+        runner: 'PipelineRunner',
+        fold_idx: Optional[int] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute training mode."""
         verbose = train_params.get('verbose', 0)
@@ -244,7 +343,8 @@ class BaseModelController(OperatorController, ABC):
         train_params: Dict[str, Any],
         finetune_params: Dict[str, Any],
         context: Dict[str, Any],
-        runner: 'PipelineRunner'
+        runner: 'PipelineRunner',
+        fold_idx: Optional[int] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute fine-tuning mode with Optuna."""
         # Check verbose setting from finetune_params or train_params (0=silent, 1=basic, 2=detailed)
