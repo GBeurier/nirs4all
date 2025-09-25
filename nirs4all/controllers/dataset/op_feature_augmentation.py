@@ -45,7 +45,7 @@ class FeatureAugmentationController(OperatorController):
                 local_context = copy.deepcopy(initial_context)
 
                 if i == 0 and operation is None:
-                    print("Skipping no-op augmentation")
+                    print(f"\033[96m   ▶ Skipping no-op feature augmentation\033[0m")
                     continue
                 if i > 0:
                     local_context["add_feature"] = True
