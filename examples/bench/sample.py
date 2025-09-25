@@ -52,38 +52,38 @@ pipeline_config = {
         # "chart_3d",
         # "chart_2d",
         MinMaxScaler(feature_range=(0.1, 0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
-        # {"feature_augmentation": [None, GS, [SNV, Haar]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
+        {"feature_augmentation": [None, GS, [SNV, Haar]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
         # "chart_3d",
         # RepeatedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
-        # ShuffleSplit(n_splits=1, test_size=.25),  # First one is target:test by default
+        ShuffleSplit(n_splits=3, test_size=.25),  # First one is target:test by default
         # "fold_chart",
         # "y_chart",
         {"y_processing": StandardScaler()},  # preprocess target data
         # "y_chart",
-        {
-            "model": RandomForestRegressor(max_depth=10, random_state=42),
-            "train_params": {
-                # Final training parameters (after finetuning)
-                "oob_score": True,
-                "n_jobs": -1,
-                "verbose": 0  # 0=silent, 1=basic, 2=detailed
-            },
-            "finetune_params": {
-                "n_trials": 4,
-                "approach": "grid",
-                "verbose": 0,  # 0=silent, 1=basic, 2=detailed finetuning output
-                "model_params": {
-                    # Parameters to optimize during finetuning
-                    "n_estimators": [10, 30],  # Only 2 options instead of 3
-                    "max_depth": [3, 7],       # Only 2 options instead of 3
-                },
-                "train_params": {
-                    # Training parameters during finetuning trials (faster & silent)
-                    "n_jobs": 1,
-                    "verbose": 0
-                }
-            },
-        },
+        # {
+        #     "model": RandomForestRegressor(max_depth=10, random_state=42),
+        #     "train_params": {
+        #         # Final training parameters (after finetuning)
+        #         "oob_score": True,
+        #         "n_jobs": -1,
+        #         "verbose": 0  # 0=silent, 1=basic, 2=detailed
+        #     },
+        #     "finetune_params": {
+        #         "n_trials": 4,
+        #         "approach": "grid",
+        #         "verbose": 0,  # 0=silent, 1=basic, 2=detailed finetuning output
+        #         "model_params": {
+        #             # Parameters to optimize during finetuning
+        #             "n_estimators": [10, 30],  # Only 2 options instead of 3
+        #             "max_depth": [3, 7],       # Only 2 options instead of 3
+        #         },
+        #         "train_params": {
+        #             # Training parameters during finetuning trials (faster & silent)
+        #             "n_jobs": 1,
+        #             "verbose": 0
+        #         }
+        #     },
+        # },
         {
             "model": PLSRegression(),
             "train_params": {
@@ -104,29 +104,29 @@ pipeline_config = {
                 }
             }
         },
+        # {
+        #     "model": nicon,
+        #     "train_params": {
+        #         # Final training parameters
+        #         "epochs": 100,
+        #         "patience": 10,
+        #         "batch_size": 16,
+        #         "cyclic_lr": True,
+        #         "step_size": 20,
+        #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
+        #     },
+        # },
         {
             "model": nicon,
             "train_params": {
-                # Final training parameters
-                "epochs": 100,
+                "epochs": 50,
                 "patience": 10,
-                "batch_size": 16,
-                "cyclic_lr": True,
-                "step_size": 20,
-                "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
-            },
-        },
-        {
-            "model": nicon,
-            "train_params": {
-                "epochs": 500,
-                "patience": 60,
                 "batch_size": 5000,
                 "verbose": 0,
                 # "best_model_memory": True
             },
             "finetune_params": {
-                "n_trials": 10,
+                "n_trials": 2,
                 "approach": "random",
                 "model_params": {
                     "filters_1": [8, 16, 32],

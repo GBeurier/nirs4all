@@ -30,6 +30,20 @@ class ModelMode(Enum):
     PREDICT = "predict"
 
 
+class CVMode(Enum):
+    """Enumeration of cross-validation finetuning strategies."""
+    SIMPLE = "simple"  # Finetune on full train data, then train on folds
+    PER_FOLD = "per_fold"  # Finetune on each fold individually
+    NESTED = "nested"  # Inner folds for finetuning, outer folds for training
+
+
+class ParamStrategy(Enum):
+    """Parameter aggregation strategies for cross-validation."""
+    GLOBAL_BEST = "global_best"  # Use single best params for all folds
+    PER_FOLD_BEST = "per_fold_best"  # Use best params per fold
+    WEIGHTED_AVERAGE = "weighted_average"  # Average params weighted by performance
+
+
 class BaseModelController(OperatorController, ABC):
     """
     Abstract base controller for machine learning models.
@@ -127,11 +141,32 @@ class BaseModelController(OperatorController, ABC):
 
         # Check if we have folds (list of tuples) or single split (single tuple)
         if isinstance(data_splits, list):
-            # Cross-validation mode: train one model per fold
-            return self._execute_cross_validation(
-                model_config, data_splits, train_params, finetune_params,
-                mode, context, runner, dataset
-            )
+            # Cross-validation mode: determine finetuning strategy
+            if mode == ModelMode.FINETUNE and finetune_params:
+                cv_mode = self._determine_cv_mode(finetune_params)
+
+                if cv_mode == CVMode.NESTED:
+                    return self._execute_nested_cv(
+                        model_config, data_splits, train_params, finetune_params,
+                        context, runner, dataset
+                    )
+                elif cv_mode == CVMode.PER_FOLD:
+                    return self._execute_per_fold_cv(
+                        model_config, data_splits, train_params, finetune_params,
+                        context, runner, dataset
+                    )
+                else:  # CVMode.SIMPLE or default
+                    # First finetune on all training data to get best params
+                    return self._execute_simple_cv_finetune(
+                        model_config, data_splits, train_params, finetune_params,
+                        context, runner, dataset
+                    )
+            else:
+                # Standard cross-validation without finetuning
+                return self._execute_cross_validation(
+                    model_config, data_splits, train_params, finetune_params,
+                    mode, context, runner, dataset
+                )
         else:
             # Single training mode: no folds
             X_train, y_train, X_test, y_test = data_splits
@@ -175,6 +210,389 @@ class BaseModelController(OperatorController, ABC):
             return ModelMode.FINETUNE
         else:
             return ModelMode.TRAIN
+
+    def _determine_cv_mode(self, finetune_params: Dict[str, Any]) -> CVMode:
+        """Determine the cross-validation finetuning mode from parameters."""
+        cv_mode_str = finetune_params.get('cv_mode', 'simple')
+
+        # Check for nested CV indicators
+        if (finetune_params.get('inner_cv') is not None or
+            finetune_params.get('outer_cv') is not None or
+            cv_mode_str == 'nested'):
+            return CVMode.NESTED
+        elif cv_mode_str == 'per_fold':
+            return CVMode.PER_FOLD
+        else:
+            return CVMode.SIMPLE
+
+    def _create_inner_folds(self, X_train: Any, y_train: Any, inner_cv: Any) -> List[Tuple[Any, Any, Any, Any]]:
+        """Create inner cross-validation folds for nested CV."""
+        try:
+            from sklearn.model_selection import KFold, StratifiedKFold
+        except ImportError:
+            raise ImportError("scikit-learn is required for nested cross-validation")
+
+        # Default to 3-fold if not specified
+        if inner_cv is None:
+            inner_cv = KFold(n_splits=3, shuffle=True, random_state=42)
+        elif isinstance(inner_cv, int):
+            inner_cv = KFold(n_splits=inner_cv, shuffle=True, random_state=42)
+
+        inner_folds = []
+        for train_idx, val_idx in inner_cv.split(X_train, y_train):
+            # Use numpy indexing if possible
+            if hasattr(X_train, '__getitem__') and hasattr(X_train, 'shape'):
+                X_inner_train = X_train[train_idx]
+                X_inner_val = X_train[val_idx]
+            else:
+                X_inner_train = X_train
+                X_inner_val = X_train
+
+            if hasattr(y_train, '__getitem__') and hasattr(y_train, 'shape'):
+                y_inner_train = y_train[train_idx]
+                y_inner_val = y_train[val_idx]
+            else:
+                y_inner_train = y_train
+                y_inner_val = y_train
+
+            inner_folds.append((X_inner_train, y_inner_train, X_inner_val, y_inner_val))
+
+        return inner_folds
+
+    def _execute_simple_cv_finetune(
+        self,
+        model_config: Dict[str, Any],
+        data_splits: List[Tuple[Any, Any, Any, Any]],
+        train_params: Dict[str, Any],
+        finetune_params: Dict[str, Any],
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        dataset: 'SpectroDataset'
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        """Execute simple CV: finetune on full training data, then train on folds."""
+        verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
+
+        if verbose > 0:
+            print("🔍 Simple CV: Finetuning on full training data...")
+
+        # Combine all training data for finetuning
+        all_X_train = []
+        all_y_train = []
+        for X_train, y_train, _, _ in data_splits:
+            all_X_train.append(X_train)
+            all_y_train.append(y_train)
+
+        # Concatenate all training data
+        import numpy as np
+        combined_X_train = np.concatenate(all_X_train, axis=0)
+        combined_y_train = np.concatenate(all_y_train, axis=0)
+
+        # Use first fold's test data for finetuning evaluation (could be improved)
+        _, _, X_test_sample, y_test_sample = data_splits[0]
+
+        # Execute finetuning to get best parameters
+        _, finetune_binaries = self._execute_finetune(
+            model_config, combined_X_train, combined_y_train,
+            X_test_sample, y_test_sample, train_params, finetune_params,
+            context, runner
+        )
+
+        # Extract best parameters from the finetuning process
+        best_params = getattr(self, '_last_best_params', {})
+
+        if verbose > 0:
+            print(f"🏆 Best parameters found: {best_params}")
+            print(f"🔄 Training {len(data_splits)} fold models with best parameters...")
+
+        # Now train models on each fold with the best parameters
+        all_binaries = []
+        all_binaries.extend(finetune_binaries)
+
+        for fold_idx, (X_train, y_train, X_test, y_test) in enumerate(data_splits):
+            # Create model with best parameters
+            base_model = self._get_model_from_config(model_config)
+            model = self._clone_model(base_model)
+
+            # Apply best parameters
+            if hasattr(model, 'set_params') and best_params:
+                try:
+                    model.set_params(**best_params)
+                except Exception as e:
+                    if verbose > 0:
+                        print(f"⚠️ Could not apply best parameters to fold {fold_idx+1}: {e}")
+
+            # Train on this fold
+            fold_context, fold_binaries = self._execute_train(
+                model_config, X_train, y_train, X_test, y_test,
+                train_params, context, runner, fold_idx
+            )
+
+            # Add fold suffix to binary names
+            fold_binaries_renamed = []
+            for name, binary in fold_binaries:
+                name_parts = name.rsplit('.', 1)
+                if len(name_parts) == 2:
+                    new_name = f"{name_parts[0]}_simple_cv_fold{fold_idx+1}.{name_parts[1]}"
+                else:
+                    new_name = f"{name}_simple_cv_fold{fold_idx+1}"
+                fold_binaries_renamed.append((new_name, binary))
+
+            all_binaries.extend(fold_binaries_renamed)
+
+        if verbose > 0:
+            print("✅ Simple CV completed successfully")
+
+        return context, all_binaries
+
+    def _execute_per_fold_cv(
+        self,
+        model_config: Dict[str, Any],
+        data_splits: List[Tuple[Any, Any, Any, Any]],
+        train_params: Dict[str, Any],
+        finetune_params: Dict[str, Any],
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        dataset: 'SpectroDataset'
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        """Execute per-fold CV: finetune on each fold individually."""
+        verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
+        param_strategy = ParamStrategy(finetune_params.get('param_strategy', 'per_fold_best'))
+
+        if verbose > 0:
+            print(f"🔍 Per-fold CV: Finetuning on each fold with {param_strategy.value} strategy...")
+
+        all_binaries = []
+        all_best_params = []
+
+        # Finetune on each fold
+        for fold_idx, (X_train, y_train, X_test, y_test) in enumerate(data_splits):
+            if verbose > 0:
+                print(f"🎛️ Finetuning fold {fold_idx+1}/{len(data_splits)}...")
+
+            # Execute finetuning for this fold
+            fold_context, fold_binaries = self._execute_finetune(
+                model_config, X_train, y_train, X_test, y_test,
+                train_params, finetune_params, context, runner, fold_idx
+            )
+
+            # Store best parameters for this fold
+            fold_best_params = getattr(self, '_last_best_params', {})
+            all_best_params.append(fold_best_params)
+
+            # Add fold suffix to binary names
+            fold_binaries_renamed = []
+            for name, binary in fold_binaries:
+                name_parts = name.rsplit('.', 1)
+                if len(name_parts) == 2:
+                    new_name = f"{name_parts[0]}_per_fold_cv_fold{fold_idx+1}.{name_parts[1]}"
+                else:
+                    new_name = f"{name}_per_fold_cv_fold{fold_idx+1}"
+                fold_binaries_renamed.append((new_name, binary))
+
+            all_binaries.extend(fold_binaries_renamed)
+
+        # Handle parameter aggregation strategy
+        if param_strategy == ParamStrategy.GLOBAL_BEST:
+            # Use the best performing parameters across all folds
+            global_best_params = self._select_global_best_params(all_best_params, data_splits)
+            if verbose > 0:
+                print(f"🏆 Global best parameters: {global_best_params}")
+
+        if verbose > 0:
+            print("✅ Per-fold CV completed successfully")
+
+        return context, all_binaries
+
+    def _execute_nested_cv(
+        self,
+        model_config: Dict[str, Any],
+        outer_folds: List[Tuple[Any, Any, Any, Any]],
+        train_params: Dict[str, Any],
+        finetune_params: Dict[str, Any],
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        dataset: 'SpectroDataset'
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        """Execute nested CV: inner folds for finetuning, outer folds for training."""
+        verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
+        param_strategy = ParamStrategy(finetune_params.get('param_strategy', 'per_fold_best'))
+        inner_cv = finetune_params.get('inner_cv', 3)
+
+        if verbose > 0:
+            print(f"🔍 Nested CV: {len(outer_folds)} outer folds with inner CV finetuning...")
+            print(f"📊 Parameter strategy: {param_strategy.value}")
+
+        all_binaries = []
+        all_fold_results = []
+
+        for outer_idx, (X_outer_train, y_outer_train, X_outer_test, y_outer_test) in enumerate(outer_folds):
+            if verbose > 0:
+                print(f"🏋️ Outer fold {outer_idx+1}/{len(outer_folds)}...")
+
+            # Create inner folds for finetuning
+            inner_folds = self._create_inner_folds(X_outer_train, y_outer_train, inner_cv)
+
+            if verbose > 1:
+                print(f"  📋 Created {len(inner_folds)} inner folds for finetuning")
+
+            # Finetune using inner folds to find best parameters for this outer fold
+            fold_best_params = self._finetune_on_inner_folds(
+                model_config, inner_folds, train_params, finetune_params, context, verbose
+            )
+
+            if verbose > 1:
+                print(f"  🏆 Best params for outer fold {outer_idx+1}: {fold_best_params}")
+
+            # Train final model on full outer training data with best parameters
+            base_model = self._get_model_from_config(model_config)
+            final_model = self._clone_model(base_model)
+
+            # Apply best parameters
+            if hasattr(final_model, 'set_params') and fold_best_params:
+                try:
+                    final_model.set_params(**fold_best_params)
+                except Exception as e:
+                    if verbose > 0:
+                        print(f"⚠️ Could not apply parameters to outer fold {outer_idx+1}: {e}")
+
+            # Prepare data and train
+            X_train_prep, y_train_prep = self._prepare_data(X_outer_train, y_outer_train, context)
+            X_test_prep, _ = self._prepare_data(X_outer_test, y_outer_test, context)
+
+            trained_model = self._train_model(
+                final_model, X_train_prep, y_train_prep, train_params=train_params
+            )
+
+            # Generate predictions
+            y_pred = self._predict_model(trained_model, X_test_prep)
+
+            # Store results for this fold
+            fold_binaries = self._store_results(
+                trained_model, y_pred, y_outer_test, runner, f"nested_cv_outer_fold{outer_idx+1}"
+            )
+
+            # Store fold results for potential parameter aggregation
+            fold_score = self._evaluate_model(trained_model, X_test_prep, y_outer_test)
+            all_fold_results.append({
+                'fold_idx': outer_idx,
+                'best_params': fold_best_params,
+                'score': fold_score,
+                'binaries': fold_binaries
+            })
+
+            all_binaries.extend(fold_binaries)
+
+        # Handle parameter aggregation across outer folds
+        if param_strategy == ParamStrategy.WEIGHTED_AVERAGE:
+            self._compute_weighted_average_params(all_fold_results, verbose)
+
+        if verbose > 0:
+            print("✅ Nested CV completed successfully")
+
+        return context, all_binaries
+
+    def _finetune_on_inner_folds(
+        self,
+        model_config: Dict[str, Any],
+        inner_folds: List[Tuple[Any, Any, Any, Any]],
+        train_params: Dict[str, Any],
+        finetune_params: Dict[str, Any],
+        context: Dict[str, Any],
+        verbose: int = 0
+    ) -> Dict[str, Any]:
+        """Finetune using inner folds and return best parameters."""
+        try:
+            import optuna
+        except ImportError:
+            print("⚠️ Optuna not available for nested CV")
+            return {}
+
+        best_params = {}
+        best_score = float('inf')
+
+        def objective(trial):
+            nonlocal best_params, best_score
+
+            # Sample hyperparameters
+            trial_params = self._sample_hyperparameters(trial, finetune_params)
+
+            # Cross-validate on inner folds
+            fold_scores = []
+            for X_train, y_train, X_val, y_val in inner_folds:
+                # Create and configure model
+                base_model = self._get_model_from_config(model_config)
+                model = self._clone_model(base_model)
+
+                if hasattr(model, 'set_params') and trial_params:
+                    try:
+                        model.set_params(**trial_params)
+                    except Exception:
+                        pass
+
+                # Prepare data and train
+                X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
+                X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context)
+
+                # Use silent training for inner CV
+                inner_train_params = finetune_params.get('train_params', train_params.copy())
+                inner_train_params['verbose'] = 0
+
+                trained_model = self._train_model(
+                    model, X_train_prep, y_train_prep, train_params=inner_train_params
+                )
+
+                # Evaluate
+                score = self._evaluate_model(trained_model, X_val_prep, y_val_prep)
+                fold_scores.append(score)
+
+            # Average score across inner folds
+            avg_score = np.mean(fold_scores)
+
+            if avg_score < best_score:
+                best_score = avg_score
+                best_params = trial_params.copy()
+
+            return avg_score
+
+        # Configure and run optimization
+        if not verbose:
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+        study = optuna.create_study(direction="minimize")
+        n_trials = finetune_params.get('n_trials', 10)
+
+        if verbose > 2:
+            print(f"    🎯 Running {n_trials} inner CV trials...")
+
+        study.optimize(objective, n_trials=n_trials)
+
+        return best_params
+
+    def _select_global_best_params(
+        self,
+        all_best_params: List[Dict[str, Any]],
+        data_splits: List[Tuple[Any, Any, Any, Any]]
+    ) -> Dict[str, Any]:
+        """Select the globally best parameters from all folds."""
+        # For now, return the first set of parameters
+        # This could be improved by tracking scores and selecting the best performing set
+        if all_best_params:
+            return all_best_params[0]
+        return {}
+
+    def _compute_weighted_average_params(
+        self,
+        fold_results: List[Dict[str, Any]],
+        verbose: int = 0
+    ) -> Dict[str, Any]:
+        """Compute weighted average parameters based on fold performance."""
+        if verbose > 0:
+            print("📊 Computing weighted average parameters...")
+
+        # For numerical parameters, compute weighted average
+        # For categorical parameters, select most frequent
+        # This is a placeholder implementation
+        return {}
 
     def _prepare_train_test_data(
         self,
@@ -317,6 +735,8 @@ class BaseModelController(OperatorController, ABC):
         X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
         X_test_prep, _ = self._prepare_data(X_test, y_test, context)
 
+        print(X_train_prep.shape, y_train_prep.shape, X_test_prep.shape, y_test.shape)
+
         # Train model
         trained_model = self._train_model(
             model, X_train_prep, y_train_prep,
@@ -449,10 +869,12 @@ class BaseModelController(OperatorController, ABC):
                 # print(f"🎯 Starting {search_method} search with {n_trials} trials")
 
         # Show concise message about optimization
-        if not verbose:
-            print(f"🔍 Optimizing {len(finetune_params.get('model_params', {}))} parameters with {search_method} search ({n_trials} trials)...")
-
+        print(f"🔍 Optimizing {len(finetune_params.get('model_params', {}))} parameters with {search_method} search ({n_trials} trials)...")
+        print(X_train_prep.shape, y_train_prep.shape, X_test_prep.shape, y_test.shape)
         study.optimize(objective, n_trials=n_trials)
+
+        # Store best parameters for access by nested CV methods
+        self._last_best_params = best_params
 
         # if verbose:
             # print(f"🏆 Best parameters: {best_params}, Best score: {best_score:.4f}")
@@ -472,6 +894,7 @@ class BaseModelController(OperatorController, ABC):
                 except Exception as e:
                     print(f"⚠️ Could not set best parameters {best_params}: {e}")
 
+
             # Train with final train_params
             final_trained_model = self._train_model(
                 final_model, X_train_prep, y_train_prep,
@@ -481,6 +904,7 @@ class BaseModelController(OperatorController, ABC):
         else:
             # Just show the best parameters found
             print(f"🏆 Training with best parameters: {best_params}")
+
 
         # Generate final predictions with best model
         y_pred = self._predict_model(best_model, X_test_prep)
