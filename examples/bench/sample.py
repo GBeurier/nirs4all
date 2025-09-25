@@ -22,14 +22,16 @@ dataset_config = {  # define the experiment type and dataset. An experiment is r
 pipeline_config = {
     "pipeline": [
         # "chart_3d",
-        # "chart_2d",
-        # MinMaxScaler(feature_range=(0.1, 0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
+        "chart_2d",
+        MinMaxScaler(feature_range=(0.1, 0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
         # {"feature_augmentation": [None, GS, [SNV, Haar]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
         # "chart_3d",
         # RepeatedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
         # ShuffleSplit(n_splits=1, test_size=.25),  # First one is target:test by default
         # "fold_chart",
+        "y_chart",
         {"y_processing": StandardScaler()},  # preprocess target data
+        "y_chart",
         # {
             # "model": RandomForestRegressor(max_depth=10, random_state=42),
             # "train_params": {"oob_score": True},
