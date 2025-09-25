@@ -14,7 +14,7 @@ Key components:
 """
 
 from sklearn.cluster import KMeans
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestRegressor
 from sklearn.model_selection import RepeatedStratifiedKFold, ShuffleSplit, RepeatedKFold
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
 from sklearn.svm import SVC
@@ -37,12 +37,24 @@ dataset_config = {  # define the experiment type and dataset. An experiment is r
 pipeline_config = {
     "pipeline": [
         # "chart_3d",
-        "chart_2d",
+        # "chart_2d",
         MinMaxScaler(feature_range=(0.1, 0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
-        {"feature_augmentation": [None, GS, [SNV, Haar]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
-        "chart_3d",
+        # {"feature_augmentation": [None, GS, [SNV, Haar]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
+        # "chart_3d",
         RepeatedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
-        # ShuffleSplit(n_splits=2, test_size=.25),  # First one is target:test by default
+        # ShuffleSplit(n_splits=1, test_size=.25),  # First one is target:test by default
+        "fold_chart",
+        {
+            "model": RandomForestRegressor(max_depth=10, random_state=42),
+            "train_params": {"oob_score": True},
+            "finetune_params": {  # As there are finetune parameters, optuna is used to optimize the model. more options can be added here to choose the strategy for the optimization, etc.
+                "n_estimators": [50, 100, 200],
+                "max_depth": [5, 10, 20]
+            },
+            "y_processing": StandardScaler(),  # preprocess target data
+        },
+
+
         # RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
         # "spectra_charts",
         # {"sample_augmentation": [RT, RT(p_range=5)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids

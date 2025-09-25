@@ -38,5 +38,5 @@ class DummyController(OperatorController):
         # print a explosion character
         print(f"💥 Executing dummy operation for step: {step}, keyword: {context.get('keyword', '')}, source: {source}")
 
-        return context
+        return context, []
 

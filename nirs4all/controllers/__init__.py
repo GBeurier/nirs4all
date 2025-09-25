@@ -27,6 +27,7 @@ from .dataset.op_feature_augmentation import FeatureAugmentationController
 from .dataset.op_sample_augmentation import SampleAugmentationController
 from .sklearn.op_split import CrossValidatorController
 from .chart.op_spectra_charts import SpectraChartController
+from .chart.op_fold_charts import FoldChartController
 __all__ = [
     'OperatorController',
     'register_controller',
@@ -37,5 +38,6 @@ __all__ = [
     'SampleAugmentationController',
     'CrossValidatorController',
     'SpectraChartController',
+    'FoldChartController',
     # Archived operations not included
 ]
