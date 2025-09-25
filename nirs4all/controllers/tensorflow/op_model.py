@@ -446,6 +446,12 @@ class TensorFlowModelController(BaseModelController):
             # where time_steps is the number of spectral bands
             # print(f"📊 Reshaping 2D input {X.shape} to 3D for TensorFlow CNN")
             X = X.reshape(X.shape[0], X.shape[1], 1)  # Add channel dimension
+        elif X.ndim == 3:
+            # Check if we have (batch, channels, features) format where channels < features
+            # This indicates we need to transpose to (batch, features, channels) for Conv1D
+            if X.shape[1] < X.shape[2]:
+                # print(f"📊 Transposing 3D input from {X.shape} (batch, channels, features) to (batch, features, channels)")
+                X = np.transpose(X, (0, 2, 1))  # (batch, channels, features) -> (batch, features, channels)
         elif X.ndim == 1:
             # Single sample case
             X = X.reshape(1, X.shape[0], 1)
