@@ -4,8 +4,9 @@ from sklearn.model_selection import RepeatedStratifiedKFold, ShuffleSplit, Repea
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
+from nirs4all.operators.models.cirad_tf import decon, nicon
+from sklearn.cross_decomposition import PLSRegression
 
-from nirs4all.operators.models.cirad_tf import decon
 from nirs4all.operators.transformations import (
     Gaussian as GS,
     Rotate_Translate as RT,
@@ -34,68 +35,72 @@ pipeline_config = {
         # "y_chart",
         {
             "model": RandomForestRegressor(max_depth=10, random_state=42),
-            "train_params": {"oob_score": True},
-            "finetune_params": {  # As there are finetune parameters, optuna is used to optimize the model. more options can be added here to choose the strategy for the optimization, etc.
-                "n_estimators": [50, 100, 200],
-                "max_depth": [5, 10, 20]
+            "train_params": {
+                "oob_score": True,
+                "n_jobs": -1
+            },
+            "finetune_params": {
+                "n_trials": 4,
+                "approach": "grid",
+                "model_params": {
+                    # Parameters to optimize during finetuning
+                    "n_estimators": [10, 30],  # Only 2 options instead of 3
+                    "max_depth": [3, 7],       # Only 2 options instead of 3
+                },
             },
         },
+        {
+            "model": PLSRegression(),
+            "train_params": {
+                # Final training parameters (after finetuning)
+            },
+            "finetune_params": {
+                "n_trials": 20,
+                "approach": "grid",
+                "model_params": {
+                    # Parameters to optimize during finetuning
+                    'n_components': ('int', 5, 60),
+                },
+            }
+        },
+        {
+            "model": nicon,
+            "train_params": {
+                # Final training parameters
+                "epochs": 100,
+                "patience": 10,
+                "batch_size": 16,
+                "cyclic_lr": True,
+                "step_size": 20,
+                "verbose": 0
+            },
+        },
+        {
+            "model": nicon,
+            "train_params": {
+                "epochs": 500,
+                "patience": 60,
+                "batch_size": 5000,
+                "verbose": 1,
+                # "best_model_memory": True
+            },
+            "finetune_params": {
+                "n_trials": 10,
+                "approach": "random",
+                "model_params": {
+                    "filters_1": [8, 16, 32],
+                    "filters_2": [8, 16, 32],
+                    "dropout_rate": ("float", 0.1, 0.5),
+                },
+                "train_params": {
+                    "epochs": 10,
+                    "patience": 5,
+                    "batch_size": 16,
+                    "verbose": 0
+                }
+            },
+        }
 
 
-        # RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
-        # "spectra_charts",
-        # {"sample_augmentation": [RT, RT(p_range=5)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
-        # "spectra_charts",
-        # {"balance_augmentation":"groups"},
-        # "spectra_charts",
-        # MinMaxScaler(feature_range=(0,1)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
-        # "spectra_charts",
-        # "spectra_charts",
-        # MinMaxScaler(feature_range=(0.2,0.8)),
-        # {"cluster": KMeans(n_clusters=5, random_state=42)},  # add groups indices to the dataset, which are the cluster ids. The dataset is now clustered.
-        # "uncluster",  # stop using centroids and use all the original samples. If the centroids are constructed (sample = None), they are discarded or hidden.
-        # {
-        #     "dispatch": [  # create as many branches in the pipeline as there are objects in the list. Data from train partition are copied to each branch. Can be used also to split the pipeline per source of data.
-        #         [
-        #             MinMaxScaler(),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
-        #             {"feature_augmentation": [None, SG, [SNV, GS]]},
-        #             {
-        #                 "model": RandomForestClassifier(random_state=42, max_depth=10),  # here's a sklearn model, dataset is automatically converted to 2d
-        #                 "y_pipeline": StandardScaler,  # preprocess target data
-        #             },
-        #         ],
-        #         {
-        #             "model": decon,  # here's a tf conv model (@framework decorator) . dataset is automatically converted to 3d
-        #             "y_pipeline": StandardScaler(),
-        #         },
-        #         {
-        #             "model": SVC(kernel='linear', C=1.0, random_state=42),  # another sklearn model, note that each training is followed by a prediction on the test partition and saved in the results indices
-        #             "y_pipeline": [MinMaxScaler, RobustScaler(with_centering=False)],  # preprocess target data with multiple pipelines, each pipeline is applied to the target data and the results are saved in the results indices
-        #             "finetune_params": {  # As there are finetune parameters, optuna is used to optimize the model. more options can be added here to choose the strategy for the optimization, etc.
-        #                 "C": [0.1, 1.0, 10.0]
-        #             },
-        #         },
-        #         {
-        #             "stack": {  # create a stack of models, each model is trained on the same data and the predictions are used as features for the next model.
-        #                 "model": RandomForestClassifier(random_state=42, max_depth=10),  # the main model of the stack, trained on the predictions of the base learners
-        #                 "y_pipeline": StandardScaler(),
-        #                 "base_learners": [  # the base learners of the stack, trained on the same data as the main model
-        #                     {
-        #                         "model": GradientBoostingClassifier(random_state=42, n_estimators=100, max_depth=5),  # trained on the data and aggregates folds predictions for the main model
-        #                         "y_pipeline": MinMaxScaler(),
-        #                     },
-        #                     {
-        #                         "model": DecisionTreeClassifier(random_state=42, max_depth=5),
-        #                         "y_pipeline": MinMaxScaler(),
-        #                         "finetune_params": {
-        #                             "max_depth": [3, 5, 7]
-        #                         }
-        #                     }
-        #                 ]
-        #             }
-        #         }
-        #     ]
-        # },
-        # "PlotConfusionMatrix"  # a type of graph, showing the confusion matrix of the models
     ]
 }

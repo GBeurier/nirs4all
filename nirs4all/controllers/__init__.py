@@ -22,6 +22,13 @@ from .registry import register_controller, CONTROLLER_REGISTRY
 # from . import actions
 
 from .log.op_dummy import DummyController
+
+# Import model controllers FIRST (higher priority for supervised models)
+from .sklearn.op_model import SklearnModelController
+from .tensorflow.op_model import TensorFlowModelController
+from .torch.op_model import PyTorchModelController
+
+# Then import transformers (lower priority)
 from .sklearn.op_transformermixin import TransformerMixinController
 from .sklearn.op_y_transformermixin import YTransformerMixinController
 from .dataset.op_feature_augmentation import FeatureAugmentationController
@@ -43,5 +50,8 @@ __all__ = [
     'SpectraChartController',
     'FoldChartController',
     'YChartController',
+    'SklearnModelController',
+    'TensorFlowModelController',
+    'PyTorchModelController',
     # Archived operations not included
 ]

@@ -28,6 +28,7 @@ class PipelineRunner:
     """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
 
     ##TODO operators should not be located in workflow and serialization but only in registry (basically hardcode of class, _runtime_instance and so, dynamic loading for the rest)
+    ##TODO handle the models defined as a class
     WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack",
                           "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d", "fold_chart",
                           "model", "y_processing", "y_chart"]
@@ -276,7 +277,12 @@ class PipelineRunner:
                     params_str = ", ".join(f"{k}={v}" for k, v in step["params"].items())
                     return f"{key}({params_str})"
             elif "model" in step:
-                key = f"{step['model']['class'].split('.')[-1]}"
+                if "class" in step['model']:
+                    key = f"{step['model']['class'].split('.')[-1]}"
+                elif "function" in step['model']:
+                    key = f"{step['model']['function'].split('.')[-1]}"
+                else:
+                    key = "unknown_model"
                 params_str = ""
                 if "params" in step['model']:
                     params_str = ", ".join(f"{k}={v}" for k, v in step['model']["params"].items())
