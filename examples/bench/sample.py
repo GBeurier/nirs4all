@@ -1,18 +1,3 @@
-"""
-This module defines a configuration dictionary for a machine learning experiment pipeline using scikit-learn and nirs4all.
-The configuration specifies the experiment type, dataset, and a sequence of data processing, augmentation, clustering, validation, and modeling steps.
-The pipeline supports feature and sample augmentation, clustering, cross-validation, and multiple model training strategies including stacking and hyperparameter optimization.
-Visualization steps for data, clusters, results, model performance, feature importance, and confusion matrix are also included.
-Key components:
-- Experiment setup for classification with a specified dataset.
-- Data preprocessing using scalers and transformations.
-- Feature and sample augmentation with various techniques.
-- Clustering and stratified cross-validation.
-- Support for multiple modeling branches, including ensemble and deep learning models.
-- Model stacking and hyperparameter tuning.
-- Visualization of results and model diagnostics.
-"""
-
 from sklearn.cluster import KMeans
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestRegressor
 from sklearn.model_selection import RepeatedStratifiedKFold, ShuffleSplit, RepeatedKFold
@@ -44,6 +29,7 @@ pipeline_config = {
         RepeatedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
         # ShuffleSplit(n_splits=1, test_size=.25),  # First one is target:test by default
         "fold_chart",
+        {"y_processing": StandardScaler()},  # preprocess target data
         {
             "model": RandomForestRegressor(max_depth=10, random_state=42),
             "train_params": {"oob_score": True},
@@ -51,7 +37,6 @@ pipeline_config = {
                 "n_estimators": [50, 100, 200],
                 "max_depth": [5, 10, 20]
             },
-            "y_processing": StandardScaler(),  # preprocess target data
         },
 
 

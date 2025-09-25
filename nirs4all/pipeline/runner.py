@@ -27,7 +27,9 @@ from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 class PipelineRunner:
     """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
 
-    WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack", "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d", "fold_chart"]
+    WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack",
+                          "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d", "fold_chart",
+                          "model", "y_processing"]
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     def __init__(self, ##TODO add resume / overwrite support / realtime viz
@@ -77,7 +79,7 @@ class PipelineRunner:
 
         return dataset, self.history, self.pipeline
 
-    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]], execution: str = "sequential", is_substep: bool = False) -> Dict[str, Any]:
+    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]], execution: str = "sequential", is_substep: bool = False) -> Dict[str, Any]: ##TODO distinguish parallel and sequential contexts from parrallel and sequential execution
         """Run a list of steps with enhanced context management and DatasetView support."""
         if not isinstance(steps, list):
             steps = [steps]
@@ -140,6 +142,7 @@ class PipelineRunner:
                 elif key := next((k for k in step if k in self.SERIALIZATION_OPERATORS), None):
                     # print(f"📦 Deserializing dict operation: {key}")
                     if '_runtime_instance' in step:
+                        # print(f"> {step['class']} already instantiated, using existing instance.")
                         operator = step['_runtime_instance']
                     else:
                         operator = deserialize_component(step)
