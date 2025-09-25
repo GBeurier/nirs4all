@@ -1,5 +1,5 @@
-[train / finetune]
-[save]
+*[train / finetune]
+*[save]
 [predict / load]
 [generator]
 [bin with bounds or count + warning class assymetry]
@@ -33,6 +33,24 @@
 - shap controller + Shap visualization
 - CLI
 - dataviz controller
+
+
+
+- tutorial:
+dataset
+config
+
+all types of processings,
+folding
+charts
+model
+train / finetune
+predict
+generator
+save
+custom controller
+custom operator
+custom models
 
 
 
