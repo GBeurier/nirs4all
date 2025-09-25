@@ -479,6 +479,10 @@ class TensorFlowModelController(BaseModelController):
             except (ValueError, TypeError, AttributeError):
                 return float('inf')
 
+    def get_preferred_layout(self) -> str:
+        """Return the preferred data layout for TensorFlow models."""
+        return "3d"
+
     def _clone_model(self, model: Any) -> Any:
         """Clone TensorFlow model, handling model factory functions."""
         if callable(model) and hasattr(model, 'framework') and model.framework == 'tensorflow':
