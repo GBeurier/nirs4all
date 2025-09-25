@@ -30,7 +30,7 @@ class PipelineRunner:
     ##TODO operators should not be located in workflow and serialization but only in registry (basically hardcode of class, _runtime_instance and so, dynamic loading for the rest)
     WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack",
                           "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d", "fold_chart",
-                          "model", "y_processing"]
+                          "model", "y_processing", "y_chart"]
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     def __init__(self, ##TODO add resume / overwrite support / realtime viz
@@ -66,7 +66,7 @@ class PipelineRunner:
         self.saver.register(dataset.name, config.name)
         self.saver.save_json("pipeline.json", config.serializable_steps())
         # context = {"branch": 0, "processing": "raw", "y": "numeric"}
-        context = {"processing": [["raw"]] * dataset.features_sources()}
+        context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
 
         try:
             self.run_steps(config.steps, dataset, context, execution="sequential")

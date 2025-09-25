@@ -24,8 +24,8 @@ class YTransformerMixinController(OperatorController):
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
         """Match if keyword is 'y_processing' and operator is a TransformerMixin."""
-        print(">>>> Checking YTransformerMixinController match...")
-        print(f"Keyword: {keyword}, Operator: {operator}, Is TransformerMixin: {isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)}")
+        # print(">>>> Checking YTransformerMixinController match...")
+        # print(f"Keyword: {keyword}, Operator: {operator}, Is TransformerMixin: {isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)}")
         return (keyword == "y_processing" and
                 (isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)))
 
@@ -97,7 +97,7 @@ class YTransformerMixinController(OperatorController):
         transformer_binary = pickle.dumps(transformer)
         fitted_transformers = [(f"{operator_name}_{new_processing_name}.pkl", transformer_binary)]
 
-        print(f"✅ Successfully applied {operator_name} to targets: {current_y_processing} → {new_processing_name}")
+        # print(f"✅ Successfully applied {operator_name} to targets: {current_y_processing} → {new_processing_name}")
         # print(f"   Train shape: {train_targets.shape} → {transformer.transform(train_targets).shape}")
         # print(f"   All shape: {all_targets.shape} → {transformed_targets.shape}")
 
