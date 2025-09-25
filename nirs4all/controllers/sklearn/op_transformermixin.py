@@ -111,13 +111,14 @@ class TransformerMixinController(OperatorController):
 
                 # Store results
                 source_transformed_features.append(transformed_2d)
-                new_processing_name = f"{processing_name}_{operator_name}{runner.next_op()}"
+                new_operator_name = f"{operator_name}_{runner.next_op()}"
+                new_processing_name = f"{processing_name}_{new_operator_name}"
                 source_new_processing_names.append(new_processing_name)
                 source_processing_names.append(processing_name)
 
                 # Serialize fitted transformer
                 transformer_binary = pickle.dumps(transformer)
-                fitted_transformers.append((f"{binary_count}_{operator_name}.pkl", transformer_binary))
+                fitted_transformers.append((f"{binary_count}_{new_operator_name}.pkl", transformer_binary))
                 binary_count += 1
 
             transformed_features_list.append(source_transformed_features)
