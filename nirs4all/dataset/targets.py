@@ -1,8 +1,7 @@
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 from sklearn.base import TransformerMixin
-from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder
 
 from nirs4all.dataset.helpers import SampleIndices
@@ -10,18 +9,20 @@ from nirs4all.dataset.helpers import SampleIndices
 
 class Targets:
     """
-    Target manager that mimics FeatureSource behavior for target data.
+    Target manager that stores target arrays with processing chains.
 
-    Manages target arrays with processing chains, automatically handling
-    non-numeric data conversion and maintaining processing ancestry.
+    Manages multiple versions of target data (raw, numeric, scaled, etc.) with
+    processing ancestry tracking and transformation capabilities.
     """
 
     def __init__(self):
         """Initialize empty target manager."""
-        self._array = np.empty((0, 1), dtype=np.float32)  # Shape: (samples, targets)
-        self._processing_ids: List[str] = []  # Processing names in order
-        self._processing_id_to_index: Dict[str, int] = {}  # Maps processing name to index in _data
+        # Core data storage - all target data is stored here by processing name
         self._data: Dict[str, np.ndarray] = {}  # Maps processing name to target array
+
+        # Processing chain management
+        self._processing_ids: List[str] = []  # Processing names in order of creation
+        self._processing_id_to_index: Dict[str, int] = {}  # Maps processing name to index in _processing_ids
         self._ancestors: Dict[str, str] = {}  # Maps processing to its source processing
         self._transformers: Dict[str, TransformerMixin] = {}  # Maps processing to its transformer
 
@@ -31,12 +32,34 @@ class Targets:
     def __str__(self) -> str:
         if self.num_samples == 0:
             return "Targets:\n(empty)"
-        mean_value = round(float(np.mean(self._array)), 3) if self._array.size > 0 else 0.0
-        variance_value = round(float(np.var(self._array)), 3) if self._array.size > 0 else 0.0
-        min_value = round(float(np.min(self._array)), 3) if self._array.size > 0 else 0.0
-        max_value = round(float(np.max(self._array)), 3) if self._array.size > 0 else 0.0
 
-        return f"Targets:\n- samples={self.num_samples}, targets={self.num_targets}, processings={self._processing_ids}, min={min_value}, max={max_value}, mean={mean_value}, variance={variance_value}"
+        # Show statistics for each processing (excluding "raw")
+        processing_stats = []
+        for proc_name in self._processing_ids:
+            if proc_name == "raw":
+                continue  # Skip raw processing in display
+
+            data = self._data[proc_name]
+            if np.issubdtype(data.dtype, np.number) and data.size > 0:
+                try:
+                    min_val = round(float(np.min(data)), 3)
+                    max_val = round(float(np.max(data)), 3)
+                    mean_val = round(float(np.mean(data)), 3)
+                    processing_stats.append((proc_name, min_val, max_val, mean_val))
+                except (TypeError, ValueError):
+                    # Skip non-numeric data
+                    processing_stats.append((proc_name, "N/A", "N/A", "N/A"))
+            else:
+                processing_stats.append((proc_name, "N/A", "N/A", "N/A"))
+
+        # Format output
+        visible_processings = [p for p in self._processing_ids if p != "raw"]
+        result = f"Targets: (samples={self.num_samples}, targets={self.num_targets}, processings={visible_processings})"
+
+        for proc_name, min_val, max_val, mean_val in processing_stats:
+            result += f"\n- {proc_name}: min={min_val}, max={max_val}, mean={mean_val}"
+
+        return result
 
         # lines = [f"Targets with {self.num_samples} samples and {self.num_targets} targets"]
         # for proc_id in self._processing_ids:
@@ -49,12 +72,20 @@ class Targets:
     @property
     def num_samples(self) -> int:
         """Get the number of samples."""
-        return self._array.shape[0]
+        if not self._data:
+            return 0
+        # Use first available processing to get sample count
+        first_data = next(iter(self._data.values()))
+        return first_data.shape[0]
 
     @property
     def num_targets(self) -> int:
         """Get the number of targets."""
-        return self._array.shape[1]
+        if not self._data:
+            return 0
+        # Use first available processing to get target count
+        first_data = next(iter(self._data.values()))
+        return first_data.shape[1]
 
     @property
     def num_processings(self) -> int:
@@ -84,10 +115,10 @@ class Targets:
 
         # First time: initialize structure
         if self.num_processings == 0:
-            self._array = targets.astype(np.float32)
+            # Add "raw" processing (preserves original data types)
             self._add_processing("raw", targets, ancestor=None, transformer=None)
 
-            # Automatically create "numeric" processing
+            # Automatically create "numeric" processing (converts to numeric format)
             numeric_data, transformer = self._make_numeric(targets)
             self._add_processing("numeric", numeric_data, ancestor="raw", transformer=transformer)
         else:
@@ -96,7 +127,6 @@ class Targets:
                 raise ValueError(f"Target data has {targets.shape[1]} targets, expected {self.num_targets}")
 
             # Append to raw data
-            self._array = np.vstack([self._array, targets.astype(np.float32)])
             self._data["raw"] = np.vstack([self._data["raw"], targets])
 
             # Update numeric data using existing transformer
@@ -302,7 +332,7 @@ class Targets:
                 try:
                     current_predictions = transformer.inverse_transform(current_predictions)  # type: ignore
                 except Exception as e:
-                    raise ValueError(f"Failed to inverse transform from '{current_proc}' to '{ancestor}': {e}")
+                    raise ValueError(f"Failed to inverse transform from '{current_proc}' to '{ancestor}': {e}") from e
             else:
                 raise ValueError(f"No inverse transformer available for processing '{current_proc}'")
 
@@ -323,7 +353,7 @@ class Targets:
                     try:
                         current_predictions = transformer.transform(current_predictions)  # type: ignore
                     except Exception as e:
-                        raise ValueError(f"Failed to forward transform to '{next_proc}': {e}")
+                        raise ValueError(f"Failed to forward transform to '{next_proc}': {e}") from e
                 else:
                     raise ValueError(f"No forward transformer available for processing '{next_proc}'")
 
@@ -360,9 +390,16 @@ class Targets:
                 y_numeric = existing_transformer.transform(y_raw)  # type: ignore
                 return y_numeric.astype(np.float32), existing_transformer
 
-        # Otherwise, create a new transformer
-        y_numeric = y_raw.copy()
-        transformers = []
+        # Check if data is already numeric
+        if np.issubdtype(y_raw.dtype, np.number):
+            # Data is already numeric, just use identity transformer
+            transformer = FunctionTransformer(validate=False)
+            transformer.fit(y_raw)
+            return y_raw.astype(np.float32), transformer
+
+        # Handle non-numeric data column by column
+        y_numeric = np.empty_like(y_raw, dtype=np.float32)
+        column_transformers = {}
 
         for col in range(y_raw.shape[1]):
             col_data = y_raw[:, col]
@@ -370,22 +407,57 @@ class Targets:
             if col_data.dtype.kind in {"U", "S", "O"}:  # strings / objects
                 le = LabelEncoder()
                 y_numeric[:, col] = le.fit_transform(col_data)
-                transformers.append((f"col_{col}", le, [col]))
-            elif not np.issubdtype(col_data.dtype, np.number):
-                # Attempt numeric coercion, else fallback to LabelEncoder
+                column_transformers[col] = le
+            else:
+                # Try to convert to numeric
                 try:
                     y_numeric[:, col] = col_data.astype(np.float32)
+                    column_transformers[col] = None  # No transformation needed
                 except (ValueError, TypeError):
+                    # Fallback to LabelEncoder
                     le = LabelEncoder()
                     y_numeric[:, col] = le.fit_transform(col_data.astype(str))
-                    transformers.append((f"col_{col}", le, [col]))
+                    column_transformers[col] = le
 
-        # Build ColumnTransformer (identity if no converters were required)
-        if transformers:
-            transformer: TransformerMixin = ColumnTransformer(transformers, remainder="passthrough")
-            transformer.fit(y_raw)
-        else:
-            transformer = FunctionTransformer(validate=False)
-            transformer.fit(y_raw)
+        # Create a simple wrapper transformer that remembers the column-wise transformers
+        class SimpleColumnTransformer(TransformerMixin):
+            def __init__(self, column_transformers_dict):
+                self.column_transformers = column_transformers_dict
 
-        return y_numeric.astype(np.float32), transformer
+            def fit(self, _X, _y=None):
+                return self
+
+            def transform(self, X):
+                X = np.asarray(X)
+                if X.ndim == 1:
+                    X = X.reshape(-1, 1)
+
+                result = np.empty_like(X, dtype=np.float32)
+                for col, transformer in self.column_transformers.items():
+                    if transformer is None:
+                        # No transformation, just convert to numeric
+                        result[:, col] = X[:, col].astype(np.float32)
+                    else:
+                        # Apply the transformer
+                        result[:, col] = transformer.transform(X[:, col])
+                return result
+
+            def inverse_transform(self, X):
+                X = np.asarray(X)
+                if X.ndim == 1:
+                    X = X.reshape(-1, 1)
+
+                result = np.empty(X.shape, dtype=object)
+                for col, transformer in self.column_transformers.items():
+                    if transformer is None:
+                        # No transformation was applied
+                        result[:, col] = X[:, col]
+                    elif hasattr(transformer, 'inverse_transform'):
+                        # Apply inverse transformation
+                        result[:, col] = transformer.inverse_transform(X[:, col].astype(int))
+                    else:
+                        result[:, col] = X[:, col]
+                return result
+
+        transformer = SimpleColumnTransformer(column_transformers)
+        return y_numeric, transformer

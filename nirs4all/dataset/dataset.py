@@ -122,6 +122,13 @@ class SpectroDataset:
     def add_targets(self, y: np.ndarray) -> None:
         self._targets.add_targets(y)
 
+    def add_processed_targets(self,
+                              processing_name: str,
+                              targets: np.ndarray,
+                              ancestor_processing: str = "numeric",
+                              transformer: Optional[TransformerMixin] = None) -> None:
+        self._targets.add_processed_targets(processing_name, targets, ancestor_processing, transformer)
+
     # def set_targets(self, filter: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
     #     self._targets.set_y(filter, y, transformer, new_processing)
 

@@ -23,6 +23,7 @@ from .registry import register_controller, CONTROLLER_REGISTRY
 
 from .log.op_dummy import DummyController
 from .sklearn.op_transformermixin import TransformerMixinController
+from .sklearn.op_y_transformermixin import YTransformerMixinController
 from .dataset.op_feature_augmentation import FeatureAugmentationController
 from .dataset.op_sample_augmentation import SampleAugmentationController
 from .sklearn.op_split import CrossValidatorController
@@ -34,6 +35,7 @@ __all__ = [
     'CONTROLLER_REGISTRY',
     'DummyController',
     'TransformerMixinController',
+    'YTransformerMixinController',
     'FeatureAugmentationController',
     'SampleAugmentationController',
     'CrossValidatorController',

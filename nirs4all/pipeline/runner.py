@@ -27,6 +27,7 @@ from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 class PipelineRunner:
     """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
 
+    ##TODO operators should not be located in workflow and serialization but only in registry (basically hardcode of class, _runtime_instance and so, dynamic loading for the rest)
     WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack",
                           "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d", "fold_chart",
                           "model", "y_processing"]
@@ -138,11 +139,17 @@ class PipelineRunner:
             if isinstance(step, dict):
                 if key := next((k for k in step if k in self.WORKFLOW_OPERATORS), None):
                     # print(f"📋 Workflow operation: {key}")
-                    controller = self._select_controller(step, keyword=key)
+                    if 'class' in step[key]:
+                        if '_runtime_instance' in step[key]:
+                            operator = step[key]['_runtime_instance']
+                        else:
+                            operator = deserialize_component(step[key])
+                        controller = self._select_controller(step, keyword=key, operator=operator)
+                    else:
+                        controller = self._select_controller(step, keyword=key)
                 elif key := next((k for k in step if k in self.SERIALIZATION_OPERATORS), None):
                     # print(f"📦 Deserializing dict operation: {key}")
                     if '_runtime_instance' in step:
-                        # print(f"> {step['class']} already instantiated, using existing instance.")
                         operator = step['_runtime_instance']
                     else:
                         operator = deserialize_component(step)
