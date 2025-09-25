@@ -46,46 +46,53 @@ class PipelineRunner:
         self.pipeline = Pipeline()
         self.parallel = parallel
         self.step_number = 0  # Initialize step number for tracking
+        self.substep_number = -1  # Initialize sub-step number for tracking
         self.saver = SimulationSaver(results_path)
+        self.operation_count = 0
+
+    def next_op(self) -> int:
+        """Get the next operation ID."""
+        self.operation_count += 1
+        return self.operation_count
 
     def run(self, config: PipelineConfig, dataset: SpectroDataset) -> Tuple[SpectroDataset, PipelineHistory, Pipeline]:
         """Run the pipeline with the given configuration and dataset."""
-        print("="*200)
-        print(f"🚀 Starting pipeline {config.name} on dataset {dataset.name}")
+        print("=" * 200)
+        print(f"\033[94m🚀 Starting pipeline {config.name} on dataset {dataset.name}\033[0m")
         print("-" * 200)
         self.saver.register(dataset.name, config.name)
         self.saver.save_json("pipeline.json", config.serializable_steps())
         # context = {"branch": 0, "processing": "raw", "y": "numeric"}
-        context = {}
+        context = {"processing": [["raw"]] * dataset.features_sources()}
 
         try:
             self.run_steps(config.steps, dataset, context, execution="sequential")
             # self.history.complete_execution()
-            print("✅ Pipeline {config.name} completed successfully on dataset {dataset.name}")
+            print(f"\033[94m✅ Pipeline {config.name} completed successfully on dataset {dataset.name}\033[0m")
 
         except Exception as e:
             # self.history.fail_execution(str(e))
-            print(f"❌ Pipeline {config.name} on dataset {dataset.name} failed: \n{str(e)}")
+            print(f"\033[91m❌ Pipeline {config.name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
             raise
 
         return dataset, self.history, self.pipeline
 
-    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]], execution: str = "sequential") -> Dict[str, Any]:
+    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]], execution: str = "sequential", is_substep: bool = False) -> Dict[str, Any]:
         """Run a list of steps with enhanced context management and DatasetView support."""
         if not isinstance(steps, list):
             steps = [steps]
-        print(f"🔄 Running {len(steps)} steps in {execution} mode")
+        print(f"\033[94m🔄 Running {len(steps)} steps in {execution} mode\033[0m")
 
         if execution == "sequential":
             if isinstance(context, list) and len(context) == len(steps):
                 # print("🔄 Running steps sequentially with separate contexts")
                 for step, ctx in zip(steps, context):
-                    self._run_step(step, dataset, ctx)
+                    self.run_step(step, dataset, ctx, is_substep=is_substep)
                 return context[-1]
             elif isinstance(context, dict):
                 # print("🔄 Running steps sequentially with shared context")
                 for step in steps:
-                    context = self._run_step(step, dataset, context)
+                    context = self.run_step(step, dataset, context, is_substep=is_substep)
                     # print(f"🔹 Updated context after step: {context}")
 
                 return context
@@ -93,16 +100,23 @@ class PipelineRunner:
         elif execution == "parallel" and self.parallel:
             # print(f"🔄 Running steps in parallel with {self.max_workers} workers")
             with parallel_backend(self.backend, n_jobs=self.max_workers):
-                Parallel()(delayed(self._run_step)(step, dataset, context) for step, context in zip(steps, context))
+                Parallel()(delayed(self.run_step)(step, dataset, context) for step, context in zip(steps, context))
 
-    def _run_step(self, step: Any, dataset: SpectroDataset, context: Dict[str, Any]):
+    def run_step(self, step: Any, dataset: SpectroDataset, context: Dict[str, Any], *, is_substep: bool = False):
         """
         Run a single pipeline step with enhanced context management and DatasetView support.
         """
         before_dataset_str = str(dataset)
+
         step_description = self._get_step_description(step)
-        self.step_number += 1
-        print(f"🔷 Step {self.step_number}: {step_description}")
+        if is_substep or self.substep_number > 0:
+            self.substep_number += 1
+            print(f"\033[96m   ▶ Sub-step {self.step_number}.{self.substep_number}: {step_description}\033[0m")
+        else:
+            self.substep_number = 0
+            self.step_number += 1
+        # print(f"🔷 Step {self.step_number}: {step_description}")
+            print(f"\033[92m🔷 Step {self.step_number}: {step_description}\033[0m")
         # print(f"🔹 Current context: {context}")
         # print(f"🔹 Step config: {step}")
 
@@ -135,7 +149,7 @@ class PipelineRunner:
                     controller = self._select_controller(step)
             elif isinstance(step, list):
                 # print(f"🔗 Sub-pipeline with {len(step)} steps")
-                return self.run_steps(step, dataset, context, execution="sequential")
+                return self.run_steps(step, dataset, context, execution="sequential", is_substep=True)
 
             elif isinstance(step, str):
                 if key := next((s for s in step.split() if s in self.WORKFLOW_OPERATORS), None):
@@ -169,12 +183,13 @@ class PipelineRunner:
                 raise RuntimeError(f"Pipeline step failed: {str(e)}") from e
 
         finally:
-            print("-" * 200)
-            after_dataset_str = str(dataset)
-            if before_dataset_str != after_dataset_str:
-                print(dataset)
+            if not is_substep:
                 print("-" * 200)
-            # print(f"Dataset state after step {self.step_number}:")
+                after_dataset_str = str(dataset)
+                # print(before_dataset_str)
+                if before_dataset_str != after_dataset_str:
+                    print(f"\033[97mUpdate: {after_dataset_str}\033[0m")
+                    print("-" * 200)
 
     def _select_controller(self, step: Any, operator: Any = None, keyword: str = ""):
         matches = [cls for cls in CONTROLLER_REGISTRY if cls.matches(step, operator, keyword)]
@@ -193,10 +208,8 @@ class PipelineRunner:
         source: Union[int, List[int]] = -1
     ):
         """Execute the controller for the given step and operator."""
-        step_id = context.get("step_id", "unknown")
         operator_name = operator.__class__.__name__ if operator else ""
         controller_name = controller.__class__.__name__
-        operator_id = f"{step_id}_{controller_name}_{operator_name}"
 
 
         if operator:
@@ -213,7 +226,7 @@ class PipelineRunner:
             source
         )
 
-        self.saver.save_binaries(self.step_number, binaries)
+        self.saver.save_binaries(self.step_number, self.substep_number, binaries)
         return context
 
         # if controller.use_multi_source():

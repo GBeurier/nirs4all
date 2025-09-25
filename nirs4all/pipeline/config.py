@@ -24,7 +24,7 @@ class PipelineConfig:
         self.description = description
         self.steps = self._load_steps(definition)
         self.steps = serialize_component(self.steps, include_runtime=True)
-        self.name = self.get_hash() if name == "" else name
+        self.name = "config_" + (self.get_hash() if name == "" else name + "_" + self.get_hash()[0:6])
 
     def _load_steps(self, definition: Union[Dict, List[Any], str]) -> List[Any]:
         """

@@ -33,8 +33,10 @@ class Targets:
             return "Targets:\n(empty)"
         mean_value = round(float(np.mean(self._array)), 3) if self._array.size > 0 else 0.0
         variance_value = round(float(np.var(self._array)), 3) if self._array.size > 0 else 0.0
+        min_value = round(float(np.min(self._array)), 3) if self._array.size > 0 else 0.0
+        max_value = round(float(np.max(self._array)), 3) if self._array.size > 0 else 0.0
 
-        return f"Targets:\n- samples={self.num_samples}, targets={self.num_targets}, processings={self._processing_ids}, mean={mean_value}, variance={variance_value}"
+        return f"Targets:\n- samples={self.num_samples}, targets={self.num_targets}, processings={self._processing_ids}, min={min_value}, max={max_value}, mean={mean_value}, variance={variance_value}"
 
         # lines = [f"Targets with {self.num_samples} samples and {self.num_targets} targets"]
         # for proc_id in self._processing_ids:

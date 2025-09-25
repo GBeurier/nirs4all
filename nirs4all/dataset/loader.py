@@ -375,7 +375,8 @@ def get_dataset(data_config) -> SpectroDataset:
     - Dataset: Dataset object with loaded data and metadata.
     """
     print("=" * 200)
-    print("Loading dataset:")
+    print("\033[94mLoading dataset:\033[0m")
+    print("-" * 200)
     config, dataset_name = parse_config(data_config)
 
     if config is None:
@@ -395,6 +396,6 @@ def get_dataset(data_config) -> SpectroDataset:
         print("Error loading data:", e)
         raise
 
-    print(dataset)
+    print(f"\033[97m{dataset}\033[0m")
 
     return dataset

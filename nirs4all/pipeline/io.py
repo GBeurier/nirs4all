@@ -204,7 +204,7 @@ class SimulationSaver:
 
         return filepath
 
-    def save_binaries(self, step_number: int, files: List[Tuple[Union[str, Path], Any]]) -> List[Path]:
+    def save_binaries(self, step_number: int, substep_number: int, files: List[Tuple[Union[str, Path], Any]]) -> List[Path]:
         """
         Save multiple files in a single operation.
 
@@ -223,8 +223,11 @@ class SimulationSaver:
 
         saved_paths: List[Path] = []
 
-        for name, obj in files:
-            name = str(step_number) + "_" + str(name)
+        for fname, obj in files:
+            name = str(step_number)
+            if substep_number > 0:
+                name += "_" + str(substep_number)
+            name += "_" + str(fname)
             filepath = self.current_path / Path(name)
             filepath.parent.mkdir(parents=True, exist_ok=True)
 

@@ -36,14 +36,14 @@ dataset_config = {  # define the experiment type and dataset. An experiment is r
 
 pipeline_config = {
     "pipeline": [
-        "chart_3d",
-        "chart_2d",
-        StandardScaler(with_std=False),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
+        # "chart_3d",
+        # "chart_2d",
+        MinMaxScaler(feature_range=(0.1, 0.8)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
+        {"feature_augmentation": [None, GS, [SNV, Haar]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
         # "spectra_charts",
         # {"sample_augmentation": [RT, RT(p_range=5)]},  # augment the samples by applying transformations, creating new sample ids with new processing and origin_ids
         # "spectra_charts",
         # {"balance_augmentation":"groups"},
-        # {"feature_augmentation": [None, GS, [SNV, Haar]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
         # "spectra_charts",
         # MinMaxScaler(feature_range=(0,1)),  # preprocess the data with MinMaxScaler, keep the indices intact, update the processing indices
         # "spectra_charts",

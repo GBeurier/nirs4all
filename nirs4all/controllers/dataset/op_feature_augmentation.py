@@ -8,6 +8,7 @@ from nirs4all.controllers.registry import register_controller
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.spectra.spectra_dataset import SpectroDataset
+import copy
 
 
 @register_controller
@@ -23,7 +24,7 @@ class FeatureAugmentationController(OperatorController):
         """Check if the operator supports multi-source datasets."""
         return True
 
-    def execute(
+    def execute( ## TODO reup parralelization
         self,
         step: Any,
         operator: Any,
@@ -33,35 +34,28 @@ class FeatureAugmentationController(OperatorController):
         source: int = -1
     ):
         print(f"Executing feature augmentation for step: {step}, keyword: {context.get('keyword', '')}, source: {source}")
-
-        # Apply the transformer to the dataset
         try:
-            x_source = dataset.x(context, "2d", source=source)
-
-            contexts = []
-            steps = []
+            initial_context = copy.deepcopy(context)
+            # Faire une deepcopy à chaque utilisation pour éviter les modifications
+            original_source_processings = copy.deepcopy(initial_context["processing"])
 
             for i, operation in enumerate(step["feature_augmentation"]):
-                if operation is None:
-                    contexts.append(context)
-                    steps.append(None)
-                    continue
-                local_context = context.copy()
-                local_context["processing"] = f"fa_{i}"
-                if "processing" in context:
-                    if isinstance(context["processing"], list):
-                        local_context["processing"] = [p + f"fa_{i}" for p in context["processing"]]
-                    else:
-                        local_context["processing"] = context["processing"] + f"fa_{i}"
-                dataset.add_features(local_context, x_source.copy())
-                contexts.append(local_context)
-                steps.append(operation)
+                # Recréer source_processings à chaque itération pour éviter les mutations
+                source_processings = copy.deepcopy(original_source_processings)
+                local_context = copy.deepcopy(initial_context)
 
-            runner.run_steps(steps, dataset, contexts, execution="parallel")
-            res_context = context.copy()
-            res_context["processing"] = [c["processing"] for c in contexts]
-            return res_context
+                if i == 0 and operation is None:
+                    print("Skipping no-op augmentation")
+                    continue
+                if i > 0:
+                    local_context["add_feature"] = True
+
+                # Assigner une nouvelle copie à chaque fois
+                local_context["processing"] = copy.deepcopy(source_processings)
+                runner.run_step(operation, dataset, local_context, is_substep=True)
 
         except Exception as e:
-            print(f"❌ Error applying transformation: {e}")
+            print(f"❌ Error applying feature augmentation: {e}")
             raise
+
+        return context, []
