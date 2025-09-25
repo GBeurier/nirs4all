@@ -86,12 +86,12 @@ class SklearnModelController(BaseModelController):
         if train_params is None:
             train_params = {}
 
-        if train_params:
-            print(f"🔧 Training {model.__class__.__name__} with params: {train_params}")
-        else:
-            print(f"🔧 Training {model.__class__.__name__}")
+        verbose = train_params.get('verbose', 0)
 
-        # Model is already cloned in base class, just use it directly
+        # if verbose > 0 and train_params:
+            # print(f"🔧 Training {model.__class__.__name__} with params: {train_params}")
+        # elif verbose > 0:
+            # print(f"🔧 Training {model.__class__.__name__}")        # Model is already cloned in base class, just use it directly
         trained_model = model
 
         # Set additional parameters if provided
@@ -102,8 +102,8 @@ class SklearnModelController(BaseModelController):
             for key, value in train_params.items():
                 if key in model_params:
                     valid_params[key] = value
-                else:
-                    print(f"⚠️ Parameter {key} not found in model {model.__class__.__name__}")
+                # else:
+                    # print(f"⚠️ Parameter {key} not found in model {model.__class__.__name__}")
 
             if valid_params:
                 trained_model.set_params(**valid_params)
@@ -192,7 +192,7 @@ class SklearnModelController(BaseModelController):
         source: int = -1
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute sklearn model controller."""
-        print(f"🔬 Executing sklearn model controller")
+        # print(f"🔬 Executing sklearn model controller")
 
         # Call parent execute method
         return super().execute(step, operator, dataset, context, runner, source)

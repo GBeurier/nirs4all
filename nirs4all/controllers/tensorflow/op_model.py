@@ -128,7 +128,7 @@ class TensorFlowModelController(BaseModelController):
         if params is None:
             params = {}
 
-        print(f"🏗️ Creating TensorFlow model from function {model_function.__name__} with input_shape={input_shape}")
+        # print(f"🏗️ Creating TensorFlow model from function {model_function.__name__} with input_shape={input_shape}")
 
         # Call the model function with input_shape and params
         try:
@@ -160,29 +160,32 @@ class TensorFlowModelController(BaseModelController):
             # This is a model factory function, we need to create the actual model
             input_shape = X_train.shape[1:]  # Get input shape from training data
             model_params = train_params.get('model_params', {})
-            print(f"🏗️ Creating TensorFlow model from function {model.__name__} with input_shape={input_shape}")
+            # print(f"🏗️ Creating TensorFlow model from function {model.__name__} with input_shape={input_shape}")
             model = self._create_model_from_function(model, input_shape, model_params)
 
-        print(f"🧠 Training {model.__class__.__name__} with TensorFlow")
+        verbose = train_params.get('verbose', 0)
+
+        # if verbose > 0:
+            # print(f"🧠 Training {model.__class__.__name__} with TensorFlow")
 
         # Show training parameters being used
-        if train_params:
-            print(f"🔧 Training parameters: {train_params}")
-
-        # Clone the model architecture (create new instance)
+        # if verbose > 1 and train_params:
+            # print(f"🔧 Training parameters: {train_params}")        # Clone the model architecture (create new instance)
         trained_model = keras.models.clone_model(model)
 
         # === COMPILATION CONFIGURATION ===
         compile_config = self._prepare_compilation_config(train_params)
         trained_model.compile(**compile_config)
-        print(f"🏗️ Model compiled with: {compile_config}")
+        if verbose > 1:
+            print(f"🏗️ Model compiled with: {compile_config}")
 
         # === TRAINING CONFIGURATION ===
-        fit_config = self._prepare_fit_config(train_params, X_val, y_val)
+        fit_config = self._prepare_fit_config(train_params, X_val, y_val, verbose)
         validation_data = fit_config.pop('validation_data', None)
 
         # Show final training configuration
-        self._log_training_config(fit_config, train_params, validation_data)
+        if verbose > 1:
+            self._log_training_config(fit_config, train_params, validation_data)
 
         # === TRAINING EXECUTION ===
         history = trained_model.fit(
@@ -244,11 +247,11 @@ class TensorFlowModelController(BaseModelController):
                 print(f"⚠️ Unknown optimizer {optimizer}, using default with learning_rate={learning_rate}")
                 compile_config['optimizer'] = keras.optimizers.Adam(learning_rate=learning_rate)
 
-            print(f"🔧 Created {compile_config['optimizer'].__class__.__name__} optimizer with lr={learning_rate}")
+            # print(f"🔧 Created {compile_config['optimizer'].__class__.__name__} optimizer with lr={learning_rate}")
 
         return compile_config
 
-    def _prepare_fit_config(self, train_params: Dict[str, Any], X_val: Optional[np.ndarray], y_val: Optional[np.ndarray]) -> Dict[str, Any]:
+    def _prepare_fit_config(self, train_params: Dict[str, Any], X_val: Optional[np.ndarray], y_val: Optional[np.ndarray], verbose: int = 0) -> Dict[str, Any]:
         """Prepare fit configuration with comprehensive callback and parameter support."""
         # Start with defaults
         fit_config = {
@@ -277,11 +280,11 @@ class TensorFlowModelController(BaseModelController):
             fit_config.pop('validation_split', None)
 
         # Configure callbacks
-        fit_config['callbacks'] = self._configure_callbacks(train_params, fit_config.get('callbacks', []))
+        fit_config['callbacks'] = self._configure_callbacks(train_params, fit_config.get('callbacks', []), verbose)
 
         return fit_config
 
-    def _configure_callbacks(self, train_params: Dict[str, Any], existing_callbacks: List[Any]) -> List[Any]:
+    def _configure_callbacks(self, train_params: Dict[str, Any], existing_callbacks: List[Any], verbose: int = 0) -> List[Any]:
         """Configure comprehensive callback system including cyclic_lr, early stopping, etc."""
         callbacks = list(existing_callbacks)  # Copy existing callbacks
 
@@ -290,14 +293,16 @@ class TensorFlowModelController(BaseModelController):
             if train_params.get('early_stopping', True):  # Default enabled
                 patience = train_params.get('patience', 10)
                 monitor = train_params.get('early_stopping_monitor', 'val_loss')
+                # Only show early stopping messages if verbose > 0
+                callback_verbose = 1 if verbose > 0 else 0
                 early_stop = keras.callbacks.EarlyStopping(
                     monitor=monitor,
                     patience=patience,
                     restore_best_weights=True,
-                    verbose=1
+                    verbose=callback_verbose
                 )
                 callbacks.append(early_stop)
-                print(f"🛑 Added EarlyStopping: monitor={monitor}, patience={patience}")
+                # print(f"🛑 Added EarlyStopping: monitor={monitor}, patience={patience}")
 
         # === CYCLIC LEARNING RATE ===
         if train_params.get('cyclic_lr', False):
@@ -311,29 +316,33 @@ class TensorFlowModelController(BaseModelController):
                 new_lr = base_lr + (max_lr - base_lr) * max(0, (1 - x))
                 return float(new_lr)
 
-            cyclic_lr_callback = keras.callbacks.LearningRateScheduler(cyclic_lr_schedule, verbose=1)
+            # Only show learning rate messages if verbose > 1 (detailed mode)
+            callback_verbose = 1 if verbose > 1 else 0
+            cyclic_lr_callback = keras.callbacks.LearningRateScheduler(cyclic_lr_schedule, verbose=callback_verbose)
             callbacks.append(cyclic_lr_callback)
-            print(f"🔄 Added CyclicLR: base_lr={base_lr}, max_lr={max_lr}, step_size={step_size}")
+            # print(f"🔄 Added CyclicLR: base_lr={base_lr}, max_lr={max_lr}, step_size={step_size}")
 
         # === REDUCE LR ON PLATEAU ===
         if train_params.get('reduce_lr_on_plateau', False):
             monitor = train_params.get('reduce_lr_monitor', 'val_loss')
             factor = train_params.get('reduce_lr_factor', 0.2)
             patience = train_params.get('reduce_lr_patience', 10)
+            # Only show reduce LR messages if verbose > 0
+            callback_verbose = 1 if verbose > 0 else 0
             reduce_lr = keras.callbacks.ReduceLROnPlateau(
                 monitor=monitor,
                 factor=factor,
                 patience=patience,
-                verbose=1
+                verbose=callback_verbose
             )
             callbacks.append(reduce_lr)
-            print(f"📉 Added ReduceLROnPlateau: monitor={monitor}, factor={factor}, patience={patience}")
+            # print(f"📉 Added ReduceLROnPlateau: monitor={monitor}, factor={factor}, patience={patience}")
 
         # === BEST MODEL MEMORY (like legacy system) ===
         if train_params.get('best_model_memory', True):  # Default enabled
-            best_model_callback = self._create_best_model_memory_callback()
+            best_model_callback = self._create_best_model_memory_callback(verbose > 0)
             callbacks.append(best_model_callback)
-            print("🏆 Added BestModelMemory callback")
+            # print("🏆 Added BestModelMemory callback")
 
         # === CUSTOM CALLBACKS ===
         if 'custom_callbacks' in train_params:
@@ -341,17 +350,18 @@ class TensorFlowModelController(BaseModelController):
             if not isinstance(custom_callbacks, list):
                 custom_callbacks = [custom_callbacks]
             callbacks.extend(custom_callbacks)
-            print(f"⚙️ Added {len(custom_callbacks)} custom callback(s)")
+            # print(f"⚙️ Added {len(custom_callbacks)} custom callback(s)")
 
         return callbacks
 
-    def _create_best_model_memory_callback(self) -> Any:
+    def _create_best_model_memory_callback(self, verbose: bool = False) -> Any:
         """Create BestModelMemory callback like the legacy system."""
         class BestModelMemory(keras.callbacks.Callback):
-            def __init__(self):
+            def __init__(self, verbose=False):
                 super().__init__()
                 self.best_weights = None
                 self.best_val_loss = np.inf
+                self.verbose = verbose
 
             def on_epoch_end(self, epoch, logs=None):
                 logs = logs or {}
@@ -363,9 +373,10 @@ class TensorFlowModelController(BaseModelController):
             def on_train_end(self, logs=None):
                 if self.best_weights is not None:
                     self.model.set_weights(self.best_weights)
-                    print(f"🏆 Restored best weights with val_loss={self.best_val_loss:.4f}")
+                    if self.verbose:
+                        print(f"🏆 Restored best weights with val_loss={self.best_val_loss:.4f}")
 
-        return BestModelMemory()
+        return BestModelMemory(verbose)
 
     def _log_training_config(self, fit_config: Dict[str, Any], train_params: Dict[str, Any], validation_data: Any) -> None:
         """Log comprehensive training configuration."""
@@ -433,7 +444,7 @@ class TensorFlowModelController(BaseModelController):
         if X.ndim == 2:
             # For 1D CNNs like the NIRS models, we typically want (batch, time_steps, 1)
             # where time_steps is the number of spectral bands
-            print(f"📊 Reshaping 2D input {X.shape} to 3D for TensorFlow CNN")
+            # print(f"📊 Reshaping 2D input {X.shape} to 3D for TensorFlow CNN")
             X = X.reshape(X.shape[0], X.shape[1], 1)  # Add channel dimension
         elif X.ndim == 1:
             # Single sample case
@@ -443,7 +454,7 @@ class TensorFlowModelController(BaseModelController):
         if y.ndim > 1 and y.shape[1] == 1:
             y = y.flatten()
 
-        print(f"📊 TensorFlow data prepared: X.shape={X.shape}, y.shape={y.shape}")
+        # print(f"📊 TensorFlow data prepared: X.shape={X.shape}, y.shape={y.shape}")
         return X, y
 
     def _evaluate_model(self, model: Any, X_val: np.ndarray, y_val: np.ndarray) -> float:
@@ -472,7 +483,7 @@ class TensorFlowModelController(BaseModelController):
         """Clone TensorFlow model, handling model factory functions."""
         if callable(model) and hasattr(model, 'framework') and model.framework == 'tensorflow':
             # Don't clone functions - they will be called later with proper input shape
-            print(f"🔗 Model function {model.__name__} will be instantiated during training")
+            # print(f"🔗 Model function {model.__name__} will be instantiated during training")
             return model
         else:
             # Use parent implementation for actual model instances
@@ -558,7 +569,7 @@ class TensorFlowModelController(BaseModelController):
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is not available. Please install tensorflow.")
 
-        print("🧠 Executing TensorFlow model controller")
+        # print("🧠 Executing TensorFlow model controller")
 
         # Call parent execute method
         return super().execute(step, operator, dataset, context, runner, source)

@@ -104,7 +104,7 @@ class BaseModelController(OperatorController, ABC):
         Returns:
             Tuple of (updated_context, binaries_list)
         """
-        print(f"🤖 Executing model controller: {self.__class__.__name__}")
+        # print(f"🤖 Executing model controller: {self.__class__.__name__}")
 
         # Extract model configuration from step
         model_config = self._extract_model_config(step)
@@ -113,7 +113,7 @@ class BaseModelController(OperatorController, ABC):
 
         # Determine execution mode
         mode = self._determine_mode(model_config)
-        print(f"🎯 Model mode: {mode.value}")
+        # print(f"🎯 Model mode: {mode.value}")
 
         # Prepare data
         X_train, y_train, X_test, y_test = self._prepare_train_test_data(dataset, context)
@@ -185,12 +185,11 @@ class BaseModelController(OperatorController, ABC):
 
         # Get test data (all data for now, will be filtered by folds if needed)
         test_context = context.copy()
-        if "partition" in test_context:
-            del test_context["partition"]  # Get all data
+        test_context["partition"] = "test"
         X_test = dataset.x(test_context, "2d", concat_source=True)
         y_test = dataset.y(test_context)
 
-        print(f"📊 Data shapes - Train: X{X_train.shape}, y{y_train.shape} | Test: X{X_test.shape}, y{y_test.shape}")
+        # print(f"📊 Data shapes - Train: X{X_train.shape}, y{y_train.shape} | Test: X{X_test.shape}, y{y_test.shape}")
 
         return X_train, y_train, X_test, y_test
 
@@ -206,7 +205,10 @@ class BaseModelController(OperatorController, ABC):
         runner: 'PipelineRunner'
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute training mode."""
-        print("🏋️ Training model...")
+        verbose = train_params.get('verbose', 0)
+
+        # if verbose > 0:
+            # print("🏋️ Training model...")
 
         # Get model instance and clone it to avoid modifying original
         base_model = self._get_model_from_config(model_config)
@@ -228,7 +230,8 @@ class BaseModelController(OperatorController, ABC):
         # Store results and serialize model
         binaries = self._store_results(trained_model, y_pred, y_test, runner, "trained")
 
-        print("✅ Training completed successfully")
+        # if verbose > 0:
+            # print("✅ Training completed successfully")
         return context, binaries
 
     def _execute_finetune(
@@ -244,7 +247,11 @@ class BaseModelController(OperatorController, ABC):
         runner: 'PipelineRunner'
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute fine-tuning mode with Optuna."""
-        print("🎛️ Fine-tuning model with Optuna...")
+        # Check verbose setting from finetune_params or train_params (0=silent, 1=basic, 2=detailed)
+        verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
+
+        # if verbose > 0:
+            # print("🎛️ Fine-tuning model with Optuna...")
 
         try:
             import optuna
@@ -253,9 +260,7 @@ class BaseModelController(OperatorController, ABC):
             return self._execute_train(
                 model_config, X_train, y_train, X_test, y_test,
                 train_params, context, runner
-            )
-
-        # Prepare data
+            )        # Prepare data
         X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
         X_test_prep, _ = self._prepare_data(X_test, y_test, context)
 
@@ -281,13 +286,15 @@ class BaseModelController(OperatorController, ABC):
                     print(f"⚠️ Could not set parameters {trial_params}: {e}")
 
             # Train model - use train_params from finetune_params if available, otherwise use top-level train_params
-            trial_train_params = finetune_params.get('train_params', train_params)
+            trial_train_params = finetune_params.get('train_params', train_params.copy())
+            # Ensure training is silent during trials unless explicitly verbose
+            if 'verbose' not in trial_train_params:
+                trial_train_params['verbose'] = 0  # Silent during trials
+
             trained_model = self._train_model(
                 model, X_train_prep, y_train_prep,
                 train_params=trial_train_params
-            )
-
-            # Evaluate model (use validation split or cross-validation)
+            )            # Evaluate model (use validation split or cross-validation)
             score = self._evaluate_model(trained_model, X_train_prep, y_train_prep)
 
             # Keep track of best model
@@ -298,8 +305,12 @@ class BaseModelController(OperatorController, ABC):
 
             return score
 
+        # Configure Optuna logging
+        if not verbose:
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+
         # Run optimization with configurable search method
-        search_method = finetune_params.get('approach', 'auto')  # Default to auto like base_finetuner
+        search_method = finetune_params.get('approach', 'auto')
         n_trials = finetune_params.get('n_trials', 10)
 
         # Auto-determine search method if not specified
@@ -308,41 +319,49 @@ class BaseModelController(OperatorController, ABC):
             search_method = 'grid' if is_grid_suitable else 'random'
 
         # Only use grid search if explicitly requested or auto-determined AND we have categorical params
-        # Never use grid search if approach was explicitly set to 'random'
         has_categorical = any(isinstance(v, list) for k, v in finetune_params.items()
                               if k not in ['n_trials', 'approach'])
         use_grid = (search_method == 'grid' and has_categorical and
                     finetune_params.get('approach', 'auto') != 'random')
 
         if use_grid:
-            # Use GridSampler for exhaustive search of categorical parameters only
+            # Use GridSampler for exhaustive search
             import optuna.samplers
             search_space = self._create_grid_search_space(finetune_params)
-            if search_space:  # Only use grid search if we have categorical parameters
+            if search_space:
                 sampler = optuna.samplers.GridSampler(search_space)
                 study = optuna.create_study(direction="minimize", sampler=sampler)
                 # Calculate total combinations for grid search
                 n_trials = 1
                 for param_values in search_space.values():
                     n_trials *= len(param_values)
-                print(f"🔍 Using grid search with {n_trials} combinations")
+                # if verbose:
+                    # print(f"🔍 Starting grid search with {n_trials} combinations")
             else:
                 # Fallback to random if no categorical parameters found
                 study = optuna.create_study(direction="minimize")
-                print(f"🎯 Using random search with {n_trials} trials (no categorical params for grid)")
+                # if verbose:
+                    # print(f"🎯 Starting random search with {n_trials} trials (no categorical params for grid)")
         else:
-            # Use random/TPE sampler for continuous parameters or when explicitly requested
+            # Use random/TPE sampler
             study = optuna.create_study(direction="minimize")
-            print(f"🎯 Using random search with {n_trials} trials")
+            # if verbose:
+                # print(f"🎯 Starting {search_method} search with {n_trials} trials")
+
+        # Show concise message about optimization
+        if not verbose:
+            print(f"🔍 Optimizing {len(finetune_params.get('model_params', {}))} parameters with {search_method} search ({n_trials} trials)...")
 
         study.optimize(objective, n_trials=n_trials)
 
-        print(f"🏆 Best parameters: {best_params}")
-        print(f"🎯 Best score: {best_score:.4f}")
-
+        # if verbose:
+            # print(f"🏆 Best parameters: {best_params}, Best score: {best_score:.4f}")
         # Retrain best model with top-level train_params (final training parameters)
         if train_params != finetune_params.get('train_params', train_params):
-            print("🔄 Retraining best model with final training parameters...")
+            # print(f"🏆 Training with best parameters: {best_params}")
+            # if verbose > 1:
+                # print("🔄 Using final training parameters for best model...")
+
             base_model = self._get_model_from_config(model_config)
             final_model = self._clone_model(base_model)
 
@@ -359,6 +378,9 @@ class BaseModelController(OperatorController, ABC):
                 train_params=train_params
             )
             best_model = final_trained_model
+        else:
+            # Just show the best parameters found
+            print(f"🏆 Training with best parameters: {best_params}")
 
         # Generate final predictions with best model
         y_pred = self._predict_model(best_model, X_test_prep)
@@ -366,7 +388,8 @@ class BaseModelController(OperatorController, ABC):
         # Store results
         binaries = self._store_results(best_model, y_pred, y_test, runner, "finetuned")
 
-        print("✅ Fine-tuning completed successfully")
+        # if verbose > 0:
+            # print("✅ Fine-tuning completed successfully")
         return context, binaries
 
     def _get_model_from_config(self, model_config: Dict[str, Any]) -> Any:
