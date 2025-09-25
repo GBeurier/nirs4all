@@ -11,6 +11,13 @@ def register_controller(operator_cls: OperatorController):
     global CONTROLLER_REGISTRY
     if not issubclass(operator_cls, OperatorController):
         raise TypeError(f"Operator class {operator_cls.__name__} must inherit from OperatorController")
+
+    # Check if controller is already registered (avoid duplicates)
+    if any(c.__name__ == operator_cls.__name__ and c.__module__ == operator_cls.__module__
+           for c in CONTROLLER_REGISTRY):
+        # print(f"Controller {operator_cls.__name__} already registered, skipping...")
+        return operator_cls
+
     print(f"Registering controller: {operator_cls.__name__}")
     CONTROLLER_REGISTRY.append(operator_cls)
     CONTROLLER_REGISTRY.sort(key=lambda c: c.priority)
