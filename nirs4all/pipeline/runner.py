@@ -27,7 +27,7 @@ from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 class PipelineRunner:
     """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
 
-    WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack", "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d"]
+    WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack", "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d", "fold_chart"]
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     def __init__(self, ##TODO add resume / overwrite support / realtime viz
