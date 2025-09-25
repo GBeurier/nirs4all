@@ -16,7 +16,7 @@ from nirs4all.dataset.indexer import Indexer
 from nirs4all.dataset.metadata import Metadata
 from nirs4all.dataset.predictions import Predictions
 from sklearn.base import TransformerMixin
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Tuple, Dict, Any
 
 
 class SpectroDataset:
@@ -137,27 +137,32 @@ class SpectroDataset:
     # def add_predictions(self, np_arr: np.ndarray, meta_dict: Dict[str, Any]) -> None:
     #     self._predictions.add_prediction(np_arr, meta_dict)
 
-    # @property
-    # def folds(self) -> List[Tuple[List[int], List[int]]]:
-    #     return self._folds
+    @property
+    def folds(self) -> List[Tuple[List[int], List[int]]]:
+        return self._folds
 
-    # def set_folds(self, folds_iterable) -> None:
-    #     """Set cross-validation folds from an iterable of (train_idx, val_idx) tuples."""
-    #     self._folds = list(folds_iterable)
+    def set_folds(self, folds_iterable) -> None:
+        """Set cross-validation folds from an iterable of (train_idx, val_idx) tuples."""
+        self._folds = list(folds_iterable)
 
-    # def index_column(self, col: str, filter: Dict[str, Any] = {}) -> List[int]:
-    #     return self._indexer.get_column_values(col, filter)
+    def index_column(self, col: str, filter: Dict[str, Any] = {}) -> List[int]:
+        return self._indexer.get_column_values(col, filter)
 
 
-    # @property
-    # def num_folds(self) -> int:
-    #     """Return the number of folds."""
-    #     return len(self._folds)
+    @property
+    def num_folds(self) -> int:
+        """Return the number of folds."""
+        return len(self._folds)
 
     @property
     def n_sources(self) -> int:
         return len(self._features.sources)
 
+    def _fold_str(self) -> str:
+        if not self._folds:
+            return ""
+        folds_count = [(len(train), len(val)) for train, val in self._folds]
+        return str(folds_count)
 
     # def __repr__(self):
     #     txt = str(self._features)
@@ -170,6 +175,8 @@ class SpectroDataset:
         txt += "\n" + str(self._features)
         txt += "\n" + str(self._targets)
         txt += "\n" + str(self._indexer)
+        if self._folds:
+            txt += f"\nFolds: {self._fold_str()}"
         return txt
         # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
 

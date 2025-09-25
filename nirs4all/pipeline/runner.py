@@ -258,6 +258,11 @@ class PipelineRunner:
             if len(step) == 1:
                 key = next(iter(step.keys()))
                 return f"{key}"
+            elif "class" in step:
+                key = f"{step['class'].split('.')[-1]}"
+                if "params" in step:
+                    params_str = ", ".join(f"{k}={v}" for k, v in step["params"].items())
+                    return f"{key}({params_str})"
             else:
                 return f"Dict with {len(step)} keys"
         elif isinstance(step, list):

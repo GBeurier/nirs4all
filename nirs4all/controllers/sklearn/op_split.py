@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from typing import Any, Dict, Tuple, TYPE_CHECKING, List
-
+import copy
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 
@@ -76,25 +76,26 @@ class CrossValidatorController(OperatorController):
         context: Dict[str, Any],
         runner: "PipelineRunner",
         source: int = -1,
-    ):
+    ): ##TODO manage groups
         """Run ``operator.split`` and store the resulting folds on *dataset*.
 
         * Smartly supplies ``y`` / ``groups`` only if required.
         * Maps local indices back to the global index space.
         * Stores the list of folds into the dataset for subsequent steps.
         """
-        print(f"🔄 Executing cross‑validation with {operator.__class__.__name__}")
+        # print(f"🔄 Executing cross‑validation with {operator.__class__.__name__}")
 
-        local_context = context.copy()
+        local_context = copy.deepcopy(context)
         local_context["partition"] = "train"
         needs_y, needs_g = _needs(operator)
-        X = dataset.x(local_context, layout="2d", source=source)
+        X = dataset.x(local_context, layout="2d", concat_source=True)
+        # print(X.shape)
         y = dataset.y(local_context) if needs_y else None
-        groups = dataset.groups(local_context) if needs_g else None
+        # groups = dataset.groups(local_context) if needs_g else None
+        groups = None
 
         n_samples = X.shape[0]
-        print(f"🔄 Creating folds for {n_samples} samples using {operator.__class__.__name__}")
-        current_indices, _ = dataset.features.index.get_indices(context)
+        # print(f"🔄 Creating folds for {n_samples} samples using {operator.__class__.__name__}")
         kwargs: Dict[str, Any] = {}
         if needs_y:
             if y is None:
@@ -110,10 +111,33 @@ class CrossValidatorController(OperatorController):
             kwargs["groups"] = groups
 
 
-        print(f"X shape: {X.shape}, y shape: {y.shape if y is not None else 'N/A'}, groups shape: {groups.shape if groups is not None else 'N/A'}")
-        print(f"Current indices: {current_indices}")
-        folds = operator.split(X, **kwargs)
-        dataset.set_folds(folds)
-        print(f"✅ Successfully created {len(fold_splits)} CV folds")
+        # print(f"X shape: {X.shape}, y shape: {y.shape if y is not None else 'N/A'}, groups shape: {groups.shape if groups is not None else 'N/A'}")
+        folds = list(operator.split(X, **kwargs))  # Convert to list to avoid iterator consumption
 
-        return context
+        # Store folds in dataset (if method exists)
+        if hasattr(dataset, 'set_folds'):
+            dataset.set_folds(folds)
+
+        headers = [f"fold_{i}" for i in range(len(folds))]
+        binary = ",".join(headers).encode("utf-8") + b"\n"
+        max_train_samples = max(len(train_idx) for train_idx, _ in folds)
+
+        for row_idx in range(max_train_samples):
+            row_values = []
+            for fold_idx, (train_idx, val_idx) in enumerate(folds):
+                if row_idx < len(train_idx):
+                    row_values.append(str(train_idx[row_idx]))
+                else:
+                    row_values.append("")  # Empty cell if this fold has fewer samples
+            binary += ",".join(row_values).encode("utf-8") + b"\n"
+
+        folds_name = f"folds_{operator.__class__.__name__}"
+        if hasattr(operator, "random_state"):
+            seed = getattr(operator, "random_state")
+            if seed is not None:
+                folds_name += f"_seed{seed}"
+        folds_name += ".csv"
+
+        print(f"Generated {len(folds)} folds.")
+
+        return context, [(folds_name, binary)]
