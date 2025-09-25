@@ -94,7 +94,7 @@ class PipelineRunner:
                 for step in steps:
                     context = self.run_step(step, dataset, context, is_substep=is_substep)
                     # print(f"🔹 Updated context after step: {context}")
-
+                self.substep_number = -1  # Reset sub-step number after sequential execution
                 return context
 
         elif execution == "parallel" and self.parallel:
