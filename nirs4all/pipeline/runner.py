@@ -76,6 +76,9 @@ class PipelineRunner:
         except Exception as e:
             # self.history.fail_execution(str(e))
             print(f"\033[91m❌ Pipeline {config.name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
+            import traceback
+            traceback.print_exc()
+
             raise
 
         return dataset, self.history, self.pipeline
@@ -182,7 +185,7 @@ class PipelineRunner:
 
             # self.history.complete_step(step_execution.step_id)
 
-        except (RuntimeError, ValueError, TypeError, ImportError, KeyError, AttributeError, IndexError) as e:
+        except Exception as e:
             # Fail step
             # self.history.fail_step(step_execution.step_id, str(e))
             import traceback
@@ -218,11 +221,10 @@ class PipelineRunner:
         source: Union[int, List[int]] = -1
     ):
         """Execute the controller for the given step and operator."""
-        operator_name = operator.__class__.__name__ if operator else ""
+        operator_name = operator.__class__.__name__ if operator is not None else ""
         controller_name = controller.__class__.__name__
 
-
-        if operator:
+        if operator is not None:
             print(f"🔹 Executing controller {controller_name} with operator {operator_name}")
         else:
             print(f"🔹 Executing controller {controller_name} without operator")
@@ -273,6 +275,15 @@ class PipelineRunner:
                 if "params" in step:
                     params_str = ", ".join(f"{k}={v}" for k, v in step["params"].items())
                     return f"{key}({params_str})"
+            elif "model" in step:
+                key = f"{step['model']['class'].split('.')[-1]}"
+                params_str = ""
+                if "params" in step['model']:
+                    params_str = ", ".join(f"{k}={v}" for k, v in step['model']["params"].items())
+                actions = "train"
+                if "finetune_params" in step:
+                    actions = "(finetune)"
+                return f"{actions} {key}({params_str})"
             else:
                 return f"Dict with {len(step)} keys"
         elif isinstance(step, list):
