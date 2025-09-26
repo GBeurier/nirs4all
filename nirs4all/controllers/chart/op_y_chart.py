@@ -25,6 +25,11 @@ class YChartController(OperatorController):
     def use_multi_source(cls) -> bool:
         return False  # Y values don't depend on source
 
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        """Chart controllers should skip execution during prediction mode."""
+        return False
+
     def execute(
         self,
         step: Any,
@@ -32,14 +37,21 @@ class YChartController(OperatorController):
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
-        source: int = -1
+        source: int = -1,
+        mode: str = "train",
+        loaded_binaries: Any = None
     ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Execute y values histogram visualization with train/test split.
+        Skips execution in prediction mode.
 
         Returns:
             Tuple of (context, image_list) where image_list contains plot metadata
         """
+        # Skip execution in prediction mode
+        if mode == "predict":
+            return context, []
+
         # Initialize image list to track generated plots
         img_list = []
 

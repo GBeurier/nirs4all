@@ -8,6 +8,10 @@ Features:
 - Simplified data selection
 """
 from typing import Any, Dict, List, Optional, Tuple, Union
+from datetime import datetime
+from pathlib import Path
+import json
+import warnings
 
 from joblib import Parallel, delayed, parallel_backend
 
@@ -21,6 +25,7 @@ from nirs4all.pipeline.pipeline import Pipeline
 from nirs4all.pipeline.io import SimulationSaver
 from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
+from nirs4all.pipeline.binary_loader import BinaryLoader
 
 
 
@@ -40,7 +45,9 @@ class PipelineRunner:
                  backend: str = 'threading',
                  verbose: int = 0,
                  parallel: bool = False,
-                 results_path: Optional[str] = None):
+                 results_path: Optional[str] = None,
+                 save_binaries: bool = True,
+                 mode: str = "train"):
 
         self.max_workers = max_workers or -1  # -1 means use all available cores
         self.continue_on_error = continue_on_error
@@ -53,6 +60,10 @@ class PipelineRunner:
         self.substep_number = -1  # Initialize sub-step number for tracking
         self.saver = SimulationSaver(results_path)
         self.operation_count = 0
+        self.save_binaries = save_binaries
+        self.mode = mode
+        self.step_binaries: Dict[str, List[str]] = {}  # Track step-to-binary mapping
+        self.binary_loader: Optional[BinaryLoader] = None
 
     def next_op(self) -> int:
         """Get the next operation ID."""
@@ -64,14 +75,28 @@ class PipelineRunner:
         print("=" * 200)
         print(f"\033[94m🚀 Starting pipeline {config.name} on dataset {dataset.name}\033[0m")
         print("-" * 200)
-        self.saver.register(dataset.name, config.name)
-        self.saver.save_json("pipeline.json", config.serializable_steps())
+        if self.save_binaries:
+            self.saver.register(dataset.name, config.name)
         # context = {"branch": 0, "processing": "raw", "y": "numeric"}
         context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
 
         try:
             self.run_steps(config.steps, dataset, context, execution="sequential")
             # self.history.complete_execution()
+
+            # Save enhanced configuration with metadata if saving binaries
+            if self.save_binaries:
+                enhanced_config = {
+                    "steps": config.serializable_steps(),
+                    "execution_metadata": {
+                        "step_binaries": self.step_binaries,
+                        "created_at": datetime.now().isoformat(),
+                        "pipeline_version": "1.0",
+                        "mode": self.mode
+                    }
+                }
+                self.saver.save_json("pipeline.json", enhanced_config)
+
             print(f"\033[94m✅ Pipeline {config.name} completed successfully on dataset {dataset.name}\033[0m")
 
         except Exception as e:
@@ -179,9 +204,23 @@ class PipelineRunner:
                 controller = self._select_controller(step)
 
             if controller is not None:
+                # Check if controller supports prediction mode
+                if self.mode == "predict" and not controller.supports_prediction_mode():
+                    print(f"🔄 Skipping step {self.step_number} in prediction mode")
+                    return context
+
+                # Load binaries if in prediction mode
+                loaded_binaries = None
+                if self.mode == "predict" and self.binary_loader is not None:
+                    loaded_binaries = self.binary_loader.get_binaries_for_step(
+                        self.step_number, self.substep_number
+                    )
+
                 # print(f"🔄 Selected controller: {controller.__class__.__name__}")
                 context["step_id"] = self.step_number
-                return self._execute_controller(controller, step, operator, dataset, context)
+                return self._execute_controller(
+                    controller, step, operator, dataset, context, -1, loaded_binaries
+                )
 
 
             # self.history.complete_step(step_execution.step_id)
@@ -212,14 +251,15 @@ class PipelineRunner:
         matches.sort(key=lambda c: c.priority)
         return matches[0]()
 
-    def _execute_controller( ## TODO Choose one option for multi-source datasets and parrallel execution
+    def _execute_controller(  # TODO Choose one option for multi-source datasets and parrallel execution
         self,
         controller: Any,
         step: Any,
         operator: Any,
         dataset: SpectroDataset,
         context: Dict[str, Any],
-        source: Union[int, List[int]] = -1
+        source: Union[int, List[int]] = -1,
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None
     ):
         """Execute the controller for the given step and operator."""
         operator_name = operator.__class__.__name__ if operator is not None else ""
@@ -236,10 +276,18 @@ class PipelineRunner:
             dataset,
             context,
             self,
-            source
+            source,
+            self.mode,
+            loaded_binaries
         )
 
-        self.saver.save_binaries(self.step_number, self.substep_number, binaries)
+        # Save binaries if in training mode and saving is enabled
+        if self.mode == "train" and self.save_binaries and binaries:
+            # Track binaries for this step
+            step_id = f"{self.step_number}_{self.substep_number}"
+            self.step_binaries[step_id] = [binary[0] for binary in binaries]
+            self.saver.save_binaries(self.step_number, self.substep_number, binaries)
+
         return context
 
         # if controller.use_multi_source():
@@ -298,3 +346,92 @@ class PipelineRunner:
             return step
         else:
             return str(type(step).__name__)
+
+    @staticmethod
+    def predict(
+        path: Union[str, Path],
+        dataset: SpectroDataset,
+        verbose: int = 0
+    ) -> Tuple[SpectroDataset, Dict[str, Any]]:
+        """
+        Load a saved pipeline and run it in prediction mode.
+
+        Args:
+            path: Path to saved pipeline directory
+            dataset: Dataset to make predictions on
+            verbose: Verbosity level
+
+        Returns:
+            Tuple of (updated_dataset, final_context) with predictions stored in dataset
+
+        Raises:
+            FileNotFoundError: If pipeline directory or required files don't exist
+            ValueError: If pipeline configuration is invalid
+            RuntimeError: If prediction execution fails
+        """
+        path = Path(path)
+
+        # Validate pipeline path
+        if not path.exists():
+            raise FileNotFoundError(f"Pipeline directory does not exist: {path}")
+
+        pipeline_json_path = path / "pipeline.json"
+        if not pipeline_json_path.exists():
+            raise FileNotFoundError(f"Pipeline configuration not found: {pipeline_json_path}")
+
+        # Load pipeline configuration
+        try:
+            with open(pipeline_json_path, 'r') as f:
+                pipeline_data = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            raise ValueError(f"Failed to load pipeline configuration: {e}")
+
+        # Check for binary metadata
+        if "execution_metadata" not in pipeline_data:
+            warnings.warn(
+                f"Pipeline at {path} was saved without binary metadata. "
+                "This pipeline may not work properly in prediction mode. "
+                "Consider re-running the pipeline with save_binaries=True to enable full prediction support.",
+                UserWarning
+            )
+
+        # Extract steps - handle both old and new format
+        if "steps" in pipeline_data:
+            steps = pipeline_data["steps"]
+        else:
+            # Old format - pipeline_data is the steps directly
+            steps = pipeline_data
+
+        # Create binary loader
+        binary_loader = BinaryLoader(path)
+
+        # Create prediction runner
+        runner = PipelineRunner(
+            verbose=verbose,
+            save_binaries=False,  # Don't save binaries during prediction
+            mode="predict"
+        )
+        runner.binary_loader = binary_loader
+
+        # Create config and run pipeline
+        config = PipelineConfig(steps)
+        config.name = f"prediction_{dataset.name}"
+
+        if verbose > 0:
+            print(f"🔮 Starting prediction mode for pipeline on dataset {dataset.name}")
+            cache_info = binary_loader.get_cache_info()
+            print(f"📦 Available binaries for {cache_info['total_available_binaries']} operations across {len(cache_info['available_steps'])} steps")
+
+        try:
+            result_dataset, history, pipeline = runner.run(config, dataset)
+
+            # Extract final context
+            final_context = {"processing": [["prediction"]] * dataset.features_sources(), "y": "prediction"}
+
+            if verbose > 0:
+                print(f"✅ Prediction completed successfully")
+
+            return result_dataset, final_context
+
+        except Exception as e:
+            raise RuntimeError(f"Prediction failed: {e}") from e

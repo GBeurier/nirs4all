@@ -72,6 +72,11 @@ class BaseModelController(OperatorController, ABC):
         """Models can handle multi-source datasets."""
         return True
 
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        """Model controllers support prediction mode."""
+        return True
+
     @abstractmethod
     def _get_model_instance(self, model_config: Dict[str, Any]) -> Any:
         """Create a model instance from configuration."""
@@ -112,7 +117,9 @@ class BaseModelController(OperatorController, ABC):
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
-        source: int = -1
+        source: int = -1,
+        mode: str = "train",
+        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """
         Execute model controller in one of three modes: train, finetune, or predict.
@@ -125,20 +132,41 @@ class BaseModelController(OperatorController, ABC):
             context: Pipeline context with processing state
             runner: Pipeline runner instance
             source: Data source index
+            mode: Execution mode ("train" or "predict")
+            loaded_binaries: Pre-loaded binary objects for prediction mode
 
         Returns:
             Tuple of (updated_context, binaries_list)
         """
         # print(f"🤖 Executing model controller: {self.__class__.__name__}")
 
-        # Extract model configuration from step
+        # In prediction mode, use loaded model for prediction
+        if mode == "predict":
+            return self._execute_prediction_mode(
+                step, operator, dataset, context, runner, loaded_binaries
+            )
+
+        # Training/finetuning mode - original logic
+        return self._execute_training_mode(
+            step, operator, dataset, context, runner
+        )
+
+    def _execute_training_mode(
+        self,
+        step: Any,
+        operator: Any,
+        dataset: 'SpectroDataset',
+        context: Dict[str, Any],
+        runner: 'PipelineRunner'
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        """Execute training/finetuning mode."""
+        # Extract model configuration and parameters
         model_config = self._extract_model_config(step)
         train_params = model_config.get('train_params', {})
         finetune_params = model_config.get('finetune_params', {})
 
-        # Determine execution mode
+        # Determine execution mode (train vs finetune)
         mode = self._determine_mode(model_config)
-        # print(f"🎯 Model mode: {mode.value}")
 
         # Prepare data (can return single tuple or list of tuples for folds)
         data_splits = self._prepare_train_test_data(dataset, context)
@@ -184,6 +212,93 @@ class BaseModelController(OperatorController, ABC):
                     model_config, X_train, y_train, X_test, y_test,
                     train_params, context, runner, dataset
                 )
+
+    def _execute_prediction_mode(
+        self,
+        step: Any,
+        operator: Any,
+        dataset: 'SpectroDataset',
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        loaded_binaries: Optional[List[Tuple[str, bytes]]]
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        """Execute prediction mode using loaded model."""
+        if not loaded_binaries:
+            raise ValueError("No loaded binaries provided for prediction mode")
+
+        # Find the model binary (look for .pkl files containing trained models)
+        model_binary = None
+        for name, binary in loaded_binaries:
+            if name.endswith('.pkl') and ('model' in name.lower() or 'trained' in name.lower() or 'finetuned' in name.lower()):
+                model_binary = binary
+                break
+
+        if model_binary is None:
+            raise ValueError("No model binary found in loaded binaries")
+
+        # Load the trained model
+        import pickle
+        trained_model = pickle.loads(model_binary)
+
+        # Get the preferred layout for this model type
+        layout_str = self.get_preferred_layout()
+        layout: Layout = layout_str  # type: ignore
+
+        # Prepare prediction data
+        prediction_context = context.copy()
+        prediction_context["partition"] = "predict"
+
+        X_pred = dataset.x(prediction_context, layout, concat_source=True)
+
+        # Prepare data in framework-specific format (create dummy y for interface compatibility)
+        try:
+            if hasattr(X_pred, 'shape'):
+                dummy_y = np.zeros(X_pred.shape[0])
+            elif isinstance(X_pred, list) and X_pred:
+                dummy_y = np.zeros(len(X_pred))
+            elif isinstance(X_pred, np.ndarray):
+                dummy_y = np.zeros(len(X_pred))
+            else:
+                dummy_y = np.zeros(1)  # fallback
+        except Exception:
+            dummy_y = np.zeros(1)  # fallback
+        X_pred_prep, _ = self._prepare_data(X_pred, dummy_y, context)
+
+        # Generate predictions
+        y_pred = self._predict_model(trained_model, X_pred_prep)
+
+        # Store predictions in dataset if y data is available for comparison
+        try:
+            y_true = dataset.y(prediction_context)
+            if y_true is not None and len(y_true) > 0:
+                # Store predictions for comparison
+                self._store_predictions_in_dataset(
+                    dataset=getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown',
+                    pipeline=getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown',
+                    model=trained_model.__class__.__name__,
+                    partition="prediction",
+                    y_true=y_true,
+                    y_pred=y_pred,
+                    fold_idx=None,
+                    context=context,
+                    dataset_obj=dataset
+                )
+        except Exception:
+            # No y data available for prediction, that's okay
+            pass
+
+        # Store predictions as binary output
+        binaries = []
+        try:
+            predictions_csv = "y_pred\n"
+            for pred_val in y_pred.flatten():
+                predictions_csv += f"{pred_val}\n"
+            pred_filename = f"predictions_predict_{runner.next_op()}.csv"
+            binaries.append((pred_filename, predictions_csv.encode('utf-8')))
+        except Exception as e:
+            print(f"⚠️ Could not store predictions: {e}")
+
+        return context, binaries
 
     def _extract_model_config(self, step: Any) -> Dict[str, Any]:
         """Extract model configuration from step."""

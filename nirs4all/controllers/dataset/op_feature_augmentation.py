@@ -1,4 +1,4 @@
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 
 from sklearn.base import TransformerMixin
 
@@ -24,16 +24,28 @@ class FeatureAugmentationController(OperatorController):
         """Check if the operator supports multi-source datasets."""
         return True
 
-    def execute( ## TODO reup parralelization
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        """Feature augmentation should not execute during prediction mode."""
+        return False
+
+    def execute(  # TODO reup parralelization
         self,
         step: Any,
         operator: Any,
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
-        source: int = -1
-    ):
+        source: int = -1,
+        mode: str = "train",
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        # Skip execution in prediction mode
+        if mode == "predict":
+            return context, []
+
         print(f"Executing feature augmentation for step: {step}, keyword: {context.get('keyword', '')}, source: {source}")
+
         try:
             initial_context = copy.deepcopy(context)
             # Faire une deepcopy à chaque utilisation pour éviter les modifications
@@ -45,7 +57,7 @@ class FeatureAugmentationController(OperatorController):
                 local_context = copy.deepcopy(initial_context)
 
                 if i == 0 and operation is None:
-                    print(f"\033[96m   ▶ Skipping no-op feature augmentation\033[0m")
+                    print("Skipping no-op feature augmentation")
                     continue
                 if i > 0:
                     local_context["add_feature"] = True
@@ -54,8 +66,8 @@ class FeatureAugmentationController(OperatorController):
                 local_context["processing"] = copy.deepcopy(source_processings)
                 runner.run_step(operation, dataset, local_context, is_substep=True)
 
+            return context, []
+
         except Exception as e:
             print(f"❌ Error applying feature augmentation: {e}")
             raise
-
-        return context, []
