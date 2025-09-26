@@ -76,7 +76,7 @@ class PipelineRunner:
         print(f"\033[94m🚀 Starting pipeline {config.name} on dataset {dataset.name}\033[0m")
         print("-" * 200)
         if self.save_binaries:
-            self.saver.register(dataset.name, config.name)
+            storage_path = self.saver.register(dataset.name, config.name)
         # context = {"branch": 0, "processing": "raw", "y": "numeric"}
         context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
 
