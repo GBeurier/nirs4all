@@ -68,6 +68,11 @@ class CrossValidatorController(OperatorController):
         """Cross‑validators themselves are single‑source operators."""
         return False
 
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        """Cross-validators should not execute during prediction mode."""
+        return False
+
     def execute(  # type: ignore[override]
         self,
         step: Any,
@@ -76,6 +81,8 @@ class CrossValidatorController(OperatorController):
         context: Dict[str, Any],
         runner: "PipelineRunner",
         source: int = -1,
+        mode: str = "train",
+        loaded_binaries: Any = None
     ): ##TODO manage groups
         """Run ``operator.split`` and store the resulting folds on *dataset*.
 
@@ -83,6 +90,10 @@ class CrossValidatorController(OperatorController):
         * Maps local indices back to the global index space.
         * Stores the list of folds into the dataset for subsequent steps.
         """
+        # Skip execution in prediction mode
+        if mode == "predict":
+            return context, []
+
         # print(f"🔄 Executing cross‑validation with {operator.__class__.__name__}")
 
         local_context = copy.deepcopy(context)

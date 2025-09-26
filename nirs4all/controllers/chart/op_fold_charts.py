@@ -27,6 +27,11 @@ class FoldChartController(OperatorController):
     def use_multi_source(cls) -> bool:
         return False  # Fold visualization is dataset-wide, not source-specific
 
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        """Chart controllers should skip execution during prediction mode."""
+        return False
+
     def execute(
         self,
         step: Any,
@@ -34,14 +39,21 @@ class FoldChartController(OperatorController):
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
-        source: int = -1
+        source: int = -1,
+        mode: str = "train",
+        loaded_binaries: Any = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """
         Execute fold visualization showing train/test splits with y-value color coding.
+        Skips execution in prediction mode.
 
         Returns:
             Tuple of (context, image_list) where image_list contains plot binaries
         """
+        # Skip execution in prediction mode
+        if mode == "predict":
+            return context, []
+
         print(f"Executing fold charts for step: {step}, keyword: {context.get('keyword', '')}")
 
         # Get data for visualization

@@ -284,7 +284,9 @@ class PyTorchModelController(BaseModelController):
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
-        source: int = -1
+        source: int = -1,
+        mode: str = "train",
+        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute PyTorch model controller."""
         if not TORCH_AVAILABLE:
@@ -293,4 +295,4 @@ class PyTorchModelController(BaseModelController):
         print(f"⚡ Executing PyTorch model controller")
 
         # Call parent execute method
-        return super().execute(step, operator, dataset, context, runner, source)
+        return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries)
