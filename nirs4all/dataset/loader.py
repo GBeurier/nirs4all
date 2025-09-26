@@ -9,6 +9,63 @@ from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.csv_loader import load_csv
 from typing import Dict, Tuple, Union
 
+
+def create_synthetic_dataset(config: Dict) -> SpectroDataset:
+    """
+    Create a synthetic SpectroDataset for testing purposes.
+
+    Args:
+        config: Dictionary with keys:
+            - X: Feature matrix (n_samples, n_features)
+            - y: Target values (n_samples,)
+            - folds: Number of CV folds
+            - train/val/test: Split ratios
+            - random_state: Random seed
+
+    Returns:
+        SpectroDataset: Synthetic dataset ready for pipeline use
+    """
+    X = config['X']
+    y = config['y']
+
+    # Create synthetic dataset object with a proper string name
+    dataset = SpectroDataset(name="synthetic_test_dataset")
+
+    # Split the data into train and test partitions
+    # Use the ratios from config, defaulting to 80/20 split
+    n_samples = X.shape[0]
+    train_ratio = config.get('train', 0.8)
+    n_train = int(n_samples * train_ratio)
+
+    # Split indices
+    indices = np.arange(n_samples)
+    if 'random_state' in config:
+        np.random.seed(config['random_state'])
+        indices = np.random.permutation(indices)
+
+    train_indices = indices[:n_train]
+    test_indices = indices[n_train:]
+
+    # Split data
+    X_train = X[train_indices]
+    X_test = X[test_indices]
+    y_train = y[train_indices]
+    y_test = y[test_indices]
+
+    # Add samples with partition information
+    if len(X_train) > 0:
+        dataset.add_samples(X_train, {"partition": "train"})
+    if len(X_test) > 0:
+        dataset.add_samples(X_test, {"partition": "test"})
+
+    # Add targets
+    if len(y_train) > 0:
+        dataset.add_targets(y_train)
+    if len(y_test) > 0:
+        dataset.add_targets(y_test)
+
+    return dataset
+
 def _merge_params(local_params, handler_params, global_params):
     """
     Merge parameters from local, handler, and global scopes.
