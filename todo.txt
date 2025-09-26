@@ -1,9 +1,7 @@
-*[train / finetune]
-*[save]
+[predict / load]
 print result,
 save tf in tf format
 store predictions and display prediction summaries
-[predict / load]
 Manage save for dataset and globally
 [generator]
 [bin with bounds or count + warning class assymetry]
