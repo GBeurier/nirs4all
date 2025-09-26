@@ -236,17 +236,35 @@ class BaseModelController(OperatorController, ABC):
         if model_binary is None:
             raise ValueError("No model binary found in loaded binaries")
 
-        # Load the trained model
+        # Load the trained model (handle both object and bytes formats)
         import pickle
-        trained_model = pickle.loads(model_binary)
+        if isinstance(model_binary, bytes):
+            # Binary data that needs to be unpickled
+            trained_model = pickle.loads(model_binary)
+        else:
+            # Already loaded as an object
+            trained_model = model_binary
 
         # Get the preferred layout for this model type
         layout_str = self.get_preferred_layout()
         layout: Layout = layout_str  # type: ignore
 
-        # Prepare prediction data
+        # Prepare prediction data - use test partition or all data if no test partition
         prediction_context = context.copy()
-        prediction_context["partition"] = "predict"
+
+        # Try to use test partition, fallback to train if test doesn't exist, then to all data
+        available_partitions = list(dataset.indexes.keys()) if hasattr(dataset, 'indexes') else []
+
+        if "test" in available_partitions:
+            prediction_context["partition"] = "test"
+            print(f"🎯 Using 'test' partition for prediction ({sum(dataset.indexes['test'])} samples)")
+        elif "train" in available_partitions:
+            prediction_context["partition"] = "train"
+            print(f"🎯 Using 'train' partition for prediction ({sum(dataset.indexes['train'])} samples)")
+        else:
+            # Remove partition constraint to use all data
+            prediction_context.pop("partition", None)
+            print("🎯 Using all available data for prediction")
 
         X_pred = dataset.x(prediction_context, layout, concat_source=True)
 

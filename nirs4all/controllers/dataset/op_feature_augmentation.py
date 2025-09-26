@@ -26,8 +26,8 @@ class FeatureAugmentationController(OperatorController):
 
     @classmethod
     def supports_prediction_mode(cls) -> bool:
-        """Feature augmentation should not execute during prediction mode."""
-        return False
+        """Feature augmentation should execute during prediction mode to apply saved transformers."""
+        return True
 
     def execute(  # TODO reup parralelization
         self,
@@ -40,11 +40,7 @@ class FeatureAugmentationController(OperatorController):
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
-        # Skip execution in prediction mode
-        if mode == "predict":
-            return context, []
-
-        print(f"Executing feature augmentation for step: {step}, keyword: {context.get('keyword', '')}, source: {source}")
+        print(f"Executing feature augmentation for step: {step}, keyword: {context.get('keyword', '')}, source: {source}, mode: {mode}")
 
         try:
             initial_context = copy.deepcopy(context)

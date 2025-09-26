@@ -116,11 +116,32 @@ class BinaryLoader:
                 continue
 
             try:
-                with open(binary_path, 'rb') as f:
-                    binary_obj = pickle.load(f)
+                # Handle different file types appropriately
+                if filename.endswith('.csv'):
+                    # Load CSV files as text
+                    with open(binary_path, 'r', encoding='utf-8') as f:
+                        csv_content = f.read()
+                    loaded_binaries.append((filename, csv_content))
+                elif filename.endswith(('.json', '.txt')):
+                    # Load text files as strings
+                    with open(binary_path, 'r', encoding='utf-8') as f:
+                        text_content = f.read()
+                    loaded_binaries.append((filename, text_content))
+                elif filename.endswith(('.pkl', '.pickle')):
+                    # Load pickle files as objects
+                    with open(binary_path, 'rb') as f:
+                        binary_obj = pickle.load(f)
                     loaded_binaries.append((filename, binary_obj))
+                else:
+                    # Default to pickle for other files (backward compatibility)
+                    with open(binary_path, 'rb') as f:
+                        binary_obj = pickle.load(f)
+                    loaded_binaries.append((filename, binary_obj))
+
             except Exception as e:
-                raise RuntimeError(f"Failed to load binary file {binary_path}: {e}")
+                # Skip problematic files with a warning instead of failing completely
+                warnings.warn(f"Failed to load binary file {binary_path}: {e}. Skipping.")
+                continue
 
         return loaded_binaries
 
