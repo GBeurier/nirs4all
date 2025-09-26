@@ -21,6 +21,9 @@ Release
 
 #### BUGS ########
 
+Remove update feature for the first element in feature_augmentation.
+  None can create problems with generation. ie. [None, savgol] = [savgol, None]
+
 #### TUTO ########
 dataset
 config
