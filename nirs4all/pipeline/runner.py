@@ -283,9 +283,20 @@ class PipelineRunner:
 
         # Save binaries if in training mode and saving is enabled
         if self.mode == "train" and self.save_binaries and binaries:
-            # Track binaries for this step
+            # Track binaries for this step with correct naming
             step_id = f"{self.step_number}_{self.substep_number}"
-            self.step_binaries[step_id] = [binary[0] for binary in binaries]
+
+            # Store the actual filenames that will be saved (with step prefixes)
+            actual_filenames = []
+            for binary_name, _ in binaries:
+                # Construct the actual saved filename (same logic as in io.py)
+                prefixed_name = str(self.step_number)
+                if self.substep_number > 0:
+                    prefixed_name += "_" + str(self.substep_number)
+                prefixed_name += "_" + str(binary_name)
+                actual_filenames.append(prefixed_name)
+
+            self.step_binaries[step_id] = actual_filenames
             self.saver.save_binaries(self.step_number, self.substep_number, binaries)
 
         return context

@@ -28,6 +28,9 @@ class Features:
             src.add_samples(arr)
 
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList) -> None:
+        # Handle empty features list
+        if not features:
+            return
 
         feats = [features] if isinstance(features[0], np.ndarray) else features
 
