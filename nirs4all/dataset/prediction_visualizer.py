@@ -128,23 +128,23 @@ class PredictionVisualizer:
     def _filter_data_by_prediction_types(self, prediction_filter: str = 'all') -> List[Dict]:
         """
         Filter prediction data based on prediction type.
-        
+
         Args:
             prediction_filter: Filter type - 'all', 'best_only', 'folds_only', 'averaged_only', or 'global_only'
-        
+
         Returns:
             Filtered list of prediction records
         """
         if prediction_filter == 'all':
             return self.data
-        
+
         filtered_data = []
-        
+
         if prediction_filter == 'best_only':
             # Group by base model and find best performance
             import re
             from collections import defaultdict
-            
+
             model_groups = defaultdict(list)
             for pred_record in self.data:
                 model_name = pred_record.get('model', 'unknown')
@@ -152,38 +152,38 @@ class PredictionVisualizer:
                 base_model_match = re.match(r'(.+?)_\d+$', model_name)
                 base_model = base_model_match.group(1) if base_model_match else model_name
                 model_groups[base_model].append(pred_record)
-            
+
             # For each base model, find the best performing prediction
             for base_model, predictions in model_groups.items():
                 best_pred = None
                 best_r2 = -float('inf')
-                
+
                 for pred in predictions:
                     y_true = pred.get('y_true', [])
                     y_pred = pred.get('y_pred', [])
                     metrics = self._calculate_metrics(y_true, y_pred)
-                    
+
                     if metrics['r2'] > best_r2:
                         best_r2 = metrics['r2']
                         best_pred = pred
-                
+
                 if best_pred:
                     filtered_data.append(best_pred)
-        
+
         elif prediction_filter == 'folds_only':
             # Only fold predictions (train_fold, val_fold, test_fold)
             for pred_record in self.data:
                 partition = pred_record.get('partition', '')
                 if 'fold' in partition and 'avg' not in partition:
                     filtered_data.append(pred_record)
-        
+
         elif prediction_filter == 'averaged_only':
             # Only averaged predictions (avg_, weighted_avg_)
             for pred_record in self.data:
                 partition = pred_record.get('partition', '')
                 if 'avg' in partition:
                     filtered_data.append(pred_record)
-        
+
         elif prediction_filter == 'global_only':
             # Only global predictions (global_train, test without fold)
             for pred_record in self.data:
@@ -191,7 +191,7 @@ class PredictionVisualizer:
                 if ('global' in partition or
                         ('test' in partition and 'fold' not in partition and 'avg' not in partition)):
                     filtered_data.append(pred_record)
-        
+
         return filtered_data
 
     def plot_performance_matrix(self,
@@ -340,7 +340,7 @@ class PredictionVisualizer:
         """
         if metrics is None:
             metrics = ['rmse', 'mae', 'r2', 'mse']
-        
+
         # Apply filtering
         original_data = self.data
         self.data = self._filter_data_by_prediction_types(prediction_filter)
@@ -827,21 +827,21 @@ class PredictionVisualizer:
                                   figsize: Tuple[int, int] = (12, 8)) -> plt.Figure:
         """
         Plot filtered predictions with different chart types.
-        
+
         Args:
             dataset: Dataset to visualize
             prediction_filter: Filter type ('all', 'best_only', 'folds_only', 'averaged_only', 'global_only')
             metric: Metric to display
             chart_type: 'bar', 'scatter', or 'matrix'
             figsize: Figure size
-        
+
         Returns:
             matplotlib Figure object
         """
         # Apply filtering
         original_data = self.data
         self.data = self._filter_data_by_prediction_types(prediction_filter)
-        
+
         try:
             if chart_type == 'bar':
                 return self._plot_bar_chart(dataset, metric, figsize, prediction_filter)
@@ -859,21 +859,21 @@ class PredictionVisualizer:
         """Create a bar chart showing prediction performance by type."""
         import re
         from collections import defaultdict
-        
+
         # Group predictions by type and model
         prediction_groups = defaultdict(list)
-        
+
         for pred_record in self.data:
             if dataset and pred_record.get('dataset', 'unknown') != dataset:
                 continue
-                
+
             model_name = pred_record.get('model', 'unknown')
             partition = pred_record.get('partition', 'unknown')
-            
+
             # Extract base model name
             base_model_match = re.match(r'(.+?)_\d+$', model_name)
             base_model = base_model_match.group(1) if base_model_match else model_name
-            
+
             # Categorize partition
             if 'global_train' in partition:
                 pred_type = 'Global Train'
@@ -891,25 +891,25 @@ class PredictionVisualizer:
                 pred_type = 'Weighted Avg Test'
             else:
                 pred_type = partition.replace('_', ' ').title()
-            
+
             y_true = pred_record.get('y_true', [])
             y_pred = pred_record.get('y_pred', [])
             metrics = self._calculate_metrics(y_true, y_pred)
-            
+
             prediction_groups[f"{base_model} - {pred_type}"].append({
                 'metric_value': metrics.get(metric, np.nan),
                 'sample_count': len(y_true) if hasattr(y_true, '__len__') else 0,
                 'model': base_model,
                 'type': pred_type
             })
-        
+
         if not prediction_groups:
             fig, ax = plt.subplots(figsize=figsize)
             ax.text(0.5, 0.5, f'No prediction data for filter: {prediction_filter}',
                    ha='center', va='center', fontsize=16)
             ax.set_title(f'Filtered Predictions ({prediction_filter}) - No Data')
             return fig
-        
+
         # Aggregate multiple predictions of same type
         plot_data = []
         for group_name, predictions in prediction_groups.items():
@@ -926,7 +926,7 @@ class PredictionVisualizer:
                 # Multiple predictions (e.g., multiple folds) - combine them
                 valid_metrics = [p['metric_value'] for p in predictions if not np.isnan(p['metric_value'])]
                 total_samples = sum(p['sample_count'] for p in predictions)
-                
+
                 if valid_metrics:
                     avg_metric = np.mean(valid_metrics)
                     plot_data.append({
@@ -937,43 +937,43 @@ class PredictionVisualizer:
                         'type': predictions[0]['type'],
                         'fold_count': len(predictions)
                     })
-        
+
         # Sort by metric value (best first)
         if metric in ['r2']:
             plot_data.sort(key=lambda x: x['value'], reverse=True)
         else:
             plot_data.sort(key=lambda x: x['value'])
-        
+
         # Create bar chart
         fig, ax = plt.subplots(figsize=figsize)
-        
+
         names = [d['name'] for d in plot_data]
         values = [d['value'] for d in plot_data]
         colors = plt.cm.Set3(np.linspace(0, 1, len(plot_data)))
-        
+
         bars = ax.bar(range(len(names)), values, color=colors)
-        
+
         # Add value labels on bars
         for i, (bar, data) in enumerate(zip(bars, plot_data)):
             height = bar.get_height()
             sample_info = f"{data['samples']} samples"
             if 'fold_count' in data:
                 sample_info += f" ({data['fold_count']} folds)"
-            
+
             ax.text(bar.get_x() + bar.get_width()/2., height,
                    f'{height:.3f}\n{sample_info}',
                    ha='center', va='bottom', fontsize=8)
-        
+
         # Customize plot
         ax.set_xticks(range(len(names)))
         ax.set_xticklabels(names, rotation=45, ha='right')
         ax.set_ylabel(f'{metric.upper()} Score')
-        
+
         # Get dataset name for title
         display_dataset = self.dataset_name_override or dataset or 'Unknown Dataset'
         ax.set_title(f'{metric.upper()} Performance by Prediction Type\nDataset: {display_dataset} | Filter: {prediction_filter}')
-        
+
         ax.grid(True, alpha=0.3, axis='y')
         plt.tight_layout()
-        
+
         return fig
