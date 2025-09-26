@@ -75,7 +75,16 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
             blob = build_aliases[blob]
         try:
             # try to import the module and get the class or function
+            # Safety check for empty or invalid strings
+            if not blob or "." not in blob:
+                return blob
+
             mod_name, _, cls_or_func_name = blob.rpartition(".")
+
+            # Safety check for empty module name
+            if not mod_name:
+                return blob
+
             mod = importlib.import_module(mod_name)
             cls_or_func = getattr(mod, cls_or_func_name)
             return cls_or_func()
@@ -91,7 +100,19 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
     if isinstance(blob, dict):
         if any(key in blob for key in ("class", "function", "instance")):
             key = "class" if "class" in blob else "function" if "function" in blob else "instance"
+
+            # Safety check for empty or None values
+            if not blob[key] or not isinstance(blob[key], str):
+                print(f"Invalid {key} value in blob: {blob[key]}")
+                return blob
+
             mod_name, _, cls_or_func_name = blob[key].rpartition(".")
+
+            # Safety check for empty module name
+            if not mod_name:
+                print(f"Empty module name for {key}: {blob[key]}")
+                return blob
+
             try:
                 mod = importlib.import_module(mod_name)
                 cls_or_func = getattr(mod, cls_or_func_name)

@@ -1,40 +1,29 @@
-[predict / load]
-print result,
-save tf in tf format
-store predictions and display prediction summaries
-Manage save for dataset and globally
-[generator]
-[bin with bounds or count + warning class assymetry]
+#### ROADMAP ########
+Store predictions and display prediction summaries
+Generator
+Classification
+Metrics
+Bin operator with bounds or count + warning class assymetry
+Clean prints
+learning course - ipynb
+Release formation
 [CLI]
-[augmentation]
+[SHAP]
+[Augmentation + Balanced Augmentation]
+[Transfert]
+[Logs]
+GLOBAL REVIEW - small refactoring
+[Stacking]
+Release
+[Clustering]
+[Workflows: branch, merge, split_src, scope]
+[Y_pipeline in models]
 
-#### BUGS in SPECS
+#### BUGS ########
 
-- branching in
-
-
-
-- Balanced augmentation (groups)
-- Model torch: train, finetune, predict
-- metadata and update of group fold with meta fold, and balanced meta augmentation
-- Sauvegarde:
-   - results
-   - params
-   - binaries and pipeline
-- Prediction
-- Transfert
-- Branch, Scope, filter controller
-- Merge / Split source
-- Save controller
-- ClusterMixin controller
-- shap controller + Shap visualization
-
-
-
-- tutorial:
+#### TUTO ########
 dataset
 config
-
 all types of processings,
 folding
 charts

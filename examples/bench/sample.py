@@ -29,7 +29,7 @@ from sklearn.cluster import KMeans
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestRegressor
 from sklearn.model_selection import RepeatedStratifiedKFold, ShuffleSplit, RepeatedKFold
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
-from sklearn.svm import SVC
+from sklearn.svm import SVR
 from sklearn.tree import DecisionTreeClassifier
 from nirs4all.operators.models.cirad_tf import decon, nicon
 from sklearn.cross_decomposition import PLSRegression
@@ -60,30 +60,30 @@ pipeline_config = {
         # "y_chart",
         {"y_processing": StandardScaler()},  # preprocess target data
         # "y_chart",
-        # {
-        #     "model": RandomForestRegressor(max_depth=10, random_state=42),
-        #     "train_params": {
-        #         # Final training parameters (after finetuning)
-        #         "oob_score": True,
-        #         "n_jobs": -1,
-        #         "verbose": 0  # 0=silent, 1=basic, 2=detailed
-        #     },
-        #     "finetune_params": {
-        #         "n_trials": 4,
-        #         "approach": "grid",
-        #         "verbose": 0,  # 0=silent, 1=basic, 2=detailed finetuning output
-        #         "model_params": {
-        #             # Parameters to optimize during finetuning
-        #             "n_estimators": [10, 30],  # Only 2 options instead of 3
-        #             "max_depth": [3, 7],       # Only 2 options instead of 3
-        #         },
-        #         "train_params": {
-        #             # Training parameters during finetuning trials (faster & silent)
-        #             "n_jobs": 1,
-        #             "verbose": 0
-        #         }
-        #     },
-        # },
+        {
+            "model": RandomForestRegressor(max_depth=10, random_state=42),
+            "train_params": {
+                # Final training parameters (after finetuning)
+                "oob_score": True,
+                "n_jobs": -1,
+                "verbose": 0  # 0=silent, 1=basic, 2=detailed
+            },
+            "finetune_params": {
+                "n_trials": 4,
+                "approach": "grid",
+                "verbose": 0,  # 0=silent, 1=basic, 2=detailed finetuning output
+                "model_params": {
+                    # Parameters to optimize during finetuning
+                    "n_estimators": [10, 30],  # Only 2 options instead of 3
+                    "max_depth": [3, 7],       # Only 2 options instead of 3
+                },
+                "train_params": {
+                    # Training parameters during finetuning trials (faster & silent)
+                    "n_jobs": 1,
+                    "verbose": 0
+                }
+            },
+        },
         {
             "model": PLSRegression(),
             "train_params": {
@@ -91,7 +91,7 @@ pipeline_config = {
                 "verbose": 0,  # 0=silent, 1=basic, 2=detailed
             },
             "finetune_params": {
-                "n_trials": 20,
+                "n_trials": 4,
                 "approach": "random",  # Better for continuous parameters
                 "verbose": 0,  # 0=silent, 1=basic, 2=detailed finetuning output
                 "model_params": {
@@ -104,22 +104,22 @@ pipeline_config = {
                 }
             }
         },
-        # {
-        #     "model": nicon,
-        #     "train_params": {
-        #         # Final training parameters
-        #         "epochs": 100,
-        #         "patience": 10,
-        #         "batch_size": 16,
-        #         "cyclic_lr": True,
-        #         "step_size": 20,
-        #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
-        #     },
-        # },
         {
             "model": nicon,
             "train_params": {
-                "epochs": 50,
+                # Final training parameters
+                "epochs": 10,
+                "patience": 10,
+                "batch_size": 16,
+                "cyclic_lr": True,
+                "step_size": 20,
+                "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
+            },
+        },
+        {
+            "model": nicon,
+            "train_params": {
+                "epochs": 10,
                 "patience": 10,
                 "batch_size": 5000,
                 "verbose": 0,
@@ -140,7 +140,16 @@ pipeline_config = {
                     "verbose": 0
                 }
             },
-        }
+
+        },
+        {
+            "model": SVR(kernel='linear', C=1.0),  # another sklearn model, note that each training is followed by a prediction on the test partition and saved in the results indices
+            "finetune_params": {  # As there are finetune parameters, optuna is used to optimize the model. more options can be added here to choose the strategy for the optimization, etc.
+                "model_params": {
+                    "C": [0.1, 1.0, 10.0]
+                }
+            },
+        },
 
 
 # RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # create folds for validation, using groups as stratifying variable.
