@@ -2,7 +2,7 @@
 """Base class for pipeline operator controllers."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 
 from nirs4all.dataset.dataset import SpectroDataset
 
@@ -25,6 +25,17 @@ class OperatorController(ABC):
         """Check if the operator supports multi-source datasets."""
         return False
 
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        """
+        Check if the controller should execute during prediction mode.
+
+        Returns:
+            True if the controller should execute in prediction mode,
+            False if it should be skipped (e.g., chart controllers)
+        """
+        return False
+
     @abstractmethod
     def execute(
         self,
@@ -34,8 +45,22 @@ class OperatorController(ABC):
         context: Dict[str, Any],
         runner: "PipelineRunner",
         source: int = -1,
+        mode: str = "train",
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None
     ):
-        """Run the operator with the given parameters and context."""
+        """
+        Run the operator with the given parameters and context.
+
+        Args:
+            step: Pipeline step configuration
+            operator: The operator instance
+            dataset: Dataset to operate on
+            context: Pipeline execution context
+            runner: Pipeline runner instance
+            source: Data source index
+            mode: Execution mode ("train" or "predict")
+            loaded_binaries: Pre-loaded binary objects for prediction mode
+        """
         raise NotImplementedError("Subclasses must implement this method.")
 
 

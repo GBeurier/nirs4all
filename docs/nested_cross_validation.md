@@ -1,14 +1,26 @@
 # Nested Cross-Validation for NIRS4ALL
 
-This document explains the nested cross-validation functionality implemented in NIRS4ALL for more rigorous hyperparameter optimization and model evaluation.
+This document explains the comprehensive cross-validation functionality implemented in NIRS4ALL for rigorous hyperparameter optimization and model evaluation.
 
 ## Overview
 
-NIRS4ALL now supports three different cross-validation strategies for model finetuning:
+NIRS4ALL supports three different cross-validation strategies for model finetuning:
 
 1. **Simple CV** - Finetune on full training data, then train on folds
 2. **Per-fold CV** - Finetune on each fold individually
 3. **Nested CV** - Inner folds for finetuning, outer folds for training (academic-level rigor)
+
+## Parameter Strategies
+
+NIRS4ALL now supports seven different parameter optimization strategies:
+
+1. **GLOBAL_BEST** - Select the single best parameter set from all fold optimizations
+2. **PER_FOLD_BEST** - Each fold uses its own individually optimized parameters
+3. **WEIGHTED_AVERAGE** - Average parameters weighted by fold performance
+4. **GLOBAL_AVERAGE** - Optimize parameters by averaging performance across ALL folds simultaneously ⭐ **NEW**
+5. **ENSEMBLE_BEST** - Optimize for ensemble prediction performance ⭐ **NEW**
+6. **ROBUST_BEST** - Optimize for minimum worst-case performance (min-max) ⭐ **NEW**
+7. **STABILITY_BEST** - Optimize for parameter stability (minimize performance variance) ⭐ **NEW**
 
 ## Configuration
 
@@ -25,11 +37,11 @@ Add the `cv_mode` parameter to your `finetune_params`:
 
 ### Parameter Aggregation Strategies
 
-Control how parameters are aggregated across folds with `param_strategy`:
+Control how parameters are optimized across folds with `param_strategy`:
 
 ```python
 "finetune_params": {
-    "param_strategy": "per_fold_best",  # Options: "global_best", "per_fold_best", "weighted_average"
+    "param_strategy": "global_average",  # See full list above
     # ... other parameters
 }
 ```
@@ -42,110 +54,159 @@ For nested CV, specify inner cross-validation settings:
 "finetune_params": {
     "cv_mode": "nested",
     "inner_cv": 3,  # Number of inner folds or sklearn CV object
-    "param_strategy": "per_fold_best",
+    "param_strategy": "global_average",
     # ... other parameters
 }
 ```
 
-## Detailed Strategies
+### Full Training Data Option
 
-### 1. Simple CV (`cv_mode: "simple"`)
+**NEW**: You can now optimize parameters using cross-validation but train the final model on the full training dataset:
 
-**How it works:**
-- Combines all training data from all folds
-- Runs hyperparameter optimization once on this combined dataset
-- Uses the single best parameter set to train individual models on each fold
-
-**Pros:**
-- Fastest execution
-- Uses maximum data for parameter optimization
-- Simple to understand and implement
-
-**Cons:**
-- Less rigorous parameter validation
-- May overfit to the specific train/test split used for optimization
-- Not suitable for academic publications requiring rigorous validation
-
-**Best for:**
-- Quick prototyping
-- When computational resources are limited
-- Exploratory data analysis
-
-### 2. Per-fold CV (`cv_mode: "per_fold"`)
+```python
+"finetune_params": {
+    "cv_mode": "per_fold",
+    "param_strategy": "global_average",
+    "use_full_train_for_final": True,  # ⭐ NEW OPTION
+    "n_trials": 15,
+    "model_params": {
+        "n_components": ("int", 1, 20)
+    }
+}
+```
 
 **How it works:**
-- Runs separate hyperparameter optimization on each fold
-- Each fold gets its own best parameter set
-- Can aggregate parameters using different strategies
+- Uses cross-validation folds for rigorous hyperparameter optimization
+- After finding optimal parameters, combines ALL training data from all folds
+- Trains a single final model on the combined training dataset
+- Tests on the combined test data from all folds
 
-**Parameter Strategies:**
-- `"per_fold_best"`: Each fold uses its own optimized parameters
-- `"global_best"`: Select the single best performing parameter set across all folds
+**Benefits:**
+- Maximizes training data for the final model
+- Maintains rigorous hyperparameter optimization
+- Often improves final model performance
+- Simpler deployment (single model instead of ensemble)
+
+## Detailed Parameter Strategies
+
+### 1. Global Best (`param_strategy: "global_best"`)
+
+**How it works:**
+- Runs separate optimization on each fold
+- Selects the single best performing parameter set across all folds
+- Applies this parameter set to all folds
 
 **Pros:**
-- More rigorous than simple CV
-- Accounts for fold-to-fold variability in optimal parameters
+- Simple and intuitive
+- Ensures consistent parameters across folds
 - Moderate computational cost
 
 **Cons:**
-- Higher computational cost than simple CV
-- May still have some optimization bias per fold
-- Parameter sets may vary significantly between folds
+- May not be optimal for individual folds
+- Can overfit to the best performing fold
 
-**Best for:**
-- Production models where fold variability is important
-- When you have sufficient computational resources
-- Balancing rigor with computational cost
-
-### 3. Nested CV (`cv_mode: "nested"`)
+### 2. Per-Fold Best (`param_strategy: "per_fold_best"`)
 
 **How it works:**
-- For each outer fold:
-  - Creates inner cross-validation folds from the training data
-  - Runs hyperparameter optimization using inner folds
-  - Trains final model on full outer training data with best parameters
-  - Evaluates on outer test data
-
-**Parameter Strategies:**
-- `"per_fold_best"`: Each outer fold uses its own inner-CV optimized parameters
-- `"weighted_average"`: Average parameters weighted by inner-CV performance
+- Runs separate optimization on each fold
+- Each fold uses its own best parameter set
 
 **Pros:**
-- Most rigorous approach
-- Unbiased parameter selection and performance estimation
-- Suitable for academic publications
-- Provides realistic performance estimates
+- Accounts for fold-to-fold variability
+- Each fold gets its optimal parameters
 
 **Cons:**
-- Highest computational cost
-- Complex to understand and debug
-- May require significant time and resources
+- Parameter sets may vary significantly between folds
+- Higher computational cost
+
+### 3. Global Average (`param_strategy: "global_average"`) ⭐ **NEW**
+
+**How it works:**
+- Each parameter set is evaluated across ALL folds simultaneously
+- The objective function averages validation scores across all folds
+- Returns the parameter set with the best average performance
+
+**Pros:**
+- Most generalizable parameter selection
+- Single parameter set optimized for average performance
+- Reduces overfitting to individual folds
+
+**Cons:**
+- Highest computational cost (each trial trains on all folds)
+- May not be optimal for any single fold
 
 **Best for:**
-- Research and academic work
-- When unbiased performance estimates are critical
-- Final model validation before deployment
-- Publications requiring rigorous validation
+- When you want the most generalizable parameters
+- Production models where consistent performance is important
+- Research requiring rigorous parameter validation
+
+### 4. Ensemble Best (`param_strategy: "ensemble_best"`) ⭐ **NEW**
+
+**How it works:**
+- Optimizes parameters for ensemble prediction performance
+- Trains multiple models with different parameter sets
+- Combines predictions and optimizes ensemble performance
+
+**Pros:**
+- Can improve overall prediction performance
+- Leverages diversity in parameter space
+
+**Cons:**
+- Most complex implementation
+- Highest computational requirements
+
+### 5. Robust Best (`param_strategy: "robust_best"`) ⭐ **NEW**
+
+**How it works:**
+- Optimizes for minimum worst-case performance
+- Uses min-max objective: minimize the maximum error across folds
+- Ensures consistent performance across all folds
+
+**Pros:**
+- Guarantees consistent performance
+- Good for risk-averse applications
+
+**Cons:**
+- May sacrifice average performance for consistency
+- Can be conservative in parameter selection
+
+### 6. Stability Best (`param_strategy: "stability_best"`) ⭐ **NEW**
+
+**How it works:**
+- Optimizes for parameter stability
+- Minimizes variance in performance across folds
+- Balances average performance with consistency
+
+**Pros:**
+- Provides stable, predictable performance
+- Good balance between performance and consistency
+
+**Cons:**
+- May not achieve best possible performance
+- Complex multi-objective optimization
 
 ## Computational Cost Analysis
 
 Assuming 5 outer folds and 20 optimization trials:
 
-| Strategy | Model Training Count | Relative Cost |
-|----------|---------------------|---------------|
-| Simple CV | ~25 models | 1x (baseline) |
-| Per-fold CV | ~100 models | 4x |
-| Nested CV (3 inner folds) | ~150 models | 6x |
+| Strategy | Model Training Count | Relative Cost | Best Use Case |
+|----------|---------------------|---------------|---------------|
+| Simple CV | ~25 models | 1x (baseline) | Prototyping |
+| Per-fold CV (per_fold_best) | ~100 models | 4x | Standard use |
+| Per-fold CV (global_average) | ~500 models | 20x | Rigorous optimization |
+| Nested CV (per_fold_best) | ~150 models | 6x | Academic research |
+| Nested CV (global_average) | ~750 models | 30x | Ultimate rigor |
 
 ## Example Configurations
 
-### Simple CV with Random Forest
+### Global Average with Random Forest
 ```python
 {
     "model": RandomForestRegressor(),
     "finetune_params": {
-        "cv_mode": "simple",
-        "n_trials": 20,
+        "cv_mode": "per_fold",
+        "param_strategy": "global_average",
+        "n_trials": 15,  # Fewer trials due to higher cost per trial
         "model_params": {
             "n_estimators": [50, 100, 200],
             "max_depth": [5, 10, 20, None]
@@ -154,14 +215,14 @@ Assuming 5 outer folds and 20 optimization trials:
 }
 ```
 
-### Nested CV with TensorFlow Model
+### Robust Best with TensorFlow Model
 ```python
 {
     "model": nicon,  # TensorFlow model function
     "finetune_params": {
         "cv_mode": "nested",
+        "param_strategy": "robust_best",
         "inner_cv": 3,
-        "param_strategy": "per_fold_best",
         "n_trials": 10,
         "model_params": {
             "filters1": [4, 8, 16],
@@ -171,47 +232,73 @@ Assuming 5 outer folds and 20 optimization trials:
 }
 ```
 
+### Simple CV with Global Average for Quick Testing
+```python
+{
+    "model": PLSRegression(),
+    "finetune_params": {
+        "cv_mode": "simple",
+        "param_strategy": "global_average",
+        "n_trials": 20,
+        "model_params": {
+            "n_components": ("int", 1, 20)
+        }
+    }
+}
+```
+
 ## Best Practices
 
-1. **Choose appropriate CV mode:**
-   - Simple CV: Prototyping, resource constraints
-   - Per-fold CV: Production models, balanced approach
-   - Nested CV: Research, publications, final validation
+1. **Choose appropriate strategy:**
+   - `global_average`: For most generalizable parameters
+   - `per_fold_best`: For fold-specific optimization
+   - `robust_best`: For consistent performance requirements
+   - `stability_best`: For balanced performance and stability
 
-2. **Adjust trial counts:**
-   - Simple CV: More trials (20-50)
-   - Per-fold CV: Moderate trials (10-20)
-   - Nested CV: Fewer trials (5-15) due to computational cost
+2. **Adjust trial counts based on computational cost:**
+   - `global_average`: Fewer trials (10-20) due to high cost per trial
+   - `per_fold_best`: Standard trials (20-30)
+   - `robust_best`/`stability_best`: Moderate trials (15-25)
 
-3. **Use silent training during optimization:**
+3. **Use appropriate CV modes with strategies:**
+   - `simple` + `global_average`: Quick but rigorous optimization
+   - `per_fold` + `global_average`: Standard rigorous approach
+   - `nested` + `global_average`: Ultimate rigor for research
+
+4. **Monitor computational resources:**
+   - Start with smaller trial counts to estimate runtime
+   - Consider using fewer folds for initial experiments
+   - Use `verbose=1` to monitor progress
+
+5. **Strategy selection guide:**
    ```python
-   "train_params": {
-       "verbose": 0  # Silent during trials
-   }
+   # For prototyping and quick experiments
+   "param_strategy": "per_fold_best"
+
+   # For production models requiring generalizability
+   "param_strategy": "global_average"
+
+   # For applications requiring consistent performance
+   "param_strategy": "robust_best"
+
+   # For research requiring rigorous validation
+   "param_strategy": "global_average" + "cv_mode": "nested"
    ```
 
-4. **Monitor computational cost:**
-   - Start with smaller trial counts
-   - Estimate total runtime before full runs
-   - Consider using fewer inner folds for nested CV
+## Integration with Existing Code
 
-5. **Parameter strategy selection:**
-   - Use `"per_fold_best"` for most cases
-   - Consider `"weighted_average"` for nested CV with numerical parameters
-   - Use `"global_best"` when parameter consistency across folds is important
+All new parameter strategies are fully backward compatible:
+- Existing configurations continue to work unchanged
+- Default behavior remains the same (per_fold_best)
+- New parameters are optional with sensible defaults
+- Progressive adoption: start with existing strategies, then explore new ones
 
-## Error Handling
+## Error Handling and Fallbacks
 
-The implementation includes several fallback mechanisms:
+The implementation includes several robust fallback mechanisms:
 
 - Falls back to standard training if Optuna is not available
 - Handles parameter application failures gracefully
 - Provides informative error messages for configuration issues
 - Continues processing even if some folds fail
-
-## Integration with Existing Code
-
-The nested CV functionality is fully backward compatible:
-- Existing configurations continue to work unchanged
-- Default behavior remains the same (simple training/finetuning)
-- New parameters are optional with sensible defaults
+- Automatic parameter validation and constraint handling
