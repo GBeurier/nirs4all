@@ -211,3 +211,101 @@ pipeline_config = {
 
     ]
 }
+
+
+
+generator_config = {
+    "pipeline": [
+        # Preprocessing scalers - choose one or combinations
+        {"_or_": [MinMaxScaler(feature_range=(0, 1)), RobustScaler()]},
+
+        # Feature augmentation with combinations of transformations
+        {
+            "feature_augmentation": {
+                "_or_": [
+                    # Single transformations
+                    None,
+                    GS,
+                    SNV,
+                    SG,
+                    Haar,
+                    RT,
+
+                    # Combinations of 2 transformations
+                    [SNV, GS],
+                    [SNV, SG],
+                    [SNV, Haar],
+                    [GS, SG],
+                    [GS, Haar],
+                    [SG, Haar],
+                    [RT, SNV],
+                    [RT, GS],
+
+                    # Combinations of 3 transformations
+                    [SNV, GS, SG],
+                    [SNV, GS, Haar],
+                    [SNV, SG, Haar],
+                    [GS, SG, Haar],
+                    [RT, SNV, GS],
+                    [RT, SNV, SG],
+                ],
+                "size": 7,
+                "count": 10
+            }
+        },
+
+        # Cross-validation strategy options
+        {"_or_": [
+            ShuffleSplit(n_splits=3, test_size=.25),
+            RepeatedKFold(n_splits=5, n_repeats=2, random_state=42),
+        ]},
+
+        # Y-processing options
+        {"y_processing": {"_or_": [MinMaxScaler(), RobustScaler()]}},
+
+        {
+            "model": RandomForestRegressor(max_depth=10, random_state=42),
+            "train_params": {
+                # Final training parameters (after finetuning)
+                "oob_score": True,
+                "n_jobs": -1,
+                "verbose": 0  # 0=silent, 1=basic, 2=detailed
+            },
+            "finetune_params": {
+                "n_trials": 4,
+                "approach": "grid",
+                "verbose": 0,  # 0=silent, 1=basic, 2=detailed finetuning output
+                "model_params": {
+                    # Parameters to optimize during finetuning
+                    "n_estimators": [10, 30],  # Only 2 options instead of 3
+                    "max_depth": [3, 7],       # Only 2 options instead of 3
+                },
+                "train_params": {
+                    # Training parameters during finetuning trials (faster & silent)
+                    "n_jobs": 1,
+                    "verbose": 0
+                }
+            },
+        },
+        {
+            "model": PLSRegression(),
+            "train_params": {
+                # Final training parameters (after finetuning)
+                "verbose": 0,  # 0=silent, 1=basic, 2=detailed
+            },
+            "finetune_params": {
+                "n_trials": 4,
+                "approach": "random",  # Better for continuous parameters
+                "verbose": 0,  # 0=silent, 1=basic, 2=detailed finetuning output
+                "model_params": {
+                    # Parameters to optimize during finetuning
+                    'n_components': ('int', 5, 60),
+                },
+                "train_params": {
+                    # Training parameters during finetuning trials (silent)
+                    "verbose": 0
+                }
+            }
+        }
+    ]
+}

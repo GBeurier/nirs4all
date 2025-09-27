@@ -27,7 +27,7 @@ Configuration Structure:
 
 from sklearn.cluster import KMeans
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.model_selection import RepeatedStratifiedKFold, StratifiedShuffleSplit, RepeatedKFold
+from sklearn.model_selection import RepeatedStratifiedKFold, StratifiedShuffleSplit, RepeatedKFold, ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler, LabelEncoder
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
@@ -58,10 +58,10 @@ pipeline_config = {
         {"feature_augmentation": [None, GS, [SNV, Haar]]},  # augment the features by applying transformations, creating new row ids with new processing but same sample ids
         # "chart_3d",
         # Use stratified splits for classification to maintain class balance
-        StratifiedShuffleSplit(n_splits=3, test_size=.25, random_state=42),  # First one is target:test by default
+        ShuffleSplit(n_splits=3, test_size=.25, random_state=42),  # First one is target:test by default
         # RepeatedStratifiedKFold(n_splits=5, n_repeats=2, random_state=42),  # Alternative: create folds for validation, using groups as stratifying variable.
         # "fold_chart",
-        # "y_chart",
+        "y_chart",
         # {"y_processing": LabelEncoder()},  # preprocess target data - encode string labels to numeric for classification
         # "y_chart",
         {

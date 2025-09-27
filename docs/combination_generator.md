@@ -6,12 +6,12 @@ The Combination Generator is a powerful Python utility that expands configuratio
 
 ## Core Concepts
 
-### Basic "OR" Combinations
+### Basic "_or_" Combinations
 
-The fundamental building block is the `"or"` key that defines a set of choices:
+The fundamental building block is the `"_or_"` key that defines a set of choices:
 
 ```python
-{"or": ["A", "B", "C"]}
+{"_or_": ["A", "B", "C"]}
 # Generates: ["A", "B", "C"]
 ```
 
@@ -21,11 +21,11 @@ Control the number of elements selected from choices:
 
 ```python
 # Single size
-{"or": ["A", "B", "C"], "size": 2}
+{"_or_": ["A", "B", "C"], "size": 2}
 # Generates: [["A", "B"], ["A", "C"], ["B", "C"]]
 
 # Size range
-{"or": ["A", "B", "C"], "size": (1, 2)}
+{"_or_": ["A", "B", "C"], "size": (1, 2)}
 # Generates: [["A"], ["B"], ["C"], ["A", "B"], ["A", "C"], ["B", "C"]]
 ```
 
@@ -36,7 +36,7 @@ Use array syntax `[outer, inner]` for hierarchical combinations where:
 - **Outer**: Uses **combinations** (order doesn't matter for selection)
 
 ```python
-{"or": ["A", "B"], "size": [1, 2]}
+{"_or_": ["A", "B"], "size": [1, 2]}
 # Generates: [["A", "B"], ["B", "A"]]
 # Note: Both permutations appear because order matters within inner arrays
 ```
@@ -46,7 +46,7 @@ Use array syntax `[outer, inner]` for hierarchical combinations where:
 Use `"count"` to randomly sample from large result sets:
 
 ```python
-{"or": ["A", "B", "C", "D"], "size": (2, 3), "count": 5}
+{"_or_": ["A", "B", "C", "D"], "size": (2, 3), "count": 5}
 # Generates: Random 5 combinations from all possible size 2-3 combinations
 ```
 
@@ -56,10 +56,10 @@ Use `"count"` to randomly sample from large result sets:
 
 | Syntax | Description | Example Output |
 |--------|-------------|----------------|
-| `{"or": ["A", "B", "C"]}` | All individual choices | `["A", "B", "C"]` |
-| `{"or": ["A", "B", "C"], "size": 2}` | Combinations of exactly 2 elements | `[["A", "B"], ["A", "C"], ["B", "C"]]` |
-| `{"or": ["A", "B", "C"], "size": (1, 3)}` | Combinations of 1 to 3 elements | `[["A"], ["B"], ["C"], ["A", "B"], ...]` |
-| `{"or": ["A", "B", "C"], "count": 2}` | Random 2 choices | `["A", "C"]` (random) |
+| `{"_or_": ["A", "B", "C"]}` | All individual choices | `["A", "B", "C"]` |
+| `{"_or_": ["A", "B", "C"], "size": 2}` | Combinations of exactly 2 elements | `[["A", "B"], ["A", "C"], ["B", "C"]]` |
+| `{"_or_": ["A", "B", "C"], "size": (1, 3)}` | Combinations of 1 to 3 elements | `[["A"], ["B"], ["C"], ["A", "B"], ...]` |
+| `{"_or_": ["A", "B", "C"], "count": 2}` | Random 2 choices | `["A", "C"]` (random) |
 
 ### Second-Order Syntax
 
@@ -75,7 +75,7 @@ Use `"count"` to randomly sample from large result sets:
 | Syntax | Description | Use Case |
 |--------|-------------|----------|
 | `[2, 2, "count": 4]` | Random 4 from second-order combinations | Large space sampling |
-| `{"or": [...], "size": [...], "count": N}` | Any combination with count limit | Efficient exploration |
+| `{"_or_": [...], "size": [...], "count": N}` | Any combination with count limit | Efficient exploration |
 
 ## Key Behavioral Rules
 
@@ -148,7 +148,7 @@ import random
 
 ```python
 # Safe workflow
-config = [{"or": ["A", "B", "C", "D"], "size": [(1, 3), (1, 4)]}]
+config = [{"_or_": ["A", "B", "C", "D"], "size": [(1, 3), (1, 4)]}]
 
 # Step 1: Estimate without generating
 estimated_count = count_combinations(config)
@@ -182,9 +182,9 @@ def estimate_and_generate(config, max_safe=1000):
 
 ```python
 pipeline = [
-    {"or": ["normalize", "standardize"]},
-    {"model": {"or": ["svm", "rf", "xgb"], "size": 2}},
-    {"features": {"or": ["pca", "lda"], "count": 1}}
+    {"_or_": ["normalize", "standardize"]},
+    {"model": {"_or_": ["svm", "rf", "xgb"], "size": 2}},
+    {"features": {"_or_": ["pca", "lda"], "count": 1}}
 ]
 
 results = expand_spec_fixed(pipeline)
@@ -194,7 +194,7 @@ results = expand_spec_fixed(pipeline)
 ### Complex Second-Order Example
 
 ```python
-config = [{"or": ["A", "B", "C", "D"], "size": [(1, 3), (2, 4)]}]
+config = [{"_or_": ["A", "B", "C", "D"], "size": [(1, 3), (2, 4)]}]
 results = expand_spec_fixed(config)
 # Generates:
 # - Inner: all permutations of 2-4 elements
@@ -204,7 +204,7 @@ results = expand_spec_fixed(config)
 ### Stochastic Exploration
 
 ```python
-config = [{"or": ["method1", "method2", "method3", "method4"],
+config = [{"_or_": ["method1", "method2", "method3", "method4"],
            "size": [3, (1, 4)],
            "count": 10}]
 results = expand_spec_fixed(config)
@@ -244,7 +244,7 @@ results = expand_spec_fixed(config)
 
 ```python
 # Check combination count first
-config = [{"or": ["A", "B", "C"], "size": [2, 2]}]
+config = [{"_or_": ["A", "B", "C"], "size": [2, 2]}]
 results = expand_spec_fixed(config)
 print(f"Total combinations: {len(results)}")
 
