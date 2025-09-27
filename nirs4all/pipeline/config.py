@@ -9,6 +9,7 @@ from typing import List, Any, Dict, Union
 import yaml
 
 from .serialization import serialize_component
+from .generator import expand_spec, count_combinations
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ class PipelineConfig:
     """
     Class to hold the configuration for a pipeline.
     """
-    def __init__(self, definition: Union[Dict, List[Any], str], name: str = "", description: str = "No description provided"):
+    def __init__(self, definition: Union[Dict, List[Any], str], name: str = "", description: str = "No description provided", max_generation_count: int = 1000):
         """
         Initialize the pipeline configuration.
         """
@@ -25,6 +26,27 @@ class PipelineConfig:
         self.steps = self._load_steps(definition)
         self.steps = serialize_component(self.steps, include_runtime=True)
         self.name = "config_" + (self.get_hash() if name == "" else name + "_" + self.get_hash()[0:6])
+        self.has_configurations = False
+
+        # Check for expansion
+        if self._has_or_keys(self.steps):
+            count = count_combinations(self.steps)
+            if count > max_generation_count:
+                raise ValueError(f"Configuration expansion would generate {count} configurations, exceeding the limit of {max_generation_count}. Please simplify your configuration.")
+            if count > 1:
+                print(f"Configuration generates {count} configurations.")
+                self.has_configurations = True
+                self.steps = expand_spec(self.steps)
+
+    def _has_or_keys(self, obj: Any) -> bool:
+        """Recursively check if the configuration contains 'or' keys."""
+        if isinstance(obj, dict):
+            if "_or_" in obj:
+                return True
+            return any(self._has_or_keys(v) for v in obj.values())
+        elif isinstance(obj, list):
+            return any(self._has_or_keys(item) for item in obj)
+        return False
 
     def _load_steps(self, definition: Union[Dict, List[Any], str]) -> List[Any]:
         """

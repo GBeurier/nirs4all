@@ -1,11 +1,12 @@
 #### ROADMAP ########
-Store predictions and display prediction summaries
-Generator
-Classification
+Generator | verify optimal order of serialization / deserialization
 Metrics
+learning course - ipynb
+* Classification | check sample_classif bugs, Customize encoding. adapt charts and error reporting
+* Store predictions and display prediction summaries | clean output and make print/chart helpers for prediction -
+
 Bin operator with bounds or count + warning class assymetry
 Clean prints
-learning course - ipynb
 Release formation
 [CLI]
 [SHAP]
