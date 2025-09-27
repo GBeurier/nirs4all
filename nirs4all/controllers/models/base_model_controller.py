@@ -42,6 +42,10 @@ class ParamStrategy(Enum):
     GLOBAL_BEST = "global_best"  # Use single best params for all folds
     PER_FOLD_BEST = "per_fold_best"  # Use best params per fold
     WEIGHTED_AVERAGE = "weighted_average"  # Average params weighted by performance
+    GLOBAL_AVERAGE = "global_average"  # Optimize params by averaging performance across all folds
+    ENSEMBLE_BEST = "ensemble_best"  # Optimize for ensemble prediction performance
+    ROBUST_BEST = "robust_best"  # Optimize for minimum worst-case performance (min-max)
+    STABILITY_BEST = "stability_best"  # Optimize for parameter stability (minimize performance variance)
 
 
 class BaseModelController(OperatorController, ABC):
@@ -66,6 +70,11 @@ class BaseModelController(OperatorController, ABC):
     @classmethod
     def use_multi_source(cls) -> bool:
         """Models can handle multi-source datasets."""
+        return True
+
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        """Model controllers support prediction mode."""
         return True
 
     @abstractmethod
@@ -101,6 +110,67 @@ class BaseModelController(OperatorController, ABC):
         """Return the preferred data layout for this model type ('2d' or '3d')."""
         pass
 
+    def _get_unique_model_name(self, step: Any, trained_model: Any, runner: 'PipelineRunner') -> str:
+        """
+        Generate a unique model name that preserves the original function name
+        and adds indexing for multiple instances.
+
+        Args:
+            step: The pipeline step configuration
+            trained_model: The trained model instance
+            runner: The pipeline runner (for getting step index)
+
+        Returns:
+            str: Unique model name like "nicon_1", "nicon_2", "RandomForestRegressor_1", etc.
+        """
+        base_name = None
+
+        # Try to get the original function name from the step configuration
+        if isinstance(step, dict):
+            # Handle direct model configuration
+            if 'model' in step:
+                model_obj = step['model']
+            elif 'model_instance' in step:
+                model_obj = step['model_instance']
+            else:
+                # The step dict itself might be the model configuration
+                model_obj = step
+
+            # Handle function objects directly (like nicon, decon)
+            if hasattr(model_obj, '__name__'):
+                base_name = model_obj.__name__
+            # Handle serialized function objects
+            elif isinstance(model_obj, dict) and 'function' in model_obj:
+                func_path = model_obj['function']
+                if '.' in func_path:
+                    base_name = func_path.split('.')[-1]  # Get the function name
+            # Handle serialized class objects
+            elif isinstance(model_obj, dict) and 'class' in model_obj:
+                class_path = model_obj['class']
+                if '.' in class_path:
+                    base_name = class_path.split('.')[-1]  # Get the class name
+            # Handle class instances (like RandomForestRegressor, SVR)
+            elif hasattr(model_obj, '__class__'):
+                base_name = model_obj.__class__.__name__
+        elif hasattr(step, '__name__'):
+            # Direct function object
+            base_name = step.__name__
+        elif hasattr(step, '__class__'):
+            # Direct class instance
+            base_name = step.__class__.__name__
+
+        # Fallback to trained model class name if we couldn't determine the original name
+        if not base_name:
+            base_name = trained_model.__class__.__name__
+
+        # Get a unique index from the runner's operation counter
+        unique_index = runner.next_op()
+
+        # Combine base name with unique index
+        unique_name = f"{base_name}_{unique_index}"
+
+        return unique_name
+
     def execute(
         self,
         step: Any,
@@ -108,7 +178,9 @@ class BaseModelController(OperatorController, ABC):
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
-        source: int = -1
+        source: int = -1,
+        mode: str = "train",
+        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """
         Execute model controller in one of three modes: train, finetune, or predict.
@@ -121,20 +193,41 @@ class BaseModelController(OperatorController, ABC):
             context: Pipeline context with processing state
             runner: Pipeline runner instance
             source: Data source index
+            mode: Execution mode ("train" or "predict")
+            loaded_binaries: Pre-loaded binary objects for prediction mode
 
         Returns:
             Tuple of (updated_context, binaries_list)
         """
         # print(f"🤖 Executing model controller: {self.__class__.__name__}")
 
-        # Extract model configuration from step
+        # In prediction mode, use loaded model for prediction
+        if mode == "predict":
+            return self._execute_prediction_mode(
+                step, operator, dataset, context, runner, loaded_binaries
+            )
+
+        # Training/finetuning mode - original logic
+        return self._execute_training_mode(
+            step, operator, dataset, context, runner
+        )
+
+    def _execute_training_mode(
+        self,
+        step: Any,
+        operator: Any,
+        dataset: 'SpectroDataset',
+        context: Dict[str, Any],
+        runner: 'PipelineRunner'
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        """Execute training/finetuning mode."""
+        # Extract model configuration and parameters
         model_config = self._extract_model_config(step)
         train_params = model_config.get('train_params', {})
         finetune_params = model_config.get('finetune_params', {})
 
-        # Determine execution mode
+        # Determine execution mode (train vs finetune)
         mode = self._determine_mode(model_config)
-        # print(f"🎯 Model mode: {mode.value}")
 
         # Prepare data (can return single tuple or list of tuples for folds)
         data_splits = self._prepare_train_test_data(dataset, context)
@@ -180,6 +273,112 @@ class BaseModelController(OperatorController, ABC):
                     model_config, X_train, y_train, X_test, y_test,
                     train_params, context, runner, dataset
                 )
+
+    def _execute_prediction_mode(
+        self,
+        step: Any,
+        operator: Any,
+        dataset: 'SpectroDataset',
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        loaded_binaries: Optional[List[Tuple[str, bytes]]]
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        """Execute prediction mode using loaded model."""
+        if not loaded_binaries:
+            raise ValueError("No loaded binaries provided for prediction mode")
+
+        # Find the model binary (look for .pkl files containing trained models)
+        model_binary = None
+        for name, binary in loaded_binaries:
+            if name.endswith('.pkl') and ('model' in name.lower() or 'trained' in name.lower() or 'finetuned' in name.lower()):
+                model_binary = binary
+                break
+
+        if model_binary is None:
+            raise ValueError("No model binary found in loaded binaries")
+
+        # Load the trained model (handle both object and bytes formats)
+        import pickle
+        if isinstance(model_binary, bytes):
+            # Binary data that needs to be unpickled
+            trained_model = pickle.loads(model_binary)
+        else:
+            # Already loaded as an object
+            trained_model = model_binary
+
+        # Get the preferred layout for this model type
+        layout_str = self.get_preferred_layout()
+        layout: Layout = layout_str  # type: ignore
+
+        # Prepare prediction data - use test partition or all data if no test partition
+        prediction_context = context.copy()
+
+        # Try to use test partition, fallback to train if test doesn't exist, then to all data
+        available_partitions = list(dataset.indexes.keys()) if hasattr(dataset, 'indexes') else []
+
+        if "test" in available_partitions:
+            prediction_context["partition"] = "test"
+            print(f"🎯 Using 'test' partition for prediction ({sum(dataset.indexes['test'])} samples)")
+        elif "train" in available_partitions:
+            prediction_context["partition"] = "train"
+            print(f"🎯 Using 'train' partition for prediction ({sum(dataset.indexes['train'])} samples)")
+        else:
+            # Remove partition constraint to use all data
+            prediction_context.pop("partition", None)
+            print("🎯 Using all available data for prediction")
+
+        X_pred = dataset.x(prediction_context, layout, concat_source=True)
+
+        # Prepare data in framework-specific format (create dummy y for interface compatibility)
+        try:
+            if hasattr(X_pred, 'shape'):
+                dummy_y = np.zeros(X_pred.shape[0])
+            elif isinstance(X_pred, list) and X_pred:
+                dummy_y = np.zeros(len(X_pred))
+            elif isinstance(X_pred, np.ndarray):
+                dummy_y = np.zeros(len(X_pred))
+            else:
+                dummy_y = np.zeros(1)  # fallback
+        except Exception:
+            dummy_y = np.zeros(1)  # fallback
+        X_pred_prep, _ = self._prepare_data(X_pred, dummy_y, context)
+
+        # Generate predictions
+        y_pred = self._predict_model(trained_model, X_pred_prep)
+
+        # Store predictions in dataset if y data is available for comparison
+        try:
+            y_true = dataset.y(prediction_context)
+            if y_true is not None and len(y_true) > 0:
+                # Store predictions for comparison
+                unique_model_name = self._get_unique_model_name(step, trained_model, runner)
+                self._store_predictions_in_dataset(
+                    dataset=getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown',
+                    pipeline=getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown',
+                    model=unique_model_name,
+                    partition="prediction",
+                    y_true=y_true,
+                    y_pred=y_pred,
+                    fold_idx=None,
+                    context=context,
+                    dataset_obj=dataset
+                )
+        except Exception:
+            # No y data available for prediction, that's okay
+            pass
+
+        # Store predictions as binary output
+        binaries = []
+        try:
+            predictions_csv = "y_pred\n"
+            for pred_val in y_pred.flatten():
+                predictions_csv += f"{pred_val}\n"
+            pred_filename = f"predictions_predict_{runner.next_op()}.csv"
+            binaries.append((pred_filename, predictions_csv.encode('utf-8')))
+        except Exception as e:
+            print(f"⚠️ Could not store predictions: {e}")
+
+        return context, binaries
 
     def _extract_model_config(self, step: Any) -> Dict[str, Any]:
         """Extract model configuration from step."""
@@ -358,6 +557,13 @@ class BaseModelController(OperatorController, ABC):
         verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
         param_strategy = ParamStrategy(finetune_params.get('param_strategy', 'per_fold_best'))
 
+        # Handle global average strategy - optimize across all folds simultaneously
+        if param_strategy == ParamStrategy.GLOBAL_AVERAGE:
+            return self._execute_global_average_optimization(
+                model_config, data_splits, train_params, finetune_params,
+                context, runner, dataset
+            )
+
         if verbose > 0:
             print(f"🔍 Per-fold CV: Finetuning on each fold with {param_strategy.value} strategy...")
 
@@ -372,7 +578,7 @@ class BaseModelController(OperatorController, ABC):
             # Execute finetuning for this fold
             fold_context, fold_binaries = self._execute_finetune(
                 model_config, X_train, y_train, X_test, y_test,
-                train_params, finetune_params, context, runner, fold_idx
+                train_params, finetune_params, context, runner, dataset, fold_idx
             )
 
             # Store best parameters for this fold
@@ -398,8 +604,367 @@ class BaseModelController(OperatorController, ABC):
             if verbose > 0:
                 print(f"🏆 Global best parameters: {global_best_params}")
 
+            # Check if we should train a single model on full training data
+            use_full_train = finetune_params.get('use_full_train_for_final', False)
+            if use_full_train:
+                return self._train_single_model_on_full_data(
+                    model_config, data_splits, global_best_params, train_params,
+                    context, runner, dataset, "global_best", verbose
+                )
+
+        elif param_strategy == ParamStrategy.GLOBAL_AVERAGE:
+            # This case is handled before the fold loop above
+            pass
+        elif param_strategy in [ParamStrategy.ENSEMBLE_BEST, ParamStrategy.ROBUST_BEST, ParamStrategy.STABILITY_BEST]:
+            # These strategies are planned for future implementation
+            if verbose > 0:
+                print(f"⚠️ Parameter strategy {param_strategy.value} is not yet implemented. Using per_fold_best instead.")
+
+        # For PER_FOLD_BEST, check if we should train on full data (though this is less common)
+        use_full_train = finetune_params.get('use_full_train_for_final', False)
+        if use_full_train and param_strategy == ParamStrategy.PER_FOLD_BEST:
+            # Use the first fold's parameters as representative (or could average them)
+            representative_params = all_best_params[0] if all_best_params else {}
+            if verbose > 0:
+                print(f"🔄 Training single model on full data with representative parameters from fold 1")
+            return self._train_single_model_on_full_data(
+                model_config, data_splits, representative_params, train_params,
+                context, runner, dataset, "per_fold_repr", verbose
+            )
+
         if verbose > 0:
             print("✅ Per-fold CV completed successfully")
+
+        # Compute average and weighted average predictions
+        self._compute_aggregate_predictions(runner, dataset, verbose)
+
+        return context, all_binaries
+
+    def _compute_aggregate_predictions(
+        self,
+        runner: 'PipelineRunner',
+        dataset: 'SpectroDataset',
+        verbose: int = 0
+    ) -> None:
+        """
+        Compute average and weighted average predictions from fold results.
+
+        Args:
+            runner: Pipeline runner instance
+            dataset: Dataset object containing predictions
+            verbose: Verbosity level
+        """
+        if not hasattr(dataset, '_predictions') or dataset._predictions is None:
+            return
+
+        dataset_name = getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown'
+        pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown'
+
+        # Find all unique models in current predictions
+        models = set()
+        for pred_data in dataset._predictions._predictions.values():
+            if (pred_data.get('dataset') == dataset_name
+                and pred_data.get('pipeline') == pipeline_name):
+                models.add(pred_data['model'])
+
+        if verbose > 0:
+            print(f"🧮 Computing aggregate predictions for {len(models)} models...")
+
+        for model in models:
+            # Compute average predictions for test folds
+            avg_result = dataset._predictions.calculate_average_predictions(
+                dataset=dataset_name,
+                pipeline=pipeline_name,
+                model=model,
+                partition_pattern="test_fold",
+                store_result=True
+            )
+
+            if avg_result and verbose > 0:
+                print(f"  ✅ Computed average test predictions for {model}")
+
+            # Compute weighted average predictions for test folds
+            weighted_result = dataset._predictions.calculate_weighted_average_predictions(
+                dataset=dataset_name,
+                pipeline=pipeline_name,
+                model=model,
+                test_partition_pattern="test_fold",
+                val_partition_pattern="val_fold",
+                metric='rmse',
+                store_result=True
+            )
+
+            if weighted_result and verbose > 0:
+                print(f"  ✅ Computed weighted average test predictions for {model}")
+                weights = weighted_result['metadata'].get('weights', [])
+                if weights:
+                    print(f"    Fold weights: {[f'{w:.3f}' for w in weights]}")
+
+    def _train_single_model_on_full_data(
+        self,
+        model_config: Dict[str, Any],
+        data_splits: List[Tuple[Any, Any, Any, Any]],
+        best_params: Dict[str, Any],
+        train_params: Dict[str, Any],
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        dataset: 'SpectroDataset',
+        model_suffix: str = "full_train",
+        verbose: int = 0
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        """
+        Train a single model on the full training dataset using optimized parameters.
+
+        Instead of training separate models on each fold, this combines all training data
+        and trains one model, which can be more effective when you have limited data
+        but still want the benefits of rigorous hyperparameter optimization.
+
+        Args:
+            model_config: Model configuration
+            data_splits: List of (X_train, y_train, X_test, y_test) tuples from folds
+            best_params: Optimized parameters to apply to the model
+            train_params: Training parameters
+            context: Pipeline context
+            runner: Pipeline runner instance
+            dataset: Dataset object
+            model_suffix: Suffix for model naming
+            verbose: Verbosity level
+
+        Returns:
+            Tuple of (context, binaries_list)
+        """
+        if verbose > 0:
+            print(f"🎯 Training single model on full training data ({model_suffix})...")
+
+        # Combine all training data from folds
+        all_X_train = []
+        all_y_train = []
+        all_X_test = []
+        all_y_test = []
+
+        for X_train, y_train, X_test, y_test in data_splits:
+            all_X_train.append(X_train)
+            all_y_train.append(y_train)
+            all_X_test.append(X_test)
+            all_y_test.append(y_test)
+
+        # Concatenate all data
+        import numpy as np
+        combined_X_train = np.concatenate(all_X_train, axis=0)
+        combined_y_train = np.concatenate(all_y_train, axis=0)
+        combined_X_test = np.concatenate(all_X_test, axis=0)
+        combined_y_test = np.concatenate(all_y_test, axis=0)
+
+        if verbose > 0:
+            print(f"📊 Combined training data: {combined_X_train.shape[0]} samples")
+            print(f"📊 Combined test data: {combined_X_test.shape[0]} samples")
+
+        # Create and configure model with best parameters
+        base_model = self._get_model_from_config(model_config)
+        model = self._clone_model(base_model)
+
+        if hasattr(model, 'set_params') and best_params:
+            try:
+                model.set_params(**best_params)
+                if verbose > 0:
+                    print(f"✅ Applied optimized parameters: {best_params}")
+            except Exception as e:
+                if verbose > 0:
+                    print(f"⚠️ Could not apply parameters: {e}")
+
+        # Prepare data in framework-specific format
+        X_train_prep, y_train_prep = self._prepare_data(combined_X_train, combined_y_train, context)
+        X_test_prep, _ = self._prepare_data(combined_X_test, combined_y_test, context)
+
+        if verbose > 0:
+            print(f"🏋️ Training model with {X_train_prep.shape[0]} samples...")
+
+        # Train the model
+        trained_model = self._train_model(
+            model, X_train_prep, y_train_prep, train_params=train_params
+        )
+
+        # Generate predictions on combined test set
+        y_pred_test = self._predict_model(trained_model, X_test_prep)
+
+        # Generate predictions on combined training set (global train predictions)
+        y_pred_train = self._predict_model(trained_model, X_train_prep)
+
+        # Store predictions in dataset
+        unique_model_name = self._get_unique_model_name(model_config, trained_model, runner)
+        dataset_name = getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown'
+        pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown'
+
+        # Store test predictions
+        self._store_predictions_in_dataset(
+            dataset=dataset_name,
+            pipeline=pipeline_name,
+            model=unique_model_name,
+            partition=f"test_{model_suffix}",
+            y_true=combined_y_test,
+            y_pred=y_pred_test,
+            fold_idx=None,  # No fold since trained on full data
+            context=context,
+            dataset_obj=dataset
+        )
+
+        # Store global train predictions
+        self._store_predictions_in_dataset(
+            dataset=dataset_name,
+            pipeline=pipeline_name,
+            model=unique_model_name,
+            partition=f"global_train_{model_suffix}",
+            y_true=combined_y_train,
+            y_pred=y_pred_train,
+            fold_idx=None,
+            context=context,
+            dataset_obj=dataset
+        )
+
+        # Store results and serialize model
+        binaries = self._store_results(trained_model, y_pred_test, combined_y_test, runner, f"{model_suffix}_model")
+
+        if verbose > 0:
+            print("✅ Single model training on full data completed successfully")
+
+        return context, binaries
+
+    def _execute_global_average_optimization(
+        self,
+        model_config: Dict[str, Any],
+        data_splits: List[Tuple[Any, Any, Any, Any]],
+        train_params: Dict[str, Any],
+        finetune_params: Dict[str, Any],
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        dataset: 'SpectroDataset'
+    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        """Execute global average optimization: optimize parameters across all folds simultaneously."""
+        verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
+
+        if verbose > 0:
+            print(f"🌍 Global Average CV: Optimizing parameters across all {len(data_splits)} folds simultaneously...")
+
+        try:
+            import optuna
+        except ImportError:
+            raise ImportError("Optuna is required for global average parameter optimization")
+
+        # Configure Optuna logging
+        if not verbose:
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+        best_params = {}
+        best_score = float('inf')
+
+        def objective(trial):
+            nonlocal best_params, best_score
+
+            # Sample hyperparameters for this trial
+            trial_params = self._sample_hyperparameters(trial, finetune_params)
+
+            # Evaluate these parameters on all folds and average the scores
+            fold_scores = []
+            for fold_idx, (X_train, y_train, X_test, y_test) in enumerate(data_splits):
+                # Create and configure model for this fold
+                base_model = self._get_model_from_config(model_config)
+                model = self._clone_model(base_model)
+
+                if hasattr(model, 'set_params') and trial_params:
+                    try:
+                        model.set_params(**trial_params)
+                    except Exception:
+                        return float('inf')  # Invalid parameters
+
+                # Prepare data and train
+                X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
+                X_test_prep, y_test_prep = self._prepare_data(X_test, y_test, context)
+
+                # Use silent training for optimization
+                fold_train_params = finetune_params.get('train_params', train_params.copy())
+                fold_train_params['verbose'] = 0
+
+                trained_model = self._train_model(
+                    model, X_train_prep, y_train_prep, train_params=fold_train_params
+                )
+
+                # Evaluate on test set
+                score = self._evaluate_model(trained_model, X_test_prep, y_test_prep)
+                fold_scores.append(score)
+
+            # Calculate average score across all folds
+            avg_score = np.mean(fold_scores)
+
+            # Track best parameters
+            if avg_score < best_score:
+                best_score = avg_score
+                best_params = trial_params.copy()
+
+            return avg_score
+
+        # Run optimization
+        study = optuna.create_study(direction="minimize")
+        n_trials = finetune_params.get('n_trials', 10)
+
+        if verbose > 0:
+            print(f"🎯 Optimizing with {n_trials} trials, evaluating each on all {len(data_splits)} folds...")
+
+        study.optimize(objective, n_trials=n_trials)
+
+        if verbose > 0:
+            print(f"🏆 Global best parameters: {best_params}")
+            print(f"📊 Best average score: {best_score:.4f}")
+
+        # Store best parameters for potential reuse
+        self._last_best_params = best_params
+
+        # Check if we should train on full training data or individual folds
+        use_full_train = finetune_params.get('use_full_train_for_final', False)
+
+        if use_full_train:
+            return self._train_single_model_on_full_data(
+                model_config, data_splits, best_params, train_params,
+                context, runner, dataset, "global_avg", verbose
+            )
+
+        # Default behavior: train final models on each fold using the globally optimal parameters
+        if verbose > 0:
+            print(f"🔄 Training {len(data_splits)} final models with global best parameters...")
+
+        all_binaries = []
+        for fold_idx, (X_train, y_train, X_test, y_test) in enumerate(data_splits):
+            # Create model with global best parameters
+            base_model = self._get_model_from_config(model_config)
+            model = self._clone_model(base_model)
+
+            # Apply global best parameters
+            if hasattr(model, 'set_params') and best_params:
+                try:
+                    model.set_params(**best_params)
+                except Exception as e:
+                    if verbose > 0:
+                        print(f"⚠️ Could not apply global parameters to fold {fold_idx+1}: {e}")
+
+            # Train final model for this fold
+            fold_context, fold_binaries = self._execute_train(
+                model_config, X_train, y_train, X_test, y_test,
+                train_params, context, runner, dataset, fold_idx
+            )
+
+            # Add fold suffix to binary names
+            fold_binaries_renamed = []
+            for name, binary in fold_binaries:
+                name_parts = name.rsplit('.', 1)
+                if len(name_parts) == 2:
+                    new_name = f"{name_parts[0]}_global_avg_cv_fold{fold_idx+1}.{name_parts[1]}"
+                else:
+                    new_name = f"{name}_global_avg_cv_fold{fold_idx+1}"
+                fold_binaries_renamed.append((new_name, binary))
+
+            all_binaries.extend(fold_binaries_renamed)
+
+        if verbose > 0:
+            print("✅ Global Average CV completed successfully")
 
         return context, all_binaries
 
@@ -435,10 +1000,17 @@ class BaseModelController(OperatorController, ABC):
             if verbose > 1:
                 print(f"  📋 Created {len(inner_folds)} inner folds for finetuning")
 
-            # Finetune using inner folds to find best parameters for this outer fold
-            fold_best_params = self._finetune_on_inner_folds(
-                model_config, inner_folds, train_params, finetune_params, context, verbose
-            )
+            # Choose optimization strategy
+            if param_strategy == ParamStrategy.GLOBAL_AVERAGE:
+                # Optimize using global average across inner folds
+                fold_best_params = self._optimize_global_average_on_inner_folds(
+                    model_config, inner_folds, train_params, finetune_params, context, verbose
+                )
+            else:
+                # Standard nested CV: finetune using inner folds
+                fold_best_params = self._finetune_on_inner_folds(
+                    model_config, inner_folds, train_params, finetune_params, context, verbose
+                )
 
             if verbose > 1:
                 print(f"  🏆 Best params for outer fold {outer_idx+1}: {fold_best_params}")
@@ -485,6 +1057,21 @@ class BaseModelController(OperatorController, ABC):
         # Handle parameter aggregation across outer folds
         if param_strategy == ParamStrategy.WEIGHTED_AVERAGE:
             self._compute_weighted_average_params(all_fold_results, verbose)
+
+        # Check if we should train a single model on full training data
+        use_full_train = finetune_params.get('use_full_train_for_final', False)
+        if use_full_train:
+            if verbose > 0:
+                print("🎯 Training single model on full training data with nested CV optimized parameters...")
+
+            # Use the best parameters from the first outer fold as representative
+            # (In practice, you might want to average parameters across outer folds)
+            representative_params = all_fold_results[0]['best_params'] if all_fold_results else {}
+
+            return self._train_single_model_on_full_data(
+                model_config, outer_folds, representative_params, train_params,
+                context, runner, dataset, "nested_cv_full", verbose
+            )
 
         if verbose > 0:
             print("✅ Nested CV completed successfully")
@@ -563,6 +1150,86 @@ class BaseModelController(OperatorController, ABC):
 
         if verbose > 2:
             print(f"    🎯 Running {n_trials} inner CV trials...")
+
+        study.optimize(objective, n_trials=n_trials)
+
+        return best_params
+
+    def _optimize_global_average_on_inner_folds(
+        self,
+        model_config: Dict[str, Any],
+        inner_folds: List[Tuple[Any, Any, Any, Any]],
+        train_params: Dict[str, Any],
+        finetune_params: Dict[str, Any],
+        context: Dict[str, Any],
+        verbose: int = 0
+    ) -> Dict[str, Any]:
+        """Optimize using global average across inner folds (for nested CV)."""
+        try:
+            import optuna
+        except ImportError:
+            print("⚠️ Optuna not available for nested CV")
+            return {}
+
+        if verbose > 2:
+            print(f"    🌍 Global average optimization across {len(inner_folds)} inner folds")
+
+        best_params = {}
+        best_score = float('inf')
+
+        def objective(trial):
+            nonlocal best_params, best_score
+
+            # Sample hyperparameters
+            trial_params = self._sample_hyperparameters(trial, finetune_params)
+
+            # Evaluate on all inner folds and average
+            fold_scores = []
+            for X_train, y_train, X_val, y_val in inner_folds:
+                # Create and configure model
+                base_model = self._get_model_from_config(model_config)
+                model = self._clone_model(base_model)
+
+                if hasattr(model, 'set_params') and trial_params:
+                    try:
+                        model.set_params(**trial_params)
+                    except Exception:
+                        return float('inf')
+
+                # Prepare data and train
+                X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
+                X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context)
+
+                # Use silent training for inner CV
+                inner_train_params = finetune_params.get('train_params', train_params.copy())
+                inner_train_params['verbose'] = 0
+
+                trained_model = self._train_model(
+                    model, X_train_prep, y_train_prep, train_params=inner_train_params
+                )
+
+                # Evaluate
+                score = self._evaluate_model(trained_model, X_val_prep, y_val_prep)
+                fold_scores.append(score)
+
+            # Average score across inner folds
+            avg_score = np.mean(fold_scores)
+
+            if avg_score < best_score:
+                best_score = avg_score
+                best_params = trial_params.copy()
+
+            return avg_score
+
+        # Configure and run optimization
+        if verbose < 3:
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+        study = optuna.create_study(direction="minimize")
+        n_trials = finetune_params.get('n_trials', 10)
+
+        if verbose > 2:
+            print(f"    🎯 Running {n_trials} inner CV trials with global averaging...")
 
         study.optimize(objective, n_trials=n_trials)
 
@@ -683,13 +1350,13 @@ class BaseModelController(OperatorController, ABC):
                 # Fine-tune for this fold
                 fold_context, fold_binaries = self._execute_finetune(
                     model_config, X_train, y_train, X_val, y_val,
-                    train_params, finetune_params, context, runner, fold_idx
+                    train_params, finetune_params, context, runner, dataset, fold_idx
                 )
             else:
                 # Train for this fold
                 fold_context, fold_binaries = self._execute_train(
                     model_config, X_train, y_train, X_val, y_val,
-                    train_params, context, runner, fold_idx
+                    train_params, context, runner, dataset, fold_idx
                 )
 
             # Add fold suffix to binary names
@@ -748,10 +1415,11 @@ class BaseModelController(OperatorController, ABC):
         y_pred = self._predict_model(trained_model, X_test_prep)
 
         # Store predictions in dataset
+        unique_model_name = self._get_unique_model_name(model_config, model, runner)
         self._store_predictions_in_dataset(
             dataset=getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown',
             pipeline=getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown',
-            model=model.__class__.__name__,
+            model=unique_model_name,
             partition=f"test_fold_{fold_idx}" if fold_idx is not None else "test",
             y_true=y_test,
             y_pred=y_pred,
@@ -925,10 +1593,11 @@ class BaseModelController(OperatorController, ABC):
         y_pred = self._predict_model(best_model, X_test_prep)
 
         # Store predictions in dataset
+        unique_model_name = self._get_unique_model_name(model_config, best_model, runner)
         self._store_predictions_in_dataset(
             dataset=getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown',
             pipeline=getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown',
-            model=best_model.__class__.__name__,
+            model=unique_model_name,
             partition=f"test_fold_{fold_idx}" if fold_idx is not None else "test",
             y_true=y_test,
             y_pred=y_pred,

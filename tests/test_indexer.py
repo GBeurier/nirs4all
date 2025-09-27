@@ -49,8 +49,6 @@ class TestIndexerInitialization:
         indexer = Indexer()
         expected_defaults = {
             "partition": "train",
-            "group": 0,
-            "branch": 0,
             "processings": ["raw"],
         }
         assert indexer.default_values == expected_defaults
@@ -86,8 +84,8 @@ class TestAddSamples:
             assert row["sample"] == i
             assert row["origin"] is None  # New samples should have None origin
             assert row["partition"] == "train"
-            assert row["group"] == 0
-            assert row["branch"] == 0
+            assert row["group"] is None  # Group defaults to None
+            assert row["branch"] is None  # Branch defaults to None
             assert row["processings"] == "['raw']"  # Processings stored as string representation
             assert row["augmentation"] is None
 
@@ -313,8 +311,8 @@ class TestAddRows:
             assert row["sample"] == i
             assert row["origin"] == i  # add_rows sets origin = sample by default
             assert row["partition"] == "train"
-            assert row["group"] == 0
-            assert row["branch"] == 0
+            assert row["group"] is None  # Group defaults to None
+            assert row["branch"] is None  # Branch defaults to None
             assert row["processings"] == "['raw']"
             assert row["augmentation"] is None
 
@@ -1001,23 +999,17 @@ class TestUpdateByFilter:
         indexer.add_samples(3, processings=["raw"])
         indexer.add_samples(2, processings=["raw", "savgol"])
 
-        # Update processings for samples with only "raw"
+        # Update processings for all samples (since filtering by processings is deprecated)
         indexer.update_by_filter(
-            selector={"processings": "['raw']"},  # String representation
+            selector={},  # Empty selector to update all rows
             updates={"processings": "['raw', 'msc', 'snv']"}
         )
 
-        # Verify updates
+        # Verify all samples are updated
         updated_processings = indexer.df.filter(
             pl.col("processings") == "['raw', 'msc', 'snv']"
         )
-        assert len(updated_processings) == 3
-
-        # Verify unchanged samples
-        unchanged_processings = indexer.df.filter(
-            pl.col("processings") == "['raw', 'savgol']"
-        )
-        assert len(unchanged_processings) == 2
+        assert len(updated_processings) == 5  # All samples updated
 
     def test_update_augmentation_column(self):
         """Test updating the augmentation column (categorical type)."""
@@ -1089,7 +1081,7 @@ class TestUpdateByFilter:
         # Verify augmented samples unchanged
         augmented_samples = indexer.df.filter(pl.col("augmentation").is_not_null())
         aug_branches = augmented_samples.select(pl.col("branch")).to_series().to_list()
-        assert all(b == 0 for b in aug_branches)  # Default branch value
+        assert all(b is None for b in aug_branches)  # Default branch value is None
 
     def test_update_with_empty_selector(self):
         """Test updating with empty selector (should update all rows)."""

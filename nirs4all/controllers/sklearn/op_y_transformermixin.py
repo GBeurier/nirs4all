@@ -34,6 +34,11 @@ class YTransformerMixinController(OperatorController):
         """Check if the operator supports multi-source datasets."""
         return False  # Target processing doesn't depend on multiple sources
 
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        """Y transformers should not execute during prediction mode."""
+        return False
+
     def execute(
         self,
         step: Any,
@@ -41,10 +46,13 @@ class YTransformerMixinController(OperatorController):
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
-        source: int = -1
+        source: int = -1,
+        mode: str = "train",
+        loaded_binaries: Any = None
     ):
         """
         Execute transformer on dataset targets, fitting on train targets and transforming all targets.
+        Skips execution in prediction mode.
 
         Args:
             step: Pipeline step configuration
@@ -53,10 +61,15 @@ class YTransformerMixinController(OperatorController):
             context: Pipeline context with partition information
             runner: Pipeline runner instance
             source: Source index (not used for target processing)
+            mode: Execution mode ("train" or "predict")
+            loaded_binaries: Pre-loaded binaries (unused)
 
         Returns:
             Tuple of (updated_context, fitted_transformers_list)
         """
+        # Skip execution in prediction mode
+        if mode == "predict":
+            return context, []
         import pickle
         from sklearn.base import clone
 
