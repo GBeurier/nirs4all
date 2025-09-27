@@ -66,8 +66,12 @@ class PipelineRunner:
         print("-" * 200)
         self.saver.register(dataset.name, config.name)
         self.saver.save_json("pipeline.json", config.serializable_steps())
-        # context = {"branch": 0, "processing": "raw", "y": "numeric"}
+        self.step_number = 0
+        self.substep_number = -1
+        self.operation_count = 0
         context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
+
+        # context = {"branch": 0, "processing": "raw", "y": "numeric"} ## TODO handle branch indexing in context
 
         try:
             self.run_steps(config.steps, dataset, context, execution="sequential")

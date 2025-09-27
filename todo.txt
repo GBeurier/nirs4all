@@ -4,6 +4,7 @@ print result,
 save tf in tf format
 store predictions and display prediction summaries
 [predict / load]
+[verify binary and classification]
 Manage save for dataset and globally
 [generator]
 [bin with bounds or count + warning class assymetry]
