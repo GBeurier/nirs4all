@@ -14,7 +14,7 @@ def Conv_Block(inputs, model_width, kernel, multiplier, bottleneck=False):
     else:
         # Standard convolution
         x = tf.keras.layers.Conv1D(model_width * multiplier, kernel, padding='same')(inputs)
-    
+
     x = tf.keras.layers.BatchNormalization()(x)
     x = tf.keras.layers.Activation('relu')(x)
 
@@ -124,7 +124,7 @@ class UNet:
         levels = []
 
         # Encoding
-        print(self.length, self.num_channel)
+        # print(self.length, self.num_channel)
         inputs = tf.keras.Input((self.length, self.num_channel))
         pool = inputs
 

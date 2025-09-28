@@ -150,7 +150,6 @@ class Spline_Smoothing(Augmenter):
             y_smooth = spl(x_abs)
             res.append(y_smooth)
 
-        print(np.array(res).shape, X.shape)
         return np.array(res)
 
 

@@ -142,7 +142,6 @@ class Random_X_Operation(Augmenter):
         ndarray
             Augmented data.
         """
-        print(">>>>>>>>>>>>>>>>")
         min_val = self.operator_range[0]
         interval = self.operator_range[1] - self.operator_range[0]
 
@@ -151,13 +150,12 @@ class Random_X_Operation(Augmenter):
         else:
             increment = self.random_gen.random(X.shape) * interval + min_val
 
-        print(increment)
 
         new_X = self.operator_func(X, increment)
         # Clip the augmented data within the float32 range
         new_X = np.clip(new_X, -np.finfo(np.float32).max, np.finfo(np.float32).max)
 
         # Log the min and max values to help debug any potential overflow
-        print("Augmented Data Range:", new_X.min(), new_X.max())
+        # print("Augmented Data Range:", new_X.min(), new_X.max())
 
         return new_X

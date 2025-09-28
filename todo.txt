@@ -1,12 +1,12 @@
 #### ROADMAP ########
 Metrics
 learning course - ipynb
-* Generator | verify optimal order of serialization / deserialization
 * Classification | check sample_classif bugs, Customize encoding. adapt charts and error reporting
 * Store predictions and display prediction summaries | clean output and make print/chart helpers for prediction -
 
 Bin operator with bounds or count + warning class assymetry
 Clean prints
+Chart operators not controllers.
 Release formation
 [CLI]
 [SHAP]
@@ -19,6 +19,8 @@ Release
 [Clustering]
 [Workflows: branch, merge, split_src, scope]
 [Y_pipeline in models]
+
+* Generator
 
 #### FORMATION ####
 

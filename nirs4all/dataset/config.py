@@ -37,11 +37,11 @@ def browse_folder(folder_path, global_params=None):
                     matched_files.append(str(file))
 
         if len(matched_files) > 1:
-            print(f"⚠️ Multiple {key} files found for {folder_path}.")
+            # print(f"⚠️ Multiple {key} files found for {folder_path}.")
             # logging.warning("Multiple %s files found for %s.", key, dataset_name)
             continue
         if len(matched_files) == 0:
-            print(f"⚠️ Dataset does not have data for {key}.")
+            # print(f"⚠️ Dataset does not have data for {key}.")
             # logging.warning("No %s file found for %s.", key, dataset_name)
             continue
 

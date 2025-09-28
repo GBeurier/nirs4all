@@ -62,7 +62,7 @@ class YChartController(OperatorController):
         local_context["partition"] = "test"
         y_test = dataset.y(local_context)
 
-        print(len(y), len(y_train), len(y_test))
+        # print(len(y), len(y_train), len(y_test))
 
         fig, _ = self._create_bicolor_histogram(y_train, y_test, y)
         chart_name = "Y_distribution_train_test.png"
