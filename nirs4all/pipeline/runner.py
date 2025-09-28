@@ -20,8 +20,6 @@ from joblib import Parallel, delayed, parallel_backend
 from nirs4all.pipeline.serialization import deserialize_component
 from nirs4all.pipeline.history import PipelineHistory
 from nirs4all.pipeline.config import PipelineConfig
-# from .operation import PipelineOperation
-from nirs4all.pipeline.pipeline import Pipeline
 from nirs4all.pipeline.io import SimulationSaver
 from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
@@ -69,7 +67,7 @@ class PipelineRunner:
         self.operation_count += 1
         return self.operation_count
 
-    def run(self, config: PipelineConfig, dataset: SpectroDataset) -> Tuple[SpectroDataset, PipelineHistory, Pipeline]:
+    def run(self, config: PipelineConfig, dataset: SpectroDataset) -> Tuple[SpectroDataset, PipelineHistory, Any]:
         """Run the pipeline with the given configuration and dataset."""
         print("=" * 200)
         print(f"\033[94m🚀 Starting pipeline {config.name} on dataset {dataset.name}\033[0m")
@@ -145,7 +143,7 @@ class PipelineRunner:
         """
         before_dataset_str = str(dataset)
 
-        step_description = self._get_step_description(step)
+        step_description = PipelineConfig._get_step_description(step)
         if is_substep or self.substep_number > 0:
             self.substep_number += 1
             print(f"\033[96m   ▶ Sub-step {self.step_number}.{self.substep_number}: {step_description}\033[0m")
@@ -325,43 +323,6 @@ class PipelineRunner:
         # else:
         #     print(f"🔄 Running single operator {operator} for step: {step}, source: {source}")
             # return controller.execute(step, operator, dataset, context, self, source)
-
-    # Helper method to get a human-readable description of a step
-    def _get_step_description(self, step: Any) -> str:
-        """Get a human-readable description of a step"""
-        if step is None:
-            return "No operation"
-        if isinstance(step, dict):
-            if len(step) == 1:
-                key = next(iter(step.keys()))
-                return f"{key}"
-            elif "class" in step:
-                key = f"{step['class'].split('.')[-1]}"
-                if "params" in step:
-                    params_str = ", ".join(f"{k}={v}" for k, v in step["params"].items())
-                    return f"{key}({params_str})"
-            elif "model" in step:
-                if "class" in step['model']:
-                    key = f"{step['model']['class'].split('.')[-1]}"
-                elif "function" in step['model']:
-                    key = f"{step['model']['function'].split('.')[-1]}"
-                else:
-                    key = "unknown_model"
-                params_str = ""
-                if "params" in step['model']:
-                    params_str = ", ".join(f"{k}={v}" for k, v in step['model']["params"].items())
-                actions = "train"
-                if "finetune_params" in step:
-                    actions = "(finetune)"
-                return f"{actions} {key}({params_str})"
-            else:
-                return f"Dict with {len(step)} keys"
-        elif isinstance(step, list):
-            return f"Sub-pipeline ({len(step)} steps)"
-        elif isinstance(step, str):
-            return step
-        else:
-            return str(type(step).__name__)
 
     @staticmethod
     def predict(

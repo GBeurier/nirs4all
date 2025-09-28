@@ -5,7 +5,6 @@ This module contains pipeline classes for processing workflows.
 """
 
 # Import main pipeline classes
-# from .pipeline import Pipeline
 from .config import PipelineConfig
 # from .pipeline_context import PipelineContext, ScopeState
 from .history import PipelineHistory, PipelineExecution, StepExecution
