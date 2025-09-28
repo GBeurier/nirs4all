@@ -128,35 +128,35 @@ class PipelineRunner:
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> List[Tuple[SpectroDataset, PipelineHistory, Any]]:
         """Run pipeline configurations on dataset configurations."""
         results = []
-
+        global_pred_db = Predictions()
         # Get datasets from DatasetConfigs
         for d_config in dataset_configs.data_configs:
             print("=" * 200)
             existing_predictions = 0
-            prediction_db = None
-            prediction_run = Predictions()
+            dataset_pred_db = None
+            run_dataset_pred_db = Predictions()
             dataset_name = "unknown_dataset"
             for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
                 dataset = dataset_configs.get_dataset(d_config)
                 dataset_name = dataset.name
 
                 if i == 0 and self.load_existing_predictions:
-                    prediction_db = Predictions.load_dataset_predictions(dataset, self.saver)
-                    existing_predictions = len(prediction_db._predictions.keys()) if prediction_db is not None else 0
+                    dataset_pred_db = Predictions.load_dataset_predictions(dataset, self.saver)
+                    existing_predictions = len(dataset_pred_db._predictions.keys()) if dataset_pred_db is not None else 0
 
                 self._run_single(steps, config_name, dataset)
                 # results.append(result)
 
-                if prediction_db is not None:
-                    prediction_db.merge_predictions(dataset._predictions)
-                    prediction_run.merge_predictions(dataset._predictions)
-            if prediction_db is not None:
-                prediction_db.display_best_scores_summary(dataset_name, existing_predictions)
+                dataset_pred_db.merge_predictions(dataset._predictions)
+                run_dataset_pred_db.merge_predictions(dataset._predictions)
+                global_pred_db.merge_predictions(dataset._predictions)
+            if dataset_pred_db is not None:
+                dataset_pred_db.display_best_scores_summary(dataset_name, existing_predictions)
 
-            prediction_db.save_to_file(str(self.saver.base_path / dataset_name / f"{dataset_name}_predictions.json"))
-            results.append((prediction_db, prediction_run))
+            dataset_pred_db.save_to_file(str(self.saver.base_path / dataset_name / f"{dataset_name}_predictions.json"))
+            results.append((dataset_pred_db, run_dataset_pred_db))
 
-        return results
+        return global_pred_db, results
 
     def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset) -> SpectroDataset:
         """Run a single pipeline configuration on a single dataset."""
