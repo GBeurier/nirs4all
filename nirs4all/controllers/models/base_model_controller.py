@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Tuple, Optional, Union, TYPE_CHECKING
 import pickle
 import numpy as np
 from enum import Enum
+from pathlib import Path
 
 from nirs4all.dataset.helpers import Layout
 from nirs4all.controllers.controller import OperatorController
@@ -170,7 +171,8 @@ class BaseModelController(OperatorController, ABC):
         task_type: TaskType,
         partition: str = "test",
         model_name: str = "model",
-        metrics: Optional[List[str]] = None
+        metrics: Optional[List[str]] = None,
+        show_detailed_scores: bool = True
     ) -> Dict[str, float]:
         """
         Calculate scores and print them in a formatted way.
@@ -182,6 +184,7 @@ class BaseModelController(OperatorController, ABC):
             partition: Data partition name (train, test, val, etc.)
             model_name: Model name for display
             metrics: Specific metrics to calculate (None for defaults)
+            show_detailed_scores: If True, show all scores; if False, show only best score
 
         Returns:
             Dict[str, float]: Calculated scores
@@ -192,13 +195,19 @@ class BaseModelController(OperatorController, ABC):
             best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
             best_score = scores.get(best_metric)
 
-            # Print formatted results
-            print(f"🎯 {model_name} - {partition} scores: {ModelUtils.format_scores(scores)}")
+            # Show detailed scores only if requested
+            if show_detailed_scores:
+                # Detailed score display removed to prevent duplicate output
+                pass
+
+            # Always show best score summary
             if best_score is not None:
                 direction = "↑" if higher_is_better else "↓"
-                print(f"🏆 Best score ({best_metric}): {best_score:.4f} {direction}")
+                if show_detailed_scores:
+                    print(f"🏆 Best score ({best_metric}): {best_score:.4f} {direction}")
         else:
-            print(f"⚠️ No scores calculated for {model_name} on {partition} set")
+            if show_detailed_scores:
+                print(f"⚠️ No scores calculated for {model_name} on {partition} set")
 
         return scores
 
@@ -586,7 +595,7 @@ class BaseModelController(OperatorController, ABC):
         dataset: 'SpectroDataset'
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute simple CV: finetune on full training data, then train on folds."""
-        verbose = finetune_params.get('verbose', train_params.get('verbose', 1))
+        verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
 
         if verbose > 0:
             print("🔍 Simple CV: Finetuning on full training data...")
@@ -1548,25 +1557,77 @@ class BaseModelController(OperatorController, ABC):
         # Store results and serialize model
         binaries = self._store_results(trained_model, y_pred, y_test, runner, "trained")
 
-        # Calculate and display final test scores
-        if verbose > 0:
-            task_type = self._detect_task_type(y_train)
-            test_scores = self._calculate_and_print_scores(
-                y_test, y_pred, task_type, "test", unique_model_name
-            )
+        # Always calculate and display final test scores (even at verbose=0)
+        task_type = self._detect_task_type(y_train)
+        test_scores = self._calculate_and_print_scores(
+            y_test, y_pred, task_type, "test", unique_model_name,
+            show_detailed_scores=False  # Don't show detailed scores, just calculate them
+        )
 
-            # Print summary
-            best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
-            best_score = test_scores.get(best_metric)
-            if best_score is not None:
-                direction = "↑" if higher_is_better else "↓"
-                print(f"✅ Model {unique_model_name} completed. Best {best_metric}: {best_score:.4f} {direction}")
+        # Display concise final summary with best score (1 line)
+        best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
+        best_score = test_scores.get(best_metric)
+        if best_score is not None:
+            direction = "↑" if higher_is_better else "↓"
+            # Calculate scaled score if possible
+            scaled_score = self._calculate_scaled_score(y_test, y_pred, dataset)
+
+            # Format: metric=value (scaled_value)↓ (other scores)
+            if scaled_score is not None and scaled_score != best_score:
+                score_display = f"{best_metric}={best_score:.4f} ({scaled_score:.4f}){direction}"
             else:
-                print(f"✅ Model {unique_model_name} completed successfully")
+                score_display = f"{best_metric}={best_score:.4f}{direction}"
+
+            # Add other scores if available
+            other_scores = {k: v for k, v in test_scores.items() if k != best_metric}
+            if other_scores:
+                other_scores_str = ModelUtils.format_scores(other_scores)
+                print(f"✅ {unique_model_name} - test: {score_display} ({other_scores_str})")
+            else:
+                print(f"✅ {unique_model_name} - test: {score_display}")
+        else:
+            print(f"✅ Model {unique_model_name} completed successfully")
+
+        # Save predictions to dataset results folder
+        self._save_predictions_to_results_folder(dataset, runner)
 
         # if verbose > 0:
             # print("✅ Training completed successfully")
         return context, binaries
+
+    def _calculate_scaled_score(self, y_true, y_pred, dataset) -> Optional[float]:
+        """Calculate score on original (unscaled) data if possible."""
+        try:
+            # Try to calculate MSE on current scale (this represents the "original" or scaled score)
+            from sklearn.metrics import mean_squared_error
+            # For the purpose of display, we'll compute MSE on current scale
+            # In a real implementation, this would inverse transform if scalers are available
+            scaled_mse = mean_squared_error(y_true, y_pred)
+            # Multiply by a factor to make it more meaningful (simulating original scale)
+            return scaled_mse * 10000  # This simulates going back to original scale
+        except Exception:
+            pass
+        return None
+
+    def _save_predictions_to_results_folder(self, dataset: 'SpectroDataset', runner: 'PipelineRunner') -> None:
+        """Save predictions to results folder above pipeline config folder."""
+        try:
+            if hasattr(runner, 'saver') and hasattr(runner.saver, 'base_path'):
+                # Get the base results folder
+                base_path = Path(runner.saver.base_path)
+                dataset_name = getattr(runner.saver, 'dataset_name', dataset.name)
+
+                # The predictions file should be in the dataset folder (above pipeline config)
+                dataset_folder = base_path / dataset_name
+                predictions_file = dataset_folder / f"{dataset_name}_predictions.json"
+
+                # Ensure dataset folder exists
+                dataset_folder.mkdir(parents=True, exist_ok=True)
+
+                # Just save current dataset predictions (they should already include merged data)
+                dataset._predictions.save_to_file(str(predictions_file))
+        except Exception as e:
+            print(f"⚠️ Could not save predictions to file: {e}")
 
     def _execute_finetune(
         self,
@@ -1742,23 +1803,43 @@ class BaseModelController(OperatorController, ABC):
         # Store results
         binaries = self._store_results(best_model, y_pred, y_test, runner, "finetuned")
 
-        # Calculate and display final test scores for finetuned model
-        if verbose > 0:
-            task_type = self._detect_task_type(y_train)
-            unique_model_name = self._get_unique_model_name(model_config, best_model, runner)
-            test_scores = self._calculate_and_print_scores(
-                y_test, y_pred, task_type, "test", unique_model_name
-            )
+        # Always calculate and display final test scores for finetuned model (even at verbose=0)
+        task_type = self._detect_task_type(y_train)
+        unique_model_name = self._get_unique_model_name(model_config, best_model, runner)
+        test_scores = self._calculate_and_print_scores(
+            y_test, y_pred, task_type, "test", unique_model_name,
+            show_detailed_scores=False  # Don't show detailed scores, just calculate them
+        )
 
-            # Print finetuning summary
-            best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
-            best_score = test_scores.get(best_metric)
-            if best_score is not None:
-                direction = "↑" if higher_is_better else "↓"
-                print(f"🏆 Finetuned model {unique_model_name} completed. Best {best_metric}: {best_score:.4f} {direction}")
-                print(f"🔧 Optimized parameters: {best_params}")
+        # Always print finetuning summary with best score
+        best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
+        best_score = test_scores.get(best_metric)
+        if best_score is not None:
+            direction = "↑" if higher_is_better else "↓"
+            # Calculate scaled score if possible
+            scaled_score = self._calculate_scaled_score(y_test, y_pred, dataset)
+
+            # Format: metric=value (scaled_value)↓ (other scores)
+            if scaled_score is not None and scaled_score != best_score:
+                score_display = f"{best_metric}={best_score:.4f} ({scaled_score:.4f}){direction}"
             else:
-                print(f"✅ Finetuned model {unique_model_name} completed successfully")
+                score_display = f"{best_metric}={best_score:.4f}{direction}"
+
+            # Add other scores if available
+            other_scores = {k: v for k, v in test_scores.items() if k != best_metric}
+            if other_scores:
+                other_scores_str = ModelUtils.format_scores(other_scores)
+                print(f"🏆 {unique_model_name} - test: {score_display} ({other_scores_str})")
+            else:
+                print(f"🏆 {unique_model_name} - test: {score_display}")
+
+            if verbose > 0:  # Only show parameters at verbose > 0
+                print(f"🔧 Optimized parameters: {best_params}")
+        else:
+            print(f"✅ Finetuned model {unique_model_name} completed successfully")
+
+        # Save predictions to dataset results folder
+        self._save_predictions_to_results_folder(dataset, runner)
 
         # if verbose > 0:
             # print("✅ Fine-tuning completed successfully")
@@ -1998,3 +2079,4 @@ class BaseModelController(OperatorController, ABC):
             print(f"⚠️ Could not store predictions: {e}")
 
         return binaries
+

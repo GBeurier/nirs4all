@@ -14,6 +14,7 @@ import json
 import warnings
 
 from joblib import Parallel, delayed, parallel_backend
+from nirs4all.dataset.predictions import Predictions
 
 # from nirs4all.controllers.controller import OperatorController
 
@@ -75,10 +76,21 @@ class PipelineRunner:
         # Get datasets from DatasetConfigs
         for d_config in dataset_configs.data_configs:
             print("=" * 200)
+
+            # Load dataset predictions once per dataset
+            dataset = dataset_configs.get_dataset(d_config)
+            dataset_predictions_before = Predictions.load_dataset_predictions(dataset, self.saver)
+
+            # Store pipeline results for this dataset to find the best
+            dataset_results = []
+
             for steps, config_name in zip(pipeline_configs.steps, pipeline_configs.names):
-                dataset = dataset_configs.get_dataset(d_config) ## TODO put in upper loop when cache and context will be ready for that
                 result = self._run_single(steps, config_name, dataset)
                 results.append(result)
+                dataset_results.append((result, config_name))
+
+            # Display best scores summary for this dataset
+            dataset._predictions.display_best_scores_summary(dataset.name, dataset_predictions_before)
 
         return results
 
@@ -116,6 +128,10 @@ class PipelineRunner:
             }
             self.saver.save_json("pipeline.json", enhanced_config)
 
+            # Display final best scores summary if predictions exist
+            if hasattr(dataset, '_predictions') and dataset._predictions:
+                dataset._predictions.print_best_scores_summary(config_name)
+
             print(f"\033[94m✅ Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
 
         except Exception as e:
@@ -126,7 +142,7 @@ class PipelineRunner:
 
         return dataset, self.history, None  # TODO remove None and return the actual pipeline object
 
-    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]], execution: str = "sequential", is_substep: bool = False) -> Dict[str, Any]: ##TODO distinguish parallel and sequential contexts from parrallel and sequential execution
+    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]], execution: str = "sequential", is_substep: bool = False) -> Dict[str, Any]:
         """Run a list of steps with enhanced context management and DatasetView support."""
         if not isinstance(steps, list):
             steps = [steps]
@@ -287,6 +303,9 @@ class PipelineRunner:
         else:
             print(f"🔹 Executing controller {controller_name} without operator")
 
+        # Store previous predictions count to detect if new predictions were added
+        prev_prediction_count = len(dataset._predictions) if hasattr(dataset, '_predictions') else 0
+
         context, binaries = controller.execute(
             step,
             operator,
@@ -297,6 +316,9 @@ class PipelineRunner:
             self.mode,
             loaded_binaries
         )
+
+        # Always show final score for model controllers when verbose=0
+        is_model_controller = 'model' in controller_name.lower()
 
         # Save binaries if in training mode and saving is enabled
         if self.mode == "train" and self.save_binaries and binaries:

@@ -230,8 +230,8 @@ class SimulationSaver:
             name += "_" + str(fname)
             filepath = self.current_path / Path(name)
 
-            if not full_save and filepath.suffix.lower() in {".pkl", ".pickle", ".p"}:
-                continue
+            # if not full_save and filepath.suffix.lower() in {".pkl", ".pickle", ".p"}:
+            #     continue
 
             filepath.parent.mkdir(parents=True, exist_ok=True)
 
