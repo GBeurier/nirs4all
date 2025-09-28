@@ -20,7 +20,7 @@ Release
 [Workflows: branch, merge, split_src, scope]
 [Y_pipeline in models]
 
-* Generator
+* Generator > seems good > add internal generation (ie. automatic generation of multiple model into the config)
 
 #### FORMATION ####
 

@@ -222,7 +222,8 @@ class BaseModelController(OperatorController, ABC):
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute training/finetuning mode."""
         # Extract model configuration and parameters
-        model_config = self._extract_model_config(step)
+        # Use the deserialized operator if available, otherwise fall back to step
+        model_config = self._extract_model_config(step, operator)
         train_params = model_config.get('train_params', {})
         finetune_params = model_config.get('finetune_params', {})
 
@@ -380,8 +381,20 @@ class BaseModelController(OperatorController, ABC):
 
         return context, binaries
 
-    def _extract_model_config(self, step: Any) -> Dict[str, Any]:
+    def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
         """Extract model configuration from step."""
+        # If we have a deserialized operator, use it directly
+        if operator is not None:
+            if isinstance(step, dict):
+                # Step format: {"model": model_obj, "train_params": {...}, "finetune_params": {...}}
+                config = step.copy()
+                config['model_instance'] = operator
+                return config
+            else:
+                # Direct model object
+                return {'model_instance': operator}
+
+        # Fall back to original logic for backward compatibility
         if isinstance(step, dict):
             if 'model' in step:
                 # Step format: {"model": model_obj, "train_params": {...}, "finetune_params": {...}}
