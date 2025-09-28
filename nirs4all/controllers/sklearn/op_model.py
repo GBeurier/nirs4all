@@ -19,6 +19,7 @@ from sklearn.base import is_classifier, is_regressor
 
 from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.model_utils import ModelUtils
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -111,24 +112,41 @@ class SklearnModelController(BaseModelController):
         # Fit the model
         trained_model.fit(X_train, y_train.ravel())  # Ensure y is 1D for sklearn
 
-        # Calculate and print training scores
-        if verbose > 0:
-            task_type = self._detect_task_type(y_train)
+        # Always calculate and display final test scores, regardless of verbose level
+        # But control the detail level based on verbose
+        task_type = self._detect_task_type(y_train)
 
-            # Training scores
+        if verbose > 0:
+            # Show detailed training scores at verbose > 0
             y_train_pred = self._predict_model(trained_model, X_train)
             train_scores = self._calculate_and_print_scores(
                 y_train, y_train_pred, task_type, "train",
-                trained_model.__class__.__name__
+                trained_model.__class__.__name__, show_detailed_scores=False
             )
+            # Display concise training summary
+            if train_scores:
+                best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
+                best_score = train_scores.get(best_metric)
+                if best_score is not None:
+                    direction = "↑" if higher_is_better else "↓"
+                    all_scores_str = ModelUtils.format_scores(train_scores)
+                    print(f"✅ {trained_model.__class__.__name__} - train: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
             # Validation scores if available
             if X_val is not None and y_val is not None:
                 y_val_pred = self._predict_model(trained_model, X_val)
                 val_scores = self._calculate_and_print_scores(
                     y_val, y_val_pred, task_type, "validation",
-                    trained_model.__class__.__name__
+                    trained_model.__class__.__name__, show_detailed_scores=False
                 )
+                # Display concise validation summary
+                if val_scores:
+                    best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
+                    best_score = val_scores.get(best_metric)
+                    if best_score is not None:
+                        direction = "↑" if higher_is_better else "↓"
+                        all_scores_str = ModelUtils.format_scores(val_scores)
+                        print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
         return trained_model
 

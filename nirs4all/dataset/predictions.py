@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from pathlib import Path
+import json
 
 
 class Predictions:
@@ -29,9 +30,84 @@ class Predictions:
     - metadata: additional metadata
     """
 
-    def __init__(self):
-        """Initialize empty Predictions storage."""
+    def __init__(self, filepath: Optional[str] = None):
+        """Initialize Predictions storage, optionally loading from file."""
         self._predictions: Dict[str, Dict[str, Any]] = {}
+        if filepath and Path(filepath).exists():
+            self.load_from_file(filepath)
+
+    @classmethod
+    def load_from_file(cls, filepath: str) -> 'Predictions':
+        """
+        Load predictions from JSON file.
+
+        Args:
+            filepath: Path to JSON file containing saved predictions
+
+        Returns:
+            Predictions instance with loaded data
+        """
+        instance = cls()
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+
+            # Convert numpy arrays back from lists
+            for key, pred_data in data.items():
+                if 'y_true' in pred_data:
+                    pred_data['y_true'] = np.array(pred_data['y_true'])
+                if 'y_pred' in pred_data:
+                    pred_data['y_pred'] = np.array(pred_data['y_pred'])
+
+            instance._predictions = data
+            print(f"📥 Loaded {len(data)} predictions from {filepath}")
+
+        except Exception as e:
+            print(f"⚠️ Error loading predictions from {filepath}: {e}")
+
+        return instance
+
+    def save_to_file(self, filepath: str) -> None:
+        """
+        Save predictions to JSON file.
+
+        Args:
+            filepath: Path where to save predictions JSON file
+        """
+        try:
+            # Create directory if it doesn't exist
+            Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+
+            # Convert numpy arrays to lists for JSON serialization
+            serializable_data = {}
+            for key, pred_data in self._predictions.items():
+                serializable_pred = pred_data.copy()
+                if 'y_true' in serializable_pred:
+                    serializable_pred['y_true'] = serializable_pred['y_true'].tolist()
+                if 'y_pred' in serializable_pred:
+                    serializable_pred['y_pred'] = serializable_pred['y_pred'].tolist()
+                serializable_data[key] = serializable_pred
+
+            with open(filepath, 'w') as f:
+                json.dump(serializable_data, f, indent=2, default=str)
+
+            print(f"💾 Saved {len(self._predictions)} predictions to {filepath}")
+
+        except Exception as e:
+            print(f"⚠️ Error saving predictions to {filepath}: {e}")
+
+    def merge_predictions(self, other: 'Predictions') -> None:
+        """
+        Merge predictions from another Predictions instance.
+        New predictions are added, existing ones are kept (no replacement).
+
+        Args:
+            other: Another Predictions instance to merge from
+        """
+        for key, pred_data in other._predictions.items():
+            if key not in self._predictions:
+                self._predictions[key] = pred_data.copy()
+            # If key already exists, keep the existing one (no replacement)
 
     def add_prediction(
         self,
@@ -668,29 +744,32 @@ class Predictions:
         self,
         dataset: Optional[str] = None,
         pipeline: Optional[str] = None,
-        task_type: str = "auto"
+        task_type: str = "auto",
+        show_current_pipeline_best: bool = True
     ) -> None:
         """
-        Print a formatted summary of best scores across models.
+        Print a concise summary of best scores with both overall and current pipeline bests.
 
         Args:
             dataset: Filter by dataset name
-            pipeline: Filter by pipeline name
+            pipeline: Filter by pipeline name (for current pipeline best)
             task_type: Task type for appropriate score calculation
+            show_current_pipeline_best: Whether to show current pipeline best score
         """
         from nirs4all.utils.model_utils import ModelUtils, TaskType
 
         # Get all predictions
-        predictions = self.get_predictions(dataset, pipeline)
+        all_predictions = self.get_predictions(dataset)
+        current_pipeline_predictions = self.get_predictions(dataset, pipeline) if pipeline else {}
 
-        if not predictions:
+        if not all_predictions:
             print("No predictions found")
             return
 
         # Determine primary metric based on task type
         if task_type == "auto":
             # Use first prediction to detect task type
-            first_pred = next(iter(predictions.values()))
+            first_pred = next(iter(all_predictions.values()))
             detected_task_type = ModelUtils.detect_task_type(first_pred['y_true'])
         else:
             task_type_mapping = {
@@ -701,32 +780,44 @@ class Predictions:
             detected_task_type = task_type_mapping.get(task_type, TaskType.REGRESSION)
 
         best_metric, higher_is_better = ModelUtils.get_best_score_metric(detected_task_type)
+        direction = "↑" if higher_is_better else "↓"
 
-        print(f"🏆 Best Scores Summary ({best_metric}):")
-        print(f"📊 Task Type: {detected_task_type.value}")
-        print(f"📈 Optimization: {'Higher is better' if higher_is_better else 'Lower is better'}")
-        print("-" * 80)
+        print(f"📊 Task: {detected_task_type.value} | Best metric: {best_metric} {direction}")
 
         # Get rankings for the best metric
-        rankings = self.get_scores_ranking(
-            best_metric, dataset, pipeline, ascending=not higher_is_better, task_type=task_type
+        all_rankings = self.get_scores_ranking(
+            best_metric, dataset, ascending=not higher_is_better, task_type=task_type
         )
 
-        if not rankings:
+        if not all_rankings:
             print("No scores calculated")
             return
 
-        # Print top performers
-        for rank, (key, score) in enumerate(rankings[:10], 1):  # Top 10
-            pred_data = self._predictions[key]
+        # Find current pipeline rankings
+        current_rankings = []
+        if show_current_pipeline_best and pipeline and current_pipeline_predictions:
+            current_rankings = self.get_scores_ranking(
+                best_metric, dataset, pipeline, ascending=not higher_is_better, task_type=task_type
+            )
+
+        # Print best overall
+        if all_rankings:
+            best_key, best_score = all_rankings[0]
+            pred_data = self._predictions[best_key]
             model_name = pred_data['model']
             partition = pred_data['partition']
-            direction = "↑" if higher_is_better else "↓"
+            pipeline_name = pred_data['pipeline']
+            print(f"🏆 Best Overall: {model_name} ({pipeline_name}/{partition}) = {best_score:.4f} {direction}")
 
-            print(f"{rank:2d}. {model_name:25} | {partition:15} | {best_metric}: {score:.4f} {direction}")
-
-        if len(rankings) > 10:
-            print(f"... and {len(rankings) - 10} more entries")
+        # Print best from current pipeline
+        if current_rankings and show_current_pipeline_best:
+            curr_key, curr_score = current_rankings[0]
+            curr_pred_data = self._predictions[curr_key]
+            curr_model_name = curr_pred_data['model']
+            curr_partition = curr_pred_data['partition']
+            print(f"🥇 Best This Run: {curr_model_name} ({curr_partition}) = {curr_score:.4f} {direction}")
+        elif show_current_pipeline_best:
+            print("🥇 Best This Run: No predictions found for current pipeline")
 
     def clear(self) -> None:
         """Clear all predictions."""
@@ -753,3 +844,126 @@ class Predictions:
                 f"   Datasets: {datasets}\n"
                 f"   Pipelines: {pipelines}\n"
                 f"   Models: {models}")
+
+    @classmethod
+    def load_dataset_predictions(cls, dataset, saver) -> int:
+        """Load existing predictions for a dataset and return count before loading."""
+        try:
+            if hasattr(saver, 'base_path'):
+                from pathlib import Path
+                base_path = Path(saver.base_path)
+                dataset_name = dataset.name
+                dataset_folder = base_path / dataset_name
+                predictions_file = dataset_folder / f"{dataset_name}_predictions.json"
+
+                if predictions_file.exists():
+                    existing_predictions = cls.load_from_file(str(predictions_file))
+                    # Get count before merging
+                    before_count = len(existing_predictions.list_keys())
+                    # Merge existing predictions into current dataset
+                    dataset._predictions.merge_predictions(existing_predictions)
+                    return before_count
+        except Exception as e:
+            print(f"⚠️ Could not load existing predictions: {e}")
+
+        return 0
+
+    def display_best_scores_summary(self, dataset_name: str, predictions_before_count: int = 0):
+        """Display best scores summary for the dataset after all pipelines are complete."""
+        try:
+            from nirs4all.utils.model_utils import ModelUtils
+
+            # Get all predictions for analysis
+            all_keys = self.list_keys()
+            if len(all_keys) == 0:
+                print("No predictions found")
+                return
+
+            print("-" * 140)
+
+            # Find best from this run (new predictions)
+            # If predictions_before_count > 0, we have existing predictions, so new ones are after that index
+            if predictions_before_count > 0 and len(all_keys) > predictions_before_count:
+                new_predictions = all_keys[predictions_before_count:]
+            else:
+                # Either no previous predictions or we want to analyze all predictions
+                new_predictions = all_keys
+
+            best_this_run = None
+            best_this_run_score = None
+            best_this_run_model = None
+
+            # Find best overall
+            best_overall = None
+            best_overall_score = None
+            best_overall_model = None
+
+            # Track if higher scores are better (for direction arrow)
+            higher_is_better = False            # Analyze all predictions to find best scores
+            for key in all_keys:
+                try:
+                    # Parse key to extract components
+                    key_parts = key.split('_')
+                    if len(key_parts) >= 4:
+                        pred_dataset_name = key_parts[0]
+                        pipeline_name = '_'.join(key_parts[1:-2])
+                        model_name = key_parts[-2]
+                        partition_name = key_parts[-1]
+
+                        # Only process predictions for this dataset
+                        if pred_dataset_name != dataset_name:
+                            continue
+
+                        pred_data = self.get_prediction_data(
+                            pred_dataset_name, pipeline_name, model_name, partition_name
+                        )
+
+                        if pred_data and 'y_true' in pred_data and 'y_pred' in pred_data:
+                            task_type = ModelUtils.detect_task_type(pred_data['y_true'])
+                            scores = ModelUtils.calculate_scores(pred_data['y_true'], pred_data['y_pred'], task_type)
+                            best_metric, metric_higher_is_better = ModelUtils.get_best_score_metric(task_type)
+                            score = scores.get(best_metric)
+
+                            # Update our global higher_is_better (should be consistent across all predictions)
+                            higher_is_better = metric_higher_is_better
+
+                            if score is not None:
+                                # Check if this is best overall
+                                if best_overall_score is None or (
+                                    (higher_is_better and score > best_overall_score) or
+                                    (not higher_is_better and score < best_overall_score)
+                                ):
+                                    best_overall = pipeline_name
+                                    best_overall_score = score
+                                    best_overall_model = model_name
+
+                                # Check if this is best from this run
+                                if key in new_predictions and (
+                                    best_this_run_score is None or
+                                    (higher_is_better and score > best_this_run_score) or
+                                    (not higher_is_better and score < best_this_run_score)
+                                ):
+                                    best_this_run = pipeline_name
+                                    best_this_run_score = score
+                                    best_this_run_model = model_name
+                except Exception:
+                    continue
+
+            # Display results if we have meaningful data
+            # Determine direction based on whether higher is better for this metric
+            direction = "↑" if higher_is_better else "↓"
+
+            if best_this_run and best_this_run_score is not None:
+                print(f"🏆 Best from this run: {best_this_run_model} ({best_this_run}) - mse={best_this_run_score:.4f}{direction}")
+
+            if best_overall and best_overall_score is not None:
+                if predictions_before_count > 0 and best_overall != best_this_run:
+                    print(f"🥇 Best overall: {best_overall_model} ({best_overall}) - mse={best_overall_score:.4f}{direction}")
+                elif predictions_before_count == 0:
+                    # Only show overall if it's different from this run, or if there were no previous predictions
+                    print(f"🥇 Best overall: {best_overall_model} ({best_overall}) - mse={best_overall_score:.4f}{direction}")
+
+        except Exception as e:
+            print(f"⚠️ Could not display best scores summary: {e}")
+            import traceback
+            traceback.print_exc()

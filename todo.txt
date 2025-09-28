@@ -19,7 +19,11 @@ Release
 [Clustering]
 [Workflows: branch, merge, split_src, scope]
 [Y_pipeline in models]
+[LOG]
+[WEBAPP]
+[CLUSTERED COMPUTATION + SERV/CLIENT]
 
+* Runner, externalize all that is not runner logic.
 * Generator > seems good > add internal generation (ie. automatic generation of multiple model into the config)
 
 #### FORMATION ####
