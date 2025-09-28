@@ -33,6 +33,20 @@ def expand_spec(node):
     if not isinstance(node, Mapping):
         return [node]
 
+    # NEW: Handle _range_ node for numeric sequences
+    if set(node.keys()).issubset({"_range_", "count"}):
+        range_spec = node["_range_"]
+        count = node.get("count", None)
+
+        # Generate numeric range based on specification
+        range_values = _generate_range(range_spec)
+
+        # Apply count limit if specified
+        if count is not None and len(range_values) > count:
+            range_values = random.sample(range_values, count)
+
+        return range_values
+
     # Case 1: pure OR node (with optional size, count)
     if set(node.keys()).issubset({"_or_", "size", "count"}):
         choices = node["_or_"]
@@ -143,6 +157,19 @@ def count_combinations(node):
     # Scalars return 1
     if not isinstance(node, Mapping):
         return 1
+
+    # NEW: Handle _range_ node for counting numeric sequences
+    if set(node.keys()).issubset({"_range_", "count"}):
+        range_spec = node["_range_"]
+        count = node.get("count", None)
+
+        # Calculate range size
+        range_size = _count_range(range_spec)
+
+        # Apply count limit if specified
+        if count is not None:
+            return min(count, range_size)
+        return range_size
 
     # Case 1: pure OR node (with optional size, count)
     if set(node.keys()).issubset({"_or_", "size", "count"}):
@@ -367,6 +394,19 @@ def _expand_value(v):
                 vals = random.sample(vals, count)
 
             return vals
+    elif isinstance(v, Mapping) and ("_range_" in v.keys()):
+        # Handle _range_ in value position
+        range_spec = v["_range_"]
+        count = v.get("count", None)
+
+        # Generate numeric range based on specification
+        range_values = _generate_range(range_spec)
+
+        # Apply count limit if specified
+        if count is not None and len(range_values) > count:
+            range_values = random.sample(range_values, count)
+
+        return range_values
     elif isinstance(v, Mapping):
         # Nested object: expand to list of dict values
         return expand_spec(v)
@@ -380,9 +420,67 @@ def _count_value(v):
     """Count combinations for a value position."""
     if isinstance(v, Mapping) and ("_or_" in v.keys()):
         return count_combinations(v)
+    elif isinstance(v, Mapping) and ("_range_" in v.keys()):
+        return count_combinations(v)
     elif isinstance(v, Mapping):
         return count_combinations(v)
     elif isinstance(v, list):
         return count_combinations(v)
     else:
         return 1
+
+
+def _generate_range(range_spec):
+    """Generate numeric range from specification.
+
+    Supports two syntaxes:
+    - Array: [from, to, step] where step defaults to 1
+    - Dict: {"from": start, "to": end, "step": step}
+    """
+    if isinstance(range_spec, list):
+        if len(range_spec) == 2:
+            start, end = range_spec
+            step = 1
+        elif len(range_spec) == 3:
+            start, end, step = range_spec
+        else:
+            raise ValueError("Range array must be [from, to] or [from, to, step]")
+    elif isinstance(range_spec, dict):
+        start = range_spec["from"]
+        end = range_spec["to"]
+        step = range_spec.get("step", 1)
+    else:
+        raise ValueError("Range specification must be array [from, to, step] or dict {'from': start, 'to': end, 'step': step}")
+
+    # Generate range - end is inclusive
+    if step > 0:
+        return list(range(start, end + 1, step))
+    else:
+        # For negative steps, we need to ensure end is included
+        return list(range(start, end - 1, step))
+
+
+def _count_range(range_spec):
+    """Count elements in a numeric range without generating them."""
+    if isinstance(range_spec, list):
+        if len(range_spec) == 2:
+            start, end = range_spec
+            step = 1
+        elif len(range_spec) == 3:
+            start, end, step = range_spec
+        else:
+            raise ValueError("Range array must be [from, to] or [from, to, step]")
+    elif isinstance(range_spec, dict):
+        start = range_spec["from"]
+        end = range_spec["to"]
+        step = range_spec.get("step", 1)
+    else:
+        raise ValueError("Range specification must be array [from, to, step] or dict {'from': start, 'to': end, 'step': step}")
+
+    # Calculate count: (end - start) // step + 1 (end is inclusive)
+    if step > 0 and end >= start:
+        return (end - start) // step + 1
+    elif step < 0 and end <= start:
+        return (start - end) // abs(step) + 1
+    else:
+        return 0

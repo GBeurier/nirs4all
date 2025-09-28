@@ -1,7 +1,7 @@
 #### ROADMAP ########
-Generator | verify optimal order of serialization / deserialization
 Metrics
 learning course - ipynb
+* Generator | verify optimal order of serialization / deserialization
 * Classification | check sample_classif bugs, Customize encoding. adapt charts and error reporting
 * Store predictions and display prediction summaries | clean output and make print/chart helpers for prediction -
 
@@ -19,6 +19,16 @@ Release
 [Clustering]
 [Workflows: branch, merge, split_src, scope]
 [Y_pipeline in models]
+
+#### FORMATION ####
+
+Q1: Finetuning PLS sur 1 BDD
+1 à 60 composantes ; 10 prétraitements et combinaison d'ordre 1 à 2
+Pas de sauvegarde du modèle (seulement les prédictions)
+=> comparaison de RMSE et résidus
+
+>> Verifier la non sauvegarde. Display residu. Report scores. Display Scores.
+
 
 #### BUGS ########
 
