@@ -17,6 +17,7 @@ from enum import Enum
 
 from nirs4all.dataset.helpers import Layout
 from nirs4all.controllers.controller import OperatorController
+from nirs4all.utils.model_utils import ModelUtils, TaskType
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -109,6 +110,109 @@ class BaseModelController(OperatorController, ABC):
     def get_preferred_layout(self) -> str:
         """Return the preferred data layout for this model type ('2d' or '3d')."""
         pass
+
+    def _detect_task_type(self, y: np.ndarray) -> TaskType:
+        """
+        Detect task type from target values.
+
+        Args:
+            y: Target values array
+
+        Returns:
+            TaskType: Detected task type
+        """
+        return ModelUtils.detect_task_type(y)
+
+    def _configure_loss_and_metrics(
+        self,
+        model_config: Dict[str, Any],
+        task_type: TaskType,
+        framework: str = "sklearn"
+    ) -> Dict[str, Any]:
+        """
+        Configure loss function and metrics based on task type.
+
+        Args:
+            model_config: Model configuration dictionary
+            task_type: Detected task type
+            framework: ML framework name
+
+        Returns:
+            Dict: Updated model configuration with loss and metrics
+        """
+        config = model_config.copy()
+
+        # Configure loss function
+        if 'loss' not in config.get('train_params', {}):
+            if 'train_params' not in config:
+                config['train_params'] = {}
+            default_loss = ModelUtils.get_default_loss(task_type, framework)
+            config['train_params']['loss'] = default_loss
+            print(f"📊 Auto-detected {task_type.value} task, using default loss: {default_loss}")
+        else:
+            # Validate provided loss
+            provided_loss = config['train_params']['loss']
+            if not ModelUtils.validate_loss_compatibility(provided_loss, task_type, framework):
+                print(f"⚠️ Warning: Loss '{provided_loss}' may not be compatible with {task_type.value} task")
+
+        # Configure metrics
+        if 'metrics' not in config.get('train_params', {}):
+            default_metrics = ModelUtils.get_default_metrics(task_type, framework)
+            config['train_params']['metrics'] = default_metrics
+            print(f"📈 Using default metrics for {task_type.value}: {default_metrics}")
+
+        return config
+
+    def _calculate_and_print_scores(
+        self,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        task_type: TaskType,
+        partition: str = "test",
+        model_name: str = "model",
+        metrics: Optional[List[str]] = None
+    ) -> Dict[str, float]:
+        """
+        Calculate scores and print them in a formatted way.
+
+        Args:
+            y_true: True values
+            y_pred: Predicted values
+            task_type: Task type for appropriate metrics
+            partition: Data partition name (train, test, val, etc.)
+            model_name: Model name for display
+            metrics: Specific metrics to calculate (None for defaults)
+
+        Returns:
+            Dict[str, float]: Calculated scores
+        """
+        scores = ModelUtils.calculate_scores(y_true, y_pred, task_type, metrics)
+
+        if scores:
+            best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
+            best_score = scores.get(best_metric)
+
+            # Print formatted results
+            print(f"🎯 {model_name} - {partition} scores: {ModelUtils.format_scores(scores)}")
+            if best_score is not None:
+                direction = "↑" if higher_is_better else "↓"
+                print(f"🏆 Best score ({best_metric}): {best_score:.4f} {direction}")
+        else:
+            print(f"⚠️ No scores calculated for {model_name} on {partition} set")
+
+        return scores
+
+    def _get_framework_name(self) -> str:
+        """Get framework name for this controller."""
+        class_name = self.__class__.__name__.lower()
+        if 'sklearn' in class_name:
+            return "sklearn"
+        elif 'tensorflow' in class_name or 'keras' in class_name:
+            return "tensorflow"
+        elif 'pytorch' in class_name or 'torch' in class_name:
+            return "pytorch"
+        else:
+            return "sklearn"  # Default fallback
 
     def _get_unique_model_name(self, step: Any, trained_model: Any, runner: 'PipelineRunner') -> str:
         """
@@ -482,7 +586,7 @@ class BaseModelController(OperatorController, ABC):
         dataset: 'SpectroDataset'
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute simple CV: finetune on full training data, then train on folds."""
-        verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
+        verbose = finetune_params.get('verbose', train_params.get('verbose', 1))
 
         if verbose > 0:
             print("🔍 Simple CV: Finetuning on full training data...")
@@ -1444,6 +1548,22 @@ class BaseModelController(OperatorController, ABC):
         # Store results and serialize model
         binaries = self._store_results(trained_model, y_pred, y_test, runner, "trained")
 
+        # Calculate and display final test scores
+        if verbose > 0:
+            task_type = self._detect_task_type(y_train)
+            test_scores = self._calculate_and_print_scores(
+                y_test, y_pred, task_type, "test", unique_model_name
+            )
+
+            # Print summary
+            best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
+            best_score = test_scores.get(best_metric)
+            if best_score is not None:
+                direction = "↑" if higher_is_better else "↓"
+                print(f"✅ Model {unique_model_name} completed. Best {best_metric}: {best_score:.4f} {direction}")
+            else:
+                print(f"✅ Model {unique_model_name} completed successfully")
+
         # if verbose > 0:
             # print("✅ Training completed successfully")
         return context, binaries
@@ -1621,6 +1741,24 @@ class BaseModelController(OperatorController, ABC):
 
         # Store results
         binaries = self._store_results(best_model, y_pred, y_test, runner, "finetuned")
+
+        # Calculate and display final test scores for finetuned model
+        if verbose > 0:
+            task_type = self._detect_task_type(y_train)
+            unique_model_name = self._get_unique_model_name(model_config, best_model, runner)
+            test_scores = self._calculate_and_print_scores(
+                y_test, y_pred, task_type, "test", unique_model_name
+            )
+
+            # Print finetuning summary
+            best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
+            best_score = test_scores.get(best_metric)
+            if best_score is not None:
+                direction = "↑" if higher_is_better else "↓"
+                print(f"🏆 Finetuned model {unique_model_name} completed. Best {best_metric}: {best_score:.4f} {direction}")
+                print(f"🔧 Optimized parameters: {best_params}")
+            else:
+                print(f"✅ Finetuned model {unique_model_name} completed successfully")
 
         # if verbose > 0:
             # print("✅ Fine-tuning completed successfully")

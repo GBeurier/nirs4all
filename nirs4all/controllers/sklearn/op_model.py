@@ -82,7 +82,7 @@ class SklearnModelController(BaseModelController):
         y_val: Optional[np.ndarray] = None,
         train_params: Optional[Dict[str, Any]] = None
     ) -> BaseEstimator:
-        """Train sklearn model."""
+        """Train sklearn model with score tracking."""
         if train_params is None:
             train_params = {}
 
@@ -110,6 +110,25 @@ class SklearnModelController(BaseModelController):
 
         # Fit the model
         trained_model.fit(X_train, y_train.ravel())  # Ensure y is 1D for sklearn
+
+        # Calculate and print training scores
+        if verbose > 0:
+            task_type = self._detect_task_type(y_train)
+
+            # Training scores
+            y_train_pred = self._predict_model(trained_model, X_train)
+            train_scores = self._calculate_and_print_scores(
+                y_train, y_train_pred, task_type, "train",
+                trained_model.__class__.__name__
+            )
+
+            # Validation scores if available
+            if X_val is not None and y_val is not None:
+                y_val_pred = self._predict_model(trained_model, X_val)
+                val_scores = self._calculate_and_print_scores(
+                    y_val, y_val_pred, task_type, "validation",
+                    trained_model.__class__.__name__
+                )
 
         return trained_model
 
@@ -197,7 +216,7 @@ class SklearnModelController(BaseModelController):
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
-        """Execute sklearn model controller."""
+        """Execute sklearn model controller with score management."""
         # print(f"🔬 Executing sklearn model controller")
 
         # Call parent execute method

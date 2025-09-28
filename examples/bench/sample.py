@@ -42,10 +42,7 @@ from nirs4all.operators.transformations import (
     Haar
 )
 
-dataset_config = {  # define the experiment type and dataset. An experiment is related to a source dataset. action will be removed in the future to allow classif and regression on the same dataset.
-    # "type": "classification",  # 'auto', 'regression'
-    "folder": "./../../sample_data/regression"  # dataset definition is dicted by the json schema. Can load single or multiple files with metadata, and many indices predefined if needed, and folds also.
-}
+dataset_config = "./../../sample_data/regression"
 
 pipeline_config = {
     "pipeline": [

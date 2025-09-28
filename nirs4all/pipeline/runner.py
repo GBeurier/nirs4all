@@ -95,8 +95,7 @@ class PipelineRunner:
         print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
         print("-" * 200)
 
-        if self.save_binaries:
-            storage_path = self.saver.register(dataset.name, config_name)
+        storage_path = self.saver.register(dataset.name, config_name)
         self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
         # Initialize context
@@ -106,17 +105,16 @@ class PipelineRunner:
             self.run_steps(steps, dataset, context, execution="sequential")
 
             # Save enhanced configuration with metadata if saving binaries
-            if self.save_binaries:
-                enhanced_config = {
-                    "steps": PipelineConfigs.serializable_steps(steps),
-                    "execution_metadata": {
-                        "step_binaries": self.step_binaries,
-                        "created_at": datetime.now().isoformat(),
-                        "pipeline_version": "1.0",
-                        "mode": self.mode
-                    }
+            enhanced_config = {
+                "steps": PipelineConfigs.serializable_steps(steps),
+                "execution_metadata": {
+                    "step_binaries": self.step_binaries,
+                    "created_at": datetime.now().isoformat(),
+                    "pipeline_version": "1.0",
+                    "mode": self.mode
                 }
-                self.saver.save_json("pipeline.json", enhanced_config)
+            }
+            self.saver.save_json("pipeline.json", enhanced_config)
 
             print(f"\033[94m✅ Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
 
@@ -316,7 +314,7 @@ class PipelineRunner:
                 actual_filenames.append(prefixed_name)
 
             self.step_binaries[step_id] = actual_filenames
-            self.saver.save_binaries(self.step_number, self.substep_number, binaries)
+            self.saver.save_binaries(self.step_number, self.substep_number, binaries, self.save_binaries)
 
         return context
 

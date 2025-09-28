@@ -5,8 +5,10 @@ This module contains Predictions class for storing and managing model prediction
 with metadata about dataset, pipeline, models, and partitions.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
+import pandas as pd
+from pathlib import Path
 
 
 class Predictions:
@@ -412,6 +414,319 @@ class Predictions:
             self._predictions[key] = result
 
         return result
+
+    def calculate_scores_for_predictions(
+        self,
+        dataset: Optional[str] = None,
+        pipeline: Optional[str] = None,
+        model: Optional[str] = None,
+        partition: Optional[str] = None,
+        task_type: str = "auto"
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Calculate scores for predictions with automatic task type detection.
+
+        Args:
+            dataset: Filter by dataset name
+            pipeline: Filter by pipeline name
+            model: Filter by model name
+            partition: Filter by partition name
+            task_type: Task type ("regression", "binary_classification", "multiclass_classification", or "auto")
+
+        Returns:
+            Dict mapping prediction keys to their calculated scores
+        """
+        from nirs4all.utils.model_utils import ModelUtils, TaskType
+
+        predictions = self.get_predictions(dataset, pipeline, model, partition)
+        scores_dict = {}
+
+        for key, pred_data in predictions.items():
+            y_true = pred_data['y_true']
+            y_pred = pred_data['y_pred']
+
+            # Auto-detect task type if not specified
+            if task_type == "auto":
+                detected_task_type = ModelUtils.detect_task_type(y_true)
+            else:
+                task_type_mapping = {
+                    "regression": TaskType.REGRESSION,
+                    "binary_classification": TaskType.BINARY_CLASSIFICATION,
+                    "multiclass_classification": TaskType.MULTICLASS_CLASSIFICATION
+                }
+                detected_task_type = task_type_mapping.get(task_type, TaskType.REGRESSION)
+
+            scores = ModelUtils.calculate_scores(y_true, y_pred, detected_task_type)
+            scores_dict[key] = scores
+
+        return scores_dict
+
+    def get_scores_ranking(
+        self,
+        metric: str,
+        dataset: Optional[str] = None,
+        pipeline: Optional[str] = None,
+        model: Optional[str] = None,
+        partition: Optional[str] = None,
+        ascending: bool = True,
+        task_type: str = "auto"
+    ) -> List[Tuple[str, float]]:
+        """
+        Get predictions ranked by a specific metric score.
+
+        Args:
+            metric: Metric name to rank by (e.g., 'mse', 'accuracy', 'f1')
+            dataset: Filter by dataset name
+            pipeline: Filter by pipeline name
+            model: Filter by model name
+            partition: Filter by partition name
+            ascending: If True, lower scores rank higher (for error metrics)
+            task_type: Task type for appropriate score calculation
+
+        Returns:
+            List of (prediction_key, score) tuples sorted by score
+        """
+        scores_dict = self.calculate_scores_for_predictions(
+            dataset, pipeline, model, partition, task_type
+        )
+
+        rankings = []
+        for key, scores in scores_dict.items():
+            if metric in scores:
+                rankings.append((key, scores[metric]))
+
+        # Sort by score
+        rankings.sort(key=lambda x: x[1], reverse=not ascending)
+
+        return rankings
+
+    def get_best_score(
+        self,
+        metric: str,
+        dataset: Optional[str] = None,
+        pipeline: Optional[str] = None,
+        model: Optional[str] = None,
+        partition: Optional[str] = None,
+        task_type: str = "auto"
+    ) -> Optional[Tuple[str, float]]:
+        """
+        Get the best (lowest or highest depending on metric) score for a metric.
+
+        Args:
+            metric: Metric name
+            dataset: Filter by dataset name
+            pipeline: Filter by pipeline name
+            model: Filter by model name
+            partition: Filter by partition name
+            task_type: Task type for appropriate score calculation
+
+        Returns:
+            Tuple of (prediction_key, best_score) or None if no predictions found
+        """
+        from nirs4all.utils.model_utils import ModelUtils, TaskType
+
+        # Determine if higher or lower is better for this metric
+        if task_type == "auto":
+            # Use common knowledge about metrics
+            lower_is_better_metrics = {'mse', 'mae', 'rmse', 'log_loss', 'loss'}
+            ascending = metric.lower() in lower_is_better_metrics
+        else:
+            task_type_mapping = {
+                "regression": TaskType.REGRESSION,
+                "binary_classification": TaskType.BINARY_CLASSIFICATION,
+                "multiclass_classification": TaskType.MULTICLASS_CLASSIFICATION
+            }
+            detected_task_type = task_type_mapping.get(task_type, TaskType.REGRESSION)
+            best_metric, higher_is_better = ModelUtils.get_best_score_metric(detected_task_type)
+
+            if metric == best_metric:
+                ascending = not higher_is_better
+            else:
+                # Default heuristic
+                lower_is_better_metrics = {'mse', 'mae', 'rmse', 'log_loss', 'loss'}
+                ascending = metric.lower() in lower_is_better_metrics
+
+        rankings = self.get_scores_ranking(
+            metric, dataset, pipeline, model, partition, ascending, task_type
+        )
+
+        return rankings[0] if rankings else None
+
+    def get_all_scores_summary(
+        self,
+        dataset: Optional[str] = None,
+        pipeline: Optional[str] = None,
+        model: Optional[str] = None,
+        task_type: str = "auto"
+    ) -> pd.DataFrame:
+        """
+        Get a comprehensive summary of all scores across all partitions.
+
+        Args:
+            dataset: Filter by dataset name
+            pipeline: Filter by pipeline name
+            model: Filter by model name
+            task_type: Task type for appropriate score calculation
+
+        Returns:
+            DataFrame with scores for all predictions
+        """
+        scores_dict = self.calculate_scores_for_predictions(
+            dataset, pipeline, model, task_type=task_type
+        )
+
+        rows = []
+        for key, scores in scores_dict.items():
+            pred_data = self._predictions[key]
+
+            row = {
+                'prediction_key': key,
+                'dataset': pred_data['dataset'],
+                'pipeline': pred_data['pipeline'],
+                'model': pred_data['model'],
+                'partition': pred_data['partition'],
+                'fold_idx': pred_data.get('fold_idx'),
+                'n_samples': len(pred_data['y_true']),
+            }
+
+            # Add all scores
+            row.update(scores)
+            rows.append(row)
+
+        return pd.DataFrame(rows)
+
+    def save_predictions_to_csv(
+        self,
+        filepath: str,
+        dataset: Optional[str] = None,
+        pipeline: Optional[str] = None,
+        model: Optional[str] = None,
+        partition: Optional[str] = None,
+        include_scores: bool = True,
+        task_type: str = "auto"
+    ) -> None:
+        """
+        Save predictions to CSV file.
+
+        Args:
+            filepath: Output CSV file path
+            dataset: Filter by dataset name
+            pipeline: Filter by pipeline name
+            model: Filter by model name
+            partition: Filter by partition name
+            include_scores: Whether to include calculated scores
+            task_type: Task type for score calculation
+        """
+        predictions = self.get_predictions(dataset, pipeline, model, partition)
+
+        if not predictions:
+            print(f"No predictions found matching the criteria")
+            return
+
+        all_rows = []
+
+        # Calculate scores if requested
+        scores_dict = {}
+        if include_scores:
+            scores_dict = self.calculate_scores_for_predictions(
+                dataset, pipeline, model, partition, task_type
+            )
+
+        for key, pred_data in predictions.items():
+            y_true = pred_data['y_true'].flatten()
+            y_pred = pred_data['y_pred'].flatten()
+            sample_indices = pred_data['sample_indices']
+
+            # Create rows for each sample
+            for i, (true_val, pred_val, sample_idx) in enumerate(zip(y_true, y_pred, sample_indices)):
+                row = {
+                    'prediction_key': key,
+                    'dataset': pred_data['dataset'],
+                    'pipeline': pred_data['pipeline'],
+                    'model': pred_data['model'],
+                    'partition': pred_data['partition'],
+                    'fold_idx': pred_data.get('fold_idx'),
+                    'sample_index': sample_idx,
+                    'y_true': true_val,
+                    'y_pred': pred_val,
+                    'residual': true_val - pred_val,
+                    'absolute_error': abs(true_val - pred_val)
+                }
+
+                # Add scores (same for all samples from same prediction)
+                if include_scores and key in scores_dict:
+                    row.update(scores_dict[key])
+
+                all_rows.append(row)
+
+        # Create DataFrame and save
+        df = pd.DataFrame(all_rows)
+        df.to_csv(filepath, index=False)
+        print(f"💾 Saved {len(all_rows)} prediction records to {filepath}")
+
+    def print_best_scores_summary(
+        self,
+        dataset: Optional[str] = None,
+        pipeline: Optional[str] = None,
+        task_type: str = "auto"
+    ) -> None:
+        """
+        Print a formatted summary of best scores across models.
+
+        Args:
+            dataset: Filter by dataset name
+            pipeline: Filter by pipeline name
+            task_type: Task type for appropriate score calculation
+        """
+        from nirs4all.utils.model_utils import ModelUtils, TaskType
+
+        # Get all predictions
+        predictions = self.get_predictions(dataset, pipeline)
+
+        if not predictions:
+            print("No predictions found")
+            return
+
+        # Determine primary metric based on task type
+        if task_type == "auto":
+            # Use first prediction to detect task type
+            first_pred = next(iter(predictions.values()))
+            detected_task_type = ModelUtils.detect_task_type(first_pred['y_true'])
+        else:
+            task_type_mapping = {
+                "regression": TaskType.REGRESSION,
+                "binary_classification": TaskType.BINARY_CLASSIFICATION,
+                "multiclass_classification": TaskType.MULTICLASS_CLASSIFICATION
+            }
+            detected_task_type = task_type_mapping.get(task_type, TaskType.REGRESSION)
+
+        best_metric, higher_is_better = ModelUtils.get_best_score_metric(detected_task_type)
+
+        print(f"🏆 Best Scores Summary ({best_metric}):")
+        print(f"📊 Task Type: {detected_task_type.value}")
+        print(f"📈 Optimization: {'Higher is better' if higher_is_better else 'Lower is better'}")
+        print("-" * 80)
+
+        # Get rankings for the best metric
+        rankings = self.get_scores_ranking(
+            best_metric, dataset, pipeline, ascending=not higher_is_better, task_type=task_type
+        )
+
+        if not rankings:
+            print("No scores calculated")
+            return
+
+        # Print top performers
+        for rank, (key, score) in enumerate(rankings[:10], 1):  # Top 10
+            pred_data = self._predictions[key]
+            model_name = pred_data['model']
+            partition = pred_data['partition']
+            direction = "↑" if higher_is_better else "↓"
+
+            print(f"{rank:2d}. {model_name:25} | {partition:15} | {best_metric}: {score:.4f} {direction}")
+
+        if len(rankings) > 10:
+            print(f"... and {len(rankings) - 10} more entries")
 
     def clear(self) -> None:
         """Clear all predictions."""
