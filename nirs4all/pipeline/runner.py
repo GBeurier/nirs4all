@@ -26,6 +26,7 @@ from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.binary_loader import BinaryLoader
+from nirs4all.utils.spinner import spinner_context
 
 
 
@@ -48,7 +49,8 @@ class PipelineRunner:
                  results_path: Optional[str] = None,
                  save_binaries: bool = True,
                  mode: str = "train",
-                 load_existing_predictions: bool = True):
+                 load_existing_predictions: bool = True,
+                 show_spinner: bool = True):
 
         self.max_workers = max_workers or -1  # -1 means use all available cores
         self.continue_on_error = continue_on_error
@@ -65,6 +67,7 @@ class PipelineRunner:
         self.load_existing_predictions = load_existing_predictions
         self.step_binaries: Dict[str, List[str]] = {}  # Track step-to-binary mapping
         self.binary_loader: Optional[BinaryLoader] = None
+        self.show_spinner = show_spinner
 
     def next_op(self) -> int:
         """Get the next operation ID."""
@@ -366,16 +369,42 @@ class PipelineRunner:
         # Store previous predictions count to detect if new predictions were added
         prev_prediction_count = len(dataset._predictions) if hasattr(dataset, '_predictions') else 0
 
-        context, binaries = controller.execute(
-            step,
-            operator,
-            dataset,
-            context,
-            self,
-            source,
-            self.mode,
-            loaded_binaries
-        )
+        # Determine if we need a spinner (for model controllers and other long operations)
+        is_model_controller = 'model' in controller_name.lower()
+        needs_spinner = is_model_controller or any(keyword in controller_name.lower()
+                                                   for keyword in ['transform', 'preprocess', 'augment'])
+
+        # Execute with spinner if needed
+        if needs_spinner and self.show_spinner and self.verbose == 0:  # Only show spinner when not verbose
+            # Create spinner message
+            spinner_message = f"🔄 {controller_name.replace('Controller', '')}"
+            if operator_name:
+                spinner_message += f" ({operator_name})"
+
+            # Use braille spinner characters for smooth animation
+            with spinner_context(spinner_message, chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", speed=0.08):
+                context, binaries = controller.execute(
+                    step,
+                    operator,
+                    dataset,
+                    context,
+                    self,
+                    source,
+                    self.mode,
+                    loaded_binaries
+                )
+        else:
+            # Execute without spinner
+            context, binaries = controller.execute(
+                step,
+                operator,
+                dataset,
+                context,
+                self,
+                source,
+                self.mode,
+                loaded_binaries
+            )
 
         # Always show final score for model controllers when verbose=0
         is_model_controller = 'model' in controller_name.lower()
