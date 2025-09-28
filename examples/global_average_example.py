@@ -9,7 +9,7 @@ parameters by evaluating them simultaneously across all cross-validation folds.
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config import PipelineConfig
+from nirs4all.pipeline.config import PipelineConfigs
 
 # Example dataset configuration
 dataset_config = {
@@ -65,7 +65,7 @@ This approach is more generalizable but computationally more expensive.
     # Load dataset and run pipeline
     from nirs4all.dataset.loader import get_dataset
     data = get_dataset(dataset_config)
-    config = PipelineConfig(pipeline_config, "global_avg_example")
+    config = PipelineConfigs(pipeline_config, "global_avg_example")
     runner = PipelineRunner()
 
     print("Running optimization... (this may take a moment)")
@@ -144,7 +144,7 @@ def comparison_example():
         import time
 
         data = get_dataset(dataset_config)
-        config = PipelineConfig(pipeline_config, f"comp_{strategy}")
+        config = PipelineConfigs(pipeline_config, f"comp_{strategy}")
         runner = PipelineRunner()
 
         start_time = time.time()

@@ -421,7 +421,7 @@ def handle_data(config, t_set):
     return x, y, x_report, y_report
 
 
-def get_dataset(data_config) -> SpectroDataset:
+def get_dataset(data_config) -> SpectroDataset: ## TODO: add metadata
     """
     Load dataset based on the data configuration.
 

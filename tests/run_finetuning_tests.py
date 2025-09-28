@@ -25,7 +25,7 @@ def run_basic_tests():
     try:
         from nirs4all.controllers.models.base_model_controller import ParamStrategy, BaseModelController
         from nirs4all.pipeline.runner import PipelineRunner
-        from nirs4all.pipeline.config import PipelineConfig
+        from nirs4all.pipeline.config import PipelineConfigs
         test_results.append(("Imports", True, None))
         print("✅ All required modules import successfully")
     except Exception as e:
@@ -117,8 +117,8 @@ def run_basic_tests():
                 if name == "Full Training":
                     config["pipeline"][0]["finetune_params"]["use_full_train_for_final"] = True
 
-                # Test PipelineConfig creation
-                pipeline_config = PipelineConfig(config, f"test_{cv_mode}_{param_strategy}")
+                # Test PipelineConfigs creation
+                pipeline_config = PipelineConfigs(config, f"test_{cv_mode}_{param_strategy}")
                 config_results.append((name, True, None))
 
             except Exception as e:
@@ -161,7 +161,7 @@ def run_basic_tests():
                     }
                 }]
             }
-            pipeline_config = PipelineConfig(config, f"perf_test_{i}")
+            pipeline_config = PipelineConfigs(config, f"perf_test_{i}")
 
         elapsed = time.time() - start_time
 

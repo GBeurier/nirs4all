@@ -23,7 +23,7 @@ from sklearn.model_selection import KFold
 # Import NIRS4ALL components
 from nirs4all.dataset.loader import get_dataset
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config import PipelineConfig
+from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.controllers.registry import reset_registry
 import nirs4all.controllers
 
@@ -81,7 +81,7 @@ def run_strategy_test(param_strategy, cv_mode='per_fold', n_trials=5):
     )
 
     # Create and run pipeline
-    config = PipelineConfig(pipeline_config, f"test_{param_strategy}_{cv_mode}")
+    config = PipelineConfigs(pipeline_config, f"test_{param_strategy}_{cv_mode}")
     runner = PipelineRunner()
 
     # Time the execution

@@ -6,7 +6,7 @@ sklearn transformers to target data instead of features.
 """
 
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
-from nirs4all.pipeline.config import PipelineConfig
+from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
 
 # Example pipeline configuration using y_processing
@@ -55,7 +55,7 @@ def example_y_transformation_usage():
     """
 
     # Create pipeline from config
-    config = PipelineConfig(pipeline_config, "y_transformation_example")
+    config = PipelineConfigs(pipeline_config, "y_transformation_example")
     runner = PipelineRunner()
 
     # Assuming you have a dataset with targets loaded:

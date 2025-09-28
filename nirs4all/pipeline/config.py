@@ -1,5 +1,5 @@
 """
-PipelineConfig.py
+PipelineConfigs.py
 """
 
 import json
@@ -14,23 +14,23 @@ from .generator import expand_spec, count_combinations
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class PipelineConfig:
+class PipelineConfigs:
     """
     Class to hold the configuration for a pipeline.
     """
-    def __init__(self, definition: Union[Dict, List[Any], str], name: str = "", description: str = "No description provided", max_generation_count: int = 1000):
+    def __init__(self, definition: Union[Dict, List[Any], str], name: str = "", description: str = "No description provided", max_generation_count: int = 10000):
         """
         Initialize the pipeline configuration.
         """
+        ## Parse / Format / Validate the configuration
         self.description = description
         self.steps = self._load_steps(definition)
         self.steps = self._preprocess_steps(self.steps)
         self.steps = serialize_component(self.steps, include_runtime=True)
-        self.name = "config_" + (self.get_hash() if name == "" else name + "_" + self.get_hash()[0:6])
-        self.has_configurations = False
 
-        # Check for expansion
-        if self._has_or_keys(self.steps):
+        ## Generation
+        self.has_configurations = False
+        if self._has_gen_keys(self.steps):
             count = count_combinations(self.steps)
             if count > max_generation_count:
                 raise ValueError(f"Configuration expansion would generate {count} configurations, exceeding the limit of {max_generation_count}. Please simplify your configuration.")
@@ -39,14 +39,21 @@ class PipelineConfig:
                 self.has_configurations = True
                 self.steps = expand_spec(self.steps)
 
-    def _has_or_keys(self, obj: Any) -> bool:
+        if not self.has_configurations:
+            self.steps = [self.steps]  # Wrap single configuration in a list
+
+
+
+        self.name = "config_" + (self.get_hash() if name == "" else name + "_" + self.get_hash()[0:6])
+
+    def _has_gen_keys(self, obj: Any) -> bool:
         """Recursively check if the configuration contains 'or' keys."""
         if isinstance(obj, dict):
-            if "_or_" in obj:
+            if "_or_" in obj or "_range_" in obj:
                 return True
-            return any(self._has_or_keys(v) for v in obj.values())
+            return any(self._has_gen_keys(v) for v in obj.values())
         elif isinstance(obj, list):
-            return any(self._has_or_keys(item) for item in obj)
+            return any(self._has_gen_keys(item) for item in obj)
         return False
 
     def _preprocess_steps(self, steps: Any) -> Any:
@@ -126,7 +133,7 @@ class PipelineConfig:
         return self._load_steps(pipeline_definition)
 
     def __repr__(self):
-        return f"PipelineConfig(name={self.name}, description={self.description}\nsteps={self.json_steps()})"
+        return f"PipelineConfigs(name={self.name}, description={self.description}\nsteps={self.json_steps()})"
 
     def save(self, filepath: str) -> None:
         """

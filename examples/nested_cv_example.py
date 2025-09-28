@@ -217,7 +217,7 @@ Choose based on your computational budget and required rigor level.
 
 if __name__ == "__main__":
     from nirs4all.pipeline.runner import PipelineRunner
-    from nirs4all.pipeline.config import PipelineConfig
+    from nirs4all.pipeline.config import PipelineConfigs
     from nirs4all.dataset.loader import get_dataset
 
     # Load dataset
@@ -228,7 +228,7 @@ if __name__ == "__main__":
     print("SIMPLE CV EXAMPLE")
     print("="*80)
 
-    config = PipelineConfig(simple_cv_pipeline, "simple_cv_example")
+    config = PipelineConfigs(simple_cv_pipeline, "simple_cv_example")
     runner = PipelineRunner()
 
     try:
@@ -238,6 +238,6 @@ if __name__ == "__main__":
         print(f"❌ Simple CV failed: {e}")
 
     # Uncomment to try other examples:
-    # config = PipelineConfig(per_fold_cv_pipeline, "per_fold_cv_example")
-    # config = PipelineConfig(nested_cv_pipeline, "nested_cv_example")
-    # config = PipelineConfig(nested_cv_tensorflow_pipeline, "nested_cv_tf_example")
+    # config = PipelineConfigs(per_fold_cv_pipeline, "per_fold_cv_example")
+    # config = PipelineConfigs(nested_cv_pipeline, "nested_cv_example")
+    # config = PipelineConfigs(nested_cv_tensorflow_pipeline, "nested_cv_tf_example")

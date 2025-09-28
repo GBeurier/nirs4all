@@ -5,7 +5,7 @@ This module contains pipeline classes for processing workflows.
 """
 
 # Import main pipeline classes
-from .config import PipelineConfig
+from .config import PipelineConfigs
 # from .pipeline_context import PipelineContext, ScopeState
 from .history import PipelineHistory, PipelineExecution, StepExecution
 from .operation import PipelineOperation
@@ -18,7 +18,7 @@ from .runner import PipelineRunner
 
 __all__ = [
     # 'FittedPipeline','Pipeline',
-    'PipelineConfig',
+    'PipelineConfigs',
     # 'PipelineContext',
     'PipelineHistory',
     'PipelineOperation',

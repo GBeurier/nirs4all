@@ -9,7 +9,7 @@ __version__ = "0.9.7"
 __author__ = "NIRS4All Project"
 
 # Core pipeline components - most commonly used
-from .pipeline import PipelineRunner, PipelineConfig, PipelineHistory
+from .pipeline import PipelineRunner, PipelineConfigs, PipelineHistory
 from .controllers import register_controller, CONTROLLER_REGISTRY
 
 # Utility functions for backend detection
@@ -24,7 +24,7 @@ from .utils import (
 __all__ = [
     # Pipeline components
     "PipelineRunner",
-    "PipelineConfig",
+    "PipelineConfigs",
     "PipelineHistory",
 
     # Controller system

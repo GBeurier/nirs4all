@@ -13,7 +13,7 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
 
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config import PipelineConfig
+from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.controllers.models.base_model_controller import ParamStrategy
 
 
@@ -158,7 +158,7 @@ class TestFinetuningStrategies:
         valid_config = self._create_test_config("test_valid", "per_fold", "global_average")
 
         try:
-            pipeline_config = PipelineConfig(valid_config, "test_valid")
+            pipeline_config = PipelineConfigs(valid_config, "test_valid")
             assert pipeline_config is not None
             print("✅ Valid configuration passes validation")
         except Exception as e:
@@ -169,7 +169,7 @@ class TestFinetuningStrategies:
 
         # The system should handle invalid modes gracefully or with clear errors
         try:
-            pipeline_config = PipelineConfig(invalid_config, "test_invalid")
+            pipeline_config = PipelineConfigs(invalid_config, "test_invalid")
             # If it doesn't raise an error, that's also acceptable (graceful handling)
             print("✅ Invalid configuration handled gracefully")
         except Exception as e:
@@ -188,10 +188,10 @@ class TestFinetuningStrategies:
 
         assert config_time < 1.0, f"Configuration creation too slow: {config_time:.2f}s"
 
-        # Test that PipelineConfig creation is reasonable
+        # Test that PipelineConfigs creation is reasonable
         start_time = time.time()
         config = self._create_test_config("perf_test", "per_fold", "global_average")
-        pipeline_config = PipelineConfig(config, "perf_test")
+        pipeline_config = PipelineConfigs(config, "perf_test")
         pipeline_time = time.time() - start_time
 
         assert pipeline_time < 1.0, f"Pipeline config creation too slow: {pipeline_time:.2f}s"
@@ -276,7 +276,7 @@ class TestIntegrationChecks:
     def test_pipeline_runner_integration(self):
         """Test that PipelineRunner can be imported and instantiated."""
         from nirs4all.pipeline.runner import PipelineRunner
-        from nirs4all.pipeline.config import PipelineConfig
+        from nirs4all.pipeline.config import PipelineConfigs
 
         # Test instantiation
         runner = PipelineRunner()
@@ -297,7 +297,7 @@ class TestIntegrationChecks:
             }]
         }
 
-        pipeline_config = PipelineConfig(simple_config, "integration_test")
+        pipeline_config = PipelineConfigs(simple_config, "integration_test")
         assert pipeline_config is not None
 
         print("✅ PipelineRunner integration works correctly")
