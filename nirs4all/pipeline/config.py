@@ -24,6 +24,7 @@ class PipelineConfig:
         """
         self.description = description
         self.steps = self._load_steps(definition)
+        self.steps = self._preprocess_steps(self.steps)
         self.steps = serialize_component(self.steps, include_runtime=True)
         self.name = "config_" + (self.get_hash() if name == "" else name + "_" + self.get_hash()[0:6])
         self.has_configurations = False
@@ -47,6 +48,30 @@ class PipelineConfig:
         elif isinstance(obj, list):
             return any(self._has_or_keys(item) for item in obj)
         return False
+
+    def _preprocess_steps(self, steps: Any) -> Any:
+        """
+        Preprocess steps to merge *_params into the corresponding component key.
+        Recursively handles lists and dicts.
+        """
+        component_keys = ["model"]  # Add more keys here as needed, e.g., ["model", "y_processing"]
+
+        if isinstance(steps, list):
+            return [self._preprocess_steps(step) for step in steps]
+        elif isinstance(steps, dict):
+            # Merge *_params into component keys
+            for key in component_keys:
+                params_key = f"{key}_params"
+                if key in steps and params_key in steps:
+                    steps[key] = {"class": steps[key], "params": steps[params_key]}
+                    del steps[params_key]
+
+            # Recurse on values
+            for k, v in steps.items():
+                steps[k] = self._preprocess_steps(v)
+            return steps
+        else:
+            return steps
 
     def _load_steps(self, definition: Union[Dict, List[Any], str]) -> List[Any]:
         """
@@ -165,3 +190,30 @@ class PipelineConfig:
         import hashlib
         serializable = json.dumps(self.serializable_steps(), sort_keys=True).encode('utf-8')
         return hashlib.md5(serializable).hexdigest()[0:8]
+
+    @classmethod
+    def value_of(cls, obj, key):
+        """
+        Recursively collect all values of a key in a (possibly nested) serialized object.
+        Returns a single string with values joined by commas.
+        """
+
+        values = []
+
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k == key:
+                    values.append(str(v))
+                values.extend(cls.value_of(v, key))
+        elif isinstance(obj, list):
+            for item in obj:
+                values.extend(cls.value_of(item, key))
+
+        return values
+
+    @classmethod
+    def value_of_str(cls, obj, key):
+        """
+        Returns a single string of all values for the given key, joined by commas.
+        """
+        return ", ".join(cls.value_of(obj, key))
