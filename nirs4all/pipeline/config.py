@@ -191,6 +191,44 @@ class PipelineConfig:
         serializable = json.dumps(self.serializable_steps(), sort_keys=True).encode('utf-8')
         return hashlib.md5(serializable).hexdigest()[0:8]
 
+    @staticmethod
+    def _get_step_description(step: Any) -> str:
+        """Get a human-readable description of a step"""
+        if step is None:
+            return "No operation"
+        if isinstance(step, dict):
+            if len(step) == 1:
+                key = next(iter(step.keys()))
+                return f"{key}"
+            elif "class" in step:
+                key = f"{step['class'].split('.')[-1]}"
+                if "params" in step:
+                    params_str = ", ".join(f"{k}={v}" for k, v in step["params"].items())
+                    return f"{key}({params_str})"
+                return f"{step['class'].split('.')[-1]}"
+            elif "model" in step:
+                if "class" in step['model']:
+                    key = f"{step['model']['class'].split('.')[-1]}"
+                elif "function" in step['model']:
+                    key = f"{step['model']['function'].split('.')[-1]}"
+                else:
+                    key = "unknown_model"
+                params_str = ""
+                if "params" in step['model']:
+                    params_str = ", ".join(f"{k}={v}" for k, v in step['model']["params"].items())
+                actions = "train"
+                if "finetune_params" in step:
+                    actions = "(finetune)"
+                return f"{actions} {key}({params_str})"
+            else:
+                return f"Dict with {len(step)} keys"
+        elif isinstance(step, list):
+            return f"Sub-pipeline ({len(step)} steps)"
+        elif isinstance(step, str):
+            return step
+        else:
+            return str(type(step).__name__)
+
     @classmethod
     def value_of(cls, obj, key):
         """
