@@ -17,7 +17,7 @@ The prediction feature allows you to:
 def example_training_with_binaries():
     """Train a pipeline with binary saving for later prediction."""
     from nirs4all.pipeline.runner import PipelineRunner
-    from nirs4all.pipeline.config import PipelineConfig
+    from nirs4all.pipeline.config import PipelineConfigs
     from nirs4all.dataset.dataset import SpectroDataset
 
     # Create runner with binary saving enabled (default)
@@ -40,7 +40,7 @@ def example_training_with_binaries():
     ]
 
     # Create configuration and run training
-    config = PipelineConfig(steps)
+    config = PipelineConfigs(steps)
     config.name = "my_trained_pipeline"
 
     dataset = SpectroDataset.load("./data/training_data")
@@ -75,7 +75,7 @@ def example_prediction():
 def example_complex_pipeline():
     """Complex pipeline demonstrating what gets skipped in prediction mode."""
     from nirs4all.pipeline.runner import PipelineRunner
-    from nirs4all.pipeline.config import PipelineConfig
+    from nirs4all.pipeline.config import PipelineConfigs
 
     steps = [
         # Data preprocessing - EXECUTED in prediction mode

@@ -1,7 +1,7 @@
 """
-DatasetConfig - Configuration and caching for dataset loading.
+DatasetConfigs - Configuration and caching for dataset loading.
 
-This module provides DatasetConfig class that handles dataset configuration,
+This module provides DatasetConfigs class that handles dataset configuration,
 name resolution, loader calls, and caching to avoid reloading the same dataset.
 """
 
@@ -13,7 +13,7 @@ from nirs4all.dataset.loader import get_dataset
 from nirs4all.dataset.config import parse_config
 
 
-class DatasetConfig:
+class DatasetConfigs:
     """
     Configuration class for datasets that handles loading, naming, and caching.
 
@@ -23,7 +23,7 @@ class DatasetConfig:
 
     def __init__(self, data_configs: Union[Dict[str, Any], List[Dict[str, Any]], str, List[str]]):
         """
-        Initialize DatasetConfig with one or more dataset configurations.
+        Initialize DatasetConfigs with one or more dataset configurations.
 
         Args:
             data_configs: Single dataset config (dict or str path) or list of configs
@@ -57,15 +57,6 @@ class DatasetConfig:
             datasets.append(dataset)
 
         return datasets
-
-    def get_dataset(self) -> SpectroDataset:
-        """
-        Get a single dataset. If multiple configs, returns the first one.
-
-        Returns:
-            SpectroDataset instance
-        """
-        return self.get_datasets()[0]
 
     def _hash_config(self, config: Union[Dict[str, Any], str]) -> str:
         """

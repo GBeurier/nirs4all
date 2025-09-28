@@ -9,7 +9,7 @@ but train the final model on the full training dataset instead of individual fol
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config import PipelineConfig
+from nirs4all.pipeline.config import PipelineConfigs
 
 # Example dataset configuration
 dataset_config = {
@@ -68,7 +68,7 @@ NEW Full Training Approach:
     # Run the pipeline
     from nirs4all.dataset.loader import get_dataset
     data = get_dataset(dataset_config)
-    config = PipelineConfig(full_train_config, "full_train_example")
+    config = PipelineConfigs(full_train_config, "full_train_example")
     runner = PipelineRunner()
 
     print("🚀 Running optimization with full training option...")
@@ -158,7 +158,7 @@ def compare_approaches():
             import time
 
             data = get_dataset(dataset_config)
-            pipeline_config = PipelineConfig(config, f"comp_{approach_name}")
+            pipeline_config = PipelineConfigs(config, f"comp_{approach_name}")
             runner = PipelineRunner()
 
             start_time = time.time()

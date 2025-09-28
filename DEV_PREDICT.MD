@@ -117,7 +117,7 @@ def predict(path: Union[str, Path], dataset: SpectroDataset,
     runner.binary_loader = binary_loader
 
     # 4. Run pipeline in prediction mode
-    config = PipelineConfig(pipeline_data["steps"])
+    config = PipelineConfigs(pipeline_data["steps"])
     return runner.run(config, dataset, mode="predict")
 ```
 

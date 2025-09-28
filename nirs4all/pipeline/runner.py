@@ -19,9 +19,10 @@ from joblib import Parallel, delayed, parallel_backend
 
 from nirs4all.pipeline.serialization import deserialize_component
 from nirs4all.pipeline.history import PipelineHistory
-from nirs4all.pipeline.config import PipelineConfig
+from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.io import SimulationSaver
 from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.binary_loader import BinaryLoader
 
@@ -67,25 +68,48 @@ class PipelineRunner:
         self.operation_count += 1
         return self.operation_count
 
-    def run(self, config: PipelineConfig, dataset: SpectroDataset) -> Tuple[SpectroDataset, PipelineHistory, Any]:
-        """Run the pipeline with the given configuration and dataset."""
-        print("=" * 200)
-        print(f"\033[94m🚀 Starting pipeline {config.name} on dataset {dataset.name}\033[0m")
-        print("-" * 200)
-        if self.save_binaries:
-            storage_path = self.saver.register(dataset.name, config.name)
-        self.saver.save_json("pipeline.json", config.serializable_steps())
+    def run(self, pipeline_config: PipelineConfigs, dataset_config: DatasetConfigs) -> List[Tuple[SpectroDataset, PipelineHistory, Any]]:
+        """Run pipeline configurations on dataset configurations."""
+        results = []
+
+        # Get datasets from DatasetConfigs
+        datasets = dataset_config.get_datasets()
+
+        # Get pipeline configurations (just use the single configuration)
+        pipeline_configs = []
+        if not pipeline_config.has_configurations:
+            pipeline_configs = [pipeline_config]
+
+        # # Double loop: foreach dataset first, then foreach pipeline config
+        # for dataset in datasets:
+        #     for config in pipeline_configs:
+        #         result = self._run_single(config, dataset)
+        #         results.append(result)
+
+        return results
+
+    def _run_single(self, config: List[Any], dataset: SpectroDataset) -> Tuple[SpectroDataset, PipelineHistory, Any]:
+        """Run a single pipeline configuration on a single dataset."""
+        # Reset runner state for each run
+        self.history = PipelineHistory()
         self.step_number = 0
         self.substep_number = -1
         self.operation_count = 0
-        # context = {"branch": 0, "processing": "raw", "y": "numeric"}
-        context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
+        self.step_binaries = {}
 
-        # context = {"branch": 0, "processing": "raw", "y": "numeric"} ## TODO handle branch indexing in context
+        print("=" * 200)
+        print(f"\033[94m🚀 Starting pipeline {config.name} on dataset {dataset.name}\033[0m")
+        print("-" * 200)
+
+        if self.save_binaries:
+            storage_path = self.saver.register(dataset.name, config.name)
+        self.saver.save_json("pipeline.json", config.serializable_steps())
+
+        # Initialize context
+        context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
 
         try:
             self.run_steps(config.steps, dataset, context, execution="sequential")
-            # self.history.complete_execution()
 
             # Save enhanced configuration with metadata if saving binaries
             if self.save_binaries:
@@ -103,11 +127,9 @@ class PipelineRunner:
             print(f"\033[94m✅ Pipeline {config.name} completed successfully on dataset {dataset.name}\033[0m")
 
         except Exception as e:
-            # self.history.fail_execution(str(e))
             print(f"\033[91m❌ Pipeline {config.name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
             import traceback
             traceback.print_exc()
-
             raise
 
         return dataset, self.history, None  # TODO remove None and return the actual pipeline object
@@ -143,7 +165,7 @@ class PipelineRunner:
         """
         before_dataset_str = str(dataset)
 
-        step_description = PipelineConfig._get_step_description(step)
+        step_description = str(step)  # Simple description for now
         if is_substep or self.substep_number > 0:
             self.substep_number += 1
             print(f"\033[96m   ▶ Sub-step {self.step_number}.{self.substep_number}: {step_description}\033[0m")
@@ -391,7 +413,7 @@ class PipelineRunner:
         runner.binary_loader = binary_loader
 
         # Create config and run pipeline
-        config = PipelineConfig(steps)
+        config = PipelineConfigs(steps)
         config.name = f"prediction_{dataset.name}"
 
         if verbose > 0:

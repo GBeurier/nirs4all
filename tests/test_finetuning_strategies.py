@@ -18,7 +18,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config import PipelineConfig
+from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.controllers.models.base_model_controller import ParamStrategy
 
@@ -142,7 +142,7 @@ def run_config_test(config, dataset_config, config_name="test_config"):
         from nirs4all.dataset.loader import create_synthetic_dataset
         data = create_synthetic_dataset(dataset_config)
 
-        pipeline_config = PipelineConfig(config, config_name)
+        pipeline_config = PipelineConfigs(config, config_name)
         runner = PipelineRunner()
 
         res_dataset, _, _ = runner.run(pipeline_config, data)
@@ -356,7 +356,7 @@ class TestPerformanceAndValidation:
             from nirs4all.dataset.loader import create_synthetic_dataset
             data = create_synthetic_dataset(small_synthetic_dataset)
 
-            pipeline_config = PipelineConfig(config, "test_prediction_quality_detailed")
+            pipeline_config = PipelineConfigs(config, "test_prediction_quality_detailed")
             runner = PipelineRunner()
 
             res_dataset, _, _ = runner.run(pipeline_config, data)
@@ -416,7 +416,7 @@ class TestPerformanceAndValidation:
                     from nirs4all.dataset.loader import create_synthetic_dataset
                     data = create_synthetic_dataset(small_synthetic_dataset)
 
-                    pipeline_config = PipelineConfig(config, f"test_optimization_{config_name}_detailed")
+                    pipeline_config = PipelineConfigs(config, f"test_optimization_{config_name}_detailed")
                     runner = PipelineRunner()
 
                     res_dataset, _, _ = runner.run(pipeline_config, data)
