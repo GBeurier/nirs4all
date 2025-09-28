@@ -16,6 +16,7 @@ import numpy as np
 
 from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.model_utils import ModelUtils, TaskType
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -148,7 +149,7 @@ class TensorFlowModelController(BaseModelController):
         y_val: Optional[np.ndarray] = None,
         train_params: Optional[Dict[str, Any]] = None
     ) -> Any:
-        """Train TensorFlow/Keras model with comprehensive parameter support."""
+        """Train TensorFlow/Keras model with comprehensive parameter support and score tracking."""
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is not available")
 
@@ -164,6 +165,27 @@ class TensorFlowModelController(BaseModelController):
             model = self._create_model_from_function(model, input_shape, model_params)
 
         verbose = train_params.get('verbose', 0)
+
+        # Detect task type and auto-configure loss/metrics
+        task_type = self._detect_task_type(y_train)
+
+        # Auto-configure loss and metrics based on task type
+        if 'loss' not in train_params and 'compile' not in train_params:
+            default_loss = ModelUtils.get_default_loss(task_type, 'tensorflow')
+            train_params['loss'] = default_loss
+            if verbose > 0:
+                print(f"📊 Auto-detected {task_type.value} task, using loss: {default_loss}")
+        elif 'loss' in train_params:
+            # Validate provided loss
+            provided_loss = train_params['loss']
+            if not ModelUtils.validate_loss_compatibility(provided_loss, task_type, 'tensorflow'):
+                print(f"⚠️ Warning: Loss '{provided_loss}' may not be compatible with {task_type.value} task")
+
+        if 'metrics' not in train_params and 'compile' not in train_params:
+            default_metrics = ModelUtils.get_default_metrics(task_type, 'tensorflow')
+            train_params['metrics'] = default_metrics
+            if verbose > 0:
+                print(f"📈 Using default metrics for {task_type.value}: {default_metrics}")
 
         # if verbose > 0:
             # print(f"🧠 Training {model.__class__.__name__} with TensorFlow")
@@ -196,6 +218,31 @@ class TensorFlowModelController(BaseModelController):
 
         # Store training history in model for reference
         trained_model.history = history
+
+        # === SCORE CALCULATION AND DISPLAY ===
+        if verbose > 0:
+            # Training scores
+            y_train_pred = self._predict_model(trained_model, X_train)
+            train_scores = self._calculate_and_print_scores(
+                y_train, y_train_pred, task_type, "train",
+                trained_model.__class__.__name__
+            )
+
+            # Validation scores if available
+            if X_val is not None and y_val is not None:
+                y_val_pred = self._predict_model(trained_model, X_val)
+                val_scores = self._calculate_and_print_scores(
+                    y_val, y_val_pred, task_type, "validation",
+                    trained_model.__class__.__name__
+                )
+            elif validation_data is not None:
+                # Use validation data from training
+                X_val_data, y_val_data = validation_data
+                y_val_pred = self._predict_model(trained_model, X_val_data)
+                val_scores = self._calculate_and_print_scores(
+                    y_val_data, y_val_pred, task_type, "validation",
+                    trained_model.__class__.__name__
+                )
 
         return trained_model
 
