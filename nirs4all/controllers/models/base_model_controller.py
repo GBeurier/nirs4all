@@ -1596,35 +1596,19 @@ class BaseModelController(OperatorController, ABC):
         return context, binaries
 
     def _calculate_scaled_score(self, y_true, y_pred, dataset) -> Optional[float]:
-        """Calculate score on original (unscaled) data if possible."""
-        try:
-            # Try to calculate MSE on current scale (this represents the "original" or scaled score)
-            from sklearn.metrics import mean_squared_error
-            # For the purpose of display, we'll compute MSE on current scale
-            # In a real implementation, this would inverse transform if scalers are available
-            scaled_mse = mean_squared_error(y_true, y_pred)
-            # Multiply by a factor to make it more meaningful (simulating original scale)
-            return scaled_mse * 10000  # This simulates going back to original scale
-        except Exception:
-            pass
+        """Calculate score - just return None to disable the (scaled) display."""
+        # The user is right - the scaling was meaningless and confusing
+        # Just return None so the display shows: mse=0.0149↓ without (scaled_value)
         return None
 
     def _save_predictions_to_results_folder(self, dataset: 'SpectroDataset', runner: 'PipelineRunner') -> None:
         """Save predictions to results folder above pipeline config folder."""
         try:
-            if hasattr(runner, 'saver') and hasattr(runner.saver, 'base_path'):
+            if hasattr(runner, 'saver') and hasattr(runner.saver, 'current_path'):
                 # Get the base results folder
-                base_path = Path(runner.saver.base_path)
+                base_path = Path(runner.saver.current_path)
                 dataset_name = getattr(runner.saver, 'dataset_name', dataset.name)
-
-                # The predictions file should be in the dataset folder (above pipeline config)
-                dataset_folder = base_path / dataset_name
-                predictions_file = dataset_folder / f"{dataset_name}_predictions.json"
-
-                # Ensure dataset folder exists
-                dataset_folder.mkdir(parents=True, exist_ok=True)
-
-                # Just save current dataset predictions (they should already include merged data)
+                predictions_file = base_path / f"{dataset_name}_predictions.json"
                 dataset._predictions.save_to_file(str(predictions_file))
         except Exception as e:
             print(f"⚠️ Could not save predictions to file: {e}")

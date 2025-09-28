@@ -47,7 +47,8 @@ class PipelineRunner:
                  parallel: bool = False,
                  results_path: Optional[str] = None,
                  save_binaries: bool = True,
-                 mode: str = "train"):
+                 mode: str = "train",
+                 load_existing_predictions: bool = True):
 
         self.max_workers = max_workers or -1  # -1 means use all available cores
         self.continue_on_error = continue_on_error
@@ -61,6 +62,7 @@ class PipelineRunner:
         self.operation_count = 0
         self.save_binaries = save_binaries
         self.mode = mode
+        self.load_existing_predictions = load_existing_predictions
         self.step_binaries: Dict[str, List[str]] = {}  # Track step-to-binary mapping
         self.binary_loader: Optional[BinaryLoader] = None
 
@@ -69,6 +71,57 @@ class PipelineRunner:
         self.operation_count += 1
         return self.operation_count
 
+    def _display_best_for_config(self, dataset: SpectroDataset, config_name: str) -> None:
+        """Display best score for this specific config."""
+        try:
+            from nirs4all.utils.model_utils import ModelUtils
+
+            # Get all predictions for this config
+            all_keys = dataset._predictions.list_keys()
+            config_predictions = [key for key in all_keys if config_name in key]
+
+            if not config_predictions:
+                return
+
+            best_score = None
+            best_model = None
+            higher_is_better = False
+
+            for key in config_predictions:
+                parts = key.split('_')
+                if len(parts) >= 4:
+                    pred_dataset_name = parts[0]
+                    pipeline_name = '_'.join(parts[1:-2])
+                    model_name = parts[-2]
+                    partition_name = parts[-1]
+
+                    pred_data = dataset._predictions.get_prediction_data(
+                        pred_dataset_name, pipeline_name, model_name, partition_name
+                    )
+
+                    if pred_data and 'y_true' in pred_data and 'y_pred' in pred_data:
+                        task_type = ModelUtils.detect_task_type(pred_data['y_true'])
+                        scores = ModelUtils.calculate_scores(pred_data['y_true'], pred_data['y_pred'], task_type)
+                        best_metric, metric_higher_is_better = ModelUtils.get_best_score_metric(task_type)
+                        score = scores.get(best_metric)
+
+                        higher_is_better = metric_higher_is_better
+
+                        if score is not None:
+                            if best_score is None or (
+                                (higher_is_better and score > best_score) or
+                                (not higher_is_better and score < best_score)
+                            ):
+                                best_score = score
+                                best_model = model_name
+
+            if best_score is not None and best_model is not None:
+                direction = "↑" if higher_is_better else "↓"
+                print(f"🏆 Best for config: {best_model} ({config_name}) - mse={best_score:.4f}{direction}")
+
+        except Exception as e:
+            print(f"⚠️ Could not display best for config: {e}")
+
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> List[Tuple[SpectroDataset, PipelineHistory, Any]]:
         """Run pipeline configurations on dataset configurations."""
         results = []
@@ -76,25 +129,33 @@ class PipelineRunner:
         # Get datasets from DatasetConfigs
         for d_config in dataset_configs.data_configs:
             print("=" * 200)
+            existing_predictions = 0
+            prediction_db = None
+            prediction_run = Predictions()
+            dataset_name = "unknown_dataset"
+            for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
+                dataset = dataset_configs.get_dataset(d_config)
+                dataset_name = dataset.name
 
-            # Load dataset predictions once per dataset
-            dataset = dataset_configs.get_dataset(d_config)
-            dataset_predictions_before = Predictions.load_dataset_predictions(dataset, self.saver)
+                if i == 0 and self.load_existing_predictions:
+                    prediction_db = Predictions.load_dataset_predictions(dataset, self.saver)
+                    existing_predictions = len(prediction_db._predictions.keys()) if prediction_db is not None else 0
 
-            # Store pipeline results for this dataset to find the best
-            dataset_results = []
+                self._run_single(steps, config_name, dataset)
+                # results.append(result)
 
-            for steps, config_name in zip(pipeline_configs.steps, pipeline_configs.names):
-                result = self._run_single(steps, config_name, dataset)
-                results.append(result)
-                dataset_results.append((result, config_name))
+                if prediction_db is not None:
+                    prediction_db.merge_predictions(dataset._predictions)
+                    prediction_run.merge_predictions(dataset._predictions)
+            if prediction_db is not None:
+                prediction_db.display_best_scores_summary(dataset_name, existing_predictions)
 
-            # Display best scores summary for this dataset
-            dataset._predictions.display_best_scores_summary(dataset.name, dataset_predictions_before)
+            prediction_db.save_to_file(str(self.saver.base_path / dataset_name / f"{dataset_name}_predictions.json"))
+            results.append((prediction_db, prediction_run))
 
         return results
 
-    def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset) -> Tuple[SpectroDataset, PipelineHistory, Any]:
+    def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset) -> SpectroDataset:
         """Run a single pipeline configuration on a single dataset."""
         # Reset runner state for each run
         self.history = PipelineHistory()
@@ -128,9 +189,9 @@ class PipelineRunner:
             }
             self.saver.save_json("pipeline.json", enhanced_config)
 
-            # Display final best scores summary if predictions exist
+            # Display best score for this specific config
             if hasattr(dataset, '_predictions') and dataset._predictions:
-                dataset._predictions.print_best_scores_summary(config_name)
+                self._display_best_for_config(dataset, config_name)
 
             print(f"\033[94m✅ Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
 
@@ -140,13 +201,13 @@ class PipelineRunner:
             traceback.print_exc()
             raise
 
-        return dataset, self.history, None  # TODO remove None and return the actual pipeline object
+        return dataset
 
     def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]], execution: str = "sequential", is_substep: bool = False) -> Dict[str, Any]:
         """Run a list of steps with enhanced context management and DatasetView support."""
         if not isinstance(steps, list):
             steps = [steps]
-        print(f"\033[94m🔄 Running {len(steps)} steps in {execution} mode\033[0m")
+        # print(f"\033[94m🔄 Running {len(steps)} steps in {execution} mode\033[0m")
 
         if execution == "sequential":
             if isinstance(context, list) and len(context) == len(steps):
@@ -174,13 +235,12 @@ class PipelineRunner:
         before_dataset_str = str(dataset)
 
         step_description = str(step)  # Simple description for now
-        if is_substep or self.substep_number > 0:
+        if is_substep:
             self.substep_number += 1
             print(f"\033[96m   ▶ Sub-step {self.step_number}.{self.substep_number}: {step_description}\033[0m")
         else:
-            self.substep_number = 0
             self.step_number += 1
-        # print(f"🔷 Step {self.step_number}: {step_description}")
+            self.substep_number = 0  # Reset substep counter for new main step
             print(f"\033[92m🔷 Step {self.step_number}: {step_description}\033[0m")
         # print(f"🔹 Current context: {context}")
         # print(f"🔹 Step config: {step}")
