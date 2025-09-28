@@ -66,22 +66,55 @@ class PipelineConfigs:
         Preprocess steps to merge *_params into the corresponding component key.
         Recursively handles lists and dicts.
         """
-        component_keys = ["model"]  # Add more keys here as needed, e.g., ["model", "y_processing"]
 
         if isinstance(steps, list):
             return [PipelineConfigs._preprocess_steps(step) for step in steps]
         elif isinstance(steps, dict):
-            # Merge *_params into component keys
-            for key in component_keys:
-                params_key = f"{key}_params"
-                if key in steps and params_key in steps:
-                    steps[key] = {"class": steps[key], "params": steps[params_key]}
-                    del steps[params_key]
+            # Find all XX/XX_params pairs and merge them
+            result = steps.copy()
+
+            # Find all keys ending with '_params'
+            params_keys = [k for k in result.keys() if k.endswith('_params')]
+
+            for params_key in params_keys:
+                # Get the base key (remove '_params' suffix)
+                base_key = params_key[:-7]  # Remove '_params'
+
+                if base_key in result:
+                    # Merge base_key and params_key into standard format
+                    base_value = result[base_key]
+                    params_value = result[params_key]
+
+                    # Convert to standard {"class": ..., "params": ...} format
+                    result[base_key] = {
+                        "class": base_value,
+                        "params": params_value
+                    }
+
+                    # Remove the params key
+                    del result[params_key]
+
+            # Also normalize bare classes in component-like keys to {"class": ...} format
+            # This ensures consistent serialization for cases like {"y_processing": MinMaxScaler}
+            import inspect
+            for key, value in list(result.items()):
+                # If the value is a class and the key looks like a component key
+                # (not "class" or "params" which have special meaning)
+                if (inspect.isclass(value) and
+                    key not in ["class", "params"] and
+                    not key.endswith("_params")):
+                    result[key] = {"class": value}
+
+            # Also handle direct {"class": ClassObject, "params": {...}} format
+            # to ensure consistent serialization
+            if "class" in result and "params" in result:
+                # This is already in the right structure, just ensure class gets serialized properly
+                pass
 
             # Recurse on values
-            for k, v in steps.items():
-                steps[k] = PipelineConfigs._preprocess_steps(v)
-            return steps
+            for k, v in result.items():
+                result[k] = PipelineConfigs._preprocess_steps(v)
+            return result
         else:
             return steps
 

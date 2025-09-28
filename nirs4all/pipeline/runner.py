@@ -75,8 +75,8 @@ class PipelineRunner:
         # Get datasets from DatasetConfigs
         for d_config in dataset_configs.data_configs:
             print("=" * 200)
-            dataset = dataset_configs.get_dataset(d_config)
             for steps, config_name in zip(pipeline_configs.steps, pipeline_configs.names):
+                dataset = dataset_configs.get_dataset(d_config) ## TODO put in upper loop when cache and context will be ready for that
                 result = self._run_single(steps, config_name, dataset)
                 results.append(result)
 
