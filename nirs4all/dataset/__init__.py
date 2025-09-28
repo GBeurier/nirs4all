@@ -8,7 +8,8 @@ with transparent versioning and fine-grained indexing capabilities.
 __version__ = "0.1.0"
 __author__ = "NIRS4All Project"
 
-# # Main public API
-# from .dataset import SpectroDataset
+# Main public API
+from .dataset import SpectroDataset
+from .dataset_config import DatasetConfig
 
-# __all__ = ["SpectroDataset"]
+__all__ = ["SpectroDataset", "DatasetConfig"]
