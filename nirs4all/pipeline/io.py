@@ -282,10 +282,10 @@ class SimulationSaver:
 
         # Save metadata once after all files
         self._save_metadata()
-        if len(saved_names) > 1:
-            print(f"💾 Saved {len(saved_names)} files.")
-        elif len(saved_names) == 1:
-            print(f"💾 Saved file: {saved_names[0]}")
+        # if len(saved_names) > 1:
+        #     print(f"💾 Saved {len(saved_names)} files.")
+        # elif len(saved_names) == 1:
+        #     print(f"💾 Saved file: {saved_names[0]}")
 
         return saved_paths
 
@@ -366,6 +366,8 @@ class SimulationSaver:
         metadata_path = self.current_path / "metadata.json"
         with open(metadata_path, 'w') as f:
             json.dump(self._metadata, f, indent=2, default=str)
+
+
 
 
 # class SimulationLoader:
