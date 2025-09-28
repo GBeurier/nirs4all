@@ -54,7 +54,6 @@ class PipelineRunner:
         self.backend = backend
         self.verbose = verbose
         self.history = PipelineHistory()
-        self.pipeline = Pipeline()
         self.parallel = parallel
         self.step_number = 0  # Initialize step number for tracking
         self.substep_number = -1  # Initialize sub-step number for tracking
@@ -113,7 +112,7 @@ class PipelineRunner:
 
             raise
 
-        return dataset, self.history, self.pipeline
+        return dataset, self.history, None  # TODO remove None and return the actual pipeline object
 
     def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]], execution: str = "sequential", is_substep: bool = False) -> Dict[str, Any]: ##TODO distinguish parallel and sequential contexts from parrallel and sequential execution
         """Run a list of steps with enhanced context management and DatasetView support."""
