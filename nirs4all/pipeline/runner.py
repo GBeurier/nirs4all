@@ -68,27 +68,21 @@ class PipelineRunner:
         self.operation_count += 1
         return self.operation_count
 
-    def run(self, pipeline_config: PipelineConfigs, dataset_config: DatasetConfigs) -> List[Tuple[SpectroDataset, PipelineHistory, Any]]:
+    def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> List[Tuple[SpectroDataset, PipelineHistory, Any]]:
         """Run pipeline configurations on dataset configurations."""
         results = []
 
         # Get datasets from DatasetConfigs
-        datasets = dataset_config.get_datasets()
-
-        # Get pipeline configurations (just use the single configuration)
-        pipeline_configs = []
-        if not pipeline_config.has_configurations:
-            pipeline_configs = [pipeline_config]
-
-        # # Double loop: foreach dataset first, then foreach pipeline config
-        # for dataset in datasets:
-        #     for config in pipeline_configs:
-        #         result = self._run_single(config, dataset)
-        #         results.append(result)
+        for d_config in dataset_configs.data_configs:
+            print("=" * 200)
+            dataset = dataset_configs.get_dataset(d_config)
+            for steps, config_name in zip(pipeline_configs.steps, pipeline_configs.names):
+                result = self._run_single(steps, config_name, dataset)
+                results.append(result)
 
         return results
 
-    def _run_single(self, config: List[Any], dataset: SpectroDataset) -> Tuple[SpectroDataset, PipelineHistory, Any]:
+    def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset) -> Tuple[SpectroDataset, PipelineHistory, Any]:
         """Run a single pipeline configuration on a single dataset."""
         # Reset runner state for each run
         self.history = PipelineHistory()
@@ -98,23 +92,23 @@ class PipelineRunner:
         self.step_binaries = {}
 
         print("=" * 200)
-        print(f"\033[94m🚀 Starting pipeline {config.name} on dataset {dataset.name}\033[0m")
+        print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
         print("-" * 200)
 
         if self.save_binaries:
-            storage_path = self.saver.register(dataset.name, config.name)
-        self.saver.save_json("pipeline.json", config.serializable_steps())
+            storage_path = self.saver.register(dataset.name, config_name)
+        self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
         # Initialize context
         context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
 
         try:
-            self.run_steps(config.steps, dataset, context, execution="sequential")
+            self.run_steps(steps, dataset, context, execution="sequential")
 
             # Save enhanced configuration with metadata if saving binaries
             if self.save_binaries:
                 enhanced_config = {
-                    "steps": config.serializable_steps(),
+                    "steps": PipelineConfigs.serializable_steps(steps),
                     "execution_metadata": {
                         "step_binaries": self.step_binaries,
                         "created_at": datetime.now().isoformat(),
@@ -124,10 +118,10 @@ class PipelineRunner:
                 }
                 self.saver.save_json("pipeline.json", enhanced_config)
 
-            print(f"\033[94m✅ Pipeline {config.name} completed successfully on dataset {dataset.name}\033[0m")
+            print(f"\033[94m✅ Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
 
         except Exception as e:
-            print(f"\033[91m❌ Pipeline {config.name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
+            print(f"\033[91m❌ Pipeline {config_name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
             import traceback
             traceback.print_exc()
             raise
@@ -263,11 +257,11 @@ class PipelineRunner:
         finally:
             if not is_substep:
                 print("-" * 200)
-                after_dataset_str = str(dataset)
-                # print(before_dataset_str)
-                if before_dataset_str != after_dataset_str:
-                    print(f"\033[97mUpdate: {after_dataset_str}\033[0m")
-                    print("-" * 200)
+                # after_dataset_str = str(dataset)
+                # # print(before_dataset_str)
+                # if before_dataset_str != after_dataset_str:
+                #     print(f"\033[97mUpdate: {after_dataset_str}\033[0m")
+                #     print("-" * 200)
 
     def _select_controller(self, step: Any, operator: Any = None, keyword: str = ""):
         matches = [cls for cls in CONTROLLER_REGISTRY if cls.matches(step, operator, keyword)]

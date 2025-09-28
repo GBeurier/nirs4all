@@ -1403,7 +1403,7 @@ class BaseModelController(OperatorController, ABC):
         X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
         X_test_prep, _ = self._prepare_data(X_test, y_test, context)
 
-        print(X_train_prep.shape, y_train_prep.shape, X_test_prep.shape, y_test.shape)
+        # print(X_train_prep.shape, y_train_prep.shape, X_test_prep.shape, y_test.shape)
 
         # Train model
         trained_model = self._train_model(
@@ -1553,7 +1553,7 @@ class BaseModelController(OperatorController, ABC):
 
         # Show concise message about optimization
         print(f"🔍 Optimizing {len(finetune_params.get('model_params', {}))} parameters with {search_method} search ({n_trials} trials)...")
-        print(X_train_prep.shape, y_train_prep.shape, X_test_prep.shape, y_test.shape)
+        # print(X_train_prep.shape, y_train_prep.shape, X_test_prep.shape, y_test.shape)
         study.optimize(objective, n_trials=n_trials)
 
         # Store best parameters for access by nested CV methods

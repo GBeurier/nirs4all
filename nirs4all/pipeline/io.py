@@ -222,7 +222,7 @@ class SimulationSaver:
         self._check_registered()
 
         saved_paths: List[Path] = []
-
+        saved_names = []
         for fname, obj in files:
             name = str(step_number)
             if substep_number > 0:
@@ -264,7 +264,8 @@ class SimulationSaver:
             else:
                 raise TypeError(f"Unsupported type for {name}: {type(obj).__name__}")
 
-            print(f"💾 Saved {name} to {filepath}")  # Debug print
+            # print(f"💾 Saved {name} to {filepath}")  # Debug print
+            saved_names.append(name)
 
             # Update metadata for each file
             relative_filename = str(filepath.relative_to(self.current_path))
@@ -277,6 +278,10 @@ class SimulationSaver:
 
         # Save metadata once after all files
         self._save_metadata()
+        if len(saved_names) > 1:
+            print(f"💾 Saved {len(saved_names)} files.")
+        elif len(saved_names) == 1:
+            print(f"💾 Saved file: {saved_names[0]}")
 
         return saved_paths
 

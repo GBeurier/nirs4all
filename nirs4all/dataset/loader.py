@@ -9,6 +9,8 @@ from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.csv_loader import load_csv
 from typing import Dict, Tuple, Union
 
+##TODO remove unused folder_to_name
+
 
 def create_synthetic_dataset(config: Dict) -> SpectroDataset:
     """
@@ -421,7 +423,7 @@ def handle_data(config, t_set):
     return x, y, x_report, y_report
 
 
-def get_dataset(data_config) -> SpectroDataset: ## TODO: add metadata
+def get_dataset(data_config) -> tuple: ## TODO: add metadata
     """
     Load dataset based on the data configuration.
 
@@ -431,28 +433,28 @@ def get_dataset(data_config) -> SpectroDataset: ## TODO: add metadata
     Returns:
     - Dataset: Dataset object with loaded data and metadata.
     """
-    print("=" * 200)
-    print("\033[94mLoading dataset:\033[0m")
-    print("-" * 200)
+    # print("=" * 200)
+    # print("\033[94mLoading dataset:\033[0m")
+    # print("-" * 200)
     config, dataset_name = parse_config(data_config)
 
     if config is None:
         raise ValueError("Dataset configuration is None")
 
-    dataset = SpectroDataset(dataset_name)
+    # dataset = SpectroDataset(dataset_name)
     try:
         x_train, y_train, x_train_report, y_train_report = handle_data(config, "train")
         x_test, y_test, x_test_report, y_test_report = handle_data(config, "test")
 
-        dataset.add_samples(x_train, {"partition": "train"})
-        dataset.add_samples(x_test, {"partition": "test"})
-        dataset.add_targets(y_train)
-        dataset.add_targets(y_test)
+        # dataset.add_samples(x_train, {"partition": "train"})
+        # dataset.add_samples(x_test, {"partition": "test"})
+        # dataset.add_targets(y_train)
+        # dataset.add_targets(y_test)
 
     except Exception as e:
         print("Error loading data:", e)
         raise
 
-    print(f"\033[97m{dataset}\033[0m")
+    # print(f"\033[97m{dataset}\033[0m")
 
-    return dataset
+    return x_train, y_train, x_test, y_test

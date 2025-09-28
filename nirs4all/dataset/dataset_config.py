@@ -5,8 +5,10 @@ This module provides DatasetConfigs class that handles dataset configuration,
 name resolution, loader calls, and caching to avoid reloading the same dataset.
 """
 
+import copy
 import json
 import hashlib
+from pathlib import Path
 from typing import List, Union, Dict, Any
 from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.loader import get_dataset
@@ -32,31 +34,30 @@ class DatasetConfigs:
             data_configs = [data_configs]
 
         self.data_configs = data_configs
-        self.cache: Dict[str, SpectroDataset] = {}  # hash -> dataset
+        self.cache_key = None
+        self.cache = (None, None, None, None)
 
-    def get_datasets(self) -> List[SpectroDataset]:
-        """
-        Get the list of datasets, loading and caching as needed.
+    def get_dataset(self, config) -> SpectroDataset:
+        key = self._hash_config(config)
+        if key == self.cache_key and self.cache[0] is not None:
+            # deepcopy to avoid external mutations
+            x_train_src, y_train_src, x_test_src, y_test_src = self.cache
+            x_train = copy.deepcopy(x_train_src)
+            y_train = copy.deepcopy(y_train_src)
+            x_test = copy.deepcopy(x_test_src)
+            y_test = copy.deepcopy(y_test_src)
+        else:
+            self.cache_key = key
+            x_train, y_train, x_test, y_test = get_dataset(config)
+            self.cache = (copy.deepcopy(x_train), copy.deepcopy(y_train), copy.deepcopy(x_test), copy.deepcopy(y_test))
 
-        Returns:
-            List of SpectroDataset instances
-        """
-        datasets = []
-
-        for config in self.data_configs:
-            key = self._hash_config(config)
-
-            if key in self.cache:
-                dataset = self.cache[key]
-            else:
-                # Clear cache when loading a new dataset (as per requirements)
-                self.cache.clear()
-                dataset = get_dataset(config)
-                self.cache[key] = dataset
-
-            datasets.append(dataset)
-
-        return datasets
+        dataset = SpectroDataset(name=self.folder_to_name(config))
+        dataset.add_samples(x_train, {"partition": "train"})
+        dataset.add_samples(x_test, {"partition": "test"})
+        dataset.add_targets(y_train)
+        dataset.add_targets(y_test)
+        print(f"✅ Loaded dataset '{dataset.name}' with {len(x_train)} training and {len(x_test)} test samples.")
+        return dataset
 
     def _hash_config(self, config: Union[Dict[str, Any], str]) -> str:
         """
@@ -103,6 +104,13 @@ class DatasetConfigs:
         """
         return self.names[0]
 
-    def clear_cache(self):
-        """Clear the dataset cache."""
-        self.cache.clear()
+
+    @staticmethod
+    def folder_to_name(folder_path):
+        path = Path(folder_path)
+        for part in reversed(path.parts):
+            clean_part = ''.join(c if c.isalnum() else '_' for c in part)
+            if clean_part:
+                return clean_part.lower()
+        return "Unknown_dataset"
+
