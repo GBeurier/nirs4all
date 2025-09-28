@@ -56,7 +56,7 @@ class DatasetConfigs:
         dataset.add_samples(x_test, {"partition": "test"})
         dataset.add_targets(y_train)
         dataset.add_targets(y_test)
-        print(f"✅ Loaded dataset '{dataset.name}' with {len(x_train)} training and {len(x_test)} test samples.")
+        # print(f"✅ Loaded dataset '{dataset.name}' with {len(x_train)} training and {len(x_test)} test samples.")
         return dataset
 
     def _hash_config(self, config: Union[Dict[str, Any], str]) -> str:

@@ -572,7 +572,7 @@ class TensorFlowModelController(BaseModelController):
             # Use parent implementation for actual model instances
             return super()._clone_model(model)
 
-    def _extract_model_config(self, step: Any) -> Dict[str, Any]:
+    def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
         """Extract model configuration from step, handling TensorFlow-specific cases."""
         if isinstance(step, dict):
             model_config = {}

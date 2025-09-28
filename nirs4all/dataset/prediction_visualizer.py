@@ -7,11 +7,12 @@ allowing users to compare model performance across different configurations and 
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.figure import Figure
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Any, Union
 from collections import defaultdict
 import pandas as pd
-
+from nirs4all.dataset.predictions import Predictions
 
 class PredictionVisualizer:
     """
@@ -25,7 +26,7 @@ class PredictionVisualizer:
     - Flexible subplot arrangements
     """
 
-    def __init__(self, predictions_obj: Any, dataset_name_override: str = None):
+    def __init__(self, predictions_obj: Predictions, dataset_name_override: str = None):
         """
         Initialize with a predictions object from dataset._predictions.
 
@@ -33,19 +34,15 @@ class PredictionVisualizer:
             predictions_obj: The predictions object containing prediction data
             dataset_name_override: Override for dataset name display (fixes "unknown" issue)
         """
-        self.predictions = predictions_obj
+        self.predictions = predictions_obj  # Store the full Predictions object
         self.dataset_name_override = dataset_name_override
         self.data = self._extract_prediction_data()
 
     def _extract_prediction_data(self) -> List[Dict]:
         """Extract prediction data from the predictions object."""
-        if hasattr(self.predictions, '_predictions'):
-            pred_dict = self.predictions._predictions
-            if isinstance(pred_dict, dict):
-                # Convert dictionary values to list
-                return list(pred_dict.values())
-            elif isinstance(pred_dict, list):
-                return pred_dict
+        # The predictions object is a Predictions instance, access its _predictions dict
+        if hasattr(self.predictions, '_predictions') and isinstance(self.predictions._predictions, dict):
+            return list(self.predictions._predictions.values())
         elif hasattr(self.predictions, 'get_predictions'):
             try:
                 pred_data = self.predictions.get_predictions()
@@ -55,9 +52,8 @@ class PredictionVisualizer:
                     return pred_data
             except Exception:
                 pass
-        elif hasattr(self.predictions, 'data'):
-            return self.predictions.data if self.predictions.data else []
 
+        # If all else fails, return empty list
         return []
 
     def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
@@ -977,3 +973,722 @@ class PredictionVisualizer:
         plt.tight_layout()
 
         return fig
+
+    def plot_best_worst_models_comparison(
+            self,
+            dataset: Optional[str] = None,
+            metric: str = 'rmse',
+            n_best: int = 5,
+            n_worst: int = 4,
+            figsize: Tuple[int, int] = (15, 12)
+    ) -> Figure:
+        """
+        Plot scatter plots comparing best and worst performing models.
+
+        Args:
+            dataset: Dataset to visualize
+            metric: Metric to use for ranking ('rmse', 'r2', 'mae', 'mse')
+            n_best: Number of best models to show
+            n_worst: Number of worst models to show
+            figsize: Figure size
+
+        Returns:
+            matplotlib Figure object
+        """
+        if not self.data:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.text(0.5, 0.5, 'No prediction data available',
+                    ha='center', va='center', fontsize=16)
+            return fig
+
+        # Filter by dataset if specified
+        filtered_data = [pred for pred in self.data
+                         if dataset is None or pred.get('dataset', 'unknown') == dataset]
+
+        if not filtered_data:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.text(0.5, 0.5, f'No data found for dataset: {dataset}',
+                    ha='center', va='center', fontsize=16)
+            return fig
+
+        # Calculate metrics and sort
+        model_scores = []
+        for pred_record in filtered_data:
+            y_true = np.array(pred_record.get('y_true', []))
+            y_pred = np.array(pred_record.get('y_pred', []))
+
+            if len(y_true) > 0 and len(y_pred) > 0:
+                metrics = self._calculate_metrics(y_true, y_pred)
+                model_info = {
+                    'model': pred_record.get('model', 'unknown'),
+                    'partition': pred_record.get('partition', 'unknown'),
+                    'y_true': y_true,
+                    'y_pred': y_pred,
+                    **metrics
+                }
+                model_scores.append(model_info)
+
+        if not model_scores:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.text(0.5, 0.5, 'No valid prediction data found',
+                    ha='center', va='center', fontsize=16)
+            return fig
+
+        # Sort by specified metric
+        reverse_sort = metric == 'r2'  # Higher R² is better
+        model_scores.sort(key=lambda x: x[metric], reverse=reverse_sort)
+
+        best_models = model_scores[:n_best]
+        worst_models = model_scores[-n_worst:]
+
+        # Create subplot grid
+        total_plots = n_best + n_worst
+        cols = 3
+        rows = (total_plots + cols - 1) // cols
+
+        fig, axes = plt.subplots(rows, cols, figsize=figsize)
+        if rows == 1:
+            axes = axes.reshape(1, -1)
+        axes = axes.flatten()
+
+        # Plot best models
+        for i, model in enumerate(best_models):
+            ax = axes[i]
+            y_true = model['y_true']
+            y_pred = model['y_pred']
+
+            ax.scatter(y_true, y_pred, alpha=0.6, s=30, color='green')
+
+            # Perfect prediction line
+            min_val = min(y_true.min(), y_pred.min())
+            max_val = max(y_true.max(), y_pred.max())
+            ax.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8, linewidth=2)
+
+            ax.set_xlabel('True Values')
+            ax.set_ylabel('Predicted Values')
+            ax.set_title(f'BEST #{i+1}: {model["model"]}\n{metric.upper()}: {model[metric]:.4f}, R²: {model["r2"]:.4f}',
+                         fontsize=10, color='darkgreen')
+            ax.grid(True, alpha=0.3)
+
+        # Plot worst models
+        for i, model in enumerate(worst_models):
+            ax = axes[i + n_best]
+            y_true = model['y_true']
+            y_pred = model['y_pred']
+
+            ax.scatter(y_true, y_pred, alpha=0.6, s=30, color='red')
+
+            # Perfect prediction line
+            min_val = min(y_true.min(), y_pred.min())
+            max_val = max(y_true.max(), y_pred.max())
+            ax.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8, linewidth=2)
+
+            ax.set_xlabel('True Values')
+            ax.set_ylabel('Predicted Values')
+            ax.set_title(f'WORST #{i+1}: {model["model"]}\n{metric.upper()}: {model[metric]:.4f}, R²: {model["r2"]:.4f}',
+                         fontsize=10, color='darkred')
+            ax.grid(True, alpha=0.3)
+
+        # Hide unused subplots
+        for i in range(total_plots, len(axes)):
+            axes[i].axis('off')
+
+        display_dataset = self.dataset_name_override or dataset or 'All Datasets'
+        plt.tight_layout()
+        plt.suptitle(f'Best vs Worst Models: True vs Predicted Values\nDataset: {display_dataset}',
+                     fontsize=14, y=1.02)
+        return fig
+
+    def plot_score_distributions(
+            self,
+            dataset: Optional[str] = None,
+            metrics: Optional[List[str]] = None,
+            bins: int = 20,
+            figsize: Tuple[int, int] = (15, 10)
+    ) -> Figure:
+        """Plot score distributions for multiple metrics."""
+        # Implementation would be here - keeping for compatibility
+        pass
+
+    # Helper functions for evaluation
+    def evaluate_predictions(self,
+                             dataset: Optional[str] = None,
+                             prediction_filter: str = 'all') -> List[Dict[str, Any]]:
+        """
+        Evaluate all predictions and return structured evaluation data.
+
+        Args:
+            dataset: Dataset to evaluate (if None, uses first available)
+            prediction_filter: Filter predictions ('all', 'best_only', 'folds_only', etc.)
+
+        Returns:
+            List of evaluation dictionaries with metrics and metadata
+        """
+        # Apply filtering
+        original_data = self.data
+        self.data = self._filter_data_by_prediction_types(prediction_filter)
+
+        evaluation_results = []
+
+        for pred_record in self.data:
+            try:
+                y_true = np.array(pred_record['y_true']).flatten()
+                y_pred = np.array(pred_record['y_pred']).flatten()
+
+                # Calculate metrics
+                metrics = self._calculate_metrics(y_true, y_pred)
+
+                # Create evaluation record
+                eval_record = {
+                    'key': f"{pred_record['dataset']}_{pred_record['pipeline']}_{pred_record['model']}_{pred_record['partition']}",
+                    'dataset': pred_record['dataset'],
+                    'pipeline': pred_record['pipeline'],
+                    'model': pred_record['model'],
+                    'partition': pred_record['partition'],
+                    'metrics': metrics,
+                    'sample_count': len(y_true),
+                    'y_true': y_true,
+                    'y_pred': y_pred,
+                    'metadata': pred_record.get('metadata', {})
+                }
+
+                # Add individual metrics as top-level keys for easy access
+                for metric_name, metric_value in metrics.items():
+                    eval_record[metric_name] = metric_value
+
+                evaluation_results.append(eval_record)
+
+            except Exception as e:
+                print(f"⚠️ Error evaluating prediction {pred_record.get('model', 'unknown')}: {e}")
+                continue
+
+        # Restore original data
+        self.data = original_data
+
+        return evaluation_results
+
+    def get_top_k(self,
+                  k: int = 5,
+                  metric: str = 'rmse',
+                  dataset: Optional[str] = None,
+                  prediction_filter: str = 'all') -> List[Dict[str, Any]]:
+        """
+        Get top K performing predictions based on specified metric.
+
+        Args:
+            k: Number of top predictions to return
+            metric: Metric to rank by ('rmse', 'mse', 'mae', 'r2')
+            dataset: Dataset to filter by
+            prediction_filter: Filter predictions type
+
+        Returns:
+            List of top K prediction evaluation records
+        """
+        evaluations = self.evaluate_predictions(dataset, prediction_filter)
+
+        if not evaluations:
+            return []
+
+        # Determine if higher is better
+        higher_is_better = metric.lower() in ['r2', 'accuracy', 'f1', 'auc', 'precision', 'recall']
+
+        # Sort by metric
+        sorted_evals = sorted(evaluations,
+                            key=lambda x: x.get(metric, float('-inf') if higher_is_better else float('inf')),
+                            reverse=higher_is_better)
+
+        return sorted_evals[:k]
+
+    def get_bottom_k(self,
+                     k: int = 5,
+                     metric: str = 'rmse',
+                     dataset: Optional[str] = None,
+                     prediction_filter: str = 'all') -> List[Dict[str, Any]]:
+        """
+        Get bottom K performing predictions based on specified metric.
+
+        Args:
+            k: Number of bottom predictions to return
+            metric: Metric to rank by ('rmse', 'mse', 'mae', 'r2')
+            dataset: Dataset to filter by
+            prediction_filter: Filter predictions type
+
+        Returns:
+            List of bottom K prediction evaluation records
+        """
+        evaluations = self.evaluate_predictions(dataset, prediction_filter)
+
+        if not evaluations:
+            return []
+
+        # Determine if higher is better
+        higher_is_better = metric.lower() in ['r2', 'accuracy', 'f1', 'auc', 'precision', 'recall']
+
+        # Sort by metric (reverse of top_k)
+        sorted_evals = sorted(evaluations,
+                            key=lambda x: x.get(metric, float('inf') if higher_is_better else float('-inf')),
+                            reverse=not higher_is_better)
+
+        return sorted_evals[:k]
+
+    def get_prediction_config(self, prediction_key: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the configuration details for a specific prediction.
+
+        Args:
+            prediction_key: The prediction key or evaluation record
+
+        Returns:
+            Dictionary with configuration details or None if not found
+        """
+        # Handle both string keys and evaluation records
+        if isinstance(prediction_key, dict):
+            key = prediction_key['key']
+            pred_record = prediction_key
+        else:
+            key = prediction_key
+            pred_record = None
+            # Find the prediction record
+            for record in self.data:
+                record_key = f"{record['dataset']}_{record['pipeline']}_{record['model']}_{record['partition']}"
+                if record_key == key:
+                    pred_record = record
+                    break
+
+        if not pred_record:
+            return None
+
+        config_info = {
+            'prediction_key': key,
+            'dataset': pred_record['dataset'],
+            'pipeline': pred_record['pipeline'],
+            'model': pred_record['model'],
+            'partition': pred_record['partition'],
+            'sample_count': len(pred_record.get('y_true', [])),
+            'metadata': pred_record.get('metadata', {}),
+        }
+
+        # Add fold information if available
+        if 'fold_idx' in pred_record:
+            config_info['fold_idx'] = pred_record['fold_idx']
+
+        return config_info
+
+    def generate_evaluation_report(self,
+                                  dataset: Optional[str] = None,
+                                  top_k: int = 5,
+                                  bottom_k: int = 3,
+                                  metrics: Optional[List[str]] = None,
+                                  prediction_filter: str = 'all',
+                                  include_config_details: bool = True) -> str:
+        """
+        Generate a comprehensive evaluation report.
+
+        Args:
+            dataset: Dataset to analyze
+            top_k: Number of top performers to show
+            bottom_k: Number of bottom performers to show
+            metrics: Metrics to include in report
+            prediction_filter: Filter predictions type
+            include_config_details: Whether to include configuration details
+
+        Returns:
+            Formatted text report
+        """
+        if metrics is None:
+            metrics = ['rmse', 'r2', 'mae']
+
+        report_lines = []
+        report_lines.append("📊 PREDICTION EVALUATION REPORT")
+        report_lines.append("=" * 60)
+
+        # Get evaluations
+        evaluations = self.evaluate_predictions(dataset, prediction_filter)
+
+        if not evaluations:
+            report_lines.append("❌ No predictions found to evaluate")
+            return "\n".join(report_lines)
+
+        # Dataset info
+        datasets = set(eval_rec['dataset'] for eval_rec in evaluations)
+        report_lines.append(f"📋 Datasets: {', '.join(datasets)}")
+        report_lines.append(f"📈 Total Predictions: {len(evaluations)}")
+        report_lines.append(f"🔍 Prediction Filter: {prediction_filter}")
+        report_lines.append("")
+
+        # Overall statistics for each metric
+        report_lines.append("📊 OVERALL STATISTICS")
+        report_lines.append("-" * 40)
+
+        for metric in metrics:
+            values = [eval_rec.get(metric) for eval_rec in evaluations if eval_rec.get(metric) is not None]
+            if values:
+                report_lines.append(f"{metric.upper()}:")
+                report_lines.append(f"  Mean: {np.mean(values):.4f}")
+                report_lines.append(f"  Std:  {np.std(values):.4f}")
+                report_lines.append(f"  Min:  {np.min(values):.4f}")
+                report_lines.append(f"  Max:  {np.max(values):.4f}")
+                report_lines.append("")
+
+        # Top performers
+        if top_k > 0:
+            report_lines.append(f"🏆 TOP {top_k} PERFORMERS (by RMSE)")
+            report_lines.append("-" * 40)
+
+            top_performers = self.get_top_k(top_k, 'rmse', dataset, prediction_filter)
+
+            for i, eval_rec in enumerate(top_performers, 1):
+                report_lines.append(f"{i}. {eval_rec['model']} ({eval_rec['partition']})")
+
+                # Show metrics
+                metric_strs = []
+                for metric in metrics:
+                    if metric in eval_rec:
+                        metric_strs.append(f"{metric.upper()}: {eval_rec[metric]:.4f}")
+                report_lines.append(f"   {', '.join(metric_strs)}")
+
+                # Show config if requested
+                if include_config_details:
+                    config = self.get_prediction_config(eval_rec)
+                    if config:
+                        report_lines.append(f"   Pipeline: {config['pipeline']}")
+                        report_lines.append(f"   Samples: {config['sample_count']}")
+
+                report_lines.append("")
+
+        # Bottom performers
+        if bottom_k > 0:
+            report_lines.append(f"📉 BOTTOM {bottom_k} PERFORMERS (by RMSE)")
+            report_lines.append("-" * 40)
+
+            bottom_performers = self.get_bottom_k(bottom_k, 'rmse', dataset, prediction_filter)
+
+            for i, eval_rec in enumerate(bottom_performers, 1):
+                report_lines.append(f"{i}. {eval_rec['model']} ({eval_rec['partition']})")
+
+                # Show metrics
+                metric_strs = []
+                for metric in metrics:
+                    if metric in eval_rec:
+                        metric_strs.append(f"{metric.upper()}: {eval_rec[metric]:.4f}")
+                report_lines.append(f"   {', '.join(metric_strs)}")
+
+                report_lines.append("")
+
+        # Model type summary
+        report_lines.append("🎯 MODEL TYPE SUMMARY")
+        report_lines.append("-" * 40)
+
+        model_stats = {}
+        for eval_rec in evaluations:
+            model = eval_rec['model']
+            if model not in model_stats:
+                model_stats[model] = []
+            model_stats[model].append(eval_rec['rmse'])
+
+        # Sort by average RMSE
+        sorted_models = sorted(model_stats.items(), key=lambda x: np.mean(x[1]))
+
+        for model, rmse_values in sorted_models:
+            avg_rmse = np.mean(rmse_values)
+            count = len(rmse_values)
+            report_lines.append(f"{model}: Avg RMSE={avg_rmse:.4f} (n={count})")
+
+        return "\n".join(report_lines)
+
+    def get_best_models_by_type(self,
+                            dataset: Optional[str] = None,
+                            metric: str = 'rmse',
+                            prediction_filter: str = 'all') -> Dict[str, Dict[str, Any]]:
+        """
+        Get the best performing model for each model type/category.
+
+        Args:
+            dataset: Dataset to analyze (if None, uses all datasets)
+            metric: Metric to use for ranking ('rmse', 'r2', 'mae', 'mse')
+            prediction_filter: Filter predictions ('all', 'best_only', 'folds_only', etc.)
+
+        Returns:
+            Dictionary with model types as keys and best model info as values
+        """
+        import re
+        from collections import defaultdict
+
+        # Apply filtering
+        original_data = self.data
+        self.data = self._filter_data_by_prediction_types(prediction_filter)
+
+        try:
+            # Group by base model type
+            model_groups = defaultdict(list)
+
+            for pred_record in self.data:
+                if dataset and pred_record.get('dataset', 'unknown') != dataset:
+                    continue
+
+                model_name = pred_record.get('model', 'unknown')
+
+                # Extract base model name (remove _X suffix for CV folds)
+                base_model_match = re.match(r'(.+?)_\d+$', model_name)
+                base_model = base_model_match.group(1) if base_model_match else model_name
+
+                y_true = pred_record.get('y_true', [])
+                y_pred = pred_record.get('y_pred', [])
+
+                if len(y_true) > 0 and len(y_pred) > 0:
+                    metrics = self._calculate_metrics(y_true, y_pred)
+
+                    model_info = {
+                        'model': model_name,
+                        'base_model': base_model,
+                        'pipeline': pred_record.get('pipeline', 'unknown'),
+                        'partition': pred_record.get('partition', 'unknown'),
+                        'dataset': pred_record.get('dataset', 'unknown'),
+                        'metrics': metrics,
+                        'y_true': y_true,
+                        'y_pred': y_pred,
+                        'sample_count': len(y_true)
+                    }
+
+                    model_groups[base_model].append(model_info)
+
+            # Find best model for each type
+            best_models = {}
+            higher_is_better = metric.lower() in ['r2', 'accuracy', 'f1', 'auc']
+
+            for base_model, models in model_groups.items():
+                if not models:
+                    continue
+
+                # Sort by metric
+                sorted_models = sorted(
+                    models,
+                    key=lambda x: x['metrics'].get(metric, float('-inf') if higher_is_better else float('inf')),
+                    reverse=higher_is_better
+                )
+
+                best_models[base_model] = sorted_models[0]
+
+            return best_models
+
+        finally:
+            # Restore original data
+            self.data = original_data
+
+    def plot_best_models_predictions(self,
+                                    dataset: Optional[str] = None,
+                                    metric: str = 'rmse',
+                                    prediction_filter: str = 'all',
+                                    figsize: Tuple[int, int] = (15, 12)) -> plt.Figure:
+        """
+        Plot y_pred vs y_true for the best model of each type for a given dataset.
+
+        Args:
+            dataset: Dataset to visualize
+            metric: Metric to use for selecting best models
+            prediction_filter: Filter predictions type
+            figsize: Figure size
+
+        Returns:
+            matplotlib Figure object
+        """
+        best_models = self.get_best_models_by_type(dataset, metric, prediction_filter)
+
+        if not best_models:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.text(0.5, 0.5, 'No models found for the specified criteria',
+                ha='center', va='center', fontsize=16)
+            ax.set_title('Best Models Predictions - No Data')
+            return fig
+
+        n_models = len(best_models)
+        cols = min(3, n_models)
+        rows = (n_models + cols - 1) // cols
+
+        fig, axes = plt.subplots(rows, cols, figsize=figsize)
+
+        if n_models == 1:
+            axes = [axes]
+        elif rows == 1 or cols == 1:
+            axes = axes.flatten()
+        else:
+            axes = axes.flatten()
+
+        for i, (model_type, model_info) in enumerate(sorted(best_models.items())):
+            if i >= len(axes):
+                break
+
+            ax = axes[i]
+
+            y_true = np.array(model_info['y_true']).flatten()
+            y_pred = np.array(model_info['y_pred']).flatten()
+
+            # Remove NaN values
+            mask = ~(np.isnan(y_true) | np.isnan(y_pred))
+            y_true = y_true[mask]
+            y_pred = y_pred[mask]
+
+            if len(y_true) > 0:
+                # Scatter plot
+                ax.scatter(y_true, y_pred, alpha=0.6, s=30, color='steelblue')
+
+                # Perfect prediction line
+                min_val = min(y_true.min(), y_pred.min())
+                max_val = max(y_true.max(), y_pred.max())
+                ax.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8, linewidth=2)
+
+                # Labels and formatting
+                ax.set_xlabel('True Values')
+                ax.set_ylabel('Predicted Values')
+
+                metrics = model_info['metrics']
+                title = f'{model_type}'
+                subtitle = f"R²={metrics['r2']:.3f}, RMSE={metrics['rmse']:.3f}"
+                ax.set_title(f"{title}\n{subtitle}", fontsize=10)
+
+                ax.grid(True, alpha=0.3)
+                ax.set_aspect('equal', adjustable='box')
+            else:
+                ax.text(0.5, 0.5, 'No valid data', ha='center', va='center')
+                ax.set_title(f'{model_type}\nNo Data')
+
+        # Hide unused subplots
+        for i in range(n_models, len(axes)):
+            axes[i].axis('off')
+
+        display_dataset = self.dataset_name_override or dataset or 'All Datasets'
+        plt.tight_layout()
+        plt.suptitle(f'Best Models Predictions: True vs Predicted\nDataset: {display_dataset}',
+                    fontsize=14, y=1.02)
+
+        return fig
+
+    def plot_models_performance_bars(self,
+                                    dataset: Optional[str] = None,
+                                    metric: str = 'rmse',
+                                    prediction_filter: str = 'all',
+                                    show_variance: bool = True,
+                                    figsize: Tuple[int, int] = (12, 10)) -> plt.Figure:
+        """
+        Plot vertical bar chart showing mean metric and variance for all models.
+        Creates a |---===-| style plot but vertical.
+
+        Args:
+            dataset: Dataset to analyze
+            metric: Metric to display ('rmse', 'r2', 'mae', 'mse')
+            prediction_filter: Filter predictions type
+            show_variance: Whether to show error bars for variance
+            figsize: Figure size
+
+        Returns:
+            matplotlib Figure object
+        """
+        import re
+        from collections import defaultdict
+
+        # Apply filtering
+        original_data = self.data
+        self.data = self._filter_data_by_prediction_types(prediction_filter)
+
+        try:
+            # Group by base model type
+            model_groups = defaultdict(list)
+
+            for pred_record in self.data:
+                if dataset and pred_record.get('dataset', 'unknown') != dataset:
+                    continue
+
+                model_name = pred_record.get('model', 'unknown')
+
+                # Extract base model name
+                base_model_match = re.match(r'(.+?)_\d+$', model_name)
+                base_model = base_model_match.group(1) if base_model_match else model_name
+
+                y_true = pred_record.get('y_true', [])
+                y_pred = pred_record.get('y_pred', [])
+
+                if len(y_true) > 0 and len(y_pred) > 0:
+                    metrics = self._calculate_metrics(y_true, y_pred)
+                    metric_value = metrics.get(metric)
+
+                    if metric_value is not None and not np.isnan(metric_value):
+                        model_groups[base_model].append(metric_value)
+
+            if not model_groups:
+                fig, ax = plt.subplots(figsize=figsize)
+                ax.text(0.5, 0.5, 'No models found for the specified criteria',
+                    ha='center', va='center', fontsize=16)
+                ax.set_title('Models Performance - No Data')
+                return fig
+
+            # Calculate statistics for each model
+            model_stats = []
+            for model_name, values in model_groups.items():
+                if values:
+                    mean_val = np.mean(values)
+                    std_val = np.std(values) if len(values) > 1 else 0
+                    count = len(values)
+
+                    model_stats.append({
+                        'model': model_name,
+                        'mean': mean_val,
+                        'std': std_val,
+                        'count': count,
+                        'values': values
+                    })
+
+            # Sort by mean metric (best first)
+            higher_is_better = metric.lower() in ['r2', 'accuracy', 'f1', 'auc']
+            model_stats.sort(key=lambda x: x['mean'], reverse=higher_is_better)
+
+            # Create vertical bar plot
+            fig, ax = plt.subplots(figsize=figsize)
+
+            models = [stats['model'] for stats in model_stats]
+            means = [stats['mean'] for stats in model_stats]
+            stds = [stats['std'] for stats in model_stats] if show_variance else None
+
+            # Create bars
+            x_pos = np.arange(len(models))
+            bars = ax.bar(x_pos, means, capsize=5, alpha=0.7,
+                        color=plt.cm.viridis(np.linspace(0, 1, len(models))))
+
+            # Add error bars if requested
+            if show_variance and stds:
+                ax.errorbar(x_pos, means, yerr=stds, fmt='none',
+                        capsize=8, capthick=2, color='black', alpha=0.8)
+
+            # Customize plot
+            ax.set_xlabel('Models')
+            ax.set_ylabel(f'{metric.upper()} Score')
+            ax.set_xticks(x_pos)
+            ax.set_xticklabels(models, rotation=45, ha='right')
+
+            # Add value labels on bars
+            for i, (bar, stats) in enumerate(zip(bars, model_stats)):
+                height = bar.get_height()
+                label = f'{height:.3f}'
+                if show_variance and stats['std'] > 0:
+                    label += f'±{stats["std"]:.3f}'
+                label += f'\n(n={stats["count"]})'
+
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                    label, ha='center', va='bottom', fontsize=9)
+
+            # Add grid
+            ax.grid(True, alpha=0.3, axis='y')
+
+            # Title
+            display_dataset = self.dataset_name_override or dataset or 'All Datasets'
+            title = f'{metric.upper()} Performance by Model'
+            if show_variance:
+                title += ' (Mean ± Std)'
+            title += f'\nDataset: {display_dataset}'
+            ax.set_title(title)
+
+            plt.tight_layout()
+            return fig
+
+        finally:
+            # Restore original data
+            self.data = original_data

@@ -137,6 +137,10 @@ class Predictions:
         """
         key = f"{dataset}_{pipeline}_{model}_{partition}"
 
+        # Check for duplicate predictions and warn
+        if key in self._predictions:
+            print(f"⚠️  WARNING: Overwriting existing prediction: {key}")
+
         # Ensure arrays are numpy arrays
         y_true = np.asarray(y_true)
         y_pred = np.asarray(y_pred)
@@ -846,7 +850,7 @@ class Predictions:
                 f"   Models: {models}")
 
     @classmethod
-    def load_dataset_predictions(cls, dataset, saver) -> int:
+    def load_dataset_predictions(cls, dataset, saver):
         """Load existing predictions for a dataset and return count before loading."""
         try:
             if hasattr(saver, 'base_path'):
@@ -858,15 +862,11 @@ class Predictions:
 
                 if predictions_file.exists():
                     existing_predictions = cls.load_from_file(str(predictions_file))
-                    # Get count before merging
-                    before_count = len(existing_predictions.list_keys())
-                    # Merge existing predictions into current dataset
-                    dataset._predictions.merge_predictions(existing_predictions)
-                    return before_count
+                    return existing_predictions
         except Exception as e:
             print(f"⚠️ Could not load existing predictions: {e}")
 
-        return 0
+        return Predictions()
 
     def display_best_scores_summary(self, dataset_name: str, predictions_before_count: int = 0):
         """Display best scores summary for the dataset after all pipelines are complete."""
