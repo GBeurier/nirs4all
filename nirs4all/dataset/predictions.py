@@ -35,6 +35,7 @@ class Predictions:
         self._predictions: Dict[str, Dict[str, Any]] = {}
         if filepath and Path(filepath).exists():
             self.load_from_file(filepath)
+        self.run_path = ""
 
     @classmethod
     def load_from_file(cls, filepath: str) -> 'Predictions':
@@ -119,7 +120,7 @@ class Predictions:
         y_pred: np.ndarray,
         sample_indices: Optional[List[int]] = None,
         fold_idx: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Add prediction results.
@@ -163,7 +164,8 @@ class Predictions:
             'y_pred': y_pred.copy(),
             'sample_indices': list(sample_indices),
             'fold_idx': fold_idx,
-            'metadata': metadata or {}
+            'metadata': metadata or {},
+            'path': self.run_path,
         }
 
     def get_predictions(
@@ -277,7 +279,8 @@ class Predictions:
             'y_pred': np.concatenate(all_y_pred),
             'sample_indices': all_sample_indices,
             'fold_indices': all_fold_indices,
-            'metadata': {'num_folds': len(matching_predictions)}
+            'metadata': {'num_folds': len(matching_predictions)},
+            'path': self.run_path
         }
 
     def list_keys(self) -> List[str]:
@@ -366,7 +369,8 @@ class Predictions:
                 'calculation_type': 'average',
                 'source_partitions': [fp['partition'] for fp in fold_predictions],
                 'source_models': [fp['model'] for fp in fold_predictions]
-            }
+            },
+            'path': self.run_path
         }
 
         if store_result:
@@ -486,7 +490,8 @@ class Predictions:
                 'weighting_metric': metric,
                 'weights': weights,
                 'source_partitions': [tp['partition'] for tp in test_predictions]
-            }
+            },
+            'path': self.run_path
         }
 
         if store_result:
@@ -667,6 +672,7 @@ class Predictions:
                 'partition': pred_data['partition'],
                 'fold_idx': pred_data.get('fold_idx'),
                 'n_samples': len(pred_data['y_true']),
+                'path': self.run_path
             }
 
             # Add all scores
@@ -683,6 +689,7 @@ class Predictions:
         model: Optional[str] = None,
         partition: Optional[str] = None,
         include_scores: bool = True,
+        path: Optional[str] = None,
         task_type: str = "auto"
     ) -> None:
         """
@@ -730,7 +737,8 @@ class Predictions:
                     'y_true': true_val,
                     'y_pred': pred_val,
                     'residual': true_val - pred_val,
-                    'absolute_error': abs(true_val - pred_val)
+                    'absolute_error': abs(true_val - pred_val),
+                    'path': self.run_path
                 }
 
                 # Add scores (same for all samples from same prediction)
