@@ -5,7 +5,7 @@ Bin operator with bounds or count + warning class assymetry
 Chart operators not controllers.
 Release formation
 [CLI]
-[SHAP]
+[SHAP] > display with moving window (size, step)
 [Augmentation + Balanced Augmentation]
 [Transfert]
 [Logs]
@@ -17,6 +17,7 @@ Release
 [Y_pipeline in models]
 [WEBAPP]
 [CLUSTERED COMPUTATION + SERV/CLIENT]
+[Save uniquement best model du run]
 
 ## TO REVIEW
 
@@ -38,6 +39,11 @@ Pas de sauvegarde du modèle (seulement les prédictions)
 
 
 #### BUGS ########
+
+!!!!!!!!!!!!! Predict on multiple dataset
+
+
+
 
 Remove update feature for the first element in feature_augmentation.
   None can create problems with generation. ie. [None, savgol] = [savgol, None]

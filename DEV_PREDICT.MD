@@ -157,7 +157,7 @@ def _execute_controller(self, ...):
         step_id = f"{self.step_number}_{self.substep_number}"
         self.step_binaries[step_id] = [binary[0] for binary in binaries]
 
-    self.saver.save_binaries(self.step_number, self.substep_number, binaries)
+    self.saver.save_files(self.step_number, self.substep_number, binaries)
     return context
 ```
 

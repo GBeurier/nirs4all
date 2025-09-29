@@ -22,7 +22,7 @@ Successfully implemented comprehensive prediction capabilities for the NIRS4All 
 
 ### 3. Enhanced Pipeline Runner (`nirs4all/pipeline/runner.py`)
 - **New Features**:
-  - `save_binaries` parameter to enable/disable binary saving (optional as requested)
+  - `save_files` parameter to enable/disable binary saving (optional as requested)
   - Step-to-binary mapping tracking during execution
   - Enhanced pipeline metadata storage in `pipeline.json`
   - Static `predict()` method for loading and running saved pipelines
@@ -56,15 +56,15 @@ All chart controllers (`op_y_chart.py`, `op_spectra_charts.py`, `op_fold_charts.
 ### 1. Optional Binary Saving
 ```python
 # Enable binary saving for prediction support (default)
-runner = PipelineRunner(save_binaries=True)
+runner = PipelineRunner(save_files=True)
 
 # Disable binary saving to save space/time
-runner = PipelineRunner(save_binaries=False)
+runner = PipelineRunner(save_files=False)
 ```
 
 ### 2. Warning System
 - Warns when trying to use pipelines without binary metadata
-- Suggests re-running with `save_binaries=True`
+- Suggests re-running with `save_files=True`
 - Continues execution where possible with warnings
 
 ### 3. Enhanced Pipeline Metadata
@@ -91,7 +91,7 @@ Each controller decides whether to execute in prediction mode:
 ### Basic Training and Prediction
 ```python
 # Training with binary saving
-runner = PipelineRunner(results_path="./results", save_binaries=True)
+runner = PipelineRunner(results_path="./results", save_files=True)
 dataset, _, _ = runner.run(config, training_dataset)
 
 # Prediction using saved pipeline
@@ -140,7 +140,7 @@ except RuntimeError as e:
 
 Existing users can adopt the prediction feature incrementally:
 
-1. **Immediate**: Set `save_binaries=True` when training new pipelines
+1. **Immediate**: Set `save_files=True` when training new pipelines
 2. **Gradual**: Re-train existing pipelines with binary saving enabled
 3. **Full Adoption**: Use `PipelineRunner.predict()` for all inference tasks
 
