@@ -26,8 +26,8 @@ class FeatureAugmentationController(OperatorController):
 
     @classmethod
     def supports_prediction_mode(cls) -> bool:
-        """Feature augmentation should execute during prediction mode to apply saved transformers."""
-        return True
+        """Feature augmentation should NOT execute during prediction mode - transformations are already applied and saved."""
+        return False
 
     def execute(  # TODO reup parralelization
         self,
