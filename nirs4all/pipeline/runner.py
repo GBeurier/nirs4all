@@ -172,6 +172,7 @@ class PipelineRunner:
         print("-" * 200)
 
         storage_path = self.saver.register(dataset.name, config_name)
+        dataset._predictions.run_path = str(storage_path)
         self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
         # Initialize context
@@ -452,7 +453,7 @@ class PipelineRunner:
     @staticmethod
     def predict(
         path: Union[str, Path],
-        dataset: SpectroDataset,
+        dataset: DatasetConfigs,
         verbose: int = 0
     ) -> Tuple[SpectroDataset, Dict[str, Any]]:
         """
@@ -472,7 +473,6 @@ class PipelineRunner:
             RuntimeError: If prediction execution fails
         """
         path = Path(path)
-
         # Validate pipeline path
         if not path.exists():
             raise FileNotFoundError(f"Pipeline directory does not exist: {path}")
@@ -517,23 +517,23 @@ class PipelineRunner:
 
         # Create config and run pipeline
         config = PipelineConfigs(steps)
-        config.name = f"prediction_{dataset.name}"
+        # config.name = f"prediction_{dataset.name}"
 
         if verbose > 0:
-            print(f"🔮 Starting prediction mode for pipeline on dataset {dataset.name}")
+            # print(f"🔮 Starting prediction mode for pipeline on dataset {dataset.name}")
             cache_info = binary_loader.get_cache_info()
             print(f"📦 Available binaries for {cache_info['total_available_binaries']} operations across {len(cache_info['available_steps'])} steps")
 
         try:
-            result_dataset, history, pipeline = runner.run(config, dataset)
+            predictions, results = runner.run(config, dataset)
 
             # Extract final context
-            final_context = {"processing": [["prediction"]] * dataset.features_sources(), "y": "prediction"}
+            # final_context = {"processing": [["prediction"]] * dataset.features_sources(), "y": "prediction"}
 
             if verbose > 0:
                 print(f"✅ Prediction completed successfully")
 
-            return result_dataset, final_context
+            return predictions
 
         except Exception as e:
             raise RuntimeError(f"Prediction failed: {e}") from e

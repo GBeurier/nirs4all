@@ -1,11 +1,7 @@
 #### ROADMAP ########
-Metrics
 learning course - ipynb
 * Classification | check sample_classif bugs, Customize encoding. adapt charts and error reporting
-* Store predictions and display prediction summaries | clean output and make print/chart helpers for prediction -
-
 Bin operator with bounds or count + warning class assymetry
-Clean prints
 Chart operators not controllers.
 Release formation
 [CLI]
@@ -19,12 +15,17 @@ Release
 [Clustering]
 [Workflows: branch, merge, split_src, scope]
 [Y_pipeline in models]
-[LOG]
 [WEBAPP]
 [CLUSTERED COMPUTATION + SERV/CLIENT]
 
+## TO REVIEW
+
 * Runner, externalize all that is not runner logic.
 * Generator > seems good > add internal generation (ie. automatic generation of multiple model into the config)
+* Metrics
+* Predictions visualizer
+* Prints
+
 
 #### FORMATION ####
 

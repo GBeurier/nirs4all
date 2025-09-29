@@ -1099,16 +1099,6 @@ class PredictionVisualizer:
                      fontsize=14, y=1.02)
         return fig
 
-    def plot_score_distributions(
-            self,
-            dataset: Optional[str] = None,
-            metrics: Optional[List[str]] = None,
-            bins: int = 20,
-            figsize: Tuple[int, int] = (15, 10)
-    ) -> Figure:
-        """Plot score distributions for multiple metrics."""
-        # Implementation would be here - keeping for compatibility
-        pass
 
     # Helper functions for evaluation
     def evaluate_predictions(self,
@@ -1149,7 +1139,8 @@ class PredictionVisualizer:
                     'sample_count': len(y_true),
                     'y_true': y_true,
                     'y_pred': y_pred,
-                    'metadata': pred_record.get('metadata', {})
+                    'metadata': pred_record.get('metadata', {}),
+                    'path': pred_record['path']
                 }
 
                 # Add individual metrics as top-level keys for easy access
