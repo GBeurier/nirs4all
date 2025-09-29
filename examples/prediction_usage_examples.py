@@ -23,7 +23,7 @@ def example_training_with_binaries():
     # Create runner with binary saving enabled (default)
     runner = PipelineRunner(
         results_path="./results/my_experiment",
-        save_binaries=True,  # Enable binary saving for prediction support
+        save_files=True,  # Enable binary saving for prediction support
         verbose=1
     )
 
@@ -102,7 +102,7 @@ def example_complex_pipeline():
     # Training phase
     training_runner = PipelineRunner(
         results_path="./results/complex_pipeline",
-        save_binaries=True,
+        save_files=True,
         verbose=2
     )
 
@@ -152,7 +152,7 @@ if __name__ == "__main__":
     print("This file contains usage examples for the new prediction functionality.")
     print("See the function definitions above for detailed examples.")
     print("\nKey features:")
-    print("- Train with save_binaries=True for prediction support")
+    print("- Train with save_files=True for prediction support")
     print("- Use PipelineRunner.predict() for inference")
     print("- Chart operations are automatically skipped in prediction mode")
     print("- Transformers use fitted parameters, models make predictions")
