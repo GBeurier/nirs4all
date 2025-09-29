@@ -1485,6 +1485,9 @@ class BaseModelController(OperatorController, ABC):
                     train_params, context, runner, dataset, fold_idx
                 )
 
+            # Store test predictions for each fold model
+            # This is now handled within _execute_train when fold_idx is provided
+
             # Add fold suffix to binary names
             fold_binaries_renamed = []
             for name, binary in fold_binaries:
@@ -1497,10 +1500,59 @@ class BaseModelController(OperatorController, ABC):
 
             all_binaries.extend(fold_binaries_renamed)
 
+        # After all folds are complete, automatically generate aggregated predictions
+        self._generate_aggregated_predictions(
+            model_config, data_splits, context, runner, dataset
+        )
+
         # if verbose > 0:
         #     print("✅ Cross-validation completed successfully")
 
         return context, all_binaries
+
+    def _generate_aggregated_predictions(
+        self,
+        model_config: Dict[str, Any],
+        data_splits: List[Tuple[Any, Any, Any, Any]],
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        dataset: 'SpectroDataset'
+    ) -> None:
+        """Generate aggregated predictions (mean and weighted mean) for all fold predictions."""
+        # Get base model name without suffix
+        base_model = self._get_model_from_config(model_config)
+        base_model_name = base_model.__class__.__name__
+
+        dataset_name = getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown'
+        pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown'
+
+        # Generate average predictions for train, val, and test
+        for partition_pattern in ['train_fold', 'val_fold', 'test_fold']:
+            # Calculate simple average
+            avg_result = dataset._predictions.calculate_average_predictions(
+                dataset=dataset_name,
+                pipeline=pipeline_name,
+                model=base_model_name,  # Use base model name
+                partition_pattern=partition_pattern,
+                store_result=True
+            )
+
+            if avg_result:
+                print(f"✨ Generated averaged {partition_pattern} predictions")
+
+        # Generate weighted average test predictions based on validation performance
+        weighted_avg_result = dataset._predictions.calculate_weighted_average_predictions(
+            dataset=dataset_name,
+            pipeline=pipeline_name,
+            model=base_model_name,  # Use base model name
+            test_partition_pattern="test_fold",
+            val_partition_pattern="val_fold",
+            metric='rmse',  # Use RMSE for weighting
+            store_result=True
+        )
+
+        if weighted_avg_result:
+            print("✨ Generated weighted averaged test predictions")
 
     def _execute_train(
         self,
@@ -1537,30 +1589,90 @@ class BaseModelController(OperatorController, ABC):
             train_params=train_params
         )
 
-        # Generate predictions
-        y_pred = self._predict_model(trained_model, X_test_prep)
+        # Generate predictions for test/validation set
+        y_pred_test = self._predict_model(trained_model, X_test_prep)
+
+        # Generate predictions for training set
+        y_pred_train = self._predict_model(trained_model, X_train_prep)
 
         # Store predictions in dataset
         unique_model_name = self._get_unique_model_name(model_config, model, runner)
-        self._store_predictions_in_dataset(
-            dataset=getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown',
-            pipeline=getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown',
-            model=unique_model_name,
-            partition=f"test_fold_{fold_idx}" if fold_idx is not None else "test",
-            y_true=y_test,
-            y_pred=y_pred,
-            fold_idx=fold_idx,
-            context=context,
-            dataset_obj=dataset
-        )
+        dataset_name = getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown'
+        pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown'
+
+        # Store test/validation predictions (X_test is actually validation data in fold context)
+        if fold_idx is not None:
+            # This is a fold, so X_test is validation data
+            self._store_predictions_in_dataset(
+                dataset=dataset_name,
+                pipeline=pipeline_name,
+                model=unique_model_name,
+                partition=f"val_fold_{fold_idx}",
+                y_true=y_test,
+                y_pred=y_pred_test,
+                fold_idx=fold_idx,
+                context=context,
+                dataset_obj=dataset
+            )
+
+            # Store training predictions
+            self._store_predictions_in_dataset(
+                dataset=dataset_name,
+                pipeline=pipeline_name,
+                model=unique_model_name,
+                partition=f"train_fold_{fold_idx}",
+                y_true=y_train,
+                y_pred=y_pred_train,
+                fold_idx=fold_idx,
+                context=context,
+                dataset_obj=dataset
+            )
+
+            # Also generate test predictions for this fold model on global test data
+            test_context = context.copy()
+            test_context["partition"] = "test"
+            layout_str = self.get_preferred_layout()
+            layout: Layout = layout_str  # type: ignore
+            X_global_test = dataset.x(test_context, layout, concat_source=True)
+            y_global_test = dataset.y(test_context)
+
+            # Prepare global test data and predict
+            X_global_test_prep, _ = self._prepare_data(X_global_test, y_global_test, context)
+            y_pred_global_test = self._predict_model(trained_model, X_global_test_prep)
+
+            # Store test predictions for this fold
+            self._store_predictions_in_dataset(
+                dataset=dataset_name,
+                pipeline=pipeline_name,
+                model=unique_model_name,
+                partition=f"test_fold_{fold_idx}",
+                y_true=y_global_test,
+                y_pred=y_pred_global_test,
+                fold_idx=fold_idx,
+                context=context,
+                dataset_obj=dataset
+            )
+        else:
+            # This is global test data
+            self._store_predictions_in_dataset(
+                dataset=dataset_name,
+                pipeline=pipeline_name,
+                model=unique_model_name,
+                partition="test",
+                y_true=y_test,
+                y_pred=y_pred_test,
+                fold_idx=fold_idx,
+                context=context,
+                dataset_obj=dataset
+            )
 
         # Store results and serialize model
-        binaries = self._store_results(trained_model, y_pred, y_test, runner, "trained")
+        binaries = self._store_results(trained_model, y_pred_test, y_test, runner, "trained")
 
         # Always calculate and display final test scores (even at verbose=0)
         task_type = self._detect_task_type(y_train)
         test_scores = self._calculate_and_print_scores(
-            y_test, y_pred, task_type, "test", unique_model_name,
+            y_test, y_pred_test, task_type, "test", unique_model_name,
             show_detailed_scores=False  # Don't show detailed scores, just calculate them
         )
 
@@ -1570,7 +1682,7 @@ class BaseModelController(OperatorController, ABC):
         if best_score is not None:
             direction = "↑" if higher_is_better else "↓"
             # Calculate scaled score if possible
-            scaled_score = self._calculate_scaled_score(y_test, y_pred, dataset)
+            scaled_score = self._calculate_scaled_score(y_test, y_pred_test, dataset)
 
             # Format: metric=value (scaled_value)↓ (other scores)
             if scaled_score is not None and scaled_score != best_score:
@@ -1592,7 +1704,7 @@ class BaseModelController(OperatorController, ABC):
         self._save_predictions_to_results_folder(dataset, runner)
 
         # if verbose > 0:
-            # print("✅ Training completed successfully")
+        #     print("✅ Training completed successfully")
         return context, binaries
 
     def _calculate_scaled_score(self, y_true, y_pred, dataset) -> Optional[float]:
