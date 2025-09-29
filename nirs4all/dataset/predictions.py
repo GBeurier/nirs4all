@@ -341,7 +341,7 @@ class Predictions:
             return None
 
         # Sort by fold index if available
-        fold_predictions.sort(key=lambda x: x.get('fold_idx', 0))
+        fold_predictions.sort(key=lambda x: x.get('fold_idx') if x.get('fold_idx') is not None else 0)
 
         # Calculate average predictions
         # Assume all folds predict on the same samples in the same order
@@ -422,8 +422,8 @@ class Predictions:
             return None
 
         # Sort by fold index
-        test_predictions.sort(key=lambda x: x.get('fold_idx', 0))
-        val_predictions.sort(key=lambda x: x.get('fold_idx', 0))
+        test_predictions.sort(key=lambda x: x.get('fold_idx') if x.get('fold_idx') is not None else 0)
+        val_predictions.sort(key=lambda x: x.get('fold_idx') if x.get('fold_idx') is not None else 0)
 
         # Calculate validation scores for each fold
         weights = []
