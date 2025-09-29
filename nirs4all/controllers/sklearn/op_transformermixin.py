@@ -187,7 +187,7 @@ class TransformerMixinController(OperatorController):
         if not loaded_binaries:
             raise RuntimeError(
                 "No fitted transformers found for prediction mode. "
-                "Ensure the pipeline was trained with save_binaries=True."
+                "Ensure the pipeline was trained with save_files=True."
             )
 
         # Get all data (no train/test split needed for prediction)

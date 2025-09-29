@@ -58,7 +58,7 @@ class BinaryLoader:
                     warnings.warn(
                         f"Pipeline at {self.simulation_path} was saved without binary metadata. "
                         "This pipeline needs to be re-run in training mode to support prediction. "
-                        "Use save_binaries=True when training to enable prediction mode.",
+                        "Use save_files=True when training to enable prediction mode.",
                         UserWarning
                     )
                     self.step_binaries = {}

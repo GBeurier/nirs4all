@@ -92,7 +92,7 @@ class Predictions:
             with open(filepath, 'w') as f:
                 json.dump(serializable_data, f, indent=2, default=str)
 
-            print(f"💾 Saved {len(self._predictions)} predictions to {filepath}")
+            # print(f"💾 Saved {len(self._predictions)} predictions to {filepath}")
 
         except Exception as e:
             print(f"⚠️ Error saving predictions to {filepath}: {e}")
@@ -750,7 +750,7 @@ class Predictions:
         # Create DataFrame and save
         df = pd.DataFrame(all_rows)
         df.to_csv(filepath, index=False)
-        print(f"💾 Saved {len(all_rows)} prediction records to {filepath}")
+        # print(f"💾 Saved {len(all_rows)} prediction records to {filepath}")
 
     def print_best_scores_summary(
         self,

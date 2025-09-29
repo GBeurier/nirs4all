@@ -47,7 +47,7 @@ class PipelineRunner:
                  verbose: int = 0,
                  parallel: bool = False,
                  results_path: Optional[str] = None,
-                 save_binaries: bool = True,
+                 save_files: bool = True,
                  mode: str = "train",
                  load_existing_predictions: bool = True,
                  show_spinner: bool = True):
@@ -62,7 +62,7 @@ class PipelineRunner:
         self.substep_number = -1  # Initialize sub-step number for tracking
         self.saver = SimulationSaver(results_path)
         self.operation_count = 0
-        self.save_binaries = save_binaries
+        self.save_files = save_files
         self.mode = mode
         self.load_existing_predictions = load_existing_predictions
         self.step_binaries: Dict[str, List[str]] = {}  # Track step-to-binary mapping
@@ -335,11 +335,11 @@ class PipelineRunner:
         finally:
             if not is_substep:
                 print("-" * 200)
-                # after_dataset_str = str(dataset)
-                # # print(before_dataset_str)
-                # if before_dataset_str != after_dataset_str:
-                #     print(f"\033[97mUpdate: {after_dataset_str}\033[0m")
-                #     print("-" * 200)
+                after_dataset_str = str(dataset)
+                # print(before_dataset_str)
+                if before_dataset_str != after_dataset_str:
+                    print(f"\033[97mUpdate: {after_dataset_str}\033[0m")
+                    print("-" * 200)
 
     def _select_controller(self, step: Any, operator: Any = None, keyword: str = ""):
         matches = [cls for cls in CONTROLLER_REGISTRY if cls.matches(step, operator, keyword)]
@@ -411,7 +411,7 @@ class PipelineRunner:
         is_model_controller = 'model' in controller_name.lower()
 
         # Save binaries if in training mode and saving is enabled
-        if self.mode == "train" and self.save_binaries and binaries:
+        if self.mode == "train" and self.save_files and binaries:
             # Track binaries for this step with correct naming
             step_id = f"{self.step_number}_{self.substep_number}"
 
@@ -426,7 +426,7 @@ class PipelineRunner:
                 actual_filenames.append(prefixed_name)
 
             self.step_binaries[step_id] = actual_filenames
-            self.saver.save_binaries(self.step_number, self.substep_number, binaries, self.save_binaries)
+            self.saver.save_files(self.step_number, self.substep_number, binaries, self.save_files)
 
         return context
 
@@ -493,7 +493,7 @@ class PipelineRunner:
             warnings.warn(
                 f"Pipeline at {path} was saved without binary metadata. "
                 "This pipeline may not work properly in prediction mode. "
-                "Consider re-running the pipeline with save_binaries=True to enable full prediction support.",
+                "Consider re-running the pipeline with save_files=True to enable full prediction support.",
                 UserWarning
             )
 
@@ -510,7 +510,7 @@ class PipelineRunner:
         # Create prediction runner
         runner = PipelineRunner(
             verbose=verbose,
-            save_binaries=False,  # Don't save binaries during prediction
+            save_files=False,  # Don't save binaries during prediction
             mode="predict"
         )
         runner.binary_loader = binary_loader
