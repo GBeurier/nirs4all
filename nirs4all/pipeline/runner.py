@@ -69,75 +69,21 @@ class PipelineRunner:
         self.binary_loader: Optional[BinaryLoader] = None
         self.show_spinner = show_spinner
 
-    def next_op(self) -> int:
-        """Get the next operation ID."""
-        self.operation_count += 1
-        return self.operation_count
-
-    def _display_best_for_config(self, dataset: SpectroDataset, config_name: str) -> None:
-        """Display best score for this specific config."""
-        try:
-            from nirs4all.utils.model_utils import ModelUtils
-
-            # Get all predictions for this config
-            all_keys = dataset._predictions.list_keys()
-            config_predictions = [key for key in all_keys if config_name in key]
-
-            if not config_predictions:
-                return
-
-            best_score = None
-            best_model = None
-            higher_is_better = False
-
-            for key in config_predictions:
-                parts = key.split('_')
-                if len(parts) >= 4:
-                    pred_dataset_name = parts[0]
-                    pipeline_name = '_'.join(parts[1:-2])
-                    model_name = parts[-2]
-                    partition_name = parts[-1]
-
-                    pred_data = dataset._predictions.get_prediction_data(
-                        pred_dataset_name, pipeline_name, model_name, partition_name
-                    )
-
-                    if pred_data and 'y_true' in pred_data and 'y_pred' in pred_data:
-                        task_type = ModelUtils.detect_task_type(pred_data['y_true'])
-                        scores = ModelUtils.calculate_scores(pred_data['y_true'], pred_data['y_pred'], task_type)
-                        best_metric, metric_higher_is_better = ModelUtils.get_best_score_metric(task_type)
-                        score = scores.get(best_metric)
-
-                        higher_is_better = metric_higher_is_better
-
-                        if score is not None:
-                            if best_score is None or (
-                                (higher_is_better and score > best_score) or
-                                (not higher_is_better and score < best_score)
-                            ):
-                                best_score = score
-                                best_model = model_name
-
-            if best_score is not None and best_model is not None:
-                direction = "↑" if higher_is_better else "↓"
-                print(f"🏆 Best for config: {best_model} ({config_name}) - mse={best_score:.4f}{direction}")
-
-        except Exception as e:
-            print(f"⚠️ Could not display best for config: {e}")
-
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> List[Tuple[SpectroDataset, PipelineHistory, Any]]:
         """Run pipeline configurations on dataset configurations."""
+        nb_combinations = len(pipeline_configs.steps) * len(dataset_configs.configs)
+        print(f"🚀 Starting pipeline run with {len(pipeline_configs.steps)} pipeline configuration(s) on {len(dataset_configs.configs)} dataset configuration(s) ({nb_combinations} total runs).")
         results = []
         global_pred_db = Predictions()
         # Get datasets from DatasetConfigs
-        for d_config in dataset_configs.data_configs:
+        for config, name in dataset_configs.configs:
             print("=" * 200)
             existing_predictions = 0
             dataset_pred_db = None
             run_dataset_pred_db = Predictions()
-            dataset_name = "unknown_dataset"
+            dataset_name = name
             for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
-                dataset = dataset_configs.get_dataset(d_config)
+                dataset = dataset_configs.get_dataset(config, dataset_name)
                 dataset_name = dataset.name
 
                 if i == 0 and self.load_existing_predictions:
@@ -537,3 +483,59 @@ class PipelineRunner:
 
         except Exception as e:
             raise RuntimeError(f"Prediction failed: {e}") from e
+
+    def next_op(self) -> int:
+        """Get the next operation ID."""
+        self.operation_count += 1
+        return self.operation_count
+
+    def _display_best_for_config(self, dataset: SpectroDataset, config_name: str) -> None:
+        """Display best score for this specific config."""
+        try:
+            from nirs4all.utils.model_utils import ModelUtils
+
+            # Get all predictions for this config
+            all_keys = dataset._predictions.list_keys()
+            config_predictions = [key for key in all_keys if config_name in key]
+
+            if not config_predictions:
+                return
+
+            best_score = None
+            best_model = None
+            higher_is_better = False
+
+            for key in config_predictions:
+                parts = key.split('_')
+                if len(parts) >= 4:
+                    pred_dataset_name = parts[0]
+                    pipeline_name = '_'.join(parts[1:-2])
+                    model_name = parts[-2]
+                    partition_name = parts[-1]
+
+                    pred_data = dataset._predictions.get_prediction_data(
+                        pred_dataset_name, pipeline_name, model_name, partition_name
+                    )
+
+                    if pred_data and 'y_true' in pred_data and 'y_pred' in pred_data:
+                        task_type = ModelUtils.detect_task_type(pred_data['y_true'])
+                        scores = ModelUtils.calculate_scores(pred_data['y_true'], pred_data['y_pred'], task_type)
+                        best_metric, metric_higher_is_better = ModelUtils.get_best_score_metric(task_type)
+                        score = scores.get(best_metric)
+
+                        higher_is_better = metric_higher_is_better
+
+                        if score is not None:
+                            if best_score is None or (
+                                (higher_is_better and score > best_score) or
+                                (not higher_is_better and score < best_score)
+                            ):
+                                best_score = score
+                                best_model = model_name
+
+            if best_score is not None and best_model is not None:
+                direction = "↑" if higher_is_better else "↓"
+                print(f"🏆 Best for config: {best_model} ({config_name}) - {best_metric}={best_score:.4f}{direction}")
+
+        except Exception as e:
+            print(f"⚠️ Could not display best for config: {e}")

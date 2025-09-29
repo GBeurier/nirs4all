@@ -962,14 +962,14 @@ class Predictions:
             direction = "↑" if higher_is_better else "↓"
 
             if best_this_run and best_this_run_score is not None:
-                print(f"🏆 Best from this run: {best_this_run_model} ({best_this_run}) - mse={best_this_run_score:.4f}{direction}")
+                print(f"🏆 Best from this run: {best_this_run_model} ({best_this_run}) - {best_metric}={best_this_run_score:.4f}{direction}")
 
             if best_overall and best_overall_score is not None:
                 if predictions_before_count > 0 and best_overall != best_this_run:
-                    print(f"🥇 Best overall: {best_overall_model} ({best_overall}) - mse={best_overall_score:.4f}{direction}")
+                    print(f"🥇 Best overall: {best_overall_model} ({best_overall}) - {best_metric}={best_overall_score:.4f}{direction}")
                 elif predictions_before_count == 0:
                     # Only show overall if it's different from this run, or if there were no previous predictions
-                    print(f"🥇 Best overall: {best_overall_model} ({best_overall}) - mse={best_overall_score:.4f}{direction}")
+                    print(f"🥇 Best overall: {best_overall_model} ({best_overall}) - {best_metric}={best_overall_score:.4f}{direction}")
 
         except Exception as e:
             print(f"⚠️ Could not display best scores summary: {e}")
