@@ -15,6 +15,8 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     log_loss, roc_auc_score, classification_report
 )
+from sklearn.exceptions import UndefinedMetricWarning
+import warnings
 
 
 class TaskType(Enum):
@@ -56,7 +58,8 @@ class ModelUtils:
         Args:
             y: Target values array
             threshold: Threshold for determining if values are continuous (regression)
-                      vs discrete (classification)
+                      vs discrete (classification). For integer values, if n_unique <= max_classes
+                      or n_unique <= len(y) * threshold, it's considered classification.
 
         Returns:
             TaskType: Detected task type
@@ -75,12 +78,15 @@ class ModelUtils:
             unique_values = np.unique(y_clean)
             n_unique = len(unique_values)
 
+            # Maximum reasonable number of classes for classification
+            max_classes = 100
+
             # Binary classification: exactly 2 unique values
             if n_unique == 2:
                 return TaskType.BINARY_CLASSIFICATION
 
             # Multi-class classification: more than 2 but reasonable number of classes
-            elif n_unique > 2 and n_unique <= len(y_clean) * threshold:
+            elif n_unique > 2 and n_unique <= max_classes:
                 return TaskType.MULTICLASS_CLASSIFICATION
 
             # Too many unique integer values - likely regression with integer targets
@@ -245,25 +251,28 @@ class ModelUtils:
                     scores["rmse"] = np.sqrt(mean_squared_error(y_true, y_pred))
 
             else:  # Classification
-                if "accuracy" in metrics:
-                    # For binary classification with probabilities, threshold at 0.5
-                    if task_type == TaskType.BINARY_CLASSIFICATION and np.all((y_pred >= 0) & (y_pred <= 1)):
-                        y_pred_class = (y_pred > 0.5).astype(int)
-                    else:
-                        y_pred_class = y_pred
-                    scores["accuracy"] = accuracy_score(y_true, y_pred_class)
+                # For binary classification with probabilities, threshold at 0.5
+                if task_type == TaskType.BINARY_CLASSIFICATION and np.all((y_pred >= 0) & (y_pred <= 1)):
+                    y_pred_class = (y_pred > 0.5).astype(int)
+                else:
+                    y_pred_class = y_pred
+
+                scores["accuracy"] = accuracy_score(y_true, y_pred_class)
 
                 if "f1_score" in metrics or "f1" in metrics:
                     average = "binary" if task_type == TaskType.BINARY_CLASSIFICATION else "weighted"
                     scores["f1"] = f1_score(y_true, y_pred_class, average=average)
 
-                if "precision" in metrics:
-                    average = "binary" if task_type == TaskType.BINARY_CLASSIFICATION else "weighted"
-                    scores["precision"] = precision_score(y_true, y_pred_class, average=average)
+                # Suppress sklearn warnings for precision and recall
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=UndefinedMetricWarning)
+                    if "precision" in metrics:
+                        average = "binary" if task_type == TaskType.BINARY_CLASSIFICATION else "weighted"
+                        scores["precision"] = precision_score(y_true, y_pred_class, average=average, zero_division=0)
 
-                if "recall" in metrics:
-                    average = "binary" if task_type == TaskType.BINARY_CLASSIFICATION else "weighted"
-                    scores["recall"] = recall_score(y_true, y_pred_class, average=average)
+                    if "recall" in metrics:
+                        average = "binary" if task_type == TaskType.BINARY_CLASSIFICATION else "weighted"
+                        scores["recall"] = recall_score(y_true, y_pred_class, average=average, zero_division=0)
 
                 # AUC for binary classification with probabilities
                 if "auc" in metrics or "roc_auc" in metrics:

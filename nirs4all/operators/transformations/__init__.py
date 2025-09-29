@@ -11,7 +11,7 @@ from sklearn.preprocessing import FunctionTransformer as IdentityTransformer
 from sklearn.preprocessing import RobustScaler as RobustNormalVariate
 from sklearn.preprocessing import StandardScaler as StandardNormalVariate
 
-from .nirs import (Haar, MultiplicativeScatterCorrection, SavitzkyGolay, Wavelet, msc, savgol, wavelet_transform)
+from .nirs import (Haar, MultiplicativeScatterCorrection, SavitzkyGolay, Wavelet, msc, savgol, wavelet_transform, LogTransform, FirstDerivative, SecondDerivative, log_transform, first_derivative, second_derivative)
 from .scalers import (Derivate, Normalize, SimpleScale, derivate, norml, spl_norml)
 from .signal import Baseline, Detrend, Gaussian, baseline, detrend, gaussian
 from .features import CropTransformer, ResampleTransformer
@@ -42,6 +42,12 @@ __all__ = [
     "savgol",
     "msc",
     "wavelet_transform",
+    "LogTransform",
+    "FirstDerivative",
+    "SecondDerivative",
+    "log_transform",
+    "first_derivative",
+    "second_derivative",
 
     # Scalers
     "Normalize",
