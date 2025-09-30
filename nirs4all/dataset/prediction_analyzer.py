@@ -154,18 +154,35 @@ class PredictionAnalyzer:
         """
         # If we have a real_model, extract the base model from it
         if real_model:
-            # real_model format: "RandomForestRegressor_step5_fold0" or "PLSRegression_step3_avg"
-            # Extract base model name before "_step"
-            if '_step' in real_model:
-                base_model = real_model.split('_step')[0]
-                return base_model
-            # For aggregated models like "PLSRegression_step3_avg"
-            if '_avg' in real_model or '_weighted_avg' in real_model:
-                parts = real_model.split('_')
-                # Find the base model part before step or other suffixes
-                for i, part in enumerate(parts):
-                    if part.startswith('step') or part in ['avg', 'weighted']:
-                        return '_'.join(parts[:i]) if i > 0 else parts[0]
+            # New naming scheme: real_model format examples:
+            # - "PLS-10_cp_1_fold0" (individual fold)
+            # - "PLS-10_cp_step1_avg" (average model)
+            # - "PLS-10_cp_step1_w_avg" (weighted average model)
+            # - "PLSRegression_2" (instance name)
+
+            # Remove fold and aggregation suffixes
+            canonical = real_model
+
+            # Remove fold suffix
+            if '_fold' in canonical:
+                canonical = canonical.split('_fold')[0]
+
+            # Remove aggregation suffixes
+            if canonical.endswith('_avg'):
+                canonical = canonical[:-4]  # Remove '_avg'
+            elif canonical.endswith('_w_avg'):
+                canonical = canonical[:-6]  # Remove '_w_avg'
+
+            # Remove step information
+            if '_step' in canonical:
+                canonical = canonical.split('_step')[0]
+
+            # Remove the operation counter (last number) if present
+            parts = canonical.split('_')
+            if len(parts) >= 2 and parts[-1].isdigit():
+                canonical = '_'.join(parts[:-1])
+
+            return canonical
 
         # Fallback to the original model field
         canonical = re.sub(r'\([^)]*\)', '', model_name)  # Remove parentheses with params
@@ -182,7 +199,7 @@ class PredictionAnalyzer:
         # Handle aggregated predictions based on fold_idx
         if fold_idx == 'avg':
             return f'averaged_{partition}'
-        elif fold_idx == 'weighted_avg':
+        elif fold_idx == 'w_avg':
             return f'weighted_averaged_{partition}'
 
         # Handle old format for backward compatibility
