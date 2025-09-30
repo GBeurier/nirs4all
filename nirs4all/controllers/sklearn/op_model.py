@@ -167,6 +167,9 @@ class SklearnModelController(AbstractModelController):
         context: Dict[str, Any]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Prepare data for sklearn (ensure 2D X and 2D y for consistency)."""
+        if X is None or y is None:
+            return None, None
+
         # Ensure X is 2D
         if X.ndim > 2:
             # Flatten extra dimensions

@@ -24,7 +24,7 @@ from nirs4all.controllers.models.cv.factory import CVStrategyFactory
 from nirs4all.controllers.models.prediction import PredictionManager
 from nirs4all.controllers.models.results import ResultManager
 from nirs4all.controllers.models.optuna_manager import OptunaManager
-from nirs4all.controllers.models.base_model_controller import ModelMode
+from nirs4all.controllers.models.enums import ModelMode
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 
 if TYPE_CHECKING:
@@ -158,6 +158,9 @@ class AbstractModelController(OperatorController, ABC):
         model_config = self._extract_model_config(step, operator)
         cv_config = self._extract_cv_config(model_config)
 
+        print(f"[DEBUG] Model config: {model_config}")  # Debugging output to verify model config
+        print(f"[DEBUG] CV config: {cv_config}")      # Debugging output to verify CV config
+
         # Prepare data splits
         data_splits = self.data_manager.prepare_train_test_data(dataset, context)
 
@@ -188,6 +191,9 @@ class AbstractModelController(OperatorController, ABC):
 
         # Set up the execution context for the strategy
         from nirs4all.controllers.models.cv.base import CVExecutionContext
+        finetune_params = model_config.get('finetune_params')
+        finetune_config = FinetuneConfig.from_dict(finetune_params) if finetune_params else None
+
         execution_context = CVExecutionContext(
             model_config=model_config,
             data_splits=data_splits,
@@ -196,7 +202,7 @@ class AbstractModelController(OperatorController, ABC):
             runner=runner,
             dataset=dataset,
             controller=self,
-            finetune_config=FinetuneConfig.from_dict(model_config.get('finetune_params', {}))
+            finetune_config=finetune_config
         )
 
         # Execute the strategy
@@ -258,7 +264,7 @@ class AbstractModelController(OperatorController, ABC):
         model = self.model_manager.clone_model(base_model)
 
         X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
-        X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context)
+        X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context) if X_val is not None else (None, None)
         X_test_prep, y_test_prep = self._prepare_data(X_test, y_test, context)
 
         # Train model
@@ -268,9 +274,21 @@ class AbstractModelController(OperatorController, ABC):
         )
 
         # Generate predictions
-        y_pred_val = self.prediction_manager.generate_predictions(trained_model, X_val_prep)
         y_pred_train = self.prediction_manager.generate_predictions(trained_model, X_train_prep)
         y_pred_test = self.prediction_manager.generate_predictions(trained_model, X_test_prep)
+        y_pred_val = self.prediction_manager.generate_predictions(trained_model, X_val_prep) if X_val_prep is not None else None
+
+        # Debugging: show fold and naming information to trace duplicate fold indices
+        try:
+            runner_verbose = getattr(runner, 'verbose', 0)
+            effective_verbose = max(verbose, runner_verbose)
+            if effective_verbose > 0:
+                # base name (no operation counter) and sizes
+                base_name = self.model_manager.get_base_model_name({}, trained_model)
+                y_test_len = len(y_test) if y_test is not None else 0
+                print(f"DEBUG: _execute_train_modular: fold_idx={fold_idx}, base_model={base_name}, y_test_len={y_test_len}, runner_verbose={runner_verbose}")
+        except Exception:
+            pass
 
         # Store predictions
         self._store_predictions_modular(
@@ -547,8 +565,7 @@ class AbstractModelController(OperatorController, ABC):
         """Display training results with scores."""
         task_type = self._detect_task_type(y_true)
         base_model_name = self.model_manager.get_base_model_name({}, trained_model)
-        instance_name = self._get_instance_name(base_model_name, runner)
-        unique_model_name = instance_name
+        unique_model_name = self._get_informative_name(base_model_name, fold_idx)
 
         test_scores = self._calculate_and_print_scores(
             y_true, y_pred, task_type, "test", unique_model_name,
