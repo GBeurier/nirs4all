@@ -339,12 +339,12 @@ class PipelineRunner:
             # Create and print the initial message
             controller_display_name = controller_name.replace('Controller', '')
             initial_message = f"🔄 {controller_display_name}"
-            if hasattr(dataset, 'y') and callable(dataset.y):
-                try:
-                    y_shape = dataset.y({}).shape
-                    initial_message += f" (test: {y_shape})"
-                except Exception:
-                    pass
+
+            # Only show test data shape for model controllers
+            if is_model_controller:
+                y_test_shape = dataset.y({"partition": "test"}).shape
+                initial_message += f" (test: {y_test_shape})"
+
             if operator_name:
                 initial_message += f" ({operator_name})"
 

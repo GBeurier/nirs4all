@@ -5,8 +5,7 @@ learning course - ipynb
 -- Verify classification, binaries, multisources everywhere
 -- add Q6 - SHAP ??
 -- add Q7 -- discretizer (switch reg / classif)
--- Graph fifa avec metrics de denis
--- option: save best model only
+
 Bin operator with bounds or count + warning class assymetry
 Chart controller with x, y, folds, 3d, 2d operators.
 ** RELEASE **
@@ -40,7 +39,10 @@ GLOBAL REVIEW - refactoring: predictions / predictions analyze / runner (clean) 
 Predictions
 Base_model_controller
 
-EXCITER: - Pouvoir charger le dataset automatiquement (sans passer par la config)
+EXCITERS:
+- Pouvoir charger le dataset automatiquement (sans passer par la config)
+-- Graph fifa avec metrics de denis
+-- option: save best model only
 
 #### FORMATION ####
 
