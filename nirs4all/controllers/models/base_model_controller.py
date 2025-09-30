@@ -1779,15 +1779,28 @@ class BaseModelController(OperatorController, ABC):
             else:
                 score_display = f"{best_metric}={best_score:.4f}{direction}"
 
+            # Format dataset sizes information
+            if fold_idx is not None:
+                # In fold context, X_test is actually validation data
+                dataset_info = f"(train:{X_train.shape}, val:{X_test.shape})"
+            else:
+                # No folds - just show train data
+                dataset_info = f"(train:{X_train.shape})"
+
             # Add other scores if available
             other_scores = {k: v for k, v in test_scores.items() if k != best_metric}
             if other_scores:
                 other_scores_str = ModelUtils.format_scores(other_scores)
-                print(f"✅ {unique_model_name} - test: {score_display} ({other_scores_str})")
+                print(f"✅ {unique_model_name} - test: {score_display} ({other_scores_str}) {dataset_info}")
             else:
-                print(f"✅ {unique_model_name} - test: {score_display}")
+                print(f"✅ {unique_model_name} - test: {score_display} {dataset_info}")
         else:
-            print(f"✅ Model {unique_model_name} completed successfully")
+            # Format dataset sizes information for fallback case
+            if fold_idx is not None:
+                dataset_info = f"(train:{X_train.shape}, val:{X_test.shape})"
+            else:
+                dataset_info = f"(train:{X_train.shape})"
+            print(f"✅ Model {unique_model_name} completed successfully {dataset_info}")
 
         # Save predictions to dataset results folder
         self._save_predictions_to_results_folder(dataset, runner)
@@ -2016,16 +2029,30 @@ class BaseModelController(OperatorController, ABC):
 
             # Add other scores if available
             other_scores = {k: v for k, v in test_scores.items() if k != best_metric}
+
+            # Format dataset sizes information
+            if fold_idx is not None:
+                # In fold context, X_test is actually validation data
+                dataset_info = f"(train:{X_train.shape}, val:{X_test.shape})"
+            else:
+                # No folds - just show train data
+                dataset_info = f"(train:{X_train.shape})"
+
             if other_scores:
                 other_scores_str = ModelUtils.format_scores(other_scores)
-                print(f"🏆 {unique_model_name} - test: {score_display} ({other_scores_str})")
+                print(f"🏆 {unique_model_name} - test: {score_display} ({other_scores_str}) {dataset_info}")
             else:
-                print(f"🏆 {unique_model_name} - test: {score_display}")
+                print(f"🏆 {unique_model_name} - test: {score_display} {dataset_info}")
 
             if verbose > 0:  # Only show parameters at verbose > 0
                 print(f"🔧 Optimized parameters: {best_params}")
         else:
-            print(f"✅ Finetuned model {unique_model_name} completed successfully")
+            # Format dataset sizes information for fallback case
+            if fold_idx is not None:
+                dataset_info = f"(train:{X_train.shape}, val:{X_test.shape})"
+            else:
+                dataset_info = f"(train:{X_train.shape})"
+            print(f"✅ Finetuned model {unique_model_name} completed successfully {dataset_info}")
 
         # Save predictions to dataset results folder
         self._save_predictions_to_results_folder(dataset, runner)
