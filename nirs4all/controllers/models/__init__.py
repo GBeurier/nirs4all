@@ -9,7 +9,7 @@ All model controllers support training, fine-tuning with Optuna, and prediction 
 """
 
 from .abstract_model_controller import AbstractModelController
-from .base_model_controller import ModelMode
+from .enums import ModelMode
 
 __all__ = [
     'AbstractModelController',
