@@ -162,6 +162,14 @@ class SpectroDataset:
         return len(self._folds)
 
     @property
+    def num_features(self) -> List[int] | int:
+        return self._features.num_features
+
+    @property
+    def num_samples(self) -> int:
+        return self._features.num_samples
+
+    @property
     def n_sources(self) -> int:
         return len(self._features.sources)
 
