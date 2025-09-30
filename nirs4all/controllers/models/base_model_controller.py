@@ -238,39 +238,43 @@ class BaseModelController(OperatorController, ABC):
         """
         base_name = None
 
-        # Try to get the original function name from the step configuration
-        if isinstance(step, dict):
-            # Handle direct model configuration
-            if 'model' in step:
-                model_obj = step['model']
-            elif 'model_instance' in step:
-                model_obj = step['model_instance']
-            else:
-                # The step dict itself might be the model configuration
-                model_obj = step
+        # First priority: Check for custom name in step configuration
+        if isinstance(step, dict) and 'name' in step:
+            base_name = step['name']
+        else:
+            # Try to get the original function name from the step configuration
+            if isinstance(step, dict):
+                # Handle direct model configuration
+                if 'model' in step:
+                    model_obj = step['model']
+                elif 'model_instance' in step:
+                    model_obj = step['model_instance']
+                else:
+                    # The step dict itself might be the model configuration
+                    model_obj = step
 
-            # Handle function objects directly (like nicon, decon)
-            if hasattr(model_obj, '__name__'):
-                base_name = model_obj.__name__
-            # Handle serialized function objects
-            elif isinstance(model_obj, dict) and 'function' in model_obj:
-                func_path = model_obj['function']
-                if '.' in func_path:
-                    base_name = func_path.split('.')[-1]  # Get the function name
-            # Handle serialized class objects
-            elif isinstance(model_obj, dict) and 'class' in model_obj:
-                class_path = model_obj['class']
-                if '.' in class_path:
-                    base_name = class_path.split('.')[-1]  # Get the class name
-            # Handle class instances (like RandomForestRegressor, SVR)
-            elif hasattr(model_obj, '__class__'):
-                base_name = model_obj.__class__.__name__
-        elif hasattr(step, '__name__'):
-            # Direct function object
-            base_name = step.__name__
-        elif hasattr(step, '__class__'):
-            # Direct class instance
-            base_name = step.__class__.__name__
+                # Handle function objects directly (like nicon, decon)
+                if hasattr(model_obj, '__name__'):
+                    base_name = model_obj.__name__
+                # Handle serialized function objects
+                elif isinstance(model_obj, dict) and 'function' in model_obj:
+                    func_path = model_obj['function']
+                    if '.' in func_path:
+                        base_name = func_path.split('.')[-1]  # Get the function name
+                # Handle serialized class objects
+                elif isinstance(model_obj, dict) and 'class' in model_obj:
+                    class_path = model_obj['class']
+                    if '.' in class_path:
+                        base_name = class_path.split('.')[-1]  # Get the class name
+                # Handle class instances (like RandomForestRegressor, SVR)
+                elif hasattr(model_obj, '__class__'):
+                    base_name = model_obj.__class__.__name__
+            elif hasattr(step, '__name__'):
+                # Direct function object
+                base_name = step.__name__
+            elif hasattr(step, '__class__'):
+                # Direct class instance
+                base_name = step.__class__.__name__
 
         # Fallback to trained model class name if we couldn't determine the original name
         if not base_name:
@@ -466,16 +470,20 @@ class BaseModelController(OperatorController, ABC):
             if y_true is not None and len(y_true) > 0:
                 # Store predictions for comparison
                 unique_model_name = self._get_unique_model_name(step, trained_model, runner)
+                base_model_name, real_model_name, pipeline_path, custom_model_name = self._get_model_names(step, runner, None)
                 self._store_predictions_in_dataset(
                     dataset=getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown',
                     pipeline=getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown',
-                    model=unique_model_name,
+                    pipeline_path=pipeline_path,
+                    model=base_model_name,
+                    real_model=real_model_name,
                     partition="prediction",
                     y_true=y_true,
                     y_pred=y_pred,
                     fold_idx=None,
                     context=context,
-                    dataset_obj=dataset
+                    dataset_obj=dataset,
+                    custom_model_name=custom_model_name
                 )
         except Exception:
             # No y data available for prediction, that's okay
@@ -918,6 +926,7 @@ class BaseModelController(OperatorController, ABC):
 
         # Store predictions in dataset
         unique_model_name = self._get_unique_model_name(model_config, trained_model, runner)
+        base_model_name, real_model_name, pipeline_path, custom_model_name = self._get_model_names(model_config, runner, None)
         dataset_name = getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown'
         pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown'
 
@@ -925,26 +934,32 @@ class BaseModelController(OperatorController, ABC):
         self._store_predictions_in_dataset(
             dataset=dataset_name,
             pipeline=pipeline_name,
-            model=unique_model_name,
+            pipeline_path=pipeline_path,
+            model=base_model_name,
+            real_model=real_model_name,
             partition=f"test_{model_suffix}",
             y_true=combined_y_test,
             y_pred=y_pred_test,
             fold_idx=None,  # No fold since trained on full data
             context=context,
-            dataset_obj=dataset
+            dataset_obj=dataset,
+            custom_model_name=custom_model_name
         )
 
         # Store global train predictions
         self._store_predictions_in_dataset(
             dataset=dataset_name,
             pipeline=pipeline_name,
-            model=unique_model_name,
+            pipeline_path=pipeline_path,
+            model=base_model_name,
+            real_model=real_model_name,
             partition=f"global_train_{model_suffix}",
             y_true=combined_y_train,
             y_pred=y_pred_train,
             fold_idx=None,
             context=context,
-            dataset_obj=dataset
+            dataset_obj=dataset,
+            custom_model_name=custom_model_name
         )
 
         # Store results and serialize model
@@ -1510,6 +1525,38 @@ class BaseModelController(OperatorController, ABC):
 
         return context, all_binaries
 
+    def _get_model_names(self, model_config: Dict[str, Any], runner: 'PipelineRunner', fold_idx: Optional[int] = None) -> Tuple[str, str, str, Optional[str]]:
+        """
+        Generate proper model names for the new schema.
+
+        Args:
+            model_config: Model configuration
+            runner: Pipeline runner for step numbering
+            fold_idx: Fold index if applicable
+
+        Returns:
+            Tuple of (base_model_name, real_model_name, pipeline_path, custom_model_name)
+        """
+        # Get base model class name
+        base_model = self._get_model_from_config(model_config)
+        base_model_name = base_model.__class__.__name__
+
+        # Extract custom model name from config if provided
+        custom_model_name = model_config.get('name', None)
+
+        # Get step number for unique identification
+        step_number = runner.step_number
+
+        # Build real model name
+        real_model_name = f"{base_model_name}_step{step_number}"
+        if fold_idx is not None:
+            real_model_name += f"_fold{fold_idx}"
+
+        # Get pipeline path (use runner's saver path)
+        pipeline_path = str(runner.saver.current_path) if runner.saver.current_path else ""
+
+        return base_model_name, real_model_name, pipeline_path, custom_model_name
+
     def _generate_aggregated_predictions(
         self,
         model_config: Dict[str, Any],
@@ -1519,40 +1566,76 @@ class BaseModelController(OperatorController, ABC):
         dataset: 'SpectroDataset'
     ) -> None:
         """Generate aggregated predictions (mean and weighted mean) for all fold predictions."""
-        # Get base model name without suffix
-        base_model = self._get_model_from_config(model_config)
-        base_model_name = base_model.__class__.__name__
 
+        # Get dataset and pipeline names from runner.saver (same pattern as other methods)
         dataset_name = getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown'
         pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown'
 
-        # Generate average predictions for train, val, and test
-        for partition_pattern in ['train_fold', 'val_fold', 'test_fold']:
-            # Calculate simple average
-            avg_result = dataset._predictions.calculate_average_predictions(
-                dataset=dataset_name,
-                pipeline=pipeline_name,
-                model=base_model_name,  # Use base model name
-                partition_pattern=partition_pattern,
-                store_result=True
-            )
+        # Get base model name from config - more direct approach
+        base_model = self._get_model_from_config(model_config)
+        base_model_name = base_model.__class__.__name__
 
-            if avg_result:
-                print(f"✨ Generated averaged {partition_pattern} predictions")
+        # print(f"🔄 Generating aggregated predictions for {base_model_name}...")
+        # print(f"   📊 Context - dataset: '{dataset_name}', pipeline: '{pipeline_name}'")
 
-        # Generate weighted average test predictions based on validation performance
-        weighted_avg_result = dataset._predictions.calculate_weighted_average_predictions(
+        predictions = dataset._predictions
+
+        # Debug: show what predictions exist
+        all_keys = list(predictions._predictions.keys())
+        matching_keys = [k for k in all_keys if dataset_name in k and pipeline_name in k and base_model_name in k]
+        # print(f"   🔍 Found {len(matching_keys)} matching predictions")
+        for key in matching_keys[:3]:  # Show first 3
+            pred_data = predictions._predictions[key]
+            # print(f"      - {key}: partition={pred_data.get('partition')}, fold_idx={pred_data.get('fold_idx')}")
+
+        # Generate average predictions for test partition
+        # print("   🧮 Calculating test averages...")
+        avg_result = predictions.calculate_average_predictions(
             dataset=dataset_name,
             pipeline=pipeline_name,
-            model=base_model_name,  # Use base model name
-            test_partition_pattern="test_fold",
-            val_partition_pattern="val_fold",
-            metric='rmse',  # Use RMSE for weighting
+            model=base_model_name,
+            partition='test',
             store_result=True
         )
 
-        if weighted_avg_result:
-            print("✨ Generated weighted averaged test predictions")
+        # if avg_result:
+        #     print(f"✅ Generated average test predictions: {avg_result['real_model']}")
+        # else:
+        #     print("❌ No average test predictions generated")
+
+        # Generate weighted average predictions for test partition
+        # print("   ⚖️ Calculating weighted averages...")
+        weighted_avg_result = predictions.calculate_weighted_average_predictions(
+            dataset=dataset_name,
+            pipeline=pipeline_name,
+            model=base_model_name,
+            test_partition='test',
+            val_partition='val',
+            metric='rmse',
+            store_result=True
+        )
+
+        # if weighted_avg_result:
+        #     print(f"✅ Generated weighted average test predictions: {weighted_avg_result['real_model']}")
+        # else:
+        #     print("❌ No weighted average test predictions generated")
+
+        # Also generate for val partition if needed
+        # print("   🧮 Calculating val averages...")
+        val_avg_result = predictions.calculate_average_predictions(
+            dataset=dataset_name,
+            pipeline=pipeline_name,
+            model=base_model_name,
+            partition='val',
+            store_result=True
+        )
+
+        # if val_avg_result:
+        #     print(f"✅ Generated average val predictions: {val_avg_result['real_model']}")
+        # else:
+        #     print("❌ No average val predictions generated")
+
+        # print(f"🎯 Completed aggregation for {base_model_name}")
 
     def _execute_train(
         self,
@@ -1600,70 +1683,76 @@ class BaseModelController(OperatorController, ABC):
         dataset_name = getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown'
         pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown'
 
+        # Generate model names using new schema
+        base_model_name, real_model_name, pipeline_path, custom_model_name = self._get_model_names(model_config, runner, fold_idx)
+
+        # Use the unique model name for storage to match display naming
+        storage_model_name = unique_model_name
+
         # Store test/validation predictions (X_test is actually validation data in fold context)
         if fold_idx is not None:
             # This is a fold, so X_test is validation data
             self._store_predictions_in_dataset(
                 dataset=dataset_name,
                 pipeline=pipeline_name,
-                model=unique_model_name,
-                partition=f"val_fold_{fold_idx}",
+                pipeline_path=pipeline_path,
+                model=storage_model_name,
+                real_model=unique_model_name,
+                partition="val",
                 y_true=y_test,
                 y_pred=y_pred_test,
                 fold_idx=fold_idx,
                 context=context,
-                dataset_obj=dataset
+                dataset_obj=dataset,
+                custom_model_name=custom_model_name
             )
 
             # Store training predictions
             self._store_predictions_in_dataset(
                 dataset=dataset_name,
                 pipeline=pipeline_name,
-                model=unique_model_name,
-                partition=f"train_fold_{fold_idx}",
+                pipeline_path=pipeline_path,
+                model=storage_model_name,
+                real_model=unique_model_name,
+                partition="train",
                 y_true=y_train,
                 y_pred=y_pred_train,
                 fold_idx=fold_idx,
                 context=context,
-                dataset_obj=dataset
+                dataset_obj=dataset,
+                custom_model_name=custom_model_name
             )
 
-            # Also generate test predictions for this fold model on global test data
-            test_context = context.copy()
-            test_context["partition"] = "test"
-            layout_str = self.get_preferred_layout()
-            layout: Layout = layout_str  # type: ignore
-            X_global_test = dataset.x(test_context, layout, concat_source=True)
-            y_global_test = dataset.y(test_context)
-
-            # Prepare global test data and predict
-            X_global_test_prep, _ = self._prepare_data(X_global_test, y_global_test, context)
-            y_pred_global_test = self._predict_model(trained_model, X_global_test_prep)
-
-            # Store test predictions for this fold
+            # Store test predictions for this fold using the SAME test data used for display
             self._store_predictions_in_dataset(
                 dataset=dataset_name,
                 pipeline=pipeline_name,
-                model=unique_model_name,
-                partition=f"test_fold_{fold_idx}",
-                y_true=y_global_test,
-                y_pred=y_pred_global_test,
+                pipeline_path=pipeline_path,
+                model=storage_model_name,
+                real_model=unique_model_name,
+                partition="test",
+                y_true=y_test,  # Use the fold's test data, same as display
+                y_pred=y_pred_test,  # Use the fold's predictions, same as display
                 fold_idx=fold_idx,
                 context=context,
-                dataset_obj=dataset
+                dataset_obj=dataset,
+                custom_model_name=custom_model_name
             )
         else:
             # This is global test data
             self._store_predictions_in_dataset(
                 dataset=dataset_name,
                 pipeline=pipeline_name,
-                model=unique_model_name,
+                pipeline_path=pipeline_path,
+                model=storage_model_name,
+                real_model=unique_model_name,
                 partition="test",
                 y_true=y_test,
                 y_pred=y_pred_test,
                 fold_idx=fold_idx,
                 context=context,
-                dataset_obj=dataset
+                dataset_obj=dataset,
+                custom_model_name=custom_model_name
             )
 
         # Store results and serialize model
@@ -1884,16 +1973,20 @@ class BaseModelController(OperatorController, ABC):
 
         # Store predictions in dataset
         unique_model_name = self._get_unique_model_name(model_config, best_model, runner)
+        base_model_name, real_model_name, pipeline_path, custom_model_name = self._get_model_names(model_config, runner, fold_idx)
         self._store_predictions_in_dataset(
             dataset=getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown',
             pipeline=getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown',
-            model=unique_model_name,
+            pipeline_path=pipeline_path,
+            model=base_model_name,
+            real_model=real_model_name,
             partition=f"test_fold_{fold_idx}" if fold_idx is not None else "test",
             y_true=y_test,
             y_pred=y_pred,
             fold_idx=fold_idx,
             context=context,
-            dataset_obj=dataset
+            dataset_obj=dataset,
+            custom_model_name=custom_model_name
         )
 
         # Store results
@@ -2038,25 +2131,30 @@ class BaseModelController(OperatorController, ABC):
         self,
         dataset: str,
         pipeline: str,
+        pipeline_path: str,
         model: str,
+        real_model: str,
         partition: str,
         y_true: np.ndarray,
         y_pred: np.ndarray,
-        fold_idx: Optional[int] = None,
+        fold_idx: Optional[Union[int, str]] = None,
         context: Optional[Dict[str, Any]] = None,
-        dataset_obj: Optional['SpectroDataset'] = None
+        dataset_obj: Optional['SpectroDataset'] = None,
+        custom_model_name: Optional[str] = None
     ) -> None:
         """
-        Store predictions in the dataset's prediction storage.
+        Store predictions in the dataset's prediction storage with new schema.
 
         Args:
             dataset: Dataset name
             pipeline: Pipeline name
-            model: Model name
-            partition: Partition name
+            pipeline_path: Path for loading pipeline
+            model: Base model class name
+            real_model: Full model identifier with step/fold info
+            partition: Partition name ('train', 'val', 'test')
             y_true: True values
             y_pred: Predicted values
-            fold_idx: Fold index if applicable
+            fold_idx: Fold index (0,1,2) or "avg", "weighted", None
             context: Pipeline context with processing information
             dataset_obj: Optional dataset object to store predictions in
         """
@@ -2085,11 +2183,13 @@ class BaseModelController(OperatorController, ABC):
             y_true_transformed = y_true
             y_pred_transformed = y_pred
 
-        # Store predictions
+        # Store predictions with new schema
         dataset_obj._predictions.add_prediction(
             dataset=dataset,
             pipeline=pipeline,
+            pipeline_path=pipeline_path,
             model=model,
+            real_model=real_model,
             partition=partition,
             y_true=y_true_transformed,
             y_pred=y_pred_transformed,
@@ -2097,8 +2197,10 @@ class BaseModelController(OperatorController, ABC):
             metadata={
                 'y_processing': current_y_processing,
                 'model_type': model,
+                'real_model': real_model,
                 'partition': partition
-            }
+            },
+            custom_model_name=custom_model_name
         )
 
     @abstractmethod

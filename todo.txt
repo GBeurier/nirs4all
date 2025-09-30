@@ -1,12 +1,13 @@
 #### ROADMAP ########
 learning course - ipynb
+###TODO export report on run (best etc.)
+
 ### TODO - Exposer les arguments des dataconfigs (separator, delimiter, etc.)
-### TODO - Pouvoir charger le dataset automatiquement (sans passer par la config)
-###TODO add name to model
 -- Todo, update the todos in Q1-Q5
 -- Verify classification, binaries, multisources everywhere
 -- add Q6 - SHAP ??
 -- add Q7 -- discretizer (switch reg / classif)
+-- Graph fifa avec metrics de denis
 
 
 * Classification | check sample_classif bugs, Customize encoding. adapt charts and error reporting
@@ -36,6 +37,11 @@ Release
 * Predictions visualizer
 * Prints
 
+## TO Refactor (vive coding involved)
+Predictions
+Base_model_controller
+
+EXCITER: - Pouvoir charger le dataset automatiquement (sans passer par la config)
 
 #### FORMATION ####
 

@@ -84,6 +84,8 @@ class PipelineRunner:
             dataset_name = name
             for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
                 dataset = dataset_configs.get_dataset(config, dataset_name)
+                if self.verbose > 0:
+                    print(dataset)
                 dataset_name = dataset.name
 
                 if i == 0 and self.load_existing_predictions:
@@ -283,7 +285,7 @@ class PipelineRunner:
                 print("-" * 200)
                 after_dataset_str = str(dataset)
                 # print(before_dataset_str)
-                if before_dataset_str != after_dataset_str:
+                if before_dataset_str != after_dataset_str and self.verbose > 0:
                     print(f"\033[97mUpdate: {after_dataset_str}\033[0m")
                     print("-" * 200)
 
@@ -494,48 +496,73 @@ class PipelineRunner:
         try:
             from nirs4all.utils.model_utils import ModelUtils
 
-            # Get all predictions for this config
+            # Get all predictions for this config from the CURRENT RUN ONLY
             all_keys = dataset._predictions.list_keys()
-            config_predictions = [key for key in all_keys if config_name in key]
+
+            # Filter to current run path to avoid old results
+            current_run_path = getattr(dataset._predictions, 'run_path', '')
+            if current_run_path:
+                # Extract the run identifier from the path (last part after slash/backslash)
+                run_id = current_run_path.split('\\')[-1].split('/')[-1] if current_run_path else ''
+                current_run_keys = [key for key in all_keys if run_id in key] if run_id else all_keys
+            else:
+                current_run_keys = all_keys
+
+            config_predictions = [key for key in current_run_keys if config_name in key]
 
             if not config_predictions:
                 return
 
             best_score = None
             best_model = None
+            best_key = None
             higher_is_better = False
 
             for key in config_predictions:
-                parts = key.split('_')
-                if len(parts) >= 4:
-                    pred_dataset_name = parts[0]
-                    pipeline_name = '_'.join(parts[1:-2])
-                    model_name = parts[-2]
-                    partition_name = parts[-1]
+                # Get prediction data using the new schema
+                pred_data = dataset._predictions._predictions.get(key)
 
-                    pred_data = dataset._predictions.get_prediction_data(
-                        pred_dataset_name, pipeline_name, model_name, partition_name
-                    )
+                # Only consider test partition predictions to avoid train overfitting
+                if pred_data and 'y_true' in pred_data and 'y_pred' in pred_data and pred_data.get('partition') == 'test':
+                    task_type = ModelUtils.detect_task_type(pred_data['y_true'])
+                    scores = ModelUtils.calculate_scores(pred_data['y_true'], pred_data['y_pred'], task_type)
+                    best_metric, metric_higher_is_better = ModelUtils.get_best_score_metric(task_type)
+                    score = scores.get(best_metric)
 
-                    if pred_data and 'y_true' in pred_data and 'y_pred' in pred_data:
-                        task_type = ModelUtils.detect_task_type(pred_data['y_true'])
-                        scores = ModelUtils.calculate_scores(pred_data['y_true'], pred_data['y_pred'], task_type)
-                        best_metric, metric_higher_is_better = ModelUtils.get_best_score_metric(task_type)
-                        score = scores.get(best_metric)
+                    higher_is_better = metric_higher_is_better
 
-                        higher_is_better = metric_higher_is_better
-
-                        if score is not None:
-                            if best_score is None or (
+                    if score is not None:
+                        if (best_score is None or
                                 (higher_is_better and score > best_score) or
-                                (not higher_is_better and score < best_score)
-                            ):
-                                best_score = score
-                                best_model = model_name
+                                (not higher_is_better and score < best_score)):
+                            best_score = score
+                            best_key = key
+                            # Use custom name if available, otherwise real_model name for better display
+                            custom_name = pred_data.get('custom_model_name')
+                            real_model = pred_data.get('real_model', pred_data.get('model', 'unknown'))
 
-            if best_score is not None and best_model is not None:
+                            # Prefer custom name, but fall back to real_model if custom_name is None or 'None'
+                            if custom_name and custom_name != 'None':
+                                best_model = custom_name
+                            else:
+                                best_model = real_model
+
+            if best_score is not None and best_model is not None and best_key is not None:
                 direction = "↑" if higher_is_better else "↓"
-                print(f"🏆 Best for config: {best_model} ({config_name}) - {best_metric}={best_score:.4f}{direction}")
+                # Extract operator counter from real_model for display
+                pred_data = dataset._predictions._predictions.get(best_key)
+                real_model = pred_data.get('real_model', '') if pred_data else ''
+
+                # Try to extract counter from real_model (e.g., RF-depth-5_10)
+                if '_' in real_model:
+                    counter = real_model.split('_')[-1]
+                    display_name = f"{best_model}_{counter}"
+                else:
+                    display_name = best_model
+
+                print(f"🏆 Best for config: {display_name} - {best_metric}={best_score:.4f}{direction}")
 
         except Exception as e:
             print(f"⚠️ Could not display best for config: {e}")
+            import traceback
+            traceback.print_exc()

@@ -251,37 +251,75 @@ class ModelUtils:
                     scores["rmse"] = np.sqrt(mean_squared_error(y_true, y_pred))
 
             else:  # Classification
-                # For binary classification with probabilities, threshold at 0.5
-                if task_type == TaskType.BINARY_CLASSIFICATION and np.all((y_pred >= 0) & (y_pred <= 1)):
-                    y_pred_class = (y_pred > 0.5).astype(int)
-                else:
-                    y_pred_class = y_pred
+                # Ensure y_true and y_pred are suitable for classification
+                try:
+                    # For binary classification with probabilities, threshold at 0.5
+                    if task_type == TaskType.BINARY_CLASSIFICATION and np.all((y_pred >= 0) & (y_pred <= 1)):
+                        y_pred_class = (y_pred > 0.5).astype(int)
+                    else:
+                        # For classification, convert to integers if they are continuous
+                        y_pred_class = np.round(y_pred).astype(int)
 
-                scores["accuracy"] = accuracy_score(y_true, y_pred_class)
+                    # Ensure y_true is also integer for classification
+                    y_true_class = np.round(y_true).astype(int)
 
-                if "f1_score" in metrics or "f1" in metrics:
-                    average = "binary" if task_type == TaskType.BINARY_CLASSIFICATION else "weighted"
-                    scores["f1"] = f1_score(y_true, y_pred_class, average=average)
+                    # Check if the data is actually suitable for classification
+                    unique_true = np.unique(y_true_class)
+                    unique_pred = np.unique(y_pred_class)
 
-                # Suppress sklearn warnings for precision and recall
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=UndefinedMetricWarning)
-                    if "precision" in metrics:
+                    # If there are too many unique values, it might be a regression problem
+                    if len(unique_true) > 100 or len(unique_pred) > 100:
+                        raise ValueError("Too many unique classes - might be regression data")
+
+                    scores["accuracy"] = accuracy_score(y_true_class, y_pred_class)
+
+                    if "f1_score" in metrics or "f1" in metrics:
                         average = "binary" if task_type == TaskType.BINARY_CLASSIFICATION else "weighted"
-                        scores["precision"] = precision_score(y_true, y_pred_class, average=average, zero_division=0)
+                        scores["f1"] = f1_score(y_true_class, y_pred_class, average=average)
 
-                    if "recall" in metrics:
-                        average = "binary" if task_type == TaskType.BINARY_CLASSIFICATION else "weighted"
-                        scores["recall"] = recall_score(y_true, y_pred_class, average=average, zero_division=0)
+                    # Suppress sklearn warnings for precision and recall
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=UndefinedMetricWarning)
+                        if "precision" in metrics:
+                            average = "binary" if task_type == TaskType.BINARY_CLASSIFICATION else "weighted"
+                            scores["precision"] = precision_score(y_true_class, y_pred_class, average=average, zero_division=0)
 
-                # AUC for binary classification with probabilities
-                if "auc" in metrics or "roc_auc" in metrics:
-                    if task_type == TaskType.BINARY_CLASSIFICATION and len(np.unique(y_true)) == 2:
-                        try:
-                            scores["auc"] = roc_auc_score(y_true, y_pred)
-                        except ValueError:
-                            # If y_pred are class predictions, skip AUC
-                            pass
+                        if "recall" in metrics:
+                            average = "binary" if task_type == TaskType.BINARY_CLASSIFICATION else "weighted"
+                            scores["recall"] = recall_score(y_true_class, y_pred_class, average=average, zero_division=0)
+
+                    # AUC for binary classification with probabilities
+                    if "auc" in metrics or "roc_auc" in metrics:
+                        if task_type == TaskType.BINARY_CLASSIFICATION and len(np.unique(y_true_class)) == 2:
+                            try:
+                                scores["auc"] = roc_auc_score(y_true_class, y_pred)
+                            except ValueError:
+                                # If y_pred are class predictions, skip AUC
+                                pass
+
+                except (ValueError, TypeError) as class_error:
+                    # If classification metrics fail, try to redetect task type
+                    print(f"⚠️ Classification metrics failed ({class_error}), retrying with auto-detection")
+
+                    # Re-detect task type more conservatively
+                    actual_task_type = ModelUtils.detect_task_type(y_true, threshold=0.01)  # More strict threshold
+                    if actual_task_type == TaskType.REGRESSION:
+                        # Recalculate as regression
+                        if "mse" in metrics or "mean_squared_error" in metrics:
+                            scores["mse"] = mean_squared_error(y_true, y_pred)
+                        if "mae" in metrics or "mean_absolute_error" in metrics:
+                            scores["mae"] = mean_absolute_error(y_true, y_pred)
+                        if "r2" in metrics or "r2_score" in metrics:
+                            scores["r2"] = r2_score(y_true, y_pred)
+                        if "rmse" in metrics:
+                            scores["rmse"] = np.sqrt(mean_squared_error(y_true, y_pred))
+                    else:
+                        # Still classification but data is problematic, skip metrics
+                        print("⚠️ Unable to calculate classification metrics for problematic data")
+                        scores["accuracy"] = 0.0
+                        scores["f1"] = 0.0
+                        scores["precision"] = 0.0
+                        scores["recall"] = 0.0
 
                 if "log_loss" in metrics:
                     try:
