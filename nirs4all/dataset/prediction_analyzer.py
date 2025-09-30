@@ -91,31 +91,41 @@ class PredictionAnalyzer:
         for pred_record in self.raw_data:
             dataset = self.dataset_name_override or pred_record.get('dataset', 'unknown')
             model = pred_record.get('model', 'unknown')
+            real_model = pred_record.get('real_model', model)  # New schema field
             partition = pred_record.get('partition', 'unknown')
+            fold_idx = pred_record.get('fold_idx')
 
-            # Extract canonical model name (remove parameters and suffixes)
-            canonical_model = self._extract_canonical_model_name(model)
+            # Extract canonical model name using both model and real_model
+            canonical_model = self._extract_canonical_model_name(model, real_model)
 
-            # Determine partition type
-            partition_type = self._classify_partition_type(partition)
+            # Determine partition type using new schema
+            partition_type = self._classify_partition_type(partition, fold_idx)
 
             # Calculate metrics
             y_true = np.array(pred_record.get('y_true', []))
             y_pred = np.array(pred_record.get('y_pred', []))
             metrics = self._calculate_metrics(y_true, y_pred)
 
+            # Extract pipeline information for enhanced display
+            pipeline_info = self._extract_pipeline_info(pred_record)
+            custom_model_name = pred_record.get('custom_model_name', None)
+            enhanced_model_name = self._create_enhanced_model_name(canonical_model, real_model, pipeline_info, custom_model_name)
+
             # Create processed record
             processed_record = {
                 'dataset': dataset,
                 'model': model,
+                'real_model': real_model,
                 'canonical_model': canonical_model,
+                'enhanced_model_name': enhanced_model_name,
+                'pipeline_info': pipeline_info,
                 'partition': partition,
                 'partition_type': partition_type,
                 'y_true': y_true,
                 'y_pred': y_pred,
                 'metrics': metrics,
                 'sample_count': len(y_true),
-                'fold_idx': pred_record.get('fold_idx'),
+                'fold_idx': fold_idx,
                 'metadata': pred_record.get('metadata', {}),
                 'path': pred_record.get('path', '')
             }
@@ -137,32 +147,175 @@ class PredictionAnalyzer:
 
         return processed
 
-    def _extract_canonical_model_name(self, model_name: str) -> str:
-        """Extract canonical model name by removing parameters and suffixes."""
-        # Remove common parameter patterns
+    def _extract_canonical_model_name(self, model_name: str, real_model: str = None) -> str:
+        """Extract canonical model name by removing parameters and suffixes.
+
+        With new schema, use the base model field preferentially.
+        """
+        # If we have a real_model, extract the base model from it
+        if real_model:
+            # real_model format: "RandomForestRegressor_step5_fold0" or "PLSRegression_step3_avg"
+            # Extract base model name before "_step"
+            if '_step' in real_model:
+                base_model = real_model.split('_step')[0]
+                return base_model
+            # For aggregated models like "PLSRegression_step3_avg"
+            if '_avg' in real_model or '_weighted_avg' in real_model:
+                parts = real_model.split('_')
+                # Find the base model part before step or other suffixes
+                for i, part in enumerate(parts):
+                    if part.startswith('step') or part in ['avg', 'weighted']:
+                        return '_'.join(parts[:i]) if i > 0 else parts[0]
+
+        # Fallback to the original model field
         canonical = re.sub(r'\([^)]*\)', '', model_name)  # Remove parentheses with params
         canonical = re.sub(r'_\d+$', '', canonical)  # Remove trailing numbers
         canonical = canonical.strip()
         return canonical if canonical else model_name
 
-    def _classify_partition_type(self, partition: str) -> str:
-        """Classify partition into high-level types."""
+    def _classify_partition_type(self, partition: str, fold_idx: Any = None) -> str:
+        """Classify partition into high-level types.
+
+        With new schema, partition is clean ('test', 'val', 'train') and fold_idx indicates type.
+        All test predictions are on the same test set - just from different fold models.
+        """
+        # Handle aggregated predictions based on fold_idx
+        if fold_idx == 'avg':
+            return f'averaged_{partition}'
+        elif fold_idx == 'weighted_avg':
+            return f'weighted_averaged_{partition}'
+
+        # Handle old format for backward compatibility
         if 'global_train' in partition:
-            return 'global_train'
-        elif 'test' in partition and 'fold' not in partition and 'avg' not in partition:
-            return 'global_test'
+            return 'train'  # No distinction for train
         elif 'train_fold' in partition:
-            return 'train_fold'
+            return 'train'
         elif 'val_fold' in partition:
-            return 'val_fold'
+            return 'val'
         elif 'test_fold' in partition and 'avg' not in partition:
-            return 'test_fold'
+            return 'test'  # All test predictions are on the same test set
         elif 'avg_test_fold' in partition:
             return 'averaged_test'
         elif 'weighted_avg_test_fold' in partition:
             return 'weighted_averaged_test'
+        elif 'test' in partition and 'fold' not in partition and 'avg' not in partition:
+            return 'test'  # All test predictions are on the same test set
+
+        # New schema format - all test predictions are on the same test set
+        elif partition == 'test' and isinstance(fold_idx, int):
+            return 'test'  # Individual fold prediction on test set
+        elif partition == 'val' and isinstance(fold_idx, int):
+            return 'val'  # Individual fold prediction on val set
+        elif partition == 'train' and isinstance(fold_idx, int):
+            return 'train'  # Individual fold prediction on train set
+        elif partition == 'test' and fold_idx is None:
+            return 'test'  # Still the same test set
+        elif partition == 'train' and fold_idx is None:
+            return 'train'
+
+        return partition
+
+    def _extract_pipeline_info(self, pred_record: Dict) -> Dict[str, str]:
+        """Extract pipeline configuration information from prediction record."""
+        pipeline_info = {}
+
+        # Extract pipeline name from the key or metadata
+        # Keys follow format: dataset_pipeline_model_partition_fold_X
+        if 'pipeline' in pred_record:
+            pipeline_info['pipeline_name'] = pred_record['pipeline']
         else:
-            return partition
+            # Try to extract from dataset/path info
+            dataset_name = pred_record.get('dataset', '')
+            real_model = pred_record.get('real_model', '')
+
+            # Extract pipeline from real_model if it contains step info
+            if '_step' in real_model:
+                step_part = real_model.split('_step')[1]
+                if step_part:
+                    step_num = ''.join(filter(str.isdigit, step_part.split('_')[0]))
+                    pipeline_info['step'] = step_num
+
+        return pipeline_info
+
+    def _create_enhanced_model_name(self, canonical_model: str, real_model: str, pipeline_info: Dict, custom_model_name: str = None) -> str:
+        """Create an enhanced model name with pipeline details, prioritizing custom names."""
+
+        # Priority 1: Custom Name (if provided)
+        if custom_model_name:
+            enhanced_name = custom_model_name
+
+            # Extract and add operation counter from real_model
+            if real_model and '_' in real_model:
+                parts = real_model.split('_')
+                # The last part is usually the operation counter (e.g., "10" in "PLS-20_cp_10")
+                if len(parts) > 1 and parts[-1].isdigit():
+                    counter = parts[-1]
+                    # Check if the custom name already has the counter
+                    if not enhanced_name.endswith(f'_{counter}'):
+                        enhanced_name = f"{enhanced_name}_{counter}"
+
+            # Add step and fold information to custom name
+            if real_model and '_step' in real_model:
+                parts = real_model.split('_')
+                step_part = None
+                for part in parts:
+                    if part.startswith('step'):
+                        step_part = part
+                        break
+
+                if step_part:
+                    enhanced_name += f" (step {step_part.replace('step', '')})"
+
+            # Add fold information if it's not an aggregation
+            if real_model and '_fold' in real_model and not any(x in real_model for x in ['avg', 'weighted']):
+                fold_part = real_model.split('_fold')[-1]
+                if fold_part.isdigit():
+                    enhanced_name += f" fold{fold_part}"
+            elif real_model and 'avg' in real_model:
+                if 'weighted' in real_model:
+                    enhanced_name += " [w-avg]"
+                else:
+                    enhanced_name += " [avg]"
+
+            return enhanced_name
+
+        # Priority 2: Enhanced Name based on canonical model
+        enhanced_name = canonical_model
+
+        # Extract and add operation counter from real_model
+        if real_model and '_' in real_model:
+            parts = real_model.split('_')
+            # The last part is usually the operation counter (e.g., "10" in "PLS-20_cp_10")
+            if len(parts) > 1 and parts[-1].isdigit():
+                counter = parts[-1]
+                # Add counter to canonical model name
+                enhanced_name = f"{canonical_model}_{counter}"
+
+        if real_model and real_model != canonical_model:
+            # Extract meaningful parts from real_model
+            if '_step' in real_model:
+                parts = real_model.split('_')
+                step_part = None
+                for part in parts:
+                    if part.startswith('step'):
+                        step_part = part
+                        break
+
+                if step_part:
+                    enhanced_name = f"{enhanced_name} (step {step_part.replace('step', '')})"
+
+            # Add fold information if it's not an aggregation
+            if '_fold' in real_model and not any(x in real_model for x in ['avg', 'weighted']):
+                fold_part = real_model.split('_fold')[-1]
+                if fold_part.isdigit():
+                    enhanced_name += f" fold{fold_part}"
+            elif 'avg' in real_model:
+                if 'weighted' in real_model:
+                    enhanced_name += " [WEIGHTED AVG]"
+                else:
+                    enhanced_name += " [AVG]"
+
+        return enhanced_name
 
     def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
         """Calculate common metrics based on task type (regression or classification)."""
@@ -283,16 +436,19 @@ class PredictionAnalyzer:
         if dataset:
             candidates = [p for p in candidates if p.get('dataset') == dataset]
         if canonical_model:
-            candidates = [p for p in candidates if self._extract_canonical_model_name(p.get('model', '')) == canonical_model]
+            candidates = [p for p in candidates if self._extract_canonical_model_name(
+                p.get('model', ''), p.get('real_model', '')) == canonical_model]
         if partition_type and not partition_type.startswith('aggregated_'):
-            candidates = [p for p in candidates if self._classify_partition_type(p.get('partition', '')) == partition_type]
+            candidates = [p for p in candidates if self._classify_partition_type(
+                p.get('partition', ''), p.get('fold_idx')) == partition_type]
 
         # Convert to processed format
         for pred in candidates:
             dataset_name = self.dataset_name_override or pred.get('dataset', 'unknown')
             model_name = pred.get('model', 'unknown')
-            canonical = self._extract_canonical_model_name(model_name)
-            part_type = self._classify_partition_type(pred.get('partition', ''))
+            real_model_name = pred.get('real_model', model_name)
+            canonical = self._extract_canonical_model_name(model_name, real_model_name)
+            part_type = self._classify_partition_type(pred.get('partition', ''), pred.get('fold_idx'))
 
             y_true = np.array(pred.get('y_true', []))
             y_pred = np.array(pred.get('y_pred', []))
@@ -339,27 +495,27 @@ class PredictionAnalyzer:
         Returns:
             List of top K predictions
         """
-        # Determine which partition to use
+        # Determine which partition to use - all test predictions are on the same test set
         if partition_type == 'test':
-            # Prefer global_test, then aggregated_test
-            candidates = self.filter_predictions(dataset=dataset, canonical_model=canonical_model,
-                                                   partition_type='global_test')
-            if not candidates:
-                candidates = self.filter_predictions(dataset=dataset, canonical_model=canonical_model,
-                                                     partition_type='aggregated_test', include_aggregated=True)
+            # Get all test predictions (individual fold predictions and aggregated) from processed data
+            candidates = self.processed_data['by_partition_type'].get('test', [])
+            candidates.extend(self.processed_data['by_partition_type'].get('averaged_test', []))
+            candidates.extend(self.processed_data['by_partition_type'].get('weighted_averaged_test', []))
         elif partition_type == 'val':
-            # Use aggregated_val if available, otherwise best val_fold
-            candidates = self.filter_predictions(dataset=dataset, canonical_model=canonical_model,
-                                               partition_type='aggregated_val', include_aggregated=True)
-            if not candidates:
-                candidates = self.filter_predictions(dataset=dataset, canonical_model=canonical_model,
-                                                   partition_type='val_fold')
+            # Get all val predictions (individual fold predictions and aggregated) from processed data
+            candidates = self.processed_data['by_partition_type'].get('val', [])
+            candidates.extend(self.processed_data['by_partition_type'].get('averaged_val', []))
+            candidates.extend(self.processed_data['by_partition_type'].get('weighted_averaged_val', []))
         else:  # train
-            candidates = self.filter_predictions(dataset=dataset, canonical_model=canonical_model,
-                                               partition_type='aggregated_train', include_aggregated=True)
-            if not candidates:
-                candidates = self.filter_predictions(dataset=dataset, canonical_model=canonical_model,
-                                                   partition_type='train_fold')
+            candidates = self.processed_data['by_partition_type'].get('train', [])
+            candidates.extend(self.processed_data['by_partition_type'].get('averaged_train', []))
+            candidates.extend(self.processed_data['by_partition_type'].get('weighted_averaged_train', []))
+
+        # Apply additional filters
+        if dataset:
+            candidates = [c for c in candidates if c.get('dataset') == dataset]
+        if canonical_model:
+            candidates = [c for c in candidates if c.get('canonical_model') == canonical_model]
 
         if not candidates:
             return []
@@ -369,7 +525,43 @@ class PredictionAnalyzer:
         candidates.sort(key=lambda x: x['metrics'].get(metric, float('inf') if higher_better else float('-inf')),
                        reverse=higher_better)
 
-        return candidates[:k]
+        # Remove duplicates by canonical model and real model, keeping the best performing one
+        seen_models = {}
+        unique_candidates = []
+
+        for candidate in candidates:
+            # Create a unique key based on canonical model and step/fold info (but ignore avg/weighted_avg suffix)
+            canonical = candidate.get('canonical_model', 'unknown')
+            real_model = candidate.get('real_model', 'unknown')
+
+            # Extract base model info without avg/weighted_avg for deduplication
+            base_key = real_model
+            if '_avg' in real_model or '_weighted_avg' in real_model:
+                # For aggregated models, create a base key that groups similar aggregations
+                parts = real_model.split('_')
+                base_parts = []
+                for part in parts:
+                    if part not in ['avg', 'weighted']:
+                        base_parts.append(part)
+                base_key = '_'.join(base_parts)
+
+            model_key = f"{canonical}_{base_key}"
+
+            if model_key not in seen_models:
+                seen_models[model_key] = candidate
+                unique_candidates.append(candidate)
+            else:
+                # Keep the better performing one
+                current_score = candidate['metrics'].get(metric, float('inf') if higher_better else float('-inf'))
+                existing_score = seen_models[model_key]['metrics'].get(metric, float('inf') if higher_better else float('-inf'))
+
+                if (higher_better and current_score > existing_score) or (not higher_better and current_score < existing_score):
+                    # Replace with better performing model
+                    idx = unique_candidates.index(seen_models[model_key])
+                    unique_candidates[idx] = candidate
+                    seen_models[model_key] = candidate
+
+        return unique_candidates[:k]
 
     def plot_top_k_comparison(self, k: int = 5, metric: str = 'rmse',
                             partition_type: str = 'test', dataset: Optional[str] = None,
@@ -406,8 +598,18 @@ class PredictionAnalyzer:
         for i, pred in enumerate(top_predictions):
             # Predicted vs True plot
             ax_scatter = axes[i][0] if n_plots > 1 else axes[0]
-            y_true = pred['y_true']
-            y_pred = pred['y_pred']
+
+            # Ensure arrays are properly shaped and same size
+            y_true = np.asarray(pred['y_true']).flatten()
+            y_pred = np.asarray(pred['y_pred']).flatten()
+
+            # Check if arrays have the same size for scatter plot
+            if len(y_true) != len(y_pred):
+                print(f"⚠️ Warning: Array size mismatch for {pred['canonical_model']}: y_true({len(y_true)}) vs y_pred({len(y_pred)})")
+                # Use the minimum length to avoid scatter plot error
+                min_len = min(len(y_true), len(y_pred))
+                y_true = y_true[:min_len]
+                y_pred = y_pred[:min_len]
 
             ax_scatter.scatter(y_true, y_pred, alpha=0.6, s=20)
             min_val = min(y_true.min(), y_pred.min())
@@ -415,16 +617,32 @@ class PredictionAnalyzer:
             ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8)
             ax_scatter.set_xlabel('True Values')
             ax_scatter.set_ylabel('Predicted Values')
-            ax_scatter.set_title(f'{pred["canonical_model"]} ({pred["partition_type"]})')
+            # Use enhanced_model_name (with custom names) in title
+            display_name = pred.get('enhanced_model_name', pred.get('real_model', pred['canonical_model']))
+            ax_scatter.set_title(f'{display_name} ({pred["partition_type"]})')
             ax_scatter.grid(True, alpha=0.3)
 
             # Residuals plot
             ax_resid = axes[i][1] if n_plots > 1 else axes[1]
-            residuals = y_true - y_pred
-            ax_resid.scatter(y_pred, residuals, alpha=0.6, s=20)
+
+            # Ensure arrays are properly shaped for residuals calculation
+            y_true_flat = np.asarray(y_true).flatten()
+            y_pred_flat = np.asarray(y_pred).flatten()
+
+            # Check if arrays have the same size
+            if len(y_true_flat) != len(y_pred_flat):
+                print(f"⚠️ Warning: Array size mismatch for {pred['canonical_model']}: y_true({len(y_true_flat)}) vs y_pred({len(y_pred_flat)})")
+                # Use the minimum length to avoid scatter plot error
+                min_len = min(len(y_true_flat), len(y_pred_flat))
+                y_true_flat = y_true_flat[:min_len]
+                y_pred_flat = y_pred_flat[:min_len]
+
+            residuals = y_true_flat - y_pred_flat
+            ax_resid.scatter(y_pred_flat, residuals, alpha=0.6, s=20)
             ax_resid.axhline(y=0, color='r', linestyle='--', alpha=0.8)
             ax_resid.set_xlabel('Predicted Values')
             ax_resid.set_ylabel('Residuals')
+            # Use unique ID in residuals title as well
             ax_resid.set_title(f'Residuals - {metric.upper()}: {pred["metrics"][metric]:.4f}')
             ax_resid.grid(True, alpha=0.3)
 
@@ -471,29 +689,42 @@ class PredictionAnalyzer:
             else:
                 ax = axes[i]
 
-            y_true = pred['y_true']
-            y_pred = pred['y_pred']
+            y_true = np.asarray(pred['y_true']).flatten()
+            y_pred = np.asarray(pred['y_pred']).flatten()
 
             # Convert predictions to class labels if needed
-            if y_pred.ndim > 1 and y_pred.shape[1] > 1:
+            if len(y_pred.shape) > 1 and y_pred.shape[1] > 1:
                 y_pred_labels = np.argmax(y_pred, axis=1)
             else:
                 y_pred_labels = np.round(y_pred).astype(int)
 
             y_true_labels = y_true.astype(int)
 
+            # Ensure both arrays are 1-dimensional and same length
+            y_true_labels = y_true_labels.flatten()
+            y_pred_labels = y_pred_labels.flatten()
+
+            # Check array compatibility
+            if len(y_true_labels) != len(y_pred_labels):
+                print(f"⚠️ Warning: Array length mismatch for confusion matrix in {pred['canonical_model']}: y_true({len(y_true_labels)}) vs y_pred({len(y_pred_labels)})")
+                min_len = min(len(y_true_labels), len(y_pred_labels))
+                y_true_labels = y_true_labels[:min_len]
+                y_pred_labels = y_pred_labels[:min_len]
+
             # Compute confusion matrix
             cm = confusion_matrix(y_true_labels, y_pred_labels)
 
             # Plot confusion matrix
             im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
-            ax.set_title(f'{pred["canonical_model"]}\n{metric.upper()}: {pred["metrics"][metric]:.4f}')
+            # Use enhanced_model_name (with custom names) in title
+            display_name = pred.get('enhanced_model_name', pred.get('real_model', pred['canonical_model']))
+            ax.set_title(f'{display_name}\n{metric.upper()}: {pred["metrics"][metric]:.4f}')
 
             # Add colorbar
             plt.colorbar(im, ax=ax, shrink=0.8)
 
-            # Add labels
-            classes = np.unique(np.concatenate([y_true_labels, y_pred_labels]))
+            # Add labels - ensure arrays are 1D before concatenating
+            classes = np.unique(np.concatenate([y_true_labels.ravel(), y_pred_labels.ravel()]))
             ax.set_xticks(range(len(classes)))
             ax.set_yticks(range(len(classes)))
             ax.set_xticklabels(classes)

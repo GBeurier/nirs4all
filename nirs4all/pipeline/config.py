@@ -210,6 +210,15 @@ class PipelineConfigs:
                     return f"{key}({params_str})"
                 return f"{step['class'].split('.')[-1]}"
             elif "model" in step:
+                # Check for custom model name first
+                if "name" in step:
+                    custom_name = step["name"]
+                    actions = "train"
+                    if "finetune_params" in step:
+                        actions = "(finetune)"
+                    return f"{actions} {custom_name}"
+
+                # Use model class name if no custom name
                 if "class" in step['model']:
                     key = f"{step['model']['class'].split('.')[-1]}"
                 elif "function" in step['model']:
