@@ -557,28 +557,14 @@ class PipelineRunner:
                                 (not higher_is_better and score < best_score)):
                             best_score = score
                             best_key = key
-                            # Use custom name if available, otherwise real_model name for better display
-                            custom_name = pred_data.get('custom_model_name')
+                            # Use real_model name for display (includes operation counter)
                             real_model = pred_data.get('real_model', pred_data.get('model', 'unknown'))
-
-                            # Prefer custom name, but fall back to real_model if custom_name is None or 'None'
-                            if custom_name and custom_name != 'None':
-                                best_model = custom_name
-                            else:
-                                best_model = real_model
+                            best_model = real_model
 
             if best_score is not None and best_model is not None and best_key is not None:
                 direction = "↑" if higher_is_better else "↓"
-                # Extract operator counter from real_model for display
-                pred_data = dataset._predictions._predictions.get(best_key)
-                real_model = pred_data.get('real_model', '') if pred_data else ''
-
-                # Try to extract counter from real_model (e.g., RF-depth-5_10)
-                if '_' in real_model:
-                    counter = real_model.split('_')[-1]
-                    display_name = f"{best_model}_{counter}"
-                else:
-                    display_name = best_model
+                # best_model is already the real_model name which includes operation counter
+                display_name = best_model
 
                 print(f"🏆 Best for config: {display_name} - {best_metric}={best_score:.4f}{direction}")
 
