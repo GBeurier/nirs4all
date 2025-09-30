@@ -23,7 +23,8 @@ def run_basic_tests():
 
     # Test 1: Import test
     try:
-        from nirs4all.controllers.models.base_model_controller import ParamStrategy, BaseModelController
+        from nirs4all.controllers.models.config import ParamStrategy
+        from nirs4all.controllers.models.abstract_model_controller import AbstractModelController
         from nirs4all.pipeline.runner import PipelineRunner
         from nirs4all.pipeline.config import PipelineConfigs
         test_results.append(("Imports", True, None))
@@ -66,7 +67,7 @@ def run_basic_tests():
 
         missing_methods = []
         for method in required_methods:
-            if not hasattr(BaseModelController, method):
+            if not hasattr(AbstractModelController, method):
                 missing_methods.append(method)
 
         if not missing_methods:

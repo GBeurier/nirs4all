@@ -17,7 +17,7 @@ from sklearn.model_selection import cross_val_score
 from sklearn.metrics import mean_squared_error, accuracy_score
 from sklearn.base import is_classifier, is_regressor
 
-from ..models.base_model_controller import BaseModelController
+from ..models.abstract_model_controller import AbstractModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.model_utils import ModelUtils
 
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 
 @register_controller
-class SklearnModelController(BaseModelController):
+class SklearnModelController(AbstractModelController):
     """Controller for scikit-learn models."""
 
     priority = 5  # Higher priority than TransformerMixin (10) to win matching
@@ -166,7 +166,7 @@ class SklearnModelController(BaseModelController):
         y: np.ndarray,
         context: Dict[str, Any]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Prepare data for sklearn (ensure 2D X and 1D y)."""
+        """Prepare data for sklearn (ensure 2D X and 2D y for consistency)."""
         # Ensure X is 2D
         if X.ndim > 2:
             # Flatten extra dimensions
@@ -174,39 +174,45 @@ class SklearnModelController(BaseModelController):
         elif X.ndim == 1:
             X = X.reshape(-1, 1)
 
-        # Ensure y is 1D
-        y = y.ravel()
+        # Ensure y is 2D for consistency with predictions
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
+        elif y.ndim > 2:
+            y = y.reshape(y.shape[0], -1)
 
         return X, y
 
     def _evaluate_model(self, model: BaseEstimator, X_val: np.ndarray, y_val: np.ndarray) -> float:
         """Evaluate sklearn model using cross-validation."""
+        # Ensure y_val is 1D for sklearn functions
+        y_val_1d = y_val.ravel() if y_val.ndim > 1 else y_val
+
         try:
             # Use cross-validation for evaluation
             if is_classifier(model):
                 # For classifiers, use negative accuracy (to minimize)
-                scores = cross_val_score(model, X_val, y_val, cv=3, scoring='accuracy')
+                scores = cross_val_score(model, X_val, y_val_1d, cv=3, scoring='accuracy')
                 return -np.mean(scores)  # Negative because we want to minimize
             elif is_regressor(model):
                 # For regressors, use negative MSE (to minimize)
-                scores = cross_val_score(model, X_val, y_val, cv=3, scoring='neg_mean_squared_error')
+                scores = cross_val_score(model, X_val, y_val_1d, cv=3, scoring='neg_mean_squared_error')
                 return -np.mean(scores)  # Already negative, so negate to get positive MSE
             else:
                 # Default: use model's score method if available
                 if hasattr(model, 'score'):
-                    score = model.score(X_val, y_val)
+                    score = model.score(X_val, y_val_1d)
                     return -score  # Negative to minimize
                 else:
                     # Fallback: MSE for any model
                     y_pred = model.predict(X_val)
-                    return mean_squared_error(y_val, y_pred)
+                    return mean_squared_error(y_val_1d, y_pred)
 
         except Exception as e:
             print(f"⚠️ Error in model evaluation: {e}")
             # Fallback evaluation
             try:
                 y_pred = model.predict(X_val)
-                return mean_squared_error(y_val, y_pred)
+                return mean_squared_error(y_val_1d, y_pred)
             except Exception:
                 return float('inf')  # Return worst possible score
 

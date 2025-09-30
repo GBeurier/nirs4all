@@ -14,7 +14,7 @@ Matches TensorFlow/Keras model objects and model configurations.
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 
-from ..models.base_model_controller import BaseModelController
+from ..models.abstract_model_controller import AbstractModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 
@@ -32,7 +32,7 @@ except ImportError:
 
 
 @register_controller
-class TensorFlowModelController(BaseModelController):
+class TensorFlowModelController(AbstractModelController):
     """Controller for TensorFlow/Keras models."""
 
     priority = 20  # Same priority as sklearn
@@ -112,8 +112,8 @@ class TensorFlowModelController(BaseModelController):
             model = model_config['model_instance']
             if self._is_tensorflow_model(model):
                 return model
-            # If it's a function, we'll call it in _create_model_from_function
-            elif callable(model) and hasattr(model, 'framework') and model.framework == 'tensorflow':
+            elif callable(model):
+                # Assume callable models are TensorFlow model factories
                 return model
 
         # If we have a model factory function, call it
@@ -157,7 +157,7 @@ class TensorFlowModelController(BaseModelController):
             train_params = {}
 
         # Handle model factory functions
-        if callable(model) and hasattr(model, 'framework') and model.framework == 'tensorflow':
+        if callable(model):
             # This is a model factory function, we need to create the actual model
             input_shape = X_train.shape[1:]  # Get input shape from training data
             model_params = train_params.get('model_params', {})
@@ -192,8 +192,8 @@ class TensorFlowModelController(BaseModelController):
 
         # Show training parameters being used
         # if verbose > 1 and train_params:
-            # print(f"🔧 Training parameters: {train_params}")        # Clone the model architecture (create new instance)
-        trained_model = keras.models.clone_model(model)
+            # print(f"🔧 Training parameters: {train_params}")        # The model is already a new instance created from function
+        trained_model = model
 
         # === COMPILATION CONFIGURATION ===
         compile_config = self._prepare_compilation_config(train_params)
