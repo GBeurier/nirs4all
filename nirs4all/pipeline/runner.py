@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 import json
 import warnings
+import os
 
 from joblib import Parallel, delayed, parallel_backend
 from nirs4all.dataset.predictions import Predictions
@@ -27,6 +28,7 @@ from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.binary_loader import BinaryLoader
 from nirs4all.utils.spinner import spinner_context
+from nirs4all.utils.tab_report_generator import TabReportGenerator
 
 
 
@@ -50,7 +52,8 @@ class PipelineRunner:
                  save_files: bool = True,
                  mode: str = "train",
                  load_existing_predictions: bool = True,
-                 show_spinner: bool = True):
+                 show_spinner: bool = True,
+                 enable_tab_reports: bool = True):
 
         self.max_workers = max_workers or -1  # -1 means use all available cores
         self.continue_on_error = continue_on_error
@@ -68,6 +71,8 @@ class PipelineRunner:
         self.step_binaries: Dict[str, List[str]] = {}  # Track step-to-binary mapping
         self.binary_loader: Optional[BinaryLoader] = None
         self.show_spinner = show_spinner
+        self.enable_tab_reports = enable_tab_reports
+        self.tab_report_generator = TabReportGenerator()
 
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> List[Tuple[SpectroDataset, PipelineHistory, Any]]:
         """Run pipeline configurations on dataset configurations."""
@@ -102,6 +107,11 @@ class PipelineRunner:
                 dataset_pred_db.display_best_scores_summary(dataset_name, existing_predictions)
 
             dataset_pred_db.save_to_file(str(self.saver.base_path / dataset_name / f"{dataset_name}_predictions.json"))
+
+            # Generate best score tab report
+            if dataset_pred_db is not None and self.enable_tab_reports:
+                self._generate_best_score_tab_report(dataset_pred_db, dataset_name)
+
             results.append((dataset_pred_db, run_dataset_pred_db))
 
         return global_pred_db, results
@@ -564,5 +574,84 @@ class PipelineRunner:
 
         except Exception as e:
             print(f"⚠️ Could not display best for config: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _generate_best_score_tab_report(self, dataset_pred_db: Predictions, dataset_name: str) -> None:
+        """Generate best score tab report for the dataset."""
+        try:
+            # Use the saver's base path to determine where to save the report
+            dataset_path = self.saver.base_path / dataset_name
+
+            # Generate the tab report
+            report_path = self.tab_report_generator.generate_best_score_report(
+                dataset_pred_db,
+                dataset_name,
+                str(dataset_path),
+                self.enable_tab_reports
+            )
+
+            if report_path:
+                print(f"📊 Tab report saved: {os.path.basename(report_path)}")
+                # Print the tab report content as ASCII table
+                try:
+                    with open(report_path, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                        if len(lines) >= 2:  # At least header + 1 data row
+                            # print("=" * 120)
+
+                            # Parse CSV content and format as ASCII table
+                            import csv
+                            import io
+
+                            csv_content = ''.join(lines)
+                            csv_reader = csv.reader(io.StringIO(csv_content))
+                            rows = list(csv_reader)
+
+                            if rows:
+                                # Calculate column widths
+                                col_widths = []
+                                for i in range(len(rows[0])):
+                                    max_width = max(len(str(row[i])) if i < len(row) else 0 for row in rows)
+                                    col_widths.append(max(max_width, 8))  # Minimum width of 8
+
+                                # Print table
+                                def print_row(row, widths):
+                                    formatted_cells = []
+                                    for i, cell in enumerate(row):
+                                        if i < len(widths):
+                                            formatted_cells.append(f"{str(cell):<{widths[i]}}")
+                                    return "| " + " | ".join(formatted_cells) + " |"
+
+                                def print_separator(widths):
+                                    return "|" + "|".join("-" * (w + 2) for w in widths) + "|"
+
+                                # Print header
+                                print(print_separator(col_widths))
+                                print(print_row(rows[0], col_widths))
+                                print(print_separator(col_widths))
+
+                                # Print data rows
+                                for row in rows[1:]:
+                                    print(print_row(row, col_widths))
+
+                                print(print_separator(col_widths))
+                            print("=" * 120)
+                except Exception as read_error:
+                    print(f"⚠️ Could not format tab report: {read_error}")
+                    # Fallback to simple content display
+                    try:
+                        with open(report_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            # print("\n" + "=" * 80)
+                            # print("📊 BEST SCORE TAB REPORT")
+                            # print("=" * 80)
+                            print(content)
+                            print("=" * 80)
+                    except Exception:
+                        pass
+
+        except Exception as e:
+            print(f"⚠️ Could not generate tab report: {e}")
             import traceback
             traceback.print_exc()
