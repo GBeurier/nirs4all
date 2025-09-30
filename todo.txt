@@ -5,6 +5,7 @@ learning course - ipynb
 -- Verify classification, binaries, multisources everywhere
 -- add Q6 - SHAP ??
 -- add Q7 -- discretizer (switch reg / classif)
+-- heatmap models
 
 Bin operator with bounds or count + warning class assymetry
 Chart controller with x, y, folds, 3d, 2d operators.
