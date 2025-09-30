@@ -992,8 +992,8 @@ class Predictions:
                         # Only consider test partition predictions to avoid train overfitting
                         if (pred_data and 'y_true' in pred_data and 'y_pred' in pred_data and
                                 pred_data.get('partition') == 'test'):
-                            # Use custom model name if available, otherwise use parsed model name
-                            display_model_name = pred_data.get('custom_model_name') or model_name
+                            # Use real_model name for display (includes operation counter)
+                            display_model_name = pred_data.get('real_model', model_name)
 
                             task_type = ModelUtils.detect_task_type(pred_data['y_true'])
                             scores = ModelUtils.calculate_scores(pred_data['y_true'], pred_data['y_pred'], task_type)
@@ -1028,18 +1028,8 @@ class Predictions:
             direction = "↑" if higher_is_better else "↓"
 
             if best_this_run and best_this_run_score is not None:
-                # Extract operator counter and clean config name for display
-                pred_data = self._predictions.get(best_this_run)
-                custom_name = pred_data.get('custom_model_name', '') if pred_data else best_this_run_model
-                real_model = pred_data.get('real_model', '') if pred_data else ''
-
-                # Extract operator counter from real_model and always add it to display name
-                display_name = custom_name if custom_name else best_this_run_model
-                if '_' in real_model and display_name:
-                    counter = real_model.split('_')[-1]
-                    # Check if display_name already has the counter
-                    if not display_name.endswith(f'_{counter}'):
-                        display_name = f"{display_name}_{counter}"
+                # Use the real model name directly (already includes operation counter)
+                display_name = best_this_run_model
 
                 # Extract clean config name (remove hash and test parts)
                 config_part = best_this_run.split('_')
@@ -1048,18 +1038,8 @@ class Predictions:
                 print(f"🏆 Best from this run: {display_name} ({clean_config}) - {best_metric}={best_this_run_score:.4f}{direction}")
 
             if best_overall and best_overall_score is not None:
-                # Extract operator counter and clean config name for display
-                pred_data = self._predictions.get(best_overall)
-                custom_name = pred_data.get('custom_model_name', '') if pred_data else best_overall_model
-                real_model = pred_data.get('real_model', '') if pred_data else ''
-
-                # Extract operator counter from real_model and always add it to display name
-                display_name = custom_name if custom_name else best_overall_model
-                if '_' in real_model and display_name:
-                    counter = real_model.split('_')[-1]
-                    # Check if display_name already has the counter
-                    if not display_name.endswith(f'_{counter}'):
-                        display_name = f"{display_name}_{counter}"
+                # Use the real model name directly (already includes operation counter)
+                display_name = best_overall_model
 
                 # Extract clean config name (remove hash and test parts)
                 config_part = best_overall.split('_')
