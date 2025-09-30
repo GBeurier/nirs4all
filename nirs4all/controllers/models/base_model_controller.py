@@ -414,16 +414,19 @@ class BaseModelController(OperatorController, ABC):
                 )
         else:
             # Single training mode: no folds
-            X_train, y_train, X_test, y_test = data_splits
+            X_train, y_train, X_val, y_val = data_splits
+            test_context = context.copy()
+            test_context['partition'] = 'test'
+            X_test, y_test = dataset.x(test_context), dataset.y(test_context)
             if mode == ModelMode.FINETUNE and finetune_params:
                 return self._execute_finetune(
-                    model_config, X_train, y_train, X_test, y_test,
+                    model_config, X_train, y_train, X_val, y_val, X_test, y_test,
                     train_params, finetune_params, context, runner, dataset
                 )
             else:
-                print(">>>>>>>>", X_train.shape, y_train.shape, X_test.shape, y_test.shape)
+                print(">>>>>>>>", X_train.shape, y_train.shape, X_val.shape, y_val.shape)
                 return self._execute_train(
-                    model_config, X_train, y_train, X_test, y_test,
+                    model_config, X_train, y_train, X_val, y_val, X_test, y_test,
                     train_params, context, runner, dataset
                 )
 
@@ -656,12 +659,17 @@ class BaseModelController(OperatorController, ABC):
         combined_y_train = np.concatenate(all_y_train, axis=0)
 
         # Use first fold's test data for finetuning evaluation (could be improved)
-        _, _, X_test_sample, y_test_sample = data_splits[0]
+        _, _, X_val_sample, y_val_sample = data_splits[0]
 
+
+        test_context = context.copy()
+        test_context['partition'] = 'test'
+        X_test, y_test = dataset.x(test_context), dataset.y(test_context)
         # Execute finetuning to get best parameters
-        _, finetune_binaries = self._execute_finetune(
+        _, finetune_binaries = self._execute_finetune( ##TODO fix xval and xval here
             model_config, combined_X_train, combined_y_train,
-            X_test_sample, y_test_sample, train_params, finetune_params,
+            X_val_sample, y_val_sample, X_test, y_test,
+            train_params, finetune_params,
             context, runner, dataset
         )
 
@@ -676,7 +684,7 @@ class BaseModelController(OperatorController, ABC):
         all_binaries = []
         all_binaries.extend(finetune_binaries)
 
-        for fold_idx, (X_train, y_train, X_test, y_test) in enumerate(data_splits):
+        for fold_idx, (X_train, y_train, X_val, y_val) in enumerate(data_splits):
             # Create model with best parameters
             base_model = self._get_model_from_config(model_config)
             model = self._clone_model(base_model)
@@ -689,9 +697,12 @@ class BaseModelController(OperatorController, ABC):
                     if verbose > 0:
                         print(f"⚠️ Could not apply best parameters to fold {fold_idx+1}: {e}")
 
+            test_context = context.copy()
+            test_context['partition'] = 'test'
+            X_test, y_test = dataset.x(test_context), dataset.y(test_context)
             # Train on this fold
             fold_context, fold_binaries = self._execute_train(
-                model_config, X_train, y_train, X_test, y_test,
+                model_config, X_train, y_train, X_val, y_val, X_test, y_test,
                 train_params, context, runner, dataset, fold_idx
             )
 
@@ -738,15 +749,18 @@ class BaseModelController(OperatorController, ABC):
 
         all_binaries = []
         all_best_params = []
+        test_context = context.copy()
+        test_context['partition'] = 'test'
+        X_test, y_test = dataset.x(test_context), dataset.y(test_context)
 
         # Finetune on each fold
-        for fold_idx, (X_train, y_train, X_test, y_test) in enumerate(data_splits):
+        for fold_idx, (X_train, y_train, X_val, y_val) in enumerate(data_splits):
             if verbose > 0:
                 print(f"🎛️ Finetuning fold {fold_idx+1}/{len(data_splits)}...")
 
             # Execute finetuning for this fold
             fold_context, fold_binaries = self._execute_finetune(
-                model_config, X_train, y_train, X_test, y_test,
+                model_config, X_train, y_train, X_val, y_val, X_test, y_test,
                 train_params, finetune_params, context, runner, dataset, fold_idx
             )
 
@@ -1243,7 +1257,7 @@ class BaseModelController(OperatorController, ABC):
 
             # Evaluate these parameters on all folds and average the scores
             fold_scores = []
-            for fold_idx, (X_train, y_train, X_test, y_test) in enumerate(data_splits):
+            for fold_idx, (X_train, y_train, X_val, y_val) in enumerate(data_splits):
                 # Create and configure model for this fold
                 base_model = self._get_model_from_config(model_config)
                 model = self._clone_model(base_model)
@@ -1256,7 +1270,7 @@ class BaseModelController(OperatorController, ABC):
 
                 # Prepare data and train
                 X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
-                X_test_prep, y_test_prep = self._prepare_data(X_test, y_test, context)
+                X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context)
 
                 # Use silent training for optimization
                 fold_train_params = finetune_params.get('train_params', train_params.copy())
@@ -1267,7 +1281,7 @@ class BaseModelController(OperatorController, ABC):
                 )
 
                 # Evaluate on test set
-                score = self._evaluate_model(trained_model, X_test_prep, y_test_prep)
+                score = self._evaluate_model(trained_model, X_val_prep, y_val_prep)
                 fold_scores.append(score)
 
             # Calculate average score across all folds
@@ -1310,7 +1324,10 @@ class BaseModelController(OperatorController, ABC):
             print(f"🔄 Training {len(data_splits)} final models with global best parameters...")
 
         all_binaries = []
-        for fold_idx, (X_train, y_train, X_test, y_test) in enumerate(data_splits):
+        test_context = context.copy()
+        test_context['partition'] = 'test'
+        X_test, y_test = dataset.x(test_context), dataset.y(test_context)
+        for fold_idx, (X_train, y_train, X_val, y_val) in enumerate(data_splits):
             # Create model with global best parameters
             base_model = self._get_model_from_config(model_config)
             model = self._clone_model(base_model)
@@ -1325,7 +1342,7 @@ class BaseModelController(OperatorController, ABC):
 
             # Train final model for this fold
             fold_context, fold_binaries = self._execute_train(
-                model_config, X_train, y_train, X_test, y_test,
+                model_config, X_train, y_train, X_val, y_val, X_test, y_test,
                 train_params, context, runner, dataset, fold_idx
             )
 
@@ -1727,14 +1744,14 @@ class BaseModelController(OperatorController, ABC):
             if mode == ModelMode.FINETUNE and finetune_params:
                 # Fine-tune for this fold
                 fold_context, fold_binaries = self._execute_finetune(
-                    model_config, X_train, y_train, X_val, y_val,
+                    model_config, X_train, y_train, X_val, y_val, X_test, y_test,
                     train_params, finetune_params, context, runner, dataset, fold_idx
                 )
             else:
                 # Train for this fold
                 print("####", X_train.shape, y_train.shape, X_val.shape, y_val.shape)
                 fold_context, fold_binaries = self._execute_train(
-                    model_config, X_train, y_train, X_val, y_val,
+                    model_config, X_train, y_train, X_val, y_val, X_test, y_test,
                     train_params, context, runner, dataset, fold_idx
                 )
 
@@ -1818,8 +1835,8 @@ class BaseModelController(OperatorController, ABC):
             X_val, y_val = X_test, y_test
         X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context)
 
-        if not (X_test is None or y_test is None):
-            X_test_prep, y_test_prep = self._prepare_data(X_test, y_test, context)
+        # if not (X_test is None or y_test is None): ##TODO manage all cases of train / test / val
+        X_test_prep, y_test_prep = self._prepare_data(X_test, y_test, context)
 
         print(X_train_prep.shape, y_train_prep.shape, X_val_prep.shape, y_val_prep.shape, X_test_prep.shape, y_test_prep.shape)
 
@@ -2001,6 +2018,8 @@ class BaseModelController(OperatorController, ABC):
         model_config: Dict[str, Any],
         X_train: Any,
         y_train: Any,
+        X_val: Any,
+        y_val: Any,
         X_test: Any,
         y_test: Any,
         train_params: Dict[str, Any],
@@ -2022,10 +2041,11 @@ class BaseModelController(OperatorController, ABC):
         except ImportError:
             print("⚠️ Optuna not available, falling back to training mode")
             return self._execute_train(
-                model_config, X_train, y_train, X_test, y_test,
+                model_config, X_train, y_train, X_val, y_val, X_test, y_test,
                 train_params, context, runner, dataset
             )        # Prepare data
         X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
+        X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context)
         X_test_prep, _ = self._prepare_data(X_test, y_test, context)
 
         best_model = None
@@ -2396,7 +2416,9 @@ class BaseModelController(OperatorController, ABC):
                 'y_processing': current_y_processing,
                 'model_type': model,
                 'real_model': real_model,
-                'partition': partition
+                'partition': partition,
+                'n_samples': dataset_obj.num_samples,
+                'n_features': dataset_obj.num_features
             },
             custom_model_name=custom_model_name
         )

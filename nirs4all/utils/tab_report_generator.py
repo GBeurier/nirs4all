@@ -137,7 +137,7 @@ class TabReportGenerator:
                 return None
 
             # Extract nfeatures directly from dataset
-            nfeatures = self._extract_nfeatures_from_dataset(dataset)
+            nfeatures = best_model["metadata"].get("n_features", 0)
 
             # Calculate metrics for different partitions
             metrics_data = self._calculate_partition_metrics(
@@ -337,8 +337,8 @@ class TabReportGenerator:
             all_y_pred = []
 
             for pred_data in val_predictions:
-                y_true = np.array(pred_data.get('y_true', [])).flatten()
-                y_pred = np.array(pred_data.get('y_pred', [])).flatten()
+                y_true = np.array(pred_data.get('y_true', []), dtype=np.float32).flatten()
+                y_pred = np.array(pred_data.get('y_pred', []), dtype=np.float32).flatten()
 
                 if len(y_true) > 0 and len(y_pred) > 0:
                     all_y_true.extend(y_true)
@@ -389,15 +389,15 @@ class TabReportGenerator:
             # Or aggregate them if they're from different folds
             if len(partition_predictions) == 1:
                 pred_data = partition_predictions[0]
-                y_true = np.array(pred_data.get('y_true', [])).flatten()
-                y_pred = np.array(pred_data.get('y_pred', [])).flatten()
+                y_true = np.array(pred_data.get('y_true', []), dtype=np.float32).flatten()
+                y_pred = np.array(pred_data.get('y_pred', []), dtype=np.float32).flatten()
             else:
                 # Aggregate multiple predictions
                 all_y_true = []
                 all_y_pred = []
                 for pred_data in partition_predictions:
-                    y_true = np.array(pred_data.get('y_true', [])).flatten()
-                    y_pred = np.array(pred_data.get('y_pred', [])).flatten()
+                    y_true = np.array(pred_data.get('y_true', []), dtype=np.float32).flatten()
+                    y_pred = np.array(pred_data.get('y_pred', []), dtype=np.float32).flatten()
                     if len(y_true) > 0 and len(y_pred) > 0:
                         all_y_true.extend(y_true)
                         all_y_pred.extend(y_pred)
@@ -621,7 +621,7 @@ class TabReportGenerator:
         # Define column headers for regression
         headers = [
             '', 'Nsample', 'Nfeature', 'Mean', 'Median', 'Min', 'Max', 'SD', 'CV',
-            'R²', 'RMSE', 'SEP', 'MAE', 'RPD', 'Bias', 'Q-Value', 'Consistency (%)'
+            'R²', 'RMSE', 'MSE', 'SEP', 'MAE', 'RPD', 'Bias', 'Q-Value', 'Consistency (%)'
         ]
 
         # Create rows
@@ -642,6 +642,7 @@ class TabReportGenerator:
             f"{cv_metrics.get('cv', ''):.3f}" if cv_metrics.get('cv') else '',
             f"{cv_metrics.get('r2', ''):.3f}" if cv_metrics.get('r2') else '',
             f"{cv_metrics.get('rmse', ''):.3f}" if cv_metrics.get('rmse') else '',
+            f"{cv_metrics.get('mse', ''):.3f}" if cv_metrics.get('mse') else '',  # Added MSE
             f"{cv_metrics.get('sep', ''):.3f}" if cv_metrics.get('sep') else '',
             f"{cv_metrics.get('mae', ''):.3f}" if cv_metrics.get('mae') else '',
             f"{cv_metrics.get('rpd', ''):.2f}" if cv_metrics.get('rpd') and cv_metrics.get('rpd') != float('inf') else '',
@@ -665,6 +666,7 @@ class TabReportGenerator:
             f"{train_metrics.get('cv', ''):.3f}" if train_metrics.get('cv') else '',
             f"{train_metrics.get('r2', ''):.3f}" if train_metrics.get('r2') else '',
             f"{train_metrics.get('rmse', ''):.3f}" if train_metrics.get('rmse') else '',
+            f"{train_metrics.get('mse', ''):.3f}" if train_metrics.get('mse') else '',  # Added MSE
             f"{train_metrics.get('sep', ''):.3f}" if train_metrics.get('sep') else '',
             f"{train_metrics.get('mae', ''):.3f}" if train_metrics.get('mae') else '',
             f"{train_metrics.get('rpd', ''):.2f}" if train_metrics.get('rpd') and train_metrics.get('rpd') != float('inf') else '',
@@ -688,6 +690,7 @@ class TabReportGenerator:
             f"{test_metrics.get('cv', ''):.3f}" if test_metrics.get('cv') else '',
             f"{test_metrics.get('r2', ''):.3f}" if test_metrics.get('r2') else '',
             f"{test_metrics.get('rmse', ''):.3f}" if test_metrics.get('rmse') else '',
+            f"{test_metrics.get('mse', ''):.3f}" if test_metrics.get('mse') else '',  # Added MSE
             f"{test_metrics.get('sep', ''):.3f}" if test_metrics.get('sep') else '',
             f"{test_metrics.get('mae', ''):.3f}" if test_metrics.get('mae') else '',
             f"{test_metrics.get('rpd', ''):.2f}" if test_metrics.get('rpd') and test_metrics.get('rpd') != float('inf') else '',
