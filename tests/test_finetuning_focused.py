@@ -14,7 +14,7 @@ from sklearn.ensemble import RandomForestRegressor
 
 from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.pipeline.config import PipelineConfigs
-from nirs4all.controllers.models.base_model_controller import ParamStrategy
+from nirs4all.controllers.models.config import ParamStrategy
 
 
 @pytest.fixture
@@ -135,20 +135,20 @@ class TestFinetuningStrategies:
 
         print("✅ Most rigorous combination (nested + global_average) is properly configured")
 
-    @patch('nirs4all.controllers.models.base_model_controller.BaseModelController._train_single_model_on_full_data')
-    @patch('nirs4all.controllers.models.base_model_controller.BaseModelController._execute_global_average_optimization')
+    @patch('nirs4all.controllers.models.abstract_model_controller.AbstractModelController._train_single_model_on_full_data')
+    @patch('nirs4all.controllers.models.abstract_model_controller.AbstractModelController._execute_global_average_optimization')
     def test_global_average_code_path(self, mock_global_avg, mock_full_train, mock_data):
         """Test that global_average strategy triggers the correct code path."""
-        from nirs4all.controllers.models.base_model_controller import BaseModelController
+        from nirs4all.controllers.models.abstract_model_controller import AbstractModelController
 
         # Create a mock controller instance
-        controller = MagicMock(spec=BaseModelController)
+        controller = MagicMock(spec=AbstractModelController)
         controller._execute_global_average_optimization = mock_global_avg
         controller._train_single_model_on_full_data = mock_full_train
 
         # Test that the method exists
-        assert hasattr(BaseModelController, '_execute_global_average_optimization')
-        assert hasattr(BaseModelController, '_train_single_model_on_full_data')
+        assert hasattr(AbstractModelController, '_execute_global_average_optimization')
+        assert hasattr(AbstractModelController, '_train_single_model_on_full_data')
 
         print("✅ Global average optimization methods are available")
 
@@ -229,8 +229,8 @@ class TestIntegrationChecks:
     """Integration tests to verify the system works end-to-end."""
 
     def test_base_model_controller_methods_exist(self):
-        """Test that all required methods exist in BaseModelController."""
-        from nirs4all.controllers.models.base_model_controller import BaseModelController
+        """Test that all required methods exist in AbstractModelController."""
+        from nirs4all.controllers.models.abstract_model_controller import AbstractModelController
 
         required_methods = [
             '_execute_global_average_optimization',
@@ -241,13 +241,13 @@ class TestIntegrationChecks:
         ]
 
         for method_name in required_methods:
-            assert hasattr(BaseModelController, method_name), f"Missing method: {method_name}"
+            assert hasattr(AbstractModelController, method_name), f"Missing method: {method_name}"
 
-        print(f"✅ All {len(required_methods)} required methods exist in BaseModelController")
+        print(f"✅ All {len(required_methods)} required methods exist in AbstractModelController")
 
     def test_parameter_strategy_enum_completeness(self):
         """Test that ParamStrategy enum has all expected values."""
-        from nirs4all.controllers.models.base_model_controller import ParamStrategy
+        from nirs4all.controllers.models.config import ParamStrategy
 
         # Test all enum values can be created
         strategies = [

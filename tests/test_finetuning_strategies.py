@@ -20,7 +20,7 @@ from sklearn.linear_model import Ridge
 from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.dataset.dataset import SpectroDataset
-from nirs4all.controllers.models.base_model_controller import ParamStrategy
+from nirs4all.controllers.models.config import ParamStrategy
 
 
 # Test data generation fixtures
