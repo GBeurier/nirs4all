@@ -32,7 +32,8 @@ class TabReportGenerator:
         predictions: Predictions,
         dataset_name: str,
         save_path: str,
-        enable_tab_reports: bool = True
+        enable_tab_reports: bool = True,
+        dataset=None
     ) -> Optional[str]:
         """
         Generate a tab-based CSV report for the best performing model.
@@ -72,7 +73,7 @@ class TabReportGenerator:
 
             # Generate the tab report
             report_data = self._generate_tab_data(
-                best_model, predictions, task_type, dataset_name
+                best_model, predictions, task_type, dataset_name, dataset
             )
 
             if report_data is None:
@@ -118,7 +119,8 @@ class TabReportGenerator:
         best_model: Dict[str, Any],
         predictions: Predictions,
         task_type: TaskType,
-        dataset_name: str
+        dataset_name: str,
+        dataset=None
     ) -> Optional[Dict[str, Any]]:
         """Generate tab data for the best model."""
         try:
@@ -134,12 +136,12 @@ class TabReportGenerator:
             if not model_predictions:
                 return None
 
-            # Extract nfeatures from the dataset (try to get from any prediction)
-            nfeatures = self._extract_nfeatures_from_predictions(model_predictions)
+            # Extract nfeatures directly from dataset
+            nfeatures = self._extract_nfeatures_from_dataset(dataset)
 
             # Calculate metrics for different partitions
             metrics_data = self._calculate_partition_metrics(
-                model_predictions, task_type, dataset_name
+                model_predictions, task_type, dataset_name, dataset
             )
 
             # Create tab data structure
@@ -196,26 +198,70 @@ class TabReportGenerator:
             print(f"⚠️ Error getting model predictions: {e}")
             return {}
 
-    def _extract_nfeatures_from_predictions(self, model_predictions: Dict[str, List[Dict]]) -> int:
-        """Extract number of features from predictions metadata or dataset info."""
+    def _extract_nfeatures_from_dataset(self, dataset) -> int:
+        """Extract number of features directly from dataset."""
         try:
-            # Try to get nfeatures from any available prediction's metadata
-            for partition, pred_list in model_predictions.items():
-                for pred_data in pred_list:
-                    metadata = pred_data.get('metadata', {})
-                    if 'nfeatures' in metadata:
-                        return metadata['nfeatures']
+            if dataset is None:
+                return 0
 
-                    # Try to infer from dataset info if available
-                    if 'dataset_info' in metadata:
-                        dataset_info = metadata['dataset_info']
-                        if 'nfeatures' in dataset_info:
-                            return dataset_info['nfeatures']
+            # For SpectroDataset, use methods with selectors
+            if hasattr(dataset, 'x') and callable(dataset.x):
+                try:
+                    # Try with numeric selectors (most reliable)
+                    for selector in [0, 1, 'train', 'test', 'all']:
+                        try:
+                            x_data = dataset.x(selector)
+                            if hasattr(x_data, 'shape') and len(x_data.shape) > 1:
+                                return x_data.shape[1]
+                            elif hasattr(x_data, 'shape'):
+                                return x_data.shape[0]
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
 
-            # If not found in metadata, we can't determine it reliably
+            # If dataset method fails, try to reload a fresh dataset with same name
+            if hasattr(dataset, 'name'):
+                try:
+                    from nirs4all.dataset import DatasetConfigs
+                    fresh_config = DatasetConfigs(f"../../sample_data/{dataset.name}")
+                    for config, name in fresh_config.configs:
+                        if name == dataset.name:
+                            fresh_dataset = fresh_config.get_dataset(config, name)
+                            if hasattr(fresh_dataset, 'x') and callable(fresh_dataset.x):
+                                for selector in [0, 1]:
+                                    try:
+                                        x_data = fresh_dataset.x(selector)
+                                        if hasattr(x_data, 'shape') and len(x_data.shape) > 1:
+                                            return x_data.shape[1]
+                                    except Exception:
+                                        continue
+                            break
+                except Exception:
+                    pass
+
+            # Try to get features from the dataset (non-callable attributes)
+            if hasattr(dataset, 'features') and dataset.features is not None:
+                if hasattr(dataset.features, 'shape'):
+                    return dataset.features.shape[1] if len(dataset.features.shape) > 1 else dataset.features.shape[0]
+                elif hasattr(dataset.features, '__len__'):
+                    return len(dataset.features)
+
+            # Try alternative methods
+            if hasattr(dataset, 'X') and dataset.X is not None:
+                if hasattr(dataset.X, 'shape'):
+                    return dataset.X.shape[1] if len(dataset.X.shape) > 1 else dataset.X.shape[0]
+
+            # Fallback to any available data shape
+            for attr in ['data', 'training_data']:
+                if hasattr(dataset, attr):
+                    data = getattr(dataset, attr)
+                    if data is not None and hasattr(data, 'shape') and len(data.shape) > 1:
+                        return data.shape[1]
+
             return 0
         except Exception as e:
-            print(f"⚠️ Error extracting nfeatures: {e}")
+            print(f"⚠️ Error extracting nfeatures from dataset: {e}")
             return 0
 
     def _extract_canonical_model_name(self, model_name: str) -> str:
@@ -252,7 +298,8 @@ class TabReportGenerator:
         self,
         model_predictions: Dict[str, List[Dict]],
         task_type: TaskType,
-        dataset_name: str
+        dataset_name: str,
+        dataset=None
     ) -> Dict[str, Dict]:
         """Calculate metrics for each partition (train, val, test)."""
         partition_metrics = {}
@@ -437,39 +484,75 @@ class TabReportGenerator:
                 stats['consistency'] = float(np.sum(within_range) / len(residuals) * 100)
 
             else:  # Classification
-                # For classification, add sample count
+                # For classification, add sample count (actual count, not accumulated)
                 stats['nsample'] = len(y_true)
 
                 # Calculate class-specific metrics if needed
                 unique_classes = np.unique(y_true)
                 stats['n_classes'] = len(unique_classes)
 
-                # Calculate specificity for binary classification
-                if task_type == TaskType.BINARY_CLASSIFICATION:
-                    try:
-                        from sklearn.metrics import confusion_matrix
+                # Calculate specificity and AUC
+                try:
+                    from sklearn.metrics import confusion_matrix, roc_auc_score
 
-                        # Convert predictions to class labels if needed
-                        if len(y_pred.shape) > 1 and y_pred.shape[1] > 1:
-                            y_pred_class = np.argmax(y_pred, axis=1)
-                        else:
-                            y_pred_class = np.round(y_pred).astype(int)
+                    # Convert predictions to class labels if needed
+                    if len(y_pred.shape) > 1 and y_pred.shape[1] > 1:
+                        y_pred_class = np.argmax(y_pred, axis=1)
+                        y_pred_proba = y_pred[:, 1] if y_pred.shape[1] == 2 else y_pred.max(axis=1)
+                    else:
+                        y_pred_class = np.round(y_pred).astype(int)
+                        y_pred_proba = y_pred
 
-                        y_true_class = np.round(y_true).astype(int)
+                    y_true_class = np.round(y_true).astype(int)
 
-                        cm = confusion_matrix(y_true_class, y_pred_class)
-                        if cm.shape == (2, 2):
-                            tn, fp, fn, tp = cm.ravel()
-                            if (tn + fp) > 0:
-                                stats['specificity'] = float(tn / (tn + fp))
-                            else:
-                                stats['specificity'] = 0.0
+                    # Calculate specificity
+                    cm = confusion_matrix(y_true_class, y_pred_class)
+                    if len(unique_classes) == 2 and cm.shape == (2, 2):
+                        tn, fp, fn, tp = cm.ravel()
+                        if (tn + fp) > 0:
+                            stats['specificity'] = float(tn / (tn + fp))
                         else:
                             stats['specificity'] = 0.0
-                    except Exception:
-                        stats['specificity'] = 0.0
-                else:
+
+                        # Calculate AUC for binary classification
+                        try:
+                            if len(np.unique(y_true_class)) == 2:
+                                stats['auc'] = float(roc_auc_score(y_true_class, y_pred_proba))
+                            else:
+                                stats['auc'] = 0.0
+                        except Exception:
+                            stats['auc'] = 0.0
+                    else:
+                        # Multi-class: calculate macro-averaged specificity
+                        specificities = []
+                        for i, class_label in enumerate(unique_classes):
+                            # One-vs-rest specificity
+                            y_true_binary = (y_true_class == class_label).astype(int)
+                            y_pred_binary = (y_pred_class == class_label).astype(int)
+                            cm_binary = confusion_matrix(y_true_binary, y_pred_binary)
+                            if cm_binary.shape == (2, 2):
+                                tn, fp, fn, tp = cm_binary.ravel()
+                                if (tn + fp) > 0:
+                                    specificities.append(tn / (tn + fp))
+
+                        if specificities:
+                            stats['specificity'] = float(np.mean(specificities))
+                        else:
+                            stats['specificity'] = 0.0
+
+                        # Multi-class AUC (macro-averaged)
+                        try:
+                            if len(unique_classes) > 2:
+                                stats['auc'] = float(roc_auc_score(y_true_class, y_pred_proba if len(y_pred.shape) == 1 else y_pred, multi_class='ovr', average='macro'))
+                            else:
+                                stats['auc'] = 0.0
+                        except Exception:
+                            stats['auc'] = 0.0
+
+                except Exception as e:
+                    print(f"⚠️ Error calculating classification metrics: {e}")
                     stats['specificity'] = 0.0
+                    stats['auc'] = 0.0
 
             return stats
 
