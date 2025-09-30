@@ -84,7 +84,7 @@ class PipelineRunner:
         for config, name in dataset_configs.configs:
             print("=" * 200)
             existing_predictions = 0
-            dataset_pred_db = None
+            dataset_pred_db = Predictions()  # Initialize here to avoid None issues
             run_dataset_pred_db = Predictions()
             dataset_name = name
             for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
@@ -94,8 +94,10 @@ class PipelineRunner:
                 dataset_name = dataset.name
 
                 if i == 0 and self.load_existing_predictions:
-                    dataset_pred_db = Predictions.load_dataset_predictions(dataset, self.saver)
-                    existing_predictions = len(dataset_pred_db._predictions.keys()) if dataset_pred_db is not None else 0
+                    loaded_predictions = Predictions.load_dataset_predictions(dataset, self.saver)
+                    if loaded_predictions is not None:
+                        dataset_pred_db = loaded_predictions
+                        existing_predictions = len(dataset_pred_db._predictions.keys())
 
                 self._run_single(steps, config_name, dataset)
                 # results.append(result)
@@ -105,12 +107,11 @@ class PipelineRunner:
                 global_pred_db.merge_predictions(dataset._predictions)
             if dataset_pred_db is not None:
                 dataset_pred_db.display_best_scores_summary(dataset_name, existing_predictions)
+                dataset_pred_db.save_to_file(str(self.saver.base_path / dataset_name / f"{dataset_name}_predictions.json"))
 
-            dataset_pred_db.save_to_file(str(self.saver.base_path / dataset_name / f"{dataset_name}_predictions.json"))
-
-            # Generate best score tab report
-            if dataset_pred_db is not None and self.enable_tab_reports:
-                self._generate_best_score_tab_report(dataset_pred_db, dataset_name)
+                # Generate best score tab report
+                if self.enable_tab_reports:
+                    self._generate_best_score_tab_report(dataset_pred_db, dataset_name, dataset)
 
             results.append((dataset_pred_db, run_dataset_pred_db))
 
@@ -577,7 +578,7 @@ class PipelineRunner:
             import traceback
             traceback.print_exc()
 
-    def _generate_best_score_tab_report(self, dataset_pred_db: Predictions, dataset_name: str) -> None:
+    def _generate_best_score_tab_report(self, dataset_pred_db: Predictions, dataset_name: str, dataset: SpectroDataset) -> None:
         """Generate best score tab report for the dataset."""
         try:
             # Use the saver's base path to determine where to save the report
@@ -588,7 +589,8 @@ class PipelineRunner:
                 dataset_pred_db,
                 dataset_name,
                 str(dataset_path),
-                self.enable_tab_reports
+                self.enable_tab_reports,
+                dataset
             )
 
             if report_path:
