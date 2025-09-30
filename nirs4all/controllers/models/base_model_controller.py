@@ -421,6 +421,7 @@ class BaseModelController(OperatorController, ABC):
                     train_params, finetune_params, context, runner, dataset
                 )
             else:
+                print(">>>>>>>>", X_train.shape, y_train.shape, X_test.shape, y_test.shape)
                 return self._execute_train(
                     model_config, X_train, y_train, X_test, y_test,
                     train_params, context, runner, dataset
@@ -1731,6 +1732,7 @@ class BaseModelController(OperatorController, ABC):
                 )
             else:
                 # Train for this fold
+                print("####", X_train.shape, y_train.shape, X_val.shape, y_val.shape)
                 fold_context, fold_binaries = self._execute_train(
                     model_config, X_train, y_train, X_val, y_val,
                     train_params, context, runner, dataset, fold_idx
@@ -1790,6 +1792,8 @@ class BaseModelController(OperatorController, ABC):
         model_config: Dict[str, Any],
         X_train: Any,
         y_train: Any,
+        X_val: Any,
+        y_val: Any,
         X_test: Any,
         y_test: Any,
         train_params: Dict[str, Any],
@@ -1810,21 +1814,33 @@ class BaseModelController(OperatorController, ABC):
 
         # Prepare data in framework-specific format
         X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
-        X_test_prep, _ = self._prepare_data(X_test, y_test, context)
+        if (X_val is None or y_val is None) and (X_test is not None and y_test is not None):
+            X_val, y_val = X_test, y_test
+        X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context)
+
+        if not (X_test is None or y_test is None):
+            X_test_prep, y_test_prep = self._prepare_data(X_test, y_test, context)
+
+        print(X_train_prep.shape, y_train_prep.shape, X_val_prep.shape, y_val_prep.shape, X_test_prep.shape, y_test_prep.shape)
 
         # print(X_train_prep.shape, y_train_prep.shape, X_test_prep.shape, y_test.shape)
 
         # Train model
         trained_model = self._train_model(
-            model, X_train_prep, y_train_prep,
+            model, X_train_prep, y_train_prep, X_val=X_val_prep, y_val=y_val_prep,
             train_params=train_params
         )
 
-        # Generate predictions for test/validation set
-        y_pred_test = self._predict_model(trained_model, X_test_prep)
+        # Generate predictions for validation set
+        y_pred_val = self._predict_model(trained_model, X_val_prep)
 
         # Generate predictions for training set
         y_pred_train = self._predict_model(trained_model, X_train_prep)
+
+        # Generate predictions for test set
+        y_pred_test = self._predict_model(trained_model, X_test_prep)
+
+        print(y_pred_val.shape, y_pred_train.shape, y_pred_test.shape)
 
         # Store predictions in dataset
         base_model_name = self._get_base_model_name(model_config, model)
