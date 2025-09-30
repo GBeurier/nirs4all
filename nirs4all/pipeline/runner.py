@@ -336,23 +336,32 @@ class PipelineRunner:
 
         # Execute with spinner if needed
         if needs_spinner and self.show_spinner and self.verbose == 0:  # Only show spinner when not verbose
-            # Create spinner message
-            spinner_message = f"🔄 {controller_name.replace('Controller', '')}"
+            # Create and print the initial message
+            controller_display_name = controller_name.replace('Controller', '')
+            initial_message = f"🔄 {controller_display_name}"
+            if hasattr(dataset, 'y') and callable(dataset.y):
+                try:
+                    y_shape = dataset.y({}).shape
+                    initial_message += f" (test: {y_shape})"
+                except Exception:
+                    pass
             if operator_name:
-                spinner_message += f" ({operator_name})"
+                initial_message += f" ({operator_name})"
 
-            # Use braille spinner characters for smooth animation
-            with spinner_context(spinner_message, chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", speed=0.08):
-                context, binaries = controller.execute(
-                    step,
-                    operator,
-                    dataset,
-                    context,
-                    self,
-                    source,
-                    self.mode,
-                    loaded_binaries
-                )
+            # Print the static message and execute without spinner
+            print(initial_message)
+            import sys
+            sys.stdout.flush()  # Ensure clean output separation
+            context, binaries = controller.execute(
+                step,
+                operator,
+                dataset,
+                context,
+                self,
+                source,
+                self.mode,
+                loaded_binaries
+            )
         else:
             # Execute without spinner
             context, binaries = controller.execute(
