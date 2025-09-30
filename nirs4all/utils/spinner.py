@@ -50,8 +50,8 @@ class Spinner:
             self.running = False
             if self._thread:
                 self._thread.join()
-            # Clear the spinner line
-            sys.stdout.write('\r' + ' ' * (len(self.message) + 2) + '\r')
+            # Clear the spinner line and add newline for next output
+            sys.stdout.write('\r' + ' ' * (len(self.message) + 2) + '\r\n')
             sys.stdout.flush()
 
 
