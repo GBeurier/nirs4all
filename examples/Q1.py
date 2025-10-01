@@ -36,7 +36,7 @@ pipeline_config = PipelineConfigs(pipeline, "pipeline_Q1")
 dataset_config = DatasetConfigs(dataset_folder)
 
 # Create pipeline with verbose=1 to see debug output
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_files=False, verbose=0)
 run_predictions, datasets_predictions = runner.run(pipeline_config, dataset_config)
 
 ###############################################################################################################

@@ -46,7 +46,7 @@ path = 'sample_data/regression'
 dataset_config = DatasetConfigs(path)
 
 # Runner setup with spinner enabled (default is True, but let's be explicit)
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_files=False, verbose=0)
 run_predictions, datasets_predictions = runner.run(pipeline_config, dataset_config)
 
 ###############################################################################################################
