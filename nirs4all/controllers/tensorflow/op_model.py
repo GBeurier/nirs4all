@@ -147,12 +147,13 @@ class TensorFlowModelController(BaseModelController):
         y_train: np.ndarray,
         X_val: Optional[np.ndarray] = None,
         y_val: Optional[np.ndarray] = None,
-        train_params: Optional[Dict[str, Any]] = None
+        **kwargs
     ) -> Any:
         """Train TensorFlow/Keras model with comprehensive parameter support and score tracking."""
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is not available")
 
+        train_params = kwargs  # Use kwargs as train_params
         if train_params is None:
             train_params = {}
 
@@ -167,7 +168,17 @@ class TensorFlowModelController(BaseModelController):
         verbose = train_params.get('verbose', 0)
 
         # Detect task type and auto-configure loss/metrics
-        task_type = self._detect_task_type(y_train)
+        task_type_str = self._detect_task_type(y_train)
+
+        # Convert string to TaskType enum
+        if task_type_str == "regression":
+            task_type = TaskType.REGRESSION
+        elif task_type_str == "binary_classification":
+            task_type = TaskType.BINARY_CLASSIFICATION
+        elif task_type_str == "multiclass_classification":
+            task_type = TaskType.MULTICLASS_CLASSIFICATION
+        else:
+            task_type = TaskType.REGRESSION  # Default fallback
 
         # Auto-configure loss and metrics based on task type
         if 'loss' not in train_params and 'compile' not in train_params:
@@ -220,13 +231,13 @@ class TensorFlowModelController(BaseModelController):
         trained_model.history = history
 
         # === SCORE CALCULATION AND DISPLAY ===
-        task_type = self._detect_task_type(y_train)
+        # Reuse the task_type enum we calculated earlier
 
         if verbose > 0:
             # Show detailed training scores at verbose > 0
             y_train_pred = self._predict_model(trained_model, X_train)
             train_scores = self._calculate_and_print_scores(
-                y_train, y_train_pred, task_type, "train",
+                y_train, y_train_pred, task_type_str, "train",
                 trained_model.__class__.__name__, show_detailed_scores=False
             )
             # Display concise training summary
@@ -242,7 +253,7 @@ class TensorFlowModelController(BaseModelController):
             if X_val is not None and y_val is not None:
                 y_val_pred = self._predict_model(trained_model, X_val)
                 val_scores = self._calculate_and_print_scores(
-                    y_val, y_val_pred, task_type, "validation",
+                    y_val, y_val_pred, task_type_str, "validation",
                     trained_model.__class__.__name__, show_detailed_scores=False
                 )
                 # Display concise validation summary
@@ -258,7 +269,7 @@ class TensorFlowModelController(BaseModelController):
                 X_val_data, y_val_data = validation_data
                 y_val_pred = self._predict_model(trained_model, X_val_data)
                 val_scores = self._calculate_and_print_scores(
-                    y_val_data, y_val_pred, task_type, "validation",
+                    y_val_data, y_val_pred, task_type_str, "validation",
                     trained_model.__class__.__name__, show_detailed_scores=False
                 )
                 # Display concise validation summary
@@ -648,7 +659,8 @@ class TensorFlowModelController(BaseModelController):
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None
+        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
+        prediction_store: Optional[Any] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute TensorFlow model controller."""
         if not TF_AVAILABLE:

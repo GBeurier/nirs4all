@@ -346,7 +346,8 @@ class BaseModelController(OperatorController, ABC):
                 secondary_metric = 'f1'
                 secondary_value = scores.get(secondary_metric, 0.0)
 
-            unscaled_score = primary_value * 1000
+            # Try to get proper unscaled score, otherwise use the scaled value
+            unscaled_score = primary_value  # Default to scaled value if unscaling not available
             model_classname = best_info['model_classname']
 
             # Determine fold info
@@ -360,9 +361,10 @@ class BaseModelController(OperatorController, ABC):
                 fold_match = re.search(r'_fold(\d+)', best_model)
                 fold_info = f"(fold:{fold_match.group(1)})" if fold_match else ""
 
-            # Print best for model in the requested format
+            # Print best for model in the requested format with RMSE
+            rmse_value = np.sqrt(primary_value) if primary_metric == 'mse' else scores.get('rmse', 0.0)
             print(f"🏆 Best for Model: {best_model} - {model_classname} - test: "
-                  f"loss({primary_metric})={primary_value:.3f}{direction} ({secondary_metric}: {secondary_value:.4f}) "
+                  f"loss({primary_metric})={primary_value:.3f}{direction} (rmse: {rmse_value:.4f}, {secondary_metric}: {secondary_value:.4f}) "
                   f"score({primary_metric})={unscaled_score:.4f}")
 
     def launch_training(
@@ -860,30 +862,29 @@ class BaseModelController(OperatorController, ABC):
         print(f"✅ {display_name} - test: {score_str}")
 
     def _calculate_unscaled_score(self, y_true: Any, y_pred: Any, metric: str, dataset: Optional['SpectroDataset']) -> Optional[float]:
-        """Calculate unscaled score using dataset.targets transform_prediction method."""
+        """Calculate unscaled score. Since we receive unscaled data, calculate metric directly."""
         try:
-            # Use dataset.targets to unscale predictions
-            if dataset and hasattr(dataset, '_targets') and hasattr(dataset._targets, 'transform_predictions'):
-                y_true_unscaled = dataset._targets.transform_predictions(y_true, "numeric", "numeric")
-                y_pred_unscaled = dataset._targets.transform_predictions(y_pred, "numeric", "numeric")
+            # The data passed to this method should already be unscaled
+            # (y_test_unscaled, y_test_pred_unscaled from the calling method)
+            # So we can calculate the metric directly without additional unscaling
 
-                # Flatten arrays
-                y_true_flat = np.asarray(y_true_unscaled).flatten()
-                y_pred_flat = np.asarray(y_pred_unscaled).flatten()
+            # Flatten arrays
+            y_true_flat = np.asarray(y_true).flatten()
+            y_pred_flat = np.asarray(y_pred).flatten()
 
-                # Calculate the metric on unscaled data
-                if metric == 'rmse':
-                    from sklearn.metrics import mean_squared_error
-                    return np.sqrt(mean_squared_error(y_true_flat, y_pred_flat))
-                elif metric == 'mse':
-                    from sklearn.metrics import mean_squared_error
-                    return mean_squared_error(y_true_flat, y_pred_flat)
-                elif metric == 'mae':
-                    from sklearn.metrics import mean_absolute_error
-                    return mean_absolute_error(y_true_flat, y_pred_flat)
-                elif metric == 'r2':
-                    from sklearn.metrics import r2_score
-                    return r2_score(y_true_flat, y_pred_flat)
+            # Calculate the metric on the data (which should be unscaled)
+            if metric == 'rmse':
+                from sklearn.metrics import mean_squared_error
+                return np.sqrt(mean_squared_error(y_true_flat, y_pred_flat))
+            elif metric == 'mse':
+                from sklearn.metrics import mean_squared_error
+                return mean_squared_error(y_true_flat, y_pred_flat)
+            elif metric == 'mae':
+                from sklearn.metrics import mean_absolute_error
+                return mean_absolute_error(y_true_flat, y_pred_flat)
+            elif metric == 'r2':
+                from sklearn.metrics import r2_score
+                return r2_score(y_true_flat, y_pred_flat)
 
         except Exception:
             pass
