@@ -127,13 +127,23 @@ class BaseModelController(OperatorController, ABC):
         data_splits = self._get_data_from_dataset(dataset, context)
 
         # Determine if we have folds or single split
-        if isinstance(data_splits, list) and len(data_splits) == 5:
-            # Multiple folds
+        # Determine if we have folds or single split
+        if isinstance(data_splits, list) and len(data_splits) == 7:
+            # Folds case: [X_train, y_train, X_test, y_test, folds, y_train_unscaled, y_test_unscaled]
+            X_train, y_train, X_test, y_test, folds, y_train_unscaled, y_test_unscaled = data_splits
+        elif isinstance(data_splits, list) and len(data_splits) == 6:
+            # Single split case: [X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled]
+            X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = data_splits
+            folds = None
+        elif isinstance(data_splits, list) and len(data_splits) == 5:
+            # Backward compatibility - old folds format
             X_train, y_train, X_test, y_test, folds = data_splits
+            y_train_unscaled, y_test_unscaled = y_train, y_test  # Fallback to scaled data
         else:
-            # Single split
+            # Backward compatibility - old single split format
             X_train, y_train, X_test, y_test = data_splits
-            folds = None        # Create empty Predictions (as per pseudo-code)
+            folds = None
+            y_train_unscaled, y_test_unscaled = y_train, y_test  # Fallback to scaled data        # Create empty Predictions (as per pseudo-code)
         predictions = {}
 
         # Check if finetune or train
@@ -167,7 +177,8 @@ class BaseModelController(OperatorController, ABC):
             # train(args), Merge prediction into dataset prediction
             final_predictions = self.train(
                 model_config, X_train, y_train, X_test, y_test,
-                folds, predictions, context, runner, dataset
+                folds, predictions, context, runner, dataset,
+                y_train_unscaled=y_train_unscaled, y_test_unscaled=y_test_unscaled
             )
 
         # Return context and binaries (simplified)
@@ -182,12 +193,14 @@ class BaseModelController(OperatorController, ABC):
         X_test: Any,
         y_test: Any,
         folds: Optional[List] = None,
-        predictions: Dict = None,
-        context: Dict[str, Any] = None,
-        runner: 'PipelineRunner' = None,
-        dataset: 'SpectroDataset' = None,
-        best_params: Dict[str, Any] = None,
-        save_models: bool = True
+        predictions: Optional[Dict] = None,
+        context: Optional[Dict[str, Any]] = None,
+        runner: Optional['PipelineRunner'] = None,
+        dataset: Optional['SpectroDataset'] = None,
+        best_params: Optional[Dict[str, Any]] = None,
+        save_models: bool = True,
+        y_train_unscaled: Any = None,
+        y_test_unscaled: Any = None
     ) -> Dict:
         """
         Train method following user's pseudo-code:
@@ -221,25 +234,44 @@ class BaseModelController(OperatorController, ABC):
                 X_val_fold = X_train[val_indices] if hasattr(X_train, '__getitem__') else X_test
                 y_val_fold = y_train[val_indices] if hasattr(y_train, '__getitem__') else y_test
 
+                # Get unscaled validation data for this fold
+                if context and dataset:
+                    val_context_unscaled = context.copy()
+                    val_context_unscaled["partition"] = "train"
+                    val_context_unscaled["fold"] = fold_idx
+                    val_context_unscaled["y"] = "numeric"
+                    y_val_fold_unscaled = dataset.y(val_context_unscaled)[val_indices]
+
+                    # Get unscaled training data for this fold
+                    train_context_unscaled = context.copy()
+                    train_context_unscaled["partition"] = "train"
+                    train_context_unscaled["fold"] = fold_idx
+                    train_context_unscaled["y"] = "numeric"
+                    y_train_fold_unscaled = dataset.y(train_context_unscaled)[train_indices]
+                else:
+                    # Fallback to scaled data
+                    y_train_fold_unscaled = y_train_fold
+                    y_val_fold_unscaled = y_val_fold
+
                 # Launch_training(predictions + args, save_models=True)
                 fold_predictions = self.launch_training(
                     model_config, X_train_fold, y_train_fold, X_val_fold, y_val_fold,
                     X_test, y_test, predictions, context, runner, dataset,
-                    fold_idx=fold_idx, best_params=best_params, save_models=save_models
+                    fold_idx=fold_idx, best_params=best_params, save_models=save_models,
+                    y_train_fold_unscaled=y_train_fold_unscaled, y_val_fold_unscaled=y_val_fold_unscaled,
+                    y_test_unscaled=y_test_unscaled
                 )
                 predictions.update(fold_predictions)
 
         else:
-            # x_val, y_val = x_test, y_test and print warning
-            if verbose > 0:
-                print("⚠️ No folds provided, using test data as validation")
-            X_val, y_val = X_test, y_test
-
-            # for available datasets: Launch_training(predictions + args)
+            # Single split - use test as validation (with warning)
+            print("⚠️ Warning: Using test set as validation set (no folds provided)")
             single_predictions = self.launch_training(
-                model_config, X_train, y_train, X_val, y_val,
+                model_config, X_train, y_train, X_test, y_test,
                 X_test, y_test, predictions, context, runner, dataset,
-                best_params=best_params, save_models=save_models
+                fold_idx=None, best_params=best_params, save_models=save_models,
+                y_train_fold_unscaled=y_train_unscaled, y_val_fold_unscaled=y_test_unscaled,
+                y_test_unscaled=y_test_unscaled
             )
             predictions.update(single_predictions)
 
@@ -257,6 +289,7 @@ class BaseModelController(OperatorController, ABC):
 
             # Print separator and best for config
             print("-" * 169)
+        if dataset:
             self._print_best_for_config(avg_predictions, predictions, dataset)
 
         return predictions
@@ -342,12 +375,15 @@ class BaseModelController(OperatorController, ABC):
         X_test: Any,
         y_test: Any,
         predictions: Dict,
-        context: Dict[str, Any],
-        runner: 'PipelineRunner',
-        dataset: 'SpectroDataset',
+        context: Optional[Dict[str, Any]],
+        runner: Optional['PipelineRunner'],
+        dataset: Optional['SpectroDataset'],
         fold_idx: Optional[int] = None,
-        best_params: Dict[str, Any] = None,
-        save_models: bool = True
+        best_params: Optional[Dict[str, Any]] = None,
+        save_models: bool = True,
+        y_train_fold_unscaled: Any = None,
+        y_val_fold_unscaled: Any = None,
+        y_test_unscaled: Any = None
     ) -> Dict:
         """
         Launch training following user's pseudo-code:
@@ -363,17 +399,17 @@ class BaseModelController(OperatorController, ABC):
         """
 
         # Get step and config_id from runner
-        step = getattr(runner, 'current_step', 0)
-        config_id = getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown'
+        step = getattr(runner, 'current_step', 0) if runner else 0
+        config_id = getattr(runner.saver, 'pipeline_name', 'unknown') if runner else 'unknown'
 
         # Extract name for model ID creation
         name = self.model_utils.extract_name_from_config(model_config)
 
         # create model_id with next_op
-        model_id = self.model_utils.create_model_id(name, runner)
+        model_id = self.model_utils.create_model_id(name, runner) if runner else f"{name}_1"
 
         # create model uuid with step + model_id + pipeline_id
-        model_uuid = self.model_utils.create_model_uuid(model_id, runner, step, config_id, fold_idx)
+        model_uuid = self.model_utils.create_model_uuid(model_id, runner, step, config_id, fold_idx) if runner else f"{model_id}_{step}"
 
         # instanciate the model with params if any
         base_model = self._get_model_instance(model_config)
@@ -385,9 +421,9 @@ class BaseModelController(OperatorController, ABC):
                 model.set_params(**best_params)
 
         # Prepare data in framework format
-        X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context)
-        X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context)
-        X_test_prep, y_test_prep = self._prepare_data(X_test, y_test, context)
+        X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context or {})
+        X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context or {})
+        X_test_prep, y_test_prep = self._prepare_data(X_test, y_test, context or {})
 
         # train(on train and val data)
         trained_model = self._train_model(
@@ -395,20 +431,45 @@ class BaseModelController(OperatorController, ABC):
             **model_config.get('train_params', {})
         )
 
-        # predict y_test_pred, y_train_pred, y_val_pred
-        y_train_pred = self._predict_model(trained_model, X_train_prep)
-        y_val_pred = self._predict_model(trained_model, X_val_prep)
-        y_test_pred = self._predict_model(trained_model, X_test_prep)
+        # predict y_test_pred, y_train_pred, y_val_pred (these are in scaled space)
+        y_train_pred_scaled = self._predict_model(trained_model, X_train_prep)
+        y_val_pred_scaled = self._predict_model(trained_model, X_val_prep)
+        y_test_pred_scaled = self._predict_model(trained_model, X_test_prep)
+
+        # Transform predictions from scaled space back to unscaled space
+        current_y_processing = context.get('y', 'numeric') if context else 'numeric'
+        if current_y_processing != 'numeric' and dataset and hasattr(dataset, '_targets'):
+            try:
+                y_train_pred_unscaled = dataset._targets.transform_predictions(
+                    y_train_pred_scaled, current_y_processing, 'numeric'
+                )
+                y_val_pred_unscaled = dataset._targets.transform_predictions(
+                    y_val_pred_scaled, current_y_processing, 'numeric'
+                )
+                y_test_pred_unscaled = dataset._targets.transform_predictions(
+                    y_test_pred_scaled, current_y_processing, 'numeric'
+                )
+            except Exception as e:
+                print(f"⚠️ Could not inverse transform predictions to unscaled space: {e}")
+                # Fallback to scaled predictions
+                y_train_pred_unscaled = y_train_pred_scaled
+                y_val_pred_unscaled = y_val_pred_scaled
+                y_test_pred_unscaled = y_test_pred_scaled
+        else:
+            # No scaling applied, predictions are already unscaled
+            y_train_pred_unscaled = y_train_pred_scaled
+            y_val_pred_unscaled = y_val_pred_scaled
+            y_test_pred_unscaled = y_test_pred_scaled
 
         # Calculate scores for training and validation sets (simplified)
         scores_train = {"mse": 0.0, "r2": 0.0}  # TODO: implement proper scoring
         scores_val = {"mse": 0.0, "r2": 0.0}    # TODO: implement proper scoring
 
-        # Store training and test predictions using external store
-        pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown')
+        # Store training and test predictions using external store (all in unscaled space)
+        pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') if runner else 'unknown'
         prediction_store.store_training_predictions(
             self.current_prediction_store,
-            dataset.name,
+            dataset.name if dataset else 'unknown',
             pipeline_name,
             name,  # model_name
             model_id,
@@ -416,17 +477,19 @@ class BaseModelController(OperatorController, ABC):
             fold_idx or 0,
             step,
             1,  # TODO: fix op_counter
-            {'y_true': y_train, 'y_pred': y_train_pred},
-            {'y_true': y_val, 'y_pred': y_val_pred},
-            list(range(len(y_train))),
-            list(range(len(y_val))),
-            None  # custom_model_name
+            {'y_true': y_train_fold_unscaled, 'y_pred': y_train_pred_unscaled},
+            {'y_true': y_val_fold_unscaled, 'y_pred': y_val_pred_unscaled},
+            list(range(len(y_train_fold_unscaled))) if y_train_fold_unscaled is not None else [],
+            list(range(len(y_val_fold_unscaled))) if y_val_fold_unscaled is not None else [],
+            None,  # custom_model_name
+            context,  # Pass context for y processing
+            dataset   # Pass dataset for target transformations
         )
 
         # Store test predictions
         prediction_store.store_test_predictions(
             self.current_prediction_store,
-            dataset.name,
+            dataset.name if dataset else 'unknown',
             pipeline_name,
             name,
             model_id,
@@ -434,15 +497,17 @@ class BaseModelController(OperatorController, ABC):
             fold_idx or 0,
             step,
             1,  # TODO: fix op_counter
-            y_test,
-            y_test_pred,
-            list(range(len(y_test))),
-            None  # custom_model_name
+            y_test_unscaled,
+            y_test_pred_unscaled,
+            list(range(len(y_test_unscaled))) if y_test_unscaled is not None else [],
+            None,  # custom_model_name
+            context,  # Pass context for y processing
+            dataset   # Pass dataset for target transformations
         )
 
         # print the model_id, score metrics, loss, score unscaled.
         self._print_training_results(
-            trained_model, model_id, y_test, y_test_pred, fold_idx, dataset
+            trained_model, model_id, y_test_unscaled, y_test_pred_unscaled, fold_idx, dataset
         )
 
         # Model saving is handled in _create_result_binaries to avoid op_counter increment
@@ -578,33 +643,53 @@ class BaseModelController(OperatorController, ABC):
         layout = context.get('layout', '2d')
 
         if hasattr(dataset, 'num_folds') and dataset.num_folds > 0:
-            # Get all training data first
+            # Get all training data first (scaled for training)
             train_context = context.copy()
             train_context["partition"] = "train"
             X_train = dataset.x(train_context, layout, concat_source=True)
-            y_train = dataset.y(train_context)
+            y_train = dataset.y(train_context)  # Scaled data for training
 
-            # Get test data
+            # Get unscaled training data for storage
+            train_context_unscaled = train_context.copy()
+            train_context_unscaled["y"] = "numeric"  # Force unscaled
+            y_train_unscaled = dataset.y(train_context_unscaled)
+
+            # Get test data (scaled for training)
             test_context = context.copy()
             test_context["partition"] = "test"
             X_test = dataset.x(test_context, layout, concat_source=True)
-            y_test = dataset.y(test_context)
+            y_test = dataset.y(test_context)  # Scaled data for training
+
+            # Get unscaled test data for storage
+            test_context_unscaled = test_context.copy()
+            test_context_unscaled["y"] = "numeric"  # Force unscaled
+            y_test_unscaled = dataset.y(test_context_unscaled)
 
             folds = dataset.folds
-            return [X_train, y_train, X_test, y_test, folds]
+            return [X_train, y_train, X_test, y_test, folds, y_train_unscaled, y_test_unscaled]
 
         # Single split case
         train_context = context.copy()
         train_context["partition"] = "train"
         X_train = dataset.x(train_context, layout, concat_source=True)
-        y_train = dataset.y(train_context)
+        y_train = dataset.y(train_context)  # Scaled data for training
+
+        # Get unscaled training data for storage
+        train_context_unscaled = train_context.copy()
+        train_context_unscaled["y"] = "numeric"  # Force unscaled
+        y_train_unscaled = dataset.y(train_context_unscaled)
 
         test_context = context.copy()
         test_context["partition"] = "test"
         X_test = dataset.x(test_context, layout, concat_source=True)
-        y_test = dataset.y(test_context)
+        y_test = dataset.y(test_context)  # Scaled data for training
 
-        return [X_train, y_train, X_test, y_test]
+        # Get unscaled test data for storage
+        test_context_unscaled = test_context.copy()
+        test_context_unscaled["y"] = "numeric"  # Force unscaled
+        y_test_unscaled = dataset.y(test_context_unscaled)
+
+        return [X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled]
 
     def _get_prediction_data(self, dataset: 'SpectroDataset', context: Dict[str, Any]) -> Dict[str, Any]:
         """Get data for prediction mode."""
@@ -649,24 +734,24 @@ class BaseModelController(OperatorController, ABC):
         self,
         predictions: Dict,
         model_config: Dict[str, Any],
-        context: Dict[str, Any],
-        runner: 'PipelineRunner',
-        dataset: 'SpectroDataset',
+        context: Optional[Dict[str, Any]],
+        runner: Optional['PipelineRunner'],
+        dataset: Optional['SpectroDataset'],
         num_folds: int
     ) -> Dict:
         """Create virtual avg and w-avg models in the external prediction store."""
 
         # Extract model information
         name = self.model_utils.extract_name_from_config(model_config)
-        step = getattr(runner, 'current_step', 0)
-        pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown')
+        step = getattr(runner, 'current_step', 0) if runner else 0
+        pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') if runner and hasattr(runner, 'saver') else 'unknown'
 
         # Create averages using the Predictions class
         avg_predictions = {}
 
         # Create simple average
         avg_result = self.current_prediction_store.calculate_average_predictions(
-            dataset=dataset.name,
+            dataset=dataset.name if dataset else 'unknown',
             pipeline=pipeline_name,
             model=name,
             partition="test",  # Average test predictions
@@ -689,13 +774,15 @@ class BaseModelController(OperatorController, ABC):
                 y_true=avg_result['y_true'],
                 y_pred=avg_result['y_pred'],
                 test_indices=avg_result.get('indices', []),
-                custom_model_name=f"{name}_avg"
+                custom_model_name=f"{name}_avg",
+                context=context,  # Pass context for y processing
+                dataset=dataset   # Pass dataset for target transformations
             )
             avg_predictions[f"{name}_avg"] = avg_result
 
         # Create weighted average
         wavg_result = self.current_prediction_store.calculate_weighted_average_predictions(
-            dataset=dataset.name,
+            dataset=dataset.name if dataset else 'unknown',
             pipeline=pipeline_name,
             model=name,
             test_partition="test",
@@ -708,7 +795,7 @@ class BaseModelController(OperatorController, ABC):
             wavg_model_uuid = f"{name}_fold_w_avg_step_{step}_{pipeline_name}"
             prediction_store.store_virtual_model_predictions(
                 self.current_prediction_store,
-                dataset.name,
+                dataset.name if dataset else 'unknown',
                 pipeline_name,
                 model_name=name,
                 model_id=f"{name}_w_avg",
@@ -719,7 +806,9 @@ class BaseModelController(OperatorController, ABC):
                 y_true=wavg_result['y_true'],
                 y_pred=wavg_result['y_pred'],
                 test_indices=wavg_result.get('indices', []),
-                custom_model_name=f"{name}_w_avg"
+                custom_model_name=f"{name}_w_avg",
+                context=context,  # Pass context for y processing
+                dataset=dataset   # Pass dataset for target transformations
             )
             avg_predictions[f"{name}_w_avg"] = wavg_result
 
@@ -732,7 +821,7 @@ class BaseModelController(OperatorController, ABC):
         y_test: Any,
         y_test_pred: Any,
         fold_idx: Optional[int] = None,
-        dataset: 'SpectroDataset' = None
+        dataset: Optional['SpectroDataset'] = None
     ):
         """Print training results with scores, arrows, and unscaled metrics."""
 
@@ -770,13 +859,13 @@ class BaseModelController(OperatorController, ABC):
 
         print(f"✅ {display_name} - test: {score_str}")
 
-    def _calculate_unscaled_score(self, y_true: Any, y_pred: Any, metric: str, dataset: 'SpectroDataset') -> Optional[float]:
+    def _calculate_unscaled_score(self, y_true: Any, y_pred: Any, metric: str, dataset: Optional['SpectroDataset']) -> Optional[float]:
         """Calculate unscaled score using dataset.targets transform_prediction method."""
         try:
             # Use dataset.targets to unscale predictions
-            if hasattr(dataset, 'targets') and hasattr(dataset.targets, 'transform_prediction'):
-                y_true_unscaled = dataset.targets.transform_prediction(y_true, "numeric")
-                y_pred_unscaled = dataset.targets.transform_prediction(y_pred, "numeric")
+            if dataset and hasattr(dataset, '_targets') and hasattr(dataset._targets, 'transform_predictions'):
+                y_true_unscaled = dataset._targets.transform_predictions(y_true, "numeric", "numeric")
+                y_pred_unscaled = dataset._targets.transform_predictions(y_pred, "numeric", "numeric")
 
                 # Flatten arrays
                 y_true_flat = np.asarray(y_true_unscaled).flatten()
@@ -800,7 +889,7 @@ class BaseModelController(OperatorController, ABC):
             pass
         return None
 
-    def _print_average_results(self, avg_predictions: Dict, dataset: 'SpectroDataset'):
+    def _print_average_results(self, avg_predictions: Dict, dataset: Optional['SpectroDataset']):
         """Print average and weighted average results."""
         if not avg_predictions:
             # print("⚠️ No average predictions to print")
