@@ -69,7 +69,7 @@ for i, model in enumerate(top_10):
 #################################################################################################################
 
 for dataset_name, dataset_prediction in datasets_predictions.items():
-    print(f"Dataset: name={name}, number of predictions in the run={len(dataset_prediction['run_predictions'])}")
+    print(f"Dataset: name={dataset_name}, number of predictions in the run={len(dataset_prediction['run_predictions'])}")
     analyzer = PredictionAnalyzer(dataset_prediction['run_predictions'])
 
     top_1 = analyzer.get_top_k(1, 'rmse')
@@ -79,31 +79,40 @@ for dataset_name, dataset_prediction in datasets_predictions.items():
     config_id = top_1[0]["config_id"]
 
     predicted_dataset = DatasetConfigs(['sample_data/regression_2'])
-    predictions_from_model_path = PipelineRunner.predict(
+    predictions_from_model_path = PipelineRunner.predict( ## Directly use the model_path to retrieve the model and predict
         model_path,
         predicted_dataset
     )
     print(f"Predictions from model path: {model_path}")
     print(predictions_from_model_path)
 
-    predictions_from_config_path = PipelineRunner.predict(
+    predictions_from_config_path = PipelineRunner.predict( ## GO in results, search for config_path, take the best(s) model(s) and predict
         config_path,
         predicted_dataset,
+        # top_best = 1, # DEFAULT VALUE
     )
     print(f"Predictions from config path: {config_path}")
     print(predictions_from_config_path)
 
-    predictions_from_prediction_model = PipelineRunner.predict(
+    predictions_from_prediction_model = PipelineRunner.predict( ## Directly use the model_info and tags of prediction model to retrieve the model and predict
         prediction_model,
         predicted_dataset,
     )
     print(f"Predictions from prediction model: {prediction_model}")
     print(predictions_from_prediction_model)
 
-    predictions_from_config_id = PipelineRunner.predict(
+    predictions_from_config_id = PipelineRunner.predict( ## GO in results, search for config_id, take the best(s) model(s) and predict
         config_id,
         predicted_dataset,
         top_best = 3, # Use top 3 models from that config to predict
     )
     print(f"Predictions from config id: {config_id}")
     print(predictions_from_config_id)
+
+    predictions_from_dataset_name = PipelineRunner.predict( ## GO in results, search for dataset_name, take the best(s) config(s) and predict
+        dataset_name,
+        predicted_dataset,
+        top_best = 3, # Use top 3 models from that config to predict
+    )
+    print(f"Predictions from dataset name: {dataset_name}")
+    print(predictions_from_dataset_name)

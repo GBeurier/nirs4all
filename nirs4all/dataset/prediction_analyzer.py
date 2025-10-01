@@ -1242,14 +1242,32 @@ class PredictionAnalyzer:
         # Create the plot
         fig, ax = plt.subplots(figsize=figsize)
 
-        # Create box plots
-        bp = ax.boxplot(scores_list, labels=datasets, patch_artist=True)
+        # Create box plots with custom styling
+        bp = ax.boxplot(scores_list, labels=datasets, patch_artist=True,
+                       widths=0.2,  # Make boxes narrower
+                       boxprops=dict(linewidth=1.5),
+                       whiskerprops=dict(linewidth=1.5),
+                       capprops=dict(linewidth=1.5),
+                       medianprops=dict(linewidth=2, color='white'))
 
-        # Color the boxes
-        colors = plt.cm.Set3(np.linspace(0, 1, len(datasets)))
+        # Use more vibrant colors from different colormaps
+        n_datasets = len(datasets)
+        if n_datasets <= 3:
+            # Use distinct, vibrant colors for few datasets
+            colors = ['#1f77b4', '#ff7f0e', '#2ca02c'][:n_datasets]  # Blue, Orange, Green
+        elif n_datasets <= 6:
+            # Use Set2 colormap for medium number of datasets
+            colors = plt.cm.Set2(np.linspace(0.1, 0.9, n_datasets))
+        else:
+            # Use Spectral colormap for many datasets
+            colors = plt.cm.Spectral(np.linspace(0.1, 0.9, n_datasets))
+
+        # Style the boxes with vibrant colors and better transparency
         for patch, color in zip(bp['boxes'], colors):
             patch.set_facecolor(color)
-            patch.set_alpha(0.7)
+            patch.set_alpha(0.8)  # More opaque
+            patch.set_edgecolor('black')
+            patch.set_linewidth(1.2)
 
         # Customize the plot
         ax.set_xlabel('Dataset')
@@ -1270,7 +1288,7 @@ class PredictionAnalyzer:
 
             # Add text above each box plot
             y_pos = max(scores) + (max(max(s) for s in scores_list) - min(min(s) for s in scores_list)) * 0.05
-            ax.text(i + 1, y_pos, f'n={n_scores}\μ={mean_score:.3f}\nσ={std_score:.3f}',
+            ax.text(i + 1, y_pos, f'n={n_scores}\\nμ={mean_score:.3f}\\nσ={std_score:.3f}',
                    ha='center', va='bottom', fontsize=9,
                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
 
