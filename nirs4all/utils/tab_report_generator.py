@@ -128,19 +128,10 @@ class TabReportGenerator:
             canonical_model = best_model.get('canonical_model', 'unknown')
             enhanced_model_name = best_model.get('enhanced_model_name', canonical_model)
 
-            # DEBUG: Print available predictions
-            all_preds = predictions.get_predictions()
-            print(f"🔍 DEBUG: Available predictions: {len(all_preds)}")
-            for key, pred_data in list(all_preds.items())[:3]:  # Show first 3
-                print(f"   - {key}: model={pred_data.get('model', 'N/A')}, real_model={pred_data.get('real_model', 'N/A')}, partition={pred_data.get('partition', 'N/A')}")
-            print(f"🔍 DEBUG: Best model canonical: {canonical_model}")
-
             # Get all predictions for this model to reconstruct metrics
             model_predictions = self._get_model_predictions(
                 best_model, predictions, canonical_model
             )
-
-            print(f"🔍 DEBUG: Found model predictions: {len(model_predictions.get('train', []))} train, {len(model_predictions.get('val', []))} val, {len(model_predictions.get('test', []))} test")
 
             if not model_predictions or not any(model_predictions.values()):
                 print("⚠️ No model predictions found for tab report")
@@ -409,25 +400,63 @@ class TabReportGenerator:
             if not partition_predictions:
                 return {}
 
-            # If multiple predictions, use the first one (they should be similar for same partition)
-            # Or aggregate them if they're from different folds
+            # If multiple predictions, we need to handle them correctly based on partition
             if len(partition_predictions) == 1:
                 pred_data = partition_predictions[0]
                 y_true = np.array(pred_data.get('y_true', []), dtype=np.float32).flatten()
                 y_pred = np.array(pred_data.get('y_pred', []), dtype=np.float32).flatten()
             else:
-                # Aggregate multiple predictions
-                all_y_true = []
-                all_y_pred = []
-                for pred_data in partition_predictions:
-                    y_true = np.array(pred_data.get('y_true', []), dtype=np.float32).flatten()
-                    y_pred = np.array(pred_data.get('y_pred', []), dtype=np.float32).flatten()
-                    if len(y_true) > 0 and len(y_pred) > 0:
-                        all_y_true.extend(y_true)
-                        all_y_pred.extend(y_pred)
+                # For multiple predictions, determine aggregation strategy
+                first_pred = partition_predictions[0]
+                first_y_true = np.array(first_pred.get('y_true', []), dtype=np.float32).flatten()
 
-                y_true = np.array(all_y_true)
-                y_pred = np.array(all_y_pred)
+                # Check if all predictions have the same y_true (same test set)
+                same_test_set = True
+                for pred_data in partition_predictions[1:]:
+                    pred_y_true = np.array(pred_data.get('y_true', []), dtype=np.float32).flatten()
+                    if not np.array_equal(first_y_true, pred_y_true):
+                        same_test_set = False
+                        break
+
+                if same_test_set:
+                    # Same test set: exclude avg/w_avg predictions to avoid double counting
+                    # Only use fold predictions (not virtual avg models)
+                    fold_predictions = []
+                    for pred_data in partition_predictions:
+                        fold_idx = pred_data.get('fold_idx', '')
+                        # Skip avg and w_avg virtual models, only include actual fold predictions
+                        if fold_idx not in ['avg', 'w_avg', 'w-avg']:
+                            fold_predictions.append(pred_data)
+
+                    if fold_predictions:
+                        y_true = first_y_true
+                        all_y_pred = []
+                        for pred_data in fold_predictions:
+                            pred_y_pred = np.array(pred_data.get('y_pred', []), dtype=np.float32).flatten()
+                            if len(pred_y_pred) > 0:
+                                all_y_pred.append(pred_y_pred)
+
+                        if all_y_pred:
+                            y_pred = np.mean(all_y_pred, axis=0)  # Average predictions
+                        else:
+                            y_pred = np.array([])
+                    else:
+                        # Fallback to first prediction if no fold predictions found
+                        y_true = first_y_true
+                        y_pred = np.array(first_pred.get('y_pred', []), dtype=np.float32).flatten()
+                else:
+                    # Different test sets: concatenate (for train/val from different folds)
+                    all_y_true = []
+                    all_y_pred = []
+                    for pred_data in partition_predictions:
+                        pred_y_true = np.array(pred_data.get('y_true', []), dtype=np.float32).flatten()
+                        pred_y_pred = np.array(pred_data.get('y_pred', []), dtype=np.float32).flatten()
+                        if len(pred_y_true) > 0 and len(pred_y_pred) > 0:
+                            all_y_true.extend(pred_y_true)
+                            all_y_pred.extend(pred_y_pred)
+
+                    y_true = np.array(all_y_true)
+                    y_pred = np.array(all_y_pred)
 
             if len(y_true) == 0 or len(y_pred) == 0:
                 return {}
@@ -471,7 +500,7 @@ class TabReportGenerator:
                 stats['nsample'] = len(y_true)
                 stats['mean'] = float(np.mean(y_true))
                 stats['median'] = float(np.median(y_true))
-                stats['min'] = float(np.min(y_true))
+                stats['min'] = float(np.min(y_true)) if len(y_true) > 0 else 0.0
                 stats['max'] = float(np.max(y_true))
                 stats['sd'] = float(np.std(y_true))
                 stats['cv'] = float(np.std(y_true) / np.mean(y_true)) if np.mean(y_true) != 0 else 0.0
@@ -658,10 +687,10 @@ class TabReportGenerator:
         cv_row.extend([
             cv_metrics.get('nsample', ''),
             nfeatures if nfeatures > 0 else '',
-            f"{cv_metrics.get('mean', ''):.3f}" if cv_metrics.get('mean') else '',
-            f"{cv_metrics.get('median', ''):.3f}" if cv_metrics.get('median') else '',
-            f"{cv_metrics.get('min', ''):.3f}" if cv_metrics.get('min') else '',
-            f"{cv_metrics.get('max', ''):.3f}" if cv_metrics.get('max') else '',
+            f"{cv_metrics.get('mean', ''):.3f}" if cv_metrics.get('mean') is not None else '',
+            f"{cv_metrics.get('median', ''):.3f}" if cv_metrics.get('median') is not None else '',
+            f"{cv_metrics.get('min', ''):.3f}" if cv_metrics.get('min') is not None else '',
+            f"{cv_metrics.get('max', ''):.3f}" if cv_metrics.get('max') is not None else '',
             f"{cv_metrics.get('sd', ''):.3f}" if cv_metrics.get('sd') else '',
             f"{cv_metrics.get('cv', ''):.3f}" if cv_metrics.get('cv') else '',
             f"{cv_metrics.get('r2', ''):.3f}" if cv_metrics.get('r2') else '',
@@ -680,11 +709,11 @@ class TabReportGenerator:
         train_row = ['Train']
         train_row.extend([
             train_metrics.get('nsample', ''),
-            '',  # Nfeature
-            f"{train_metrics.get('mean', ''):.3f}" if train_metrics.get('mean') else '',
-            f"{train_metrics.get('median', ''):.3f}" if train_metrics.get('median') else '',
-            f"{train_metrics.get('min', ''):.3f}" if train_metrics.get('min') else '',
-            f"{train_metrics.get('max', ''):.3f}" if train_metrics.get('max') else '',
+            nfeatures if nfeatures > 0 else '',  # Add NFeatures for train
+            f"{train_metrics.get('mean', ''):.3f}" if train_metrics.get('mean') is not None else '',
+            f"{train_metrics.get('median', ''):.3f}" if train_metrics.get('median') is not None else '',
+            f"{train_metrics.get('min', ''):.3f}" if train_metrics.get('min') is not None else '',
+            f"{train_metrics.get('max', ''):.3f}" if train_metrics.get('max') is not None else '',
             f"{train_metrics.get('sd', ''):.3f}" if train_metrics.get('sd') else '',
             f"{train_metrics.get('cv', ''):.3f}" if train_metrics.get('cv') else '',
             f"{train_metrics.get('r2', ''):.3f}" if train_metrics.get('r2') else '',
@@ -703,11 +732,11 @@ class TabReportGenerator:
         test_row = ['Test']
         test_row.extend([
             test_metrics.get('nsample', ''),
-            '',  # Nfeature
-            f"{test_metrics.get('mean', ''):.3f}" if test_metrics.get('mean') else '',
-            f"{test_metrics.get('median', ''):.3f}" if test_metrics.get('median') else '',
-            f"{test_metrics.get('min', ''):.3f}" if test_metrics.get('min') else '',
-            f"{test_metrics.get('max', ''):.3f}" if test_metrics.get('max') else '',
+            nfeatures if nfeatures > 0 else '',  # Add NFeatures for test
+            f"{test_metrics.get('mean', ''):.3f}" if test_metrics.get('mean') is not None else '',
+            f"{test_metrics.get('median', ''):.3f}" if test_metrics.get('median') is not None else '',
+            f"{test_metrics.get('min', ''):.3f}" if test_metrics.get('min') is not None else '',
+            f"{test_metrics.get('max', ''):.3f}" if test_metrics.get('max') is not None else '',
             f"{test_metrics.get('sd', ''):.3f}" if test_metrics.get('sd') else '',
             f"{test_metrics.get('cv', ''):.3f}" if test_metrics.get('cv') else '',
             f"{test_metrics.get('r2', ''):.3f}" if test_metrics.get('r2') else '',

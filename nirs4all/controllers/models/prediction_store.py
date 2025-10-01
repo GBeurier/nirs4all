@@ -8,18 +8,21 @@ def store_training_predictions(prediction_store, dataset_name, pipeline_name,
                              fold, step, op_counter,
                              predictions_train, predictions_valid,
                              train_indices, valid_indices,
-                             custom_model_name=None):
-    '''Store training predictions in external prediction store.'''
+                             custom_model_name=None, context=None, dataset=None):
+    '''Store training predictions in external prediction store. Data is expected to be in unscaled format.'''
 
     # Store validation predictions (the ones used for averaging)
     if predictions_valid is not None:
+        y_true_val = predictions_valid.get('y_true') if isinstance(predictions_valid, dict) else None
+        y_pred_val = predictions_valid.get('y_pred') if isinstance(predictions_valid, dict) else predictions_valid
+
         prediction_store.add_prediction(
             dataset=dataset_name,
             pipeline=pipeline_name,
             model=model_name,  # Base model class name
             partition='val',
-            y_true=predictions_valid.get('y_true') if isinstance(predictions_valid, dict) else None,
-            y_pred=predictions_valid.get('y_pred') if isinstance(predictions_valid, dict) else predictions_valid,
+            y_true=y_true_val,
+            y_pred=y_pred_val,
             sample_indices=valid_indices,  # Add sample_indices
             fold_idx=fold,
             real_model=model_uuid,  # Full model identifier
@@ -28,13 +31,16 @@ def store_training_predictions(prediction_store, dataset_name, pipeline_name,
 
     # Store training predictions if available
     if predictions_train is not None:
+        y_true_train = predictions_train.get('y_true') if isinstance(predictions_train, dict) else None
+        y_pred_train = predictions_train.get('y_pred') if isinstance(predictions_train, dict) else predictions_train
+
         prediction_store.add_prediction(
             dataset=dataset_name,
             pipeline=pipeline_name,
             model=model_name,
             partition='train',
-            y_true=predictions_train.get('y_true') if isinstance(predictions_train, dict) else None,
-            y_pred=predictions_train.get('y_pred') if isinstance(predictions_train, dict) else predictions_train,
+            y_true=y_true_train,
+            y_pred=y_pred_train,
             sample_indices=train_indices,  # Add sample_indices
             fold_idx=fold,
             real_model=model_uuid,
@@ -42,11 +48,12 @@ def store_training_predictions(prediction_store, dataset_name, pipeline_name,
         )
 
 def store_test_predictions(prediction_store, dataset_name, pipeline_name,
-                         model_name, model_id, model_uuid,
-                         fold, step, op_counter,
-                         y_true, y_pred, test_indices,
-                         custom_model_name=None):
-    '''Store test predictions in external prediction store.'''
+                           model_name, model_id, model_uuid,
+                           fold, step, op_counter,
+                           y_true, y_pred, test_indices,
+                           custom_model_name=None, context=None, dataset=None):
+    '''Store test predictions in external prediction store. Data is expected to be in unscaled format.'''
+
     prediction_store.add_prediction(
         dataset=dataset_name,
         pipeline=pipeline_name,
@@ -64,8 +71,9 @@ def store_virtual_model_predictions(prediction_store, dataset_name, pipeline_nam
                                   model_name, model_id, model_uuid,
                                   partition, fold_idx, step,
                                   y_true, y_pred, test_indices,
-                                  custom_model_name=None):
-    '''Store virtual model predictions (like avg, w-avg) in external prediction store.'''
+                                  custom_model_name=None, context=None, dataset=None):
+    '''Store virtual model predictions (like avg, w-avg) in external prediction store. Data is expected to be in unscaled format.'''
+
     prediction_store.add_prediction(
         dataset=dataset_name,
         pipeline=pipeline_name,
