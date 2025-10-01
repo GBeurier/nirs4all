@@ -41,7 +41,8 @@ class FoldChartController(OperatorController):
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Any = None
+        loaded_binaries: Any = None,
+        prediction_store: Any = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """
         Execute fold visualization showing train/test splits with y-value color coding.

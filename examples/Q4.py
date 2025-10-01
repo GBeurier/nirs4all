@@ -2,6 +2,7 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 
+from deprec.controllers.models import data
 from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.dataset.dataset_config import DatasetConfigs
@@ -46,7 +47,7 @@ pipeline = [
 # create pipeline config
 pipeline_config = PipelineConfigs(pipeline)
 
-path = ['sample_data/regression', 'sample_data/regression_2', 'sample_data/regression_3']
+path = ['sample_data/regression']
 dataset_config = DatasetConfigs(path)
 
 # Runner setup with spinner enabled (default is True, but let's be explicit)
@@ -67,14 +68,42 @@ for i, model in enumerate(top_10):
 
 #################################################################################################################
 
-model_path = top_10[0]["model_path"]
-config_path = top_10[0]["config_path"]
-dataset_name = data
+for dataset_name, dataset_prediction in datasets_predictions.items():
+    print(f"Dataset: name={name}, number of predictions in the run={len(dataset_prediction['run_predictions'])}")
+    analyzer = PredictionAnalyzer(dataset_prediction['run_predictions'])
 
-predictions = PipelineRunner.predict(
-    path=best_path,
-    dataset=d_configs,
-    # model=my_model,##TODO
-    best_model=False,##TODO quand on veut prédire sur tous les modèles
-    verbose=1
-)
+    top_1 = analyzer.get_top_k(1, 'rmse')
+    model_path = top_1[0]["model_path"]
+    config_path = top_1[0]["config_path"]
+    prediction_model = top_1[0]
+    config_id = top_1[0]["config_id"]
+
+    predicted_dataset = DatasetConfigs(['sample_data/regression_2'])
+    predictions_from_model_path = PipelineRunner.predict(
+        model_path,
+        predicted_dataset
+    )
+    print(f"Predictions from model path: {model_path}")
+    print(predictions_from_model_path)
+
+    predictions_from_config_path = PipelineRunner.predict(
+        config_path,
+        predicted_dataset,
+    )
+    print(f"Predictions from config path: {config_path}")
+    print(predictions_from_config_path)
+
+    predictions_from_prediction_model = PipelineRunner.predict(
+        prediction_model,
+        predicted_dataset,
+    )
+    print(f"Predictions from prediction model: {prediction_model}")
+    print(predictions_from_prediction_model)
+
+    predictions_from_config_id = PipelineRunner.predict(
+        config_id,
+        predicted_dataset,
+        top_best = 3, # Use top 3 models from that config to predict
+    )
+    print(f"Predictions from config id: {config_id}")
+    print(predictions_from_config_id)

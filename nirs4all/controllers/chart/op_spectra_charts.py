@@ -38,7 +38,8 @@ class SpectraChartController(OperatorController):
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Any = None
+        loaded_binaries: Any = None,
+        prediction_store: Any = None
     ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Execute spectra visualization for both 2D and 3D plots.
