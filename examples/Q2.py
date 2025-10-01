@@ -46,7 +46,7 @@ pipeline = [
 config = PipelineConfigs(pipeline)
 
 # path = ['../../sample_data/regression', '../../sample_data/classification', '../../sample_data/binary']
-path = '../../sample_data/regression'
+path = 'sample_data/regression'
 dataset_config_obj = DatasetConfigs(path)
 
 # Runner setup with spinner enabled (default is True, but let's be explicit)
