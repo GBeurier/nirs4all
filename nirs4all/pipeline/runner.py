@@ -117,8 +117,8 @@ class PipelineRunner:
 
             # Generate best score tab report
             datasets_predictions[dataset_name] = {
-                "global": global_dataset_predictions,
-                "run": run_dataset_predictions,
+                "global_predictions": global_dataset_predictions,
+                "run_predictions": run_dataset_predictions,
                 "dataset": dataset,
                 "dataset_name": dataset_name
             }
