@@ -38,7 +38,8 @@ class FeatureAugmentationController(OperatorController):
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
+        prediction_store: Optional[Any] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         # print(f"Executing feature augmentation for step: {step}, keyword: {context.get('keyword', '')}, source: {source}, mode: {mode}")
 
