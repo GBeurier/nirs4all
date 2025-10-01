@@ -719,7 +719,9 @@ class PredictionHelpers:
                 config_part = best_this_run.split('_')
                 clean_config = '_'.join(config_part[1:4]) if len(config_part) >= 4 else 'unknown'
 
-                print(f"🏆 Best from this run: {display_name} ({clean_config}) - {best_metric}={best_this_run_score:.4f}{direction}")
+                # Calculate unscaled score for better display
+                unscaled_score = best_this_run_score * 1000 if best_metric in ['mse', 'rmse', 'mae'] else best_this_run_score
+                print(f"🏆 Best from config ({clean_config}): {display_name} ({clean_config}) - loss({best_metric})={best_this_run_score:.4f}{direction} - score({best_metric}): {unscaled_score:.4f}")
 
             if best_overall and best_overall_score is not None:
                 # Use the real model name directly (already includes operation counter)
@@ -729,13 +731,88 @@ class PredictionHelpers:
                 config_part = best_overall.split('_')
                 clean_config = '_'.join(config_part[1:4]) if len(config_part) >= 4 else 'unknown'
 
+                # Calculate unscaled score for better display
+                unscaled_overall_score = best_overall_score * 1000 if best_metric in ['mse', 'rmse', 'mae'] else best_overall_score
+
                 if predictions_before_count > 0 and best_overall != best_this_run:
-                    print(f"🥇 Best overall: {display_name} ({clean_config}) - {best_metric}={best_overall_score:.4f}{direction}")
+                    print(f"🥇 Best overall: {display_name} ({clean_config}) - loss({best_metric})={best_overall_score:.4f}{direction} - score({best_metric}): {unscaled_overall_score:.4f}")
                 elif predictions_before_count == 0:
                     # Only show overall if it's different from this run, or if there were no previous predictions
-                    print(f"🥇 Best overall: {display_name} ({clean_config}) - {best_metric}={best_overall_score:.4f}{direction}")
+                    print(f"🥇 Best overall: {display_name} ({clean_config}) - loss({best_metric})={best_overall_score:.4f}{direction} - score({best_metric}): {unscaled_overall_score:.4f}")
 
         except Exception as e:
             print(f"⚠️ Could not display best scores summary: {e}")
             import traceback
             traceback.print_exc()
+
+    @staticmethod
+    def generate_best_score_tab_report(
+        predictions,  # Type: Predictions - avoid circular import
+        dataset_name: str,
+        save_path: str,
+        enable_tab_reports: bool = True,
+        dataset=None
+    ) -> Optional[str]:
+        """Generate best score tab report using TabReportGenerator."""
+        if not enable_tab_reports:
+            return None
+
+        try:
+            from nirs4all.utils.tab_report_generator import TabReportGenerator
+            generator = TabReportGenerator()
+            report_path = generator.generate_best_score_report(
+                predictions, dataset_name, save_path, enable_tab_reports, dataset
+            )
+
+            # Print formatted table if report was generated
+            if report_path:
+                PredictionHelpers._print_formatted_tab_report(report_path)
+
+            return report_path
+        except Exception as e:
+            print(f"⚠️ Could not generate tab report: {e}")
+            return None
+
+    @staticmethod
+    def _print_formatted_tab_report(report_path: str) -> None:
+        """Print tab report as a formatted table."""
+        try:
+            import csv
+            from pathlib import Path
+
+            # Read the CSV file
+            with open(report_path, 'r', encoding='utf-8') as file:
+                reader = csv.reader(file)
+                rows = list(reader)
+
+            if not rows:
+                return
+
+            print(f"📊 Tab report saved: {Path(report_path).name}")
+
+            # Calculate column widths (minimum 10 characters per column)
+            col_widths = []
+            for col_idx in range(len(rows[0])):
+                max_width = max(len(str(rows[row_idx][col_idx])) for row_idx in range(len(rows)))
+                col_widths.append(max(max_width, 10))
+
+            # Create separator line
+            separator = '|' + '|'.join('-' * (width + 2) for width in col_widths) + '|'
+
+            # Print the formatted table
+            print(separator)
+
+            # Print header
+            header_row = '|' + '|'.join(f" {str(rows[0][j]):<{col_widths[j]}} " for j in range(len(rows[0]))) + '|'
+            print(header_row)
+            print(separator)
+
+            # Print data rows
+            for i in range(1, len(rows)):
+                data_row = '|' + '|'.join(f" {str(rows[i][j]):<{col_widths[j]}} " for j in range(len(rows[i]))) + '|'
+                print(data_row)
+
+            print(separator)
+
+        except Exception as e:
+            print(f"⚠️ Could not format table: {e}")

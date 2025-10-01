@@ -17,7 +17,7 @@ x_scaler = MinMaxScaler()  # StandardScaler(), RobustScaler(), QuantileTransform
 y_scaler = MinMaxScaler()
 list_of_preprocessors = [Detrend, FirstDerivative, SecondDerivative, Gaussian, StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection]
 splitting_strategy = ShuffleSplit(n_splits=3, test_size=.25)
-dataset_folder = './sample_data/regression'
+dataset_folder = '../sample_data/regression'
 
 pipeline = [
     # "chart_2d",

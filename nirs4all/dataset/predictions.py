@@ -130,8 +130,6 @@ class Predictions:
     ) -> None:
         """
         Add prediction results with backward compatibility.
-
-        This method supports both old and new schemas during transition.
         """
         # Handle backward compatibility - detect if old or new schema
         if real_model is None:
@@ -535,13 +533,12 @@ class Predictions:
                 f"   Models: {models}")
 
     @classmethod
-    def load_dataset_predictions(cls, dataset, saver):
+    def load_dataset_predictions(cls, dataset_name, saver):
         """Load existing predictions for a dataset and return count before loading."""
         try:
             if hasattr(saver, 'base_path'):
                 from pathlib import Path
                 base_path = Path(saver.base_path)
-                dataset_name = dataset.name
                 dataset_folder = base_path / dataset_name
                 predictions_file = dataset_folder / f"{dataset_name}_predictions.json"
 
@@ -559,6 +556,47 @@ class Predictions:
         PredictionHelpers.display_best_scores_summary(
             self._predictions, dataset_name, predictions_before_count, all_keys
         )
+
+    def display_best(self, context_name: str) -> None:
+        """Display best scores for this prediction store."""
+        if not self._predictions:
+            print("No predictions found")
+            return
+
+        # Find the best prediction based on test partition MSE
+        best_score = float('inf')
+        best_model = None
+        best_key = None
+        best_metric = 'mse'
+
+        for key, pred_data in self._predictions.items():
+            # Only consider test partition predictions for consistency
+            if (pred_data and 'y_true' in pred_data and 'y_pred' in pred_data and
+                    pred_data.get('partition') == 'test'):
+                # Calculate MSE for this prediction
+                import numpy as np
+                from sklearn.metrics import mean_squared_error
+                y_true = np.array(pred_data['y_true']).flatten()
+                y_pred = np.array(pred_data['y_pred']).flatten()
+                score = mean_squared_error(y_true, y_pred)
+
+                if score < best_score:
+                    best_score = score
+                    best_model = pred_data.get('real_model', key)
+                    best_key = key
+
+        if best_model and best_score is not None and best_key:
+            # Calculate unscaled score
+            unscaled_score = best_score * 1000
+
+            # Extract config name from the model key
+            clean_config = 'unknown'
+            if best_key and 'config_' in best_key:
+                config_part = best_key.split('config_')[1].split('/')[0] if '/' in best_key else best_key.split('config_')[1]
+                clean_config = f"config_{config_part.split('_')[1]}"
+
+            print(f"🏆 Best from {context_name} ({clean_config}): {best_model} ({clean_config}) - "
+                  f"loss({best_metric})={best_score:.4f}↓ - score({best_metric}): {unscaled_score:.4f}")
 
 
 

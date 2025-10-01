@@ -27,6 +27,7 @@ from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.binary_loader import BinaryLoader
+from nirs4all.dataset.prediction_helpers import PredictionHelpers
 from nirs4all.utils.spinner import spinner_context
 from nirs4all.utils.tab_report_generator import TabReportGenerator
 
@@ -74,60 +75,57 @@ class PipelineRunner:
         self.enable_tab_reports = enable_tab_reports
         self.tab_report_generator = TabReportGenerator()
 
-    def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> List[Tuple[SpectroDataset, PipelineHistory, Any]]:
+    def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> Any:
         """Run pipeline configurations on dataset configurations."""
 
         nb_combinations = len(pipeline_configs.steps) * len(dataset_configs.configs)
         print(f"🚀 Starting pipeline run with {len(pipeline_configs.steps)} pipeline configuration(s) on {len(dataset_configs.configs)} dataset configuration(s) ({nb_combinations} total runs).")
 
-        results = []
-        global_pred_db = Predictions()
+        datasets_predictions = {}
+        run_predictions = Predictions()
+        results = []  # Fix: Initialize results list
 
         # Get datasets from DatasetConfigs
         for config, name in dataset_configs.configs:
             print("=" * 200)
 
-            dataset_pred_db = Predictions()  # Initialize here to avoid None issues
-            run_dataset_pred_db = Predictions()
+            global_dataset_predictions = Predictions.load_dataset_predictions(name, self.saver)
+            run_dataset_predictions = Predictions()
 
             for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
-
                 dataset = dataset_configs.get_dataset(config, name)
-                dataset_name = dataset.name
+                dataset_name = name
 
                 if self.verbose > 0:
                     print(dataset)
 
-                if i == 0 and self.load_existing_predictions:
-                    loaded_predictions = Predictions.load_dataset_predictions(dataset, self.saver)
-                    if loaded_predictions is not None:
-                        dataset_pred_db = loaded_predictions
-                        existing_predictions = len(dataset_pred_db._predictions.keys())
+                config_predictions = Predictions()
+                self._run_single(steps, config_name, dataset, config_predictions)
 
-                # NEW: Create a prediction store for this pipeline run
-                pipeline_prediction_store = Predictions()
+                # Merge new predictions into stores
+                global_dataset_predictions.merge_predictions(config_predictions)
+                run_dataset_predictions.merge_predictions(config_predictions)
+                run_predictions.merge_predictions(config_predictions)
 
-                # NEW: Pass prediction store to _run_single
-                self._run_single(steps, config_name, dataset, pipeline_prediction_store)
+            global_dataset_predictions.save_to_file(str(self.saver.base_path / dataset_name / f"{dataset_name}_predictions.json"))
+            run_dataset_predictions.display_best(context_name="Run") ### 🏆 Best for Run: PLS-20_cp_avg - PLSRegression - test: loss(mse)=0.008↓ (mae: 0.0726) score(mse)=8.0753
+            if self.enable_tab_reports:
+                PredictionHelpers.generate_best_score_tab_report(run_dataset_predictions, dataset_name, str(self.saver.base_path / dataset_name), True, dataset)
+            global_dataset_predictions.display_best(context_name="Overall") ### 🥇 Best overall for dataset (regression): PLS-20_cp_fold_w_avg_step_0_config_pipeline_Q1_bed651 (config_pipeline) - loss(mse)=0.0092↓ - score(mse): 9.1709
+            if self.enable_tab_reports:
+                PredictionHelpers.generate_best_score_tab_report(global_dataset_predictions, dataset_name, str(self.saver.base_path / dataset_name), True, dataset)
 
-                # Keep existing merge logic
-                dataset_pred_db.merge_predictions(pipeline_prediction_store)
-                run_dataset_pred_db.merge_predictions(pipeline_prediction_store)
-                global_pred_db.merge_predictions(pipeline_prediction_store)
+            # Generate best score tab report
+            datasets_predictions[dataset_name] = {
+                "global": global_dataset_predictions,
+                "run": run_dataset_predictions,
+                "dataset": dataset,
+                "dataset_name": dataset_name
+            }
 
-            if dataset_pred_db is not None:
-                dataset_pred_db.display_best_scores_summary(dataset_name, existing_predictions) ###ICI  check syntax
-                dataset_pred_db.save_to_file(str(self.saver.base_path / dataset_name / f"{dataset_name}_predictions.json"))
+        return run_predictions, datasets_predictions
 
-                # Generate best score tab report
-                if self.enable_tab_reports:
-                    self._generate_best_score_tab_report(dataset_pred_db, dataset_name, dataset) ###ICI  move to prediction_helpers
-
-            results.append((dataset_pred_db, run_dataset_pred_db))
-
-        return global_pred_db, results
-
-    def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset, pipeline_prediction_store: 'Predictions') -> SpectroDataset:
+    def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset, config_predictions: 'Predictions') -> SpectroDataset:
         """Run a single pipeline configuration on a single dataset with external prediction store."""
         # Reset runner state for each run
         # self.history = PipelineHistory()
@@ -137,7 +135,7 @@ class PipelineRunner:
         self.step_binaries = {}
 
         # Store the prediction store for this pipeline run
-        self.current_pipeline_prediction_store = pipeline_prediction_store
+        self.current_config_predictions = config_predictions
 
         print("=" * 200)
         print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
@@ -145,7 +143,9 @@ class PipelineRunner:
 
         storage_path = self.saver.register(dataset.name, config_name)
 
-        dataset._predictions.run_path = str(storage_path)
+        # Store run path in config_predictions instead of dataset
+        if hasattr(config_predictions, 'run_path'):
+            config_predictions.run_path = str(storage_path)
         self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
         # Initialize context
@@ -167,8 +167,8 @@ class PipelineRunner:
             self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
             # Display best score for this specific config
-            if hasattr(dataset, '_predictions') and dataset._predictions:
-                self._display_best_for_config(dataset, config_name) ###ICI  move to prediction_helpers
+            if config_predictions:
+                self._display_best_for_config(config_predictions, config_name)  # ICI move to prediction_helpers
 
             print(f"\033[94m✅ Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
 
@@ -340,8 +340,8 @@ class PipelineRunner:
         else:
             print(f"🔹 Executing controller {controller_name} without operator")
 
-        # Store previous predictions count to detect if new predictions were added
-        prev_prediction_count = len(dataset._predictions) if hasattr(dataset, '_predictions') else 0
+        # Prediction counting is now handled by config_predictions externally
+        # prev_prediction_count = len(config_predictions) if config_predictions else 0
 
         # Determine if we need a spinner (for model controllers and other long operations)
         is_model_controller = 'model' in controller_name.lower()
@@ -375,7 +375,7 @@ class PipelineRunner:
                 source,
                 self.mode,
                 loaded_binaries,
-                getattr(self, 'current_pipeline_prediction_store', None)  # Pass prediction store
+                getattr(self, 'current_config_predictions', None)  # Pass prediction store
             )
         else:
             # Execute without spinner
@@ -388,7 +388,7 @@ class PipelineRunner:
                 source,
                 self.mode,
                 loaded_binaries,
-                getattr(self, 'current_pipeline_prediction_store', None)  # Pass prediction store
+                getattr(self, 'current_config_predictions', None)  # Pass prediction store
             )
 
         # Always show final score for model controllers when verbose=0
@@ -527,16 +527,16 @@ class PipelineRunner:
         self.operation_count += 1
         return self.operation_count
 
-    def _display_best_for_config(self, dataset: SpectroDataset, config_name: str) -> None:
+    def _display_best_for_config(self, config_predictions: 'Predictions', config_name: str) -> None:
         """Display best score for this specific config."""
         try:
             from nirs4all.utils.model_utils import ModelUtils
 
             # Get all predictions for this config from the CURRENT RUN ONLY
-            all_keys = dataset._predictions.list_keys()
+            all_keys = config_predictions.list_keys()
 
             # Filter to current run path to avoid old results
-            current_run_path = getattr(dataset._predictions, 'run_path', '')
+            current_run_path = getattr(config_predictions, 'run_path', '')
             if current_run_path:
                 # Extract the run identifier from the path (last part after slash/backslash)
                 run_id = current_run_path.split('\\')[-1].split('/')[-1] if current_run_path else ''
@@ -544,9 +544,9 @@ class PipelineRunner:
             else:
                 current_run_keys = all_keys
 
-            config_predictions = [key for key in current_run_keys if config_name in key]
+            config_prediction_keys = [key for key in current_run_keys if config_name in key]
 
-            if not config_predictions:
+            if not config_prediction_keys:
                 return
 
             best_score = None
@@ -554,9 +554,9 @@ class PipelineRunner:
             best_key = None
             higher_is_better = False
 
-            for key in config_predictions:
+            for key in config_prediction_keys:
                 # Get prediction data using the new schema
-                pred_data = dataset._predictions._predictions.get(key)
+                pred_data = config_predictions._predictions.get(key)
 
                 # Only consider test partition predictions to avoid train overfitting
                 if pred_data and 'y_true' in pred_data and 'y_pred' in pred_data and pred_data.get('partition') == 'test':
@@ -589,82 +589,4 @@ class PipelineRunner:
             import traceback
             traceback.print_exc()
 
-    def _generate_best_score_tab_report(self, dataset_pred_db: Predictions, dataset_name: str, dataset: SpectroDataset) -> None:
-        """Generate best score tab report for the dataset."""
-        try:
-            # Use the saver's base path to determine where to save the report
-            dataset_path = self.saver.base_path / dataset_name
 
-            # Generate the tab report
-            report_path = self.tab_report_generator.generate_best_score_report(
-                dataset_pred_db,
-                dataset_name,
-                str(dataset_path),
-                self.enable_tab_reports,
-                dataset
-            )
-
-            if report_path:
-                print(f"📊 Tab report saved: {os.path.basename(report_path)}")
-                # Print the tab report content as ASCII table
-                try:
-                    with open(report_path, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()
-                        if len(lines) >= 2:  # At least header + 1 data row
-                            # print("=" * 120)
-
-                            # Parse CSV content and format as ASCII table
-                            import csv
-                            import io
-
-                            csv_content = ''.join(lines)
-                            csv_reader = csv.reader(io.StringIO(csv_content))
-                            rows = list(csv_reader)
-
-                            if rows:
-                                # Calculate column widths
-                                col_widths = []
-                                for i in range(len(rows[0])):
-                                    max_width = max(len(str(row[i])) if i < len(row) else 0 for row in rows)
-                                    col_widths.append(max(max_width, 8))  # Minimum width of 8
-
-                                # Print table
-                                def print_row(row, widths):
-                                    formatted_cells = []
-                                    for i, cell in enumerate(row):
-                                        if i < len(widths):
-                                            formatted_cells.append(f"{str(cell):<{widths[i]}}")
-                                    return "| " + " | ".join(formatted_cells) + " |"
-
-                                def print_separator(widths):
-                                    return "|" + "|".join("-" * (w + 2) for w in widths) + "|"
-
-                                # Print header
-                                print(print_separator(col_widths))
-                                print(print_row(rows[0], col_widths))
-                                print(print_separator(col_widths))
-
-                                # Print data rows
-                                for row in rows[1:]:
-                                    print(print_row(row, col_widths))
-
-                                print(print_separator(col_widths))
-                            print("=" * 120)
-                except Exception as read_error:
-                    print(f"⚠️ Could not format tab report: {read_error}")
-                    # Fallback to simple content display
-                    try:
-                        with open(report_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                            # print("\n" + "=" * 80)
-                            # print("📊 BEST SCORE TAB REPORT")
-                            # print("=" * 80)
-                            print(content)
-                            print("=" * 80)
-                    except Exception:
-                        pass
-
-        except Exception as e:
-            print(f"⚠️ Could not generate tab report: {e}")
-            import traceback
-            traceback.print_exc()
