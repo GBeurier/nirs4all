@@ -31,11 +31,11 @@ class SimpleCVStrategy(CVStrategy):
             CVResult: Results of the CV execution
         """
         verbose = context.train_params.get('verbose', 0)
-
         all_binaries = []
+        best_params = {}
 
         if context.finetune_config is not None:
-            # Finetuning mode
+            # Phase 1: Finetuning mode - optimize hyperparameters on combined data
             if verbose > 0:
                 print("🔍 Simple CV: Finetuning on full training data...")
 
@@ -46,14 +46,13 @@ class SimpleCVStrategy(CVStrategy):
             X_val_sample, y_val_sample = context.data_splits[0].X_val, context.data_splits[0].y_val
 
             # Execute finetuning to get best parameters
-            # For simple CV, we need to create a temporary data split for finetuning
             from nirs4all.controllers.models.config import DataSplit
             finetune_data_split = DataSplit(
                 X_train=combined_X_train,
                 y_train=combined_y_train,
                 X_val=X_val_sample,
                 y_val=y_val_sample,
-                X_test=context.data_splits[0].X_test,  # Use first fold's test data
+                X_test=context.data_splits[0].X_test,
                 y_test=context.data_splits[0].y_test
             )
 
@@ -72,46 +71,25 @@ class SimpleCVStrategy(CVStrategy):
             _, finetune_binaries = self._execute_finetune(finetune_execution_context, fold_idx=0)
             all_binaries.extend(finetune_binaries)
 
-            # Extract best parameters from the finetuning process
-            best_params = getattr(self, '_last_best_params', {})
+            # Extract best parameters from the controller's last optimization
+            best_params = getattr(context.controller, '_last_best_params', {})
 
             if verbose > 0:
                 print(f"🏆 Best parameters found: {best_params}")
-                print(f"🔄 Training {len(context.data_splits)} fold models with best parameters...")
 
-            # Now train models on each fold with the best parameters
-            for fold_idx, _ in enumerate(context.data_splits):
-                # Create model with best parameters
-                model = self._get_model_instance(context)
-                if hasattr(model, 'set_params') and best_params:
-                    try:
-                        model.set_params(**best_params)
-                    except (ValueError, TypeError) as e:
-                        if verbose > 0:
-                            print(f"⚠️ Could not apply best parameters to fold {fold_idx+1}: {e}")
+        # Phase 2: Training mode - train models on each fold with optimized parameters
+        if verbose > 0:
+            fold_count = len(context.data_splits)
+            print(f"🔄 Training {fold_count} fold models with {'optimized' if best_params else 'default'} parameters...")
 
-                # Train on this fold
-                _, fold_binaries = self._execute_train(context, fold_idx)
+        for fold_idx, _ in enumerate(context.data_splits):
+            # Train on this fold using the best parameters if available
+            fold_context = self._create_fold_context(context, best_params)
+            _, fold_binaries = self._execute_train(fold_context, fold_idx)
 
-                # Add fold suffix to binary names
-                fold_binaries_renamed = []
-                for name, binary in fold_binaries:
-                    name_parts = name.rsplit('.', 1)
-                    if len(name_parts) == 2:
-                        new_name = f"{name_parts[0]}_simple_cv_fold{fold_idx+1}.{name_parts[1]}"
-                    else:
-                        new_name = f"{name}_simple_cv_fold{fold_idx+1}"
-                    fold_binaries_renamed.append((new_name, binary))
-
-                all_binaries.extend(fold_binaries_renamed)
-        else:
-            # No finetuning, just train on each fold
-            if verbose > 0:
-                print(f"🔄 Training {len(context.data_splits)} fold models...")
-
-            for fold_idx, _ in enumerate(context.data_splits):
-                _, fold_binaries = self._execute_train(context, fold_idx)
-                all_binaries.extend(fold_binaries)
+            # Rename binaries to include fold information
+            fold_binaries_renamed = self._rename_fold_binaries(fold_binaries, fold_idx)
+            all_binaries.extend(fold_binaries_renamed)
 
         if verbose > 0:
             print("✅ Simple CV completed successfully")
@@ -119,7 +97,7 @@ class SimpleCVStrategy(CVStrategy):
         return CVResult(
             context=context.cv_config.__dict__,
             binaries=all_binaries,
-            best_params=getattr(self, '_last_best_params', {}) if context.finetune_config is not None else {}
+            best_params=best_params
         )
 
     def _combine_training_data(self, data_splits: List) -> Tuple[Any, Any]:
@@ -136,3 +114,44 @@ class SimpleCVStrategy(CVStrategy):
         combined_y_train = np.concatenate(all_y_train, axis=0)
 
         return combined_X_train, combined_y_train
+
+    def _create_fold_context(self, context: CVExecutionContext, best_params: Dict[str, Any]) -> CVExecutionContext:
+        """Create a context for fold training with best parameters applied."""
+        # Create a new model config with best parameters applied
+        fold_model_config = context.model_config.copy()
+
+        # Apply best parameters to the model if available
+        if best_params and 'model_instance' in fold_model_config:
+            model = fold_model_config['model_instance']
+            if hasattr(model, 'set_params'):
+                try:
+                    model = context.controller.model_manager.clone_model(model)
+                    model.set_params(**best_params)
+                    fold_model_config['model_instance'] = model
+                except (ValueError, TypeError) as e:
+                    # If parameter application fails, use original model
+                    pass
+
+        # Return context with updated model config
+        return CVExecutionContext(
+            model_config=fold_model_config,
+            data_splits=context.data_splits,
+            train_params=context.train_params,
+            cv_config=context.cv_config,
+            runner=context.runner,
+            dataset=context.dataset,
+            controller=context.controller,
+            finetune_config=None  # No finetuning for individual folds
+        )
+
+    def _rename_fold_binaries(self, fold_binaries: List[Tuple[str, bytes]], fold_idx: int) -> List[Tuple[str, bytes]]:
+        """Rename binaries to include fold information."""
+        fold_binaries_renamed = []
+        for name, binary in fold_binaries:
+            name_parts = name.rsplit('.', 1)
+            if len(name_parts) == 2:
+                new_name = f"{name_parts[0]}_simple_cv_fold{fold_idx}.{name_parts[1]}"
+            else:
+                new_name = f"{name}_simple_cv_fold{fold_idx}"
+            fold_binaries_renamed.append((new_name, binary))
+        return fold_binaries_renamed

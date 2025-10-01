@@ -14,7 +14,7 @@ Matches PyTorch nn.Module objects and model configurations.
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 
-from ..models.abstract_model_controller import AbstractModelController
+from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ except ImportError:
 
 
 @register_controller
-class PyTorchModelController(AbstractModelController):
+class PyTorchModelController(BaseModelController):
     """Controller for PyTorch models."""
 
     priority = 20  # Same priority as other ML frameworks

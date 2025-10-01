@@ -161,6 +161,50 @@ class GlobalAverageCVStrategy(CVStrategy):
         model_suffix: str = "full_train",
         verbose: int = 0
     ) -> CVResult:
+        """Train a single model on the full training dataset."""
+        # This is a placeholder implementation
+        return CVResult(context={}, binaries=[], best_params=best_params)
+    
+    def _create_fold_context(self, context: CVExecutionContext, best_params: Dict[str, Any]) -> CVExecutionContext:
+        """Create a context for fold training with best parameters applied."""
+        # Create a new model config with best parameters applied
+        fold_model_config = context.model_config.copy()
+        
+        # Apply best parameters to the model if available
+        if best_params and 'model_instance' in fold_model_config:
+            model = fold_model_config['model_instance']
+            if hasattr(model, 'set_params'):
+                try:
+                    model = context.controller.model_manager.clone_model(model)
+                    model.set_params(**best_params)
+                    fold_model_config['model_instance'] = model
+                except (ValueError, TypeError) as e:
+                    # If parameter application fails, use original model
+                    pass
+        
+        # Return context with updated model config
+        return CVExecutionContext(
+            model_config=fold_model_config,
+            data_splits=context.data_splits,
+            train_params=context.train_params,
+            cv_config=context.cv_config,
+            runner=context.runner,
+            dataset=context.dataset,
+            controller=context.controller,
+            finetune_config=None  # No finetuning for individual folds
+        )
+    
+    def _rename_fold_binaries(self, fold_binaries: List[Tuple[str, bytes]], fold_idx: int) -> List[Tuple[str, bytes]]:
+        """Rename binaries to include fold information."""
+        fold_binaries_renamed = []
+        for name, binary in fold_binaries:
+            name_parts = name.rsplit('.', 1)
+            if len(name_parts) == 2:
+                new_name = f"{name_parts[0]}_global_avg_fold{fold_idx}.{name_parts[1]}"
+            else:
+                new_name = f"{name}_global_avg_fold{fold_idx}"
+            fold_binaries_renamed.append((new_name, binary))
+        return fold_binaries_renamed
         """
         Train a single model on the full training dataset using globally optimized parameters.
 

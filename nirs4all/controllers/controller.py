@@ -46,7 +46,8 @@ class OperatorController(ABC):
         runner: "PipelineRunner",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
+        prediction_store: Optional[Any] = None  # NEW: External prediction store
     ):
         """
         Run the operator with the given parameters and context.
@@ -60,6 +61,7 @@ class OperatorController(ABC):
             source: Data source index
             mode: Execution mode ("train" or "predict")
             loaded_binaries: Pre-loaded binary objects for prediction mode
+            prediction_store: External prediction store for model predictions
         """
         raise NotImplementedError("Subclasses must implement this method.")
 

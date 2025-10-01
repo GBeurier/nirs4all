@@ -48,7 +48,7 @@ class DataManager:
         layout = layout_str  # type: ignore
 
         # Check if dataset has folds
-        if hasattr(dataset, 'num_folds') and dataset.num_folds > 0:
+        if dataset.num_folds > 0:
             # Prepare fold-based train/validation splits
             folds_data = self._create_fold_splits(dataset, context, layout)
             return folds_data
@@ -92,6 +92,10 @@ class DataManager:
         test_context["partition"] = "test"
         X_test = dataset.x(test_context, layout, concat_source=True)
         y_test = dataset.y(test_context)
+
+        if X_test is None or y_test is None:
+            X_test = X_all_train
+            y_test = y_all_train
 
         # For each fold, create train/validation splits
         for fold_idx, (train_indices, val_indices) in enumerate(dataset.folds):

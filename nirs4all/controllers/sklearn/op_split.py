@@ -82,7 +82,8 @@ class CrossValidatorController(OperatorController):
         runner: "PipelineRunner",
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Any = None
+        loaded_binaries: Any = None,
+        prediction_store: Any = None
     ): ##TODO manage groups
         """Run ``operator.split`` and store the resulting folds on *dataset*.
 

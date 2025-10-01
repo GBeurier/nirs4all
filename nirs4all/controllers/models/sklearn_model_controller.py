@@ -8,11 +8,13 @@ specific model instantiation, training, and prediction methods.
 from typing import Any, Dict, Optional, Tuple, Union
 import numpy as np
 
-from nirs4all.controllers.models.abstract_model_controller import AbstractModelController
+from nirs4all.controllers.models.base_model_controller import BaseModelController
+from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.model_utils import TaskType
 
 
-class SklearnModelController(AbstractModelController):
+@register_controller
+class SklearnModelController(BaseModelController):
     """
     Concrete model controller for scikit-learn compatible models.
 
@@ -27,6 +29,15 @@ class SklearnModelController(AbstractModelController):
         # Check if step contains a model key with sklearn object
         if isinstance(step, dict) and 'model' in step:
             model = step['model']
+
+            # Handle nested model format: {'model': {'name': 'X', 'model': PLSRegression()}}
+            if isinstance(model, dict) and 'model' in model:
+                model = model['model']
+
+                # Handle even deeper nesting: {'model': {'name': 'X', 'model': {'_runtime_instance': PLSRegression()}}}
+                if isinstance(model, dict) and '_runtime_instance' in model:
+                    model = model['_runtime_instance']
+
             # Handle serialized model format
             if isinstance(model, dict) and '_runtime_instance' in model:
                 model = model['_runtime_instance']
@@ -68,10 +79,14 @@ class SklearnModelController(AbstractModelController):
         Returns:
             Instantiated model object
         """
-        # Extract model class and parameters
+        # Check if we already have a model instance (from the refactored AbstractModelController)
+        if 'model_instance' in model_config:
+            return model_config['model_instance']
+
+        # Fallback to the original class-based instantiation for backward compatibility
         model_class_path = model_config.get('model_class')
         if not model_class_path:
-            raise ValueError("model_class must be specified in model configuration")
+            raise ValueError("model_class or model_instance must be specified in model configuration")
 
         # Import the model class dynamically
         try:

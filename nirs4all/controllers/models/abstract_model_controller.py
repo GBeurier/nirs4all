@@ -26,6 +26,8 @@ from nirs4all.controllers.models.results import ResultManager
 from nirs4all.controllers.models.optuna_manager import OptunaManager
 from nirs4all.controllers.models.enums import ModelMode
 from nirs4all.utils.model_utils import ModelUtils, TaskType
+from nirs4all.controllers.models.model_naming import ModelNamingManager
+from nirs4all.controllers.models.cv_averaging import CVAveragingManager
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -60,6 +62,10 @@ class AbstractModelController(OperatorController, ABC):
         self.result_manager = ResultManager()
         self.cv_factory = CVStrategyFactory()
         self.optuna_manager = OptunaManager()
+
+        # New components for consistent naming and averaging
+        self.naming_manager = ModelNamingManager()
+        self.averaging_manager = CVAveragingManager(self.naming_manager)
 
     @classmethod
     def use_multi_source(cls) -> bool:
@@ -145,6 +151,7 @@ class AbstractModelController(OperatorController, ABC):
             step, operator, dataset, context, runner
         )
 
+
     def _execute_training_mode_modular(
         self,
         step: Any,
@@ -186,6 +193,8 @@ class AbstractModelController(OperatorController, ABC):
         dataset: 'SpectroDataset'
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute cross-validation using the strategy pattern."""
+        verbose = model_config.get('train_params', {}).get('verbose', 0)
+
         # Create and execute the appropriate CV strategy
         strategy = self.cv_factory.create_strategy(cv_config.mode)
 
@@ -207,6 +216,22 @@ class AbstractModelController(OperatorController, ABC):
 
         # Execute the strategy
         result = strategy.execute(execution_context)
+
+        # After CV training, generate average and weighted average predictions
+        if len(data_splits) > 1:  # Only for multi-fold CV
+            try:
+                avg_binaries, avg_metadata = self.averaging_manager.generate_average_predictions(
+                    dataset=dataset,
+                    model_config=model_config,
+                    runner=runner,
+                    context=context,
+                    fold_count=len(data_splits),
+                    verbose=verbose
+                )
+                result.binaries.extend(avg_binaries)
+            except Exception as e:
+                if verbose > 0:
+                    print(f"⚠️ Could not generate average predictions: {e}")
 
         return result.context, result.binaries
 
@@ -516,42 +541,38 @@ class AbstractModelController(OperatorController, ABC):
         fold_idx: Optional[int] = None
     ) -> None:
         """Store predictions using the modular prediction manager."""
-        base_model_name, instance_name, pipeline_path, custom_model_name = self._get_model_names({}, runner, fold_idx)
-        unique_model_name = instance_name
+        # Use naming manager for consistent model identifiers
+        model_config = {'model_instance': trained_model}  # Simple config for trained model
+        identifiers = self.naming_manager.create_model_identifiers(
+            model_config, runner, fold_idx=fold_idx
+        )
 
         dataset_name = getattr(runner.saver, 'dataset_name', 'unknown') or 'unknown'
         pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') or 'unknown'
-
-        informative_name = self._get_informative_name(instance_name, fold_idx)
+        pipeline_path = str(runner.saver.current_path) if runner.saver.current_path else ""
 
         # Store predictions for each partition
         if fold_idx is not None:
-            # Fold-based storage
+            # Fold-based storage - use val partition for test data in CV
             self.prediction_manager.store_predictions(
                 dataset=dataset_name, pipeline=pipeline_name, pipeline_path=pipeline_path,
-                model=base_model_name, real_model=informative_name, partition="val",
+                model=identifiers.classname, real_model=identifiers.model_uuid, partition="val",
                 y_true=y_test, y_pred=y_pred_test, fold_idx=fold_idx,
-                context=context, dataset_obj=dataset, custom_model_name=custom_model_name
+                context=context, dataset_obj=dataset, custom_model_name=identifiers.custom_name
             )
             self.prediction_manager.store_predictions(
                 dataset=dataset_name, pipeline=pipeline_name, pipeline_path=pipeline_path,
-                model=base_model_name, real_model=informative_name, partition="train",
+                model=identifiers.classname, real_model=identifiers.model_uuid, partition="train",
                 y_true=y_train, y_pred=y_pred_train, fold_idx=fold_idx,
-                context=context, dataset_obj=dataset, custom_model_name=custom_model_name
-            )
-            self.prediction_manager.store_predictions(
-                dataset=dataset_name, pipeline=pipeline_name, pipeline_path=pipeline_path,
-                model=base_model_name, real_model=informative_name, partition="test",
-                y_true=y_test, y_pred=y_pred_test, fold_idx=fold_idx,
-                context=context, dataset_obj=dataset, custom_model_name=custom_model_name
+                context=context, dataset_obj=dataset, custom_model_name=identifiers.custom_name
             )
         else:
             # Global storage
             self.prediction_manager.store_predictions(
                 dataset=dataset_name, pipeline=pipeline_name, pipeline_path=pipeline_path,
-                model=base_model_name, real_model=informative_name, partition="test",
+                model=identifiers.classname, real_model=identifiers.model_uuid, partition="test",
                 y_true=y_test, y_pred=y_pred_test, fold_idx=fold_idx,
-                context=context, dataset_obj=dataset, custom_model_name=custom_model_name
+                context=context, dataset_obj=dataset, custom_model_name=identifiers.custom_name
             )
 
     def _display_training_results(
@@ -564,11 +585,16 @@ class AbstractModelController(OperatorController, ABC):
     ) -> None:
         """Display training results with scores."""
         task_type = self._detect_task_type(y_true)
-        base_model_name = self.model_manager.get_base_model_name({}, trained_model)
-        unique_model_name = self._get_informative_name(base_model_name, fold_idx)
+
+        # Use naming manager for consistent display names
+        model_config = {'model_instance': trained_model}  # Simple config for display
+        identifiers = self.naming_manager.create_model_identifiers(
+            model_config, runner, fold_idx=fold_idx
+        )
+        display_name = identifiers.model_id
 
         test_scores = self._calculate_and_print_scores(
-            y_true, y_pred, task_type, "test", unique_model_name,
+            y_true, y_pred, task_type, "test", display_name,
             show_detailed_scores=False
         )
 
@@ -584,12 +610,12 @@ class AbstractModelController(OperatorController, ABC):
             other_scores = {k: v for k, v in test_scores.items() if k != best_metric}
             if other_scores:
                 other_scores_str = ModelUtils.format_scores(other_scores)
-                print(f"✅ {unique_model_name} - test: {score_display} ({other_scores_str}) {dataset_info}")
+                print(f"✅ {display_name} - test: {score_display} ({other_scores_str}) {dataset_info}")
             else:
-                print(f"✅ {unique_model_name} - test: {score_display} {dataset_info}")
+                print(f"✅ {display_name} - test: {score_display} {dataset_info}")
         else:
             dataset_info = f"(train:{len(y_true)})" if fold_idx is None else f"(fold:{fold_idx})"
-            print(f"✅ Model {unique_model_name} completed successfully {dataset_info}")
+            print(f"✅ Model {display_name} completed successfully {dataset_info}")
 
     # Legacy compatibility methods - these maintain the original interface
 
@@ -609,8 +635,24 @@ class AbstractModelController(OperatorController, ABC):
             if 'model' in step:
                 config = step.copy()
                 model_obj = step['model']
-                if isinstance(model_obj, dict) and '_runtime_instance' in model_obj:
-                    config['model_instance'] = model_obj['_runtime_instance']
+
+                # Handle nested model format: {'model': {'name': 'X', 'model': PLSRegression()}}
+                if isinstance(model_obj, dict):
+                    if 'model' in model_obj:
+                        # Extract the actual model from nested structure
+                        actual_model = model_obj['model']
+                        if isinstance(actual_model, dict) and '_runtime_instance' in actual_model:
+                            config['model_instance'] = actual_model['_runtime_instance']
+                        else:
+                            config['model_instance'] = actual_model
+                        # Preserve custom name if provided
+                        if 'name' in model_obj:
+                            config['name'] = model_obj['name']
+                    elif '_runtime_instance' in model_obj:
+                        config['model_instance'] = model_obj['_runtime_instance']
+                    else:
+                        # Dict without 'model' key, treat as serialized model
+                        config['model_instance'] = model_obj
                 elif hasattr(model_obj, '_runtime_instance'):
                     config['model_instance'] = model_obj._runtime_instance  # type: ignore
                 else:
