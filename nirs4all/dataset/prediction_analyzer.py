@@ -1058,3 +1058,221 @@ class PredictionAnalyzer:
         ax.grid(True, alpha=0.3, axis='y')
 
         return fig
+
+    def plot_performance_matrix(self, metric: str = 'rmse', partition_type: str = 'test',
+                               normalize: bool = True, figsize: Tuple[int, int] = (14, 10)) -> Figure:
+        """
+        Plot matrix showing best performance by model type for each dataset.
+
+        Args:
+            metric: Metric to display (default: 'rmse')
+            partition_type: Partition type to consider ('test', 'val', 'train')
+            normalize: Whether to normalize scores for better color comparison
+            figsize: Figure size
+
+        Returns:
+            matplotlib Figure
+        """
+        # Get all predictions for the specified partition type
+        predictions = self.filter_predictions(partition_type=partition_type)
+
+        if not predictions:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.text(0.5, 0.5, f'No {partition_type} predictions found', ha='center', va='center', fontsize=16)
+            return fig
+
+        # Group by dataset and canonical model to find best performance
+        dataset_model_scores = defaultdict(lambda: defaultdict(list))
+
+        for pred in predictions:
+            dataset = pred['dataset']
+            canonical_model = pred['canonical_model']
+            score = pred['metrics'].get(metric, np.nan)
+
+            if not np.isnan(score):
+                dataset_model_scores[dataset][canonical_model].append(score)
+
+        if not dataset_model_scores:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.text(0.5, 0.5, f'No valid {metric} scores found', ha='center', va='center', fontsize=16)
+            return fig
+
+        # Extract unique datasets and models
+        datasets = sorted(dataset_model_scores.keys())
+        all_models = set()
+        for dataset_data in dataset_model_scores.values():
+            all_models.update(dataset_data.keys())
+        models = sorted(all_models)
+
+        # Create matrix with best scores
+        matrix = np.full((len(datasets), len(models)), np.nan)
+        best_scores = {}  # Store best scores for each dataset-model combination
+
+        higher_better = metric in ['r2', 'accuracy', 'f1', 'precision', 'recall']
+
+        for i, dataset in enumerate(datasets):
+            for j, model in enumerate(models):
+                scores = dataset_model_scores[dataset].get(model, [])
+                if scores:
+                    # Get best score (lowest for rmse/mse/mae, highest for r2/accuracy)
+                    best_score = max(scores) if higher_better else min(scores)
+                    matrix[i, j] = best_score
+                    best_scores[(dataset, model)] = best_score
+
+        # Normalize scores if requested
+        if normalize and not np.all(np.isnan(matrix)):
+            # For RMSE and similar metrics (lower is better), we want to invert for color mapping
+            if not higher_better:
+                # Normalize inversely for "lower is better" metrics
+                valid_scores = matrix[~np.isnan(matrix)]
+                if len(valid_scores) > 0:
+                    min_score = np.min(valid_scores)
+                    max_score = np.max(valid_scores)
+                    if max_score != min_score:
+                        # Invert normalization: best (lowest) scores become 1, worst (highest) become 0
+                        matrix_norm = np.full_like(matrix, np.nan)
+                        valid_mask = ~np.isnan(matrix)
+                        matrix_norm[valid_mask] = 1 - (matrix[valid_mask] - min_score) / (max_score - min_score)
+                        matrix = matrix_norm
+            else:
+                # Standard normalization for "higher is better" metrics
+                valid_scores = matrix[~np.isnan(matrix)]
+                if len(valid_scores) > 0:
+                    min_score = np.min(valid_scores)
+                    max_score = np.max(valid_scores)
+                    if max_score != min_score:
+                        matrix_norm = np.full_like(matrix, np.nan)
+                        valid_mask = ~np.isnan(matrix)
+                        matrix_norm[valid_mask] = (matrix[valid_mask] - min_score) / (max_score - min_score)
+                        matrix = matrix_norm
+
+        # Create the plot
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Use a color map where better performance is greener
+        cmap = plt.cm.RdYlGn  # Red-Yellow-Green colormap
+
+        # Create masked array to handle NaN values
+        masked_matrix = np.ma.masked_invalid(matrix)
+
+        im = ax.imshow(masked_matrix, cmap=cmap, aspect='auto', vmin=0, vmax=1 if normalize else None)
+
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+        if normalize:
+            if higher_better:
+                cbar.set_label(f'Normalized {metric.upper()} (1=best, 0=worst)')
+            else:
+                cbar.set_label(f'Normalized {metric.upper()} (1=best, 0=worst)')
+        else:
+            cbar.set_label(f'{metric.upper()} Score')
+
+        # Set ticks and labels
+        ax.set_xticks(range(len(models)))
+        ax.set_yticks(range(len(datasets)))
+        ax.set_xticklabels(models, rotation=45, ha='right')
+        ax.set_yticklabels(datasets)
+        ax.set_xlabel('Model Type')
+        ax.set_ylabel('Dataset')
+
+        title = f'Best {metric.upper()} Performance Matrix'
+        if normalize:
+            title += ' (Normalized)'
+        ax.set_title(title)
+
+        # Add text annotations with actual scores
+        for i in range(len(datasets)):
+            for j in range(len(models)):
+                if not np.isnan(matrix[i, j]):
+                    # Get original score for annotation
+                    original_score = best_scores.get((datasets[i], models[j]), matrix[i, j])
+
+                    # Choose text color based on background
+                    if normalize:
+                        text_color = 'white' if matrix[i, j] < 0.5 else 'black'
+                    else:
+                        text_color = 'white' if matrix[i, j] > np.nanmean(matrix) else 'black'
+
+                    ax.text(j, i, f'{original_score:.3f}',
+                           ha='center', va='center', color=text_color, fontsize=9, weight='bold')
+
+        plt.tight_layout()
+        return fig
+
+    def plot_score_boxplots_by_dataset(self, metric: str = 'rmse', partition_type: str = 'test',
+                                      figsize: Tuple[int, int] = (14, 8)) -> Figure:
+        """
+        Plot box plots showing score distributions for each dataset.
+
+        Args:
+            metric: Metric to display (default: 'rmse')
+            partition_type: Partition type to consider ('test', 'val', 'train')
+            figsize: Figure size
+
+        Returns:
+            matplotlib Figure
+        """
+        # Get all predictions for the specified partition type
+        predictions = self.filter_predictions(partition_type=partition_type)
+
+        if not predictions:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.text(0.5, 0.5, f'No {partition_type} predictions found', ha='center', va='center', fontsize=16)
+            return fig
+
+        # Group scores by dataset
+        dataset_scores = defaultdict(list)
+
+        for pred in predictions:
+            dataset = pred['dataset']
+            score = pred['metrics'].get(metric, np.nan)
+
+            if not np.isnan(score):
+                dataset_scores[dataset].append(score)
+
+        if not dataset_scores:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.text(0.5, 0.5, f'No valid {metric} scores found', ha='center', va='center', fontsize=16)
+            return fig
+
+        # Prepare data for box plots
+        datasets = sorted(dataset_scores.keys())
+        scores_list = [dataset_scores[dataset] for dataset in datasets]
+
+        # Create the plot
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Create box plots
+        bp = ax.boxplot(scores_list, labels=datasets, patch_artist=True)
+
+        # Color the boxes
+        colors = plt.cm.Set3(np.linspace(0, 1, len(datasets)))
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+
+        # Customize the plot
+        ax.set_xlabel('Dataset')
+        ax.set_ylabel(f'{metric.upper()} Score')
+        ax.set_title(f'{metric.upper()} Score Distribution by Dataset ({partition_type} partition)')
+        ax.grid(True, alpha=0.3, axis='y')
+
+        # Rotate x-axis labels if needed
+        if len(datasets) > 5:
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+
+        # Add statistics as text
+        for i, (dataset, scores) in enumerate(zip(datasets, scores_list)):
+            mean_score = np.mean(scores)
+            median_score = np.median(scores)
+            std_score = np.std(scores)
+            n_scores = len(scores)
+
+            # Add text above each box plot
+            y_pos = max(scores) + (max(max(s) for s in scores_list) - min(min(s) for s in scores_list)) * 0.05
+            ax.text(i + 1, y_pos, f'n={n_scores}\μ={mean_score:.3f}\nσ={std_score:.3f}',
+                   ha='center', va='bottom', fontsize=9,
+                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+
+        plt.tight_layout()
+        return fig

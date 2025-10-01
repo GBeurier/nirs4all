@@ -29,13 +29,13 @@ pipeline = [
     ShuffleSplit(n_splits=3),
     {"y_processing": MinMaxScaler},
     {"model": PLSRegression(15)},
-    # {"model": ElasticNet()},
+    {"model": ElasticNet()},
     # {"model": GradientBoostingRegressor(n_estimators=100)},
     # {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1)},
     # {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500)},
     # {"model": GradientBoostingRegressor(n_estimators=100)},
     # {"model": RandomForestRegressor(n_estimators=100)},
-    # {"model": Ridge(alpha=1.0)},
+    {"model": Ridge(alpha=1.0)},
     # {
     #     "model": nicon,
     #     "train_params": {
@@ -50,7 +50,7 @@ pipeline = [
 # create pipeline config
 pipeline_config = PipelineConfigs(pipeline)
 
-path = ['sample_data/regression', 'sample_data/regression', 'sample_data/regression']
+path = ['sample_data/regression', 'sample_data/regression_2', 'sample_data/regression_3']
 dataset_config = DatasetConfigs(path)
 
 # Runner setup with spinner enabled (default is True, but let's be explicit)
@@ -74,6 +74,12 @@ for name, dataset_prediction in datasets_predictions.items():
 
     # Plot comparison with enhanced names (for readability in plots)
     fig = analyzer.plot_top_k_comparison(k=best_count, metric='rmse', partition_type='test')
-    plt.show()
+    # plt.show()
 
 analyzer = PredictionAnalyzer(run_predictions)
+fig1 = analyzer.plot_performance_matrix(metric='rmse', normalize=True)
+fig1.suptitle('Performance Matrix - Normalized RMSE by Model and Dataset')
+plt.show()
+fig2 = analyzer.plot_score_boxplots_by_dataset(metric='rmse')
+fig2.suptitle('RMSE Score Distribution by Dataset')
+plt.show()
