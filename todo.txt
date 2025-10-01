@@ -1,11 +1,6 @@
 #### ROADMAP ########
 learning course - ipynb
-### TODO - Exposer les arguments des dataconfigs (separator, delimiter, etc.)
--- Todo, update the todos in Q1-Q5
--- Verify classification, binaries, multisources everywhere
--- add Q6 - SHAP ??
--- add Q7 -- discretizer (switch reg / classif)
--- heatmap models
+>>> Vérifier les sauvegardes des fichiers
 
 Bin operator with bounds or count + warning class assymetry
 Chart controller with x, y, folds, 3d, 2d operators.
