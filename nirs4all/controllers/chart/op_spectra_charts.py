@@ -18,7 +18,7 @@ class SpectraChartController(OperatorController):
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
-        return keyword in ["chart_2d", "chart_3d"]
+        return keyword in ["chart_2d", "chart_3d", "2d_chart", "3d_chart"]
 
     @classmethod
     def use_multi_source(cls) -> bool:

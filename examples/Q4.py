@@ -2,7 +2,7 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 
-from deprec.controllers.models import data
+# from deprec.controllers.models import data  # Comment out problematic import
 from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.dataset.dataset_config import DatasetConfigs
