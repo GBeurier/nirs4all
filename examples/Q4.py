@@ -43,42 +43,38 @@ pipeline = [
     {"model": PLSRegression(10)},
 ]
 
-p_configs = PipelineConfigs(pipeline)
+# create pipeline config
+pipeline_config = PipelineConfigs(pipeline)
 
-# path = ['../../sample_data/regression', '../../sample_data/classification', '../../sample_data/binary']
-path = '../../sample_data/regression'
-d_configs = DatasetConfigs(path)
+path = ['sample_data/regression', 'sample_data/regression_2', 'sample_data/regression_3']
+dataset_config = DatasetConfigs(path)
 
-# Train with explicit settings to ensure metadata is saved
-runner = PipelineRunner(save_files=True, verbose=0)  # Set verbose=0 to reduce output
-predictions, results = runner.run(p_configs, d_configs)
+# Runner setup with spinner enabled (default is True, but let's be explicit)
+runner = PipelineRunner(save_files=False, verbose=0)
+print("🔄 Running pipeline with spinner enabled - watch for loading animations during model training!")
+run_predictions, datasets_predictions = runner.run(pipeline_config, dataset_config)
 
-print(f"\n=== TRAINING METADATA CHECK ===")
-print(f"Step binaries tracked: {len(runner.step_binaries)} steps")
-print(f"Sample step binaries: {dict(list(runner.step_binaries.items())[:3])}")
+###############################################################################################################
 
-visualizer = PredictionAnalyzer(predictions, dataset_name_override="dataset")
-top_5 = visualizer.get_top_k(5, 'rmse') ##TODO get_top_1
+analyzer = PredictionAnalyzer(run_predictions)
+# Get top models to verify the real model names are displayed correctly
+best_count = 5
+top_10 = analyzer.get_top_k(best_count, 'rmse')
+print(f"Top {best_count} models by RMSE:")
+for i, model in enumerate(top_10):
+    print(f"{i+1}. Model: {model['enhanced_model_name']} | RMSE: {model['metrics']['rmse']:.6f} | MSE: {model['metrics']['mse']:.6f} | R²: {model['metrics']['r2']:.6f}  - Pipeline: {model['pipeline_info']['pipeline_name']}")
 
-# print(f"\n=== TOP 5 RESULTS ===")
-# for i, model in enumerate(top_5, 1):
-#     print(f"{i}. {model['path']} - RMSE: {model['rmse']:.6f}, R²: {model['r2']:.6f}, MAE: {model['mae']:.6f} {'✅' if has_metadata else '❌'}")
 
-print(f"\n=== TESTING PREDICTION ===")
-best_path = top_5[0]['path']
-print(f"Using best model from: {best_path}")
+#################################################################################################################
 
-try:
-    predictions = PipelineRunner.predict(
-        path=best_path,
-        dataset=d_configs,
-        # model=my_model,##TODO
-        best_model=False,##TODO quand on veut prédire sur tous les modèles
-        verbose=1
-    )
-    print("✅ Prediction successful!")
-except Exception as e:
-    print(f"❌ Prediction failed: {e}")
-    # Show which step failed
-    import traceback
-    traceback.print_exc()
+model_path = top_10[0]["model_path"]
+config_path = top_10[0]["config_path"]
+dataset_name = data
+
+predictions = PipelineRunner.predict(
+    path=best_path,
+    dataset=d_configs,
+    # model=my_model,##TODO
+    best_model=False,##TODO quand on veut prédire sur tous les modèles
+    verbose=1
+)
