@@ -128,16 +128,30 @@ class TabReportGenerator:
             canonical_model = best_model.get('canonical_model', 'unknown')
             enhanced_model_name = best_model.get('enhanced_model_name', canonical_model)
 
+            # DEBUG: Print available predictions
+            all_preds = predictions.get_predictions()
+            print(f"🔍 DEBUG: Available predictions: {len(all_preds)}")
+            for key, pred_data in list(all_preds.items())[:3]:  # Show first 3
+                print(f"   - {key}: model={pred_data.get('model', 'N/A')}, real_model={pred_data.get('real_model', 'N/A')}, partition={pred_data.get('partition', 'N/A')}")
+            print(f"🔍 DEBUG: Best model canonical: {canonical_model}")
+
             # Get all predictions for this model to reconstruct metrics
             model_predictions = self._get_model_predictions(
                 best_model, predictions, canonical_model
             )
 
-            if not model_predictions:
+            print(f"🔍 DEBUG: Found model predictions: {len(model_predictions.get('train', []))} train, {len(model_predictions.get('val', []))} val, {len(model_predictions.get('test', []))} test")
+
+            if not model_predictions or not any(model_predictions.values()):
+                print("⚠️ No model predictions found for tab report")
                 return None
 
             # Extract nfeatures directly from dataset
-            nfeatures = best_model["metadata"].get("n_features", 0)
+            nfeatures = 0
+            if dataset:
+                nfeatures = self._extract_nfeatures_from_dataset(dataset)
+            if nfeatures == 0:
+                nfeatures = best_model.get("metadata", {}).get("n_features", 0)
 
             # Calculate metrics for different partitions
             metrics_data = self._calculate_partition_metrics(
@@ -274,22 +288,32 @@ class TabReportGenerator:
         if '_step' in canonical:
             canonical = canonical.split('_step')[0]
 
+        # Remove fold information
+        if '_fold' in canonical:
+            canonical = canonical.split('_fold')[0]
+
         # Remove avg/weighted_avg suffixes
         canonical = canonical.replace('_avg', '').replace('_weighted', '')
 
         # Handle different model naming patterns:
-        # 1. Custom names like "PLS-10_cp_5" -> "PLS-10_cp" (remove final counter)
-        # 2. Class names like "PLSRegression_10" -> "PLSRegression" (remove parameter)
+        # For our naming like "PLS-20_cp_9" -> "PLS-20_cp" (remove only the final numeric counter)
+        # For class names like "PLSRegression_10" -> "PLSRegression" (remove parameter suffix)
 
         parts = canonical.split('_')
 
-        # If it contains a dash (custom name pattern like "PLS-10_cp_5")
-        if '-' in canonical and len(parts) >= 2 and parts[-1].isdigit():
-            # Remove the final counter, keep the custom name base
-            canonical = '_'.join(parts[:-1])
+        # If it contains a dash (custom name pattern like "PLS-20_cp_9")
+        if '-' in canonical:
+            # Look for the pattern where the last part is a numeric counter
+            # but NOT a parameter (like the "20" in "PLS-20")
+            if len(parts) >= 3 and parts[-1].isdigit():
+                # Only remove if it's clearly a counter (not a model parameter)
+                # Check if it's a pattern like "PLS-20_cp_9" where "9" is the counter
+                if len(parts) >= 3 and parts[-2] in ['cp', 'component', 'comp']:
+                    canonical = '_'.join(parts[:-1])
+                # Otherwise keep the full name for patterns like "PLS-20"
         # If it's a simple class name pattern like "PLSRegression_10"
         elif '-' not in canonical and len(parts) >= 2 and parts[-1].isdigit():
-            # Remove parameter, keep just the class name
+            # For sklearn class names, remove the final numeric parameter
             canonical = parts[0]
 
         return canonical
@@ -618,10 +642,10 @@ class TabReportGenerator:
 
     def _save_regression_tab(self, metrics: Dict[str, Dict], report_path: str, tab_data: Dict[str, Any]) -> None:
         """Save regression tab report."""
-        # Define column headers for regression
+        # Define column headers for regression (removed Q-Value)
         headers = [
             '', 'Nsample', 'Nfeature', 'Mean', 'Median', 'Min', 'Max', 'SD', 'CV',
-            'R²', 'RMSE', 'MSE', 'SEP', 'MAE', 'RPD', 'Bias', 'Q-Value', 'Consistency (%)'
+            'R²', 'RMSE', 'MSE', 'SEP', 'MAE', 'RPD', 'Bias', 'Consistency (%)'
         ]
 
         # Create rows
@@ -647,7 +671,6 @@ class TabReportGenerator:
             f"{cv_metrics.get('mae', ''):.3f}" if cv_metrics.get('mae') else '',
             f"{cv_metrics.get('rpd', ''):.2f}" if cv_metrics.get('rpd') and cv_metrics.get('rpd') != float('inf') else '',
             f"{cv_metrics.get('bias', ''):.3f}" if cv_metrics.get('bias') else '',
-            f"{cv_metrics.get('q_value', ''):.2f}" if cv_metrics.get('q_value') and cv_metrics.get('q_value') != float('inf') else '',
             f"{cv_metrics.get('consistency', ''):.1f}" if cv_metrics.get('consistency') else ''
         ])
         rows.append(cv_row)
@@ -671,7 +694,6 @@ class TabReportGenerator:
             f"{train_metrics.get('mae', ''):.3f}" if train_metrics.get('mae') else '',
             f"{train_metrics.get('rpd', ''):.2f}" if train_metrics.get('rpd') and train_metrics.get('rpd') != float('inf') else '',
             f"{train_metrics.get('bias', ''):.3f}" if train_metrics.get('bias') else '',
-            f"{train_metrics.get('q_value', ''):.2f}" if train_metrics.get('q_value') and train_metrics.get('q_value') != float('inf') else '',
             f"{train_metrics.get('consistency', ''):.1f}" if train_metrics.get('consistency') else ''
         ])
         rows.append(train_row)
@@ -695,7 +717,6 @@ class TabReportGenerator:
             f"{test_metrics.get('mae', ''):.3f}" if test_metrics.get('mae') else '',
             f"{test_metrics.get('rpd', ''):.2f}" if test_metrics.get('rpd') and test_metrics.get('rpd') != float('inf') else '',
             f"{test_metrics.get('bias', ''):.3f}" if test_metrics.get('bias') else '',
-            f"{test_metrics.get('q_value', ''):.2f}" if test_metrics.get('q_value') and test_metrics.get('q_value') != float('inf') else '',
             f"{test_metrics.get('consistency', ''):.1f}" if test_metrics.get('consistency') else ''
         ])
         rows.append(test_row)
@@ -708,8 +729,14 @@ class TabReportGenerator:
 
     def _save_classification_tab(self, metrics: Dict[str, Dict], report_path: str, tab_data: Dict[str, Any]) -> None:
         """Save classification tab report."""
-        # Define column headers for classification
-        headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Precision', 'Recall', 'F1-score', 'Specificity', 'AUC']
+        # Check if this is binary classification to determine if AUC should be included
+        is_binary = self._is_binary_classification(metrics)
+
+        # Define column headers for classification (conditionally include AUC)
+        if is_binary:
+            headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Precision', 'Recall', 'F1-score', 'Specificity', 'AUC']
+        else:
+            headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Precision', 'Recall', 'F1-score', 'Specificity']
 
         # Create rows
         rows = []
@@ -726,9 +753,10 @@ class TabReportGenerator:
             f"{cv_metrics.get('precision', ''):.3f}" if cv_metrics.get('precision') else '',
             f"{cv_metrics.get('recall', ''):.3f}" if cv_metrics.get('recall') else '',
             f"{cv_metrics.get('f1', ''):.3f}" if cv_metrics.get('f1') else '',
-            f"{cv_metrics.get('specificity', ''):.3f}" if cv_metrics.get('specificity') else '',
-            f"{cv_metrics.get('auc', ''):.3f}" if cv_metrics.get('auc') else ''
+            f"{cv_metrics.get('specificity', ''):.3f}" if cv_metrics.get('specificity') else ''
         ])
+        if is_binary:
+            cv_row.append(f"{cv_metrics.get('auc', ''):.3f}" if cv_metrics.get('auc') else '')
         rows.append(cv_row)
 
         # Train row
@@ -741,9 +769,10 @@ class TabReportGenerator:
             f"{train_metrics.get('precision', ''):.3f}" if train_metrics.get('precision') else '',
             f"{train_metrics.get('recall', ''):.3f}" if train_metrics.get('recall') else '',
             f"{train_metrics.get('f1', ''):.3f}" if train_metrics.get('f1') else '',
-            f"{train_metrics.get('specificity', ''):.3f}" if train_metrics.get('specificity') else '',
-            f"{train_metrics.get('auc', ''):.3f}" if train_metrics.get('auc') else ''
+            f"{train_metrics.get('specificity', ''):.3f}" if train_metrics.get('specificity') else ''
         ])
+        if is_binary:
+            train_row.append(f"{train_metrics.get('auc', ''):.3f}" if train_metrics.get('auc') else '')
         rows.append(train_row)
 
         # Test row
@@ -756,9 +785,10 @@ class TabReportGenerator:
             f"{test_metrics.get('precision', ''):.3f}" if test_metrics.get('precision') else '',
             f"{test_metrics.get('recall', ''):.3f}" if test_metrics.get('recall') else '',
             f"{test_metrics.get('f1', ''):.3f}" if test_metrics.get('f1') else '',
-            f"{test_metrics.get('specificity', ''):.3f}" if test_metrics.get('specificity') else '',
-            f"{test_metrics.get('auc', ''):.3f}" if test_metrics.get('auc') else ''
+            f"{test_metrics.get('specificity', ''):.3f}" if test_metrics.get('specificity') else ''
         ])
+        if is_binary:
+            test_row.append(f"{test_metrics.get('auc', ''):.3f}" if test_metrics.get('auc') else '')
         rows.append(test_row)
 
         # Write CSV
@@ -766,3 +796,11 @@ class TabReportGenerator:
             writer = csv.writer(csvfile)
             writer.writerow(headers)
             writer.writerows(rows)
+
+    def _is_binary_classification(self, metrics: Dict[str, Dict]) -> bool:
+        """Check if this is binary classification based on available metrics."""
+        # Check if AUC is available in any partition (AUC is typically only calculated for binary)
+        for partition_metrics in metrics.values():
+            if partition_metrics.get('auc') is not None:
+                return True
+        return False

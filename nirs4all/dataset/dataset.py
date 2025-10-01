@@ -30,12 +30,20 @@ class SpectroDataset:
         self._targets = Targets()
         self._folds = []
         self._metadata = Metadata()
-        self._predictions = Predictions()
+        # self._predictions = Predictions()
         self.name = name
 
     def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
         indices = self._indexer.x_indices(selector)
         return self._features.x(indices, layout, concat_source)
+
+    def x_train(self, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
+        selector = {"partition": "train"}
+        return self._features.x(selector, layout, concat_source)
+
+    def x_test(self, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
+        selector = {"partition": "test"}
+        return self._features.x(selector, layout, concat_source)
 
     def y(self, selector: Selector) -> np.ndarray:
         indices = self._indexer.y_indices(selector)
@@ -45,6 +53,14 @@ class SpectroDataset:
             processing = "numeric"
 
         return self._targets.y(indices, processing)
+
+    def y_train(self) -> np.ndarray:
+        selector = {"partition": "train", "y": "numeric"}
+        return self._targets.y(selector)
+
+    def y_test(self) -> np.ndarray:
+        selector = {"partition": "test", "y": "numeric"}
+        return self._targets.y(selector)
 
     # FEATURES
     def add_samples(self,

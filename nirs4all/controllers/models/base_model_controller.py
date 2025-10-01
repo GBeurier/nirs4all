@@ -106,7 +106,12 @@ class BaseModelController(OperatorController, ABC):
 
         # Store prediction store for use in training methods
         from nirs4all.dataset.predictions import Predictions
-        self.current_prediction_store = prediction_store or Predictions()
+
+        # CRITICAL: Ensure we use the external prediction store if provided
+        if prediction_store is not None:
+            self.current_prediction_store = prediction_store
+        else:
+            self.current_prediction_store = Predictions()
 
         # Extract model configuration
         model_config = self._extract_model_config(step, operator)
@@ -322,8 +327,10 @@ class BaseModelController(OperatorController, ABC):
                 fold_match = re.search(r'_fold(\d+)', best_model)
                 fold_info = f"(fold:{fold_match.group(1)})" if fold_match else ""
 
-            # Print best for config in the requested format
-            print(f"🏆 Best for config: {best_model} - {model_classname} - test: loss({primary_metric})={primary_value:.3f}{direction} ({secondary_metric}: {secondary_value:.4f}) {fold_info} score({primary_metric})={unscaled_score:.4f}  (config_name)")
+            # Print best for model in the requested format
+            print(f"🏆 Best for Model: {best_model} - {model_classname} - test: "
+                  f"loss({primary_metric})={primary_value:.3f}{direction} ({secondary_metric}: {secondary_value:.4f}) "
+                  f"score({primary_metric})={unscaled_score:.4f}")
 
     def launch_training(
         self,
@@ -796,13 +803,13 @@ class BaseModelController(OperatorController, ABC):
     def _print_average_results(self, avg_predictions: Dict, dataset: 'SpectroDataset'):
         """Print average and weighted average results."""
         if not avg_predictions:
-            print("⚠️ No average predictions to print")
+            # print("⚠️ No average predictions to print")
             return
 
-        print(f"📊 Found {len(avg_predictions)} average predictions to print")
+        # print(f"📊 Found {len(avg_predictions)} average predictions to print")
 
         for pred_key, pred_data in avg_predictions.items():
-            print(f"🔍 Checking prediction: {pred_key} with partition {pred_data.get('partition', 'N/A')}")
+            # print(f"🔍 Checking prediction: {pred_key} with partition {pred_data.get('partition', 'N/A')}")
 
             # Only print test partition averages
             if 'test' in pred_data.get('partition', ''):
