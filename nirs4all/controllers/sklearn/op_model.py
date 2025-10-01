@@ -17,7 +17,7 @@ from sklearn.model_selection import cross_val_score
 from sklearn.metrics import mean_squared_error, accuracy_score
 from sklearn.base import is_classifier, is_regressor
 
-from ..models.abstract_model_controller import AbstractModelController
+from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.model_utils import ModelUtils
 
@@ -27,10 +27,10 @@ if TYPE_CHECKING:
 
 
 @register_controller
-class SklearnModelController(AbstractModelController):
+class SklearnModelController(BaseModelController):
     """Controller for scikit-learn models."""
 
-    priority = 5  # Higher priority than TransformerMixin (10) to win matching
+    priority = 6  # Higher priority than TransformerMixin (10) to win matching
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
@@ -241,10 +241,13 @@ class SklearnModelController(AbstractModelController):
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None
+        loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
+        prediction_store: Optional[Any] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute sklearn model controller with score management."""
-        # print(f"🔬 Executing sklearn model controller")
+        # Set layout preference for sklearn models
+        context = context.copy()
+        context['layout'] = self.get_preferred_layout()
 
         # Call parent execute method
-        return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries)
+        return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries, prediction_store)

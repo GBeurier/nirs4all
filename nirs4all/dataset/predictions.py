@@ -169,13 +169,19 @@ class Predictions:
         y_true = np.asarray(y_true)
         y_pred = np.asarray(y_pred)
 
+        # Fix shape mismatch by reshaping both to consistent format
+        if y_true.ndim == 2 and y_true.shape[1] == 1:
+            y_true = y_true.flatten()
+        if y_pred.ndim == 2 and y_pred.shape[1] == 1:
+            y_pred = y_pred.flatten()
+
         # Validate shapes match
         if y_true.shape != y_pred.shape:
             raise ValueError(f"Shape mismatch: y_true {y_true.shape} vs y_pred {y_pred.shape}")
 
         # Create sample indices if not provided
-        if sample_indices is None:
-            sample_indices = list(range(len(y_true)))
+        # if sample_indices is None:
+            # sample_indices = list(range(len(y_true)))
 
         # Store prediction with new schema
         self._predictions[key] = {
@@ -188,7 +194,7 @@ class Predictions:
             'partition': partition,
             'y_true': y_true.copy(),
             'y_pred': y_pred.copy(),
-            'sample_indices': list(sample_indices),
+            'sample_indices': list(sample_indices) if sample_indices is not None else list(range(len(y_true))),
             'fold_idx': fold_idx,
             'metadata': metadata or {},
             'path': self.run_path,
@@ -260,28 +266,7 @@ class Predictions:
         key = f"{dataset}_{pipeline}_{model}_{partition}"
         return self._predictions.get(key)
 
-    def combine_folds(
-        self,
-        dataset: str,
-        pipeline: str,
-        model: str,
-        partition_pattern: str = "val_fold"
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Combine predictions from multiple folds.
 
-        Args:
-            dataset: Dataset name
-            pipeline: Pipeline name
-            model: Model name
-            partition_pattern: Pattern to match (e.g., "val_fold" for validation folds)
-
-        Returns:
-            Combined prediction data or None if no matching folds found
-        """
-        return PredictionHelpers.combine_folds(
-            self._predictions, dataset, pipeline, model, partition_pattern, self.run_path
-        )
 
     def list_keys(self) -> List[str]:
         """List all available prediction keys."""
@@ -574,3 +559,28 @@ class Predictions:
         PredictionHelpers.display_best_scores_summary(
             self._predictions, dataset_name, predictions_before_count, all_keys
         )
+
+
+
+    # def combine_folds(
+    #     self,
+    #     dataset: str,
+    #     pipeline: str,
+    #     model: str,
+    #     partition_pattern: str = "val_fold"
+    # ) -> Optional[Dict[str, Any]]:
+    #     """
+    #     Combine predictions from multiple folds.
+
+    #     Args:
+    #         dataset: Dataset name
+    #         pipeline: Pipeline name
+    #         model: Model name
+    #         partition_pattern: Pattern to match (e.g., "val_fold" for validation folds)
+
+    #     Returns:
+    #         Combined prediction data or None if no matching folds found
+    #     """
+    #     return PredictionHelpers.combine_folds(
+    #         self._predictions, dataset, pipeline, model, partition_pattern, self.run_path
+    #     )

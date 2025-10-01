@@ -76,22 +76,27 @@ class PipelineRunner:
 
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> List[Tuple[SpectroDataset, PipelineHistory, Any]]:
         """Run pipeline configurations on dataset configurations."""
+
         nb_combinations = len(pipeline_configs.steps) * len(dataset_configs.configs)
         print(f"🚀 Starting pipeline run with {len(pipeline_configs.steps)} pipeline configuration(s) on {len(dataset_configs.configs)} dataset configuration(s) ({nb_combinations} total runs).")
+
         results = []
         global_pred_db = Predictions()
+
         # Get datasets from DatasetConfigs
         for config, name in dataset_configs.configs:
             print("=" * 200)
-            existing_predictions = 0
+
             dataset_pred_db = Predictions()  # Initialize here to avoid None issues
             run_dataset_pred_db = Predictions()
-            dataset_name = name
+
             for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
-                dataset = dataset_configs.get_dataset(config, dataset_name)
+
+                dataset = dataset_configs.get_dataset(config, name)
+                dataset_name = dataset.name
+
                 if self.verbose > 0:
                     print(dataset)
-                dataset_name = dataset.name
 
                 if i == 0 and self.load_existing_predictions:
                     loaded_predictions = Predictions.load_dataset_predictions(dataset, self.saver)
@@ -99,38 +104,47 @@ class PipelineRunner:
                         dataset_pred_db = loaded_predictions
                         existing_predictions = len(dataset_pred_db._predictions.keys())
 
-                self._run_single(steps, config_name, dataset)
-                # results.append(result)
+                # NEW: Create a prediction store for this pipeline run
+                pipeline_prediction_store = Predictions()
 
-                dataset_pred_db.merge_predictions(dataset._predictions)
-                run_dataset_pred_db.merge_predictions(dataset._predictions)
-                global_pred_db.merge_predictions(dataset._predictions)
+                # NEW: Pass prediction store to _run_single
+                self._run_single(steps, config_name, dataset, pipeline_prediction_store)
+
+                # Keep existing merge logic
+                dataset_pred_db.merge_predictions(pipeline_prediction_store)
+                run_dataset_pred_db.merge_predictions(pipeline_prediction_store)
+                global_pred_db.merge_predictions(pipeline_prediction_store)
+
             if dataset_pred_db is not None:
-                dataset_pred_db.display_best_scores_summary(dataset_name, existing_predictions)
+                dataset_pred_db.display_best_scores_summary(dataset_name, existing_predictions) ###ICI  check syntax
                 dataset_pred_db.save_to_file(str(self.saver.base_path / dataset_name / f"{dataset_name}_predictions.json"))
 
                 # Generate best score tab report
                 if self.enable_tab_reports:
-                    self._generate_best_score_tab_report(dataset_pred_db, dataset_name, dataset)
+                    self._generate_best_score_tab_report(dataset_pred_db, dataset_name, dataset) ###ICI  move to prediction_helpers
 
             results.append((dataset_pred_db, run_dataset_pred_db))
 
         return global_pred_db, results
 
-    def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset) -> SpectroDataset:
-        """Run a single pipeline configuration on a single dataset."""
+    def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset, pipeline_prediction_store: 'Predictions') -> SpectroDataset:
+        """Run a single pipeline configuration on a single dataset with external prediction store."""
         # Reset runner state for each run
-        self.history = PipelineHistory()
+        # self.history = PipelineHistory()
         self.step_number = 0
         self.substep_number = -1
         self.operation_count = 0
         self.step_binaries = {}
+
+        # Store the prediction store for this pipeline run
+        self.current_pipeline_prediction_store = pipeline_prediction_store
 
         print("=" * 200)
         print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
         print("-" * 200)
 
         storage_path = self.saver.register(dataset.name, config_name)
+
         dataset._predictions.run_path = str(storage_path)
         self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
@@ -140,21 +154,21 @@ class PipelineRunner:
         try:
             self.run_steps(steps, dataset, context, execution="sequential")
 
-            # Save enhanced configuration with metadata if saving binaries
-            enhanced_config = {
-                "steps": PipelineConfigs.serializable_steps(steps),
-                "execution_metadata": {
-                    "step_binaries": self.step_binaries,
-                    "created_at": datetime.now().isoformat(),
-                    "pipeline_version": "1.0",
-                    "mode": self.mode
-                }
-            }
-            self.saver.save_json("pipeline.json", enhanced_config)
+            # # Save enhanced configuration with metadata if saving binaries
+            # enhanced_config = {
+            #     "steps": PipelineConfigs.serializable_steps(steps),
+            #     "execution_metadata": {
+            #         "step_binaries": self.step_binaries,
+            #         "created_at": datetime.now().isoformat(),
+            #         "pipeline_version": "1.0",
+            #         "mode": self.mode
+            #     }
+            # }
+            self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
             # Display best score for this specific config
             if hasattr(dataset, '_predictions') and dataset._predictions:
-                self._display_best_for_config(dataset, config_name)
+                self._display_best_for_config(dataset, config_name) ###ICI  move to prediction_helpers
 
             print(f"\033[94m✅ Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
 
@@ -360,7 +374,8 @@ class PipelineRunner:
                 self,
                 source,
                 self.mode,
-                loaded_binaries
+                loaded_binaries,
+                getattr(self, 'current_pipeline_prediction_store', None)  # Pass prediction store
             )
         else:
             # Execute without spinner
@@ -372,7 +387,8 @@ class PipelineRunner:
                 self,
                 source,
                 self.mode,
-                loaded_binaries
+                loaded_binaries,
+                getattr(self, 'current_pipeline_prediction_store', None)  # Pass prediction store
             )
 
         # Always show final score for model controllers when verbose=0

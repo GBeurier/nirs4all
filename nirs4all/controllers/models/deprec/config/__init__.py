@@ -84,7 +84,7 @@ class CVConfig:
     inner_cv: Optional[int] = None
     outer_cv: Optional[int] = None
     use_full_train_for_final: bool = False
-    n_folds: int = 5
+    n_folds: int = 3
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'CVConfig':
@@ -108,7 +108,7 @@ class CVConfig:
             inner_cv=config_dict.get('inner_cv'),
             outer_cv=config_dict.get('outer_cv'),
             use_full_train_for_final=config_dict.get('use_full_train_for_final', False),
-            n_folds=config_dict.get('n_folds', 5)
+            n_folds=config_dict.get('n_folds', 3)
         )
 
 

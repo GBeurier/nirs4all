@@ -3,10 +3,11 @@ OperatorRegistry.py
 A registry for operator controllers in the nirs4all pipeline.
 """
 
+from typing import Type
 from .controller import OperatorController
 
 CONTROLLER_REGISTRY = []
-def register_controller(operator_cls: OperatorController):
+def register_controller(operator_cls: Type[OperatorController]):
     """Decorator to register a controller class."""
     global CONTROLLER_REGISTRY
     if not issubclass(operator_cls, OperatorController):

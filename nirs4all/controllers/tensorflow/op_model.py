@@ -14,7 +14,7 @@ Matches TensorFlow/Keras model objects and model configurations.
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 
-from ..models.abstract_model_controller import AbstractModelController
+from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 
@@ -32,7 +32,7 @@ except ImportError:
 
 
 @register_controller
-class TensorFlowModelController(AbstractModelController):
+class TensorFlowModelController(BaseModelController):
     """Controller for TensorFlow/Keras models."""
 
     priority = 20  # Same priority as sklearn
@@ -654,7 +654,9 @@ class TensorFlowModelController(AbstractModelController):
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is not available. Please install tensorflow.")
 
-        # print("🧠 Executing TensorFlow model controller")
+        # Set layout preference for TensorFlow models
+        context = context.copy()
+        context['layout'] = self.get_preferred_layout()
 
         # Call parent execute method
         return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries)

@@ -55,7 +55,8 @@ class TransformerMixinController(OperatorController):
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
+        prediction_store: Optional[Any] = None
     ):
         """
         Execute transformer on dataset, fitting on train data and transforming all data.

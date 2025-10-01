@@ -48,7 +48,8 @@ class YTransformerMixinController(OperatorController):
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
-        loaded_binaries: Any = None
+        loaded_binaries: Any = None,
+        prediction_store: Any = None
     ):
         """
         Execute transformer on dataset targets, fitting on train targets and transforming all targets.
