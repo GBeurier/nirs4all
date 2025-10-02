@@ -3,9 +3,10 @@ learning course - ipynb
 >>> Vérifier les sauvegardes des fichiers
 
 Bin operator with bounds or count + warning class assymetry
-Chart controller with x, y, folds, 3d, 2d operators.
 ** RELEASE **
+[SEED]
 [Augmentation + Balanced Augmentation]
+Chart controller with x, y, folds, 3d, 2d operators.
 [SHAP] > display with moving window (size, step)
 [CLI]
 [METADATA]

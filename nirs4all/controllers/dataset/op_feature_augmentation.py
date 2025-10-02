@@ -61,7 +61,7 @@ class FeatureAugmentationController(OperatorController):
 
                 # Assigner une nouvelle copie à chaque fois
                 local_context["processing"] = copy.deepcopy(source_processings)
-                runner.run_step(operation, dataset, local_context, is_substep=True)
+                runner.run_step(operation, dataset, local_context, prediction_store, is_substep=True)
 
             return context, []
 

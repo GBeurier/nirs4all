@@ -83,13 +83,13 @@ class PipelineRunner:
 
         datasets_predictions = {}
         run_predictions = Predictions()
-        results = []  # Fix: Initialize results list
 
         # Get datasets from DatasetConfigs
         for config, name in dataset_configs.configs:
             print("=" * 200)
 
-            global_dataset_predictions = Predictions.load_dataset_predictions(name, self.saver)
+            dataset_prediction_path = self.saver.base_path / name / "predictions.json"
+            global_dataset_predictions = Predictions.load_from_file_cls(dataset_prediction_path)
             run_dataset_predictions = Predictions()
 
             for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
@@ -107,13 +107,16 @@ class PipelineRunner:
                 run_dataset_predictions.merge_predictions(config_predictions)
                 run_predictions.merge_predictions(config_predictions)
 
-            global_dataset_predictions.save_to_file(str(self.saver.base_path / dataset_name / f"{dataset_name}_predictions.json"))
-            run_dataset_predictions.display_best(context_name="Run") ### 🏆 Best for Run: PLS-20_cp_avg - PLSRegression - test: loss(mse)=0.008↓ (mae: 0.0726) score(mse)=8.0753
-            if self.enable_tab_reports:
-                PredictionHelpers.generate_best_score_tab_report(run_dataset_predictions, dataset_name, str(self.saver.base_path / dataset_name), True, dataset)
-            global_dataset_predictions.display_best(context_name="Overall") ### 🥇 Best overall for dataset (regression): PLS-20_cp_fold_w_avg_step_0_config_pipeline_Q1_bed651 (config_pipeline) - loss(mse)=0.0092↓ - score(mse): 9.1709
-            if self.enable_tab_reports:
-                PredictionHelpers.generate_best_score_tab_report(global_dataset_predictions, dataset_name, str(self.saver.base_path / dataset_name), True, dataset)
+            global_dataset_predictions.save_to_file(dataset_prediction_path)
+
+            best = run_dataset_predictions.get_best()
+            print(f"🏆 Best for Run: {Predictions.pred_long_string(best)}")
+            # if self.enable_tab_reports:
+                # PredictionHelpers.generate_best_score_tab_report(run_dataset_predictions, dataset_name, str(self.saver.base_path / dataset_name), True, dataset)
+            best_overall = global_dataset_predictions.get_best()
+            print(f"🏆 Best Overall: {Predictions.pred_long_string(best_overall)}")
+            # if self.enable_tab_reports:
+                # PredictionHelpers.generate_best_score_tab_report(global_dataset_predictions, dataset_name, str(self.saver.base_path / dataset_name), True, dataset)
 
             # Generate best score tab report
             datasets_predictions[dataset_name] = {
@@ -134,9 +137,6 @@ class PipelineRunner:
         self.operation_count = 0
         self.step_binaries = {}
 
-        # Store the prediction store for this pipeline run
-        self.current_config_predictions = config_predictions
-
         print("=" * 200)
         print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
         print("-" * 200)
@@ -144,15 +144,15 @@ class PipelineRunner:
         storage_path = self.saver.register(dataset.name, config_name)
 
         # Store run path in config_predictions instead of dataset
-        if hasattr(config_predictions, 'run_path'):
-            config_predictions.run_path = str(storage_path)
+        # if hasattr(config_predictions, 'run_path'):
+        #     config_predictions.run_path = str(storage_path)
         self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
         # Initialize context
         context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
 
         try:
-            self.run_steps(steps, dataset, context, execution="sequential")
+            self.run_steps(steps, dataset, context, execution="sequential", prediction_store=config_predictions)
 
             # # Save enhanced configuration with metadata if saving binaries
             # enhanced_config = {
@@ -166,11 +166,9 @@ class PipelineRunner:
             # }
             self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
-            # Display best score for this specific config
-            if config_predictions:
-                self._display_best_for_config(config_predictions, config_name)  # ICI move to prediction_helpers
-
-            print(f"\033[94m✅ Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
+            pipeline_best = config_predictions.get_best()
+            print(f"🥇 Pipeline Best: {Predictions.pred_long_string(pipeline_best)}")
+            print(f"\033[94m🏁 Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
 
         except Exception as e:
             print(f"\033[91m❌ Pipeline {config_name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
@@ -180,7 +178,7 @@ class PipelineRunner:
 
         return dataset
 
-    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]], execution: str = "sequential", is_substep: bool = False) -> Dict[str, Any]:
+    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]], execution: str = "sequential", prediction_store: Optional['Predictions'] = None, is_substep: bool = False) -> Dict[str, Any]:
         """Run a list of steps with enhanced context management and DatasetView support."""
         if not isinstance(steps, list):
             steps = [steps]
@@ -195,7 +193,7 @@ class PipelineRunner:
             elif isinstance(context, dict):
                 # print("🔄 Running steps sequentially with shared context")
                 for step in steps:
-                    context = self.run_step(step, dataset, context, is_substep=is_substep)
+                    context = self.run_step(step, dataset, context, prediction_store, is_substep=is_substep)
                     # print(f"🔹 Updated context after step: {context}")
                 self.substep_number = -1  # Reset sub-step number after sequential execution
                 return context
@@ -203,9 +201,9 @@ class PipelineRunner:
         elif execution == "parallel" and self.parallel:
             # print(f"🔄 Running steps in parallel with {self.max_workers} workers")
             with parallel_backend(self.backend, n_jobs=self.max_workers):
-                Parallel()(delayed(self.run_step)(step, dataset, context) for step, context in zip(steps, context))
+                Parallel()(delayed(self.run_step)(step, dataset, context, prediction_store) for step, context in zip(steps, context))
 
-    def run_step(self, step: Any, dataset: SpectroDataset, context: Dict[str, Any], *, is_substep: bool = False):
+    def run_step(self, step: Any, dataset: SpectroDataset, context: Dict[str, Any], prediction_store: Optional['Predictions'] = None, *, is_substep: bool = False):
         """
         Run a single pipeline step with enhanced context management and DatasetView support.
         """
@@ -289,7 +287,7 @@ class PipelineRunner:
                 # print(f"🔄 Selected controller: {controller.__class__.__name__}")
                 context["step_id"] = self.step_number
                 return self._execute_controller(
-                    controller, step, operator, dataset, context, -1, loaded_binaries
+                    controller, step, operator, dataset, context, prediction_store, -1, loaded_binaries
                 )
 
 
@@ -328,6 +326,7 @@ class PipelineRunner:
         operator: Any,
         dataset: SpectroDataset,
         context: Dict[str, Any],
+        prediction_store: Optional['Predictions'] = None,
         source: Union[int, List[int]] = -1,
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None
     ):
@@ -375,7 +374,7 @@ class PipelineRunner:
                 source,
                 self.mode,
                 loaded_binaries,
-                getattr(self, 'current_config_predictions', None)  # Pass prediction store
+                prediction_store
             )
         else:
             # Execute without spinner
@@ -388,7 +387,7 @@ class PipelineRunner:
                 source,
                 self.mode,
                 loaded_binaries,
-                getattr(self, 'current_config_predictions', None)  # Pass prediction store
+                prediction_store
             )
 
         # Always show final score for model controllers when verbose=0
@@ -856,81 +855,5 @@ class PipelineRunner:
         """Get the next operation ID."""
         self.operation_count += 1
         return self.operation_count
-
-    def _display_best_for_config(self, config_predictions: 'Predictions', config_name: str) -> None:
-        """Display best score for this specific config."""
-        try:
-            from nirs4all.utils.model_utils import ModelUtils
-
-            # Get all predictions for this config from the CURRENT RUN ONLY
-            all_keys = config_predictions.list_keys()
-
-            # Filter to current run path to avoid old results
-            current_run_path = getattr(config_predictions, 'run_path', '')
-            if current_run_path:
-                # Extract the run identifier from the path (last part after slash/backslash)
-                run_id = current_run_path.split('\\')[-1].split('/')[-1] if current_run_path else ''
-                current_run_keys = [key for key in all_keys if run_id in key] if run_id else all_keys
-            else:
-                current_run_keys = all_keys
-
-            config_prediction_keys = [key for key in current_run_keys if config_name in key]
-
-            if not config_prediction_keys:
-                return
-
-            best_score = None
-            best_model = None
-            best_key = None
-            higher_is_better = False
-
-            for key in config_prediction_keys:
-                # Get prediction data using the new schema
-                pred_data = config_predictions._predictions.get(key)
-
-                # Only consider test partition predictions to avoid train overfitting
-                if pred_data and 'y_true' in pred_data and 'y_pred' in pred_data and pred_data.get('partition') == 'test':
-                    task_type = ModelUtils.detect_task_type(pred_data['y_true'])
-                    scores = ModelUtils.calculate_scores(pred_data['y_true'], pred_data['y_pred'], task_type)
-                    best_metric, metric_higher_is_better = ModelUtils.get_best_score_metric(task_type)
-                    score = scores.get(best_metric)
-
-                    higher_is_better = metric_higher_is_better
-
-                    if score is not None:
-                        if (best_score is None or
-                                (higher_is_better and score > best_score) or
-                                (not higher_is_better and score < best_score)):
-                            best_score = score
-                            best_key = key
-                            # Use real_model name for display (includes operation counter)
-                            real_model = pred_data.get('real_model', pred_data.get('model', 'unknown'))
-                            best_model = real_model
-
-            if best_score is not None and best_model is not None and best_key is not None:
-                direction = "↑" if higher_is_better else "↓"
-
-                # Format display name as: Step_Core_Counter - config_id
-                # Extract core name from real_model (e.g., "3_PLSRegression_2_fold0_step0..." -> "PLSRegression")
-                parts = best_model.split('_')
-                if len(parts) >= 3:
-                    step_num = parts[0]  # e.g., "3"
-                    core_name = parts[1]  # e.g., "PLSRegression"
-                    counter = parts[2]   # e.g., "2"
-
-                    # Get config ID from pred_data
-                    pred_data = config_predictions._predictions.get(best_key)
-                    config_id = pred_data.get('metadata', {}).get('config_id', 'unknown') if pred_data else 'unknown'
-
-                    display_name = f"{step_num}_{core_name}_{counter} - {config_id}"
-                else:
-                    display_name = best_model
-
-                print(f"🏆 Best model in Pipeline: {display_name} - {best_metric}={best_score:.4f}{direction}")
-
-        except Exception as e:
-            print(f"⚠️ Could not display best for config: {e}")
-            import traceback
-            traceback.print_exc()
 
 
