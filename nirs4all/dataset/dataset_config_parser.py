@@ -1,4 +1,41 @@
 from pathlib import Path
+from typing import Dict, Any
+
+def normalize_config_keys(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize dataset configuration keys to standard format.
+    Maps variations like 'x_train', 'X_train', 'Xtrain' to 'train_x'
+
+    Args:
+        config: Original configuration dictionary
+
+    Returns:
+        Normalized configuration with standardized keys
+    """
+    # Base patterns for each standard key
+    base_patterns = {
+        'train_x': ['train_x', 'x_train', 'xtrain', 'trainx'],
+        'train_y': ['train_y', 'y_train', 'ytrain', 'trainy'],
+        'test_x': ['test_x', 'x_test', 'xtest', 'testx', 'val_x', 'x_val', 'xval', 'valx'],
+        'test_y': ['test_y', 'y_test', 'ytest', 'testy', 'val_y', 'y_val', 'yval', 'valy'],
+    }
+
+    # Build case-insensitive mapping
+    key_mappings = {}
+    for standard_key, variations in base_patterns.items():
+        for variation in variations:
+            # Add all case combinations
+            key_mappings[variation.lower()] = standard_key
+            key_mappings[variation.upper()] = standard_key
+            key_mappings[variation.capitalize()] = standard_key
+            key_mappings[variation.title()] = standard_key
+
+    normalized_config = {}
+    for key, value in config.items():
+        normalized_key = key_mappings.get(key.lower(), key)
+        normalized_config[normalized_key] = value
+
+    return normalized_config
 
 def _s_(path):
     """Convert path(s) to POSIX format. Handles both single paths and lists of paths."""
@@ -73,15 +110,31 @@ def parse_config(data_config):
         if "folder" in data_config:
             return browse_folder(data_config["folder"], data_config.get("params")), folder_to_name(data_config["folder"])
         else:
+            # Normalize keys before processing
+            normalized_config = normalize_config_keys(data_config)
+
             # a full config dict
-            required_keys_pattern = ['train_x', 'test_x']
-            if all(key in data_config for key in required_keys_pattern):
-                train_file = data_config.get("train_x")
+            # print(f"🔍 Parsing dataset config dict: {normalized_config.keys()}")
+            # Accept configs with either train_x or test_x (for prediction scenarios)
+            required_keys_pattern = ['train_x']
+            alternative_keys_pattern = ['test_x']
+
+            if all(key in normalized_config for key in required_keys_pattern):
+                # Standard case: has train_x
+                train_file = normalized_config.get("train_x")
                 if isinstance(train_file, list):
                     train_file = train_file[0]
                 train_file = Path(str(train_file))
                 dataset_name = f"{train_file.parent.name}_{train_file.stem}"
-                return data_config, dataset_name
+                return normalized_config, dataset_name
+            elif all(key in normalized_config for key in alternative_keys_pattern):
+                # Prediction case: has test_x but no train_x
+                test_file = normalized_config.get("test_x")
+                if isinstance(test_file, list):
+                    test_file = test_file[0]
+                test_file = Path(str(test_file))
+                dataset_name = f"{test_file.parent.name}_{test_file.stem}"
+                return normalized_config, dataset_name
 
     print(f"❌ Error in config: unsupported dataset config >> {type(data_config)}: {data_config}")
     return None, 'Unknown_dataset'
