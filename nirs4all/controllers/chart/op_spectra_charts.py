@@ -114,7 +114,7 @@ class SpectraChartController(OperatorController):
                 # Show the plot
                 # plt.show()
                 image_name = "2D" if not is_3d else "3D"
-                image_name += f"-{processing_name}_samples"
+                image_name += "_Chart_"
                 if dataset.is_multi_source():
                     image_name += f" (src {sd_idx})"
                 image_name += ".png"

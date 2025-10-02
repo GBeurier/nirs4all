@@ -32,6 +32,7 @@ class SpectroDataset:
         self._metadata = Metadata()
         # self._predictions = Predictions()
         self.name = name
+        self._task_type: Optional[str] = None  # "regression", "binary_classification", "multiclass_classification"
 
     def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
         indices = self._indexer.x_indices(selector)
@@ -76,7 +77,6 @@ class SpectroDataset:
         self._features.update_features([], features, processings)
         # Update the indexer to add new processings to existing processing lists
         self._indexer.add_processings(processings)
-
 
     def replace_features(self,
                          source_processings: ProcessingList,
@@ -125,18 +125,48 @@ class SpectroDataset:
     def features_sources(self) -> int:
         return len(self._features.sources)
 
-
     def is_multi_source(self) -> bool:
         return len(self._features.sources) > 1
-
-
 
     # def targets(self, filter: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
     #     indices = self._indexer.samples(filter)
     #     return self._targets.y(indices=indices, encoding=encoding)
 
+    #     return self._targets.y(indices=indices, encoding=encoding)
+
+    #     return self._targets.y(indices=indices, encoding=encoding)
+
     def add_targets(self, y: np.ndarray) -> None:
         self._targets.add_targets(y)
+        # Detect and set task type when targets are added
+        self._task_type = self._detect_task_type(y)
+
+    def _detect_task_type(self, y: np.ndarray) -> str:
+        """
+        Detect task type from target values.
+
+        Returns:
+            str: "regression", "binary_classification", or "multiclass_classification"
+        """
+        y_flat = np.array(y).flatten()
+        y_clean = y_flat[~np.isnan(y_flat)]  # Remove NaN values
+
+        if len(y_clean) == 0:
+            return "regression"  # Default
+
+        unique_values = np.unique(y_clean)
+        n_unique = len(unique_values)
+
+        # Check if values are integer-like (classification)
+        is_integer_like = np.allclose(y_clean, np.round(y_clean), atol=1e-10)
+
+        if is_integer_like and n_unique <= 50:  # Reasonable threshold for classification
+            if n_unique == 2:
+                return "binary_classification"
+            elif n_unique > 2:
+                return "multiclass_classification"
+
+        return "regression"
 
     def add_processed_targets(self,
                               processing_name: str,
@@ -144,6 +174,26 @@ class SpectroDataset:
                               ancestor_processing: str = "numeric",
                               transformer: Optional[TransformerMixin] = None) -> None:
         self._targets.add_processed_targets(processing_name, targets, ancestor_processing, transformer)
+        # Update task type if this is the first target processing
+        if self._task_type is None:
+            self._task_type = self._detect_task_type(targets)
+
+    @property
+    def task_type(self) -> Optional[str]:
+        """Get the detected task type."""
+        return self._task_type
+
+    def set_task_type(self, task_type: str) -> None:
+        """
+        Manually set the task type.
+
+        Args:
+            task_type: "regression", "binary_classification", or "multiclass_classification"
+        """
+        valid_types = ["regression", "binary_classification", "multiclass_classification"]
+        if task_type not in valid_types:
+            raise ValueError(f"Invalid task type. Must be one of: {valid_types}")
+        self._task_type = task_type
 
     # def set_targets(self, filter: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
     #     self._targets.set_y(filter, y, transformer, new_processing)
@@ -170,7 +220,6 @@ class SpectroDataset:
 
     def index_column(self, col: str, filter: Dict[str, Any] = {}) -> List[int]:
         return self._indexer.get_column_values(col, filter)
-
 
     @property
     def num_folds(self) -> int:
@@ -203,15 +252,16 @@ class SpectroDataset:
 
     def __str__(self):
         txt = f"📊 Dataset: {self.name}"
+        if self._task_type:
+            txt += f" ({self._task_type})"
         txt += "\n" + str(self._features)
         txt += "\n" + str(self._targets)
         txt += "\n" + str(self._indexer)
         if self._folds:
             txt += f"\nFolds: {self._fold_str()}"
         return txt
-        # return f"SpectroDataset(features={self.features}, targets={self.targets}, metadata={self.metadata}, folds={self.folds}, predictions={self.predictions})"
 
-    ### PRINTING AND SUMMARY ###
+    # PRINTING AND SUMMARY
     def print_summary(self) -> None:
         """
         Print a comprehensive summary of the dataset.
@@ -219,7 +269,16 @@ class SpectroDataset:
         Shows counts, dimensions, number of sources, target versions, predictions, etc.
         """
         print("=== SpectroDataset Summary ===")
-        print()        # Features summary
+        print()
+
+        # Task type
+        if self._task_type:
+            print(f"🎯 Task Type: {self._task_type}")
+        else:
+            print("🎯 Task Type: Not detected (no targets added yet)")
+        print()
+
+        # Features summary
         if self._features.sources:
             total_samples = self._features.num_samples
             n_sources = len(self._features.sources)
@@ -232,7 +291,7 @@ class SpectroDataset:
             print("📊 Features: No data")
         print()
 
-    ### io ###
+    # IO methods (commented out)
     # def save(self, path: str) -> None:
     #     """
     #     Save the dataset to disk.

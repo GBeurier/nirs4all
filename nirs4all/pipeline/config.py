@@ -42,8 +42,10 @@ class PipelineConfigs:
             self.steps = [self.steps]  # Wrap single configuration in a list
 
         ## Name and hash
+        if name == "":
+            name = "config"
         self.names = [
-            "config_" + (self.get_hash(steps) if name == "" else name + "_" + self.get_hash(steps)[0:6])
+            name + "_" + self.get_hash(steps)[0:6]
             for steps in self.steps
         ]
 

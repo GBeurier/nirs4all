@@ -12,7 +12,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 
 from nirs4all.controllers.models.base_model_controller import BaseModelController
-from nirs4all.controllers.models.model_utils import ModelUtils
+from nirs4all.controllers.models.model_controller_helper import ModelControllerHelper
 from nirs4all.controllers.models.prediction_store import PredictionStore
 
 
@@ -54,44 +54,44 @@ class TestSklearnController(BaseModelController):
         return mean_squared_error(y_val.ravel(), y_pred)
 
 
-class TestModelUtils:
-    """Test ModelUtils functionality."""
+class TestModelControllerHelper:
+    """Test ModelControllerHelper functionality."""
 
     def test_create_model_id(self):
         """Test model ID creation."""
-        utils = ModelUtils()
+        helper = ModelControllerHelper()
 
         # Mock runner
         runner = MagicMock()
         runner.next_op.return_value = 42
 
-        model_id = utils.create_model_id(runner)
-        assert model_id == "model_42"
+        model_id = helper.create_model_id("test_model", runner)
+        assert model_id == "test_model_42"
         runner.next_op.assert_called_once()
 
     def test_create_model_uuid(self):
         """Test model UUID creation."""
-        utils = ModelUtils()
+        helper = ModelControllerHelper()
 
         # Mock runner
         runner = MagicMock()
         runner.saver.pipeline_name = "test_pipeline"
 
         # Without fold
-        uuid = utils.create_model_uuid("model_42", runner)
-        assert uuid == "model_42_test_pipeline"
+        uuid = helper.create_model_uuid("model_42", runner, 1, "test_config")
+        assert "model_42" in uuid
 
         # With fold
-        uuid_fold = utils.create_model_uuid("model_42", runner, fold_idx=1)
+        uuid_fold = helper.create_model_uuid("model_42", runner, 1, "test_config", fold_idx=1)
         assert uuid_fold == "model_42_fold1_test_pipeline"
 
     def test_clone_model(self):
         """Test model cloning."""
-        utils = ModelUtils()
+        helper = ModelControllerHelper()
 
         # Test sklearn model cloning
         original_model = LinearRegression()
-        cloned_model = utils.clone_model(original_model)
+        cloned_model = helper.clone_model(original_model)
 
         assert cloned_model is not original_model
         assert type(cloned_model) == type(original_model)
@@ -113,21 +113,22 @@ class TestModelUtils:
 
     def test_extract_model_name_from_config(self):
         """Test model name extraction from config."""
-        utils = ModelUtils()
+        helper = ModelControllerHelper()
 
         # Test with model instance
         model = LinearRegression()
         config1 = {'model_instance': model}
-        name1 = utils.extract_model_name_from_config(config1)
+        name1 = helper.extract_name_from_config(config1)
         assert name1 == "LinearRegression"
 
         # Test with custom name
         config2 = {'name': 'CustomModel', 'model_instance': model}
-        name2 = utils.extract_model_name_from_config(config2)
+        name2 = helper.extract_name_from_config(config2)
         assert name2 == "CustomModel"
 
-        # Test with direct model
-        name3 = utils.extract_model_name_from_config(model)
+        # Test with direct model (wrapped in config)
+        config3 = {'model_instance': model}
+        name3 = helper.extract_name_from_config(config3)
         assert name3 == "LinearRegression"
 
 

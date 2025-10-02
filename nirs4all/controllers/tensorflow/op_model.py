@@ -14,6 +14,9 @@ Matches TensorFlow/Keras model objects and model configurations.
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 
+if TYPE_CHECKING:
+    from nirs4all.dataset.predictions import Predictions
+
 from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.model_utils import ModelUtils, TaskType
@@ -504,7 +507,10 @@ class TensorFlowModelController(BaseModelController):
 
     def _predict_model(self, model: Any, X: np.ndarray) -> np.ndarray:
         """Generate predictions with TensorFlow model."""
-        predictions = model.predict(X, verbose=0)
+        # Prepare data to ensure correct shape for model
+        X_prepared, _ = self._prepare_data(X, None, {})
+
+        predictions = model.predict(X_prepared, verbose=0)
 
         # Ensure predictions are in the correct shape
         if predictions.ndim == 1:
@@ -515,13 +521,14 @@ class TensorFlowModelController(BaseModelController):
     def _prepare_data(
         self,
         X: np.ndarray,
-        y: np.ndarray,
+        y: Optional[np.ndarray],
         context: Dict[str, Any]
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """Prepare data for TensorFlow (proper tensor formatting)."""
         # Convert to float32 for TensorFlow
         X = X.astype(np.float32)
-        y = y.astype(np.float32)
+        if y is not None:
+            y = y.astype(np.float32)
 
         # TensorFlow CNNs typically expect 3D input (batch, time_steps, features)
         # If X is 2D (batch, features), we need to determine if it should be reshaped
@@ -541,7 +548,7 @@ class TensorFlowModelController(BaseModelController):
             X = X.reshape(1, X.shape[0], 1)
 
         # Ensure y has proper shape (flatten for most cases)
-        if y.ndim > 1 and y.shape[1] == 1:
+        if y is not None and y.ndim > 1 and y.shape[1] == 1:
             y = y.flatten()
 
         # print(f"📊 TensorFlow data prepared: X.shape={X.shape}, y.shape={y.shape}")
@@ -660,7 +667,7 @@ class TensorFlowModelController(BaseModelController):
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
-        prediction_store: Optional[Any] = None
+        prediction_store: 'Predictions' = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         """Execute TensorFlow model controller."""
         if not TF_AVAILABLE:
@@ -671,4 +678,4 @@ class TensorFlowModelController(BaseModelController):
         context['layout'] = self.get_preferred_layout()
 
         # Call parent execute method
-        return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries)
+        return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries, prediction_store)

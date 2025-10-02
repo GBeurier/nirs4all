@@ -5,6 +5,7 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.dataset import DatasetConfigs
+from nirs4all.dataset.predictions import Predictions
 from nirs4all.operators.transformations import Detrend, FirstDerivative, SecondDerivative, Gaussian, StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
@@ -32,24 +33,22 @@ for i in range(10, 30, 10):
     }
     pipeline.append(model)
 
-pipeline_config = PipelineConfigs(pipeline, "pipeline_Q1")
+pipeline_config = PipelineConfigs(pipeline, "Q1")
 dataset_config = DatasetConfigs(dataset_folder)
 
 # Create pipeline with verbose=1 to see debug output
 runner = PipelineRunner(save_files=False, verbose=0)
-run_predictions, datasets_predictions = runner.run(pipeline_config, dataset_config)
+predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_config)
 
 ###############################################################################################################
 
-analyzer = PredictionAnalyzer(run_predictions)
-
 # Get top models to verify the real model names are displayed correctly
 best_count = 5
-top_10 = analyzer.get_top_k(best_count, 'rmse')
+top_10 = predictions.top_k(best_count, 'rmse')
 print(f"Top {best_count} models by RMSE:")
 for i, model in enumerate(top_10):
-    print(f"{i+1}. Model: {model['enhanced_model_name']} | RMSE: {model['metrics']['rmse']:.6f} | MSE: {model['metrics']['mse']:.6f} | R²: {model['metrics']['r2']:.6f}  - Pipeline: {model['pipeline_info']['pipeline_name']}")
+    print(f"{i+1}. {Predictions.pred_long_string(model, metrics=['rmse', 'r2', 'mae'])}")
 
-# Plot comparison with enhanced names (for readability in plots)
-fig = analyzer.plot_top_k_comparison(k=best_count, metric='rmse', partition_type='test')
+analyzer = PredictionAnalyzer(predictions)
+fig = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
 plt.show()

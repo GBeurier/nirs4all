@@ -1,9 +1,9 @@
 """
-Model Utilities - Simple utilities for model operations
+Model Controller Helper - Utilities for model instantiation, serialization and naming
 
-This module contains all the utility functions for model naming, cloning,
-score calculation and other model operations that were scattered throughout
-the original controller. This keeps the main controller clean and focused.
+This module contains utilities for model naming, cloning, instantiation
+and serialization operations that are specific to the controller layer.
+Score calculation and other general utilities have been moved to utils.model_utils.
 """
 
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -16,19 +16,17 @@ if TYPE_CHECKING:
 
 try:
     from sklearn.base import clone as sklearn_clone
-    from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-    from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
 
 
-class ModelUtils:
+class ModelControllerHelper:
     """
-    Simple model utilities for naming, cloning, and scoring.
+    Model controller helper for naming, cloning, and instantiation.
 
-    Centralizes all model-related utility functions that were
-    spread across the original monolithic controller.
+    Centralizes model-related utility functions specific to the controller layer.
+    General scoring and evaluation utilities are in utils.model_utils.
     """
 
     def __init__(self):
@@ -39,7 +37,6 @@ class ModelUtils:
         Extract Core Name: User-provided name or class name.
         This is the base name provided by the user or derived from the class.
         """
-        print(">>>> model_config:", model_config)
         if isinstance(model_config, dict):
             if 'name' in model_config:
                 return model_config['name']
@@ -78,114 +75,6 @@ class ModelUtils:
         # Fallback for other types
         return self.get_model_class_name(model_config)
 
-    def create_simple_name(self, core_name: str, fold_idx: Optional[int] = None) -> str:
-        """
-        Create Simple Name: Core Name + fold number if applicable.
-        Used for printing results when there's no ambiguity on config and step.
-        Examples: 'PLSRegression', 'PLSRegression_fold_0'
-        """
-        if fold_idx is not None:
-            return f"{core_name}_fold_{fold_idx}"
-        return core_name
-
-    def create_display_name_for_fold(self, local_name: str, fold_idx: Optional[int] = None) -> str:
-        """
-        Create display name for fold training: Local Name + Fold:X format.
-        Used for printing during fold training.
-        Examples: 'PLSRegression_17 Fold:0', 'nicon_25 Fold:1'
-        """
-        if fold_idx is not None:
-            return f"{local_name} Fold:{fold_idx}"
-        return local_name
-
-    def create_local_name(self, core_name: str, op_counter: int) -> str:
-        """
-        Create Local Name: Core Name + operation counter.
-        Unique within a config context. Used as base for saving models.
-        Examples: 'PLSRegression_17', 'MyCustomModel_5'
-        """
-        return f"{core_name}_{op_counter}"
-
-    def create_model_file_name(self, local_name: str, step: int) -> str:
-        """
-        Create Model File Name: Step + Local Name + .pkl
-        Used for saving model files.
-        Examples: '3_PLSRegression_12.pkl', '4_MyCustomModel_5.pkl'
-        """
-        return f"{step}_{local_name}.pkl"
-
-    def create_uuid(self, local_name: str, step: int, fold_idx: Optional[int],
-                    dataset_name: str, config_id: str) -> str:
-        """
-        Create UUID: Global unique identifier for database keys.
-        Format: Step_LocalName_fold{X}_step{Y}_{dataset}_{config}
-        Examples: '4_PLSRegression_3_fold0_step0_regression_config_7dbfba05'
-        """
-        uuid_parts = [f"{step}_{local_name}"]
-
-        if fold_idx is not None:
-            uuid_parts.append(f"fold{fold_idx}")
-
-        uuid_parts.extend([f"step{step}", dataset_name, config_id])
-        return "_".join(uuid_parts)
-
-    def get_model_names(self, model_config: Dict[str, Any], model: Any, runner: 'PipelineRunner',
-                        step: int, fold_idx: Optional[int] = None,
-                        dataset_name: str = "unknown") -> Dict[str, str]:
-        """
-        Generate all model names at once for consistency.
-        Returns a dictionary with all naming variants.
-        """
-        # Extract core name
-        core_name = self.extract_core_name(model_config)
-        print(">>>> Core Name:", core_name)
-
-        # Get operation counter
-        op_counter = runner.next_op()
-
-        # Get config ID
-        config_id = getattr(runner.saver, 'pipeline_name', 'unknown') if hasattr(runner, 'saver') else 'unknown'
-        print(">>>> Config ID:", config_id)
-
-        # Generate all names
-        simple_name = self.create_simple_name(core_name, fold_idx)
-        local_name = self.create_local_name(core_name, op_counter)
-        model_file_name = self.create_model_file_name(local_name, step)
-        uuid = self.create_uuid(local_name, step, fold_idx, dataset_name, config_id)
-
-        return {
-            'core_name': core_name,
-            'simple_name': simple_name,
-            'local_name': local_name,
-            'model_file_name': model_file_name,
-            'uuid': uuid,
-            'op_counter': op_counter
-        }
-
-    # Backward compatibility methods for legacy code
-    def extract_name_from_config(self, model_config: Dict[str, Any]) -> str:
-        """Legacy method - returns core_name for backward compatibility."""
-        return self.extract_core_name(model_config)
-
-    def create_model_id(self, name: str, runner: 'PipelineRunner') -> str:
-        """Legacy method - returns local_name for backward compatibility."""
-        op_counter = runner.next_op()
-        return self.create_local_name(name, op_counter)
-
-    def create_model_uuid(self, model_id: str, runner: 'PipelineRunner',
-                          step: int, config_id: str, fold_idx: Optional[int] = None) -> str:
-        """Legacy method - creates UUID from existing model_id."""
-        # Extract parts from legacy model_id format
-        parts = model_id.split('_')
-        if len(parts) >= 2:
-            core_name = '_'.join(parts[:-1])  # Everything except last part
-            op_counter = int(parts[-1])  # Last part is op_counter
-            local_name = self.create_local_name(core_name, op_counter)
-        else:
-            local_name = model_id
-
-        dataset_name = "unknown"  # Default for legacy calls
-        return self.create_uuid(local_name, step, fold_idx, dataset_name, config_id)
 
     def clone_model(self, model: Any) -> Any:
         """
@@ -207,10 +96,12 @@ class ModelUtils:
         try:
             if hasattr(model, '_get_trainable_state'):  # Keras model
                 # For Keras models, we need to rebuild
-                model_config = model.get_config()
-                model_class = model.__class__
-                cloned_model = model_class.from_config(model_config)
-                return cloned_model
+                if hasattr(model, 'get_config') and hasattr(model.__class__, 'from_config'):
+                    # Use Any to bypass typing issues with dynamic model types
+                    model_config = getattr(model, 'get_config')()
+                    model_class = model.__class__
+                    cloned_model = getattr(model_class, 'from_config')(model_config)
+                    return cloned_model
         except Exception:
             pass
 
@@ -238,96 +129,8 @@ class ModelUtils:
         if inspect.isfunction(model) or inspect.isbuiltin(model):
             return f"{model.__name__}"
 
-        # if hasattr(model, '__class__'):
-            # return model.__class__.__name__
         else:
             return str(type(model).__name__)
-
-    def calculate_scores(
-        self,
-        y_true: np.ndarray,
-        y_pred: np.ndarray,
-        task_type: str = "auto"
-    ) -> Dict[str, float]:
-        """
-        Calculate scores for the predictions.
-
-        Automatically detects regression vs classification and calculates
-        appropriate metrics.
-        """
-
-        if not SKLEARN_AVAILABLE:
-            return {}
-
-        # Ensure arrays are numpy and flatten
-        y_true = np.asarray(y_true).flatten()
-        y_pred = np.asarray(y_pred).flatten()
-
-        # Auto-detect task type if needed
-        if task_type == "auto":
-            task_type = self._detect_task_type(y_true)
-
-        scores = {}
-
-        try:
-            if task_type == "regression":
-                # Regression metrics
-                scores['mse'] = mean_squared_error(y_true, y_pred)
-                scores['rmse'] = np.sqrt(scores['mse'])
-                scores['mae'] = mean_absolute_error(y_true, y_pred)
-                scores['r2'] = r2_score(y_true, y_pred)
-
-            elif task_type == "classification":
-                # Classification metrics
-                scores['accuracy'] = accuracy_score(y_true, y_pred)
-                scores['f1'] = f1_score(y_true, y_pred, average='weighted')
-                scores['precision'] = precision_score(y_true, y_pred, average='weighted')
-                scores['recall'] = recall_score(y_true, y_pred, average='weighted')
-
-        except Exception as e:
-            print(f"⚠️ Error calculating scores: {e}")
-
-        return scores
-
-    def _detect_task_type(self, y: np.ndarray) -> str:
-        """
-        Detect if this is a regression or classification task.
-        """
-        y = np.asarray(y).flatten()
-
-        # Check if all values are integers and within a reasonable range for classification
-        if np.all(y == y.astype(int)) and len(np.unique(y)) < 50:
-            return "classification"
-        else:
-            return "regression"
-
-    def get_best_metric_for_task(self, task_type: str) -> tuple[str, bool]:
-        """
-        Get the best metric for a given task type.
-
-        Returns:
-            tuple: (metric_name, higher_is_better)
-        """
-        if task_type == "regression":
-            return "rmse", False  # Lower RMSE is better
-        elif task_type == "classification":
-            return "accuracy", True  # Higher accuracy is better
-        else:
-            return "rmse", False  # Default
-
-    def format_scores(self, scores: Dict[str, float]) -> str:
-        """Format scores dictionary into a readable string."""
-        if not scores:
-            return "no scores"
-
-        formatted = []
-        for metric, value in scores.items():
-            if isinstance(value, (int, float)):
-                formatted.append(f"{metric}={value:.4f}")
-            else:
-                formatted.append(f"{metric}={value}")
-
-        return ", ".join(formatted)
 
     def extract_classname_from_config(self, model_config: Dict[str, Any]) -> str:
         """

@@ -167,7 +167,7 @@ class SklearnModelController(BaseModelController):
         context: Dict[str, Any]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Prepare data for sklearn (ensure 2D X and 2D y for consistency)."""
-        if X is None or y is None:
+        if X is None:
             return None, None
 
         # Ensure X is 2D
@@ -177,11 +177,13 @@ class SklearnModelController(BaseModelController):
         elif X.ndim == 1:
             X = X.reshape(-1, 1)
 
-        # Ensure y is 2D for consistency with predictions
-        if y.ndim == 1:
-            y = y.reshape(-1, 1)
-        elif y.ndim > 2:
-            y = y.reshape(y.shape[0], -1)
+        # Handle y (can be None for prediction-only scenarios)
+        if y is not None:
+            # Ensure y is 2D for consistency with predictions
+            if y.ndim == 1:
+                y = y.reshape(-1, 1)
+            elif y.ndim > 2:
+                y = y.reshape(y.shape[0], -1)
 
         return X, y
 
