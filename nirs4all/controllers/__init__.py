@@ -26,7 +26,7 @@ from .log.op_dummy import DummyController
 # Import model controllers FIRST (higher priority for supervised models)
 from .sklearn.op_model import SklearnModelController
 from .tensorflow.op_model import TensorFlowModelController
-from .torch.op_model import PyTorchModelController
+# from .torch.op_model import PyTorchModelController
 
 # Then import transformers (lower priority)
 from .sklearn.op_transformermixin import TransformerMixinController
@@ -52,6 +52,6 @@ __all__ = [
     'YChartController',
     'SklearnModelController',
     'TensorFlowModelController',
-    'PyTorchModelController',
+    # 'PyTorchModelController',
     # Archived operations not included
 ]

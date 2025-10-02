@@ -10,7 +10,7 @@ import numpy as np
 import polars as pl
 from pathlib import Path
 import json
-
+import nirs4all.dataset.evaluator as Evaluator
 
 class Predictions:
     """
@@ -26,15 +26,15 @@ class Predictions:
     - model_name: str
     - model_classname: str
     - model_path: str
-    - fold_id: Optional[int]
+    - fold_id: str
     - sample_indices: List[int] (stored as string)
     - weights: Optional[List[float]] (stored as string)
     - metadata: Dict[str, Any] (stored as JSON string)
     - partition: str
     - y_true: List[float] (stored as string)
     - y_pred: List[float] (stored as string)
-    - loss_score: Optional[float]
-    - eval_score: Optional[float]
+    - val_score: Optional[float]
+    - test_score: Optional[float]
     - metric: str
     - task_type: str
     - n_samples: int
@@ -53,15 +53,15 @@ class Predictions:
             "model_name": pl.Utf8,
             "model_classname": pl.Utf8,
             "model_path": pl.Utf8,
-            "fold_id": pl.Int64,
+            "fold_id": pl.Utf8,
             "sample_indices": pl.Utf8,  # JSON string
             "weights": pl.Utf8,  # JSON string
             "metadata": pl.Utf8,  # JSON string
             "partition": pl.Utf8,
             "y_true": pl.Utf8,  # JSON string
             "y_pred": pl.Utf8,  # JSON string
-            "loss_score": pl.Float64,
-            "eval_score": pl.Float64,
+            "val_score": pl.Float64,
+            "test_score": pl.Float64,
             "metric": pl.Utf8,
             "task_type": pl.Utf8,
             "n_samples": pl.Int64,
@@ -70,16 +70,6 @@ class Predictions:
 
         if filepath and Path(filepath).exists():
             self.load_from_file(filepath)
-
-    @property
-    def _predictions(self) -> Dict[str, Dict[str, Any]]:
-        """Compatibility property to simulate the old predictions dictionary interface."""
-        predictions_dict = {}
-        for key in self.list_keys():
-            pred_data = self.get_prediction_by_key(key)
-            if pred_data:
-                predictions_dict[key] = pred_data
-        return predictions_dict
 
     def add_prediction(
         self,
@@ -92,15 +82,15 @@ class Predictions:
         model_name: str = "",
         model_classname: str = "",
         model_path: str = "",
-        fold_id: Optional[int] = None,
+        fold_id: str | int= None,
         sample_indices: Optional[List[int]] = None,
         weights: Optional[List[float]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         partition: str = "",
         y_true: Optional[np.ndarray] = None,
         y_pred: Optional[np.ndarray] = None,
-        loss_score: Optional[float] = None,
-        eval_score: Optional[float] = None,
+        val_score: Optional[float] = None,
+        test_score: Optional[float] = None,
         metric: str = "mse",
         task_type: str = "regression",
         n_samples: int = 0,
@@ -114,6 +104,7 @@ class Predictions:
         sample_indices_list = sample_indices if sample_indices is not None else []
         weights_list = weights if weights is not None else []
         metadata_dict = metadata if metadata is not None else {}
+        fold_id = str(fold_id)
 
         # Create new row
         new_row = pl.DataFrame([{
@@ -133,8 +124,8 @@ class Predictions:
             "partition": partition,
             "y_true": json.dumps(y_true_list),
             "y_pred": json.dumps(y_pred_list),
-            "loss_score": loss_score,
-            "eval_score": eval_score,
+            "val_score": val_score,
+            "test_score": test_score,
             "metric": metric,
             "task_type": task_type,
             "n_samples": n_samples,
@@ -155,15 +146,15 @@ class Predictions:
         model_name: Union[str, List[str]] = "",
         model_classname: Union[str, List[str]] = "",
         model_path: Union[str, List[str]] = "",
-        fold_id: Union[Optional[int], List[Optional[int]]] = None,
+        fold_id: Union[Optional[str], List[Optional[str]]] = None,
         sample_indices: Union[Optional[List[int]], List[Optional[List[int]]]] = None,
         weights: Union[Optional[List[float]], List[Optional[List[float]]]] = None,
         metadata: Union[Optional[Dict[str, Any]], List[Optional[Dict[str, Any]]]] = None,
         partition: Union[str, List[str]] = "",
         y_true: Union[Optional[np.ndarray], List[Optional[np.ndarray]]] = None,
         y_pred: Union[Optional[np.ndarray], List[Optional[np.ndarray]]] = None,
-        loss_score: Union[Optional[float], List[Optional[float]]] = None,
-        eval_score: Union[Optional[float], List[Optional[float]]] = None,
+        val_score: Union[Optional[float], List[Optional[float]]] = None,
+        test_score: Union[Optional[float], List[Optional[float]]] = None,
         metric: Union[str, List[str]] = "mse",
         task_type: Union[str, List[str]] = "regression",
         n_samples: Union[int, List[int]] = 0,
@@ -188,15 +179,15 @@ class Predictions:
             model_name: Model name(s) - can be single string or list
             model_classname: Model classname(s) - can be single string or list
             model_path: Model path(s) - can be single string or list
-            fold_id: Fold ID(s) - can be single int/None or list
+            fold_id: Fold ID(s) - can be single string or list
             sample_indices: Sample indices - can be single list or list of lists
             weights: Weights - can be single list or list of lists
             metadata: Metadata - can be single dict or list of dicts
             partition: Partition(s) - can be single string or list
             y_true: True values - can be single array or list of arrays
             y_pred: Predicted values - can be single array or list of arrays
-            loss_score: Loss score(s) - can be single float or list
-            eval_score: Evaluation score(s) - can be single float or list
+            val_score: Loss score(s) - can be single float or list
+            test_score: Evaluation score(s) - can be single float or list
             metric: Metric(s) - can be single string or list
             task_type: Task type(s) - can be single string or list
             n_samples: Number of samples - can be single int or list
@@ -220,8 +211,8 @@ class Predictions:
             'partition': partition,
             'y_true': y_true,
             'y_pred': y_pred,
-            'loss_score': loss_score,
-            'eval_score': eval_score,
+            'val_score': val_score,
+            'test_score': test_score,
             'metric': metric,
             'task_type': task_type,
             'n_samples': n_samples,
@@ -264,7 +255,7 @@ class Predictions:
         partition: Optional[str] = None,
         config_name: Optional[str] = None,
         model_name: Optional[str] = None,
-        fold_id: Optional[int] = None,
+        fold_id: Optional[str] = None,
         step_idx: Optional[int] = None,
         **kwargs
     ) -> List[Dict[str, Any]]:
@@ -353,54 +344,54 @@ class Predictions:
 
         return list(set(keys))  # Remove duplicates
 
-    def get_prediction_by_key(self, key: str) -> Optional[Dict[str, Any]]:
-        """Get prediction data by key (for compatibility with old interface)."""
-        # Parse key format: dataset/config/model/partition[_fold_X]
-        parts = key.split('/')
-        if len(parts) < 4:
-            return None
+    # def get_prediction_by_key(self, key: str) -> Optional[Dict[str, Any]]:
+    #     """Get prediction data by key (for compatibility with old interface)."""
+    #     # Parse key format: dataset/config/model/partition[_fold_X]
+    #     parts = key.split('/')
+    #     if len(parts) < 4:
+    #         return None
 
-        dataset_name, config_name, model_name, partition_part = parts[:4]
+    #     dataset_name, config_name, model_name, partition_part = parts[:4]
 
-        # Extract fold info if present
-        fold_id = None
-        partition = partition_part
-        if '_fold_' in partition_part:
-            partition, fold_part = partition_part.split('_fold_')
-            try:
-                fold_id = int(fold_part)
-            except ValueError:
-                pass
+    #     # Extract fold info if present
+    #     fold_id = None
+    #     partition = partition_part
+    #     if '_fold_' in partition_part:
+    #         partition, fold_part = partition_part.split('_fold_')
+    #         try:
+    #             fold_id = int(fold_part)
+    #         except ValueError:
+    #             pass
 
-        # Query the DataFrame
-        filter_expr = (
-            (pl.col('dataset_name') == dataset_name) &
-            (pl.col('config_name') == config_name) &
-            (pl.col('model_name') == model_name) &
-            (pl.col('partition') == partition)
-        )
+    #     # Query the DataFrame
+    #     filter_expr = (
+    #         (pl.col('dataset_name') == dataset_name) &
+    #         (pl.col('config_name') == config_name) &
+    #         (pl.col('model_name') == model_name) &
+    #         (pl.col('partition') == partition)
+    #     )
 
-        if fold_id is not None:
-            filter_expr = filter_expr & (pl.col('fold_id') == fold_id)
+    #     if fold_id is not None:
+    #         filter_expr = filter_expr & (pl.col('fold_id') == fold_id)
 
-        matches = self._df.filter(filter_expr)
+    #     matches = self._df.filter(filter_expr)
 
-        if len(matches) == 0:
-            return None
+    #     if len(matches) == 0:
+    #         return None
 
-        # Return the first match as a dictionary with the expected format
-        row = matches.row(0, named=True)
-        return {
-            'dataset_name': row['dataset_name'],
-            'config_name': row['config_name'],
-            'model_name': row['model_name'],
-            'partition': row['partition'],
-            'fold_id': row['fold_id'],
-            'y_true': json.loads(row['y_true']) if row['y_true'] else [],
-            'y_pred': json.loads(row['y_pred']) if row['y_pred'] else [],
-            'eval_score': row['eval_score'],
-            'metric': row['metric'],
-        }
+    #     # Return the first match as a dictionary with the expected format
+    #     row = matches.row(0, named=True)
+    #     return {
+    #         'dataset_name': row['dataset_name'],
+    #         'config_name': row['config_name'],
+    #         'model_name': row['model_name'],
+    #         'partition': row['partition'],
+    #         'fold_id': row['fold_id'],
+    #         'y_true': json.loads(row['y_true']) if row['y_true'] else [],
+    #         'y_pred': json.loads(row['y_pred']) if row['y_pred'] else [],
+    #         'test_score': row['test_score'],
+    #         'metric': row['metric'],
+    #     }
 
     def save_to_file(self, filepath: str) -> None:
         """Save predictions to JSON file."""
@@ -413,7 +404,7 @@ class Predictions:
             with open(filepath, 'w') as f:
                 json.dump(data, f, indent=2)
 
-            print(f"💾 Saved {len(self._df)} predictions to {filepath}")
+            # print(f"💾 Saved {len(self._df)} predictions to {filepath}")
 
         except Exception as e:
             print(f"⚠️ Error saving predictions to {filepath}: {e}")
@@ -547,11 +538,11 @@ class Predictions:
 
     def top_k(self, k: int = 5, metric: str = "", ascending: bool = True, **filters) -> List[Dict[str, Any]]:
         """
-        Get top K predictions ranked by metric, loss_score, or eval_score.
+        Get top K predictions ranked by metric, val_score, or test_score.
         By default filters to test partition unless otherwise specified.
 
         Args:
-            metric: Metric name to rank by ("" for eval_score, "loss" for loss_score, else calculate metric on-the-fly)
+            metric: Metric name to rank by ("" for test_score, "loss" for val_score, else calculate metric on-the-fly)
             k: Number of top results to return (-1 to return all filtered predictions)
             ascending: If True, lower scores rank higher (for error metrics)
             **filters: Additional filter criteria
@@ -561,7 +552,7 @@ class Predictions:
         """
         # Add default partition filter if not specified
         if 'partition' not in filters:
-            filters['partition'] = 'test'
+            filters['partition'] = 'val'
 
         # First filter the entries
         df_filtered = self._df
@@ -575,7 +566,7 @@ class Predictions:
         # Handle different ranking scenarios
         if metric == "" or metric == "loss":
             # Use existing stored scores
-            rank_col = "loss_score" if metric == "loss" else "eval_score"
+            rank_col = "val_score"
             df_ranked = df_filtered.filter(pl.col(rank_col).is_not_null())
             if df_ranked.is_empty():
                 return []
@@ -644,7 +635,8 @@ class Predictions:
             # Sort by computed metric and return top k (or all if k=-1)
             if not scores_data:
                 return []
-
+            if ModelUtils._is_higher_better(metric):
+                ascending = not ascending  # Reverse for higher is better
             scores_data.sort(key=lambda x: x["computed_score"], reverse=not ascending)
 
             # Return all results if k=-1, otherwise return top k
@@ -655,11 +647,11 @@ class Predictions:
 
     def get_best(self, metric: str = "", ascending: bool = True, **filters) -> Optional[Dict[str, Any]]:
         """
-        Get the best prediction for a specific metric, loss_score, or eval_score.
+        Get the best prediction for a specific metric, val_score, or test_score.
         This is an alias for top_k with k=1.
 
         Args:
-            metric: Metric name to optimize ("" for eval_score, "loss" for loss_score, else metric)
+            metric: Metric name to optimize ("" for test_score, "loss" for val_score, else metric)
             ascending: If True, lower scores are better (for error metrics)
             **filters: Additional filter criteria
 
@@ -676,7 +668,7 @@ class Predictions:
         By default filters to test partition unless otherwise specified.
 
         Args:
-            metric: Metric name to rank by ("" for eval_score, "loss" for loss_score, else metric)
+            metric: Metric name to rank by ("" for test_score, "loss" for val_score, else metric)
             k: Number of bottom results to return (-1 to return all filtered predictions)
             **filters: Additional filter criteria
 
@@ -735,7 +727,7 @@ class Predictions:
                     "dataset_name", "dataset_path", "config_name", "config_path",
                     "step_idx", "op_counter", "model_name", "model_classname", "model_path",
                     "fold_id", "sample_indices", "weights", "metadata", "partition",
-                    "y_true", "y_pred", "loss_score", "eval_score", "metric", "task_type",
+                    "y_true", "y_pred", "val_score", "test_score", "metric", "task_type",
                     "n_samples", "n_features"
                 ]
 
@@ -865,90 +857,22 @@ class Predictions:
                 f"   Configs: {configs}\n"
                 f"   Models: {models}")
 
+
+
+
+
     @classmethod
     def pred_short_string(cls, entry, metrics=None):
-        """
-        Generate short string representation of a prediction entry.
-
-        Args:
-            entry: Prediction entry dictionary
-            metrics: Single metric name or list of metric names to compute and display
-        """
-        # Compute metrics if requested
-        metrics_str = ""
+        scores_str = ""
         if metrics is not None:
-            try:
-                from ..utils.model_utils import ModelUtils, TaskType
-                import numpy as np
-                import json
+            scores = Evaluator.eval_list(entry['y_true'], entry['y_pred'], metrics=metrics)
+            scores_str = ", ".join([f"[{k}:{v:.4f}]" if k != 'rmse' else f"[{k}:{v:.4f}]" for k, v in zip(metrics, scores)])
 
-                # Handle single metric or list of metrics
-                if isinstance(metrics, str):
-                    metrics = [metrics]
-
-                # Deserialize prediction arrays
-                y_true = np.array(json.loads(entry["y_true"])) if isinstance(entry["y_true"], str) else np.array(entry["y_true"])
-                y_pred = np.array(json.loads(entry["y_pred"])) if isinstance(entry["y_pred"], str) else np.array(entry["y_pred"])
-
-                if len(y_true) > 0 and len(y_pred) > 0:
-                    model_utils = ModelUtils()
-                    all_scores = model_utils.calculate_scores(y_true, y_pred, TaskType.REGRESSION, metrics=metrics)
-
-                    # Format metrics string
-                    metric_parts = []
-                    for metric in metrics:
-                        if metric in all_scores:
-                            metric_parts.append(f"{metric}:{all_scores[metric]:.4f}")
-
-                    if metric_parts:
-                        metrics_str = f" | {', '.join(metric_parts)}"
-            except Exception:
-                # If metric calculation fails, continue without metrics
-                pass
-
-        return f"{entry['model_name']}_{entry['op_counter']} - fold({entry['fold_id']}) | score ({entry['metric']}): {entry['eval_score']}{metrics_str} [{entry['partition']}]"
+        short_desc = f"{entry['model_name']} - {entry['metric']} [test: {entry['test_score']:.4f}], [val: {entry['val_score']:.4f}]"
+        short_desc += f", {scores_str}"
+        short_desc += f" - (fold: {entry['fold_id']}, id: {entry['op_counter']}, step: {entry['step_idx']})"
+        return short_desc
 
     @classmethod
     def pred_long_string(cls, entry, metrics=None): ##ADAPT TO CLASSIFICATION
-        """
-        Generate long string representation of a prediction entry.
-
-        Args:
-            entry: Prediction entry dictionary
-            metrics: Single metric name or list of metric names to compute and display
-        """
-        # Compute metrics if requested
-        metrics_str = ""
-        if metrics is not None:
-            try:
-                from ..utils.model_utils import ModelUtils, TaskType
-                import numpy as np
-                import json
-
-                # Handle single metric or list of metrics
-                if isinstance(metrics, str):
-                    metrics = [metrics]
-
-                # Deserialize prediction arrays
-                y_true = np.array(json.loads(entry["y_true"])) if isinstance(entry["y_true"], str) else np.array(entry["y_true"])
-                y_pred = np.array(json.loads(entry["y_pred"])) if isinstance(entry["y_pred"], str) else np.array(entry["y_pred"])
-
-                if len(y_true) > 0 and len(y_pred) > 0:
-                    model_utils = ModelUtils()
-                    all_scores = model_utils.calculate_scores(y_true, y_pred, TaskType.REGRESSION, metrics=metrics)
-
-                    # Format metrics string
-                    metric_parts = []
-                    for metric in metrics:
-                        if metric in all_scores:
-                            metric_parts.append(f"{metric}:{all_scores[metric]:.4f}")
-
-                    if metric_parts:
-                        metrics_str = f" | {', '.join(metric_parts)}"
-            except Exception:
-                # If metric calculation fails, continue without metrics
-                pass
-
-        return (f"{entry['step_idx']}_{entry['model_name']}_{entry['op_counter']} - "
-                f"fold({entry['fold_id']}) | score ({entry['metric']}): {entry['eval_score']}"
-                f"{metrics_str}  -  {entry['config_name']} [{entry['partition']}]")
+        return Predictions.pred_short_string(entry, metrics=metrics) + f" | pipeline: {entry['config_name']}"

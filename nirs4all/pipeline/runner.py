@@ -86,7 +86,7 @@ class PipelineRunner:
 
         # Get datasets from DatasetConfigs
         for config, name in dataset_configs.configs:
-            print("=" * 200)
+            print("=" * 120)
 
             dataset_prediction_path = self.saver.base_path / name / "predictions.json"
             global_dataset_predictions = Predictions.load_from_file_cls(dataset_prediction_path)
@@ -110,11 +110,14 @@ class PipelineRunner:
             global_dataset_predictions.save_to_file(dataset_prediction_path)
 
             best = run_dataset_predictions.get_best()
-            print(f"🏆 Best for Run: {Predictions.pred_long_string(best)}")
+            print(f"🏆 Run best for dataset '{name}': {Predictions.pred_long_string(best)}")
             # if self.enable_tab_reports:
                 # PredictionHelpers.generate_best_score_tab_report(run_dataset_predictions, dataset_name, str(self.saver.base_path / dataset_name), True, dataset)
             best_overall = global_dataset_predictions.get_best()
-            print(f"🏆 Best Overall: {Predictions.pred_long_string(best_overall)}")
+            print(f"🏆 Best Overall for dataset '{name}': {Predictions.pred_long_string(best_overall)}")
+            print("=" * 120)
+            print("=" * 120)
+
             # if self.enable_tab_reports:
                 # PredictionHelpers.generate_best_score_tab_report(global_dataset_predictions, dataset_name, str(self.saver.base_path / dataset_name), True, dataset)
 
@@ -137,9 +140,9 @@ class PipelineRunner:
         self.operation_count = 0
         self.step_binaries = {}
 
-        print("=" * 200)
+        print("=" * 120)
         print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
-        print("-" * 200)
+        print("-" * 120)
 
         storage_path = self.saver.register(dataset.name, config_name)
 
@@ -167,8 +170,9 @@ class PipelineRunner:
             self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
             pipeline_best = config_predictions.get_best()
-            print(f"🥇 Pipeline Best: {Predictions.pred_long_string(pipeline_best)}")
+            print(f"🥇 Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
             print(f"\033[94m🏁 Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
+            print("=" * 120)
 
         except Exception as e:
             print(f"\033[91m❌ Pipeline {config_name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
@@ -305,12 +309,12 @@ class PipelineRunner:
 
         finally:
             if not is_substep:
-                print("-" * 200)
+                print("-" * 120)
                 after_dataset_str = str(dataset)
                 # print(before_dataset_str)
                 if before_dataset_str != after_dataset_str and self.verbose > 0:
                     print(f"\033[97mUpdate: {after_dataset_str}\033[0m")
-                    print("-" * 200)
+                    print("-" * 120)
 
     def _select_controller(self, step: Any, operator: Any = None, keyword: str = ""):
         matches = [cls for cls in CONTROLLER_REGISTRY if cls.matches(step, operator, keyword)]

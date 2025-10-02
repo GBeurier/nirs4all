@@ -4,10 +4,10 @@ Utility functions for the nirs4all package.
 
 from .backend_utils import (
     TF_AVAILABLE,
-    TORCH_AVAILABLE,
+    # TORCH_AVAILABLE,
     framework,
     is_tensorflow_available,
-    is_torch_available,
+    # is_torch_available,
     is_keras_available,
     is_jax_available,
     is_gpu_available
@@ -15,10 +15,10 @@ from .backend_utils import (
 
 __all__ = [
     'TF_AVAILABLE',
-    'TORCH_AVAILABLE',
+    # 'TORCH_AVAILABLE',
     'framework',
     'is_tensorflow_available',
-    'is_torch_available',
+    # 'is_torch_available',
     'is_keras_available',
     'is_jax_available',
     'is_gpu_available'

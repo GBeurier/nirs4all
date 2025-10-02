@@ -235,8 +235,8 @@ class BaseModelController(OperatorController, ABC):
         step_id = context['step_id']
         pipeline_name = runner.saver.pipeline_name
         dataset_name = dataset.name
-        model_name = self.model_helper.extract_core_name(model)
-        model_classname = model.__class__.__name__
+        model_classname = self.model_helper.extract_core_name(model)
+        model_name = model_config.get('name', model_classname)
         operation_counter = runner.next_op()
 
         # Apply best params if provided ####TODO RETRIEVE THE HOLD METHOD (construct with params !!!!)
@@ -294,10 +294,10 @@ class BaseModelController(OperatorController, ABC):
         test_indices = list(range(len(y_test_unscaled)))
 
         # Store individual predictions for each partition
-        for partition_name, indices, y_true_part, y_pred_part, score in [
-            ("train", train_indices, y_train_unscaled, y_train_pred_unscaled, score_train),
-            ("val", val_indices, y_val_unscaled, y_val_pred_unscaled, score_val),
-            ("test", test_indices, y_test_unscaled, y_test_pred_unscaled, score_test)
+        for partition_name, indices, y_true_part, y_pred_part in [
+            ("train", train_indices, y_train_unscaled, y_train_pred_unscaled),
+            ("val", val_indices, y_val_unscaled, y_val_pred_unscaled),
+            ("test", test_indices, y_test_unscaled, y_test_pred_unscaled)
         ]:
             prediction_store.add_prediction(
                 dataset_name=dataset_name,
@@ -316,15 +316,18 @@ class BaseModelController(OperatorController, ABC):
                 partition=partition_name,
                 y_true=y_true_part,
                 y_pred=y_pred_part,
-                loss_score=None,
-                eval_score=score,
+                val_score=score_val,
+                test_score=score_test,
                 metric=metric,
                 task_type=dataset.task_type,
                 n_samples=len(y_true_part),
                 n_features=X_train.shape[1]
             )
 
-        print(f"✅ Model {model_name}_{operation_counter} - {metric} on test: {score_test:.4f} {direction}")
+        short_desc = f"✅ {model_name} - {metric}{direction} [test: {score_test:.4f}], [val: {score_val:.4f}]"
+        if fold_idx not in [None, 'None', 'avg', 'w-avg']:
+            short_desc += f", (fold: {fold_idx}, id: {operation_counter})"
+        print(short_desc)
 
         return trained_model, f"{model_name}_{operation_counter}", score_val, model_name
 
@@ -542,15 +545,17 @@ class BaseModelController(OperatorController, ABC):
         score_val = Evaluator.eval(y_val_unscaled, all_val_avg_preds, metric)
         score_test = Evaluator.eval(y_test_unscaled, all_test_avg_preds, metric)
         avg_counter = runner.next_op()
-        print(f"✅ Model {base_model_name}_avg_{avg_counter} - {metric} on test: {score_test:.4f} {direction}")
+
+        short_desc = f"✅ {base_model_name} - {metric}{direction} [test: {score_test:.4f}], [val: {score_val:.4f}], (avg, id: {avg_counter})"
+        print(short_desc)
 
         folds_id = list(range(len(folds_models)))  # Fold IDs for averaging
 
         # Store average predictions for each partition
-        for partition_name, indices, y_true_part, y_pred_part, score in [
-            ("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_avg_preds, score_train),
-            ("val", all_val_indices.tolist(), y_val_unscaled, all_val_avg_preds, score_val),
-            ("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_avg_preds, score_test)
+        for partition_name, indices, y_true_part, y_pred_part in [
+            ("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_avg_preds),
+            ("val", all_val_indices.tolist(), y_val_unscaled, all_val_avg_preds),
+            ("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_avg_preds)
         ]:
             prediction_store.add_prediction(
                 dataset_name=dataset.name,
@@ -559,18 +564,18 @@ class BaseModelController(OperatorController, ABC):
                 config_path=f"{dataset.name}/{runner.saver.pipeline_name}",
                 step_idx=context['step_id'],
                 op_counter=avg_counter,
-                model_name=f"{base_model_name}_avg",
+                model_name=f"{base_model_name}",
                 model_classname=model_classname,
                 model_path="",
-                fold_id=None,  # No specific fold for average
+                fold_id="avg",
                 sample_indices=indices,
                 weights=None,
                 metadata={},
                 partition=partition_name,
                 y_true=y_true_part,
                 y_pred=y_pred_part,
-                loss_score=None,
-                eval_score=score,
+                val_score=score_val,
+                test_score=score_test,
                 metric=metric,
                 task_type=dataset.task_type,
                 n_samples=len(y_true_part),
@@ -597,13 +602,15 @@ class BaseModelController(OperatorController, ABC):
         score_val_w = Evaluator.eval(y_val_unscaled, all_val_w_avg_preds, metric)
         score_test_w = Evaluator.eval(y_test_unscaled, all_test_w_avg_preds, metric)
         w_avg_counter = runner.next_op()
-        print(f"✅ Model {base_model_name}_w_avg_{w_avg_counter} - {metric} on test: {score_test_w:.4f} {direction}")
+
+        short_desc = f"✅ {base_model_name} - {metric}{direction} [test: {score_test_w:.4f}], [val: {score_val_w:.4f}], (w_avg, id: {w_avg_counter})"
+        print(short_desc)
 
         # Store weighted average predictions for each partition
-        for partition_name, indices, y_true_part, y_pred_part, score, weight_list in [
-            ("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_w_avg_preds, score_train_w, weights.tolist()),
-            ("val", all_val_indices.tolist(), y_val_unscaled, all_val_w_avg_preds, score_val_w, weights.tolist()),
-            ("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_w_avg_preds, score_test_w, weights.tolist())
+        for partition_name, indices, y_true_part, y_pred_part, weight_list in [
+            ("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_w_avg_preds, weights.tolist()),
+            ("val", all_val_indices.tolist(), y_val_unscaled, all_val_w_avg_preds, weights.tolist()),
+            ("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_w_avg_preds, weights.tolist())
         ]:
             prediction_store.add_prediction(
                 dataset_name=dataset.name,
@@ -612,18 +619,18 @@ class BaseModelController(OperatorController, ABC):
                 config_path=f"{dataset.name}/{runner.saver.pipeline_name}",
                 step_idx=context['step_id'],
                 op_counter=w_avg_counter,
-                model_name=f"{base_model_name}_w_avg",
+                model_name=f"{base_model_name}",
                 model_classname=model_classname,
                 model_path="",
-                fold_id=None,  # No specific fold for weighted average
+                fold_id='w_avg',  # No specific fold for weighted average
                 sample_indices=indices,
                 weights=weight_list,
                 metadata={},
                 partition=partition_name,
                 y_true=y_true_part,
                 y_pred=y_pred_part,
-                loss_score=None,
-                eval_score=score,
+                val_score=score_val_w,
+                test_score=score_test_w,
                 metric=metric,
                 task_type=dataset.task_type,
                 n_samples=len(y_true_part),

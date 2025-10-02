@@ -595,7 +595,7 @@ class ModelUtils:
     @staticmethod
     def compute_ensemble_prediction(
         predictions_data: List[Dict[str, Any]],
-        score_metric: str = "eval_score",
+        score_metric: str = "test_score",
         prediction_key: str = "y_pred",
         metric_for_direction: Optional[str] = None,
         higher_is_better: Optional[bool] = None
