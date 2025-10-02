@@ -25,25 +25,25 @@ pipeline = [
     {"y_processing": MinMaxScaler},
     {"model": PLSRegression(15)},
     {"model": PLSRegression(10)},
-    {"model": RandomForestRegressor(n_estimators=100)},
-    {"model": ElasticNet()},
-    {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1), "name": "SVR_Custom_Model"},
-    {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500), "name": "MLP_Custom_Model"},
-    {"model": GradientBoostingRegressor(n_estimators=100)},
-    {
-        "model": nicon,
-        "train_params": {
-            "epochs": 5,
-            "patience": 50,
-            "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
-        },
-    },
+    # {"model": RandomForestRegressor(n_estimators=100)},
+    # {"model": ElasticNet()},
+    # {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1), "name": "SVR_Custom_Model"},
+    # {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500), "name": "MLP_Custom_Model"},
+    # {"model": GradientBoostingRegressor(n_estimators=100)},
+    # {
+    #     "model": nicon,
+    #     "train_params": {
+    #         "epochs": 5,
+    #         "patience": 50,
+    #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
+    #     },
+    # },
 ]
 
 # create pipeline config
 pipeline_config = PipelineConfigs(pipeline, name="Q2")
 
-path = ['sample_data/regression', 'sample_data/regression_2', 'sample_data/regression_3']
+path = ['sample_data/regression']
 dataset_config = DatasetConfigs(path)
 
 # Runner setup with spinner enabled (default is True, but let's be explicit)
@@ -70,10 +70,9 @@ for dataset_name, predict_dict in predictions_per_datasets.items():
 
 analyzer = PredictionAnalyzer(predictions)
 fig2 = analyzer.plot_variable_heatmap(
-    filters={"partition": "test"},
     x_var="model_name",
-    y_var="dataset_name",
-    metric='rmse'
+    y_var="partition",
+    metric='rmse',
 )
 # # plt.savefig('test_heatmap2.png', dpi=300)
 plt.show()

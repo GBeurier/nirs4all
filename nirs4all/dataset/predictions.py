@@ -558,6 +558,8 @@ class Predictions:
         # Add default partition filter if not specified
         if 'partition' not in filters:
             filters['partition'] = 'val'
+        if 'partition' in filters and filters['partition'] in ['all', 'ALL', 'All', '_all_']:
+            del filters['partition']
 
         # First filter the entries
         df_filtered = self._df

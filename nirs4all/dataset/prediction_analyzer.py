@@ -868,7 +868,7 @@ class PredictionAnalyzer:
 
         return fig
 
-    def plot_variable_heatmap(self, filters: Dict[str, Any], x_var: str, y_var: str,
+    def plot_variable_heatmap(self, x_var: str, y_var: str, filters: Dict[str, Any] = {},
                               metric: str = 'rmse', figsize: Tuple[int, int] = (12, 8),
                               normalize: bool = True, best_only: bool = True) -> Figure:
         """
@@ -900,6 +900,8 @@ class PredictionAnalyzer:
         # Get predictions using the existing top_k method with filters
         try:
             # Use top_k with k=-1 to get all predictions matching filters
+            if x_var == "partition" or y_var == "partition":
+                filters['partition'] = '_all_'
             predictions = self.predictions.top_k(k=-1, metric=metric, **filters)
         except Exception as e:
             print(f"⚠️ Error getting predictions: {e}")
