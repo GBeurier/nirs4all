@@ -21,11 +21,11 @@ pipeline = [
     "chart_2d",
     x_scaler,
     {"y_processing": y_scaler},
-    {"feature_augmentation": {"_or_": list_of_preprocessors, "size": [1, (1, 2)], "count": 10}},  # Generate all elements of size 1 and of order 1 or 2 (ie. "Gaussian", ["SavitzkyGolay", "Log"], etc.)
+    {"feature_augmentation": {"_or_": list_of_preprocessors, "size": [1, (1, 2)], "count": 2}},  # Generate all elements of size 1 and of order 1 or 2 (ie. "Gaussian", ["SavitzkyGolay", "Log"], etc.)
     splitting_strategy,
 ]
 
-for i in range(5, 35, 2):
+for i in range(5, 35, 10):
     model = {
         "name": f"PLS-{i}_cp",
         "model": PLSRegression(n_components=i)
@@ -44,10 +44,10 @@ predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_conf
 # Get top models to verify the real model names are displayed correctly
 best_count = 1
 rank_metric = 'rmse'  # 'rmse', 'mae', 'r2'
-top_10 = predictions.top_k(best_count, rank_metric)
+top_n = predictions.top_k(best_count, rank_metric)
 print(f"Top {best_count} models by {rank_metric}:")
-for i, model in enumerate(top_10):
-    print(f"{i+1}. {Predictions.pred_short_string(model, metrics=[rank_metric])} - {model['preprocessings']}")
+for i, pred in enumerate(top_n):
+    print(f"{i+1}. {Predictions.pred_short_string(pred, metrics=[rank_metric])} - {pred['preprocessings']}")
 
 # TAB REPORT
 analyzer = PredictionAnalyzer(predictions) ## Prétraitements dans le graphique

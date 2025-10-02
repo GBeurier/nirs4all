@@ -111,8 +111,6 @@ class TransformerMixinController(OperatorController):
         new_processing_names = []
         processing_names = []
 
-        binary_count = 0
-
         # Loop through each data source
         for sd_idx, (train_x, all_x) in enumerate(zip(train_data, all_data)):
             # print(f"Processing source {sd_idx}: train shape {train_x.shape}, all shape {all_x.shape}")
@@ -150,8 +148,7 @@ class TransformerMixinController(OperatorController):
 
                 # Serialize fitted transformer
                 transformer_binary = pickle.dumps(transformer)
-                fitted_transformers.append((f"{binary_count}_{new_operator_name}.pkl", transformer_binary))
-                binary_count += 1
+                fitted_transformers.append((f"{new_operator_name}.pkl", transformer_binary))
 
             transformed_features_list.append(source_transformed_features)
             new_processing_names.append(source_new_processing_names)

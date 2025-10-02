@@ -108,6 +108,7 @@ class PipelineRunner:
 
             global_dataset_predictions.save_to_file(dataset_prediction_path)
 
+            ### Print best results for this dataset
             best = run_dataset_predictions.get_best()
             print(f"🏆 Run best for dataset '{name}': {Predictions.pred_long_string(best)}")
             best_by_partition = run_dataset_predictions.get_entry_partitions(best)
@@ -116,7 +117,7 @@ class PipelineRunner:
             if csv_file:
                 filename = f"{best['step_idx']}_{best['model_name']}_{best['op_counter']}.csv"
                 print(filename)
-                self.saver.save_file(filename, csv_file)
+                self.saver.save_file(filename, csv_file, into_dataset=True)
             print("-" * 120)
             best_overall = global_dataset_predictions.get_best()
             print(f"🏆 Best Overall for dataset '{name}': {Predictions.pred_long_string(best_overall)}")
@@ -124,7 +125,7 @@ class PipelineRunner:
             str_desc, csv_file = TabReportManager.generate_best_score_tab_report(overall_best_by_partition)
             print(str_desc)
             if csv_file:
-                filename = f"{best_overall['step_idx']}_{best_overall['model_name']}_{best_overall['op_counter']}_overall.csv"
+                filename = f"Best_{best_overall['step_idx']}_{best_overall['model_name']}_{best_overall['op_counter']}.csv"
                 print(filename)
                 self.saver.save_file(filename, csv_file)
 
@@ -233,6 +234,7 @@ class PipelineRunner:
         else:
             self.step_number += 1
             self.substep_number = 0  # Reset substep counter for new main step
+            self.operation_count = 0
             print(f"\033[92m🔷 Step {self.step_number}: {step_description}\033[0m")
         # print(f"🔹 Current context: {context}")
         # print(f"🔹 Step config: {step}")

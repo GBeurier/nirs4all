@@ -11,6 +11,7 @@ import matplotlib.cm as cm
 from matplotlib.figure import Figure
 from typing import Dict, List, Optional, Tuple, Any
 from collections import defaultdict
+import re
 
 from sklearn.metrics import confusion_matrix as sk_confusion_matrix
 
@@ -39,6 +40,18 @@ class PredictionAnalyzer:
         self.predictions = predictions_obj
         self.dataset_name_override = dataset_name_override
         self.model_utils = ModelUtils()
+
+    def _natural_sort_key(self, text: str):
+        """Generate a sorting key that handles numeric components naturally.
+
+        E.g., 'PLSRegression_10_cp' will sort after 'PLSRegression_2_cp'
+        """
+        def convert(part):
+            if part.isdigit():
+                return int(part)
+            return part.lower()
+
+        return [convert(c) for c in re.split(r'(\d+)', str(text))]
 
     def _get_enhanced_predictions(self, **filters) -> List[Dict[str, Any]]:
         """Get predictions with enhanced metrics calculated on-the-fly."""
@@ -956,9 +969,9 @@ class PredictionAnalyzer:
                              filters: Dict, figsize: Tuple[int, int], normalize: bool,
                              best_only: bool) -> Figure:
         """Create the actual heatmap plot from scores matrix."""
-        # Extract unique values
-        y_labels = sorted(var_scores.keys())
-        x_labels = sorted(set(x for y_data in var_scores.values() for x in y_data.keys()))
+        # Extract unique values with natural sorting
+        y_labels = sorted(var_scores.keys(), key=self._natural_sort_key)
+        x_labels = sorted(set(x for y_data in var_scores.values() for x in y_data.keys()), key=self._natural_sort_key)
 
         # Create matrix
         matrix = np.full((len(y_labels), len(x_labels)), np.nan)
@@ -1140,7 +1153,11 @@ class PredictionAnalyzer:
         q75s = []
         counts = []
 
-        for var_val, scores in variable_scores.items():
+        # First collect data with natural sorting of variable values
+        sorted_var_vals = sorted(variable_scores.keys(), key=self._natural_sort_key)
+
+        for var_val in sorted_var_vals:
+            scores = variable_scores[var_val]
             if scores:  # Only include if we have scores
                 var_labels.append(str(var_val))
                 means.append(np.mean(scores))
@@ -1155,21 +1172,6 @@ class PredictionAnalyzer:
             ax.text(0.5, 0.5, f'No valid data for variable {variable}',
                     ha='center', va='center', fontsize=16)
             return fig
-
-        # Sort by mean performance
-        higher_better = metric in ['r2', 'accuracy', 'f1', 'precision', 'recall']
-        sort_indices = np.argsort(means)
-        if higher_better:
-            sort_indices = sort_indices[::-1]
-
-        # Apply sorting
-        var_labels = [var_labels[i] for i in sort_indices]
-        means = [means[i] for i in sort_indices]
-        mins = [mins[i] for i in sort_indices]
-        maxs = [maxs[i] for i in sort_indices]
-        q25s = [q25s[i] for i in sort_indices]
-        q75s = [q75s[i] for i in sort_indices]
-        counts = [counts[i] for i in sort_indices]
 
         # Create candlestick plot
         fig, ax = plt.subplots(figsize=figsize)

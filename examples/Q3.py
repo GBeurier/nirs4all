@@ -31,21 +31,21 @@ pipeline = [
     {"y_processing": MinMaxScaler},
     {"model": PLSRegression(15)},
     {"model": ElasticNet()},
-    {"model": GradientBoostingRegressor(n_estimators=100)},
+    # {"model": GradientBoostingRegressor(n_estimators=100)},
     {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1)},
-    {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500)},
-    {"model": GradientBoostingRegressor(n_estimators=100)},
-    {"model": RandomForestRegressor(n_estimators=100)},
+    # {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500)},
+    # {"model": GradientBoostingRegressor(n_estimators=100)},
+    # {"model": RandomForestRegressor(n_estimators=100)},
     {"model": Ridge(alpha=1.0)},
-    {
-        "model": nicon,
-        "train_params": {
-            "epochs": 50,
-            "patience": 50,
-            "batch_size": 500,
-            "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
-        },
-    },
+    # {
+    #     "model": nicon,
+    #     "train_params": {
+    #         "epochs": 50,
+    #         "patience": 50,
+    #         "batch_size": 500,
+    #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
+    #     },
+    # },
 ]
 
 # create pipeline config
