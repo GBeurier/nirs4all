@@ -130,7 +130,7 @@ class TransformerMixinController(OperatorController):
             for processing_idx in range(train_x.shape[1]):
                 processing_name = processing_ids[processing_idx]
                 print(f" Processing {processing_name} (idx {processing_idx})")
-                print(processing_name, source_processings)
+                print(processing_name, processing_name in source_processings)
                 if processing_name not in source_processings:
                     continue
                 train_2d = train_x[:, processing_idx, :]  # Training data
@@ -164,18 +164,18 @@ class TransformerMixinController(OperatorController):
         # Update dataset with transformed features
         # Replace existing processings with transformed versions
         for sd_idx, (source_features, new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names)):
-            # if "add_feature" in context and context["add_feature"]:
-            dataset.add_features(source_features, new_processing_names)
-            # context["processing"][sd_idx].extend(processing_names)
-            context["processing"][sd_idx] = new_processing_names
-            # context["add_feature"] = False
-            # else:
-            #     dataset.replace_features(
-            #         source_processings=processing_names[sd_idx],
-            #         features=source_features,
-            #         processings=new_processing_names
-            #     )
-            #     context["processing"][sd_idx] = new_processing_names
+            if "add_feature" in context and context["add_feature"]:
+                dataset.add_features(source_features, new_processing_names)
+                # context["processing"][sd_idx].extend(processing_names)
+                context["processing"][sd_idx] = new_processing_names
+                context["add_feature"] = False
+            else:
+                dataset.replace_features(
+                    source_processings=processing_names[sd_idx],
+                    features=source_features,
+                    processings=new_processing_names
+                )
+                context["processing"][sd_idx] = new_processing_names
         print(dataset)
         return context, fitted_transformers
 

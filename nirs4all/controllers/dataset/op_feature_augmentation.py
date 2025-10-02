@@ -53,16 +53,20 @@ class FeatureAugmentationController(OperatorController):
                 source_processings = copy.deepcopy(original_source_processings)
                 local_context = copy.deepcopy(initial_context)
 
-                if i == 0 and operation is None:
-                    print("Skipping no-op feature augmentation")
-                    continue
-                if i > 0:
-                    local_context["add_feature"] = True
+                # if i == 0 and operation is None:
+                #     print("Skipping no-op feature augmentation")
+                #     continue
+                # if i > 0:
+                local_context["add_feature"] = True
 
                 # Assigner une nouvelle copie à chaque fois
                 local_context["processing"] = copy.deepcopy(source_processings)
                 runner.run_step(operation, dataset, local_context, prediction_store, is_substep=True)
 
+            context["processing"] = []
+            for sdx in range(dataset.n_sources):
+                processing_ids = dataset.features_processings(sdx)
+                context["processing"].append(processing_ids)
             return context, []
 
         except Exception as e:
