@@ -126,6 +126,7 @@ class SimulationSaver:
         json_content = json.dumps(data, indent=indent, default=str)
         return self.save_file(filename, json_content, overwrite, warn_on_overwrite=False)
 
+
     def save_binary(self,
                     filename: str,
                     data: Union[bytes, BinaryIO, Any],
@@ -133,6 +134,8 @@ class SimulationSaver:
                     pickle_if_object: bool = True,
                     into_dataset: bool = False) -> Path:
         """
+        Deprecated: Use save_files or save_file instead.
+
         Save binary data or objects to a file.
 
         Args:
@@ -149,6 +152,12 @@ class SimulationSaver:
             FileExistsError: If file exists and overwrite=False
             TypeError: If data type is not supported
         """
+        warnings.warn(
+            "save_binary is deprecated and will be removed in a future version. "
+            "Use save_files or save_file instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self._check_registered()
 
         filepath = self.current_path / Path(filename)
@@ -210,7 +219,7 @@ class SimulationSaver:
 
         return filepath
 
-    def save_files(self, step_number: int, substep_number: int, files: List[Tuple[Union[str, Path], Any]], full_save = True) -> List[Path]:
+    def save_files(self, step_number: int, substep_number: int, files: List[Tuple[Union[str, Path], Any]], into_dataset: bool = False) -> List[Path]:
         """
         Save multiple files in a single operation.
 
@@ -231,10 +240,9 @@ class SimulationSaver:
         saved_names = []
         for fname, obj in files:
             name = str(step_number)
-            if substep_number > 0:
-                name += "_" + str(substep_number)
             name += "_" + str(fname)
             filepath = self.current_path / Path(name)
+
 
             # if not full_save and filepath.suffix.lower() in {".pkl", ".pickle", ".p"}:
             #     continue
@@ -281,6 +289,7 @@ class SimulationSaver:
             relative_filename = str(filepath.relative_to(self.current_path))
             self._metadata["binaries"][relative_filename] = {
                 "path": str(filepath.relative_to(self.base_path)),
+                "step": step_number,
                 "size": filepath.stat().st_size,
                 "data_type": data_type,
                 "saved_at": datetime.now().isoformat()
@@ -372,118 +381,3 @@ class SimulationSaver:
         metadata_path = self.current_path / "metadata.json"
         with open(metadata_path, 'w') as f:
             json.dump(self._metadata, f, indent=2, default=str)
-
-
-
-
-# class SimulationLoader:
-#     """
-#     Loads simulation results from saved directories.
-#     """
-
-#     def __init__(self, base_path: Union[str, Path] = "simulations"):
-#         """
-#         Initialize the simulation loader.
-
-#         Args:
-#             base_path: Base directory for all simulation outputs
-#         """
-#         self.base_path = Path(base_path)
-
-#     def list_datasets(self) -> List[str]:
-#         """List all available datasets."""
-#         if not self.base_path.exists():
-#             return []
-#         return [d.name for d in self.base_path.iterdir() if d.is_dir()]
-
-#     def list_pipelines(self, dataset_name: str) -> List[str]:
-#         """List all pipelines for a given dataset."""
-#         dataset_path = self.base_path / dataset_name
-#         if not dataset_path.exists():
-#             return []
-#         return [p.name for p in dataset_path.iterdir() if p.is_dir()]
-
-#     def load_metadata(self, dataset_name: str, pipeline_name: str) -> Dict[str, Any]:
-#         """Load metadata for a simulation."""
-#         metadata_path = self.base_path / dataset_name / pipeline_name / "_simulation_metadata.json"
-#         if not metadata_path.exists():
-#             return {}
-
-#         with open(metadata_path, 'r') as f:
-#             return json.load(f)
-
-#     def load_file(self, dataset_name: str, pipeline_name: str, filename: str, encoding: str = 'utf-8') -> str:
-#         """Load text file content."""
-#         filepath = self.base_path / dataset_name / pipeline_name / filename
-#         with open(filepath, 'r', encoding=encoding) as f:
-#             return f.read()
-
-#     def load_json(self, dataset_name: str, pipeline_name: str, filename: str) -> Any:
-#         """Load JSON file."""
-#         content = self.load_file(dataset_name, pipeline_name, filename)
-#         return json.loads(content)
-
-#     def load_binary(self, dataset_name: str, pipeline_name: str, filename: str) -> Any:
-#         """Load binary file (attempts to unpickle if .pkl/.pickle extension)."""
-#         filepath = self.base_path / dataset_name / pipeline_name / filename
-
-#         if filename.endswith(('.pkl', '.pickle')):
-#             with open(filepath, 'rb') as f:
-#                 return pickle.load(f)
-#         else:
-#             with open(filepath, 'rb') as f:
-#                 return f.read()
-
-#     def get_simulation_path(self, dataset_name: str, pipeline_name: str) -> Path:
-#         """Get path to simulation directory."""
-#         return self.base_path / dataset_name / pipeline_name
-
-
-# # Convenience functions
-# def create_simulation_saver(base_path: Union[str, Path] = "simulations") -> SimulationSaver:
-#     """Create a new simulation saver instance."""
-#     return SimulationSaver(base_path)
-
-# def create_simulation_loader(base_path: Union[str, Path] = "simulations") -> SimulationLoader:
-#     """Create a new simulation loader instance."""
-#     return SimulationLoader(base_path)
-
-
-    # def save_model(self,
-    #                model: Any,
-    #                filename: Optional[str] = None,
-    #                overwrite: bool = False) -> Path:
-    #     """
-    #     Save a machine learning model using pickle.
-
-    #     Args:
-    #         model: The model object to save
-    #         filename: Name of the file (auto-generated if None)
-    #         overwrite: Whether to overwrite existing files
-
-    #     Returns:
-    #         Path to the saved file
-    #     """
-    #     if filename is None:
-    #         model_name = getattr(model, '__class__', type(model)).__name__
-    #         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    #         filename = f"model_{model_name}_{timestamp}.pkl"
-
-    #     return self.save_binary(filename, model, overwrite, pickle_if_object=True)
-
-    # def save_results(self,
-    #                  results: Dict[str, Any],
-    #                  filename: str = "results.json",
-    #                  overwrite: bool = False) -> Path:
-    #     """
-    #     Save pipeline results as JSON.
-
-    #     Args:
-    #         results: Dictionary containing results
-    #         filename: Name of the results file
-    #         overwrite: Whether to overwrite existing files
-
-    #     Returns:
-    #         Path to the saved file
-    #     """
-    #     return self.save_json(filename, results, overwrite)

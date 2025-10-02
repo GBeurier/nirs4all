@@ -118,6 +118,7 @@ class TransformerMixinController(OperatorController):
             # Get processing names for this source
             processing_ids = dataset.features_processings(sd_idx)
             source_processings = processing_ids
+            print("🔹 Processing source", sd_idx, "with processings:", source_processings)
             if "processing" in context:
                 source_processings = context["processing"][sd_idx]
 
@@ -128,16 +129,20 @@ class TransformerMixinController(OperatorController):
             # Loop through each processing in the 3D data (samples, processings, features)
             for processing_idx in range(train_x.shape[1]):
                 processing_name = processing_ids[processing_idx]
+                print(f" Processing {processing_name} (idx {processing_idx})")
+                print(processing_name, source_processings)
                 if processing_name not in source_processings:
                     continue
                 train_2d = train_x[:, processing_idx, :]  # Training data
                 all_2d = all_x[:, processing_idx, :]      # All data to transform
 
-                # print(f" Processing {processing_name} (idx {processing_idx}): train {train_2d.shape}, all {all_2d.shape}")
+                print(f" Processing {processing_name} (idx {processing_idx}): train {train_2d.shape}, all {all_2d.shape}")
 
                 transformer = clone(operator)
                 transformer.fit(train_2d)
                 transformed_2d = transformer.transform(all_2d)
+
+                print("  Transformed shape:", transformed_2d.shape)
 
                 # Store results
                 source_transformed_features.append(transformed_2d)
@@ -150,6 +155,8 @@ class TransformerMixinController(OperatorController):
                 transformer_binary = pickle.dumps(transformer)
                 fitted_transformers.append((f"{new_operator_name}.pkl", transformer_binary))
 
+            print("🔹 Finished processing source", sd_idx, len(fitted_transformers))
+            print("🔹 New processing names:", source_new_processing_names)
             transformed_features_list.append(source_transformed_features)
             new_processing_names.append(source_new_processing_names)
             processing_names.append(source_processing_names)
@@ -157,106 +164,106 @@ class TransformerMixinController(OperatorController):
         # Update dataset with transformed features
         # Replace existing processings with transformed versions
         for sd_idx, (source_features, new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names)):
-            if "add_feature" in context and context["add_feature"]:
-                dataset.add_features(source_features, new_processing_names)
-                # context["processing"][sd_idx].extend(processing_names)
-                context["processing"][sd_idx] = new_processing_names
-                context["add_feature"] = False
-            else:
-                dataset.replace_features(
-                    source_processings=processing_names[sd_idx],
-                    features=source_features,
-                    processings=new_processing_names
-                )
-                context["processing"][sd_idx] = new_processing_names
-
+            # if "add_feature" in context and context["add_feature"]:
+            dataset.add_features(source_features, new_processing_names)
+            # context["processing"][sd_idx].extend(processing_names)
+            context["processing"][sd_idx] = new_processing_names
+            # context["add_feature"] = False
+            # else:
+            #     dataset.replace_features(
+            #         source_processings=processing_names[sd_idx],
+            #         features=source_features,
+            #         processings=new_processing_names
+            #     )
+            #     context["processing"][sd_idx] = new_processing_names
+        print(dataset)
         return context, fitted_transformers
 
-    def _execute_prediction_mode(
-        self,
-        step: Any,
-        operator: Any,
-        dataset: 'SpectroDataset',
-        context: Dict[str, Any],
-        runner: 'PipelineRunner',
-        loaded_binaries: Optional[List[Tuple[str, Any]]]
-    ):
-        """Execute transformer in prediction mode - only transform using loaded fitted transformers."""
-        if not loaded_binaries:
-            raise RuntimeError(
-                "No fitted transformers found for prediction mode. "
-                "Ensure the pipeline was trained with save_files=True."
-            )
+    # def _execute_prediction_mode(
+    #     self,
+    #     step: Any,
+    #     operator: Any,
+    #     dataset: 'SpectroDataset',
+    #     context: Dict[str, Any],
+    #     runner: 'PipelineRunner',
+    #     loaded_binaries: Optional[List[Tuple[str, Any]]]
+    # ):
+    #     """Execute transformer in prediction mode - only transform using loaded fitted transformers."""
+    #     if not loaded_binaries:
+    #         raise RuntimeError(
+    #             "No fitted transformers found for prediction mode. "
+    #             "Ensure the pipeline was trained with save_files=True."
+    #         )
 
-        # Get all data (no train/test split needed for prediction)
-        all_data = dataset.x(context, "3d", concat_source=False)
+    #     # Get all data (no train/test split needed for prediction)
+    #     all_data = dataset.x(context, "3d", concat_source=False)
 
-        # Ensure data is in list format
-        if not isinstance(all_data, list):
-            all_data = [all_data]
+    #     # Ensure data is in list format
+    #     if not isinstance(all_data, list):
+    #         all_data = [all_data]
 
-        # Load fitted transformers from binaries
-        fitted_transformers = []
-        for filename, binary_obj in loaded_binaries:
-            fitted_transformers.append(binary_obj)
+    #     # Load fitted transformers from binaries
+    #     fitted_transformers = []
+    #     for filename, binary_obj in loaded_binaries:
+    #         fitted_transformers.append(binary_obj)
 
-        transformed_features_list = []
-        new_processing_names = []
-        processing_names = []
+    #     transformed_features_list = []
+    #     new_processing_names = []
+    #     processing_names = []
 
-        transformer_idx = 0
+    #     transformer_idx = 0
 
-        # Loop through each data source
-        for sd_idx, all_x in enumerate(all_data):
-            # Get processing names for this source
-            processing_ids = dataset.features_processings(sd_idx)
-            source_processings = processing_ids
-            if "processing" in context:
-                source_processings = context["processing"][sd_idx]
+    #     # Loop through each data source
+    #     for sd_idx, all_x in enumerate(all_data):
+    #         # Get processing names for this source
+    #         processing_ids = dataset.features_processings(sd_idx)
+    #         source_processings = processing_ids
+    #         if "processing" in context:
+    #             source_processings = context["processing"][sd_idx]
 
-            source_transformed_features = []
-            source_new_processing_names = []
-            source_processing_names = []
+    #         source_transformed_features = []
+    #         source_new_processing_names = []
+    #         source_processing_names = []
 
-            # Loop through each processing in the 3D data (samples, processings, features)
-            for processing_idx in range(all_x.shape[1]):
-                processing_name = processing_ids[processing_idx]
-                if processing_name not in source_processings:
-                    continue
+    #         # Loop through each processing in the 3D data (samples, processings, features)
+    #         for processing_idx in range(all_x.shape[1]):
+    #             processing_name = processing_ids[processing_idx]
+    #             if processing_name not in source_processings:
+    #                 continue
 
-                all_2d = all_x[:, processing_idx, :]  # All data to transform
+    #             all_2d = all_x[:, processing_idx, :]  # All data to transform
 
-                # Use fitted transformer
-                if transformer_idx >= len(fitted_transformers):
-                    raise RuntimeError(f"Not enough fitted transformers for prediction (need {transformer_idx + 1}, have {len(fitted_transformers)})")
+    #             # Use fitted transformer
+    #             if transformer_idx >= len(fitted_transformers):
+    #                 raise RuntimeError(f"Not enough fitted transformers for prediction (need {transformer_idx + 1}, have {len(fitted_transformers)})")
 
-                transformer = fitted_transformers[transformer_idx]
-                transformed_2d = transformer.transform(all_2d)
-                transformer_idx += 1
+    #             transformer = fitted_transformers[transformer_idx]
+    #             transformed_2d = transformer.transform(all_2d)
+    #             transformer_idx += 1
 
-                # Store results with prediction naming
-                source_transformed_features.append(transformed_2d)
-                operator_name = operator.__class__.__name__
-                new_processing_name = f"{processing_name}_{operator_name}_pred"
-                source_new_processing_names.append(new_processing_name)
-                source_processing_names.append(processing_name)
+    #             # Store results with prediction naming
+    #             source_transformed_features.append(transformed_2d)
+    #             operator_name = operator.__class__.__name__
+    #             new_processing_name = f"{processing_name}_{operator_name}_pred"
+    #             source_new_processing_names.append(new_processing_name)
+    #             source_processing_names.append(processing_name)
 
-            transformed_features_list.append(source_transformed_features)
-            new_processing_names.append(source_new_processing_names)
-            processing_names.append(source_processing_names)
+    #         transformed_features_list.append(source_transformed_features)
+    #         new_processing_names.append(source_new_processing_names)
+    #         processing_names.append(source_processing_names)
 
-        # Update dataset with transformed features
-        for sd_idx, (source_features, new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names)):
-            if "add_feature" in context and context["add_feature"]:
-                dataset.add_features(source_features, new_processing_names)
-                context["processing"][sd_idx] = new_processing_names
-                context["add_feature"] = False
-            else:
-                dataset.replace_features(
-                    source_processings=processing_names[sd_idx],
-                    features=source_features,
-                    processings=new_processing_names
-                )
-                context["processing"][sd_idx] = new_processing_names
+    #     # Update dataset with transformed features
+    #     for sd_idx, (source_features, new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names)):
+    #         if "add_feature" in context and context["add_feature"]:
+    #             dataset.add_features(source_features, new_processing_names)
+    #             context["processing"][sd_idx] = new_processing_names
+    #             context["add_feature"] = False
+    #         else:
+    #             dataset.replace_features(
+    #                 source_processings=processing_names[sd_idx],
+    #                 features=source_features,
+    #                 processings=new_processing_names
+    #             )
+    #             context["processing"][sd_idx] = new_processing_names
 
-        return context, []  # No binaries to save in prediction mode
+    #     return context, []  # No binaries to save in prediction mode
