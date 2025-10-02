@@ -51,7 +51,8 @@ for i, model in enumerate(top_10):
 
 # TAB REPORT
 analyzer = PredictionAnalyzer(predictions) ## Prétraitements dans le graphique
-# fig1 = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
+fig1 = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
+# plt.savefig('test_top_k_models_Q1.png', dpi=150, bbox_inches='tight')
 plt.show()
 
 fig2 = analyzer.plot_variable_heatmap(
