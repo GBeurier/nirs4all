@@ -274,8 +274,27 @@ class TabReportGenerator:
         if not model_name:
             return 'unknown'
 
-        # Remove step and fold information first
+        # Handle new naming system: step_CoreName_OpCounter_fold_step_dataset_config
+        # Example: "3_PLSRegression_2_fold0_step0_regression_config_55d187a0" -> "PLSRegression"
+        parts = model_name.split('_')
+
+        # Check if it matches the new UUID format
+        if len(parts) >= 3:
+            # First part is step number, second is core name, third is op counter
+            step_part = parts[0]
+            core_name_part = parts[1]
+            op_counter_part = parts[2]
+
+            # Verify this looks like our new naming format
+            if (step_part.isdigit() and
+                not core_name_part.isdigit() and  # Core name shouldn't be just a number
+                op_counter_part.isdigit()):
+                return core_name_part
+
+        # Fallback to old logic for backward compatibility
         canonical = model_name
+
+        # Remove step and fold information first
         if '_step' in canonical:
             canonical = canonical.split('_step')[0]
 
@@ -287,21 +306,15 @@ class TabReportGenerator:
         canonical = canonical.replace('_avg', '').replace('_weighted', '')
 
         # Handle different model naming patterns:
-        # For our naming like "PLS-20_cp_9" -> "PLS-20_cp" (remove only the final numeric counter)
-        # For class names like "PLSRegression_10" -> "PLSRegression" (remove parameter suffix)
-
         parts = canonical.split('_')
 
         # If it contains a dash (custom name pattern like "PLS-20_cp_9")
         if '-' in canonical:
             # Look for the pattern where the last part is a numeric counter
-            # but NOT a parameter (like the "20" in "PLS-20")
             if len(parts) >= 3 and parts[-1].isdigit():
                 # Only remove if it's clearly a counter (not a model parameter)
-                # Check if it's a pattern like "PLS-20_cp_9" where "9" is the counter
                 if len(parts) >= 3 and parts[-2] in ['cp', 'component', 'comp']:
                     canonical = '_'.join(parts[:-1])
-                # Otherwise keep the full name for patterns like "PLS-20"
         # If it's a simple class name pattern like "PLSRegression_10"
         elif '-' not in canonical and len(parts) >= 2 and parts[-1].isdigit():
             # For sklearn class names, remove the final numeric parameter

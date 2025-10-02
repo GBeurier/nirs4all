@@ -272,16 +272,10 @@ class PredictionAnalyzer:
                         enhanced_name = f"{enhanced_name}_{counter}"
 
             # Add step and fold information to custom name
-            if real_model and '_step' in real_model:
-                parts = real_model.split('_')
-                step_part = None
-                for part in parts:
-                    if part.startswith('step'):
-                        step_part = part
-                        break
-
-                if step_part:
-                    enhanced_name += f" (step {step_part.replace('step', '')})"
+            if real_model and 'step' in real_model:
+                step_num = self._extract_step_number(real_model)
+                if step_num is not None:
+                    enhanced_name += f" (step {step_num})"
 
             # Add fold information if it's not an aggregation
             if real_model and '_fold' in real_model and not any(x in real_model for x in ['avg', 'weighted']):
@@ -299,40 +293,53 @@ class PredictionAnalyzer:
         # Priority 2: Enhanced Name based on canonical model
         enhanced_name = canonical_model
 
-        # Extract and add operation counter from real_model
-        if real_model and '_' in real_model:
-            parts = real_model.split('_')
-            # The last part is usually the operation counter (e.g., "10" in "PLS-20_cp_10")
-            if len(parts) > 1 and parts[-1].isdigit():
-                counter = parts[-1]
-                # Add counter to canonical model name
-                enhanced_name = f"{canonical_model}_{counter}"
-
         if real_model and real_model != canonical_model:
             # Extract meaningful parts from real_model
-            if '_step' in real_model:
-                parts = real_model.split('_')
-                step_part = None
-                for part in parts:
-                    if part.startswith('step'):
-                        step_part = part
-                        break
-
-                if step_part:
-                    enhanced_name = f"{enhanced_name} (step {step_part.replace('step', '')})"
+            # Only add step info if canonical model doesn't already have step prefix
+            if 'step' in real_model and not enhanced_name.startswith(('0_', '1_', '2_', '3_', '4_', '5_', '6_', '7_', '8_', '9_')):
+                step_num = self._extract_step_number(real_model)
+                if step_num is not None:
+                    enhanced_name = f"{enhanced_name} (step {step_num})"
 
             # Add fold information if it's not an aggregation
             if '_fold' in real_model and not any(x in real_model for x in ['avg', 'weighted']):
                 fold_part = real_model.split('_fold')[-1]
-                if fold_part.isdigit():
-                    enhanced_name += f" fold{fold_part}"
+                # Extract just the fold number (remove any trailing text)
+                import re
+                fold_match = re.search(r'fold(\d+)', real_model)
+                if fold_match:
+                    fold_num = fold_match.group(1)
+                    enhanced_name += f" - (Fold {fold_num})"
             elif 'avg' in real_model:
-                if 'weighted' in real_model:
-                    enhanced_name += " [WEIGHTED AVG]"
+                if 'weighted' in real_model or 'w_avg' in real_model:
+                    enhanced_name += " [avg]"
                 else:
-                    enhanced_name += " [AVG]"
+                    enhanced_name += " [avg]"
 
         return enhanced_name
+
+        return enhanced_name
+
+    def _extract_step_number(self, real_model: str) -> int:
+        """Extract step number from real_model string.
+
+        Handles both formats:
+        - step0, step1, step2 (regular models)
+        - step_0, step_1, step_2 (virtual models)
+        """
+        import re
+
+        # Try pattern: step followed by underscore and digits (virtual models)
+        match = re.search(r'step_(\d+)', real_model)
+        if match:
+            return int(match.group(1))
+
+        # Try pattern: step followed directly by digits (regular models)
+        match = re.search(r'step(\d+)', real_model)
+        if match:
+            return int(match.group(1))
+
+        return None
 
     def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
         """Calculate common metrics based on task type (regression or classification)."""

@@ -9,6 +9,7 @@ the original controller. This keeps the main controller clean and focused.
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import numpy as np
 import copy
+import inspect
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -33,39 +34,158 @@ class ModelUtils:
     def __init__(self):
         pass
 
-    def create_model_id(self, name: str, runner: 'PipelineRunner') -> str:
+    def extract_core_name(self, model_config: Dict[str, Any]) -> str:
         """
-        Create model_id: name + operation counter (unique for a run).
-        This is the UNIQUE ID of the model in the run.
+        Extract Core Name: User-provided name or class name.
+        This is the base name provided by the user or derived from the class.
         """
-        op_counter = runner.next_op()
-        model_id = f"{name}_{op_counter}"
-        return model_id
+        print(">>>> model_config:", model_config)
+        if isinstance(model_config, dict):
+            if 'name' in model_config:
+                return model_config['name']
+            elif 'model_instance' in model_config:
+                # Handle extracted model config from _extract_model_config
+                return self.get_model_class_name(model_config['model_instance'])
+            elif 'function' in model_config:
+                # Handle function-based models (like TensorFlow functions)
+                function_path = model_config['function']
+                if isinstance(function_path, str):
+                    # Extract function name from path (e.g., 'nirs4all.operators.models.cirad_tf.nicon' -> 'nicon')
+                    return function_path.split('.')[-1]
+                else:
+                    return str(function_path)
+            elif 'class' in model_config:
+                class_path = model_config['class']
+                return class_path.split('.')[-1]  # Get class name from full path
+            elif '_runtime_instance' in model_config:
+                return self.get_model_class_name(model_config['_runtime_instance'])
+            elif 'model' in model_config:
+                # Handle nested model structure
+                model_obj = model_config['model']
+                if isinstance(model_obj, dict):
+                    if 'function' in model_obj:
+                        # Handle nested function models
+                        print(">>>> model_obj:", model_obj)
+                        function_path = model_obj['function']
+                        return function_path.split('.')[-1] if isinstance(function_path, str) else str(function_path)
+                    elif '_runtime_instance' in model_obj:
+                        return self.get_model_class_name(model_obj['_runtime_instance'])
+                    elif 'class' in model_obj:
+                        return model_obj['class'].split('.')[-1]
+                else:
+                    return self.get_model_class_name(model_obj)
 
-    def create_model_uuid(
-        self,
-        model_id: str,
-        runner: 'PipelineRunner',
-        step: int,
-        config_id: str,
-        fold_idx: Optional[int] = None
-    ) -> str:
-        """
-        Create model_uuid: model_id + fold + step + config_id.
-        This is the unique ID in predictions.
-        """
+        # Fallback for other types
+        return self.get_model_class_name(model_config)
 
-        # Build UUID parts
-        uuid_parts = [model_id]
+    def create_simple_name(self, core_name: str, fold_idx: Optional[int] = None) -> str:
+        """
+        Create Simple Name: Core Name + fold number if applicable.
+        Used for printing results when there's no ambiguity on config and step.
+        Examples: 'PLSRegression', 'PLSRegression_fold_0'
+        """
+        if fold_idx is not None:
+            return f"{core_name}_fold_{fold_idx}"
+        return core_name
+
+    def create_display_name_for_fold(self, local_name: str, fold_idx: Optional[int] = None) -> str:
+        """
+        Create display name for fold training: Local Name + Fold:X format.
+        Used for printing during fold training.
+        Examples: 'PLSRegression_17 Fold:0', 'nicon_25 Fold:1'
+        """
+        if fold_idx is not None:
+            return f"{local_name} Fold:{fold_idx}"
+        return local_name
+
+    def create_local_name(self, core_name: str, op_counter: int) -> str:
+        """
+        Create Local Name: Core Name + operation counter.
+        Unique within a config context. Used as base for saving models.
+        Examples: 'PLSRegression_17', 'MyCustomModel_5'
+        """
+        return f"{core_name}_{op_counter}"
+
+    def create_model_file_name(self, local_name: str, step: int) -> str:
+        """
+        Create Model File Name: Step + Local Name + .pkl
+        Used for saving model files.
+        Examples: '3_PLSRegression_12.pkl', '4_MyCustomModel_5.pkl'
+        """
+        return f"{step}_{local_name}.pkl"
+
+    def create_uuid(self, local_name: str, step: int, fold_idx: Optional[int],
+                    dataset_name: str, config_id: str) -> str:
+        """
+        Create UUID: Global unique identifier for database keys.
+        Format: Step_LocalName_fold{X}_step{Y}_{dataset}_{config}
+        Examples: '4_PLSRegression_3_fold0_step0_regression_config_7dbfba05'
+        """
+        uuid_parts = [f"{step}_{local_name}"]
 
         if fold_idx is not None:
             uuid_parts.append(f"fold{fold_idx}")
 
-        uuid_parts.append(f"step{step}")
-        uuid_parts.append(config_id)
+        uuid_parts.extend([f"step{step}", dataset_name, config_id])
+        return "_".join(uuid_parts)
 
-        model_uuid = "_".join(uuid_parts)
-        return model_uuid
+    def get_model_names(self, model_config: Dict[str, Any], model: Any, runner: 'PipelineRunner',
+                        step: int, fold_idx: Optional[int] = None,
+                        dataset_name: str = "unknown") -> Dict[str, str]:
+        """
+        Generate all model names at once for consistency.
+        Returns a dictionary with all naming variants.
+        """
+        # Extract core name
+        core_name = self.extract_core_name(model_config)
+        print(">>>> Core Name:", core_name)
+
+        # Get operation counter
+        op_counter = runner.next_op()
+
+        # Get config ID
+        config_id = getattr(runner.saver, 'pipeline_name', 'unknown') if hasattr(runner, 'saver') else 'unknown'
+        print(">>>> Config ID:", config_id)
+
+        # Generate all names
+        simple_name = self.create_simple_name(core_name, fold_idx)
+        local_name = self.create_local_name(core_name, op_counter)
+        model_file_name = self.create_model_file_name(local_name, step)
+        uuid = self.create_uuid(local_name, step, fold_idx, dataset_name, config_id)
+
+        return {
+            'core_name': core_name,
+            'simple_name': simple_name,
+            'local_name': local_name,
+            'model_file_name': model_file_name,
+            'uuid': uuid,
+            'op_counter': op_counter
+        }
+
+    # Backward compatibility methods for legacy code
+    def extract_name_from_config(self, model_config: Dict[str, Any]) -> str:
+        """Legacy method - returns core_name for backward compatibility."""
+        return self.extract_core_name(model_config)
+
+    def create_model_id(self, name: str, runner: 'PipelineRunner') -> str:
+        """Legacy method - returns local_name for backward compatibility."""
+        op_counter = runner.next_op()
+        return self.create_local_name(name, op_counter)
+
+    def create_model_uuid(self, model_id: str, runner: 'PipelineRunner',
+                          step: int, config_id: str, fold_idx: Optional[int] = None) -> str:
+        """Legacy method - creates UUID from existing model_id."""
+        # Extract parts from legacy model_id format
+        parts = model_id.split('_')
+        if len(parts) >= 2:
+            core_name = '_'.join(parts[:-1])  # Everything except last part
+            op_counter = int(parts[-1])  # Last part is op_counter
+            local_name = self.create_local_name(core_name, op_counter)
+        else:
+            local_name = model_id
+
+        dataset_name = "unknown"  # Default for legacy calls
+        return self.create_uuid(local_name, step, fold_idx, dataset_name, config_id)
 
     def clone_model(self, model: Any) -> Any:
         """
@@ -112,8 +232,14 @@ class ModelUtils:
 
     def get_model_class_name(self, model: Any) -> str:
         """Get the class name of a model."""
-        if hasattr(model, '__class__'):
-            return model.__class__.__name__
+        if inspect.isclass(model):
+            return f"{model.__qualname__}"
+
+        if inspect.isfunction(model) or inspect.isbuiltin(model):
+            return f"{model.__name__}"
+
+        # if hasattr(model, '__class__'):
+            # return model.__class__.__name__
         else:
             return str(type(model).__name__)
 
@@ -222,18 +348,6 @@ class ModelUtils:
                 return str(type(model_instance).__name__)
 
         return "unknown_model"
-
-    def extract_name_from_config(self, model_config: Dict[str, Any]) -> str:
-        """
-        Extract the name: either custom name defined in config if exists or the classname.
-        """
-
-        # Check for custom name first
-        if isinstance(model_config, dict) and 'name' in model_config:
-            return model_config['name']
-
-        # Fallback to classname
-        return self.extract_classname_from_config(model_config)
 
     def _get_model_instance_from_config(self, model_config: Dict[str, Any]) -> Any:
         """
