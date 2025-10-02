@@ -82,7 +82,7 @@ class SimulationSaver:
     def save_file(self,
                   filename: str,
                   content: str,
-                  overwrite: bool = False,
+                  overwrite: bool = True,
                   encoding: str = 'utf-8',
                   warn_on_overwrite: bool = True,
                   into_dataset: bool = False) -> Path:

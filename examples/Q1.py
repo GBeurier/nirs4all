@@ -42,8 +42,8 @@ predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_conf
 ###############################################################################################################
 
 # Get top models to verify the real model names are displayed correctly
-best_count = 5
-rank_metric = 'r2'  # 'rmse', 'mae', 'r2'
+best_count = 1
+rank_metric = 'rmse'  # 'rmse', 'mae', 'r2'
 top_10 = predictions.top_k(best_count, rank_metric)
 print(f"Top {best_count} models by {rank_metric}:")
 for i, model in enumerate(top_10):
