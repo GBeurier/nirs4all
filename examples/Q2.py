@@ -68,10 +68,11 @@ for dataset_name, predict_dict in predictions_per_datasets.items():
     # plt.savefig('test_top_k_models_Q1.png', dpi=150, bbox_inches='tight')
     plt.show()
 
+analyzer = PredictionAnalyzer(predictions)
 fig2 = analyzer.plot_variable_heatmap(
     filters={"partition": "test"},
     x_var="model_name",
-    y_var="dataset",
+    y_var="dataset_name",
     metric='rmse'
 )
 # # plt.savefig('test_heatmap2.png', dpi=300)
