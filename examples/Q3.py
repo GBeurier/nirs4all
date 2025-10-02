@@ -84,7 +84,8 @@ fig2 = analyzer.plot_variable_heatmap(
     x_var="model_name",
     y_var="dataset_name",
     filters={"partition": "test"},
-    metric='rmse'
+    metric='rmse',
+    best_only=True
 )
 plt.show()
 # # plt.savefig('test_heatmap2.png', dpi=300)

@@ -313,6 +313,11 @@ class Predictions:
 
         return results
 
+    @property
+    def num_predictions(self) -> int:
+        """Get the number of stored predictions."""
+        return len(self._df)
+
     def get_unique_values(self, column: str) -> List[str]:
         """Get unique values for a specific column."""
         if column not in self._df.columns:

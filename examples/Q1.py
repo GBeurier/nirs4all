@@ -21,11 +21,11 @@ pipeline = [
     "chart_2d",
     x_scaler,
     {"y_processing": y_scaler},
-    {"feature_augmentation": {"_or_": list_of_preprocessors, "size": [1, (1, 2)], "count": 10}},  # Generate all elements of size 1 and of order 1 or 2 (ie. "Gaussian", ["SavitzkyGolay", "Log"], etc.)
+    {"feature_augmentation": {"_or_": list_of_preprocessors, "size": [1, (1, 2)], "count": 25}},  # Generate all elements of size 1 and of order 1 or 2 (ie. "Gaussian", ["SavitzkyGolay", "Log"], etc.)
     splitting_strategy,
 ]
 
-for i in range(5, 35, 2):
+for i in range(2, 50, 2):
     model = {
         "name": f"PLS-{i}_cp",
         "model": PLSRegression(n_components=i)

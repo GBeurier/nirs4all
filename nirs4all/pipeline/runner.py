@@ -102,32 +102,35 @@ class PipelineRunner:
                 self._run_single(steps, config_name, dataset, config_predictions)
 
                 # Merge new predictions into stores
-                global_dataset_predictions.merge_predictions(config_predictions)
-                run_dataset_predictions.merge_predictions(config_predictions)
-                run_predictions.merge_predictions(config_predictions)
-
-            global_dataset_predictions.save_to_file(dataset_prediction_path)
+                if config_predictions.num_predictions > 0:
+                    global_dataset_predictions.merge_predictions(config_predictions)
+                    run_dataset_predictions.merge_predictions(config_predictions)
+                    run_predictions.merge_predictions(config_predictions)
 
             ### Print best results for this dataset
-            best = run_dataset_predictions.get_best()
-            print(f"🏆 Run best for dataset '{name}': {Predictions.pred_long_string(best)}")
-            best_by_partition = run_dataset_predictions.get_entry_partitions(best)
-            str_desc, csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
-            print(str_desc)
-            if csv_file:
-                filename = f"{best['step_idx']}_{best['model_name']}_{best['op_counter']}.csv"
-                print(filename)
-                self.saver.save_file(filename, csv_file, into_dataset=True)
-            print("-" * 120)
-            best_overall = global_dataset_predictions.get_best()
-            print(f"🏆 Best Overall for dataset '{name}': {Predictions.pred_long_string(best_overall)}")
-            overall_best_by_partition = global_dataset_predictions.get_entry_partitions(best_overall)
-            str_desc, csv_file = TabReportManager.generate_best_score_tab_report(overall_best_by_partition)
-            print(str_desc)
-            if csv_file:
-                filename = f"Best_{best_overall['step_idx']}_{best_overall['model_name']}_{best_overall['op_counter']}.csv"
-                print(filename)
-                self.saver.save_file(filename, csv_file)
+            if run_dataset_predictions.num_predictions > 0:
+                best = run_dataset_predictions.get_best()
+                print(f"🏆 Run best for dataset '{name}': {Predictions.pred_long_string(best)}")
+                best_by_partition = run_dataset_predictions.get_entry_partitions(best)
+                str_desc, csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
+                print(str_desc)
+                if csv_file:
+                    filename = f"{best['step_idx']}_{best['model_name']}_{best['op_counter']}.csv"
+                    print(filename)
+                    self.saver.save_file(filename, csv_file, into_dataset=True)
+                print("-" * 120)
+
+            if global_dataset_predictions.num_predictions > 0:
+                global_dataset_predictions.save_to_file(dataset_prediction_path)
+                best_overall = global_dataset_predictions.get_best()
+                print(f"🏆 Best Overall for dataset '{name}': {Predictions.pred_long_string(best_overall)}")
+                overall_best_by_partition = global_dataset_predictions.get_entry_partitions(best_overall)
+                str_desc, csv_file = TabReportManager.generate_best_score_tab_report(overall_best_by_partition)
+                print(str_desc)
+                if csv_file:
+                    filename = f"Best_{best_overall['step_idx']}_{best_overall['model_name']}_{best_overall['op_counter']}.csv"
+                    print(filename)
+                    self.saver.save_file(filename, csv_file)
 
             print("=" * 120)
             print("=" * 120)
@@ -145,6 +148,22 @@ class PipelineRunner:
 
         return run_predictions, datasets_predictions
 
+    @staticmethod
+    def predict_from_pred(prediction_obj: Dict[str, Any], dataset_config: DatasetConfigs,
+           verbose: int = 0, output_path: Optional[str] = None) -> Dict[str, Any]:
+         # 1. Extract paths and load pipeline configuration
+        config_path = prediction_obj['config_path']
+        pipeline_config_file = Path(f"results/{config_path}/pipeline.json")
+        metadata_file = Path(f"results/{config_path}/metadata.json")
+
+        # 2. Load pipeline steps and metadata
+        pipeline_steps = json.load(open(pipeline_config_file))
+        metadata = json.load(open(metadata_file))
+
+        ################ GET BINARIES LINKS FOR THE STEPS ################
+
+
+
     def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset, config_predictions: 'Predictions') -> SpectroDataset:
         """Run a single pipeline configuration on a single dataset with external prediction store."""
         # Reset runner state for each run
@@ -158,11 +177,7 @@ class PipelineRunner:
         print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
         print("-" * 120)
 
-        storage_path = self.saver.register(dataset.name, config_name)
-
-        # Store run path in config_predictions instead of dataset
-        # if hasattr(config_predictions, 'run_path'):
-        #     config_predictions.run_path = str(storage_path)
+        self.saver.register(dataset.name, config_name)
         self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
         # Initialize context
@@ -170,23 +185,13 @@ class PipelineRunner:
 
         try:
             self.run_steps(steps, dataset, context, execution="sequential", prediction_store=config_predictions)
-
-            # # Save enhanced configuration with metadata if saving binaries
-            # enhanced_config = {
-            #     "steps": PipelineConfigs.serializable_steps(steps),
-            #     "execution_metadata": {
-            #         "step_binaries": self.step_binaries,
-            #         "created_at": datetime.now().isoformat(),
-            #         "pipeline_version": "1.0",
-            #         "mode": self.mode
-            #     }
-            # }
             self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
-            pipeline_best = config_predictions.get_best()
-            print(f"🥇 Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
-            print(f"\033[94m🏁 Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
-            print("=" * 120)
+            if config_predictions.num_predictions > 0:
+                pipeline_best = config_predictions.get_best()
+                print(f"🥇 Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
+                print(f"\033[94m🏁 Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
+                print("=" * 120)
 
         except Exception as e:
             print(f"\033[91m❌ Pipeline {config_name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
@@ -411,7 +416,8 @@ class PipelineRunner:
 
         # Always show final score for model controllers when verbose=0
         is_model_controller = 'model' in controller_name.lower()
-
+        print("🔹 Controller execution completed")
+        print(len(binaries))
         # Save binaries if in training mode and saving is enabled
         if self.mode == "train" and self.save_files and binaries:
             # Track binaries for this step with correct naming
@@ -452,79 +458,79 @@ class PipelineRunner:
         #     print(f"🔄 Running single operator {operator} for step: {step}, source: {source}")
             # return controller.execute(step, operator, dataset, context, self, source)
 
-    @staticmethod
-    def predict(
-        source: Union[str, Path, Dict[str, Any]],
-        dataset: DatasetConfigs,
-        top_best: int = 1,
-        ensemble_method: str = "average",
-        verbose: int = 0
-    ) -> Dict[str, Any]:
-        """
-        Unified predict method supporting multiple source types.
+    # @staticmethod
+    # def predict(
+    #     source: Union[str, Path, Dict[str, Any]],
+    #     dataset: DatasetConfigs,
+    #     top_best: int = 1,
+    #     ensemble_method: str = "average",
+    #     verbose: int = 0
+    # ) -> Dict[str, Any]:
+    #     """
+    #     Unified predict method supporting multiple source types.
 
-        Args:
-            source: Source for prediction - can be:
-                   - model_path (str/Path): Direct path to model file
-                   - config_path (str/Path): Path to config directory
-                   - prediction_model (dict): Full prediction entry with metadata
-                   - config_id (str): Configuration identifier
-                   - dataset_name (str): Dataset name to find best models for
-            dataset: Dataset to make predictions on
-            top_best: Number of best models to use (for ensemble predictions)
-            ensemble_method: How to combine multiple predictions ("average", "weighted_average")
-            verbose: Verbosity level
+    #     Args:
+    #         source: Source for prediction - can be:
+    #                - model_path (str/Path): Direct path to model file
+    #                - config_path (str/Path): Path to config directory
+    #                - prediction_model (dict): Full prediction entry with metadata
+    #                - config_id (str): Configuration identifier
+    #                - dataset_name (str): Dataset name to find best models for
+    #         dataset: Dataset to make predictions on
+    #         top_best: Number of best models to use (for ensemble predictions)
+    #         ensemble_method: How to combine multiple predictions ("average", "weighted_average")
+    #         verbose: Verbosity level
 
-        Returns:
-            Dictionary containing prediction results
+    #     Returns:
+    #         Dictionary containing prediction results
 
-        Example:
-            # Direct model path
-            results = PipelineRunner.predict("path/to/model.pkl", dataset)
+    #     Example:
+    #         # Direct model path
+    #         results = PipelineRunner.predict("path/to/model.pkl", dataset)
 
-            # Config path - uses best model from that config
-            results = PipelineRunner.predict("results/config_path", dataset, top_best=3)
+    #         # Config path - uses best model from that config
+    #         results = PipelineRunner.predict("results/config_path", dataset, top_best=3)
 
-            # Prediction model dictionary
-            results = PipelineRunner.predict(prediction_dict, dataset)
-        """
+    #         # Prediction model dictionary
+    #         results = PipelineRunner.predict(prediction_dict, dataset)
+    #     """
 
-        # Smart source detection
-        source_type, resolved_paths = PipelineRunner._detect_source_type(source, verbose)
+    #     # Smart source detection
+    #     source_type, resolved_paths = PipelineRunner._detect_source_type(source, verbose)
 
-        if verbose > 0:
-            print(f"🔮 Detected source type: {source_type}")
-            print(f"📍 Resolved paths: {len(resolved_paths)} item(s)")
+    #     if verbose > 0:
+    #         print(f"🔮 Detected source type: {source_type}")
+    #         print(f"📍 Resolved paths: {len(resolved_paths)} item(s)")
 
-        all_predictions = []
+    #     all_predictions = []
 
-        # Process each resolved path/model
-        for i, path_info in enumerate(resolved_paths[:top_best]):
-            if verbose > 0:
-                print(f"🔄 Processing model {i+1}/{min(top_best, len(resolved_paths))}")
+    #     # Process each resolved path/model
+    #     for i, path_info in enumerate(resolved_paths[:top_best]):
+    #         if verbose > 0:
+    #             print(f"🔄 Processing model {i+1}/{min(top_best, len(resolved_paths))}")
 
-            # Load and run pipeline for this model
-            prediction_result = PipelineRunner._predict_single_model(
-                path_info, dataset, verbose
-            )
+    #         # Load and run pipeline for this model
+    #         prediction_result = PipelineRunner._predict_single_model(
+    #             path_info, dataset, verbose
+    #         )
 
-            if prediction_result:
-                all_predictions.append(prediction_result)
+    #         if prediction_result:
+    #             all_predictions.append(prediction_result)
 
-        # Combine predictions if multiple models
-        if len(all_predictions) > 1:
-            final_result = PipelineRunner._combine_predictions(
-                all_predictions, ensemble_method, verbose
-            )
-        elif len(all_predictions) == 1:
-            final_result = all_predictions[0]
-        else:
-            raise RuntimeError("No successful predictions generated")
+    #     # Combine predictions if multiple models
+    #     if len(all_predictions) > 1:
+    #         final_result = PipelineRunner._combine_predictions(
+    #             all_predictions, ensemble_method, verbose
+    #         )
+    #     elif len(all_predictions) == 1:
+    #         final_result = all_predictions[0]
+    #     else:
+    #         raise RuntimeError("No successful predictions generated")
 
-        if verbose > 0:
-            print(f"✅ Prediction completed successfully with {len(all_predictions)} model(s)")
+    #     if verbose > 0:
+    #         print(f"✅ Prediction completed successfully with {len(all_predictions)} model(s)")
 
-        return final_result
+    #     return final_result
 
     @staticmethod
     def _detect_source_type(source: Union[str, Path, Dict], verbose: int = 0) -> Tuple[str, List[Dict[str, Any]]]:

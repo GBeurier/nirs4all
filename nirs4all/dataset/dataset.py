@@ -74,6 +74,7 @@ class SpectroDataset:
     def add_features(self,
                      features: InputFeatures,
                      processings: ProcessingList) -> None:
+        print("Adding features with processings:", processings)
         self._features.update_features([], features, processings)
         # Update the indexer to add new processings to existing processing lists
         self._indexer.add_processings(processings)
