@@ -51,7 +51,7 @@ path = ['sample_data/regression']
 dataset_config = DatasetConfigs(path)
 
 # Runner setup with spinner enabled (default is True, but let's be explicit)
-runner = PipelineRunner(save_files=False, verbose=0)
+runner = PipelineRunner(save_files=True, verbose=0)  # CHANGED: Enable model saving for testing
 print("🔄 Running pipeline with spinner enabled - watch for loading animations during model training!")
 run_predictions, datasets_predictions = runner.run(pipeline_config, dataset_config)
 
@@ -72,11 +72,20 @@ for dataset_name, dataset_prediction in datasets_predictions.items():
     print(f"Dataset: name={dataset_name}, number of predictions in the run={len(dataset_prediction['run_predictions'])}")
     analyzer = PredictionAnalyzer(dataset_prediction['run_predictions'])
 
-    top_1 = analyzer.get_top_k(1, 'rmse')
-    model_path = top_1[0]["model_path"]
-    config_path = top_1[0]["config_path"]
-    prediction_model = top_1[0]
-    config_id = top_1[0]["config_id"]
+    top_models = analyzer.get_top_k(10, 'rmse')  # Get more models to find non-virtual ones
+
+    # Use the best model (can be virtual or real)
+    best_model = top_models[0]
+
+    # Extract metadata fields (they're stored in metadata dict)
+    metadata = best_model.get("metadata", {})
+    model_path = metadata.get("model_path", "unknown")
+    config_path = metadata.get("config_path", "unknown")
+    config_id = metadata.get("config_id", "unknown")
+    prediction_model = best_model
+
+    print(f"Using best model: {best_model['enhanced_model_name']} - RMSE: {best_model['metrics']['rmse']:.4f}")
+    print(f"Model path: {model_path}")
 
     predicted_dataset = DatasetConfigs(['sample_data/regression_2'])
     predictions_from_model_path = PipelineRunner.predict( ## Directly use the model_path to retrieve the model and predict

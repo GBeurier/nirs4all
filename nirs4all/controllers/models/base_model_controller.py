@@ -254,26 +254,46 @@ class BaseModelController(OperatorController, ABC):
                     y_val_fold_unscaled = y_val_fold
 
                 # Launch_training(predictions + args, save_models=True)
-                fold_predictions = self.launch_training(
+                fold_result = self.launch_training(
                     model_config, X_train_fold, y_train_fold, X_val_fold, y_val_fold,
                     X_test, y_test, predictions, context, runner, dataset,
                     fold_idx=fold_idx, best_params=best_params, save_models=save_models,
                     y_train_fold_unscaled=y_train_fold_unscaled, y_val_fold_unscaled=y_val_fold_unscaled,
                     y_test_unscaled=y_test_unscaled
                 )
-                predictions.update(fold_predictions)
+
+                # Store trained model for later serialization
+                if 'trained_model' in fold_result:
+                    model_uuid = fold_result['model_uuid']
+                    fold_key = f"fold_{fold_idx}_{model_uuid}"
+                    predictions[fold_key] = {
+                        'trained_model': fold_result['trained_model'],
+                        'model_filename': f"{model_uuid}.pkl",
+                        'fold_idx': fold_idx,
+                        'model_uuid': model_uuid
+                    }
 
         else:
             # Single split - use test as validation (with warning)
             print("⚠️ Warning: Using test set as validation set (no folds provided)")
-            single_predictions = self.launch_training(
+            single_result = self.launch_training(
                 model_config, X_train, y_train, X_test, y_test,
                 X_test, y_test, predictions, context, runner, dataset,
                 fold_idx=None, best_params=best_params, save_models=save_models,
                 y_train_fold_unscaled=y_train_unscaled, y_val_fold_unscaled=y_test_unscaled,
                 y_test_unscaled=y_test_unscaled
             )
-            predictions.update(single_predictions)
+
+            # Store trained model for later serialization
+            if 'trained_model' in single_result:
+                model_uuid = single_result['model_uuid']
+                single_key = f"single_{model_uuid}"
+                predictions[single_key] = {
+                    'trained_model': single_result['trained_model'],
+                    'model_filename': f"{model_uuid}.pkl",
+                    'fold_idx': None,
+                    'model_uuid': model_uuid
+                }
 
         # if folds: create avg and w-avg
         avg_predictions = {}
@@ -290,11 +310,12 @@ class BaseModelController(OperatorController, ABC):
             # Print separator and best for config
             print("-" * 169)
         if dataset:
-            self._print_best_for_config(avg_predictions, predictions, dataset)
+            step = getattr(runner, 'step_number', 0) if runner else 0
+            self._print_best_for_config(avg_predictions, predictions, dataset, step)
 
         return predictions
 
-    def _print_best_for_config(self, avg_predictions: Dict, all_predictions: Dict, dataset: 'SpectroDataset'):
+    def _print_best_for_config(self, avg_predictions: Dict, all_predictions: Dict, dataset: 'SpectroDataset', step: int = 0):
         """Print best model for this configuration."""
         # Find best model from all predictions (including averages)
         all_models = {**all_predictions, **avg_predictions}
@@ -317,15 +338,32 @@ class BaseModelController(OperatorController, ABC):
 
                 # For accuracy, we want higher scores; for mse, we want lower scores
                 is_better = (task_type == 'regression' and score < best_score) or \
-                           (task_type != 'regression' and score > best_score)
+                            (task_type != 'regression' and score > best_score)
 
                 if is_better:
                     best_score = score
                     best_model = model_key
+                    # Extract model class name from model data if available
+                    model_classname = 'Unknown'
+                    if 'real_model' in model_data:
+                        # Extract core name from real_model UUID
+                        real_model = model_data['real_model']
+                        # Parse the UUID to get core name (e.g., "3_PLSRegression_2_fold0_step0..." -> "PLSRegression")
+                        parts = real_model.split('_')
+                        if len(parts) >= 3:
+                            model_classname = parts[1]  # Core name is typically at index 1
+                    elif 'custom_model_name' in model_data:
+                        # Use custom model name if available
+                        custom_name = model_data['custom_model_name']
+                        if '_avg' in custom_name or '_w_avg' in custom_name:
+                            model_classname = custom_name.replace('_avg', '').replace('_w_avg', '')
+                        else:
+                            model_classname = custom_name
+
                     best_info = {
                         'scores': scores,
                         'task_type': task_type,
-                        'model_classname': 'PLSRegression'  # TODO: Extract properly
+                        'model_classname': model_classname
                     }
 
         if best_model and best_info:
@@ -361,9 +399,28 @@ class BaseModelController(OperatorController, ABC):
                 fold_match = re.search(r'_fold(\d+)', best_model)
                 fold_info = f"(fold:{fold_match.group(1)})" if fold_match else ""
 
-            # Print best for model in the requested format with RMSE
+            # Print best model in step in the requested format
             rmse_value = np.sqrt(primary_value) if primary_metric == 'mse' else scores.get('rmse', 0.0)
-            print(f"🏆 Best for Model: {best_model} - {model_classname} - test: "
+
+            # Extract local name from best_model for display
+            if "_avg" in best_model or "_w_avg" in best_model:
+                display_name = best_model.replace('_avg', '').replace('_w_avg', '')
+                if "_avg" in best_model:
+                    display_name += "_avg"
+                else:
+                    display_name += "_w_avg"
+            else:
+                # Extract the local name from the model key
+                parts = best_model.split('_')
+                if len(parts) >= 3:
+                    display_name = f"{parts[1]}_{parts[2]}"  # core_name_op_counter
+                else:
+                    display_name = best_model
+
+            # Replace function with nicon for display
+            display_name = display_name.replace('function', 'nicon')
+
+            print(f"🏆 Best model in Step {step}: {display_name} - test: "
                   f"loss({primary_metric})={primary_value:.3f}{direction} (rmse: {rmse_value:.4f}, {secondary_metric}: {secondary_value:.4f}) "
                   f"score({primary_metric})={unscaled_score:.4f}")
 
@@ -399,23 +456,17 @@ class BaseModelController(OperatorController, ABC):
         print the model_id, score metrics, loss, score unscaled.
         save the model
         """
-
-        # Get step and config_id from runner
-        step = getattr(runner, 'current_step', 0) if runner else 0
-        config_id = getattr(runner.saver, 'pipeline_name', 'unknown') if runner else 'unknown'
-
-        # Extract name for model ID creation
-        name = self.model_utils.extract_name_from_config(model_config)
-
-        # create model_id with next_op
-        model_id = self.model_utils.create_model_id(name, runner) if runner else f"{name}_1"
-
-        # create model uuid with step + model_id + pipeline_id
-        model_uuid = self.model_utils.create_model_uuid(model_id, runner, step, config_id, fold_idx) if runner else f"{model_id}_{step}"
-
         # instanciate the model with params if any
         base_model = self._get_model_instance(model_config)
         model = self.model_utils.clone_model(base_model)
+
+        # Generate identifiers
+        step = context['step_id']
+        config_id = getattr(runner.saver, 'pipeline_name', 'unknown') if runner else 'unknown'
+        dataset_name = dataset.name if dataset else 'unknown'
+        model_name = self.model_utils.extract_core_name(model)
+        model_classname = model.__class__.__name__
+        operation_counter = runner.next_op()
 
         # Apply best params if provided
         if best_params:
@@ -469,55 +520,75 @@ class BaseModelController(OperatorController, ABC):
 
         # Store training and test predictions using external store (all in unscaled space)
         pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') if runner else 'unknown'
+        base_path = getattr(runner.saver, 'base_path', '') if runner else ''
+        dataset_name = dataset.name if dataset else 'unknown'
+        config_path = f"{base_path}/{dataset_name}/{pipeline_name}" if base_path else f"{dataset_name}/{pipeline_name}"
+        config_id = pipeline_name
+
         prediction_store.store_training_predictions(
             self.current_prediction_store,
-            dataset.name if dataset else 'unknown',
+            dataset_name,
             pipeline_name,
-            name,  # model_name
-            model_id,
-            model_uuid,
+            model_name,  # model_name
+            model_classname,  # model_id
+            "FAKE_UUID",  # model_uuid (to be replaced below)
             fold_idx or 0,
             step,
-            1,  # TODO: fix op_counter
+            operation_counter,
             {'y_true': y_train_fold_unscaled, 'y_pred': y_train_pred_unscaled},
             {'y_true': y_val_fold_unscaled, 'y_pred': y_val_pred_unscaled},
             list(range(len(y_train_fold_unscaled))) if y_train_fold_unscaled is not None else [],
             list(range(len(y_val_fold_unscaled))) if y_val_fold_unscaled is not None else [],
             None,  # custom_model_name
             context,  # Pass context for y processing
-            dataset   # Pass dataset for target transformations
+            dataset,   # Pass dataset for target transformations
+            pipeline_path=config_path,
+            config_path=config_path,
+            config_id=config_id,
+            model_file_name=f"{model_name}_{operation_counter}.pkl",
         )
 
         # Store test predictions
         prediction_store.store_test_predictions(
             self.current_prediction_store,
-            dataset.name if dataset else 'unknown',
+            dataset_name,
             pipeline_name,
-            name,
-            model_id,
-            model_uuid,
+            model_name,
+            model_classname,
+            "FAKE_UUID",  # model_uuid (to be replaced below)
             fold_idx or 0,
             step,
-            1,  # TODO: fix op_counter
+            operation_counter,
             y_test_unscaled,
             y_test_pred_unscaled,
             list(range(len(y_test_unscaled))) if y_test_unscaled is not None else [],
             None,  # custom_model_name
             context,  # Pass context for y processing
-            dataset   # Pass dataset for target transformations
+            dataset,   # Pass dataset for target transformations
+            pipeline_path=config_path,
+            config_path=config_path,
+            config_id=config_id,
+            model_file_name=f"{model_name}_{operation_counter}.pkl",
         )
+
+        # Store trained model in predictions for later saving
+        model_key = f"{dataset_name}_{pipeline_name}_{model_uuid}_test"
+        if model_key in predictions:
+            predictions[model_key]['trained_model'] = trained_model
+            predictions[model_key]['model_filename'] = f"{model_name}_{operation_counter}.pkl"
 
         # print the model_id, score metrics, loss, score unscaled.
+        # Use proper display name for fold training context
         self._print_training_results(
-            trained_model, model_id, y_test_unscaled, y_test_pred_unscaled, fold_idx, dataset
+            trained_model, print_name, y_test_unscaled, y_test_pred_unscaled, fold_idx, dataset
         )
 
-        # Model saving is handled in _create_result_binaries to avoid op_counter increment
-
         return {
-            'model_id': model_id,
-            'model_uuid': model_uuid,
-            'scores': scores_val
+            'model_filename': f"{model_name}_{operation_counter}.pkl",
+            'model_classname': model_classname,
+            'model_name': model_name,
+            'scores': scores_val,
+            'trained_model': trained_model  # Include trained model in return
         }
 
     def finetune(
@@ -743,32 +814,67 @@ class BaseModelController(OperatorController, ABC):
     ) -> Dict:
         """Create virtual avg and w-avg models in the external prediction store."""
 
-        # Extract model information
-        name = self.model_utils.extract_name_from_config(model_config)
-        step = getattr(runner, 'current_step', 0) if runner else 0
+        # Extract model information using new naming system
+        core_name = self.model_utils.extract_core_name(model_config)
+        step = getattr(runner, 'step_number', 0) if runner else 0
         pipeline_name = getattr(runner.saver, 'pipeline_name', 'unknown') if runner and hasattr(runner, 'saver') else 'unknown'
+        dataset_name = dataset.name if dataset else 'unknown'
 
         # Create averages using the Predictions class
         avg_predictions = {}
 
         # Create simple average
         avg_result = self.current_prediction_store.calculate_average_predictions(
-            dataset=dataset.name if dataset else 'unknown',
+            dataset=dataset_name,
             pipeline=pipeline_name,
-            model=name,
+            model=core_name,
             partition="test",  # Average test predictions
             store_result=False  # Don't auto-store, we'll store as virtual model
         )
 
         if avg_result:
-            # Store as virtual model with special naming
-            avg_model_uuid = f"{name}_fold_avg_step_{step}_{pipeline_name}"
+            # Get constituent fold models for metadata
+            constituent_models = []
+            equal_weights = []
+            for key, pred_data in self.current_prediction_store._predictions.items():
+                if (pred_data['dataset'] == dataset_name and
+                    pred_data['pipeline'] == pipeline_name and
+                    pred_data['model'] == core_name and
+                    pred_data['partition'] == 'test' and
+                    isinstance(pred_data.get('fold_idx'), int)):
+
+                    fold_model_uuid = pred_data.get('real_model', f"{core_name}_fold{pred_data['fold_idx']}")
+                    constituent_models.append(fold_model_uuid)
+                    equal_weights.append(1.0)
+
+            # Normalize weights for equal averaging
+            if equal_weights:
+                total_weight = sum(equal_weights)
+                equal_weights = [w / total_weight for w in equal_weights]
+
+            # Get unique counter for virtual model
+            avg_counter = runner.next_op()
+
+            # Store as virtual model with special naming and averaging metadata
+            avg_model_uuid = f"{core_name}_fold_avg_step_{step}_{pipeline_name}"
+
+            # Create enhanced metadata for virtual model reconstruction
+            virtual_metadata = {
+                'is_virtual_model': True,
+                'virtual_type': 'avg',
+                'averaging_method': 'equal',
+                'constituent_models': constituent_models,
+                'weights': equal_weights,
+                'num_folds': len(constituent_models),
+                'virtual_counter': avg_counter
+            }
+
             prediction_store.store_virtual_model_predictions(
                 self.current_prediction_store,
-                dataset.name,
+                dataset.name if dataset else 'unknown',
                 pipeline_name,
-                model_name=name,
-                model_id=f"{name}_avg",
+                model_name=core_name,
+                model_id=f"{core_name}_avg_{avg_counter}",
                 model_uuid=avg_model_uuid,
                 partition="test",
                 fold_idx="avg",  # Special fold_idx for averages
@@ -776,31 +882,113 @@ class BaseModelController(OperatorController, ABC):
                 y_true=avg_result['y_true'],
                 y_pred=avg_result['y_pred'],
                 test_indices=avg_result.get('indices', []),
-                custom_model_name=f"{name}_avg",
+                custom_model_name=f"{core_name}_avg_{avg_counter}",
                 context=context,  # Pass context for y processing
-                dataset=dataset   # Pass dataset for target transformations
+                dataset=dataset,  # Pass dataset for target transformations
+                pipeline_path=getattr(runner.saver, 'base_path', '') if runner else '',
+                config_path=(f"{getattr(runner.saver, 'base_path', '')}/{dataset_name}/{pipeline_name}"
+                            if runner else f"{dataset_name}/{pipeline_name}"),
+                config_id=pipeline_name,
+                virtual_metadata=virtual_metadata
             )
-            avg_predictions[f"{name}_avg"] = avg_result
+            avg_predictions[f"{core_name}_avg"] = avg_result
 
         # Create weighted average
         wavg_result = self.current_prediction_store.calculate_weighted_average_predictions(
-            dataset=dataset.name if dataset else 'unknown',
+            dataset=dataset_name,
             pipeline=pipeline_name,
-            model=name,
+            model=core_name,
             test_partition="test",
             val_partition="val",
             store_result=False
         )
 
         if wavg_result:
-            # Store as virtual model
-            wavg_model_uuid = f"{name}_fold_w_avg_step_{step}_{pipeline_name}"
+            # Get constituent fold models and their weights for metadata
+            constituent_models = []
+            weights = []
+
+            # Get the weights that were calculated during wavg_result creation
+            # The weights are computed internally in calculate_weighted_average_predictions
+            # We need to extract or recalculate them here
+            val_predictions = []
+            test_predictions = []
+
+            for key, pred_data in self.current_prediction_store._predictions.items():
+                if (pred_data['dataset'] == dataset_name and
+                    pred_data['pipeline'] == pipeline_name and
+                    pred_data['model'] == core_name and
+                    isinstance(pred_data.get('fold_idx'), int)):
+
+                    fold_model_uuid = pred_data.get('real_model', f"{core_name}_fold{pred_data['fold_idx']}")
+
+                    if pred_data['partition'] == 'test':
+                        test_predictions.append((pred_data['fold_idx'], fold_model_uuid, pred_data))
+                    elif pred_data['partition'] == 'val':
+                        val_predictions.append((pred_data['fold_idx'], pred_data))
+
+            # Sort by fold index
+            test_predictions.sort(key=lambda x: x[0])
+            val_predictions.sort(key=lambda x: x[0])
+
+            # Recalculate weights (same logic as in calculate_weighted_average_predictions)
+            if val_predictions:
+                calc_weights = []
+                for fold_idx, val_pred in val_predictions:
+                    y_true = np.array(val_pred['y_true']).flatten()
+                    y_pred_val = np.array(val_pred['y_pred']).flatten()
+
+                    # Remove NaN values
+                    mask = ~(np.isnan(y_true) | np.isnan(y_pred_val))
+                    y_true = y_true[mask]
+                    y_pred_val = y_pred_val[mask]
+
+                    if len(y_true) == 0:
+                        calc_weights.append(0.0)
+                        continue
+
+                    # Calculate RMSE and convert to weight (same as in helper)
+                    score = np.sqrt(np.mean((y_true - y_pred_val) ** 2))
+                    weight = 1.0 / (score + 1e-8)
+                    calc_weights.append(weight)
+
+                # Normalize weights
+                total_weight = sum(calc_weights)
+                if total_weight > 0:
+                    weights = [w / total_weight for w in calc_weights]
+                else:
+                    weights = [1.0 / len(calc_weights)] * len(calc_weights)
+
+                constituent_models = [model_uuid for fold_idx, model_uuid, pred_data in test_predictions]
+            else:
+                # Fallback to equal weights
+                constituent_models = [model_uuid for fold_idx, model_uuid, pred_data in test_predictions]
+                weights = [1.0 / len(constituent_models)] * len(constituent_models)
+
+            # Get unique counter for weighted virtual model
+            w_avg_counter = runner.next_op() if runner else step + 1
+
+            # Store as virtual model with averaging metadata
+            wavg_model_uuid = f"{core_name}_fold_w_avg_step_{step}_{pipeline_name}"
+
+            # Create enhanced metadata for virtual model reconstruction
+            virtual_metadata = {
+                'is_virtual_model': True,
+                'virtual_type': 'w-avg',
+                'averaging_method': 'weighted',
+                'constituent_models': constituent_models,
+                'weights': weights,
+                'num_folds': len(constituent_models),
+                'weighting_metric': 'rmse',
+                'virtual_counter': w_avg_counter
+            }
+
             prediction_store.store_virtual_model_predictions(
                 self.current_prediction_store,
-                dataset.name if dataset else 'unknown',
+                dataset_name,
                 pipeline_name,
-                model_name=name,
-                model_id=f"{name}_w_avg",
+                model_name=core_name,
+                model_id=f"{core_name}_w_avg_{w_avg_counter}",
                 model_uuid=wavg_model_uuid,
                 partition="test",
                 fold_idx="w-avg",  # Special fold_idx for weighted averages
@@ -808,11 +996,16 @@ class BaseModelController(OperatorController, ABC):
                 y_true=wavg_result['y_true'],
                 y_pred=wavg_result['y_pred'],
                 test_indices=wavg_result.get('indices', []),
-                custom_model_name=f"{name}_w_avg",
+                custom_model_name=f"{core_name}_w_avg_{w_avg_counter}",
                 context=context,  # Pass context for y processing
-                dataset=dataset   # Pass dataset for target transformations
+                dataset=dataset,   # Pass dataset for target transformations
+                pipeline_path=getattr(runner.saver, 'base_path', '') if runner else '',
+                config_path=(f"{getattr(runner.saver, 'base_path', '')}/{dataset_name}/{pipeline_name}"
+                            if runner else f"{dataset_name}/{pipeline_name}"),
+                config_id=pipeline_name,
+                virtual_metadata=virtual_metadata
             )
-            avg_predictions[f"{name}_w_avg"] = wavg_result
+            avg_predictions[f"{core_name}_w_avg"] = wavg_result
 
         return avg_predictions
 
@@ -831,10 +1024,8 @@ class BaseModelController(OperatorController, ABC):
         task_type = self.model_utils._detect_task_type(y_test)
         scores = self.model_utils.calculate_scores(y_test, y_test_pred, task_type)
 
-        # Format display name
-        display_name = f"{model_id}"
-        if fold_idx is not None:
-            display_name += f"_fold{fold_idx}"
+        # Format display name - replace function with nicon
+        display_name = model_id.replace('function', 'nicon') if 'function' in model_id else model_id
 
         # Get best metric and direction
         best_metric, higher_is_better = self.model_utils.get_best_metric_for_task(task_type)
@@ -933,42 +1124,190 @@ class BaseModelController(OperatorController, ABC):
                     if unscaled_score is not None:
                         score_str += f" - ({best_metric.upper()}: {unscaled_score:.4f})"
 
-                    print(f"✅ {real_model} - test: {score_str}")
+                    # Format virtual model display name using virtual_counter if available
+                    virtual_metadata = pred_data.get('virtual_metadata', {})
+                    if virtual_metadata and 'virtual_counter' in virtual_metadata:
+                        # Use the stored virtual counter for display
+                        display_name = self._format_virtual_model_name_with_counter(real_model, virtual_metadata['virtual_counter'])
+                    else:
+                        # Fallback to old format logic
+                        display_name = self._format_virtual_model_name(real_model)
+
+                    print(f"✅ {display_name} - test: {score_str}")
                 else:
                     print(f"⚠️ Missing y_true or y_pred for {real_model}")
             else:
                 print(f"⚠️ Skipping non-test partition: {pred_data.get('partition', 'N/A')}")
 
+    def _format_virtual_model_name(self, real_model: str) -> str:
+        """Format virtual model name according to new specifications.
+
+        Transform:
+        - '5_PLSRegression_4_avg' -> 'PLSRegression_Custom_Model_avg_4'
+        - '5_PLSRegression_4_weighted_avg' -> 'PLSRegression_Custom_Model_w_avg_4'
+        - '10_function_16_avg' -> 'nicon_16_avg'
+        - '10_function_16_weighted_avg' -> 'nicon_16_w-avg'
+        """
+        # Handle virtual models with the pattern: Step_ModelName_Counter_[weighted_]avg
+        if '_avg' in real_model:
+            parts = real_model.split('_')
+            if len(parts) >= 4:  # e.g., ['9', 'MLP', 'Custom', 'Model', '13', 'avg']
+                step_num = parts[0]  # e.g., '9'
+
+                # Check if it's weighted_avg pattern: ['10', 'function', '16', 'weighted', 'avg']
+                if len(parts) >= 5 and parts[-2] == 'weighted' and parts[-1] == 'avg':
+                    # Extract core name and counter for weighted_avg
+                    if len(parts) == 5:  # Simple: ['10', 'function', '16', 'weighted', 'avg']
+                        core_name = parts[1]  # e.g., 'function'
+                        counter = parts[2]    # e.g., '16'
+                    else:  # Complex: ['step', 'core', 'model', 'counter', 'weighted', 'avg']
+                        core_name = '_'.join(parts[1:-3])  # Everything between step and counter
+                        counter = parts[-3]  # The part before 'weighted'
+
+                    # Format for weighted average
+                    if core_name == 'function':
+                        return f"function_weighted_avg_{counter}"
+                    elif core_name == 'nicon':
+                        return f"{core_name}_w-avg_{counter}"
+                    else:
+                        return f"{core_name}_w_avg_{counter}"
+
+                # Handle regular avg pattern
+                elif len(parts) == 4:  # Simple: ['5', 'PLSRegression', '4', 'avg']
+                    core_name = parts[1]  # e.g., 'PLSRegression'
+                    counter = parts[2]   # e.g., '4'
+                    avg_type = parts[3]  # e.g., 'avg'
+                elif len(parts) >= 6:  # Complex: ['9', 'MLP', 'Custom', 'Model', '13', 'avg']
+                    # Reconstruct the core name from middle parts
+                    core_name = '_'.join(parts[1:-2])  # e.g., 'MLP_Custom_Model'
+                    counter = parts[-2]  # e.g., '13'
+                    avg_type = parts[-1]  # e.g., 'avg'
+                else:
+                    return real_model  # Fallback
+
+                # Format for regular average
+                if avg_type == 'avg':
+                    if core_name == 'function':
+                        return f"function_avg_{counter}"
+                    elif core_name == 'nicon':
+                        return f"{core_name}_avg_{counter}"
+                    else:
+                        return f"{core_name}_avg_{counter}"
+
+        # Fallback: Handle the UUID format (PLSRegression_fold_avg_step_6_config_47d5fa28)
+        elif 'fold_avg' in real_model or 'fold_w_avg' in real_model:
+            parts = real_model.split('_')
+
+            core_name = parts[0] if len(parts) > 0 else 'unknown'
+
+            # Find step number
+            step_num = '0'
+            for i, part in enumerate(parts):
+                if part == 'step' and i + 1 < len(parts):
+                    step_num = parts[i + 1]
+                    break
+
+            # Replace 'function' with 'nicon' and check if it's weighted average
+            if 'fold_w_avg' in real_model:
+                if core_name == 'function':
+                    return f"function_weighted_avg_{step_num}"
+                elif core_name == 'nicon':
+                    return f"{core_name}_w-avg_{step_num}"
+                else:
+                    return f"{core_name}_w_avg_{step_num}"
+            elif 'fold_avg' in real_model:
+                if core_name == 'function':
+                    return f"function_avg_{step_num}"
+                elif core_name == 'nicon':
+                    return f"{core_name}_avg_{step_num}"
+                else:
+                    return f"{core_name}_avg_{step_num}"
+
+        # Fallback to original name if parsing fails
+
+        return real_model
+
+    def _format_virtual_model_name_with_counter(self, real_model: str, virtual_counter: int) -> str:
+        """Format virtual model name using the unique virtual counter."""
+        # Extract core name from real_model
+        if '_avg' in real_model:
+            parts = real_model.split('_')
+            if len(parts) >= 4:
+                # Check if it's weighted_avg pattern
+                if len(parts) >= 5 and parts[-2] == 'weighted' and parts[-1] == 'avg':
+                    if len(parts) == 5:  # Simple: ['10', 'function', '16', 'weighted', 'avg']
+                        core_name = parts[1]
+                    else:  # Complex
+                        core_name = '_'.join(parts[1:-3])
+
+                    # Format for weighted average with virtual counter
+                    if core_name == 'function':
+                        return f"function_weighted_avg_{virtual_counter}"
+                    elif core_name == 'nicon':
+                        return f"{core_name}_w-avg_{virtual_counter}"
+                    else:
+                        return f"{core_name}_w_avg_{virtual_counter}"
+
+                # Handle regular avg pattern
+                elif len(parts) == 4:  # Simple: ['5', 'PLSRegression', '4', 'avg']
+                    core_name = parts[1]
+                elif len(parts) >= 6:  # Complex: ['9', 'MLP', 'Custom', 'Model', '13', 'avg']
+                    core_name = '_'.join(parts[1:-2])
+                else:
+                    return real_model
+
+                # Format for regular average with virtual counter
+                if parts[-1] == 'avg':
+                    if core_name == 'function':
+                        return f"function_avg_{virtual_counter}"
+                    elif core_name == 'nicon':
+                        return f"{core_name}_avg_{virtual_counter}"
+                    else:
+                        return f"{core_name}_avg_{virtual_counter}"
+
+        # Handle UUID format with virtual counter
+        elif 'fold_avg' in real_model or 'fold_w_avg' in real_model:
+            parts = real_model.split('_')
+            core_name = parts[0] if len(parts) > 0 else 'unknown'
+
+            # Check if it's weighted average
+            if 'fold_w_avg' in real_model:
+                if core_name == 'function':
+                    return f"function_weighted_avg_{virtual_counter}"
+                elif core_name == 'nicon':
+                    return f"{core_name}_w-avg_{virtual_counter}"
+                else:
+                    return f"{core_name}_w_avg_{virtual_counter}"
+            elif 'fold_avg' in real_model:
+                if core_name == 'function':
+                    return f"function_avg_{virtual_counter}"
+                elif core_name == 'nicon':
+                    return f"{core_name}_avg_{virtual_counter}"
+                else:
+                    return f"{core_name}_avg_{virtual_counter}"
+
+        return real_model
+
     def _create_result_binaries(self, predictions: Dict, runner: 'PipelineRunner') -> List[Tuple[str, bytes]]:
-        """Create result binaries from predictions - only save actual model files."""
+        """Create result binaries from predictions - save all trained models with proper naming."""
         import pickle
         binaries = []
 
-        # Only save best model for the entire run (not per fold/prediction)
-        # Find the best model based on test performance
-        best_model = None
-        best_score = float('inf')
-        best_name = None
-
+        # Save all trained models found in predictions
         for pred_key, pred_data in predictions.items():
-            if 'trained_model' in pred_data and 'test' in pred_key:
-                # Calculate score for this model
-                y_true = pred_data.get('y_true')
-                y_pred = pred_data.get('y_pred')
-                if y_true is not None and y_pred is not None:
-                    scores = self.model_utils.calculate_scores(y_true, y_pred)
-                    # Use MSE for comparison (lower is better)
-                    mse = scores.get('mse', float('inf'))
-                    if mse < best_score:
-                        best_score = mse
-                        best_model = pred_data['trained_model']
-                        # Extract model name from prediction key
-                        best_name = pred_data.get('real_model', pred_key)
+            if isinstance(pred_data, dict):
+                # Check if this is a fold result with trained_model
+                if 'trained_model' in pred_data:
+                    model = pred_data['trained_model']
+                    model_filename = pred_data.get('model_filename', f"model_{pred_key}.pkl")
 
-        # Save only the best model
-        if best_model is not None and best_name is not None:
-            model_binary = pickle.dumps(best_model)
-            filename = best_name + ".pkl"
-            binaries.append((filename, model_binary))
+                    try:
+                        model_binary = pickle.dumps(model)
+                        binaries.append((model_filename, model_binary))
+                        if runner and hasattr(runner, 'verbose') and runner.verbose > 0:
+                            print(f"💾 Saved model: {model_filename}")
+                    except Exception as e:
+                        if runner and hasattr(runner, 'verbose') and runner.verbose > 0:
+                            print(f"⚠️ Could not serialize model {model_filename}: {e}")
 
         return binaries

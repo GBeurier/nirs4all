@@ -589,14 +589,50 @@ class Predictions:
             # Calculate unscaled score
             unscaled_score = best_score * 1000
 
-            # Extract config name from the model key
-            clean_config = 'unknown'
-            if best_key and 'config_' in best_key:
-                config_part = best_key.split('config_')[1].split('/')[0] if '/' in best_key else best_key.split('config_')[1]
-                clean_config = f"config_{config_part.split('_')[1]}"
+            # New format for best model display
+            print(f"> Dataset: {context_name}")
 
-            print(f"🏆 Best from {context_name} ({clean_config}): {best_model} ({clean_config}) - "
+            # Extract components from best_model (real_model UUID)
+            parts = best_model.split('_')
+            if len(parts) >= 3:
+                step_num = parts[0]
+                core_name = parts[1]
+                model_id = parts[2]
+
+                # Handle function -> nicon conversion
+                if core_name == 'function':
+                    core_name = 'nicon'
+
+                # Extract config from key - simplified format
+                clean_config = 'unknown'
+                if best_key and 'config_' in best_key:
+                    config_part = best_key.split('config_')[1].split('/')[0] if '/' in best_key else best_key.split('config_')[1]
+                    # Just take first 6 chars of config ID
+                    config_id = config_part.split('_')[1] if '_' in config_part else config_part
+                    clean_config = config_id[:6] if len(config_id) > 6 else config_id
+
+                # Determine fold information
+                fold_info = ""
+                if 'fold' in best_model:
+                    import re
+                    fold_match = re.search(r'fold(\d+)', best_model)
+                    if fold_match:
+                        fold_info = f" - Fold {fold_match.group(1)}"
+                elif 'avg' in best_model:
+                    if 'weighted' in best_model or 'w_avg' in best_model:
+                        fold_info = " - w_avg"
+                    else:
+                        fold_info = " - avg"
+
+                display_name = f"{step_num}_{core_name}_{model_id}{fold_info} - {clean_config}"
+            else:
+                display_name = best_model
+                clean_config = 'unknown'
+
+            print(f"🏆 Best model in Run: {display_name} - "
                   f"loss({best_metric})={best_score:.4f}↓ - score({best_metric}): {unscaled_score:.4f}")
+
+            # TODO: Add Overall best model logic here if needed
 
 
 
