@@ -4,7 +4,7 @@ Utilitaires pour détecter les backends ML disponibles et permettre des tests co
 import importlib
 
 TF_AVAILABLE = importlib.util.find_spec('tensorflow') is not None
-TORCH_AVAILABLE = importlib.util.find_spec('torch') is not None
+# TORCH_AVAILABLE = importlib.util.find_spec('torch') is not None
 
 def framework(framework_name):
     def decorator(func):
@@ -21,13 +21,13 @@ def is_tensorflow_available():
     except ImportError:
         return False
 
-def is_torch_available():
-    """Vérifie si PyTorch est installé."""
-    try:
-        import torch
-        return True
-    except ImportError:
-        return False
+# def is_torch_available():
+#     """Vérifie si PyTorch est installé."""
+#     try:
+#         import torch
+#         return True
+#     except ImportError:
+#         return False
 
 def is_keras_available():
     """Vérifie si Keras 3 est installé."""

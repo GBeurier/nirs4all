@@ -2,6 +2,8 @@
 learning course - ipynb
 >>> Vérifier les sauvegardes des fichiers
 
+AJOUTER SHAP + controller
+
 Bin operator with bounds or count + warning class assymetry
 ** RELEASE **
 [SEED]

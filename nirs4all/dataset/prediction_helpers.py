@@ -632,7 +632,7 @@ class PredictionHelpers:
                 print("No predictions found")
                 return
 
-            print("-" * 140)
+            print("-" * 120)
 
             # Find best from this run (new predictions)
             # If predictions_before_count > 0, we have existing predictions, so new ones are after that index

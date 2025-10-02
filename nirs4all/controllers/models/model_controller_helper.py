@@ -105,14 +105,14 @@ class ModelControllerHelper:
         except Exception:
             pass
 
-        # Try PyTorch cloning
-        try:
-            if hasattr(model, 'state_dict'):  # PyTorch model
-                import torch
-                cloned_model = copy.deepcopy(model)
-                return cloned_model
-        except Exception:
-            pass
+        # # Try PyTorch cloning
+        # try:
+        #     if hasattr(model, 'state_dict'):  # PyTorch model
+        #         import torch
+        #         cloned_model = copy.deepcopy(model)
+        #         return cloned_model
+        # except Exception:
+        #     pass
 
         # Fallback to deep copy
         try:

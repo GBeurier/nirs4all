@@ -15,7 +15,7 @@ from .controllers import register_controller, CONTROLLER_REGISTRY
 # Utility functions for backend detection
 from .utils import (
     is_tensorflow_available,
-    is_torch_available,
+    # is_torch_available,
     is_gpu_available,
     framework
 )
@@ -33,7 +33,7 @@ __all__ = [
 
     # Utilities
     "is_tensorflow_available",
-    "is_torch_available",
+    # "is_torch_available",
     "is_gpu_available",
     "framework"
 ]

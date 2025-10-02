@@ -10,7 +10,7 @@ from nirs4all.operators.transformations import Detrend, FirstDerivative, SecondD
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
 
-
+## TODO finetune
 x_scaler = MinMaxScaler()  # StandardScaler(), RobustScaler(), QuantileTransformer(), PowerTransformer(), LogTransform()
 y_scaler = MinMaxScaler()
 list_of_preprocessors = [Detrend, FirstDerivative, SecondDerivative, Gaussian, StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection]
@@ -22,10 +22,7 @@ pipeline = [
     x_scaler,
     {"y_processing": y_scaler},
     {"feature_augmentation": {"_or_": list_of_preprocessors, "size": [1, (1, 2)], "count": 5}},  # Generate all elements of size 1 and of order 1 or 2 (ie. "Gaussian", ["SavitzkyGolay", "Log"], etc.)
-    {
-        "name": "PLS-10_NoValidation",
-        "model": PLSRegression(n_components=10)
-    },
+    PLSRegression(n_components=10),
     splitting_strategy,
 ]
 
@@ -40,9 +37,8 @@ pipeline_config = PipelineConfigs(pipeline, "Q1")
 dataset_config = DatasetConfigs(dataset_folder)
 
 # Create pipeline with verbose=1 to see debug output
-runner = PipelineRunner(save_files=False, verbose=0) #, random_state=42) ## TODO SEED DANS PIPELINE RUNNER
+runner = PipelineRunner(save_files=False, verbose=0, random_state=42) ## SEED DANS PIPELINE RUNNER
 predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_config)
-
 # predictions du run, {
 #     'regression': {
 #         "global_predictions": global_dataset_predictions,
@@ -58,14 +54,15 @@ predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_conf
 
 # Get top models to verify the real model names are displayed correctly
 best_count = 5
-rank_metric = 'r2'  # 'rmse', 'mae', 'r2'
-top_10 = predictions.top_k(best_count, rank_metric)
-print(f"Top {best_count} models by {rank_metric}:")
-for i, model in enumerate(top_10):
-    print(f"{i+1}. {Predictions.pred_short_string(model, metrics=[rank_metric])}")
+top_10 = predictions.top_k(best_count, 'rmse', {"partition":"validation"})  ## partition VALIDATION PAR DEFAULT
 
-## TAB REPORT
-# analyzer = PredictionAnalyzer(predictions) ## Prétraitements dans le graphique
+print(f"Top {best_count} models by RMSE:")
+for i, model in enumerate(top_10):
+    print(f"{i+1}. {Predictions.pred_short_string(model, metrics=['r2', 'mae'])}") # TODO verif Model_name dans pred_short_string, Ajouter les prétraitements (noob level) dans pred_long_string
+    ## Prétraitements, Components, Metrics
+
+
+analyzer = PredictionAnalyzer(predictions) ## Prétraitements dans le graphique
 # fig = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
 # plt.show()
 # fig1 = analyzer.plot_performance_matrix(metric='rmse', separate_avg=False) ## trier pas model_name pas model_classname (par pls_x), option best or average
