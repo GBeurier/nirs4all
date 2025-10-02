@@ -1155,7 +1155,7 @@ class PredictionAnalyzer:
 
         # First collect data with natural sorting of variable values
         sorted_var_vals = sorted(variable_scores.keys(), key=self._natural_sort_key)
-
+        higher_better = metric in ['r2', 'accuracy', 'f1', 'precision', 'recall']
         for var_val in sorted_var_vals:
             scores = variable_scores[var_val]
             if scores:  # Only include if we have scores
