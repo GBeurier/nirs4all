@@ -109,7 +109,7 @@ class YTransformerMixinController(OperatorController):
 
         # Serialize fitted transformer for potential reuse
         transformer_binary = pickle.dumps(transformer)
-        fitted_transformers = [(f"{operator_name}_{new_processing_name}.pkl", transformer_binary)]
+        fitted_transformers = [(f"y_{operator_name}.pkl", transformer_binary)]
 
         # print(f"✅ Successfully applied {operator_name} to targets: {current_y_processing} → {new_processing_name}")
         # print(f"   Train shape: {train_targets.shape} → {transformer.transform(train_targets).shape}")
