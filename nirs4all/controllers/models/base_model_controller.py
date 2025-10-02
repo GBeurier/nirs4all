@@ -321,7 +321,8 @@ class BaseModelController(OperatorController, ABC):
                 metric=metric,
                 task_type=dataset.task_type,
                 n_samples=len(y_true_part),
-                n_features=X_train.shape[1]
+                n_features=X_train.shape[1],
+                preprocessings=dataset.short_preprocessings_str()
             )
 
         short_desc = f"✅ {model_name} - {metric}{direction} [test: {score_test:.4f}], [val: {score_val:.4f}]"
@@ -579,7 +580,8 @@ class BaseModelController(OperatorController, ABC):
                 metric=metric,
                 task_type=dataset.task_type,
                 n_samples=len(y_true_part),
-                n_features=X_train.shape[1]
+                n_features=X_train.shape[1],
+                preprocessings=dataset.short_preprocessings_str()
             )
 
         # Weighted average predictions based on fold scores
@@ -634,7 +636,8 @@ class BaseModelController(OperatorController, ABC):
                 metric=metric,
                 task_type=dataset.task_type,
                 n_samples=len(y_true_part),
-                n_features=X_train.shape[1]
+                n_features=X_train.shape[1],
+                preprocessings=dataset.short_preprocessings_str()
             )
 
     def _binarize_model(self, model: Any) -> bytes:

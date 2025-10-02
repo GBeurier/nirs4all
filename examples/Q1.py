@@ -21,15 +21,11 @@ pipeline = [
     "chart_2d",
     x_scaler,
     {"y_processing": y_scaler},
-    {"feature_augmentation": {"_or_": list_of_preprocessors, "size": [1, (1, 2)], "count": 5}},  # Generate all elements of size 1 and of order 1 or 2 (ie. "Gaussian", ["SavitzkyGolay", "Log"], etc.)
-    {
-        "name": "PLS-10_NoValidation",
-        "model": PLSRegression(n_components=10)
-    },
+    {"feature_augmentation": {"_or_": list_of_preprocessors, "size": [1, (1, 2)], "count": 10}},  # Generate all elements of size 1 and of order 1 or 2 (ie. "Gaussian", ["SavitzkyGolay", "Log"], etc.)
     splitting_strategy,
 ]
 
-for i in range(10, 30, 10):
+for i in range(5, 35, 2):
     model = {
         "name": f"PLS-{i}_cp",
         "model": PLSRegression(n_components=i)
@@ -40,19 +36,8 @@ pipeline_config = PipelineConfigs(pipeline, "Q1")
 dataset_config = DatasetConfigs(dataset_folder)
 
 # Create pipeline with verbose=1 to see debug output
-runner = PipelineRunner(save_files=False, verbose=0) #, random_state=42) ## TODO SEED DANS PIPELINE RUNNER
+runner = PipelineRunner(save_files=False, verbose=0)
 predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_config)
-
-# predictions du run, {
-#     'regression': {
-#         "global_predictions": global_dataset_predictions,
-#         "run_predictions": run_dataset_predictions,
-#         "dataset": dataset,
-#         "dataset_name": dataset_name
-#     }
-# }
-
-
 
 ###############################################################################################################
 
@@ -62,20 +47,26 @@ rank_metric = 'r2'  # 'rmse', 'mae', 'r2'
 top_10 = predictions.top_k(best_count, rank_metric)
 print(f"Top {best_count} models by {rank_metric}:")
 for i, model in enumerate(top_10):
-    print(f"{i+1}. {Predictions.pred_short_string(model, metrics=[rank_metric])}")
+    print(f"{i+1}. {Predictions.pred_short_string(model, metrics=[rank_metric])} - {model['preprocessings']}")
 
-## TAB REPORT
-# analyzer = PredictionAnalyzer(predictions) ## Prétraitements dans le graphique
-# fig = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
-# plt.show()
-# fig1 = analyzer.plot_performance_matrix(metric='rmse', separate_avg=False) ## trier pas model_name pas model_classname (par pls_x), option best or average
-# fig1.suptitle('Performance Matrix - Normalized RMSE by Model and Dataset')
-# plt.show()
+# TAB REPORT
+analyzer = PredictionAnalyzer(predictions) ## Prétraitements dans le graphique
+# fig1 = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
+plt.show()
 
-# -----------------------
-### ordonnée pretraitements, abscisse model_name
-#### Plot dédié ! avec aliasing des TransformerMixin
-# -----------------------
-### prédiction folds > either fold or avg or w-avg
-# -------------------------------
-### SEED DANS RUN
+fig2 = analyzer.plot_variable_heatmap(
+    filters={"partition": "test"},
+    x_var="model_name",
+    y_var="preprocessings",
+    metric='rmse'
+)
+# # plt.savefig('test_heatmap2.png', dpi=300)
+plt.show()
+
+fig3 = analyzer.plot_variable_candlestick(
+    filters={"partition": "test"},
+    variable="model_name",
+    metric='rmse'
+)
+# plt.savefig('test_candlestick_models_Q1.png', dpi=150, bbox_inches='tight')
+plt.show()

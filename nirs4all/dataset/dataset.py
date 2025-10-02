@@ -6,7 +6,7 @@ and provides the primary public API for users.
 """
 
 
-
+import re
 import numpy as np
 
 from nirs4all.dataset.helpers import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict, get_num_samples, InputFeatures, ProcessingList
@@ -121,6 +121,36 @@ class SpectroDataset:
 
     def features_processings(self, src: int) -> List[str]:
         return self._features.preprocessing_str[src]
+
+    def short_preprocessings_str(self) -> str:
+        processings_list = self._features.sources[0].processing_ids
+        processings_list.pop(0)
+        processings = "*".join(self.features_processings(0))
+        replacements = [
+            ("raw_", ""),
+            ("SavitzkyGolay", "SG"),
+            ("MultiplicativeScatterCorrection", "MSC"),
+            ("StandardNormalVariate", "SNV"),
+            ("FirstDerivative", "1stDer"),
+            ("SecondDerivative", "2ndDer"),
+            ("Detrend", "Detr"),
+            ("Gaussian", "Gauss"),
+            ("Haar", "Haar"),
+            ("LogTransform", "Log"),
+            ("MinMaxScaler", "MinMax"),
+            ("RobustScaler", "Rbt"),
+            ("StandardScaler", "Std"),
+            ("QuantileTransformer", "Quant"),
+            ("PowerTransformer", "Power"),
+            # ("_", ""),
+        ]
+        for long, short in replacements:
+            processings = processings.replace(long, short)
+
+        # replace expr _<digit>_ with | then remaining _<digits> with nothing
+        processings = re.sub(r'_\d+_', '|', processings)
+        processings = re.sub(r'_\d+', '', processings)
+        return processings
 
     def features_sources(self) -> int:
         return len(self._features.sources)

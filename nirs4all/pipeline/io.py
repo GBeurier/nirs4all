@@ -34,6 +34,7 @@ class SimulationSaver:
         self.pipeline_name: Optional[str] = None
         self.current_path: Optional[Path] = None
         self._metadata: Dict[str, Any] = {}
+        self.dataset_path: Optional[Path] = None
 
     def register(self, dataset_name: str, pipeline_name: str) -> Path:
         """
@@ -59,6 +60,7 @@ class SimulationSaver:
         self.pipeline_name = pipeline_name
 
         # Create directory structure
+        self.dataset_path = self.base_path / dataset_name
         self.current_path = self.base_path / dataset_name / pipeline_name
         self.current_path.mkdir(parents=True, exist_ok=True)
 
@@ -82,11 +84,14 @@ class SimulationSaver:
                   content: str,
                   overwrite: bool = False,
                   encoding: str = 'utf-8',
-                  warn_on_overwrite: bool = True) -> Path:
+                  warn_on_overwrite: bool = True,
+                  into_dataset: bool = False) -> Path:
 
         self._check_registered()
 
         filepath = self.current_path / filename
+        if into_dataset and self.dataset_path is not None:
+            filepath = self.dataset_path / filename
 
         if filepath.exists() and not overwrite:
             raise FileExistsError(f"File {filename} already exists. Use overwrite=True to replace.")
@@ -125,7 +130,8 @@ class SimulationSaver:
                     filename: str,
                     data: Union[bytes, BinaryIO, Any],
                     overwrite: bool = False,
-                    pickle_if_object: bool = True) -> Path:
+                    pickle_if_object: bool = True,
+                    into_dataset: bool = False) -> Path:
         """
         Save binary data or objects to a file.
 
