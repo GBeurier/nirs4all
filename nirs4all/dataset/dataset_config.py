@@ -40,15 +40,43 @@ class DatasetConfigs:
         if name in self.cache:
             x_train, y_train, x_test, y_test = self.cache[name]
         else:
-            x_train, y_train = handle_data(config, "train")
-            x_test, y_test = handle_data(config, "test")
+            # Try to load train data
+            try:
+                x_train, y_train = handle_data(config, "train")
+            except (ValueError, FileNotFoundError) as e:
+                if "x_path is None" in str(e) or "train_x" in str(e):
+                    x_train, y_train = None, None
+                else:
+                    raise
+
+            # Try to load test data
+            try:
+                x_test, y_test = handle_data(config, "test")
+            except (ValueError, FileNotFoundError) as e:
+                if "x_path is None" in str(e) or "test_x" in str(e):
+                    x_test, y_test = None, None
+                else:
+                    raise
+
             self.cache[name] = (x_train, y_train, x_test, y_test)
 
-        dataset.add_samples(x_train, {"partition": "train"})
-        dataset.add_samples(x_test, {"partition": "test"})
-        dataset.add_targets(y_train)
-        dataset.add_targets(y_test)
-        print(f"✅ Loaded dataset '{dataset.name}' with {len(x_train)} training and {len(x_test)} test samples.")
+        # Add samples and targets only if they exist
+        train_count = 0
+        test_count = 0
+
+        if x_train is not None:
+            dataset.add_samples(x_train, {"partition": "train"})
+            train_count = len(x_train)
+            if y_train is not None:
+                dataset.add_targets(y_train)
+
+        if x_test is not None:
+            dataset.add_samples(x_test, {"partition": "test"})
+            test_count = len(x_test)
+            if y_test is not None:
+                dataset.add_targets(y_test)
+
+        print(f"✅ Loaded dataset '{dataset.name}' with {train_count} training and {test_count} test samples.")
         return dataset
 
     def get_dataset_at(self, index) -> SpectroDataset:
