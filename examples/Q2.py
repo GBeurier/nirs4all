@@ -25,52 +25,54 @@ pipeline = [
     {"y_processing": MinMaxScaler},
     {"model": PLSRegression(15)},
     {"model": PLSRegression(10)},
-    # {"model": RandomForestRegressor(n_estimators=100)},
-    # {"model": ElasticNet()},
+    {"model": RandomForestRegressor(n_estimators=100)},
+    {"model": ElasticNet()},
     {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1), "name": "SVR_Custom_Model"},
-    # {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500), "name": "MLP_Custom_Model"},
-    # {"model": GradientBoostingRegressor(n_estimators=100)},
-    # {
-    #     "model": nicon,
-    #     "train_params": {
-    #         "epochs": 5,
-    #         "patience": 50,
-    #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
-    #     },
-    # },
+    {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500), "name": "MLP_Custom_Model"},
+    {"model": GradientBoostingRegressor(n_estimators=100)},
+    {
+        "model": nicon,
+        "train_params": {
+            "epochs": 5,
+            "patience": 50,
+            "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
+        },
+    },
 ]
 
 # create pipeline config
 pipeline_config = PipelineConfigs(pipeline, name="Q2")
 
-# path = ['../../sample_data/regression', '../../sample_data/classification', '../../sample_data/binary']
-path = 'sample_data/regression'
+path = ['sample_data/regression', 'sample_data/regression_2', 'sample_data/regression_3']
 dataset_config = DatasetConfigs(path)
 
 # Runner setup with spinner enabled (default is True, but let's be explicit)
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_files=False, verbose=0)
 predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_config)
 
 ###############################################################################################################
 
 # Get top models to verify the real model names are displayed correctly
-best_count = 5
-top_10 = predictions.top_k(k=best_count, metric='rmse')
-# print(predictions)
-# print(top_10)
-print(f"Top {best_count} models by RMSE:")
-for i, model in enumerate(top_10):
-    print(f"{i+1}. {Predictions.pred_long_string(model, metrics=['rmse', 'r2', 'mae'])}")
+best_count = 3
+rank_metric = 'rmse'  # 'rmse', 'mae', 'r2'
 
-# Plot comparison with enhanced names (for readability in plots)
-analyzer = PredictionAnalyzer(predictions)
-fig = analyzer.plot_top_k_comparison(k=best_count, metric='rmse', partition='test')
-plt.show()
+for dataset_name, predict_dict in predictions_per_datasets.items():
+    run_predictions = predict_dict['run_predictions']
+    print(f"\nTop {best_count} models by {rank_metric} for dataset: {dataset_name}")
+    top_10 = run_predictions.top_k(best_count, rank_metric)
+    for i, model in enumerate(top_10):
+        print(f"{i+1}. {Predictions.pred_short_string(model, metrics=[rank_metric])} - {model['preprocessings']}")
 
-fig1 = analyzer.plot_performance_matrix(metric='rmse', separate_avg=True)
-fig1.suptitle('Performance Matrix - Normalized RMSE by Model and Dataset')
-plt.show()
+    analyzer = PredictionAnalyzer(run_predictions)
+    fig1 = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
+    # plt.savefig('test_top_k_models_Q1.png', dpi=150, bbox_inches='tight')
+    plt.show()
 
-fig2 = analyzer.plot_candlestick_models(metric='rmse')
-fig2.suptitle('RMSE Score Distribution by Dataset')
+fig2 = analyzer.plot_variable_heatmap(
+    filters={"partition": "test"},
+    x_var="model_name",
+    y_var="dataset",
+    metric='rmse'
+)
+# # plt.savefig('test_heatmap2.png', dpi=300)
 plt.show()

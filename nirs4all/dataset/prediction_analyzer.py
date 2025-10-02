@@ -152,12 +152,17 @@ class PredictionAnalyzer:
 
         fig, axes = plt.subplots(rows, cols, figsize=figsize)
 
+        # Handle different subplot configurations
         if n_plots == 1:
+            # For single row, axes is 1D array [ax_left, ax_right]
+            axes = [axes]  # Wrap in list to make it [[ax_left, ax_right]]
+        elif rows == 1:
+            # This shouldn't happen with our logic, but just in case
             axes = [axes]
 
         for i, pred in enumerate(top_predictions):
             # Predicted vs True plot
-            ax_scatter = axes[i][0] if n_plots > 1 else axes[0]
+            ax_scatter = axes[i][0]
 
             y_true = np.asarray(pred['y_true']).flatten()
             y_pred = np.asarray(pred['y_pred']).flatten()
@@ -185,7 +190,7 @@ class PredictionAnalyzer:
             ax_scatter.grid(True, alpha=0.3)
 
             # Residuals plot
-            ax_resid = axes[i][1] if n_plots > 1 else axes[1]
+            ax_resid = axes[i][1]
 
             residuals = y_true - y_pred
             ax_resid.scatter(y_pred, residuals, alpha=0.6, s=20)
