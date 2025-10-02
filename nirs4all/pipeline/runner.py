@@ -29,7 +29,7 @@ from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.binary_loader import BinaryLoader
 from nirs4all.dataset.prediction_helpers import PredictionHelpers
 from nirs4all.utils.spinner import spinner_context
-from nirs4all.utils.tab_report_generator import TabReportGenerator
+from nirs4all.utils.tab_report_manager import TabReportManager
 
 
 
@@ -73,7 +73,6 @@ class PipelineRunner:
         self.binary_loader: Optional[BinaryLoader] = None
         self.show_spinner = show_spinner
         self.enable_tab_reports = enable_tab_reports
-        self.tab_report_generator = TabReportGenerator()
 
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> Any:
         """Run pipeline configurations on dataset configurations."""
@@ -111,10 +110,24 @@ class PipelineRunner:
 
             best = run_dataset_predictions.get_best()
             print(f"🏆 Run best for dataset '{name}': {Predictions.pred_long_string(best)}")
-            # if self.enable_tab_reports:
-                # PredictionHelpers.generate_best_score_tab_report(run_dataset_predictions, dataset_name, str(self.saver.base_path / dataset_name), True, dataset)
+            best_by_partition = run_dataset_predictions.get_entry_partitions(best)
+            str_desc, csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
+            print(str_desc)
+            if csv_file:
+                filename = f"{best['step_idx']}_{best['model_name']}_{best['op_counter']}.csv"
+                print(filename)
+                self.saver.save_file(filename, csv_file)
+            print("-" * 120)
             best_overall = global_dataset_predictions.get_best()
             print(f"🏆 Best Overall for dataset '{name}': {Predictions.pred_long_string(best_overall)}")
+            overall_best_by_partition = global_dataset_predictions.get_entry_partitions(best_overall)
+            str_desc, csv_file = TabReportManager.generate_best_score_tab_report(overall_best_by_partition)
+            print(str_desc)
+            if csv_file:
+                filename = f"{best_overall['step_idx']}_{best_overall['model_name']}_{best_overall['op_counter']}_overall.csv"
+                print(filename)
+                self.saver.save_file(filename, csv_file)
+
             print("=" * 120)
             print("=" * 120)
 

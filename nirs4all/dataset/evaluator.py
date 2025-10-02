@@ -348,6 +348,51 @@ def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> Dict[s
 
     return metrics
 
+def get_stats(y: np.ndarray) -> Dict[str, float]:
+    """
+    Calculate descriptive statistics for target values.
+
+    Args:
+        y: Target values
+
+    Returns:
+        Dict[str, float]: Dictionary of statistical measures
+
+    Example:
+        stats = get_stats(y_true)
+        # Returns: {'nsample': 100, 'mean': 2.5, 'median': 2.4, 'min': 0.1, 'max': 5.0, 'sd': 1.2, 'cv': 0.48}
+    """
+    y = np.asarray(y).flatten()
+    y_clean = y[~np.isnan(y)]  # Remove NaN values
+
+    if len(y_clean) == 0:
+        return {
+            'nsample': 0,
+            'mean': 0.0,
+            'median': 0.0,
+            'min': 0.0,
+            'max': 0.0,
+            'sd': 0.0,
+            'cv': 0.0
+        }
+
+    result_stats = {
+        'nsample': len(y_clean),
+        'mean': float(np.mean(y_clean)),
+        'median': float(np.median(y_clean)),
+        'min': float(np.min(y_clean)),
+        'max': float(np.max(y_clean)),
+        'sd': float(np.std(y_clean)),
+    }
+
+    # Calculate coefficient of variation
+    if result_stats['mean'] != 0:
+        result_stats['cv'] = result_stats['sd'] / result_stats['mean']
+    else:
+        result_stats['cv'] = 0.0
+
+    return result_stats
+
 
 def eval_list(y_true: np.ndarray, y_pred: np.ndarray, metrics: list) -> list:
     """

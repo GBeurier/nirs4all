@@ -66,6 +66,7 @@ class Predictions:
             "task_type": pl.Utf8,
             "n_samples": pl.Int64,
             "n_features": pl.Int64,
+            "preprocessings": pl.Utf8,
         })
 
         if filepath and Path(filepath).exists():
@@ -94,7 +95,8 @@ class Predictions:
         metric: str = "mse",
         task_type: str = "regression",
         n_samples: int = 0,
-        n_features: int = 0
+        n_features: int = 0,
+        preprocessings: str = ""
     ) -> None:
         """Add a new prediction to the storage."""
 
@@ -130,6 +132,7 @@ class Predictions:
             "task_type": task_type,
             "n_samples": n_samples,
             "n_features": n_features,
+            "preprocessings": preprocessings,
         }])
 
         # Append to main DataFrame
@@ -158,7 +161,8 @@ class Predictions:
         metric: Union[str, List[str]] = "mse",
         task_type: Union[str, List[str]] = "regression",
         n_samples: Union[int, List[int]] = 0,
-        n_features: Union[int, List[int]] = 0
+        n_features: Union[int, List[int]] = 0,
+        preprocessings: Union[str, List[str]] = ""
     ) -> None:
         """
         Add multiple predictions to the storage.
@@ -216,7 +220,8 @@ class Predictions:
             'metric': metric,
             'task_type': task_type,
             'n_samples': n_samples,
-            'n_features': n_features
+            'n_features': n_features,
+            'preprocessings': preprocessings
         }
 
         # Find the maximum length (number of predictions to create)
@@ -728,7 +733,7 @@ class Predictions:
                     "step_idx", "op_counter", "model_name", "model_classname", "model_path",
                     "fold_id", "sample_indices", "weights", "metadata", "partition",
                     "y_true", "y_pred", "val_score", "test_score", "metric", "task_type",
-                    "n_samples", "n_features"
+                    "n_samples", "n_features", "preprocessings"
                 ]
 
                 # Determine the target schema by preferring non-null types, maintaining order
@@ -859,7 +864,26 @@ class Predictions:
 
 
 
+    def get_entry_partitions(self, entry):
+        res = {}
+        filter = {
+            'dataset_name': entry['dataset_name'],
+            'config_name': entry['config_name'],
+            'model_name': entry['model_name'],
+            'fold_id': entry['fold_id'],
+            'step_idx': entry['step_idx'],
+            'op_counter': entry['op_counter']
+        }
 
+        for partition in ['train', 'val', 'test']:
+            filter['partition'] = partition
+            predictions = self.filter_predictions(**filter)
+            if not predictions or len(predictions) == 0:
+                print(f"⚠️ No predictions found for {filter}")
+                res[partition] = None
+            else:
+                res[partition] = predictions[0]
+        return res
 
     @classmethod
     def pred_short_string(cls, entry, metrics=None):
