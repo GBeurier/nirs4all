@@ -208,7 +208,7 @@ class BaseModelController(OperatorController, ABC):
             )
 
         else:
-            print("⚠️ Warning: Using test set as validation set (no folds provided)")
+            print("\033[91m⚠️⚠️⚠️⚠️⚠️  WARNING: Using test set as validation set (no folds provided) ⚠️⚠️⚠️⚠️⚠️⚠️\033[0m")
 
             model, model_id, score, model_name = self.launch_training(
                 dataset, model_config, context, runner, prediction_store,
