@@ -25,19 +25,19 @@ pipeline = [
     {"y_processing": MinMaxScaler},
     {"model": PLSRegression(15)},
     {"model": PLSRegression(10)},
-    # {"model": RandomForestRegressor(n_estimators=100)},
-    # {"model": ElasticNet()},
-    # {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1), "name": "SVR_Custom_Model"},
-    # {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500), "name": "MLP_Custom_Model"},
-    # {"model": GradientBoostingRegressor(n_estimators=100)},
-    # {
-    #     "model": nicon,
-    #     "train_params": {
-    #         "epochs": 5,
-    #         "patience": 50,
-    #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
-    #     },
-    # },
+    {"model": RandomForestRegressor(n_estimators=100)},
+    {"model": ElasticNet()},
+    {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1), "name": "SVR_Custom_Model"},
+    {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500), "name": "MLP_Custom_Model"},
+    {"model": GradientBoostingRegressor(n_estimators=100)},
+    {
+        "model": nicon,
+        "train_params": {
+            "epochs": 5,
+            "patience": 50,
+            "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
+        },
+    },
 ]
 
 # create pipeline config

@@ -31,21 +31,21 @@ pipeline = [
     {"y_processing": MinMaxScaler},
     {"model": PLSRegression(15)},
     {"model": ElasticNet()},
-    # {"model": GradientBoostingRegressor(n_estimators=100)},
+    {"model": GradientBoostingRegressor(n_estimators=100)},
     {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1)},
-    # {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500)},
-    # {"model": GradientBoostingRegressor(n_estimators=100)},
-    # {"model": RandomForestRegressor(n_estimators=100)},
+    {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500)},
+    {"model": GradientBoostingRegressor(n_estimators=100)},
+    {"model": RandomForestRegressor(n_estimators=100)},
     {"model": Ridge(alpha=1.0)},
-    # {
-    #     "model": nicon,
-    #     "train_params": {
-    #         "epochs": 50,
-    #         "patience": 50,
-    #         "batch_size": 500,
-    #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
-    #     },
-    # },
+    {
+        "model": nicon,
+        "train_params": {
+            "epochs": 50,
+            "patience": 50,
+            "batch_size": 500,
+            "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
+        },
+    },
 ]
 
 # create pipeline config
@@ -68,22 +68,31 @@ for name, dataset_prediction in datasets_predictions.items():
 
     # Get the Predictions object from the dataset_prediction dictionary
     predictions_obj = dataset_prediction['run_predictions']
-    top_10 = predictions_obj.top_k(10, 'rmse')
-    print("Top 10 models by RMSE:")
-    for i, model in enumerate(top_10):
+    top_n = predictions_obj.top_k(4, 'rmse')
+    print("Top 4 models by RMSE:")
+    for i, model in enumerate(top_n):
         print(f"{i+1}. {Predictions.pred_long_string(model, metrics=['rmse', 'r2', 'mae'])}")
 
     # Plot comparison with enhanced names (for readability in plots)
     analyzer = PredictionAnalyzer(predictions_obj)
-    fig = analyzer.plot_top_k_comparison(k=10, metric='rmse')
-    plt.show()
+    # fig = analyzer.plot_top_k_comparison(k=10, metric='rmse')
+    # plt.show()
 
+# TAB REPORT
 analyzer = PredictionAnalyzer(run_predictions)
-fig1 = analyzer.plot_performance_matrix(metric='rmse', separate_avg=True)
-fig1.suptitle('Performance Matrix - Normalized RMSE by Model and Dataset')
+fig2 = analyzer.plot_variable_heatmap(
+    x_var="model_name",
+    y_var="dataset_name",
+    filters={"partition": "test"},
+    metric='rmse'
+)
 plt.show()
+# # plt.savefig('test_heatmap2.png', dpi=300)
 
-fig2 = analyzer.plot_candlestick_models(metric='rmse')
-fig2.suptitle('RMSE Score Distribution by Dataset')
+fig3 = analyzer.plot_variable_candlestick(
+    filters={"partition": "test"},
+    variable="model_name",
+    metric='rmse'
+)
 plt.show()
-
+# plt.savefig('test_candlestick_models_Q1.png', dpi=150, bbox_inches='tight')

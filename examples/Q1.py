@@ -56,9 +56,9 @@ fig1 = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
 plt.show()
 
 fig2 = analyzer.plot_variable_heatmap(
-    filters={"partition": "test"},
     x_var="model_name",
     y_var="preprocessings",
+    filters={"partition": "test"},
     metric='rmse'
 )
 # # plt.savefig('test_heatmap2.png', dpi=300)
