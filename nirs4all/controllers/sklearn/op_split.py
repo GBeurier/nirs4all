@@ -150,6 +150,6 @@ class CrossValidatorController(OperatorController):
                 folds_name += f"_seed{seed}"
         folds_name += ".csv"
 
-        print(f"Generated {len(folds)} folds.")
+        # print(f"Generated {len(folds)} folds.")
 
         return context, [(folds_name, binary)]

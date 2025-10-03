@@ -109,7 +109,7 @@ class OptunaController:
 
         best_params = []
         for fold_idx, (train_indices, val_indices) in enumerate(folds):
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🎯 Optimizing fold {fold_idx + 1}/{len(folds)}")
 
             # get x_train_fold_i, x_val_fold_i

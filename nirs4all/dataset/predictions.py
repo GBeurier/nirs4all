@@ -481,7 +481,7 @@ class Predictions:
 
             if data:
                 self._df = pl.DataFrame(data)
-                print(f"📥 Loaded {len(self._df)} predictions from {filepath}")
+                # print(f"📥 Loaded {len(self._df)} predictions from {filepath}")
 
         except Exception as e:
             print(f"⚠️ Error loading predictions from {filepath}: {e}")
