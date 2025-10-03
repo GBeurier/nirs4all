@@ -53,7 +53,7 @@ predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_conf
 ###############################################################################################################
 
 # Get top models to verify the real model names are displayed correctly
-best_count = 25
+best_count = 6
 rank_metric = 'rmse'  # 'rmse', 'mae', 'r2'
 
 for dataset_name, predict_dict in predictions_per_datasets.items():
