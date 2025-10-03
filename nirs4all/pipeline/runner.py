@@ -73,6 +73,7 @@ class PipelineRunner:
         self.binary_loader: Optional[BinaryLoader] = None
         self.show_spinner = show_spinner
         self.enable_tab_reports = enable_tab_reports
+        self.prediction_metadata: Optional[Dict[str, Any]] = None
 
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> Any:
         """Run pipeline configurations on dataset configurations."""
@@ -148,10 +149,16 @@ class PipelineRunner:
 
         return run_predictions, datasets_predictions
 
+
+
+
+
+
+
     @staticmethod
-    def predict_from_pred(prediction_obj: Dict[str, Any], dataset_config: DatasetConfigs,
-           verbose: int = 0, output_path: Optional[str] = None) -> Dict[str, Any]:
-         # 1. Extract paths and load pipeline configuration
+    def predict_from_pred(prediction_obj: Dict[str, Any], dataset_config: DatasetConfigs, verbose: int = 0, output_path: Optional[str] = None) -> Dict[str, Any]:
+
+        # 1. Extract paths and load pipeline configuration
         config_path = prediction_obj['config_path']
         pipeline_config_file = Path(f"results/{config_path}/pipeline.json")
         metadata_file = Path(f"results/{config_path}/metadata.json")
@@ -159,8 +166,32 @@ class PipelineRunner:
         # 2. Load pipeline steps and metadata
         pipeline_steps = json.load(open(pipeline_config_file))
         metadata = json.load(open(metadata_file))
-
+        pipeline_steps = json.load(open(pipeline_config_file))
         ################ GET BINARIES LINKS FOR THE STEPS ################
+
+        # 3. Create prediction runner with binary resolution capability
+        runner = PipelineRunner(mode="predict", verbose=verbose, save_files=False)
+        runner.prediction_metadata = metadata
+        runner.target_model_info = prediction_obj  # For model-specific execution
+        # runner.config_path = config_path
+
+        # 4. Load dataset and execute pipeline
+        # for config, name in dataset_configs.configs:
+        #     print("*" * 120)
+
+        #     for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
+        #         dataset = dataset_configs.get_dataset(config, name)
+        #         dataset_name = name
+
+
+        dataset = dataset_config.get_dataset_at(0)
+        prediction_store = Predictions()
+
+        # 5. Run pipeline in prediction mode
+        final_dataset = runner._run_single(pipeline_steps, "prediction", dataset, prediction_store)
+
+        # 6. Extract predictions from prediction store
+        # return runner._extract_prediction_results(prediction_store, prediction_obj)
 
 
 
@@ -298,7 +329,7 @@ class PipelineRunner:
             if controller is not None:
                 # Check if controller supports prediction mode
                 if self.mode == "predict" and not controller.supports_prediction_mode():
-                    print(f"🔄 Skipping step {self.step_number} in prediction mode")
+                    # print(f"🔄 Skipping step {self.step_number} in prediction mode")
                     return context
 
                 # Load binaries if in prediction mode
@@ -368,14 +399,14 @@ class PipelineRunner:
 
         # Determine if we need a spinner (for model controllers and other long operations)
         is_model_controller = 'model' in controller_name.lower()
-        needs_spinner = is_model_controller or any(keyword in controller_name.lower()
-                                                   for keyword in ['transform', 'preprocess', 'augment'])
+        # needs_spinner = is_model_controller
+        needs_spinner = False ####TODO DEBUG spinner \r\n
 
         # Execute with spinner if needed
         if needs_spinner and self.show_spinner and self.verbose == 0:  # Only show spinner when not verbose
             # Create and print the initial message
             controller_display_name = controller_name.replace('Controller', '')
-            initial_message = f"🔄 {controller_display_name}"
+            initial_message = f"🔄 {controller_name} executes {controller_display_name}"
 
             # Only show test data shape for model controllers
             if is_model_controller:
@@ -385,21 +416,19 @@ class PipelineRunner:
             if operator_name:
                 initial_message += f" ({operator_name})"
 
-            # Print the static message and execute without spinner
-            print(initial_message)
-            import sys
-            sys.stdout.flush()  # Ensure clean output separation
-            context, binaries = controller.execute(
-                step,
-                operator,
-                dataset,
-                context,
-                self,
-                source,
-                self.mode,
-                loaded_binaries,
-                prediction_store
-            )
+            # Use spinner context manager for long operations
+            with spinner_context(initial_message):
+                context, binaries = controller.execute(
+                    step,
+                    operator,
+                    dataset,
+                    context,
+                    self,
+                    source,
+                    self.mode,
+                    loaded_binaries,
+                    prediction_store
+                )
         else:
             # Execute without spinner
             context, binaries = controller.execute(
@@ -457,82 +486,9 @@ class PipelineRunner:
         #     print(f"🔄 Running single operator {operator} for step: {step}, source: {source}")
             # return controller.execute(step, operator, dataset, context, self, source)
 
-    # @staticmethod
-    # def predict(
-    #     source: Union[str, Path, Dict[str, Any]],
-    #     dataset: DatasetConfigs,
-    #     top_best: int = 1,
-    #     ensemble_method: str = "average",
-    #     verbose: int = 0
-    # ) -> Dict[str, Any]:
-    #     """
-    #     Unified predict method supporting multiple source types.
-
-    #     Args:
-    #         source: Source for prediction - can be:
-    #                - model_path (str/Path): Direct path to model file
-    #                - config_path (str/Path): Path to config directory
-    #                - prediction_model (dict): Full prediction entry with metadata
-    #                - config_id (str): Configuration identifier
-    #                - dataset_name (str): Dataset name to find best models for
-    #         dataset: Dataset to make predictions on
-    #         top_best: Number of best models to use (for ensemble predictions)
-    #         ensemble_method: How to combine multiple predictions ("average", "weighted_average")
-    #         verbose: Verbosity level
-
-    #     Returns:
-    #         Dictionary containing prediction results
-
-    #     Example:
-    #         # Direct model path
-    #         results = PipelineRunner.predict("path/to/model.pkl", dataset)
-
-    #         # Config path - uses best model from that config
-    #         results = PipelineRunner.predict("results/config_path", dataset, top_best=3)
-
-    #         # Prediction model dictionary
-    #         results = PipelineRunner.predict(prediction_dict, dataset)
-    #     """
-
-    #     # Smart source detection
-    #     source_type, resolved_paths = PipelineRunner._detect_source_type(source, verbose)
-
-    #     if verbose > 0:
-    #         print(f"🔮 Detected source type: {source_type}")
-    #         print(f"📍 Resolved paths: {len(resolved_paths)} item(s)")
-
-    #     all_predictions = []
-
-    #     # Process each resolved path/model
-    #     for i, path_info in enumerate(resolved_paths[:top_best]):
-    #         if verbose > 0:
-    #             print(f"🔄 Processing model {i+1}/{min(top_best, len(resolved_paths))}")
-
-    #         # Load and run pipeline for this model
-    #         prediction_result = PipelineRunner._predict_single_model(
-    #             path_info, dataset, verbose
-    #         )
-
-    #         if prediction_result:
-    #             all_predictions.append(prediction_result)
-
-    #     # Combine predictions if multiple models
-    #     if len(all_predictions) > 1:
-    #         final_result = PipelineRunner._combine_predictions(
-    #             all_predictions, ensemble_method, verbose
-    #         )
-    #     elif len(all_predictions) == 1:
-    #         final_result = all_predictions[0]
-    #     else:
-    #         raise RuntimeError("No successful predictions generated")
-
-    #     if verbose > 0:
-    #         print(f"✅ Prediction completed successfully with {len(all_predictions)} model(s)")
-
-    #     return final_result
 
     @staticmethod
-    def _detect_source_type(source: Union[str, Path, Dict], verbose: int = 0) -> Tuple[str, List[Dict[str, Any]]]:
+    def _detect_prediction_source_type(source: Union[str, Path, Dict], verbose: int = 0) -> Tuple[str, List[Dict[str, Any]]]:
         """
         Detect source type and resolve to list of model/pipeline information.
 
@@ -632,248 +588,7 @@ class PipelineRunner:
 
         return found_configs
 
-    @staticmethod
-    def _predict_single_model(path_info: Dict[str, Any], dataset: DatasetConfigs, verbose: int = 0) -> Dict[str, Any]:
-        """Load and run prediction for a single model/config."""
 
-        # Check if this is a virtual model (avg/w-avg)
-        if 'metadata' in path_info:
-            metadata = path_info['metadata']
-            if metadata.get('is_virtual_model', False):
-                return PipelineRunner._predict_virtual_model(path_info, dataset, verbose)
-
-        # Handle different path types for real models
-        if 'model_path' in path_info:
-            # Direct model file - need to find associated pipeline
-            model_path = Path(path_info['model_path'])
-
-            # Check if model_path is actually a file path
-            if model_path.suffix == '.pkl':
-                config_dir = model_path.parent
-            else:
-                # If model_path doesn't end with .pkl, treat it as config directory
-                config_dir = model_path
-
-            pipeline_json = config_dir / "pipeline.json"
-
-            if not pipeline_json.exists():
-                raise FileNotFoundError(f"Pipeline configuration not found: {pipeline_json}")
-
-        elif 'config_path' in path_info:
-            # Config directory
-            config_dir = Path(path_info['config_path'])
-            pipeline_json = config_dir / "pipeline.json"
-
-        elif 'pipeline_path' in path_info:
-            # From prediction_model dict
-            config_dir = Path(path_info['pipeline_path'])
-            pipeline_json = config_dir / "pipeline.json"
-
-        else:
-            raise ValueError(f"Unknown path info format: {path_info}")
-
-        # Load pipeline configuration
-        try:
-            with open(pipeline_json, 'r') as f:
-                pipeline_data = json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError) as e:
-            raise ValueError(f"Failed to load pipeline configuration: {e}")
-
-        # Extract steps
-        if "steps" in pipeline_data:
-            steps = pipeline_data["steps"]
-        else:
-            steps = pipeline_data
-
-        # Create binary loader
-        binary_loader = BinaryLoader(config_dir)
-
-        # Create prediction runner
-        runner = PipelineRunner(
-            verbose=verbose,
-            save_files=False,
-            mode="predict"
-        )
-        runner.binary_loader = binary_loader
-
-        # Create dataset instance
-        dataset_instance = dataset.configs[0][0] if dataset.configs else None
-        if dataset_instance is None:
-            raise ValueError("No dataset configuration provided")
-
-        # Create config and run pipeline
-        config = PipelineConfigs(steps)
-
-        if verbose > 0:
-            cache_info = binary_loader.get_cache_info()
-            print(f"📦 Available binaries for {cache_info['total_available_binaries']} operations across {len(cache_info['available_steps'])} steps")
-
-        try:
-            predictions, results = runner.run(config, dataset)
-            return {
-                'predictions': predictions,
-                'results': results,
-                'config_path': str(config_dir),
-                'path_info': path_info
-            }
-
-        except Exception as e:
-            if verbose > 0:
-                print(f"⚠️ Prediction failed for {config_dir}: {e}")
-            return None
-
-    @staticmethod
-    def _predict_virtual_model(path_info: Dict[str, Any], dataset: DatasetConfigs, verbose: int = 0) -> Dict[str, Any]:
-        """Handle prediction for virtual models (avg/w-avg) by loading constituent models."""
-
-        metadata = path_info['metadata']
-        virtual_type = metadata.get('virtual_type', 'unknown')
-        averaging_method = metadata.get('averaging_method', 'equal')
-        constituent_models = metadata.get('constituent_models', [])
-        weights = metadata.get('weights', [])
-
-        if verbose > 0:
-            print(f"🔮 Processing virtual model: {virtual_type} with {len(constituent_models)} constituent models")
-            print(f"📊 Averaging method: {averaging_method}")
-
-        if not constituent_models:
-            raise ValueError("Virtual model has no constituent models defined")
-
-        # Get config directory from path_info
-        if 'config_path' in path_info:
-            config_dir = Path(path_info['config_path'])
-        elif 'path' in path_info:
-            # This is the field from prediction_model dictionary
-            config_dir = Path(path_info['path'])
-        elif 'pipeline_path' in path_info:
-            config_dir = Path(path_info['pipeline_path'])
-        elif 'config_path' in metadata:
-            config_dir = Path(metadata['config_path'])
-        elif 'pipeline_path' in metadata:
-            config_dir = Path(metadata['pipeline_path'])
-        else:
-            # Try to extract from model_path or other metadata
-            model_path = path_info.get('model_path', '') or metadata.get('model_path', '')
-            if model_path:
-                config_dir = Path(model_path).parent if model_path else Path('.')
-            else:
-                config_dir = Path('.')
-
-        constituent_predictions = []
-
-        # Load each constituent model and predict
-        for i, model_uuid in enumerate(constituent_models):
-            # Find the actual model file using glob pattern to handle step prefixes
-            model_file_patterns = [
-                f"*{model_uuid}*.pkl",  # First try with full UUID
-                f"*{model_uuid.split('_')[0]}*.pkl"  # Then try with just the model name part
-            ]
-
-            model_files = []
-            for pattern in model_file_patterns:
-                model_files = list(config_dir.glob(pattern))
-                if model_files:
-                    break
-
-            if not model_files:
-                if verbose > 0:
-                    print(f"⚠️ Model file not found for {model_uuid} in {config_dir}")
-                    print(f"    Tried patterns: {model_file_patterns}")
-                continue
-
-            model_path = model_files[0]  # Take first match
-
-            # Create path_info for this constituent model
-            constituent_path_info = {
-                'model_path': str(model_path),
-                'config_path': str(config_dir)
-            }
-
-            if verbose > 0:
-                print(f"🔄 Loading constituent model {i+1}/{len(constituent_models)}: {model_path.name}")
-
-            # Predict with this constituent model
-            try:
-                pred_result = PipelineRunner._predict_single_model(constituent_path_info, dataset, 0)  # Reduce verbosity for constituents
-                if pred_result:
-                    constituent_predictions.append(pred_result)
-            except Exception as e:
-                if verbose > 0:
-                    print(f"⚠️ Failed to predict with constituent model {model_uuid}: {e}")
-                continue
-
-        if not constituent_predictions:
-            raise RuntimeError("No constituent models could be loaded for virtual model prediction")
-
-        # Combine predictions using the saved weights
-        if averaging_method == 'weighted' and weights:
-            # Use the original weights saved during training
-            if len(weights) != len(constituent_predictions):
-                if verbose > 0:
-                    print(f"⚠️ Weight mismatch: {len(weights)} weights vs {len(constituent_predictions)} predictions, using equal weights")
-                weights = [1.0 / len(constituent_predictions)] * len(constituent_predictions)
-        else:
-            # Equal weighting
-            weights = [1.0 / len(constituent_predictions)] * len(constituent_predictions)
-
-        # Combine the predictions
-        combined_result = PipelineRunner._combine_predictions_with_weights(
-            constituent_predictions, weights, verbose
-        )
-
-        # Add virtual model metadata to result
-        combined_result['virtual_model_info'] = {
-            'virtual_type': virtual_type,
-            'averaging_method': averaging_method,
-            'num_constituents': len(constituent_predictions),
-            'weights': weights
-        }
-
-        if verbose > 0:
-            print(f"✅ Virtual model prediction completed using {len(constituent_predictions)} models")
-
-        return combined_result
-
-    @staticmethod
-    def _combine_predictions_with_weights(all_predictions: List[Dict], weights: List[float], verbose: int = 0) -> Dict[str, Any]:
-        """Combine predictions from multiple models using specified weights."""
-        if verbose > 0:
-            print(f"🔗 Combining {len(all_predictions)} predictions with weights: {[f'{w:.3f}' for w in weights]}")
-
-        # For now, return the first prediction (basic implementation)
-        # In a full implementation, you would:
-        # 1. Extract prediction arrays from each result
-        # 2. Compute weighted average: sum(weight_i * prediction_i)
-        # 3. Combine metadata appropriately
-
-        combined_result = all_predictions[0].copy()
-        combined_result['combination_method'] = 'weighted_average'
-        combined_result['constituent_count'] = len(all_predictions)
-        combined_result['weights'] = weights
-
-        return combined_result
-
-    @staticmethod
-    def _combine_predictions(all_predictions: List[Dict], ensemble_method: str, verbose: int = 0) -> Dict[str, Any]:
-        """Combine predictions from multiple models."""
-        if ensemble_method == "average":
-            # Simple average of predictions
-            # This is a simplified implementation - in practice you'd want to
-            # properly combine the prediction arrays
-            if verbose > 0:
-                print(f"🔗 Combining {len(all_predictions)} predictions using {ensemble_method}")
-
-            # Return the first prediction for now - full ensemble logic would go here
-            return all_predictions[0]
-
-        elif ensemble_method == "weighted_average":
-            # Weighted average based on model performance
-            # Implementation would go here
-            return all_predictions[0]
-
-        else:
-            # Default to first prediction
-            return all_predictions[0]
 
     def next_op(self) -> int:
         """Get the next operation ID."""
@@ -881,3 +596,291 @@ class PipelineRunner:
         return self.operation_count
 
 
+    def _resolve_binaries_for_step(self, step_number: int) -> List[Tuple[str, Any]]:
+        """
+        Resolve and load binary files for a specific step using enhanced metadata.
+
+        Uses step-to-binary mapping stored during training to eliminate counter guessing.
+        """
+        step_key = str(step_number)
+
+        # Get binary filenames for this step from enhanced metadata
+        binary_filenames = self.prediction_metadata.get('step_binaries', {}).get(step_key, [])
+
+        if not binary_filenames:
+            return []  # No binaries for this step
+
+        # Load all binaries for this step
+        loaded_binaries = []
+        for filename in binary_filenames:
+            binary_path = Path(f"results/{self.config_path}/{filename}")
+            if binary_path.exists():
+                with open(binary_path, 'rb') as f:
+                    loaded_obj = pickle.load(f)
+                loaded_binaries.append((filename, loaded_obj))
+            else:
+                print(f"⚠️ Binary file not found: {filename}")
+
+        return loaded_binaries
+
+    def _resolve_target_model_binary(self) -> Optional[Tuple[str, Any]]:
+        """
+        Load specific target model binary for model-specific prediction (Q4 use case).
+        """
+        if not hasattr(self, 'target_model_info'):
+            return None
+
+        model_path = self.target_model_info.get('model_path', '')
+        if model_path and Path(model_path).exists():
+            with open(model_path, 'rb') as f:
+                loaded_obj = pickle.load(f)
+            return (Path(model_path).name, loaded_obj)
+
+        return None
+
+
+
+
+
+#  @staticmethod
+#     def _predict_single_model(path_info: Dict[str, Any], dataset: DatasetConfigs, verbose: int = 0) -> Dict[str, Any]:
+#         """Load and run prediction for a single model/config."""
+
+#         # Check if this is a virtual model (avg/w-avg)
+#         if 'metadata' in path_info:
+#             metadata = path_info['metadata']
+#             if metadata.get('is_virtual_model', False):
+#                 return PipelineRunner._predict_virtual_model(path_info, dataset, verbose)
+
+#         # Handle different path types for real models
+#         if 'model_path' in path_info:
+#             # Direct model file - need to find associated pipeline
+#             model_path = Path(path_info['model_path'])
+
+#             # Check if model_path is actually a file path
+#             if model_path.suffix == '.pkl':
+#                 config_dir = model_path.parent
+#             else:
+#                 # If model_path doesn't end with .pkl, treat it as config directory
+#                 config_dir = model_path
+
+#             pipeline_json = config_dir / "pipeline.json"
+
+#             if not pipeline_json.exists():
+#                 raise FileNotFoundError(f"Pipeline configuration not found: {pipeline_json}")
+
+#         elif 'config_path' in path_info:
+#             # Config directory
+#             config_dir = Path(path_info['config_path'])
+#             pipeline_json = config_dir / "pipeline.json"
+
+#         elif 'pipeline_path' in path_info:
+#             # From prediction_model dict
+#             config_dir = Path(path_info['pipeline_path'])
+#             pipeline_json = config_dir / "pipeline.json"
+
+#         else:
+#             raise ValueError(f"Unknown path info format: {path_info}")
+
+#         # Load pipeline configuration
+#         try:
+#             with open(pipeline_json, 'r') as f:
+#                 pipeline_data = json.load(f)
+#         except (json.JSONDecodeError, FileNotFoundError) as e:
+#             raise ValueError(f"Failed to load pipeline configuration: {e}")
+
+#         # Extract steps
+#         if "steps" in pipeline_data:
+#             steps = pipeline_data["steps"]
+#         else:
+#             steps = pipeline_data
+
+#         # Create binary loader
+#         binary_loader = BinaryLoader(config_dir)
+
+#         # Create prediction runner
+#         runner = PipelineRunner(
+#             verbose=verbose,
+#             save_files=False,
+#             mode="predict"
+#         )
+#         runner.binary_loader = binary_loader
+
+#         # Create dataset instance
+#         dataset_instance = dataset.configs[0][0] if dataset.configs else None
+#         if dataset_instance is None:
+#             raise ValueError("No dataset configuration provided")
+
+#         # Create config and run pipeline
+#         config = PipelineConfigs(steps)
+
+#         if verbose > 0:
+#             cache_info = binary_loader.get_cache_info()
+#             print(f"📦 Available binaries for {cache_info['total_available_binaries']} operations across {len(cache_info['available_steps'])} steps")
+
+#         try:
+#             predictions, results = runner.run(config, dataset)
+#             return {
+#                 'predictions': predictions,
+#                 'results': results,
+#                 'config_path': str(config_dir),
+#                 'path_info': path_info
+#             }
+
+#         except Exception as e:
+#             if verbose > 0:
+#                 print(f"⚠️ Prediction failed for {config_dir}: {e}")
+#             return None
+
+#     @staticmethod
+#     def _predict_virtual_model(path_info: Dict[str, Any], dataset: DatasetConfigs, verbose: int = 0) -> Dict[str, Any]:
+#         """Handle prediction for virtual models (avg/w-avg) by loading constituent models."""
+
+#         metadata = path_info['metadata']
+#         virtual_type = metadata.get('virtual_type', 'unknown')
+#         averaging_method = metadata.get('averaging_method', 'equal')
+#         constituent_models = metadata.get('constituent_models', [])
+#         weights = metadata.get('weights', [])
+
+#         if verbose > 0:
+#             print(f"🔮 Processing virtual model: {virtual_type} with {len(constituent_models)} constituent models")
+#             print(f"📊 Averaging method: {averaging_method}")
+
+#         if not constituent_models:
+#             raise ValueError("Virtual model has no constituent models defined")
+
+#         # Get config directory from path_info
+#         if 'config_path' in path_info:
+#             config_dir = Path(path_info['config_path'])
+#         elif 'path' in path_info:
+#             # This is the field from prediction_model dictionary
+#             config_dir = Path(path_info['path'])
+#         elif 'pipeline_path' in path_info:
+#             config_dir = Path(path_info['pipeline_path'])
+#         elif 'config_path' in metadata:
+#             config_dir = Path(metadata['config_path'])
+#         elif 'pipeline_path' in metadata:
+#             config_dir = Path(metadata['pipeline_path'])
+#         else:
+#             # Try to extract from model_path or other metadata
+#             model_path = path_info.get('model_path', '') or metadata.get('model_path', '')
+#             if model_path:
+#                 config_dir = Path(model_path).parent if model_path else Path('.')
+#             else:
+#                 config_dir = Path('.')
+
+#         constituent_predictions = []
+
+#         # Load each constituent model and predict
+#         for i, model_uuid in enumerate(constituent_models):
+#             # Find the actual model file using glob pattern to handle step prefixes
+#             model_file_patterns = [
+#                 f"*{model_uuid}*.pkl",  # First try with full UUID
+#                 f"*{model_uuid.split('_')[0]}*.pkl"  # Then try with just the model name part
+#             ]
+
+#             model_files = []
+#             for pattern in model_file_patterns:
+#                 model_files = list(config_dir.glob(pattern))
+#                 if model_files:
+#                     break
+
+#             if not model_files:
+#                 if verbose > 0:
+#                     print(f"⚠️ Model file not found for {model_uuid} in {config_dir}")
+#                     print(f"    Tried patterns: {model_file_patterns}")
+#                 continue
+
+#             model_path = model_files[0]  # Take first match
+
+#             # Create path_info for this constituent model
+#             constituent_path_info = {
+#                 'model_path': str(model_path),
+#                 'config_path': str(config_dir)
+#             }
+
+#             if verbose > 0:
+#                 print(f"🔄 Loading constituent model {i+1}/{len(constituent_models)}: {model_path.name}")
+
+#             # Predict with this constituent model
+#             try:
+#                 pred_result = PipelineRunner._predict_single_model(constituent_path_info, dataset, 0)  # Reduce verbosity for constituents
+#                 if pred_result:
+#                     constituent_predictions.append(pred_result)
+#             except Exception as e:
+#                 if verbose > 0:
+#                     print(f"⚠️ Failed to predict with constituent model {model_uuid}: {e}")
+#                 continue
+
+#         if not constituent_predictions:
+#             raise RuntimeError("No constituent models could be loaded for virtual model prediction")
+
+#         # Combine predictions using the saved weights
+#         if averaging_method == 'weighted' and weights:
+#             # Use the original weights saved during training
+#             if len(weights) != len(constituent_predictions):
+#                 if verbose > 0:
+#                     print(f"⚠️ Weight mismatch: {len(weights)} weights vs {len(constituent_predictions)} predictions, using equal weights")
+#                 weights = [1.0 / len(constituent_predictions)] * len(constituent_predictions)
+#         else:
+#             # Equal weighting
+#             weights = [1.0 / len(constituent_predictions)] * len(constituent_predictions)
+
+#         # Combine the predictions
+#         combined_result = PipelineRunner._combine_predictions_with_weights(
+#             constituent_predictions, weights, verbose
+#         )
+
+#         # Add virtual model metadata to result
+#         combined_result['virtual_model_info'] = {
+#             'virtual_type': virtual_type,
+#             'averaging_method': averaging_method,
+#             'num_constituents': len(constituent_predictions),
+#             'weights': weights
+#         }
+
+#         if verbose > 0:
+#             print(f"✅ Virtual model prediction completed using {len(constituent_predictions)} models")
+
+#         return combined_result
+
+#     @staticmethod
+#     def _combine_predictions_with_weights(all_predictions: List[Dict], weights: List[float], verbose: int = 0) -> Dict[str, Any]:
+#         """Combine predictions from multiple models using specified weights."""
+#         if verbose > 0:
+#             print(f"🔗 Combining {len(all_predictions)} predictions with weights: {[f'{w:.3f}' for w in weights]}")
+
+#         # For now, return the first prediction (basic implementation)
+#         # In a full implementation, you would:
+#         # 1. Extract prediction arrays from each result
+#         # 2. Compute weighted average: sum(weight_i * prediction_i)
+#         # 3. Combine metadata appropriately
+
+#         combined_result = all_predictions[0].copy()
+#         combined_result['combination_method'] = 'weighted_average'
+#         combined_result['constituent_count'] = len(all_predictions)
+#         combined_result['weights'] = weights
+
+#         return combined_result
+
+#     @staticmethod
+#     def _combine_predictions(all_predictions: List[Dict], ensemble_method: str, verbose: int = 0) -> Dict[str, Any]:
+#         """Combine predictions from multiple models."""
+#         if ensemble_method == "average":
+#             # Simple average of predictions
+#             # This is a simplified implementation - in practice you'd want to
+#             # properly combine the prediction arrays
+#             if verbose > 0:
+#                 print(f"🔗 Combining {len(all_predictions)} predictions using {ensemble_method}")
+
+#             # Return the first prediction for now - full ensemble logic would go here
+#             return all_predictions[0]
+
+#         elif ensemble_method == "weighted_average":
+#             # Weighted average based on model performance
+#             # Implementation would go here
+#             return all_predictions[0]
+
+#         else:
+#             # Default to first prediction
+#             return all_predictions[0]

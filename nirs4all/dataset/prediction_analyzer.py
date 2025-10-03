@@ -90,7 +90,7 @@ class PredictionAnalyzer:
         return enhanced_predictions
 
     def get_top_k(self, k: int = 5, metric: str = 'rmse',
-                  partition: str = 'test', dataset_name: Optional[str] = None,
+                  partition: str = '', dataset_name: Optional[str] = None,
                   model_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get top K performing predictions using the Predictions API.
@@ -136,7 +136,7 @@ class PredictionAnalyzer:
             return enhanced_preds[:k]
 
     def plot_top_k_comparison(self, k: int = 5, metric: str = 'rmse',
-                              partition: str = 'test', dataset_name: Optional[str] = None,
+                              partition: str = '', dataset_name: Optional[str] = None,
                               figsize: Tuple[int, int] = (16, 10)) -> Figure:
         """
         Plot top K models with predicted vs true and residuals.
@@ -151,8 +151,10 @@ class PredictionAnalyzer:
         Returns:
             matplotlib Figure
         """
-        top_predictions = self.get_top_k(k, metric, partition, dataset_name)
 
+        if partition == '':
+            partition = 'val'
+        top_predictions = self.get_top_k(k, metric, partition, dataset_name)
         if not top_predictions:
             fig, ax = plt.subplots(figsize=figsize)
             ax.text(0.5, 0.5, f'No {partition} predictions found',
@@ -199,7 +201,10 @@ class PredictionAnalyzer:
             # if pred.get('fold_id') is not None:
             #     model_display += f" (Fold {pred['fold_id']})"
 
-            ax_scatter.set_title(f'{model_display} ({partition})')
+            title = f'{model_display}'
+            if partition not in ['all', 'ALL', 'All', '_all_', '']:
+                title += f' - {partition}'
+            ax_scatter.set_title(title)
             ax_scatter.grid(True, alpha=0.3)
 
             # Residuals plot
@@ -221,7 +226,7 @@ class PredictionAnalyzer:
         return fig
 
     def plot_top_k_confusionMatrix(self, k: int = 5, metric: str = 'accuracy',
-                                   partition: str = 'test', dataset_name: Optional[str] = None,
+                                   partition: str = '', dataset_name: Optional[str] = None,
                                    figsize: Tuple[int, int] = (16, 10)) -> Figure:
         """
         Plot confusion matrices for top K classification models.
@@ -384,7 +389,7 @@ class PredictionAnalyzer:
         return fig
 
     def plot_performance_heatmap(self, x_axis: str = 'model_name', y_axis: str = 'dataset_name',
-                                 metric: str = 'rmse', partition: str = 'test',
+                                 metric: str = 'rmse', partition: str = '',
                                  figsize: Tuple[int, int] = (12, 8)) -> Figure:
         """
         Plot heatmap of performance by model and dataset.
@@ -457,7 +462,7 @@ class PredictionAnalyzer:
 
         return fig
 
-    def plot_candlestick_models(self, metric: str = 'rmse', partition: str = 'test',
+    def plot_candlestick_models(self, metric: str = 'rmse', partition: str = '',
                                 figsize: Tuple[int, int] = (12, 8)) -> Figure:
         """
         Plot candlestick chart showing avg/variance per model.
@@ -541,7 +546,7 @@ class PredictionAnalyzer:
 
         return fig
 
-    def plot_performance_matrix(self, metric: str = 'rmse', partition: str = 'test', separate_avg: bool = False,
+    def plot_performance_matrix(self, metric: str = 'rmse', partition: str = '', separate_avg: bool = False,
                                normalize: bool = True, figsize: Tuple[int, int] = (14, 10)) -> Figure:
         """
         Plot matrix showing best performance by model type for each dataset.
@@ -684,7 +689,7 @@ class PredictionAnalyzer:
         plt.tight_layout()
         return fig
 
-    def plot_score_boxplots_by_dataset(self, metric: str = 'rmse', partition: str = 'test',
+    def plot_score_boxplots_by_dataset(self, metric: str = 'rmse', partition: str = 'val',
                                       figsize: Tuple[int, int] = (14, 8)) -> Figure:
         """
         Plot box plots showing score distributions for each dataset.
@@ -781,7 +786,7 @@ class PredictionAnalyzer:
         plt.tight_layout()
         return fig
 
-    def plot_all_models_barplot(self, metric: str = 'rmse', partition: str = 'test',
+    def plot_all_models_barplot(self, metric: str = 'rmse', partition: str = 'val',
                                 figsize: Tuple[int, int] = (14, 8)) -> Figure:
         """
         Plot barplot showing all models with specified metric.
@@ -869,8 +874,9 @@ class PredictionAnalyzer:
         return fig
 
     def plot_variable_heatmap(self, x_var: str, y_var: str, filters: Dict[str, Any] = {},
-                              metric: str = 'rmse', figsize: Tuple[int, int] = (12, 8),
-                              normalize: bool = True, best_only: bool = True, display_n: bool = True) -> Figure:
+                              partition: str = 'val', metric: str = 'rmse', figsize: Tuple[int, int] = (12, 8),
+                              normalize: bool = True, best_only: bool = True, display_n: bool = True,
+                              score_partition: str = 'test', score_metric: str = '') -> Figure:
         """
         Plot heatmap showing performance by two variables from predictions.
 
@@ -891,18 +897,23 @@ class PredictionAnalyzer:
                                  {"dataset": "regression", "partition": "test"},
                                  "model_name", "preprocessings", 'rmse')
         """
-        return self._create_variable_heatmap(filters, x_var, y_var, metric, figsize, normalize, best_only, display_n)
+        if score_metric == '':
+            score_metric = metric
+        filters['partition'] = partition  # Decide if filters or particition param takes precedence
+        return self._create_variable_heatmap(filters, x_var, y_var, metric, figsize, normalize, best_only, display_n, score_partition, score_metric)
 
     def _create_variable_heatmap(self, filters: Dict[str, Any], x_var: str, y_var: str,
                                  metric: str, figsize: Tuple[int, int],
-                                 normalize: bool, best_only: bool, display_n: bool = True) -> Figure:
+                                 normalize: bool, best_only: bool, display_n: bool = True,
+                                 score_partition: str = 'test', score_metric: str = '') -> Figure:
         """Helper method to create variable heatmap (split for complexity)."""
         # Get predictions using the existing top_k method with filters
         try:
             # Use top_k with k=-1 to get all predictions matching filters
-            if x_var == "partition" or y_var == "partition":
+            if x_var == "partition" or y_var == "partition" or filters.get('partition') in ['all', 'ALL', 'All', '_all_']:
                 filters['partition'] = '_all_'
-            predictions = self.predictions.top_k(k=-1, metric=metric, **filters)
+
+            predictions = self.predictions.top_k(k=-1, metric=metric, aggregate_partitions=[score_partition], **filters)  # True only if score_partition and partition are different
         except Exception as e:
             print(f"⚠️ Error getting predictions: {e}")
             # Fallback to filter_predictions
@@ -917,6 +928,9 @@ class PredictionAnalyzer:
 
         # Group by x_var and y_var to aggregate scores
         var_scores = self._extract_scores_by_variables(predictions, x_var, y_var, metric)
+        var_display_scores = None
+        if (score_metric != metric or score_partition != filters['partition']) and filters['partition'] != '_all_':
+            var_display_scores = self._extract_scores_by_variables(predictions, x_var, y_var, score_metric, score_partition)
 
         if not var_scores:
             fig, ax = plt.subplots(figsize=figsize)
@@ -926,10 +940,11 @@ class PredictionAnalyzer:
 
         # Create matrix and plot
         return self._plot_heatmap_matrix(var_scores, x_var, y_var, metric, filters,
-                                         figsize, normalize, best_only, display_n)
+                                         figsize, normalize, best_only, display_n, var_display_scores,
+                                         score_partition, score_metric)
 
     def _extract_scores_by_variables(self, predictions: List[Dict], x_var: str, y_var: str,
-                                     metric: str) -> Dict:
+                                     metric: str, score_partition: str = '') -> Dict:
         """Extract and group scores by x and y variables."""
         var_scores = defaultdict(lambda: defaultdict(list))
 
@@ -938,42 +953,52 @@ class PredictionAnalyzer:
             y_val = pred.get(y_var, 'unknown')
 
             # Get score - try different possible locations
-            score = self._extract_metric_score(pred, metric)
+            score = self._extract_metric_score(pred, metric, score_partition)
 
             if score is not None and not (isinstance(score, float) and np.isnan(score)):
                 var_scores[y_val][x_val].append(score)
 
         return var_scores
 
-    def _extract_metric_score(self, pred: Dict, metric: str) -> Optional[float]:
+    def _extract_metric_score(self, pred: Dict, metric: str, score_partition: str = '') -> Optional[float]:
         """Extract metric score from prediction dictionary."""
-        # Try different possible locations for the score
-        if isinstance(pred.get(metric), (int, float)):
-            return float(pred[metric])
-        elif 'metrics' in pred and isinstance(pred['metrics'], dict):
-            score = pred['metrics'].get(metric, np.nan)
-            if isinstance(score, (int, float)) and not isinstance(score, dict):
+        # # Try different possible locations for the score
+        # if isinstance(pred.get(metric), (int, float)):
+        #     return float(pred[metric])
+        # elif 'metrics' in pred and isinstance(pred['metrics'], dict):
+        #     score = pred['metrics'].get(metric, np.nan)
+        #     if isinstance(score, (int, float)) and not isinstance(score, dict):
+        #         return float(score)
+        # else:
+        #     # Calculate on-the-fly using evaluator
+        y_true = pred.get('y_true', [])
+        y_pred = pred.get('y_pred', [])
+        if score_partition:
+            y_true = pred[score_partition]['y_true']
+            y_pred = pred[score_partition]['y_pred']
+
+        if len(y_true) > 0 and len(y_pred) > 0:
+            try:
+                from .evaluator import eval
+                score = eval(np.array(y_true), np.array(y_pred), metric)
                 return float(score)
-        else:
-            # Calculate on-the-fly using evaluator
-            y_true = pred.get('y_true', [])
-            y_pred = pred.get('y_pred', [])
-            if len(y_true) > 0 and len(y_pred) > 0:
-                try:
-                    from .evaluator import eval
-                    score = eval(np.array(y_true), np.array(y_pred), metric)
-                    return float(score)
-                except Exception as e:
-                    print(f"⚠️ Error calculating {metric}: {e}")
+            except Exception as e:
+                print(f"⚠️ Error calculating {metric}: {e}")
         return None
 
     def _plot_heatmap_matrix(self, var_scores: Dict, x_var: str, y_var: str, metric: str,
                              filters: Dict, figsize: Tuple[int, int], normalize: bool,
-                             best_only: bool, display_n: bool) -> Figure:
+                             best_only: bool, display_n: bool, var_display_scores: Optional[Dict] = None,
+                             score_partition: str = '', score_metric: str = '') -> Figure:
         """Create the actual heatmap plot from scores matrix."""
         # Extract unique values with natural sorting
         y_labels = sorted(var_scores.keys(), key=self._natural_sort_key)
         x_labels = sorted(set(x for y_data in var_scores.values() for x in y_data.keys()), key=self._natural_sort_key)
+
+        if x_var == 'partition':
+            x_labels = ['train', 'val', 'test']
+        if y_var == 'partition':
+            y_labels = ['train', 'val', 'test']
 
         # Create matrix
         matrix = np.full((len(y_labels), len(x_labels)), np.nan)
@@ -984,14 +1009,25 @@ class PredictionAnalyzer:
         for i, y_val in enumerate(y_labels):
             for j, x_val in enumerate(x_labels):
                 scores = var_scores[y_val].get(x_val, [])
+                display_scores = None if var_display_scores is None else var_display_scores[y_val].get(x_val, [])
+                # print(y_val, x_val, "\n", scores, "\n", display_scores, "\n---")
                 if scores:
                     score_counts[i, j] = len(scores)
+                    # get index or min or max score
+                    max_score_index = np.argmax(scores) if higher_better else np.argmin(scores)
+                    # print(f"Scores for ({y_val}, {x_val}): {scores}, best index: {max_score_index}")
                     if best_only:
-                        # Take best score (lowest for rmse, highest for r2)
-                        matrix[i, j] = max(scores) if higher_better else min(scores)
+                        # print(f"Best score for ({y_val}, {x_val}): {scores[max_score_index]}")
+                        # print(f"Display score for ({y_val}, {x_val}): {display_scores[max_score_index] if display_scores else 'N/A'}")
+                        if display_scores is not None:
+                            matrix[i, j] = display_scores[max_score_index]
+                        else:
+                            matrix[i, j] = scores[max_score_index]
                     else:
-                        # Take average score
-                        matrix[i, j] = np.mean(scores)
+                        if display_scores is not None:
+                            matrix[i, j] = np.mean(display_scores)
+                        else:
+                            matrix[i, j] = np.mean(scores)
 
         # Normalize scores if requested
         if normalize and not np.all(np.isnan(matrix)):
@@ -1000,7 +1036,8 @@ class PredictionAnalyzer:
         # Create the plot
         return self._render_heatmap_plot(matrix, score_counts, var_scores, x_labels, y_labels,
                                          x_var, y_var, metric, filters, figsize, normalize,
-                                         best_only, higher_better, display_n)
+                                         best_only, higher_better, display_n, var_display_scores,
+                                         score_partition, score_metric)
 
     def _normalize_matrix(self, matrix: np.ndarray, higher_better: bool) -> np.ndarray:
         """Normalize matrix values for better color comparison."""
@@ -1021,7 +1058,8 @@ class PredictionAnalyzer:
                              var_scores: Dict, x_labels: List, y_labels: List,
                              x_var: str, y_var: str, metric: str, filters: Dict,
                              figsize: Tuple[int, int], normalize: bool, best_only: bool,
-                             higher_better: bool, display_n: bool) -> Figure:
+                             higher_better: bool, display_n: bool, var_display_scores: Optional[Dict] = None,
+                             score_partition: str = '', score_metric: str = '') -> Figure:
         """Render the final heatmap plot."""
         # Create the plot
         fig, ax = plt.subplots(figsize=figsize)
@@ -1050,17 +1088,32 @@ class PredictionAnalyzer:
         ax.set_ylabel(y_var.replace('_', ' ').title())
 
         # Create title
-        filter_str = ", ".join([f"{k}={v}" for k, v in filters.items()])
-        title = f'{metric.upper()} Performance Heatmap'
-        if filter_str:
-            title += f' ({filter_str})'
-        if normalize:
-            title += ' (Normalized)'
+        title = "Best " if best_only else "Average "
+        partition = filters.get('partition', '')
+        if partition in ['all', 'ALL', 'All', '_all_', '']:
+            title += f"{score_metric.upper()}"
+        else:
+            if best_only:
+                title += f"Model [{metric.upper()} in {partition}] - Score [{score_metric.upper()} in {score_partition}]"
+            else:
+                title += f"Score [{score_metric.upper()} in {score_partition}]"
+
+
+        # if best_only:
+        #     if partition in ['all', 'ALL', 'All', '_all_', '']:
+        #     else:
+        #         title += f" (best in {partition} partition)"
+
+        # title = f'{metric.upper()} Performance Heatmap'
+        # if 'partition' in filters and filters['partition'] not in ['all', 'ALL', 'All', '_all_', '']:
+        #     title += f' - ({filters["partition"]})'
+        # if normalize:
+            # title += ' [Norm]'
         ax.set_title(title)
 
         # Add text annotations
         self._add_heatmap_annotations(ax, matrix, score_counts, var_scores, x_labels, y_labels,
-                                      masked_matrix, normalize, best_only, higher_better, display_n)
+                                      masked_matrix, normalize, best_only, higher_better, display_n, var_display_scores)
 
         plt.tight_layout()
         return fig
@@ -1068,7 +1121,7 @@ class PredictionAnalyzer:
     def _add_heatmap_annotations(self, ax, matrix: np.ndarray, score_counts: np.ndarray,
                                  var_scores: Dict, x_labels: List, y_labels: List,
                                  masked_matrix, normalize: bool, best_only: bool,
-                                 higher_better: bool, display_n: bool) -> None:
+                                 higher_better: bool, display_n: bool, var_display_scores: Optional[Dict] = None) -> None:
         """Add text annotations to heatmap cells."""
         for i in range(len(y_labels)):
             for j in range(len(x_labels)):
@@ -1078,11 +1131,19 @@ class PredictionAnalyzer:
                     if normalize:
                         # Reconstruct original score for display
                         orig_scores = var_scores[y_labels[i]].get(x_labels[j], [])
+                        disp_orig_scores = None if var_display_scores is None else var_display_scores[y_labels[i]].get(x_labels[j], [])
                         if orig_scores:
                             if best_only:
-                                orig_score = max(orig_scores) if higher_better else min(orig_scores)
+                                best_index = np.argmax(orig_scores) if higher_better else np.argmin(orig_scores)
+                                if disp_orig_scores is not None:
+                                    orig_score = disp_orig_scores[best_index]
+                                else:
+                                    orig_score = orig_scores[best_index]
                             else:
-                                orig_score = np.mean(orig_scores)
+                                if disp_orig_scores is not None:
+                                    orig_score = np.mean(disp_orig_scores)
+                                else:
+                                    orig_score = np.mean(orig_scores)
                             score_text = f'{orig_score:.3f}'
                         else:
                             score_text = 'N/A'

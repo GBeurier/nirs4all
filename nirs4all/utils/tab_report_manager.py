@@ -94,7 +94,7 @@ class TabReportManager:
         # Prepare headers based on task type
         if task_type == 'regression':
             headers = ['', 'Nsample', 'Nfeature', 'Mean', 'Median', 'Min', 'Max', 'SD', 'CV',
-                       'R²', 'RMSE', 'MSE', 'SEP', 'MAE', 'RPD', 'Bias', 'Consistency (%)']
+                       'R²', 'RMSE', 'MSE', 'SEP', 'MAE', 'RPD', 'Bias', 'Consistency']
         else:  # Classification
             is_binary = 'roc_auc' in partitions_data.get('val', {}) or 'roc_auc' in partitions_data.get('test', {})
             if is_binary:
@@ -154,7 +154,7 @@ class TabReportManager:
         col_widths = []
         for col_idx in range(len(headers)):
             max_width = max(len(str(all_rows[row_idx][col_idx])) for row_idx in range(len(all_rows)))
-            col_widths.append(max(max_width, 10))
+            col_widths.append(max(max_width, 6))
 
         # Generate formatted table string
         lines = []

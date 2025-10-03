@@ -287,14 +287,19 @@ class SimulationSaver:
 
             # Update metadata for each file
             relative_filename = str(filepath.relative_to(self.current_path))
-            self._metadata["binaries"][relative_filename] = {
+            if str(step_number) not in self._metadata["binaries"]:
+                self._metadata["binaries"][str(step_number)] = []
+            metadata_entry = {
                 "path": str(filepath.relative_to(self.base_path)),
+                "op_filename": str(fname),
+                "op_name": str(fname).split('.')[0],
+                "relative_path": relative_filename,
                 "step": step_number,
                 "size": filepath.stat().st_size,
                 "data_type": data_type,
                 "saved_at": datetime.now().isoformat()
             }
-
+            self._metadata["binaries"][str(step_number)].append(metadata_entry)
         # Save metadata once after all files
         self._save_metadata()
         # if len(saved_names) > 1:
@@ -381,3 +386,4 @@ class SimulationSaver:
         metadata_path = self.current_path / "metadata.json"
         with open(metadata_path, 'w') as f:
             json.dump(self._metadata, f, indent=2, default=str)
+

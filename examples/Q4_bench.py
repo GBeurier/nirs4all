@@ -8,16 +8,14 @@ from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, Standard
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.pipeline.runner import PipelineRunner
-import json
-import os
-import shutil
-from pathlib import Path
-
+from nirs4all.operators.models.cirad_tf import nicon
 from nirs4all.operators.transformations import Detrend, FirstDerivative, SecondDerivative, Gaussian, StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
-
-import numpy as np
 from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+
+
 # Clear old results to ensure fresh training with metadata
+from pathlib import Path
+import shutil
 results_path = Path("./results")
 if results_path.exists():
     shutil.rmtree(results_path)
@@ -26,11 +24,12 @@ list_of_preprocessors = [Detrend, FirstDerivative, SecondDerivative, Gaussian, S
 pipeline = [
     # Normalize the spectra reflectance
     MinMaxScaler(),
+    {"y_processing": MinMaxScaler},
     {"feature_augmentation": list_of_preprocessors},
     StandardScaler(),
-    # {"y_processing": MinMaxScaler},
     # ShuffleSplit(n_splits=3, test_size=.25),
     # {"model": PLSRegression(10)},
+    {"model": nicon, "name": "nicon_model", "train_params": {"epochs": 500, "patience": 50, "verbose": 0}},
 ]
 
 # create pipeline config

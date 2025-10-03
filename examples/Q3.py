@@ -21,7 +21,11 @@ from nirs4all.dataset.predictions import Predictions
 pipeline = [
     MinMaxScaler(feature_range=(0.1, 0.8)),
     {"feature_augmentation": [
-        MultiplicativeScatterCorrection, Gaussian, StandardNormalVariate, SavitzkyGolay, Haar,
+        MultiplicativeScatterCorrection,
+        Gaussian,
+        StandardNormalVariate,
+        SavitzkyGolay,
+        Haar,
         [MultiplicativeScatterCorrection, Gaussian],
         [MultiplicativeScatterCorrection, StandardNormalVariate],
         [MultiplicativeScatterCorrection, SavitzkyGolay],
@@ -75,7 +79,7 @@ for name, dataset_prediction in datasets_predictions.items():
 
     # Plot comparison with enhanced names (for readability in plots)
     analyzer = PredictionAnalyzer(predictions_obj)
-    # fig = analyzer.plot_top_k_comparison(k=10, metric='rmse')
+    fig = analyzer.plot_top_k_comparison(k=10, metric='rmse')
     # plt.show()
 
 # TAB REPORT
@@ -83,17 +87,12 @@ analyzer = PredictionAnalyzer(run_predictions)
 fig2 = analyzer.plot_variable_heatmap(
     x_var="model_name",
     y_var="dataset_name",
-    filters={"partition": "test"},
-    metric='rmse',
-    best_only=True
 )
-plt.show()
 # # plt.savefig('test_heatmap2.png', dpi=300)
 
 fig3 = analyzer.plot_variable_candlestick(
     filters={"partition": "test"},
     variable="model_name",
-    metric='rmse'
 )
 plt.show()
 # plt.savefig('test_candlestick_models_Q1.png', dpi=150, bbox_inches='tight')

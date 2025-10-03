@@ -13,6 +13,7 @@ Key features:
 """
 
 from abc import ABC, abstractmethod
+from tabnanny import verbose
 from typing import Any, Dict, List, Tuple, Optional, Union, TYPE_CHECKING
 import numpy as np
 import copy
@@ -116,7 +117,7 @@ class BaseModelController(OperatorController, ABC):
 
         self.prediction_store = prediction_store
         model_config = self._extract_model_config(step, operator)
-        verbose = model_config.get('train_params', {}).get('verbose', 0)
+        self.verbose = model_config.get('train_params', {}).get('verbose', 0)
 
         if mode == "predict":
             return self._execute_prediction_mode( model_config, dataset, context, runner, loaded_binaries )
@@ -151,7 +152,7 @@ class BaseModelController(OperatorController, ABC):
 
         else:
             # TRAIN PATH
-            if verbose > 0:
+            if self.verbose > 0:
                 print("🏋️ Starting training...")
 
             binaries = self.train(
@@ -249,7 +250,10 @@ class BaseModelController(OperatorController, ABC):
         X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context or {})
         X_test_prep, _ = self._prepare_data(X_test, None, context or {})
 
-        # train(on train and val data) ## TODO verify if model is not reconstructed
+        # if self.verbose > 0:
+        # print("🚀 Training model...")
+        # print("Dataset:", dataset_name, "Shape:", X_train.shape)
+
         trained_model = self._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **model_config.get('train_params', {}))
 
         # predict y_test_pred, y_train_pred, y_val_pred (these are in scaled space)
