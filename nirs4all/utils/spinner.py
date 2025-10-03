@@ -7,6 +7,9 @@ import sys
 from contextlib import contextmanager
 from typing import Optional
 
+spinner_chars = "|/-\\"
+nice_spinner_chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+emoji_spinner_chars = "🌑🌒🌓🌔🌕🌖🌗🌘"
 
 class Spinner:
     """A simple rotating spinner for showing loading progress."""
@@ -56,7 +59,7 @@ class Spinner:
 
 
 @contextmanager
-def spinner_context(message: str = "Processing", chars: str = "|/-\\", speed: float = 0.1):
+def spinner_context(message: str = "Processing", chars: str = nice_spinner_chars, speed: float = 0.1):
     """
     Context manager for easy spinner usage.
 

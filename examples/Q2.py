@@ -53,7 +53,7 @@ predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_conf
 ###############################################################################################################
 
 # Get top models to verify the real model names are displayed correctly
-best_count = 3
+best_count = 25
 rank_metric = 'rmse'  # 'rmse', 'mae', 'r2'
 
 for dataset_name, predict_dict in predictions_per_datasets.items():
@@ -66,13 +66,29 @@ for dataset_name, predict_dict in predictions_per_datasets.items():
     analyzer = PredictionAnalyzer(run_predictions)
     fig1 = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
     # plt.savefig('test_top_k_models_Q1.png', dpi=150, bbox_inches='tight')
-    plt.show()
 
 analyzer = PredictionAnalyzer(predictions)
 fig2 = analyzer.plot_variable_heatmap(
     x_var="model_name",
     y_var="partition",
-    metric='rmse',
+    best_only=False
+)
+# # plt.savefig('test_heatmap2.png', dpi=300)
+
+fig2 = analyzer.plot_variable_heatmap(
+    x_var="model_name",
+    y_var="dataset_name",
+    partition='val',  # default value, here's for clarity
+    metric='rmse',  # default value, here's for clarity
+    score_metric='rmse',
+    score_partition='test'  # default value, here's for clarity
+)
+# # plt.savefig('test_heatmap2.png', dpi=300)
+
+fig3 = analyzer.plot_variable_heatmap(
+    x_var="model_name",
+    y_var="dataset_name",
+    best_only=False,
 )
 # # plt.savefig('test_heatmap2.png', dpi=300)
 plt.show()

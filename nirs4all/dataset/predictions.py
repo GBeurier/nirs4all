@@ -546,7 +546,7 @@ class Predictions:
 
         return pl.DataFrame(scores_data)
 
-    def top_k(self, k: int = 5, metric: str = "", ascending: bool = True, **filters) -> List[Dict[str, Any]]:
+    def top_k(self, k: int = 5, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> List[Dict[str, Any]]:
         """
         Get top K predictions ranked by metric, val_score, or test_score.
         By default filters to test partition unless otherwise specified.
@@ -555,6 +555,7 @@ class Predictions:
             metric: Metric name to rank by ("" for test_score, "loss" for val_score, else calculate metric on-the-fly)
             k: Number of top results to return (-1 to return all filtered predictions)
             ascending: If True, lower scores rank higher (for error metrics)
+            aggregate_partitions: List of partitions to aggregate y_true and y_pred from (e.g. ['train', 'val'])
             **filters: Additional filter criteria
 
         Returns:
@@ -563,7 +564,7 @@ class Predictions:
         # Add default partition filter if not specified
         if 'partition' not in filters:
             filters['partition'] = 'val'
-        if 'partition' in filters and filters['partition'] in ['all', 'ALL', 'All', '_all_']:
+        if 'partition' in filters and filters['partition'] in ['all', 'ALL', 'All', '_all_', '']:
             del filters['partition']
 
         # First filter the entries
@@ -580,6 +581,7 @@ class Predictions:
             # Use existing stored scores
             rank_col = "val_score"
             df_ranked = df_filtered.filter(pl.col(rank_col).is_not_null())
+
             if df_ranked.is_empty():
                 return []
 
@@ -602,6 +604,9 @@ class Predictions:
                 row["y_pred"] = np.array(json.loads(row["y_pred"]))
                 results.append(row)
 
+            # Add partition data if requested
+            if len(aggregate_partitions) > 0:
+                results = self._add_partition_data(results, aggregate_partitions)
             return results
 
         else:
@@ -653,11 +658,55 @@ class Predictions:
 
             # Return all results if k=-1, otherwise return top k
             if k == -1:
-                return scores_data
+                results = scores_data
             else:
-                return scores_data[:k]
+                results = scores_data[:k]
+            # print(len(results))
+            # Add partition data if requested
+            if len(aggregate_partitions) > 0:
+                results = self._add_partition_data(results, aggregate_partitions)
 
-    def get_best(self, metric: str = "", ascending: bool = True, **filters) -> Optional[Dict[str, Any]]:
+            return results
+
+    def _add_partition_data(self, results: List[Dict[str, Any]], aggregate_partitions: List[str]) -> List[Dict[str, Any]]:
+        """
+        Add y_true and y_pred data from all partitions to each result using simple filtering.
+
+        Args:
+            results: List of prediction results
+
+        Returns:
+            Results with added partition structure: train: {y_true: ..., y_pred: ...}, val: {...}, test: {...}
+        """
+        for result in results:
+            # For each partition, filter once and get the data
+            for partition in aggregate_partitions:
+                partition_data = self.filter_predictions(
+                    dataset_name=result['dataset_name'],
+                    config_name=result['config_name'],
+                    model_name=result['model_name'],
+                    fold_id=result['fold_id'],
+                    step_idx=result['step_idx'],
+                    op_counter=result['op_counter'],
+                    partition=partition
+                )
+
+                if partition_data:
+                    # Found data for this partition
+                    result[partition] = {
+                        'y_true': partition_data[0]['y_true'],
+                        'y_pred': partition_data[0]['y_pred']
+                    }
+                else:
+                    # No data for this partition
+                    result[partition] = {
+                        'y_true': np.array([]),
+                        'y_pred': np.array([])
+                    }
+
+        return results
+
+    def get_best(self, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> Optional[Dict[str, Any]]:
         """
         Get the best prediction for a specific metric, val_score, or test_score.
         This is an alias for top_k with k=1.
@@ -665,15 +714,16 @@ class Predictions:
         Args:
             metric: Metric name to optimize ("" for test_score, "loss" for val_score, else metric)
             ascending: If True, lower scores are better (for error metrics)
+            aggregate_partitions: If True, add y_true and y_pred for all partitions (train, val, test)
             **filters: Additional filter criteria
 
         Returns:
             Best prediction dictionary or None
         """
-        top_results = self.top_k(k=1, metric=metric, ascending=ascending, **filters)
+        top_results = self.top_k(k=1, metric=metric, ascending=ascending, aggregate_partitions=aggregate_partitions, **filters)
         return top_results[0] if top_results else None
 
-    def bottom_k(self, metric: str = "", k: int = 5, **filters) -> List[Dict[str, Any]]:
+    def bottom_k(self, metric: str = "", k: int = 5, aggregate_partitions: bool = False, **filters) -> List[Dict[str, Any]]:
         """
         Get bottom K predictions (worst performing).
         This is an alias for top_k with ascending=False.
@@ -682,12 +732,13 @@ class Predictions:
         Args:
             metric: Metric name to rank by ("" for test_score, "loss" for val_score, else metric)
             k: Number of bottom results to return (-1 to return all filtered predictions)
+            aggregate_partitions: If True, add y_true and y_pred for all partitions (train, val, test)
             **filters: Additional filter criteria
 
         Returns:
             List of bottom K prediction dictionaries (or all if k=-1)
         """
-        return self.top_k(k=k, metric=metric, ascending=False, **filters)
+        return self.top_k(k=k, metric=metric, ascending=False, aggregate_partitions=aggregate_partitions, **filters)
 
     def clear(self) -> None:
         """Clear all predictions."""
@@ -895,6 +946,7 @@ class Predictions:
     @classmethod
     def pred_short_string(cls, entry, metrics=None):
         scores_str = ""
+        metrics.remove('rmse') if metrics is not None and 'rmse' in metrics else None
         if metrics is not None:
             scores = Evaluator.eval_list(entry['y_true'], entry['y_pred'], metrics=metrics)
             scores_str = ", ".join([f"[{k}:{v:.4f}]" if k != 'rmse' else f"[{k}:{v:.4f}]" for k, v in zip(metrics, scores)])
