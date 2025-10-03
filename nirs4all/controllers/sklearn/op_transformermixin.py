@@ -118,7 +118,7 @@ class TransformerMixinController(OperatorController):
             # Get processing names for this source
             processing_ids = dataset.features_processings(sd_idx)
             source_processings = processing_ids
-            print("🔹 Processing source", sd_idx, "with processings:", source_processings)
+            # print("🔹 Processing source", sd_idx, "with processings:", source_processings)
             if "processing" in context:
                 source_processings = context["processing"][sd_idx]
 
@@ -129,20 +129,20 @@ class TransformerMixinController(OperatorController):
             # Loop through each processing in the 3D data (samples, processings, features)
             for processing_idx in range(train_x.shape[1]):
                 processing_name = processing_ids[processing_idx]
-                print(f" Processing {processing_name} (idx {processing_idx})")
-                print(processing_name, processing_name in source_processings)
+                # print(f" Processing {processing_name} (idx {processing_idx})")
+                # print(processing_name, processing_name in source_processings)
                 if processing_name not in source_processings:
                     continue
                 train_2d = train_x[:, processing_idx, :]  # Training data
                 all_2d = all_x[:, processing_idx, :]      # All data to transform
 
-                print(f" Processing {processing_name} (idx {processing_idx}): train {train_2d.shape}, all {all_2d.shape}")
+                # print(f" Processing {processing_name} (idx {processing_idx}): train {train_2d.shape}, all {all_2d.shape}")
 
                 transformer = clone(operator)
                 transformer.fit(train_2d)
                 transformed_2d = transformer.transform(all_2d)
 
-                print("  Transformed shape:", transformed_2d.shape)
+                # print("  Transformed shape:", transformed_2d.shape)
 
                 # Store results
                 source_transformed_features.append(transformed_2d)
@@ -155,8 +155,8 @@ class TransformerMixinController(OperatorController):
                 transformer_binary = pickle.dumps(transformer)
                 fitted_transformers.append((f"{new_operator_name}.pkl", transformer_binary))
 
-            print("🔹 Finished processing source", sd_idx, len(fitted_transformers))
-            print("🔹 New processing names:", source_new_processing_names)
+            # print("🔹 Finished processing source", sd_idx, len(fitted_transformers))
+            # ("🔹 New processing names:", source_new_processing_names)
             transformed_features_list.append(source_transformed_features)
             new_processing_names.append(source_new_processing_names)
             processing_names.append(source_processing_names)
@@ -176,7 +176,7 @@ class TransformerMixinController(OperatorController):
                     processings=new_processing_names
                 )
                 context["processing"][sd_idx] = new_processing_names
-        print(dataset)
+        # print(dataset)
         return context, fitted_transformers
 
     # def _execute_prediction_mode(

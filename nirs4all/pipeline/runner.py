@@ -416,8 +416,7 @@ class PipelineRunner:
 
         # Always show final score for model controllers when verbose=0
         is_model_controller = 'model' in controller_name.lower()
-        print("🔹 Controller execution completed")
-        print(len(binaries))
+        # print("🔹 Controller execution completed")
         # Save binaries if in training mode and saving is enabled
         if self.mode == "train" and self.save_files and binaries:
             # Track binaries for this step with correct naming
