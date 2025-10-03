@@ -23,6 +23,7 @@ build/
 results/
 predict/
 trash/
+deprec/
 
 # Testing
 .pytest_cache/
