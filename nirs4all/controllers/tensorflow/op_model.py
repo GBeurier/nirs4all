@@ -187,7 +187,7 @@ class TensorFlowModelController(BaseModelController):
         if 'loss' not in train_params and 'compile' not in train_params:
             default_loss = ModelUtils.get_default_loss(task_type, 'tensorflow')
             train_params['loss'] = default_loss
-            if verbose > 0:
+            if verbose > 1:
                 print(f"📊 Auto-detected {task_type.value} task, using loss: {default_loss}")
         elif 'loss' in train_params:
             # Validate provided loss
@@ -198,21 +198,21 @@ class TensorFlowModelController(BaseModelController):
         if 'metrics' not in train_params and 'compile' not in train_params:
             default_metrics = ModelUtils.get_default_metrics(task_type, 'tensorflow')
             train_params['metrics'] = default_metrics
-            if verbose > 0:
+            if verbose > 1:
                 print(f"📈 Using default metrics for {task_type.value}: {default_metrics}")
 
-        # if verbose > 0:
+        # if verbose > 1:
             # print(f"🧠 Training {model.__class__.__name__} with TensorFlow")
 
         # Show training parameters being used
-        # if verbose > 1 and train_params:
+        # if verbose > 2 and train_params:
             # print(f"🔧 Training parameters: {train_params}")        # The model is already a new instance created from function
         trained_model = model
 
         # === COMPILATION CONFIGURATION ===
         compile_config = self._prepare_compilation_config(train_params)
         trained_model.compile(**compile_config)
-        if verbose > 1:
+        if verbose > 2:
             print(f"🏗️ Model compiled with: {compile_config}")
 
         # === TRAINING CONFIGURATION ===
@@ -220,7 +220,7 @@ class TensorFlowModelController(BaseModelController):
         validation_data = fit_config.pop('validation_data', None)
 
         # Show final training configuration
-        if verbose > 1:
+        if verbose > 2:
             self._log_training_config(fit_config, train_params, validation_data)
 
         # === TRAINING EXECUTION ===
@@ -236,8 +236,8 @@ class TensorFlowModelController(BaseModelController):
         # === SCORE CALCULATION AND DISPLAY ===
         # Reuse the task_type enum we calculated earlier
 
-        if verbose > 0:
-            # Show detailed training scores at verbose > 0
+        if verbose > 1:
+            # Show detailed training scores at verbose > 1
             y_train_pred = self._predict_model(trained_model, X_train)
             train_scores = self._calculate_and_print_scores(
                 y_train, y_train_pred, task_type_str, "train",
@@ -250,7 +250,7 @@ class TensorFlowModelController(BaseModelController):
                 if best_score is not None:
                     direction = "↑" if higher_is_better else "↓"
                     all_scores_str = ModelUtils.format_scores(train_scores)
-                    print(f"✅ {trained_model.__class__.__name__} - train: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
+                    # print(f"✅ {trained_model.__class__.__name__} - train: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
             # Validation scores if available
             if X_val is not None and y_val is not None:
@@ -266,7 +266,7 @@ class TensorFlowModelController(BaseModelController):
                     if best_score is not None:
                         direction = "↑" if higher_is_better else "↓"
                         all_scores_str = ModelUtils.format_scores(val_scores)
-                        print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
+                        # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
             elif validation_data is not None:
                 # Use validation data from training
                 X_val_data, y_val_data = validation_data
@@ -282,7 +282,7 @@ class TensorFlowModelController(BaseModelController):
                     if best_score is not None:
                         direction = "↑" if higher_is_better else "↓"
                         all_scores_str = ModelUtils.format_scores(val_scores)
-                        print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
+                        # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
         return trained_model
 
@@ -380,8 +380,8 @@ class TensorFlowModelController(BaseModelController):
             if train_params.get('early_stopping', True):  # Default enabled
                 patience = train_params.get('patience', 10)
                 monitor = train_params.get('early_stopping_monitor', 'val_loss')
-                # Only show early stopping messages if verbose > 0
-                callback_verbose = 1 if verbose > 0 else 0
+                # Only show early stopping messages if verbose > 1
+                callback_verbose = 1 if verbose > 1 else 0
                 early_stop = keras.callbacks.EarlyStopping(
                     monitor=monitor,
                     patience=patience,
@@ -403,8 +403,8 @@ class TensorFlowModelController(BaseModelController):
                 new_lr = base_lr + (max_lr - base_lr) * max(0, (1 - x))
                 return float(new_lr)
 
-            # Only show learning rate messages if verbose > 1 (detailed mode)
-            callback_verbose = 1 if verbose > 1 else 0
+            # Only show learning rate messages if verbose > 2 (detailed mode)
+            callback_verbose = 1 if verbose > 2 else 0
             cyclic_lr_callback = keras.callbacks.LearningRateScheduler(cyclic_lr_schedule, verbose=callback_verbose)
             callbacks.append(cyclic_lr_callback)
             # print(f"🔄 Added CyclicLR: base_lr={base_lr}, max_lr={max_lr}, step_size={step_size}")
@@ -414,8 +414,8 @@ class TensorFlowModelController(BaseModelController):
             monitor = train_params.get('reduce_lr_monitor', 'val_loss')
             factor = train_params.get('reduce_lr_factor', 0.2)
             patience = train_params.get('reduce_lr_patience', 10)
-            # Only show reduce LR messages if verbose > 0
-            callback_verbose = 1 if verbose > 0 else 0
+            # Only show reduce LR messages if verbose > 1
+            callback_verbose = 1 if verbose > 1 else 0
             reduce_lr = keras.callbacks.ReduceLROnPlateau(
                 monitor=monitor,
                 factor=factor,
@@ -427,7 +427,7 @@ class TensorFlowModelController(BaseModelController):
 
         # === BEST MODEL MEMORY (like legacy system) ===
         if train_params.get('best_model_memory', True):  # Default enabled
-            best_model_callback = self._create_best_model_memory_callback(verbose > 0)
+            best_model_callback = self._create_best_model_memory_callback(verbose > 1)
             callbacks.append(best_model_callback)
             # print("🏆 Added BestModelMemory callback")
 

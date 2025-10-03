@@ -89,9 +89,9 @@ class SklearnModelController(BaseModelController):
 
         verbose = train_params.get('verbose', 0)
 
-        # if verbose > 0 and train_params:
+        # if verbose > 1 and train_params:
             # print(f"🔧 Training {model.__class__.__name__} with params: {train_params}")
-        # elif verbose > 0:
+        # elif verbose > 1:
             # print(f"🔧 Training {model.__class__.__name__}")        # Model is already cloned in base class, just use it directly
         trained_model = model
 
@@ -116,8 +116,8 @@ class SklearnModelController(BaseModelController):
         # But control the detail level based on verbose
         task_type = self._detect_task_type(y_train)
 
-        if verbose > 0:
-            # Show detailed training scores at verbose > 0
+        if verbose > 1:
+            # Show detailed training scores at verbose > 1
             y_train_pred = self._predict_model(trained_model, X_train)
             train_scores = self._calculate_and_print_scores(
                 y_train, y_train_pred, task_type, "train",
@@ -130,7 +130,7 @@ class SklearnModelController(BaseModelController):
                 if best_score is not None:
                     direction = "↑" if higher_is_better else "↓"
                     all_scores_str = ModelUtils.format_scores(train_scores)
-                    print(f"✅ {trained_model.__class__.__name__} - train: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
+                    # print(f"✅ {trained_model.__class__.__name__} - train: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
             # Validation scores if available
             if X_val is not None and y_val is not None:
@@ -146,7 +146,7 @@ class SklearnModelController(BaseModelController):
                     if best_score is not None:
                         direction = "↑" if higher_is_better else "↓"
                         all_scores_str = ModelUtils.format_scores(val_scores)
-                        print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
+                        # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
         return trained_model
 
