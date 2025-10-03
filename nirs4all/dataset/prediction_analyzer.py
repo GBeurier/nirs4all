@@ -870,7 +870,7 @@ class PredictionAnalyzer:
 
     def plot_variable_heatmap(self, x_var: str, y_var: str, filters: Dict[str, Any] = {},
                               metric: str = 'rmse', figsize: Tuple[int, int] = (12, 8),
-                              normalize: bool = True, best_only: bool = True) -> Figure:
+                              normalize: bool = True, best_only: bool = True, display_n: bool = True) -> Figure:
         """
         Plot heatmap showing performance by two variables from predictions.
 
@@ -891,11 +891,11 @@ class PredictionAnalyzer:
                                  {"dataset": "regression", "partition": "test"},
                                  "model_name", "preprocessings", 'rmse')
         """
-        return self._create_variable_heatmap(filters, x_var, y_var, metric, figsize, normalize, best_only)
+        return self._create_variable_heatmap(filters, x_var, y_var, metric, figsize, normalize, best_only, display_n)
 
     def _create_variable_heatmap(self, filters: Dict[str, Any], x_var: str, y_var: str,
                                  metric: str, figsize: Tuple[int, int],
-                                 normalize: bool, best_only: bool) -> Figure:
+                                 normalize: bool, best_only: bool, display_n: bool = True) -> Figure:
         """Helper method to create variable heatmap (split for complexity)."""
         # Get predictions using the existing top_k method with filters
         try:
@@ -926,7 +926,7 @@ class PredictionAnalyzer:
 
         # Create matrix and plot
         return self._plot_heatmap_matrix(var_scores, x_var, y_var, metric, filters,
-                                         figsize, normalize, best_only)
+                                         figsize, normalize, best_only, display_n)
 
     def _extract_scores_by_variables(self, predictions: List[Dict], x_var: str, y_var: str,
                                      metric: str) -> Dict:
@@ -969,7 +969,7 @@ class PredictionAnalyzer:
 
     def _plot_heatmap_matrix(self, var_scores: Dict, x_var: str, y_var: str, metric: str,
                              filters: Dict, figsize: Tuple[int, int], normalize: bool,
-                             best_only: bool) -> Figure:
+                             best_only: bool, display_n: bool) -> Figure:
         """Create the actual heatmap plot from scores matrix."""
         # Extract unique values with natural sorting
         y_labels = sorted(var_scores.keys(), key=self._natural_sort_key)
@@ -1000,7 +1000,7 @@ class PredictionAnalyzer:
         # Create the plot
         return self._render_heatmap_plot(matrix, score_counts, var_scores, x_labels, y_labels,
                                          x_var, y_var, metric, filters, figsize, normalize,
-                                         best_only, higher_better)
+                                         best_only, higher_better, display_n)
 
     def _normalize_matrix(self, matrix: np.ndarray, higher_better: bool) -> np.ndarray:
         """Normalize matrix values for better color comparison."""
@@ -1021,7 +1021,7 @@ class PredictionAnalyzer:
                              var_scores: Dict, x_labels: List, y_labels: List,
                              x_var: str, y_var: str, metric: str, filters: Dict,
                              figsize: Tuple[int, int], normalize: bool, best_only: bool,
-                             higher_better: bool) -> Figure:
+                             higher_better: bool, display_n: bool) -> Figure:
         """Render the final heatmap plot."""
         # Create the plot
         fig, ax = plt.subplots(figsize=figsize)
@@ -1060,7 +1060,7 @@ class PredictionAnalyzer:
 
         # Add text annotations
         self._add_heatmap_annotations(ax, matrix, score_counts, var_scores, x_labels, y_labels,
-                                      masked_matrix, normalize, best_only, higher_better)
+                                      masked_matrix, normalize, best_only, higher_better, display_n)
 
         plt.tight_layout()
         return fig
@@ -1068,7 +1068,7 @@ class PredictionAnalyzer:
     def _add_heatmap_annotations(self, ax, matrix: np.ndarray, score_counts: np.ndarray,
                                  var_scores: Dict, x_labels: List, y_labels: List,
                                  masked_matrix, normalize: bool, best_only: bool,
-                                 higher_better: bool) -> None:
+                                 higher_better: bool, display_n: bool) -> None:
         """Add text annotations to heatmap cells."""
         for i in range(len(y_labels)):
             for j in range(len(x_labels)):
@@ -1090,7 +1090,10 @@ class PredictionAnalyzer:
                         score_text = f'{matrix[i, j]:.3f}'
 
                     # Combine score and count
-                    text = f'{score_text}\n{count_text}'
+                    if display_n:
+                        text = f'{score_text}\n{count_text}'
+                    else:
+                        text = score_text
                     ax.text(j, i, text, ha='center', va='center', fontsize=8,
                             color='white' if masked_matrix[i, j] < 0.0 else 'black')
 
