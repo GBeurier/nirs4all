@@ -126,7 +126,7 @@ class SpectroDataset:
     def short_preprocessings_str(self) -> str:
         processings_list = self._features.sources[0].processing_ids
         processings_list.pop(0)
-        processings = "*".join(self.features_processings(0))
+        processings = "|".join(self.features_processings(0))
         replacements = [
             ("raw_", ""),
             ("SavitzkyGolay", "SG"),
@@ -142,14 +142,14 @@ class SpectroDataset:
             ("RobustScaler", "Rbt"),
             ("StandardScaler", "Std"),
             ("QuantileTransformer", "Quant"),
-            ("PowerTransformer", "Power"),
+            ("PowerTransformer", "Pow"),
             # ("_", ""),
         ]
         for long, short in replacements:
             processings = processings.replace(long, short)
 
         # replace expr _<digit>_ with | then remaining _<digits> with nothing
-        processings = re.sub(r'_\d+_', '|', processings)
+        processings = re.sub(r'_\d+_', '>', processings)
         processings = re.sub(r'_\d+', '', processings)
         return processings
 
