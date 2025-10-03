@@ -10,6 +10,7 @@ import numpy as np
 import polars as pl
 from pathlib import Path
 import json
+import hashlib
 import nirs4all.dataset.evaluator as Evaluator
 
 class Predictions:
@@ -44,6 +45,7 @@ class Predictions:
     def __init__(self, filepath: Optional[str] = None):
         """Initialize Predictions storage with Polars DataFrame backend."""
         self._df = pl.DataFrame(schema={
+            "id": pl.Utf8,
             "dataset_name": pl.Utf8,
             "dataset_path": pl.Utf8,
             "config_name": pl.Utf8,
@@ -72,6 +74,50 @@ class Predictions:
         if filepath and Path(filepath).exists():
             self.load_from_file(filepath)
 
+    @staticmethod
+    def _generate_hash(row_dict: Dict[str, Any]) -> str:
+        """
+        Generate a 6-character hash from row dictionary.
+        Uses key identifying fields to create a diverse, reproducible hash.
+        """
+        # Select key fields that uniquely identify a prediction
+        key_fields = [
+            str(row_dict.get('dataset_name', '')),
+            str(row_dict.get('config_name', '')),
+            str(row_dict.get('model_name', '')),
+            str(row_dict.get('partition', '')),
+            str(row_dict.get('fold_id', '')),
+            str(row_dict.get('step_idx', 0)),
+            str(row_dict.get('op_counter', 0)),
+            # Include some data characteristics for extra diversity
+            str(row_dict.get('n_samples', 0)),
+            str(row_dict.get('n_features', 0)),
+            str(row_dict.get('metric', '')),
+            str(row_dict.get('task_type', ''))
+        ]
+
+        # Create a string to hash
+        hash_string = '|'.join(key_fields)
+
+        # Generate SHA256 hash and take first 6 characters (alphanumeric)
+        hash_obj = hashlib.sha256(hash_string.encode('utf-8'))
+        hex_hash = hash_obj.hexdigest()
+
+        # Convert to base36 (0-9, a-z) for better diversity in 6 chars
+        # Take multiple segments of the hex and combine them
+        hash_int = int(hex_hash[:16], 16)  # Use first 16 hex chars
+
+        # Convert to base36 and take 6 characters
+        base36_chars = '0123456789abcdefghijklmnopqrstuvwxyz'
+        result = ''
+        temp = hash_int
+
+        for _ in range(6):
+            result = base36_chars[temp % 36] + result
+            temp //= 36
+
+        return result
+
     def add_prediction(
         self,
         dataset_name: str,
@@ -83,7 +129,7 @@ class Predictions:
         model_name: str = "",
         model_classname: str = "",
         model_path: str = "",
-        fold_id: str | int= None,
+        fold_id: Optional[str | int] = None,
         sample_indices: Optional[List[int]] = None,
         weights: Optional[List[float]] = None,
         metadata: Optional[Dict[str, Any]] = None,
@@ -108,8 +154,9 @@ class Predictions:
         metadata_dict = metadata if metadata is not None else {}
         fold_id = str(fold_id)
 
-        # Create new row
-        new_row = pl.DataFrame([{
+        # Create row_dict with columns in schema order
+        row_dict = {
+            "id": "",  # Will be filled by hash generation
             "dataset_name": dataset_name,
             "dataset_path": dataset_path,
             "config_name": config_name,
@@ -133,7 +180,14 @@ class Predictions:
             "n_samples": n_samples,
             "n_features": n_features,
             "preprocessings": preprocessings,
-        }])
+        }
+
+        # Generate unique ID hash for the prediction
+        prediction_id = self._generate_hash(row_dict)
+        row_dict["id"] = prediction_id
+
+        # Create new row from the row_dict
+        new_row = pl.DataFrame([row_dict])
 
         # Append to main DataFrame
         self._df = pl.concat([self._df, new_row])
@@ -723,7 +777,7 @@ class Predictions:
         top_results = self.top_k(k=1, metric=metric, ascending=ascending, aggregate_partitions=aggregate_partitions, **filters)
         return top_results[0] if top_results else None
 
-    def bottom_k(self, metric: str = "", k: int = 5, aggregate_partitions: bool = False, **filters) -> List[Dict[str, Any]]:
+    def bottom_k(self, metric: str = "", k: int = 5, aggregate_partitions: List[str] = [], **filters) -> List[Dict[str, Any]]:
         """
         Get bottom K predictions (worst performing).
         This is an alias for top_k with ascending=False.
@@ -732,7 +786,7 @@ class Predictions:
         Args:
             metric: Metric name to rank by ("" for test_score, "loss" for val_score, else metric)
             k: Number of bottom results to return (-1 to return all filtered predictions)
-            aggregate_partitions: If True, add y_true and y_pred for all partitions (train, val, test)
+            aggregate_partitions: List of partitions to aggregate y_true and y_pred from (e.g. ['train', 'val'])
             **filters: Additional filter criteria
 
         Returns:
@@ -773,9 +827,9 @@ class Predictions:
 
             # Check if schemas match exactly
             schemas_match = (
-                len(self_schema) == len(other_schema) and
-                all(col in other_schema and self_schema[col] == other_schema[col] for col in self_schema) and
-                list(self._df.columns) == list(other._df.columns)
+                (len(self_schema) == len(other_schema))
+                and all(col in other_schema and self_schema[col] == other_schema[col] for col in self_schema)
+                and (list(self._df.columns) == list(other._df.columns))
             )
 
             if schemas_match:
@@ -787,7 +841,7 @@ class Predictions:
 
                 # Use the predefined schema order from __init__ to ensure consistency
                 predefined_order = [
-                    "dataset_name", "dataset_path", "config_name", "config_path",
+                    "id", "dataset_name", "dataset_path", "config_name", "config_path",
                     "step_idx", "op_counter", "model_name", "model_classname", "model_path",
                     "fold_id", "sample_indices", "weights", "metadata", "partition",
                     "y_true", "y_pred", "val_score", "test_score", "metric", "task_type",
@@ -855,8 +909,8 @@ class Predictions:
                 other_aligned = other._df.select(other_cast_expressions)
 
                 # Concatenate aligned DataFrames
+                # Concatenate aligned DataFrames
                 self._df = pl.concat([self_aligned, other_aligned], how="vertical")
-
 
     def merge_predictions_with_dedup(self, other: 'Predictions') -> None:
         """
@@ -879,7 +933,7 @@ class Predictions:
 
         original_count = len(self._df)
 
-        # Define key columns for duplicate detection
+        # Define key columns for duplicate detection (excluding 'id' since it's auto-generated)
         key_columns = [
             "dataset_name", "config_name", "model_name",
             "partition", "fold_id", "step_idx", "op_counter"
@@ -920,8 +974,6 @@ class Predictions:
                 f"   Configs: {configs}\n"
                 f"   Models: {models}")
 
-
-
     def get_entry_partitions(self, entry):
         res = {}
         filter = {
@@ -957,5 +1009,5 @@ class Predictions:
         return short_desc
 
     @classmethod
-    def pred_long_string(cls, entry, metrics=None): ##ADAPT TO CLASSIFICATION
+    def pred_long_string(cls, entry, metrics=None):  # ADAPT TO CLASSIFICATION
         return Predictions.pred_short_string(entry, metrics=metrics) + f" | pipeline: {entry['config_name']}"
