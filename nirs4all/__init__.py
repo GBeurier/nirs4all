@@ -4,9 +4,37 @@ NIRS4All - A comprehensive package for Near-Infrared Spectroscopy data processin
 This package provides tools for spectroscopy data handling, preprocessing, model building,
 and pipeline management with support for multiple ML backends.
 """
+__version__ = "0.0.7"
 
-__version__ = "0.9.7"
-__author__ = "NIRS4All Project"
+import os
+if os.environ.get('DISABLE_EMOJIS'):  # Set to True to always disable
+    import re
+    original_print = __builtins__['print']
+
+    def strip_emojis(text):
+        # Force ASCII-only output by encoding to ASCII and ignoring errors
+        try:
+            # Convert to ASCII, ignore non-ASCII characters
+            ascii_text = text.encode('ascii', 'ignore').decode('ascii')
+            # Also remove ANSI escape codes
+            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            return ansi_escape.sub('', ascii_text)
+        except (UnicodeError, AttributeError):
+            return str(text)
+
+    def emoji_free_print(*args, **kwargs):
+        new_args = []
+        for arg in args:
+            # Convert everything to string first, then strip emojis
+            try:
+                str_arg = str(arg)
+                cleaned_arg = strip_emojis(str_arg)
+                new_args.append(cleaned_arg)
+            except (UnicodeError, AttributeError):
+                new_args.append("[UNICODE ERROR]")
+        original_print(*new_args, **kwargs)
+    __builtins__['print'] = emoji_free_print
+
 
 # Core pipeline components - most commonly used
 from .pipeline import PipelineRunner, PipelineConfigs, PipelineHistory
