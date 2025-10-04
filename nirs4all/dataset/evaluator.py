@@ -67,6 +67,9 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: str) -> Union[float, Di
     y_true = np.asarray(y_true).flatten()
     y_pred = np.asarray(y_pred).flatten()
 
+    if len(y_true) == 0 or len(y_pred) == 0:
+        return float('nan')
+
     if len(y_true) != len(y_pred):
         raise ValueError(f"Length mismatch: y_true({len(y_true)}) vs y_pred({len(y_pred)})")
 

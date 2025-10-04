@@ -758,9 +758,8 @@ class PredictionHelpers:
             return None
 
         try:
-            from nirs4all.utils.tab_report_generator import TabReportGenerator
-            generator = TabReportGenerator()
-            report_path = generator.generate_best_score_report(
+            # from nirs4all.utils.tab_report_generator import TabReportGenerator
+            report_path = TabReportGenerator.generate_best_score_report(
                 predictions, dataset_name, save_path, enable_tab_reports, dataset
             )
 

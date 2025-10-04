@@ -54,7 +54,7 @@ predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_conf
 
 # Get top models to verify the real model names are displayed correctly
 best_count = 5
-top_10 = predictions.top_k(best_count, 'rmse', {"partition":"validation"})  ## partition VALIDATION PAR DEFAULT
+top_10 = predictions.top_k(best_count, 'rmse', partition="val")  ## partition VALIDATION PAR DEFAULT
 
 print(f"Top {best_count} models by RMSE:")
 for i, model in enumerate(top_10):

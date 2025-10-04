@@ -2,13 +2,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime
 from pathlib import Path
 import json
-import warnings
-import os
 
 from joblib import Parallel, delayed, parallel_backend
 from nirs4all.dataset.predictions import Predictions
-
-# from nirs4all.controllers.controller import OperatorController
 
 from nirs4all.pipeline.serialization import deserialize_component
 from nirs4all.pipeline.history import PipelineHistory
@@ -18,8 +14,6 @@ from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.binary_loader import BinaryLoader
-from nirs4all.dataset.prediction_helpers import PredictionHelpers
-from nirs4all.utils.spinner import spinner_context
 from nirs4all.utils.tab_report_manager import TabReportManager
 
 
@@ -72,14 +66,16 @@ class PipelineRunner:
         """Run pipeline configurations on dataset configurations."""
 
         nb_combinations = len(pipeline_configs.steps) * len(dataset_configs.configs)
-        print(f"🚀 Starting pipeline run with {len(pipeline_configs.steps)} pipeline configuration(s) on {len(dataset_configs.configs)} dataset configuration(s) ({nb_combinations} total runs).")
+        print("=" * 120)
+        print(f"\033[94m🚀 Starting Nirs4all run(s) with {len(pipeline_configs.steps)} pipeline on {len(dataset_configs.configs)} dataset ({nb_combinations} total runs).\033[0m")
+        print("=" * 120)
 
         datasets_predictions = {}
         run_predictions = Predictions()
 
         # Get datasets from DatasetConfigs
         for config, name in dataset_configs.configs:
-            print("=" * 120)
+            # print("=" * 120)
 
             dataset_prediction_path = self.saver.base_path / name / "predictions.json"
             global_dataset_predictions = Predictions.load_from_file_cls(dataset_prediction_path)
@@ -101,36 +97,38 @@ class PipelineRunner:
                     run_dataset_predictions.merge_predictions(config_predictions)
                     run_predictions.merge_predictions(config_predictions)
 
-            ### Print best results for this dataset
+            # Print best results for this dataset
             if run_dataset_predictions.num_predictions > 0:
                 best = run_dataset_predictions.get_best()
-                print(f"🏆 Run best for dataset '{name}': {Predictions.pred_long_string(best)}")
-                best_by_partition = run_dataset_predictions.get_entry_partitions(best)
-                str_desc, csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
-                print(str_desc)
-                if csv_file:
-                    filename = f"{best['step_idx']}_{best['model_name']}_{best['op_counter']}.csv"
-                    print(filename)
-                    self.saver.save_file(filename, csv_file, into_dataset=True)
-                print("-" * 120)
+                print(f"🏆 Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
+                if self.enable_tab_reports:
+                    best_by_partition = run_dataset_predictions.get_entry_partitions(best)
+                    tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
+                    print(tab_report)
+                    if tab_report_csv_file:
+                        filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_run_({best['config_name']}_{best['model_name']})_[{best['id']}].csv"
+                        self.saver.save_file(filename, tab_report_csv_file, into_dataset=True)
+                if self.save_files:
+                    prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Prediction_run({best['config_name']}_{best['model_name']})_[{best['id']}].csv"
+                    prediction_path = self.saver.base_path / name / prediction_name
+                    Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
 
             if global_dataset_predictions.num_predictions > 0:
                 global_dataset_predictions.save_to_file(dataset_prediction_path)
-                best_overall = global_dataset_predictions.get_best()
-                print(f"🏆 Best Overall for dataset '{name}': {Predictions.pred_long_string(best_overall)}")
-                overall_best_by_partition = global_dataset_predictions.get_entry_partitions(best_overall)
-                str_desc, csv_file = TabReportManager.generate_best_score_tab_report(overall_best_by_partition)
-                print(str_desc)
-                if csv_file:
-                    filename = f"Best_{best_overall['step_idx']}_{best_overall['model_name']}_{best_overall['op_counter']}.csv"
-                    print(filename)
-                    self.saver.save_file(filename, csv_file)
-
+            #     best_overall = global_dataset_predictions.get_best()
+            #     print(f"🏆 Best prediction overall for dataset '{name}': {Predictions.pred_long_string(best_overall)}")
+            #     if self.enable_tab_reports:
+            #         overall_best_by_partition = global_dataset_predictions.get_entry_partitions(best_overall)
+            #         tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(overall_best_by_partition)
+            #         print(tab_report)
+            #         if tab_report_csv_file:
+            #             filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_overall_({best_overall['config_name']}_{best_overall['model_name']})_[{best_overall['id']}].csv"
+            #             self.saver.save_file(filename, tab_report_csv_file, into_dataset=True)
+            #     if self.save_files:
+            #         prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Prediction_best_({best_overall['config_name']}_{best_overall['model_name']})_[{best_overall['id']}].csv"
+            #         prediction_path = self.saver.base_path / name / prediction_name
+            #         Predictions.save_predictions_to_csv(best_overall["y_true"], best_overall["y_pred"], prediction_path)
             print("=" * 120)
-            print("=" * 120)
-
-            # if self.enable_tab_reports:
-                # PredictionHelpers.generate_best_score_tab_report(global_dataset_predictions, dataset_name, str(self.saver.base_path / dataset_name), True, dataset)
 
             # Generate best score tab report
             datasets_predictions[dataset_name] = {
@@ -144,25 +142,26 @@ class PipelineRunner:
 
     def predict(self, prediction_obj: Union[Dict[str, Any], str], dataset_config: DatasetConfigs, verbose: int = 0) -> Tuple['Predictions', Dict[str, Any]]:
         print("=" * 120)
-        print("🚀 Starting prediction process...")
+        print(f"\033[94m🚀 Starting Nirs4all prediction(s)\033[0m")
+        print("=" * 120)
+
         self.mode = "predict"
         self.verbose = verbose
         config_path, target_model = self.saver.get_predict_targets(prediction_obj)
         del target_model["y_pred"]  # Remove potentially large arrays
         del target_model["y_true"]
-        print(target_model)
         self.config_path = config_path
         self.target_model = target_model
         self.model_weights = target_model['weights'] if target_model else None
-        print(f"🚀 Starting prediction using config: {config_path} on {len(dataset_config.configs)} dataset configuration(s)."
-              if target_model else "")
+        # print(f"🚀 Starting prediction using config: {config_path} on {len(dataset_config.configs)} dataset configuration(s)."
+            #   if target_model else "")
 
         # 2. Load pipeline configuration
         config_dir = Path(f"{self.saver.base_path}/{config_path}")
         pipeline_json = config_dir / "pipeline.json"
 
-        print(f"🔍 Loading pipeline configuration from: {pipeline_json}")
-        print(f"🔍 Loading metadata from: {config_dir / 'metadata.json'}")
+        if verbose > 0:
+            print(f"🔍 Loading {pipeline_json}, {config_dir / 'metadata.json'}")
 
         if not pipeline_json.exists():
             raise FileNotFoundError(f"Pipeline not found: {pipeline_json}")
@@ -181,12 +180,15 @@ class PipelineRunner:
         if metadata_file.exists():
             with open(metadata_file, 'r') as f:
                 metadata = json.load(f)
-
+        if 'binaries' not in metadata:
+            metadata['binaries'] = {}
+        if verbose > 0:
+            print(f"🔍 {len(metadata['binaries'])} binaries found")
         self.binary_loader = BinaryLoader(self.saver.base_path, metadata)
 
         # 5. Run pipeline exactly like train
         run_predictions = Predictions()
-        datasets_predictions = {}
+        # datasets_predictions = {}
 
         for config, name in dataset_config.configs:
             dataset = dataset_config.get_dataset(config, name)
@@ -195,15 +197,30 @@ class PipelineRunner:
             # Run single pipeline (same as train)
             self._run_single(steps, "prediction", dataset, config_predictions)
             run_predictions.merge_predictions(config_predictions)
+            # print(run_predictions)
+            # datasets_predictions[name] = {
+            #     "global_predictions": config_predictions,  # No global loading in predict
+            #     "run_predictions": config_predictions,
+            #     "dataset": dataset,
+            #     "dataset_name": name
+            # }
 
-            datasets_predictions[name] = {
-                "global_predictions": config_predictions,  # No global loading in predict
-                "run_predictions": config_predictions,
-                "dataset": dataset,
-                "dataset_name": name
-            }
+        # print(self.target_model)
+        single_pred = run_predictions.get_similar(
+            model_name=self.target_model.get('model_name', None),
+            step_idx=self.target_model.get('step_idx', None),
+            op_counter=self.target_model.get('op_counter', None),
+            fold_id=self.target_model.get('fold_id', None)
+        )
+        if single_pred is None:
+            raise ValueError("No matching prediction found for the specified model criteria. Predict failed.")
 
-        return run_predictions, datasets_predictions
+        print(f"✅ Predicted with: {single_pred['model_name']} [{single_pred['id']}]")
+        filename = f"{datetime.now().strftime('%m-%d_%Hh%Mm%Ss')}_Prediction_[{single_pred['id']}].csv"
+        y_pred = single_pred["y_pred"]
+        prediction_path = self.saver.base_path / dataset.name / filename
+        Predictions.save_predictions_to_csv(y_pred=y_pred, filepath=prediction_path)
+        return single_pred["y_pred"], run_predictions
 
     def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset, config_predictions: 'Predictions') -> SpectroDataset:
         """Run a single pipeline configuration on a single dataset with external prediction store."""
@@ -214,12 +231,12 @@ class PipelineRunner:
         self.operation_count = 0
         self.step_binaries = {}
 
-        print("=" * 120)
         print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
         print("-" * 120)
 
-        self.saver.register(dataset.name, config_name)
-        self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
+        self.saver.register(dataset.name, config_name, self.mode)
+        if self.mode != "predict":
+            self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
         # Initialize context
         context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
@@ -232,7 +249,8 @@ class PipelineRunner:
                 if config_predictions.num_predictions > 0:
                     pipeline_best = config_predictions.get_best()
                     print(f"🥇 Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
-                    print(f"\033[94m🏁 Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
+                    if self.verbose > 0:
+                        print(f"\033[94m🏁 Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
                     print("=" * 120)
 
         except Exception as e:
@@ -338,7 +356,8 @@ class PipelineRunner:
                 controller = self._select_controller(step)
 
             if controller is not None:
-                print(f"🔹 Selected controller: {controller.__class__.__name__}")
+                # if self.verbose > 0:
+                    # print(f"🔹 Selected controller: {controller.__class__.__name__}")
                 # Check if controller supports prediction mode
                 if self.mode == "predict" and not controller.supports_prediction_mode():
                     # print(f"🔄 Skipping step {self.step_number} in prediction mode")
@@ -348,7 +367,8 @@ class PipelineRunner:
                 loaded_binaries = propagated_binaries
                 if self.mode == "predict" and self.binary_loader is not None and loaded_binaries is None:
                     loaded_binaries = self.binary_loader.get_step_binaries(self.step_number)
-                    print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
+                    if self.verbose > 1 and loaded_binaries:
+                        print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
 
                 # print(f"🔄 Selected controller: {controller.__class__.__name__}")
                 context["step_id"] = self.step_number

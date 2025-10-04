@@ -37,7 +37,7 @@ class SimulationSaver:
         self._metadata: Dict[str, Any] = {}
         self.dataset_path: Optional[Path] = None
 
-    def register(self, dataset_name: str, pipeline_name: str) -> Path:
+    def register(self, dataset_name: str, pipeline_name: str, mode: str) -> Path:
         """
         Register a dataset and pipeline name, creating the directory structure.
 
@@ -62,8 +62,10 @@ class SimulationSaver:
 
         # Create directory structure
         self.dataset_path = self.base_path / dataset_name
+        self.dataset_path.mkdir(parents=True, exist_ok=True)
         self.current_path = self.base_path / dataset_name / pipeline_name
-        self.current_path.mkdir(parents=True, exist_ok=True)
+        if mode != "predict":
+            self.current_path.mkdir(parents=True, exist_ok=True)
 
         # Initialize metadata
         self._metadata = {
@@ -76,22 +78,19 @@ class SimulationSaver:
         }
 
         # Save initial metadata
-        self._save_metadata()
+        if mode != "predict":
+            self._save_metadata()
 
         return self.current_path
 
     def _find_prediction_by_id(self, prediction_id: str) -> Optional[Dict[str, Any]]:
-        """Search for a prediction by ID in all predictions.json files."""
-        results_dir = Path("results")
+        """Search for a prediction by ID in all predictions.json files (recursively)."""
+        results_dir = Path(self.base_path)
         if not results_dir.exists():
             return None
 
-        for dataset_dir in results_dir.iterdir():
-            if not dataset_dir.is_dir():
-                continue
-
-            predictions_file = dataset_dir / "predictions.json"
-            if not predictions_file.exists():
+        for predictions_file in results_dir.rglob("predictions.json"):
+            if not predictions_file.is_file():
                 continue
 
             try:

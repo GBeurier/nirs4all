@@ -32,9 +32,9 @@ class BinaryLoader:
         """
         self.simulation_path = Path(simulation_path)
         self.step_binaries = step_binaries["binaries"] or {}
-        for key, value in self.step_binaries.items():
-            for item in value:
-                print(f"{key}: {item['path']}")
+        # for key, value in self.step_binaries.items():
+        #     for item in value:
+        #         print(f"{key}: {item['path']}")
 
     # def _validate_simulation_path(self) -> None:
     #     """Validate that the simulation path exists and contains required files."""

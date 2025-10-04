@@ -35,12 +35,12 @@ pipeline = [
     {"y_processing": MinMaxScaler},
     {"model": PLSRegression(15)},
     {"model": ElasticNet()},
-    {"model": GradientBoostingRegressor(n_estimators=100)},
-    {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1)},
-    {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500)},
-    {"model": GradientBoostingRegressor(n_estimators=100)},
-    {"model": RandomForestRegressor(n_estimators=100)},
-    {"model": Ridge(alpha=1.0)},
+    # {"model": GradientBoostingRegressor(n_estimators=100)},
+    # {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1)},
+    # {"model": MLPRegressor(hidden_layer_sizes=(50,50), max_iter=500)},
+    # {"model": GradientBoostingRegressor(n_estimators=100)},
+    # {"model": RandomForestRegressor(n_estimators=100)},
+    # {"model": Ridge(alpha=1.0)},
     {
         "model": nicon,
         "train_params": {
@@ -79,7 +79,7 @@ for name, dataset_prediction in datasets_predictions.items():
 
     # Plot comparison with enhanced names (for readability in plots)
     analyzer = PredictionAnalyzer(predictions_obj)
-    fig = analyzer.plot_top_k_comparison(k=10, metric='rmse')
+    fig = analyzer.plot_top_k_comparison(k=5, metric='rmse')
     # plt.show()
 
 # TAB REPORT

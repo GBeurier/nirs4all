@@ -272,6 +272,8 @@ class FeatureSource:
         self._array = expanded_array
 
     def x(self, indices: SampleIndices, layout: str) -> np.ndarray:
+        if len(indices) == 0:
+            return np.empty((0, self.num_2d_features), dtype=self._array.dtype) if layout in ["2d", "2d_interleaved"] else np.empty((0, self.num_processings, self.num_features), dtype=self._array.dtype)
         processings_indices = list(range(self.num_processings))
         selected_data = self._array[indices, :, :]
         selected_data = selected_data[:, processings_indices, :]

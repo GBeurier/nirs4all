@@ -137,7 +137,8 @@ class Targets:
                               processing_name: str,
                               targets: Union[np.ndarray, List, tuple],
                               ancestor: str = "numeric",
-                              transformer: Optional[TransformerMixin] = None) -> None:
+                              transformer: Optional[TransformerMixin] = None,
+                              mode: str = "train") -> None:
         """
         Add processed target data.
 
@@ -154,16 +155,17 @@ class Targets:
             raise ValueError(f"Ancestor processing '{ancestor}' does not exist")
 
         targets = np.asarray(targets)
-        if targets.ndim == 1:
-            targets = targets.reshape(-1, 1)
-        elif targets.ndim != 2:
-            raise ValueError(f"Targets must be 1D or 2D array, got {targets.ndim}D")
+        if mode == "train":
+            if targets.ndim == 1:
+                targets = targets.reshape(-1, 1)
+            elif targets.ndim != 2:
+                raise ValueError(f"Targets must be 1D or 2D array, got {targets.ndim}D")
 
-        if targets.shape[0] != self.num_samples:
-            raise ValueError(f"Target data has {targets.shape[0]} samples, expected {self.num_samples}")
+            if targets.shape[0] != self.num_samples:
+                raise ValueError(f"Target data has {targets.shape[0]} samples, expected {self.num_samples}")
 
-        if targets.shape[1] != self.num_targets:
-            raise ValueError(f"Target data has {targets.shape[1]} targets, expected {self.num_targets}")
+            if targets.shape[1] != self.num_targets:
+                raise ValueError(f"Target data has {targets.shape[1]} targets, expected {self.num_targets}")
 
         self._add_processing(processing_name, targets, ancestor, transformer)
 
@@ -186,7 +188,7 @@ class Targets:
 
         data = self._data[processing]
 
-        if indices is None:
+        if indices is None or len(indices) == 0 or data.shape[0] == 0:
             return data
 
         indices = np.asarray(indices, dtype=int)
@@ -321,6 +323,9 @@ class Targets:
             raise ValueError(f"No common ancestor found between '{from_processing}' and '{to_processing}'")
 
         current_predictions = y_pred.copy()
+
+        if(current_predictions.shape[0] == 0):
+            return current_predictions
 
         # Step 1: Inverse transform from from_processing back to common_ancestor
         current_proc = from_processing
