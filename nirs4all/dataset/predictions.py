@@ -85,15 +85,9 @@ class Predictions:
             str(row_dict.get('dataset_name', '')),
             str(row_dict.get('config_name', '')),
             str(row_dict.get('model_name', '')),
-            str(row_dict.get('partition', '')),
             str(row_dict.get('fold_id', '')),
             str(row_dict.get('step_idx', 0)),
             str(row_dict.get('op_counter', 0)),
-            # Include some data characteristics for extra diversity
-            str(row_dict.get('n_samples', 0)),
-            str(row_dict.get('n_features', 0)),
-            str(row_dict.get('metric', '')),
-            str(row_dict.get('task_type', ''))
         ]
 
         # Create a string to hash
@@ -143,7 +137,7 @@ class Predictions:
         n_samples: int = 0,
         n_features: int = 0,
         preprocessings: str = ""
-    ) -> None:
+    ) -> int:
         """Add a new prediction to the storage."""
 
         # Convert numpy arrays to lists for JSON serialization
@@ -185,12 +179,10 @@ class Predictions:
         # Generate unique ID hash for the prediction
         prediction_id = self._generate_hash(row_dict)
         row_dict["id"] = prediction_id
-
-        # Create new row from the row_dict
         new_row = pl.DataFrame([row_dict])
-
-        # Append to main DataFrame
         self._df = pl.concat([self._df, new_row])
+
+        return row_dict["id"]
 
     def add_predictions(
         self,
@@ -1005,9 +997,9 @@ class Predictions:
 
         short_desc = f"{entry['model_name']} - {entry['metric']} [test: {entry['test_score']:.4f}], [val: {entry['val_score']:.4f}]"
         short_desc += f", {scores_str}"
-        short_desc += f" - (fold: {entry['fold_id']}, id: {entry['op_counter']}, step: {entry['step_idx']})"
+        short_desc += f", (fold: {entry['fold_id']}, id: {entry['op_counter']}, step: {entry['step_idx']}) - [{entry['id']}]"
         return short_desc
 
     @classmethod
     def pred_long_string(cls, entry, metrics=None):  # ADAPT TO CLASSIFICATION
-        return Predictions.pred_short_string(entry, metrics=metrics) + f" | pipeline: {entry['config_name']}"
+        return Predictions.pred_short_string(entry, metrics=metrics) + f" | [{entry['config_name']}]"

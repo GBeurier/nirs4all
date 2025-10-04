@@ -64,7 +64,7 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
     """Turn the output of serialize_component back into live objects."""
     # --- trivial cases ------------------------------------------------------ #
     if blob is None or isinstance(blob, (bool, int, float)):
-        if infer_type is not None:
+        if infer_type is not None and infer_type is not type(None):
             if not isinstance(blob, infer_type):
                 print(f"Type mismatch: {type(blob)} != {infer_type}")
                 return blob

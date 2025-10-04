@@ -119,14 +119,13 @@ class BaseModelController(OperatorController, ABC):
         model_config = self._extract_model_config(step, operator)
         self.verbose = model_config.get('train_params', {}).get('verbose', 0)
 
-        if mode == "predict":
-            return self._execute_prediction_mode( model_config, dataset, context, runner, loaded_binaries )
+        # if mode == "predict":
+            # return self._execute_prediction_mode( model_config, dataset, context, runner, loaded_binaries)
 
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
         folds = dataset.folds
 
         binaries = []
-
 
         finetune_params = model_config.get('finetune_params')
         if finetune_params:
@@ -303,7 +302,7 @@ class BaseModelController(OperatorController, ABC):
             ("val", val_indices, y_val_unscaled, y_val_pred_unscaled),
             ("test", test_indices, y_test_unscaled, y_test_pred_unscaled)
         ]:
-            prediction_store.add_prediction(
+            pred_id = prediction_store.add_prediction(
                 dataset_name=dataset_name,
                 dataset_path=dataset_name,
                 config_name=pipeline_name,
@@ -331,7 +330,7 @@ class BaseModelController(OperatorController, ABC):
 
         short_desc = f"✅ {model_name} - {metric}{direction} [test: {score_test:.4f}], [val: {score_val:.4f}]"
         if fold_idx not in [None, 'None', 'avg', 'w-avg']:
-            short_desc += f", (fold: {fold_idx}, id: {operation_counter})"
+            short_desc += f", (fold: {fold_idx}, id: {operation_counter}) - [{pred_id}]"
         print(short_desc)
 
         return trained_model, f"{model_name}_{operation_counter}", score_val, model_name
@@ -551,9 +550,6 @@ class BaseModelController(OperatorController, ABC):
         score_test = Evaluator.eval(y_test_unscaled, all_test_avg_preds, metric)
         avg_counter = runner.next_op()
 
-        short_desc = f"✅ {base_model_name} - {metric}{direction} [test: {score_test:.4f}], [val: {score_val:.4f}], (avg, id: {avg_counter})"
-        print(short_desc)
-
         folds_id = list(range(len(folds_models)))  # Fold IDs for averaging
 
         # Store average predictions for each partition
@@ -562,7 +558,7 @@ class BaseModelController(OperatorController, ABC):
             ("val", all_val_indices.tolist(), y_val_unscaled, all_val_avg_preds),
             ("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_avg_preds)
         ]:
-            prediction_store.add_prediction(
+            pred_id = prediction_store.add_prediction(
                 dataset_name=dataset.name,
                 dataset_path=dataset.name,
                 config_name=runner.saver.pipeline_name,
@@ -588,6 +584,9 @@ class BaseModelController(OperatorController, ABC):
                 preprocessings=dataset.short_preprocessings_str()
             )
 
+        short_desc = f"✅ {base_model_name} - {metric}{direction} [test: {score_test:.4f}], [val: {score_val:.4f}], (avg, id: {avg_counter}) - [{pred_id}]"
+        print(short_desc)
+
         # Weighted average predictions based on fold scores
         scores = np.asarray(scores, dtype=float)
         weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
@@ -609,16 +608,13 @@ class BaseModelController(OperatorController, ABC):
         score_test_w = Evaluator.eval(y_test_unscaled, all_test_w_avg_preds, metric)
         w_avg_counter = runner.next_op()
 
-        short_desc = f"✅ {base_model_name} - {metric}{direction} [test: {score_test_w:.4f}], [val: {score_val_w:.4f}], (w_avg, id: {w_avg_counter})"
-        print(short_desc)
-
         # Store weighted average predictions for each partition
         for partition_name, indices, y_true_part, y_pred_part, weight_list in [
             ("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_w_avg_preds, weights.tolist()),
             ("val", all_val_indices.tolist(), y_val_unscaled, all_val_w_avg_preds, weights.tolist()),
             ("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_w_avg_preds, weights.tolist())
         ]:
-            prediction_store.add_prediction(
+            pred_id = prediction_store.add_prediction(
                 dataset_name=dataset.name,
                 dataset_path=dataset.name,
                 config_name=runner.saver.pipeline_name,
@@ -643,6 +639,9 @@ class BaseModelController(OperatorController, ABC):
                 n_features=X_train.shape[1],
                 preprocessings=dataset.short_preprocessings_str()
             )
+
+        short_desc = f"✅ {base_model_name} - {metric}{direction} [test: {score_test_w:.4f}], [val: {score_val_w:.4f}], (w_avg, id: {w_avg_counter}) - [{pred_id}]"
+        print(short_desc)
 
     def _binarize_model(self, model: Any) -> bytes:
         """Serialize model to binary using pickle."""
