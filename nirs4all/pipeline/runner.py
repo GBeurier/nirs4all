@@ -143,9 +143,14 @@ class PipelineRunner:
         return run_predictions, datasets_predictions
 
     def predict(self, prediction_obj: Union[Dict[str, Any], str], dataset_config: DatasetConfigs, verbose: int = 0) -> Tuple['Predictions', Dict[str, Any]]:
+        print("=" * 120)
+        print("🚀 Starting prediction process...")
         self.mode = "predict"
         self.verbose = verbose
         config_path, target_model = self.saver.get_predict_targets(prediction_obj)
+        del target_model["y_pred"]  # Remove potentially large arrays
+        del target_model["y_true"]
+        print(target_model)
         self.config_path = config_path
         self.target_model = target_model
         self.model_weights = target_model['weights'] if target_model else None
@@ -266,7 +271,8 @@ class PipelineRunner:
             with parallel_backend(self.backend, n_jobs=self.max_workers):
                 Parallel()(delayed(self.run_step)(step, dataset, context, prediction_store, is_substep=is_substep) for step, context in zip(steps, context))
 
-    def run_step(self, step: Any, dataset: SpectroDataset, context: Dict[str, Any], prediction_store: Optional['Predictions'] = None, *, is_substep: bool = False):
+    def run_step(self, step: Any, dataset: SpectroDataset, context: Dict[str, Any], prediction_store: Optional['Predictions'] = None,
+                 *, is_substep: bool = False, propagated_binaries: Any = None) -> Dict[str, Any]:
         """
         Run a single pipeline step with enhanced context management and DatasetView support.
         """
@@ -339,8 +345,8 @@ class PipelineRunner:
                     return context
 
                 # Load binaries if in prediction mode
-                loaded_binaries = None
-                if self.mode == "predict" and self.binary_loader is not None:
+                loaded_binaries = propagated_binaries
+                if self.mode == "predict" and self.binary_loader is not None and loaded_binaries is None:
                     loaded_binaries = self.binary_loader.get_step_binaries(self.step_number)
                     print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
 

@@ -71,7 +71,7 @@ class CrossValidatorController(OperatorController):
     @classmethod
     def supports_prediction_mode(cls) -> bool:
         """Cross-validators should not execute during prediction mode."""
-        return False
+        return True
 
     def execute(  # type: ignore[override]
         self,
@@ -92,9 +92,6 @@ class CrossValidatorController(OperatorController):
         * Stores the list of folds into the dataset for subsequent steps.
         """
         # Skip execution in prediction mode
-        if mode == "predict":
-            return context, []
-
         # print(f"🔄 Executing cross‑validation with {operator.__class__.__name__}")
 
         local_context = copy.deepcopy(context)
@@ -123,33 +120,37 @@ class CrossValidatorController(OperatorController):
             kwargs["groups"] = groups
 
 
-        # print(f"X shape: {X.shape}, y shape: {y.shape if y is not None else 'N/A'}, groups shape: {groups.shape if groups is not None else 'N/A'}")
-        folds = list(operator.split(X, **kwargs))  # Convert to list to avoid iterator consumption
+        if mode != "predict":
+            folds = list(operator.split(X, **kwargs))  # Convert to list to avoid iterator consumption
 
-        # Store folds in dataset (if method exists)
-        if hasattr(dataset, 'set_folds'):
-            dataset.set_folds(folds)
+            # Store folds in dataset (if method exists)
+            if hasattr(dataset, 'set_folds'):
+                dataset.set_folds(folds)
 
-        headers = [f"fold_{i}" for i in range(len(folds))]
-        binary = ",".join(headers).encode("utf-8") + b"\n"
-        max_train_samples = max(len(train_idx) for train_idx, _ in folds)
+            headers = [f"fold_{i}" for i in range(len(folds))]
+            binary = ",".join(headers).encode("utf-8") + b"\n"
+            max_train_samples = max(len(train_idx) for train_idx, _ in folds)
 
-        for row_idx in range(max_train_samples):
-            row_values = []
-            for fold_idx, (train_idx, val_idx) in enumerate(folds):
-                if row_idx < len(train_idx):
-                    row_values.append(str(train_idx[row_idx]))
-                else:
-                    row_values.append("")  # Empty cell if this fold has fewer samples
-            binary += ",".join(row_values).encode("utf-8") + b"\n"
+            for row_idx in range(max_train_samples):
+                row_values = []
+                for fold_idx, (train_idx, val_idx) in enumerate(folds):
+                    if row_idx < len(train_idx):
+                        row_values.append(str(train_idx[row_idx]))
+                    else:
+                        row_values.append("")  # Empty cell if this fold has fewer samples
+                binary += ",".join(row_values).encode("utf-8") + b"\n"
 
-        folds_name = f"folds_{operator.__class__.__name__}"
-        if hasattr(operator, "random_state"):
-            seed = getattr(operator, "random_state")
-            if seed is not None:
-                folds_name += f"_seed{seed}"
-        folds_name += ".csv"
+            folds_name = f"folds_{operator.__class__.__name__}"
+            if hasattr(operator, "random_state"):
+                seed = getattr(operator, "random_state")
+                if seed is not None:
+                    folds_name += f"_seed{seed}"
+            folds_name += ".csv"
 
-        # print(f"Generated {len(folds)} folds.")
+            # print(f"Generated {len(folds)} folds.")
 
-        return context, [(folds_name, binary)]
+            return context, [(folds_name, binary)]
+        else:
+            n_folds = operator.get_n_splits(**kwargs) if hasattr(operator, "get_n_splits") else 1
+            dataset.set_folds([(list(range(n_samples)), [])] * n_folds)
+            return context, []

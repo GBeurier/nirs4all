@@ -156,7 +156,8 @@ class BaseModelController(OperatorController, ABC):
 
             binaries = self.train(
                 dataset, model_config, context, runner, prediction_store,
-                X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds
+                X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+                loaded_binaries=loaded_binaries, mode=mode
             )
 
         return context, binaries
@@ -165,12 +166,13 @@ class BaseModelController(OperatorController, ABC):
         self,
         dataset, model_config, context, runner, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-        best_params=None
+        best_params=None, loaded_binaries=None, mode="train"
     ) -> Dict:
 
         verbose = model_config.get('train_params', {}).get('verbose', 0)
 
         binaries = []
+        print("NNNNNNNN FOLDS", len(folds))
         if len(folds) > 0:
             folds_models = []
             fold_val_indices = []
@@ -188,12 +190,18 @@ class BaseModelController(OperatorController, ABC):
                 y_val_fold = y_train[val_indices]
                 y_val_fold_unscaled = y_train_unscaled[val_indices]
 
+                if mode == "predict":
+                    X_val_fold = X_train_fold
+                    y_val_fold = y_train_fold
+                    y_val_fold_unscaled = y_train_fold_unscaled
+
                 model, model_id, score, model_name = self.launch_training(
                     dataset, model_config, context, runner, prediction_store,
                     X_train_fold, y_train_fold, X_val_fold, y_val_fold, X_test,
                     y_train_fold_unscaled, y_val_fold_unscaled, y_test_unscaled,
                     train_indices, val_indices,
-                    fold_idx=fold_idx, best_params=best_params
+                    fold_idx=fold_idx, best_params=best_params,
+                    loaded_binaries=loaded_binaries, mode=mode
                 )
                 folds_models.append((model_id, model, score))
                 base_model_name = model_name
@@ -201,10 +209,12 @@ class BaseModelController(OperatorController, ABC):
                 scores.append(score)
                 model_classname = model.__class__.__name__
 
+            higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)[1]
+            weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
             self._create_fold_averages(
                 base_model_name, dataset, model_config, context, runner, prediction_store, model_classname,
                 folds_models, fold_val_indices, scores,
-                X_train, X_test, y_train_unscaled, y_test_unscaled
+                X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode
             )
 
         else:
@@ -213,7 +223,8 @@ class BaseModelController(OperatorController, ABC):
             model, model_id, score, model_name = self.launch_training(
                 dataset, model_config, context, runner, prediction_store,
                 X_train, y_train, X_test, y_test, X_test,
-                y_train_unscaled, y_test_unscaled, y_test_unscaled
+                y_train_unscaled, y_test_unscaled, y_test_unscaled,
+                loaded_binaries=loaded_binaries, mode=mode
             )
             binaries.append((f"{model_id}.pkl", self._binarize_model(model)))
 
@@ -225,19 +236,30 @@ class BaseModelController(OperatorController, ABC):
         dataset, model_config, context, runner, prediction_store,
         X_train, y_train, X_val, y_val, X_test,
         y_train_unscaled, y_val_unscaled, y_test_unscaled,
-        train_indices=None, val_indices=None, fold_idx=None, best_params=None) :
+        train_indices=None, val_indices=None, fold_idx=None, best_params=None,
+        loaded_binaries=None, mode="train") :
 
-        # instanciate the model with params if any
+
         base_model = self._get_model_instance(model_config)
-        model = self.model_helper.clone_model(base_model)
-
         # Generate identifiers
         step_id = context['step_id']
         pipeline_name = runner.saver.pipeline_name
         dataset_name = dataset.name
-        model_classname = self.model_helper.extract_core_name(model)
+        model_classname = self.model_helper.extract_core_name(base_model)
         model_name = model_config.get('name', model_classname)
         operation_counter = runner.next_op()
+        new_operator_name = f"{model_name}_{operation_counter}"
+
+        if mode != "predict":
+            # instanciate the model with params if any
+            model = self.model_helper.clone_model(base_model)
+        else:
+            # Load model from binaries
+            if loaded_binaries is None:
+                raise ValueError("loaded_binaries must be provided in prediction mode")
+            model = dict(loaded_binaries).get(f"{new_operator_name}")
+            if model is None:
+                raise ValueError(f"Model binary for {model_name}_{operation_counter}.pkl not found in loaded_binaries")
 
         # Apply best params if provided ####TODO RETRIEVE THE HOLD METHOD (construct with params !!!!)
         if best_params:
@@ -253,7 +275,11 @@ class BaseModelController(OperatorController, ABC):
         # print("🚀 Training model...")
         # print("Dataset:", dataset_name, "Shape:", X_train.shape)
 
-        trained_model = self._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **model_config.get('train_params', {}))
+        print(X_train_prep.shape, X_val_prep.shape, X_test_prep.shape, y_train_prep.shape, y_val_prep.shape)
+        if mode != "predict":
+            trained_model = self._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **model_config.get('train_params', {}))
+        else:
+            trained_model = model
 
         # predict y_test_pred, y_train_pred, y_val_pred (these are in scaled space)
         y_train_pred_scaled = self._predict_model(trained_model, X_train_prep)
@@ -497,7 +523,8 @@ class BaseModelController(OperatorController, ABC):
         self,
         base_model_name, dataset, model_config, context, runner, prediction_store, model_classname,
         folds_models, fold_val_indices, scores,
-        X_train, X_test, y_train_unscaled, y_test_unscaled
+        X_train, X_test, y_train_unscaled, y_test_unscaled,
+        mode="train"
     ):
 
         # X_val is the concatenation of all fold val sets
@@ -514,7 +541,8 @@ class BaseModelController(OperatorController, ABC):
             # Extract the actual model from the tuple (model_id, model, score)
             _, fold_model, _ = fold_model_tuple
             fold_train_preds = self._predict_model(fold_model, X_train)
-            fold_val_preds = self._predict_model(fold_model, X_val)
+            if mode != "predict":
+                fold_val_preds = self._predict_model(fold_model, X_val)
             fold_test_preds = self._predict_model(fold_model, X_test)
 
             current_y_processing = context.get('y', 'numeric') if context else 'numeric'
@@ -522,42 +550,49 @@ class BaseModelController(OperatorController, ABC):
                 fold_train_preds_unscaled = dataset._targets.transform_predictions(
                     fold_train_preds, current_y_processing, 'numeric'
                 )
-                fold_val_preds_unscaled = dataset._targets.transform_predictions(
-                    fold_val_preds, current_y_processing, 'numeric'
-                )
+                if mode != "predict":
+                    fold_val_preds_unscaled = dataset._targets.transform_predictions(
+                        fold_val_preds, current_y_processing, 'numeric'
+                    )
                 fold_test_preds_unscaled = dataset._targets.transform_predictions(
                     fold_test_preds, current_y_processing, 'numeric'
                 )
             else:
                 fold_train_preds_unscaled = fold_train_preds
-                fold_val_preds_unscaled = fold_val_preds
+                if mode != "predict":
+                    fold_val_preds_unscaled = fold_val_preds
                 fold_test_preds_unscaled = fold_test_preds
 
             all_train_preds.append(fold_train_preds_unscaled)
-            all_val_preds.append(fold_val_preds_unscaled)
+            if mode != "predict":
+                all_val_preds.append(fold_val_preds_unscaled)
             all_test_preds.append(fold_test_preds_unscaled)
 
         all_train_avg_preds = np.mean(all_train_preds, axis=0)
-        all_val_avg_preds = np.mean(all_val_preds, axis=0)
+        if mode != "predict":
+            all_val_avg_preds = np.mean(all_val_preds, axis=0)
         all_test_avg_preds = np.mean(all_test_preds, axis=0)
 
-        metric, higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)
-        direction = "↑" if higher_is_better else "↓"
 
-        # Evaluate avgerage predictions
-        score_train = Evaluator.eval(y_train_unscaled, all_train_avg_preds, metric)
-        score_val = Evaluator.eval(y_val_unscaled, all_val_avg_preds, metric)
-        score_test = Evaluator.eval(y_test_unscaled, all_test_avg_preds, metric)
+        score_val = 0.0
+        score_test = 0.0
+        metric, higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)
+        if mode != "predict":
+            direction = "↑" if higher_is_better else "↓"
+            # Evaluate average predictions
+            score_train = Evaluator.eval(y_train_unscaled, all_train_avg_preds, metric)
+            score_val = Evaluator.eval(y_val_unscaled, all_val_avg_preds, metric)
+            score_test = Evaluator.eval(y_test_unscaled, all_test_avg_preds, metric)
         avg_counter = runner.next_op()
 
-        folds_id = list(range(len(folds_models)))  # Fold IDs for averaging
-
         # Store average predictions for each partition
-        for partition_name, indices, y_true_part, y_pred_part in [
-            ("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_avg_preds),
-            ("val", all_val_indices.tolist(), y_val_unscaled, all_val_avg_preds),
-            ("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_avg_preds)
-        ]:
+        prediction_array = []
+        prediction_array.append(("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_avg_preds))
+        if mode != "predict":
+            prediction_array.append(("val", all_val_indices.tolist(), y_val_unscaled, all_val_avg_preds))
+        prediction_array.append(("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_avg_preds))
+
+        for partition_name, indices, y_true_part, y_pred_part in prediction_array:
             pred_id = prediction_store.add_prediction(
                 dataset_name=dataset.name,
                 dataset_path=dataset.name,
@@ -566,7 +601,7 @@ class BaseModelController(OperatorController, ABC):
                 step_idx=context['step_id'],
                 op_counter=avg_counter,
                 model_name=f"{base_model_name}",
-                model_classname=model_classname,
+                model_classname=str(model_classname),
                 model_path="",
                 fold_id="avg",
                 sample_indices=indices,
@@ -584,36 +619,50 @@ class BaseModelController(OperatorController, ABC):
                 preprocessings=dataset.short_preprocessings_str()
             )
 
-        short_desc = f"✅ {base_model_name} - {metric}{direction} [test: {score_test:.4f}], [val: {score_val:.4f}], (avg, id: {avg_counter}) - [{pred_id}]"
-        print(short_desc)
+        if mode != "predict":
+            short_desc = f"✅ {base_model_name} - {metric}{direction} [test: {score_test:.4f}], [val: {score_val:.4f}], (avg, id: {avg_counter}) - [{pred_id}]"
+            print(short_desc)
 
         # Weighted average predictions based on fold scores
         scores = np.asarray(scores, dtype=float)
-        weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
+        if mode == "predict":
+            print("WEEEEEIIIIIIIGGGGGTTTT", mode, runner.target_model["weights"] if "weights" in runner.target_model else "NO WEEEIIIIIIIGGGGGTTTT")
+            print("Using provided weights for prediction mode")
+            weights = np.array(runner.target_model["weights"])
+            print(weights)
+        else:
+            weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
+
         all_train_w_avg_preds = np.zeros_like(all_train_preds[0], dtype=float)
         for arr, weight in zip(all_train_preds, weights):
             all_train_w_avg_preds += weight * arr
 
-        all_val_w_avg_preds = np.zeros_like(all_val_preds[0], dtype=float)
-        for arr, weight in zip(all_val_preds, weights):
-            all_val_w_avg_preds += weight * arr
+        if mode != "predict":
+            all_val_w_avg_preds = np.zeros_like(all_val_preds[0], dtype=float)
+            for arr, weight in zip(all_val_preds, weights):
+                all_val_w_avg_preds += weight * arr
 
         all_test_w_avg_preds = np.zeros_like(all_test_preds[0], dtype=float)
         for arr, weight in zip(all_test_preds, weights):
             all_test_w_avg_preds += weight * arr
 
         # Evaluate weighted average predictions
-        score_train_w = Evaluator.eval(y_train_unscaled, all_train_w_avg_preds, metric)
-        score_val_w = Evaluator.eval(y_val_unscaled, all_val_w_avg_preds, metric)
-        score_test_w = Evaluator.eval(y_test_unscaled, all_test_w_avg_preds, metric)
+        score_val_w = 0.0
+        score_test_w = 0.0
+        if mode != "predict":
+            score_train_w = Evaluator.eval(y_train_unscaled, all_train_w_avg_preds, metric)
+            score_val_w = Evaluator.eval(y_val_unscaled, all_val_w_avg_preds, metric)
+            score_test_w = Evaluator.eval(y_test_unscaled, all_test_w_avg_preds, metric)
         w_avg_counter = runner.next_op()
 
         # Store weighted average predictions for each partition
-        for partition_name, indices, y_true_part, y_pred_part, weight_list in [
-            ("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_w_avg_preds, weights.tolist()),
-            ("val", all_val_indices.tolist(), y_val_unscaled, all_val_w_avg_preds, weights.tolist()),
-            ("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_w_avg_preds, weights.tolist())
-        ]:
+        prediction_array_w = []
+        prediction_array_w.append(("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_w_avg_preds, weights))
+        if mode != "predict":
+            prediction_array_w.append(("val", all_val_indices.tolist(), y_val_unscaled, all_val_w_avg_preds, weights))
+        prediction_array_w.append(("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_w_avg_preds, weights))
+
+        for partition_name, indices, y_true_part, y_pred_part, weight_list in prediction_array_w:
             pred_id = prediction_store.add_prediction(
                 dataset_name=dataset.name,
                 dataset_path=dataset.name,
@@ -622,7 +671,7 @@ class BaseModelController(OperatorController, ABC):
                 step_idx=context['step_id'],
                 op_counter=w_avg_counter,
                 model_name=f"{base_model_name}",
-                model_classname=model_classname,
+                model_classname=str(model_classname),
                 model_path="",
                 fold_id='w_avg',  # No specific fold for weighted average
                 sample_indices=indices,
@@ -640,8 +689,9 @@ class BaseModelController(OperatorController, ABC):
                 preprocessings=dataset.short_preprocessings_str()
             )
 
-        short_desc = f"✅ {base_model_name} - {metric}{direction} [test: {score_test_w:.4f}], [val: {score_val_w:.4f}], (w_avg, id: {w_avg_counter}) - [{pred_id}]"
-        print(short_desc)
+        if mode != "predict":
+            short_desc = f"✅ {base_model_name} - {metric}{direction} [test: {score_test_w:.4f}], [val: {score_val_w:.4f}], (w_avg, id: {w_avg_counter}) - [{pred_id}]"
+            print(short_desc)
 
     def _binarize_model(self, model: Any) -> bytes:
         """Serialize model to binary using pickle."""
