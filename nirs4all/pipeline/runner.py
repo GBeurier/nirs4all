@@ -17,6 +17,30 @@ from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.binary_loader import BinaryLoader
 from nirs4all.utils.tab_report_manager import TabReportManager
 
+def init_global_random_state(seed: Optional[int] = None):
+    import numpy as np
+    import random
+    import os
+
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
+        os.environ['PYTHONHASHSEED'] = str(seed)
+
+    # tensflow
+    try:
+        import tensorflow as tf
+        tf.random.set_seed(seed if seed is not None else 42)
+    except ImportError:
+        pass
+    # sklearn
+    try:
+        from sklearn.utils import check_random_state
+        _ = check_random_state(seed)
+    except ImportError:
+        pass
+
+
 class PipelineRunner:
     """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
 
@@ -38,8 +62,11 @@ class PipelineRunner:
                  mode: str = "train",
                  load_existing_predictions: bool = True,
                  show_spinner: bool = True,
-                 enable_tab_reports: bool = True):
+                 enable_tab_reports: bool = True,
+                 random_state: Optional[int] = None):
 
+        if random_state is not None:
+            init_global_random_state(random_state)
         self.max_workers = max_workers or -1  # -1 means use all available cores
         self.continue_on_error = continue_on_error
         self.backend = backend
@@ -353,15 +380,16 @@ class PipelineRunner:
                     controller = self._select_controller(step, operator=operator, keyword=step)
 
             else:
-                # print(f"🔍 Unknown step type: {type(step).__name__}, executing as operation")
+                print(f"🔍 Unknown step type: {type(step).__name__}, executing as operation")
                 controller = self._select_controller(step)
 
             if controller is not None:
-                # if self.verbose > 0:
-                    # print(f"🔹 Selected controller: {controller.__class__.__name__}")
+                if self.verbose > 0:
+                    print(f"🔹 Selected controller: {controller.__class__.__name__}")
                 # Check if controller supports prediction mode
                 if self.mode == "predict" and not controller.supports_prediction_mode():
-                    # print(f"🔄 Skipping step {self.step_number} in prediction mode")
+                    if self.verbose > 0:
+                        print(f"⚠️ Controller {controller.__class__.__name__} does not support prediction mode, skipping step {self.step_number}")
                     return context
 
                 # Load binaries if in prediction mode
@@ -371,11 +399,13 @@ class PipelineRunner:
                     if self.verbose > 1 and loaded_binaries:
                         print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
 
-                # print(f"🔄 Selected controller: {controller.__class__.__name__}")
+                if self.verbose > 0:
+                    print(f"🔄 Execute controller: {controller.__class__.__name__}")
                 context["step_id"] = self.step_number
                 return self._execute_controller(
                     controller, step, operator, dataset, context, prediction_store, -1, loaded_binaries
                 )
+
 
 
             # self.history.complete_step(step_execution.step_id)
