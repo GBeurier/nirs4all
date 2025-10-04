@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, BinaryIO, Tuple
 import uuid
 import shutil
+from nirs4all.dataset.predictions import Predictions
 
 
 class SimulationSaver:
@@ -78,6 +79,56 @@ class SimulationSaver:
         self._save_metadata()
 
         return self.current_path
+
+    def _find_prediction_by_id(self, prediction_id: str) -> Optional[Dict[str, Any]]:
+        """Search for a prediction by ID in all predictions.json files."""
+        results_dir = Path("results")
+        if not results_dir.exists():
+            return None
+
+        for dataset_dir in results_dir.iterdir():
+            if not dataset_dir.is_dir():
+                continue
+
+            predictions_file = dataset_dir / "predictions.json"
+            if not predictions_file.exists():
+                continue
+
+            try:
+                predictions = Predictions.load_from_file_cls(str(predictions_file))
+                for pred in predictions.filter_predictions():
+                    if pred.get('id') == prediction_id:
+                        return pred
+            except Exception:
+                continue
+
+        return None
+
+
+    def get_predict_targets(self, prediction_obj: Union[Dict[str, Any], str]) :
+        """Get target variable names for prediction from a prediction object."""
+        targets = []
+        # 1. Resolve input to get config path and model info
+        if isinstance(prediction_obj, dict):
+            config_path = prediction_obj['config_path']
+            target_model = prediction_obj if 'model_name' in prediction_obj else None
+            return config_path, target_model
+        elif isinstance(prediction_obj, str):
+            if prediction_obj.startswith(str(self.base_path)) or Path(prediction_obj).exists():
+                # Config path
+                config_path = prediction_obj.replace(str(self.base_path), '')
+                target_model = None  # TODO get the best model from this config path (retrieve from predictions)
+                return config_path, target_model
+            else:
+                # Prediction ID - find it
+                target_model = self._find_prediction_by_id(prediction_obj)
+                if not target_model:
+                    raise ValueError(f"Prediction ID not found: {prediction_obj}")
+                config_path = target_model['config_path']
+                return config_path, target_model
+        else:
+            raise ValueError(f"Invalid prediction_obj type: {type(prediction_obj)}")
+
 
     def save_file(self,
                   filename: str,

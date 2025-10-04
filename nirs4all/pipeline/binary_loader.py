@@ -31,67 +31,44 @@ class BinaryLoader:
             step_binaries: Mapping of step IDs to binary filenames
         """
         self.simulation_path = Path(simulation_path)
-        self.step_binaries = step_binaries or {}
-        self._cache: Dict[str, List[Any]] = {}
-        self._validate_simulation_path()
+        self.step_binaries = step_binaries["binaries"] or {}
+        for key, value in self.step_binaries.items():
+            for item in value:
+                print(f"{key}: {item['path']}")
 
-    def _validate_simulation_path(self) -> None:
-        """Validate that the simulation path exists and contains required files."""
-        if not self.simulation_path.exists():
-            raise FileNotFoundError(f"Simulation path does not exist: {self.simulation_path}")
+    # def _validate_simulation_path(self) -> None:
+    #     """Validate that the simulation path exists and contains required files."""
+    #     if not self.simulation_path.exists():
+    #         raise FileNotFoundError(f"Simulation path does not exist: {self.simulation_path}")
 
-        pipeline_json_path = self.simulation_path / "pipeline.json"
-        if not pipeline_json_path.exists():
-            raise FileNotFoundError(f"Pipeline configuration not found: {pipeline_json_path}")
+    #     pipeline_json_path = self.simulation_path / "pipeline.json"
+    #     if not pipeline_json_path.exists():
+    #         raise FileNotFoundError(f"Pipeline configuration not found: {pipeline_json_path}")
 
-        # Load step binaries from pipeline.json if not provided
-        if not self.step_binaries:
-            try:
-                with open(pipeline_json_path, 'r') as f:
-                    pipeline_data = json.load(f)
+    #     # Load step binaries from pipeline.json if not provided
+    #     if not self.step_binaries:
+    #         try:
+    #             with open(pipeline_json_path, 'r') as f:
+    #                 pipeline_data = json.load(f)
 
-                # Handle both old and new format
-                if "execution_metadata" in pipeline_data:
-                    self.step_binaries = pipeline_data["execution_metadata"].get("step_binaries", {})
-                else:
-                    # Old format - no metadata, warn user
-                    warnings.warn(
-                        f"Pipeline at {self.simulation_path} was saved without binary metadata. "
-                        "This pipeline needs to be re-run in training mode to support prediction. "
-                        "Use save_files=True when training to enable prediction mode.",
-                        UserWarning
-                    )
-                    self.step_binaries = {}
+    #             # Handle both old and new format
+    #             if "execution_metadata" in pipeline_data:
+    #                 self.step_binaries = pipeline_data["execution_metadata"].get("step_binaries", {})
+    #             else:
+    #                 # Old format - no metadata, warn user
+    #                 warnings.warn(
+    #                     f"Pipeline at {self.simulation_path} was saved without binary metadata. "
+    #                     "This pipeline needs to be re-run in training mode to support prediction. "
+    #                     "Use save_files=True when training to enable prediction mode.",
+    #                     UserWarning
+    #                 )
+    #                 self.step_binaries = {}
 
-            except (json.JSONDecodeError, KeyError) as e:
-                raise ValueError(f"Invalid pipeline configuration: {e}")
+    #         except (json.JSONDecodeError, KeyError) as e:
+    #             raise ValueError(f"Invalid pipeline configuration: {e}")
 
-    def get_binaries_for_step(self, step_number: int, substep_number: int) -> List[Any]:
-        """
-        Load binaries for a specific step.
 
-        Args:
-            step_number: The main step number
-            substep_number: The substep number
-
-        Returns:
-            List of loaded binary objects (fitted transformers, trained models, etc.)
-
-        Raises:
-            FileNotFoundError: If binary files cannot be found
-            RuntimeError: If binary files cannot be loaded
-        """
-        step_id = f"{step_number}_{substep_number}"
-
-        # Check cache first
-        if step_id in self._cache:
-            return self._cache[step_id]
-
-        # Load binaries if not cached
-        self._cache[step_id] = self._load_step_binaries(step_id)
-        return self._cache[step_id]
-
-    def _load_step_binaries(self, step_id: str) -> List[Any]:
+    def get_step_binaries(self, step_id: str) -> List[Any]:
         """
         Load binary files for a specific step ID.
 
@@ -101,42 +78,43 @@ class BinaryLoader:
         Returns:
             List of loaded binary objects
         """
-        if step_id not in self.step_binaries:
+        if str(step_id) not in self.step_binaries:
             # No binaries for this step - this is normal for some steps
             return []
 
-        binary_filenames = self.step_binaries[step_id]
+        binaries = self.step_binaries[str(step_id)]
         loaded_binaries = []
 
-        for filename in binary_filenames:
-            binary_path = self.simulation_path / filename
+        for binary in binaries:
+            binary_path = self.simulation_path / binary["path"]
 
             if not binary_path.exists():
                 warnings.warn(f"Binary file not found: {binary_path}. Skipping.")
                 continue
-
+            filename = binary["relative_path"]
+            op_name = binary.get("op_name", "unknown_operator")
             try:
                 # Handle different file types appropriately
                 if filename.endswith('.csv'):
                     # Load CSV files as text
                     with open(binary_path, 'r', encoding='utf-8') as f:
                         csv_content = f.read()
-                    loaded_binaries.append((filename, csv_content))
+                    loaded_binaries.append((op_name, csv_content))
                 elif filename.endswith(('.json', '.txt')):
                     # Load text files as strings
                     with open(binary_path, 'r', encoding='utf-8') as f:
                         text_content = f.read()
-                    loaded_binaries.append((filename, text_content))
+                    loaded_binaries.append((op_name, text_content))
                 elif filename.endswith(('.pkl', '.pickle')):
                     # Load pickle files as objects
                     with open(binary_path, 'rb') as f:
                         binary_obj = pickle.load(f)
-                    loaded_binaries.append((filename, binary_obj))
+                    loaded_binaries.append((op_name, binary_obj))
                 else:
                     # Default to pickle for other files (backward compatibility)
                     with open(binary_path, 'rb') as f:
                         binary_obj = pickle.load(f)
-                    loaded_binaries.append((filename, binary_obj))
+                    loaded_binaries.append((op_name, binary_obj))
 
             except Exception as e:
                 # Skip problematic files with a warning instead of failing completely

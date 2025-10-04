@@ -37,7 +37,7 @@ class YTransformerMixinController(OperatorController):
     @classmethod
     def supports_prediction_mode(cls) -> bool:
         """Y transformers should not execute during prediction mode."""
-        return False
+        return True
 
     def execute(
         self,
@@ -69,8 +69,6 @@ class YTransformerMixinController(OperatorController):
             Tuple of (updated_context, fitted_transformers_list)
         """
         # Skip execution in prediction mode
-        if mode == "predict":
-            return context, []
         import pickle
         from sklearn.base import clone
 
@@ -86,8 +84,11 @@ class YTransformerMixinController(OperatorController):
         all_data = dataset.y(context)
 
         # Clone and fit the transformer on training targets
-        transformer = clone(operator)
-        transformer.fit(train_data)
+        if mode != "predict":
+            transformer = clone(operator)
+            transformer.fit(train_data)
+        else:
+            transformer = loaded_binaries[0][1] if loaded_binaries else operator
 
         # Transform all targets
         transformed_targets = transformer.transform(all_data)
@@ -108,11 +109,13 @@ class YTransformerMixinController(OperatorController):
         updated_context["y"] = new_processing_name
 
         # Serialize fitted transformer for potential reuse
-        transformer_binary = pickle.dumps(transformer)
-        fitted_transformers = [(f"y_{operator_name}.pkl", transformer_binary)]
+        if mode != "predict":
+            transformer_binary = pickle.dumps(transformer)
+            fitted_transformers = [(f"y_{operator_name}.pkl", transformer_binary)]
+            return updated_context, fitted_transformers
 
         # print(f"✅ Successfully applied {operator_name} to targets: {current_y_processing} → {new_processing_name}")
         # print(f"   Train shape: {train_targets.shape} → {transformer.transform(train_targets).shape}")
         # print(f"   All shape: {all_targets.shape} → {transformed_targets.shape}")
 
-        return updated_context, fitted_transformers
+        return updated_context, []

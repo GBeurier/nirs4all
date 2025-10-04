@@ -68,6 +68,10 @@ def browse_folder(folder_path, global_params=None):
     }
 
     dataset_dir = Path(folder_path)
+    if not dataset_dir.exists():
+        print(f"\033[91m❌ Folder does not exist: {folder_path}\033[0m")
+        return config
+
     for key, patterns in files_re.items():
         matched_files = []
         for pattern in patterns:
