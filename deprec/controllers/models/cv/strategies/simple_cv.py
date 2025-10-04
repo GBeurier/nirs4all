@@ -36,7 +36,7 @@ class SimpleCVStrategy(CVStrategy):
 
         if context.finetune_config is not None:
             # Phase 1: Finetuning mode - optimize hyperparameters on combined data
-            if verbose > 0:
+            if verbose > 1:
                 print("🔍 Simple CV: Finetuning on full training data...")
 
             # Combine all training data for finetuning
@@ -74,11 +74,11 @@ class SimpleCVStrategy(CVStrategy):
             # Extract best parameters from the controller's last optimization
             best_params = getattr(context.controller, '_last_best_params', {})
 
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🏆 Best parameters found: {best_params}")
 
         # Phase 2: Training mode - train models on each fold with optimized parameters
-        if verbose > 0:
+        if verbose > 1:
             fold_count = len(context.data_splits)
             print(f"🔄 Training {fold_count} fold models with {'optimized' if best_params else 'default'} parameters...")
 
@@ -91,7 +91,7 @@ class SimpleCVStrategy(CVStrategy):
             fold_binaries_renamed = self._rename_fold_binaries(fold_binaries, fold_idx)
             all_binaries.extend(fold_binaries_renamed)
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Simple CV completed successfully")
 
         return CVResult(

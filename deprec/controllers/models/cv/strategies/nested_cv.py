@@ -31,7 +31,7 @@ class NestedCVStrategy(CVStrategy):
         param_strategy = context.cv_config.param_strategy
         inner_cv = context.cv_config.inner_cv or 3
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🔍 Nested CV: {len(context.data_splits)} outer folds with inner CV finetuning...")
             print(f"📊 Parameter strategy: {param_strategy.value}, Inner CV: {inner_cv} folds")
 
@@ -39,13 +39,13 @@ class NestedCVStrategy(CVStrategy):
         all_fold_results = []
 
         for outer_idx, _ in enumerate(context.data_splits):
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🏋️ Outer fold {outer_idx+1}/{len(context.data_splits)}...")
 
             # Create inner folds for finetuning from the current outer fold's training data
             inner_folds = self._create_inner_folds(context, outer_idx, inner_cv)
 
-            if verbose > 1:
+            if verbose > 2:
                 print(f"  📋 Created {len(inner_folds)} inner folds for finetuning")
 
             # Choose optimization strategy for inner folds
@@ -60,7 +60,7 @@ class NestedCVStrategy(CVStrategy):
                     context, inner_folds, verbose
                 )
 
-            if verbose > 1:
+            if verbose > 2:
                 print(f"  🏆 Best params for outer fold {outer_idx+1}: {fold_best_params}")
 
             # Train final model on full outer training data with best parameters
@@ -83,7 +83,7 @@ class NestedCVStrategy(CVStrategy):
 
         # Check if we should train a single model on full training data
         if context.cv_config.use_full_train_for_final:
-            if verbose > 0:
+            if verbose > 1:
                 print("🎯 Training single model on full training data with nested CV optimized parameters...")
 
             # Use the best parameters from the first outer fold as representative
@@ -93,7 +93,7 @@ class NestedCVStrategy(CVStrategy):
                 context, representative_params, "nested_cv_full", verbose
             )
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Nested CV completed successfully")
 
         return CVResult(
@@ -258,7 +258,7 @@ class NestedCVStrategy(CVStrategy):
         verbose: int = 0
     ) -> Dict[str, Any]:
         """Compute weighted average parameters based on fold performance."""
-        if verbose > 0:
+        if verbose > 1:
             print("📊 Computing weighted average parameters...")
 
         # Placeholder implementation - would need performance scores from each outer fold
@@ -274,7 +274,7 @@ class NestedCVStrategy(CVStrategy):
         verbose: int = 0
     ) -> CVResult:
         """Train a single model on the full training dataset using optimized parameters."""
-        if verbose > 0:
+        if verbose > 1:
             print(f"🎯 Training single model on full training data ({model_suffix})...")
 
         # Combine all training data from folds
@@ -296,7 +296,7 @@ class NestedCVStrategy(CVStrategy):
         combined_X_test = np.concatenate(all_X_test, axis=0)
         combined_y_test = np.concatenate(all_y_test, axis=0)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"📊 Combined training data: {combined_X_train.shape[0]} samples")
             print(f"📊 Combined test data: {combined_X_test.shape[0]} samples")
 
@@ -305,10 +305,10 @@ class NestedCVStrategy(CVStrategy):
         if hasattr(model, 'set_params') and best_params:
             try:
                 model.set_params(**best_params)
-                if verbose > 0:
+                if verbose > 1:
                     print(f"✅ Applied optimized parameters: {best_params}")
             except (ValueError, TypeError) as e:
-                if verbose > 0:
+                if verbose > 1:
                     print(f"⚠️ Could not apply parameters: {e}")
 
         # Create a combined data split for training
@@ -345,7 +345,7 @@ class NestedCVStrategy(CVStrategy):
                 new_name = f"{name}_{model_suffix}"
             renamed_binaries.append((new_name, binary))
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Single model training on full data completed successfully")
 
         return CVResult(

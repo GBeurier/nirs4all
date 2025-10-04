@@ -29,7 +29,7 @@ class GlobalAverageCVStrategy(CVStrategy):
         """
         verbose = context.train_params.get('verbose', 0)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🌍 Global Average CV: Optimizing parameters across all {len(context.data_splits)} folds simultaneously...")
 
         # For now, implement a simplified version that optimizes on combined data from all folds
@@ -41,7 +41,7 @@ class GlobalAverageCVStrategy(CVStrategy):
         # Use a sample of the combined validation data for optimization
         X_val_sample, y_val_sample = self._get_validation_sample(context.data_splits)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"📊 Combined training data: {combined_X_train.shape[0]} samples for optimization")
 
         # Create a combined data split for optimization
@@ -71,7 +71,7 @@ class GlobalAverageCVStrategy(CVStrategy):
         # Extract best parameters (would be set by the finetuning process)
         best_params = getattr(context.controller, '_last_best_params', {})
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🏆 Best parameters found: {best_params}")
             print(f"🔄 Training {len(context.data_splits)} final models with global best parameters...")
 
@@ -86,7 +86,7 @@ class GlobalAverageCVStrategy(CVStrategy):
                 try:
                     model.set_params(**best_params)
                 except (ValueError, TypeError) as e:
-                    if verbose > 0:
+                    if verbose > 1:
                         print(f"⚠️ Could not apply global parameters to fold {fold_idx+1}: {e}")
 
             # Train on this fold
@@ -110,7 +110,7 @@ class GlobalAverageCVStrategy(CVStrategy):
                 context, best_params, "global_avg_full", verbose
             )
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Global Average CV completed successfully")
 
         return CVResult(
@@ -164,12 +164,12 @@ class GlobalAverageCVStrategy(CVStrategy):
         """Train a single model on the full training dataset."""
         # This is a placeholder implementation
         return CVResult(context={}, binaries=[], best_params=best_params)
-    
+
     def _create_fold_context(self, context: CVExecutionContext, best_params: Dict[str, Any]) -> CVExecutionContext:
         """Create a context for fold training with best parameters applied."""
         # Create a new model config with best parameters applied
         fold_model_config = context.model_config.copy()
-        
+
         # Apply best parameters to the model if available
         if best_params and 'model_instance' in fold_model_config:
             model = fold_model_config['model_instance']
@@ -181,7 +181,7 @@ class GlobalAverageCVStrategy(CVStrategy):
                 except (ValueError, TypeError) as e:
                     # If parameter application fails, use original model
                     pass
-        
+
         # Return context with updated model config
         return CVExecutionContext(
             model_config=fold_model_config,
@@ -193,7 +193,7 @@ class GlobalAverageCVStrategy(CVStrategy):
             controller=context.controller,
             finetune_config=None  # No finetuning for individual folds
         )
-    
+
     def _rename_fold_binaries(self, fold_binaries: List[Tuple[str, bytes]], fold_idx: int) -> List[Tuple[str, bytes]]:
         """Rename binaries to include fold information."""
         fold_binaries_renamed = []
@@ -211,7 +211,7 @@ class GlobalAverageCVStrategy(CVStrategy):
         Instead of training separate models on each fold, this combines all training data
         and trains one model, which can be more effective when you have limited data.
         """
-        if verbose > 0:
+        if verbose > 1:
             print(f"🎯 Training single model on full training data ({model_suffix})...")
 
         # Combine all training data from folds
@@ -228,7 +228,7 @@ class GlobalAverageCVStrategy(CVStrategy):
         combined_X_test = np.concatenate(all_X_test, axis=0)
         combined_y_test = np.concatenate(all_y_test, axis=0)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"📊 Combined training data: {combined_X_train.shape[0]} samples")
             print(f"📊 Combined test data: {combined_X_test.shape[0]} samples")
 
@@ -237,10 +237,10 @@ class GlobalAverageCVStrategy(CVStrategy):
         if hasattr(model, 'set_params') and best_params:
             try:
                 model.set_params(**best_params)
-                if verbose > 0:
+                if verbose > 1:
                     print(f"✅ Applied globally optimized parameters: {best_params}")
             except (ValueError, TypeError) as e:
-                if verbose > 0:
+                if verbose > 1:
                     print(f"⚠️ Could not apply parameters: {e}")
 
         # Create a combined data split for training
@@ -277,7 +277,7 @@ class GlobalAverageCVStrategy(CVStrategy):
                 new_name = f"{name}_{model_suffix}"
             renamed_binaries.append((new_name, binary))
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Single model training on full data completed successfully")
 
         return CVResult(

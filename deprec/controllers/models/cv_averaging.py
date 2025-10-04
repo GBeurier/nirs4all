@@ -50,7 +50,7 @@ class CVAveragingManager:
         Returns:
             Tuple of (binaries, prediction_metadata)
         """
-        if verbose > 0:
+        if verbose > 1:
             print("📊 Generating average and weighted average predictions...")
 
         # Get base model identifiers for averaging
@@ -92,7 +92,7 @@ class CVAveragingManager:
                 run_path=""
             )
 
-            if avg_result and verbose > 0:
+            if avg_result and verbose > 1:
                 print(f"✅ Generated average predictions for {avg_identifiers.model_id}")
 
             # Generate weighted average predictions
@@ -107,11 +107,11 @@ class CVAveragingManager:
                 run_path=""
             )
 
-            if w_avg_result and verbose > 0:
+            if w_avg_result and verbose > 1:
                 print(f"✅ Generated weighted average predictions for {w_avg_identifiers.model_id}")
 
         except (AttributeError, KeyError, ValueError) as e:
-            if verbose > 0:
+            if verbose > 1:
                 print(f"⚠️ Could not generate average predictions: {e}")
 
         return binaries, prediction_metadata
