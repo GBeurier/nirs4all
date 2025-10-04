@@ -27,7 +27,7 @@ class FeatureAugmentationController(OperatorController):
     @classmethod
     def supports_prediction_mode(cls) -> bool:
         """Feature augmentation should NOT execute during prediction mode - transformations are already applied and saved."""
-        return False
+        return True
 
     def execute(  # TODO reup parralelization
         self,
@@ -52,7 +52,7 @@ class FeatureAugmentationController(OperatorController):
                 # Recréer source_processings à chaque itération pour éviter les mutations
                 source_processings = copy.deepcopy(original_source_processings)
                 local_context = copy.deepcopy(initial_context)
-
+                print(f"Applying feature augmentation operation {i + 1}/{len(step['feature_augmentation'])}: {operation}")
                 # if i == 0 and operation is None:
                 #     print("Skipping no-op feature augmentation")
                 #     continue
@@ -61,7 +61,7 @@ class FeatureAugmentationController(OperatorController):
 
                 # Assigner une nouvelle copie à chaque fois
                 local_context["processing"] = copy.deepcopy(source_processings)
-                runner.run_step(operation, dataset, local_context, prediction_store, is_substep=True)
+                runner.run_step(operation, dataset, local_context, prediction_store, is_substep=True, propagated_binaries=loaded_binaries)
 
             context["processing"] = []
             for sdx in range(dataset.n_sources):

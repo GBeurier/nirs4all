@@ -81,9 +81,10 @@ class SklearnModelController(BaseModelController):
         y_train: np.ndarray,
         X_val: Optional[np.ndarray] = None,
         y_val: Optional[np.ndarray] = None,
-        train_params: Optional[Dict[str, Any]] = None
+        train_params: Optional[Dict[str, Any]] = None,
     ) -> BaseEstimator:
         """Train sklearn model with score tracking."""
+
         if train_params is None:
             train_params = {}
 
@@ -114,9 +115,9 @@ class SklearnModelController(BaseModelController):
 
         # Always calculate and display final test scores, regardless of verbose level
         # But control the detail level based on verbose
-        task_type = self._detect_task_type(y_train)
 
         if verbose > 1:
+            task_type = self._detect_task_type(y_train)
             # Show detailed training scores at verbose > 1
             y_train_pred = self._predict_model(trained_model, X_train)
             train_scores = self._calculate_and_print_scores(
@@ -152,6 +153,8 @@ class SklearnModelController(BaseModelController):
 
     def _predict_model(self, model: BaseEstimator, X: np.ndarray) -> np.ndarray:
         """Generate predictions with sklearn model."""
+        print("🔮 Generating predictions...")
+        print(model)
         predictions = model.predict(X)
 
         # Ensure predictions are in the correct shape

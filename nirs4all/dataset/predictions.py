@@ -162,7 +162,7 @@ class Predictions:
             "model_path": model_path,
             "fold_id": fold_id,
             "sample_indices": json.dumps(sample_indices_list),
-            "weights": json.dumps(weights_list),
+            "weights": json.dumps([w.tolist() if isinstance(w, np.ndarray) else w for w in weights_list]),
             "metadata": json.dumps(metadata_dict),
             "partition": partition,
             "y_true": json.dumps(y_true_list),
