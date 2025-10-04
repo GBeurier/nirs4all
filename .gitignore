@@ -32,3 +32,4 @@ test_experiment_manager/
 .coveragerc
 .coverage.*
 examples/.hypothesis/
+log.txt

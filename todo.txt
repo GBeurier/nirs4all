@@ -1,6 +1,5 @@
 #### ROADMAP ########
-Q5 - multisource
-** RELEASE **
+
 Q1' - Finetuning
 Binning + Classification
 Q7
