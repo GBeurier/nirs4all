@@ -20,6 +20,7 @@ from sklearn.base import is_classifier, is_regressor
 from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.model_utils import ModelUtils
+from nirs4all.utils.model_builder import ModelBuilderFactory
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -59,18 +60,22 @@ class SklearnModelController(BaseModelController):
 
         return False
 
-    def _get_model_instance(self, model_config: Dict[str, Any]) -> BaseEstimator:
+    def _get_model_instance(self, model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> BaseEstimator:
         """Create sklearn model instance from configuration."""
-        if 'model_instance' in model_config:
+        if 'model_instance' in model_config and force_params is None:
             model = model_config['model_instance']
             if isinstance(model, BaseEstimator):
                 return model
 
         # If we have a model class and parameters, instantiate it
-        if 'model_class' in model_config:
-            model_class = model_config['model_class']
+        # ModelBuilder.build_single_model(model_config['model']['class'], mo)
+        if 'model' in model_config and 'class' in model_config['model']:
+            model_class = model_config['model']['class']
             model_params = model_config.get('model_params', {})
-            return model_class(**model_params)
+            if force_params:
+                model_params.update(force_params)
+            # return model_class(**model_params)
+            return ModelBuilderFactory.build_single_model(model_class, model_params)
 
         raise ValueError("Could not create model instance from configuration")
 

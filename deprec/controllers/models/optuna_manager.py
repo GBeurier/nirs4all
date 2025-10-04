@@ -5,6 +5,8 @@ This module provides a clean interface for hyperparameter optimization
 using Optuna, with support for different sampling strategies and
 framework-specific parameter handling.
 """
+import os
+os.environ['DISABLE_EMOJIS'] = '1'  # Set to '1' to disable emojis in print statements
 
 from typing import Any, Dict, List, Optional, Tuple, Callable, Union
 import numpy as np

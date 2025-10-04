@@ -23,6 +23,7 @@ class ModelBuilderFactory:
 
     @staticmethod
     def build_single_model(model_config, dataset, task='regression', force_params={}):
+        # print(model_config, dataset, task, force_params)
         if task == "classification":
             force_params['num_classes'] = dataset.num_classes  # TODO get loss to applied num_classes (sparse_categorical_crossentropy = 1, categorical_crossentropy = num_classe)
             # force_params['num_classes'] = 1

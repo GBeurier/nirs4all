@@ -7,6 +7,7 @@ hyperparameter optimization across different strategies and frameworks.
 """
 
 from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
+from unittest import runner
 import numpy as np
 
 if TYPE_CHECKING:
@@ -45,28 +46,12 @@ class OptunaController:
         context: Dict[str, Any],
         controller: Any  # The model controller instance
     ) -> Dict[str, Any]:
-        """
-        Main finetune method following user's pseudo-code:
-
-        if folds and mode == individual:
-            best_params = []
-            foreach fold:
-                get x_train_fold_i, x_val_fold_i
-                best_params.append(optuna.loop(objective(x_train_fold_i, x_val_fold_i)))
-            return best_params
-
-        if folds and mode == grouped:
-            return best_param = optuna.loop(objective(folds, data, evalMode))
-
-        if not fold:
-            return optuna.loop(objective(folds, data))
-        """
 
         if not self.is_available:
             print("⚠️ Optuna not available, skipping finetuning")
             return {}
 
-        strategy = finetune_params.get('approach', 'individual')
+        strategy = finetune_params.get('approach', 'grouped')
         eval_mode = finetune_params.get('eval_mode', 'best')
         n_trials = finetune_params.get('n_trials', 50)
         verbose = finetune_params.get('verbose', 0)
@@ -145,7 +130,7 @@ class OptunaController:
         def objective(trial):
             # Sample hyperparameters
             sampled_params = self._sample_hyperparameters(trial, finetune_params, controller)
-
+            print(sampled_params)
             # Train on all folds and collect scores
             scores = []
             for train_indices, val_indices in folds:
@@ -155,10 +140,10 @@ class OptunaController:
                 y_val_fold = y_train[val_indices]
 
                 # Create and train model
-                base_model = controller._get_model_instance(model_config)
-                model = controller.model_utils.clone_model(base_model)
-                if hasattr(model, 'set_params'):
-                    model.set_params(**sampled_params)
+                model = controller._get_model_instance(model_config, force_params=sampled_params)
+                # model = controller.model_utils.clone_model(base_model)
+                # if hasattr(model, 'set_params'):
+                    # model.set_params(**sampled_params)
 
                 X_train_prep, y_train_prep = controller._prepare_data(X_train_fold, y_train_fold, context)
                 X_val_prep, y_val_prep = controller._prepare_data(X_val_fold, y_val_fold, context)
@@ -224,10 +209,11 @@ class OptunaController:
         def objective(trial):
             # Sample hyperparameters
             sampled_params = self._sample_hyperparameters(trial, finetune_params, controller)
+            print(sampled_params)
 
             # Create model with sampled params
-            base_model = controller._get_model_instance(model_config)
-            model = controller.model_utils.clone_model(base_model)
+            model = controller._get_model_instance(model_config, force_params=sampled_params)
+            # model = controller._clone_model(base_model)
             if hasattr(model, 'set_params'):
                 model.set_params(**sampled_params)
 
@@ -268,84 +254,50 @@ class OptunaController:
         # Fallback implementation for basic parameter types
         params = {}
         model_params = finetune_params.get('model_params', {})
+        # print("model_params", model_params)
 
         for param_name, param_config in model_params.items():
-            if isinstance(param_config, dict):
-                param_type = param_config.get('type', 'float')
-
+            print("param_name, param_config", param_name, param_config)
+            if isinstance(param_config, list):
+                # Categorical parameter
+                params[param_name] = trial.suggest_categorical(param_name, param_config)
+            elif isinstance(param_config, tuple) and len(param_config) == 3:
+                # Tuple format: ('type', min, max)
+                param_type, min_val, max_val = param_config
                 if param_type == 'int':
-                    low = param_config.get('low', 1)
-                    high = param_config.get('high', 100)
-                    params[param_name] = trial.suggest_int(param_name, low, high)
-
+                    params[param_name] = trial.suggest_int(param_name, min_val, max_val)
                 elif param_type == 'float':
-                    low = param_config.get('low', 1e-5)
-                    high = param_config.get('high', 1.0)
-                    log = param_config.get('log', False)
-                    params[param_name] = trial.suggest_float(param_name, low, high, log=log)
-
-                elif param_type == 'categorical':
-                    choices = param_config.get('choices', [])
-                    if choices:
-                        params[param_name] = trial.suggest_categorical(param_name, choices)
+                    params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val))
+                else:
+                    raise ValueError(f"Unknown parameter type: {param_type}")
+            elif isinstance(param_config, tuple) and len(param_config) == 2:
+                # Range parameter - determine type from values
+                min_val, max_val = param_config
+                if isinstance(min_val, int) and isinstance(max_val, int):
+                    params[param_name] = trial.suggest_int(param_name, min_val, max_val)
+                else:
+                    params[param_name] = trial.suggest_float(param_name, float(min_val), float(max_val))
+            elif isinstance(param_config, dict):
+                # Complex parameter configuration
+                param_type = param_config.get('type', 'categorical')
+                if param_type == 'categorical':
+                    params[param_name] = trial.suggest_categorical(param_name, param_config['choices'])
+                elif param_type == 'int':
+                    params[param_name] = trial.suggest_int(
+                        param_name,
+                        param_config['min'],
+                        param_config['max']
+                    )
+                elif param_type == 'float':
+                    params[param_name] = trial.suggest_float(
+                        param_name,
+                        param_config['min'],
+                        param_config['max']
+                    )
+                else:
+                    raise ValueError(f"Unknown parameter type in config: {param_type}")
+            else:
+                # Single value - pass through unchanged
+                params[param_name] = param_config
 
         return params
-
-    def create_objective_function(
-        self,
-        model_config: Dict[str, Any],
-        X_train: Any,
-        y_train: Any,
-        X_val: Any,
-        y_val: Any,
-        controller: Any,
-        train_params: Dict[str, Any]
-    ) -> Callable:
-        """
-        Create objective function for optimization.
-        This is used by the original abstract controller for compatibility.
-        """
-
-        def objective(trial):
-            # Sample hyperparameters using controller's method
-            sampled_params = self._sample_hyperparameters(trial, {}, controller)
-
-            # Create and train model
-            base_model = controller._get_model_instance(model_config)
-            model = controller.model_utils.clone_model(base_model)
-
-            if hasattr(model, 'set_params') and sampled_params:
-                model.set_params(**sampled_params)
-
-            try:
-                trained_model = controller._train_model(
-                    model, X_train, y_train, X_val, y_val, **train_params
-                )
-                score = controller._evaluate_model(trained_model, X_val, y_val)
-                return score
-            except Exception:
-                return float('inf')
-
-        return objective
-
-    def optimize_hyperparameters(
-        self,
-        objective_function: Callable,
-        finetune_params: Dict[str, Any],
-        verbose: int = 0
-    ) -> tuple[Dict[str, Any], float]:
-        """
-        Run hyperparameter optimization with given objective function.
-        Used for compatibility with original abstract controller.
-        """
-
-        if not self.is_available:
-            return {}, float('inf')
-
-        n_trials = finetune_params.get('n_trials', 50)
-
-        # Create study and optimize
-        study = optuna.create_study(direction='minimize')
-        study.optimize(objective_function, n_trials=n_trials, show_progress_bar=False)
-
-        return study.best_params, study.best_value
