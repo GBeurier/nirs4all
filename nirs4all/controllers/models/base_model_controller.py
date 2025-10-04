@@ -20,9 +20,10 @@ import copy
 
 from nirs4all.controllers.controller import OperatorController
 from .model_controller_helper import ModelControllerHelper
-from .optuna_controller import OptunaController
+from .optuna_manager import OptunaManager
 from nirs4all.dataset.predictions import Predictions
 from nirs4all.utils.model_utils import ModelUtils
+from nirs4all.utils.model_builder import ModelBuilderFactory
 import nirs4all.dataset.evaluator as Evaluator
 
 if TYPE_CHECKING:
@@ -46,7 +47,7 @@ class BaseModelController(OperatorController, ABC):
     def __init__(self):
         super().__init__()
         self.model_helper = ModelControllerHelper()
-        self.optuna_controller = OptunaController()
+        self.optuna_manager = OptunaManager()
 
     @classmethod
     def use_multi_source(cls) -> bool:
@@ -58,8 +59,8 @@ class BaseModelController(OperatorController, ABC):
 
     # Abstract methods that subclasses must implement for their frameworks
     @abstractmethod
-    def _get_model_instance(self, model_config: Dict[str, Any]) -> Any:
-        """Create model instance from config."""
+    def _get_model_instance(self, model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
+        """Create model instance from config using ModelBuilderFactory."""
         pass
 
     @abstractmethod
@@ -114,7 +115,6 @@ class BaseModelController(OperatorController, ABC):
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
         prediction_store: 'Predictions' = None  # NEW: External prediction store
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
-
         self.prediction_store = prediction_store
         model_config = self._extract_model_config(step, operator)
         self.verbose = model_config.get('train_params', {}).get('verbose', 0)
@@ -128,27 +128,26 @@ class BaseModelController(OperatorController, ABC):
         binaries = []
 
         finetune_params = model_config.get('finetune_params')
+        if runner.verbose > 0:
+            print(f"🔍 Model config: {model_config}")
+
         if finetune_params:
-            # FINETUNE PATH
+            self.mode = "finetune"
             if verbose > 0:
                 print("🎯 Starting finetuning...")
 
-            # # Prepare optuna etc.... Best_model_params = finetune(args)
-            # best_model_params = self.finetune(
-            #     model_config, X_train, y_train, X_test, y_test,
-            #     folds, finetune_params, predictions, context, runner, dataset
-            # )
+            best_model_params = self.finetune(
+                model_config, X_train, y_train, X_test, y_test,
+                folds, finetune_params, self.prediction_store, context, runner, dataset
+            )
+            # print("Best model params found:", best_model_params)
+            print(f"📊 Best parameters: {best_model_params}")
 
-            # # Create empty Prediction, train(best_model, params, etc.)
-            # predictions = {}
-            # final_predictions = self.train(
-            #     model_config, X_train, y_train, X_test, y_test,
-            #     folds, predictions, context, runner, dataset,
-            #     best_params=best_model_params
-            # )
-
-            # merge prediction into dataset.prediction (handled in train)
-
+            binaries = self.train(
+                dataset, model_config, context, runner, prediction_store,
+                X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+                loaded_binaries=loaded_binaries, mode="finetune", best_params=best_model_params
+            )
         else:
             # TRAIN PATH
             if self.verbose > 0:
@@ -161,6 +160,44 @@ class BaseModelController(OperatorController, ABC):
             )
 
         return context, binaries
+
+    def finetune(
+        self,
+        model_config: Dict[str, Any],
+        X_train: Any,
+        y_train: Any,
+        X_test: Any,
+        y_test: Any,
+        folds: Optional[List],
+        finetune_params: Dict[str, Any],
+        predictions: Dict,
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        dataset: 'SpectroDataset'
+    ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        """
+        Finetune method - delegates to external Optuna manager.
+
+        Clean delegation that passes all necessary data to the optuna manager
+        and returns the optimized parameters for use in training.
+        """
+        # Store dataset reference for model building
+
+        self.dataset = dataset
+
+        return self.optuna_manager.finetune(
+            model_config=model_config,
+            X_train=X_train,
+            y_train=y_train,
+            X_test=X_test,
+            y_test=y_test,
+            folds=folds,
+            finetune_params=finetune_params,
+            context=context,
+            controller=self
+        )
+
+
 
     def train(
         self,
@@ -194,12 +231,17 @@ class BaseModelController(OperatorController, ABC):
                 y_val_fold = y_train[val_indices] if y_train.shape[0] > 0 else np.array([])
                 y_val_fold_unscaled = y_train_unscaled[val_indices] if y_train_unscaled.shape[0] > 0 else np.array([])
 
+
+                if isinstance(best_params, list):
+                    best_params_fold = best_params[fold_idx] if fold_idx < len(best_params) else None
+                else:
+                    best_params_fold = best_params
                 model, model_id, score, model_name, prediction_data = self.launch_training(
                     dataset, model_config, context, runner, prediction_store,
                     X_train_fold, y_train_fold, X_val_fold, y_val_fold, X_test,
                     y_train_fold_unscaled, y_val_fold_unscaled, y_test_unscaled,
                     train_indices, val_indices,
-                    fold_idx=fold_idx, best_params=best_params,
+                    fold_idx=fold_idx, best_params= best_params_fold,
                     loaded_binaries=loaded_binaries, mode=mode
                 )
                 folds_models.append((model_id, model, score))
@@ -217,7 +259,7 @@ class BaseModelController(OperatorController, ABC):
             avg_predictions, w_avg_predictions = self._create_fold_averages(
                 base_model_name, dataset, model_config, context, runner, prediction_store, model_classname,
                 folds_models, fold_val_indices, scores,
-                X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode
+                X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode, best_params=best_params
             )
             # Collect ALL predictions (folds + averages) and add them in one shot with same weights
             all_predictions = all_fold_predictions + [avg_predictions, w_avg_predictions]
@@ -265,8 +307,17 @@ class BaseModelController(OperatorController, ABC):
         new_operator_name = f"{model_name}_{operation_counter}"
 
         if mode != "predict":
-            # instanciate the model with params if any
-            model = self.model_helper.clone_model(base_model)
+            if mode == "finetune":
+                if best_params is not None:
+                    print(f"Training model {model_name} with: {best_params}...")
+                model = ModelBuilderFactory.build_single_model(
+                    model_config["model"],
+                    dataset,
+                    task=dataset.task_type,
+                    force_params=best_params
+                )
+            else:
+                model = self.model_helper.clone_model(base_model)
         else:
             # Load model from binaries
             if loaded_binaries is None:
@@ -276,7 +327,7 @@ class BaseModelController(OperatorController, ABC):
                 raise ValueError(f"Model binary for {model_name}_{operation_counter}.pkl not found in loaded_binaries")
 
         # Apply best params if provided ####TODO RETRIEVE THE HOLD METHOD (construct with params !!!!)
-        if best_params:
+        if best_params is not None:
             if hasattr(model, 'set_params'):
                 model.set_params(**best_params)
 
@@ -356,6 +407,7 @@ class BaseModelController(OperatorController, ABC):
             'task_type': dataset.task_type,
             'n_features': X_train.shape[1] if len(X_train.shape) > 1 else 1,
             'preprocessings': dataset.short_preprocessings_str(),
+            'best_params': {} if best_params is None else str(best_params),
             'partitions': [
                 ("train", train_indices, y_train_unscaled, y_train_pred_unscaled),
                 ("val", val_indices, y_val_unscaled, y_val_pred_unscaled),
@@ -368,32 +420,7 @@ class BaseModelController(OperatorController, ABC):
 
         return trained_model, f"{model_name}_{operation_counter}", score_val, model_name, prediction_data
 
-    def finetune(
-        self,
-        model_config: Dict[str, Any],
-        X_train: Any,
-        y_train: Any,
-        X_test: Any,
-        y_test: Any,
-        folds: Optional[List],
-        finetune_params: Dict[str, Any],
-        predictions: Dict,
-        context: Dict[str, Any],
-        runner: 'PipelineRunner',
-        dataset: 'SpectroDataset'
-    ) -> Dict[str, Any]:
-        """
-        Finetune method - delegates to external Optuna controller.
-        """
 
-        return self.optuna_controller.finetune(
-            model_config, X_train, y_train, X_test, y_test,
-            folds, finetune_params, context, self
-        )
-
-    def _sample_hyperparameters(self, trial, finetune_params: Dict[str, Any]) -> Dict[str, Any]:
-        """Sample hyperparameters for optimization. Override in subclasses."""
-        return {}
 
     def _detect_task_type(self, y: Any) -> str:
         """Detect task type from target values."""
@@ -530,7 +557,7 @@ class BaseModelController(OperatorController, ABC):
         base_model_name, dataset, model_config, context, runner, prediction_store, model_classname,
         folds_models, fold_val_indices, scores,
         X_train, X_test, y_train_unscaled, y_test_unscaled,
-        mode="train"
+        mode="train", best_params=None
     ) -> Tuple[Dict, Dict]:
 
         # X_val is the concatenation of all fold val sets
@@ -611,7 +638,8 @@ class BaseModelController(OperatorController, ABC):
             'task_type': dataset.task_type,
             'n_features': X_train.shape[1],
             'preprocessings': dataset.short_preprocessings_str(),
-            'partitions': prediction_array
+            'partitions': prediction_array,
+            'best_params': {} if best_params is None else str(best_params),
         }
 
         # Weighted average predictions based on fold scores
@@ -670,7 +698,8 @@ class BaseModelController(OperatorController, ABC):
             'n_features': X_train.shape[1],
             'preprocessings': dataset.short_preprocessings_str(),
             'weights': weights.tolist(),
-            'partitions': prediction_array_w
+            'partitions': prediction_array_w,
+            'best_params': {} if best_params is None else str(best_params),
         }
 
         return avg_predictions, w_avg_predictions
@@ -721,7 +750,8 @@ class BaseModelController(OperatorController, ABC):
                     task_type=prediction_data['task_type'],
                     n_samples=len(y_true_part),
                     n_features=prediction_data['n_features'],
-                    preprocessings=prediction_data['preprocessings']
+                    preprocessings=prediction_data['preprocessings'],
+                    best_params=prediction_data['best_params']
                 )
 
                 # Print only once per prediction_data (for the first partition)

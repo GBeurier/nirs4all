@@ -69,6 +69,7 @@ class Predictions:
             "n_samples": pl.Int64,
             "n_features": pl.Int64,
             "preprocessings": pl.Utf8,
+            "best_params": pl.Utf8,  # JSON string
         })
 
         if filepath and Path(filepath).exists():
@@ -185,8 +186,9 @@ class Predictions:
         task_type: str = "regression",
         n_samples: int = 0,
         n_features: int = 0,
-        preprocessings: str = ""
-    ) -> int:
+        preprocessings: str = "",
+        best_params: Optional[Dict[str, Any]] = None
+    ) -> str:
         """Add a new prediction to the storage."""
 
         # Convert numpy arrays to lists for JSON serialization
@@ -195,6 +197,7 @@ class Predictions:
         sample_indices_list = sample_indices if sample_indices is not None else []
         weights_list = weights if weights is not None else []
         metadata_dict = metadata if metadata is not None else {}
+        best_params_dict = best_params if best_params is not None else {}
         fold_id = str(fold_id)
 
         # Create row_dict with columns in schema order
@@ -223,6 +226,7 @@ class Predictions:
             "n_samples": n_samples,
             "n_features": n_features,
             "preprocessings": preprocessings,
+            "best_params": json.dumps(best_params_dict),
         }
 
         # Generate unique ID hash for the prediction
@@ -257,7 +261,8 @@ class Predictions:
         task_type: Union[str, List[str]] = "regression",
         n_samples: Union[int, List[int]] = 0,
         n_features: Union[int, List[int]] = 0,
-        preprocessings: Union[str, List[str]] = ""
+        preprocessings: Union[str, List[str]] = "",
+        best_params: Union[Optional[Dict[str, Any]], List[Optional[Dict[str, Any]]]] = None
     ) -> None:
         """
         Add multiple predictions to the storage.
@@ -316,7 +321,8 @@ class Predictions:
             'task_type': task_type,
             'n_samples': n_samples,
             'n_features': n_features,
-            'preprocessings': preprocessings
+            'preprocessings': preprocessings,
+            'best_params': best_params
         }
 
         # Find the maximum length (number of predictions to create)
@@ -402,6 +408,7 @@ class Predictions:
             row["sample_indices"] = json.loads(row["sample_indices"])
             row["weights"] = json.loads(row["weights"])
             row["metadata"] = json.loads(row["metadata"])
+            row["best_params"] = json.loads(row["best_params"]) if row["best_params"] else {}
             row["y_true"] = np.array(json.loads(row["y_true"]))
             row["y_pred"] = np.array(json.loads(row["y_pred"]))
             results.append(row)
@@ -711,6 +718,7 @@ class Predictions:
                 row["sample_indices"] = json.loads(row["sample_indices"])
                 row["weights"] = json.loads(row["weights"]) if row["weights"] else []
                 row["metadata"] = json.loads(row["metadata"]) if row["metadata"] else {}
+                row["best_params"] = json.loads(row["best_params"]) if row["best_params"] else {}
                 row["y_true"] = np.array(json.loads(row["y_true"]))
                 row["y_pred"] = np.array(json.loads(row["y_pred"]))
                 results.append(row)
@@ -755,6 +763,7 @@ class Predictions:
                         score_record["sample_indices"] = json.loads(row["sample_indices"])
                         score_record["weights"] = json.loads(row["weights"]) if row["weights"] else []
                         score_record["metadata"] = json.loads(row["metadata"]) if row["metadata"] else {}
+                        score_record["best_params"] = json.loads(row["best_params"]) if row["best_params"] else {}
                         score_record["y_true"] = y_true
                         score_record["y_pred"] = y_pred
 
@@ -901,7 +910,7 @@ class Predictions:
                     "step_idx", "op_counter", "model_name", "model_classname", "model_path",
                     "fold_id", "sample_indices", "weights", "metadata", "partition",
                     "y_true", "y_pred", "val_score", "test_score", "metric", "task_type",
-                    "n_samples", "n_features", "preprocessings"
+                    "n_samples", "n_features", "preprocessings", "best_params"
                 ]
 
                 # Determine the target schema by preferring non-null types, maintaining order

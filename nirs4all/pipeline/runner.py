@@ -384,7 +384,7 @@ class PipelineRunner:
                 controller = self._select_controller(step)
 
             if controller is not None:
-                if self.verbose > 0:
+                if self.verbose > 1:
                     print(f"🔹 Selected controller: {controller.__class__.__name__}")
                 # Check if controller supports prediction mode
                 if self.mode == "predict" and not controller.supports_prediction_mode():
@@ -399,8 +399,6 @@ class PipelineRunner:
                     if self.verbose > 1 and loaded_binaries:
                         print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
 
-                if self.verbose > 0:
-                    print(f"🔄 Execute controller: {controller.__class__.__name__}")
                 context["step_id"] = self.step_number
                 return self._execute_controller(
                     controller, step, operator, dataset, context, prediction_store, -1, loaded_binaries

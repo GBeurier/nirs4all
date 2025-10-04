@@ -7,7 +7,7 @@ and pipeline management with support for multiple ML backends.
 __version__ = "0.0.7"
 
 import os
-if os.environ.get('DISABLE_EMOJIS'):  # Set to True to always disable
+if os.environ.get('DISABLE_EMOJIS') == '1' or True:  # Set to True to always disable
     import re
     original_print = __builtins__['print']
 
