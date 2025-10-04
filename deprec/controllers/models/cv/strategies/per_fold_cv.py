@@ -35,7 +35,7 @@ class PerFoldCVStrategy(CVStrategy):
         if param_strategy == ParamStrategy.GLOBAL_AVERAGE:
             return self._execute_global_average_optimization(context)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🔍 Per-fold CV: Finetuning on each fold with {param_strategy.value} strategy...")
 
         all_binaries = []
@@ -43,7 +43,7 @@ class PerFoldCVStrategy(CVStrategy):
 
         # Finetune on each fold
         for fold_idx, _ in enumerate(context.data_splits):
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🎛️ Finetuning fold {fold_idx+1}/{len(context.data_splits)}...")
 
             # Execute finetuning for this fold
@@ -61,7 +61,7 @@ class PerFoldCVStrategy(CVStrategy):
         if param_strategy == ParamStrategy.GLOBAL_BEST:
             # Use the best performing parameters across all folds
             global_best_params = self._select_global_best_params(all_fold_results)
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🏆 Global best parameters: {global_best_params}")
 
             # Check if we should train a single model on full training data
@@ -73,25 +73,25 @@ class PerFoldCVStrategy(CVStrategy):
         elif param_strategy == ParamStrategy.WEIGHTED_AVERAGE:
             # Compute weighted average parameters based on fold performance
             weighted_params = self._compute_weighted_average_params(all_fold_results)
-            if verbose > 0:
+            if verbose > 1:
                 print(f"⚖️ Weighted average parameters: {weighted_params}")
 
         elif param_strategy in [ParamStrategy.ENSEMBLE_BEST, ParamStrategy.ROBUST_BEST, ParamStrategy.STABILITY_BEST]:
             # These strategies are planned for future implementation
-            if verbose > 0:
+            if verbose > 1:
                 print(f"⚠️ Parameter strategy {param_strategy.value} is not yet implemented. Using per_fold_best instead.")
 
         # For PER_FOLD_BEST, check if we should train on full data (though this is less common)
         if context.cv_config.use_full_train_for_final and param_strategy == ParamStrategy.PER_FOLD_BEST:
             # Use the first fold's parameters as representative (or could average them)
             representative_params = {}  # Would need to extract from first fold
-            if verbose > 0:
+            if verbose > 1:
                 print("🔄 Training single model on full data with representative parameters from fold 1")
             return self._train_single_model_on_full_data(
                 context, representative_params, "per_fold_repr", verbose
             )
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Per-fold CV completed successfully")
 
         return CVResult(
@@ -103,17 +103,17 @@ class PerFoldCVStrategy(CVStrategy):
         """Execute global average optimization: optimize parameters across all folds simultaneously."""
         verbose = context.train_params.get('verbose', 0)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🌍 Global Average CV: Optimizing parameters across all {len(context.data_splits)} folds simultaneously...")
 
         # For now, implement a simplified version that optimizes on the first fold
         # Full implementation would require Optuna integration across all folds
-        if verbose > 0:
+        if verbose > 1:
             print("ℹ️ Using simplified global average (optimizing on first fold)")
 
         _, binaries = self._execute_finetune(context, fold_idx=0)
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Global Average CV completed successfully")
 
         return CVResult(
@@ -152,7 +152,7 @@ class PerFoldCVStrategy(CVStrategy):
         Instead of training separate models on each fold, this combines all training data
         and trains one model, which can be more effective when you have limited data.
         """
-        if verbose > 0:
+        if verbose > 1:
             print(f"🎯 Training single model on full training data ({model_suffix})...")
 
         # Combine all training data from folds
@@ -174,7 +174,7 @@ class PerFoldCVStrategy(CVStrategy):
         combined_X_test = np.concatenate(all_X_test, axis=0)
         combined_y_test = np.concatenate(all_y_test, axis=0)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"📊 Combined training data: {combined_X_train.shape[0]} samples")
             print(f"📊 Combined test data: {combined_X_test.shape[0]} samples")
 
@@ -183,10 +183,10 @@ class PerFoldCVStrategy(CVStrategy):
         if hasattr(model, 'set_params') and best_params:
             try:
                 model.set_params(**best_params)
-                if verbose > 0:
+                if verbose > 1:
                     print(f"✅ Applied optimized parameters: {best_params}")
             except (ValueError, TypeError) as e:
-                if verbose > 0:
+                if verbose > 1:
                     print(f"⚠️ Could not apply parameters: {e}")
 
         # Create a combined data split for training
@@ -223,7 +223,7 @@ class PerFoldCVStrategy(CVStrategy):
                 new_name = f"{name}_{model_suffix}"
             renamed_binaries.append((new_name, binary))
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Single model training on full data completed successfully")
 
         return CVResult(

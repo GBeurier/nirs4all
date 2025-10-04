@@ -643,7 +643,7 @@ class BaseModelController(OperatorController, ABC):
         """Execute simple CV: finetune on full training data, then train on folds."""
         verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
 
-        if verbose > 0:
+        if verbose > 1:
             print("🔍 Simple CV: Finetuning on full training data...")
 
         # Combine all training data for finetuning
@@ -676,7 +676,7 @@ class BaseModelController(OperatorController, ABC):
         # Extract best parameters from the finetuning process
         best_params = getattr(self, '_last_best_params', {})
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🏆 Best parameters found: {best_params}")
             print(f"🔄 Training {len(data_splits)} fold models with best parameters...")
 
@@ -694,7 +694,7 @@ class BaseModelController(OperatorController, ABC):
                 try:
                     model.set_params(**best_params)
                 except Exception as e:
-                    if verbose > 0:
+                    if verbose > 1:
                         print(f"⚠️ Could not apply best parameters to fold {fold_idx+1}: {e}")
 
             test_context = context.copy()
@@ -718,7 +718,7 @@ class BaseModelController(OperatorController, ABC):
 
             all_binaries.extend(fold_binaries_renamed)
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Simple CV completed successfully")
 
         return context, all_binaries
@@ -744,7 +744,7 @@ class BaseModelController(OperatorController, ABC):
                 context, runner, dataset
             )
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🔍 Per-fold CV: Finetuning on each fold with {param_strategy.value} strategy...")
 
         all_binaries = []
@@ -755,7 +755,7 @@ class BaseModelController(OperatorController, ABC):
 
         # Finetune on each fold
         for fold_idx, (X_train, y_train, X_val, y_val) in enumerate(data_splits):
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🎛️ Finetuning fold {fold_idx+1}/{len(data_splits)}...")
 
             # Execute finetuning for this fold
@@ -784,7 +784,7 @@ class BaseModelController(OperatorController, ABC):
         if param_strategy == ParamStrategy.GLOBAL_BEST:
             # Use the best performing parameters across all folds
             global_best_params = self._select_global_best_params(all_best_params, data_splits)
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🏆 Global best parameters: {global_best_params}")
 
             # Check if we should train a single model on full training data
@@ -800,7 +800,7 @@ class BaseModelController(OperatorController, ABC):
             pass
         elif param_strategy in [ParamStrategy.ENSEMBLE_BEST, ParamStrategy.ROBUST_BEST, ParamStrategy.STABILITY_BEST]:
             # These strategies are planned for future implementation
-            if verbose > 0:
+            if verbose > 1:
                 print(f"⚠️ Parameter strategy {param_strategy.value} is not yet implemented. Using per_fold_best instead.")
 
         # For PER_FOLD_BEST, check if we should train on full data (though this is less common)
@@ -808,14 +808,14 @@ class BaseModelController(OperatorController, ABC):
         if use_full_train and param_strategy == ParamStrategy.PER_FOLD_BEST:
             # Use the first fold's parameters as representative (or could average them)
             representative_params = all_best_params[0] if all_best_params else {}
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🔄 Training single model on full data with representative parameters from fold 1")
             return self._train_single_model_on_full_data(
                 model_config, data_splits, representative_params, train_params,
                 context, runner, dataset, "per_fold_repr", verbose
             )
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Per-fold CV completed successfully")
 
         # Compute average and weighted average predictions
@@ -892,7 +892,7 @@ class BaseModelController(OperatorController, ABC):
                     partition = pred_data.get('partition', '')
                     base_models[grouping_key]['folds'][fold_idx][partition] = pred_data
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🧮 Computing aggregate predictions for {len(base_models)} model configurations...")
             for key, data in base_models.items():
                 print(f"  - {key}: {len(data['folds'])} folds")
@@ -901,11 +901,11 @@ class BaseModelController(OperatorController, ABC):
         for grouping_key, model_data in base_models.items():
             folds = model_data['folds']
             if len(folds) < 2:
-                if verbose > 0:
+                if verbose > 1:
                     print(f"  ⏭️ Skipping {grouping_key} - only {len(folds)} fold(s)")
                 continue  # Skip if only one fold
 
-            if verbose > 0:
+            if verbose > 1:
                 print(f"  🧮 Generating aggregated predictions for {grouping_key} with {len(folds)} folds")
 
             base_model = model_data['base_model']
@@ -918,7 +918,7 @@ class BaseModelController(OperatorController, ABC):
 
             # Generate average model: grouping_key_stepX_avg (e.g., PLS-10_cp_step5_avg)
             avg_instance_name = f"{grouping_key}_step{current_step}_avg"
-            if verbose > 0:
+            if verbose > 1:
                 print(f"    📊 Creating average model: {avg_instance_name}")
             self._generate_avg_predictions(
                 dataset_name, pipeline_name, pipeline_path, base_model,
@@ -927,7 +927,7 @@ class BaseModelController(OperatorController, ABC):
 
             # Generate weighted average model: grouping_key_stepX_w_avg (e.g., PLS-10_cp_step5_w_avg)
             w_avg_instance_name = f"{grouping_key}_step{current_step}_w_avg"
-            if verbose > 0:
+            if verbose > 1:
                 print(f"    ⚖️ Creating weighted average model: {w_avg_instance_name}")
             self._generate_weighted_avg_predictions(
                 dataset_name, pipeline_name, pipeline_path, base_model,
@@ -989,7 +989,7 @@ class BaseModelController(OperatorController, ABC):
                 custom_model_name=custom_model_name
             )
 
-        if verbose > 0:
+        if verbose > 1:
             train_count = len(partitions['train'])
             val_count = len(partitions['val'])
             test_count = len(partitions['test'])
@@ -1081,7 +1081,7 @@ class BaseModelController(OperatorController, ABC):
                 custom_model_name=custom_model_name
             )
 
-        if verbose > 0:
+        if verbose > 1:
             weights_str = ', '.join([f'fold{k}:{v:.3f}' for k, v in fold_weights.items()])
             print(f"  ✅ Generated weighted avg predictions for {w_avg_instance_name} (weights: {weights_str})")
 
@@ -1118,7 +1118,7 @@ class BaseModelController(OperatorController, ABC):
         Returns:
             Tuple of (context, binaries_list)
         """
-        if verbose > 0:
+        if verbose > 1:
             print(f"🎯 Training single model on full training data ({model_suffix})...")
 
         # Combine all training data from folds
@@ -1140,7 +1140,7 @@ class BaseModelController(OperatorController, ABC):
         combined_X_test = np.concatenate(all_X_test, axis=0)
         combined_y_test = np.concatenate(all_y_test, axis=0)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"📊 Combined training data: {combined_X_train.shape[0]} samples")
             print(f"📊 Combined test data: {combined_X_test.shape[0]} samples")
 
@@ -1151,17 +1151,17 @@ class BaseModelController(OperatorController, ABC):
         if hasattr(model, 'set_params') and best_params:
             try:
                 model.set_params(**best_params)
-                if verbose > 0:
+                if verbose > 1:
                     print(f"✅ Applied optimized parameters: {best_params}")
             except Exception as e:
-                if verbose > 0:
+                if verbose > 1:
                     print(f"⚠️ Could not apply parameters: {e}")
 
         # Prepare data in framework-specific format
         X_train_prep, y_train_prep = self._prepare_data(combined_X_train, combined_y_train, context)
         X_test_prep, _ = self._prepare_data(combined_X_test, combined_y_test, context)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🏋️ Training model with {X_train_prep.shape[0]} samples...")
 
         # Train the model
@@ -1216,7 +1216,7 @@ class BaseModelController(OperatorController, ABC):
         # Store results and serialize model
         binaries = self._store_results(trained_model, y_pred_test, combined_y_test, runner, f"{model_suffix}_model")
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Single model training on full data completed successfully")
 
         return context, binaries
@@ -1234,7 +1234,7 @@ class BaseModelController(OperatorController, ABC):
         """Execute global average optimization: optimize parameters across all folds simultaneously."""
         verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🌍 Global Average CV: Optimizing parameters across all {len(data_splits)} folds simultaneously...")
 
         try:
@@ -1298,12 +1298,12 @@ class BaseModelController(OperatorController, ABC):
         study = optuna.create_study(direction="minimize")
         n_trials = finetune_params.get('n_trials', 10)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🎯 Optimizing with {n_trials} trials, evaluating each on all {len(data_splits)} folds...")
 
         study.optimize(objective, n_trials=n_trials)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🏆 Global best parameters: {best_params}")
             print(f"📊 Best average score: {best_score:.4f}")
 
@@ -1320,7 +1320,7 @@ class BaseModelController(OperatorController, ABC):
             )
 
         # Default behavior: train final models on each fold using the globally optimal parameters
-        if verbose > 0:
+        if verbose > 1:
             print(f"🔄 Training {len(data_splits)} final models with global best parameters...")
 
         all_binaries = []
@@ -1337,7 +1337,7 @@ class BaseModelController(OperatorController, ABC):
                 try:
                     model.set_params(**best_params)
                 except Exception as e:
-                    if verbose > 0:
+                    if verbose > 1:
                         print(f"⚠️ Could not apply global parameters to fold {fold_idx+1}: {e}")
 
             # Train final model for this fold
@@ -1358,7 +1358,7 @@ class BaseModelController(OperatorController, ABC):
 
             all_binaries.extend(fold_binaries_renamed)
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Global Average CV completed successfully")
 
         return context, all_binaries
@@ -1378,7 +1378,7 @@ class BaseModelController(OperatorController, ABC):
         param_strategy = ParamStrategy(finetune_params.get('param_strategy', 'per_fold_best'))
         inner_cv = finetune_params.get('inner_cv', 3)
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🔍 Nested CV: {len(outer_folds)} outer folds with inner CV finetuning...")
             print(f"📊 Parameter strategy: {param_strategy.value}")
 
@@ -1386,13 +1386,13 @@ class BaseModelController(OperatorController, ABC):
         all_fold_results = []
 
         for outer_idx, (X_outer_train, y_outer_train, X_outer_test, y_outer_test) in enumerate(outer_folds):
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🏋️ Outer fold {outer_idx+1}/{len(outer_folds)}...")
 
             # Create inner folds for finetuning
             inner_folds = self._create_inner_folds(X_outer_train, y_outer_train, inner_cv)
 
-            if verbose > 1:
+            if verbose > 2:
                 print(f"  📋 Created {len(inner_folds)} inner folds for finetuning")
 
             # Choose optimization strategy
@@ -1407,7 +1407,7 @@ class BaseModelController(OperatorController, ABC):
                     model_config, inner_folds, train_params, finetune_params, context, verbose
                 )
 
-            if verbose > 1:
+            if verbose > 2:
                 print(f"  🏆 Best params for outer fold {outer_idx+1}: {fold_best_params}")
 
             # Train final model on full outer training data with best parameters
@@ -1419,7 +1419,7 @@ class BaseModelController(OperatorController, ABC):
                 try:
                     final_model.set_params(**fold_best_params)
                 except Exception as e:
-                    if verbose > 0:
+                    if verbose > 1:
                         print(f"⚠️ Could not apply parameters to outer fold {outer_idx+1}: {e}")
 
             # Prepare data and train
@@ -1456,7 +1456,7 @@ class BaseModelController(OperatorController, ABC):
         # Check if we should train a single model on full training data
         use_full_train = finetune_params.get('use_full_train_for_final', False)
         if use_full_train:
-            if verbose > 0:
+            if verbose > 1:
                 print("🎯 Training single model on full training data with nested CV optimized parameters...")
 
             # Use the best parameters from the first outer fold as representative
@@ -1468,7 +1468,7 @@ class BaseModelController(OperatorController, ABC):
                 context, runner, dataset, "nested_cv_full", verbose
             )
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Nested CV completed successfully")
 
         return context, all_binaries
@@ -1648,7 +1648,7 @@ class BaseModelController(OperatorController, ABC):
         verbose: int = 0
     ) -> Dict[str, Any]:
         """Compute weighted average parameters based on fold performance."""
-        if verbose > 0:
+        if verbose > 1:
             print("📊 Computing weighted average parameters...")
 
         # For numerical parameters, compute weighted average
@@ -1726,7 +1726,7 @@ class BaseModelController(OperatorController, ABC):
         verbose = train_params.get('verbose', 0)
         all_binaries = []
 
-        # if verbose > 0:
+        # if verbose > 1:
         #     print(f"🔄 Cross-validation: training {len(data_splits)} fold models...")
 
         # Get test data for final evaluation (after training all folds)
@@ -1738,7 +1738,7 @@ class BaseModelController(OperatorController, ABC):
         y_test = dataset.y(test_context)
 
         for fold_idx, (X_train, y_train, X_val, y_val) in enumerate(data_splits):
-            # if verbose > 0:
+            # if verbose > 1:
             #     print(f"🏋️ Training fold {fold_idx+1}/{len(data_splits)}...")
 
             if mode == ModelMode.FINETUNE and finetune_params:
@@ -1773,7 +1773,7 @@ class BaseModelController(OperatorController, ABC):
         # After all folds are complete, automatically generate aggregated predictions
         self._compute_aggregate_predictions(runner, dataset, verbose)
 
-        # if verbose > 0:
+        # if verbose > 1:
         #     print("✅ Cross-validation completed successfully")
 
         return context, all_binaries
@@ -1822,7 +1822,7 @@ class BaseModelController(OperatorController, ABC):
         """Execute training mode."""
         verbose = train_params.get('verbose', 0)
 
-        # if verbose > 0:
+        # if verbose > 1:
             # print("🏋️ Training model...")
 
         # Get model instance and clone it to avoid modifying original
@@ -1991,7 +1991,7 @@ class BaseModelController(OperatorController, ABC):
         # Save predictions to dataset results folder
         self._save_predictions_to_results_folder(dataset, runner)
 
-        # if verbose > 0:
+        # if verbose > 1:
         #     print("✅ Training completed successfully")
         return context, binaries
 
@@ -2033,7 +2033,7 @@ class BaseModelController(OperatorController, ABC):
         # Check verbose setting from finetune_params or train_params (0=silent, 1=basic, 2=detailed)
         verbose = finetune_params.get('verbose', train_params.get('verbose', 0))
 
-        # if verbose > 0:
+        # if verbose > 1:
             # print("🎛️ Fine-tuning model with Optuna...")
 
         try:
@@ -2145,7 +2145,7 @@ class BaseModelController(OperatorController, ABC):
         # Retrain best model with top-level train_params (final training parameters)
         if train_params != finetune_params.get('train_params', train_params):
             # print(f"🏆 Training with best parameters: {best_params}")
-            # if verbose > 1:
+            # if verbose > 2:
                 # print("🔄 Using final training parameters for best model...")
 
             base_model = self._get_model_from_config(model_config)
@@ -2235,7 +2235,7 @@ class BaseModelController(OperatorController, ABC):
             else:
                 print(f"🏆 {unique_model_name} - test: {score_display} {dataset_info}")
 
-            if verbose > 0:  # Only show parameters at verbose > 0
+            if verbose > 1:  # Only show parameters at verbose > 1
                 print(f"🔧 Optimized parameters: {best_params}")
         else:
             # Format dataset sizes information for fallback case
@@ -2248,7 +2248,7 @@ class BaseModelController(OperatorController, ABC):
         # Save predictions to dataset results folder
         self._save_predictions_to_results_folder(dataset, runner)
 
-        # if verbose > 0:
+        # if verbose > 1:
             # print("✅ Fine-tuning completed successfully")
         return context, binaries
 

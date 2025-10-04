@@ -230,7 +230,7 @@ class AbstractModelController(OperatorController, ABC):
                 )
                 result.binaries.extend(avg_binaries)
             except Exception as e:
-                if verbose > 0:
+                if verbose > 1:
                     print(f"⚠️ Could not generate average predictions: {e}")
 
         return result.context, result.binaries
@@ -281,7 +281,7 @@ class AbstractModelController(OperatorController, ABC):
         """Execute training using modular components."""
         verbose = train_params.get('verbose', 0)
 
-        if verbose > 0:
+        if verbose > 1:
             print("🏋️ Training model...")
 
         # Get model instance and prepare data
@@ -307,7 +307,7 @@ class AbstractModelController(OperatorController, ABC):
         try:
             runner_verbose = getattr(runner, 'verbose', 0)
             effective_verbose = max(verbose, runner_verbose)
-            if effective_verbose > 0:
+            if effective_verbose > 1:
                 # base name (no operation counter) and sizes
                 base_name = self.model_manager.get_base_model_name({}, trained_model)
                 y_test_len = len(y_test) if y_test is not None else 0
@@ -353,7 +353,7 @@ class AbstractModelController(OperatorController, ABC):
         """Execute finetuning using Optuna hyperparameter optimization."""
         verbose = train_params.get('verbose', 0)
 
-        if verbose > 0:
+        if verbose > 1:
             print("🎯 Starting hyperparameter optimization with Optuna...")
 
         try:
@@ -374,11 +374,11 @@ class AbstractModelController(OperatorController, ABC):
                 objective_function, finetune_dict, verbose
             )
 
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🏆 Optimization completed. Best score: {best_score:.4f}")
 
             # Train final model with best parameters
-            if verbose > 0:
+            if verbose > 1:
                 print("🏋️ Training final model with optimized parameters...")
 
             # Create model with best parameters
@@ -427,7 +427,7 @@ class AbstractModelController(OperatorController, ABC):
 
         except ImportError:
             # Optuna not available, fall back to regular training
-            if verbose > 0:
+            if verbose > 1:
                 print("⚠️ Optuna not available, falling back to regular training...")
             return self._execute_train_modular(
                 model_config, X_train, y_train, X_val, y_val, X_test, y_test,
@@ -435,7 +435,7 @@ class AbstractModelController(OperatorController, ABC):
             )
         except Exception as e:
             # Any other error, fall back to regular training
-            if verbose > 0:
+            if verbose > 1:
                 print(f"⚠️ Optuna optimization failed ({e}), falling back to regular training...")
             return self._execute_train_modular(
                 model_config, X_train, y_train, X_val, y_val, X_test, y_test,

@@ -31,7 +31,7 @@ class GlobalAverageCVStrategy(CVStrategy):
         all_binaries = []
         best_params = {}
 
-        if verbose > 0:
+        if verbose > 1:
             print("🌍 Global Average CV: Optimizing parameters across all folds...")
 
         if context.finetune_config is not None:
@@ -39,7 +39,7 @@ class GlobalAverageCVStrategy(CVStrategy):
             combined_X_train, combined_y_train = self._combine_all_training_data(context.data_splits)
             X_val_sample, y_val_sample = self._get_validation_sample(context.data_splits)
 
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🔬 Combined training data shape: {combined_X_train.shape}")
 
             # Create a combined data split for optimization
@@ -70,16 +70,16 @@ class GlobalAverageCVStrategy(CVStrategy):
             # Extract best parameters
             best_params = getattr(context.controller, '_last_best_params', {})
 
-            if verbose > 0:
+            if verbose > 1:
                 print(f"🏆 Global optimization completed. Best parameters: {best_params}")
 
         # Phase 2: Train models on each fold with globally optimal parameters
-        if verbose > 0:
+        if verbose > 1:
             fold_count = len(context.data_splits)
             print(f"🔄 Training {fold_count} fold models with {'globally optimal' if best_params else 'default'} parameters...")
 
         for fold_idx, _ in enumerate(context.data_splits):
-            if verbose > 0:
+            if verbose > 1:
                 print(f"📈 Training fold {fold_idx + 1}/{len(context.data_splits)}")
 
             # Create fold context with best parameters
@@ -90,7 +90,7 @@ class GlobalAverageCVStrategy(CVStrategy):
             fold_binaries_renamed = self._rename_fold_binaries(fold_binaries, fold_idx)
             all_binaries.extend(fold_binaries_renamed)
 
-        if verbose > 0:
+        if verbose > 1:
             print("✅ Global Average CV completed successfully")
 
         return CVResult(

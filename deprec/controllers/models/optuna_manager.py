@@ -105,7 +105,7 @@ class OptunaManager:
             optuna.logging.set_verbosity(optuna.logging.WARNING)
 
         # Run optimization
-        if verbose > 0:
+        if verbose > 1:
             print(f"🎯 Starting hyperparameter optimization with {approach} sampling ({n_trials} trials)...")
 
         study.optimize(objective_function, n_trials=n_trials)
@@ -114,7 +114,7 @@ class OptunaManager:
         best_params = study.best_params
         best_score = study.best_value
 
-        if verbose > 0:
+        if verbose > 1:
             print(f"🏆 Optimization completed. Best score: {best_score:.4f}")
             print(f"📊 Best parameters: {best_params}")
 
