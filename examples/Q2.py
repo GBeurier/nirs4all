@@ -56,16 +56,15 @@ predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_conf
 best_count = 3
 rank_metric = 'rmse'  # 'rmse', 'mae', 'r2'
 
-for dataset_name, predict_dict in predictions_per_datasets.items():
-    run_predictions = predict_dict['run_predictions']
-    print(f"\nTop {best_count} models by {rank_metric} for dataset: {dataset_name}")
-    top_10 = run_predictions.top_k(best_count, rank_metric)
-    for i, model in enumerate(top_10):
-        print(f"{i+1}. {Predictions.pred_short_string(model, metrics=[rank_metric])} - {model['preprocessings']}")
+run_predictions = predictions
+print(f"\nTop {best_count} models by {rank_metric}:")
+top_10 = run_predictions.top_k(best_count, rank_metric)
+for i, model in enumerate(top_10):
+    print(f"{i+1}. {Predictions.pred_short_string(model, metrics=[rank_metric])} - {model['preprocessings']}")
 
-    analyzer = PredictionAnalyzer(run_predictions)
-    fig1 = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
-    # plt.savefig('test_top_k_models_Q1.png', dpi=150, bbox_inches='tight')
+analyzer = PredictionAnalyzer(run_predictions)
+fig1 = analyzer.plot_top_k_comparison(k=best_count, metric='rmse')
+# plt.savefig('test_top_k_models_Q1.png', dpi=150, bbox_inches='tight')
 
 analyzer = PredictionAnalyzer(predictions)
 fig2 = analyzer.plot_variable_heatmap(

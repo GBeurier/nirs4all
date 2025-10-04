@@ -1,8 +1,4 @@
 #### ROADMAP ########
-Predict
-Q4
-** RELEASE **
->>> Vérifier les sauvegardes des fichiers et print
 Q5 - multisource
 ** RELEASE **
 Q1' - Finetuning
