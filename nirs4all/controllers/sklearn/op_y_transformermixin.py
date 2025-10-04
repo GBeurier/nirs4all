@@ -72,10 +72,29 @@ class YTransformerMixinController(OperatorController):
         import pickle
         from sklearn.base import clone
 
+        # Naming for the new processing
         operator_name = operator.__class__.__name__
-
-        # Get current y processing from context, default to "numeric"
         current_y_processing = context.get("y", "numeric")
+        new_processing_name = f"{current_y_processing}_{operator_name}{runner.next_op()}"
+
+        if mode == "predict" and loaded_binaries:
+            transformer = loaded_binaries[0][1] if loaded_binaries else operator
+            # print(f"🔄 Using pre-loaded transformer for prediction: {transformer}")
+            dataset._targets.add_processed_targets(
+                processing_name=new_processing_name,
+                targets=np.array([]),
+                ancestor=current_y_processing,
+                transformer=transformer,
+                mode=mode
+            )
+            updated_context = context.copy()
+            updated_context["y"] = new_processing_name
+            # print(f">>>>>>> Registered {transformer}")
+            # try:
+            #     print(transformer.data_min_, transformer.data_max_)
+            # except AttributeError:
+            #     print("Transformer does not have data_min_ or data_max_ attributes")
+            return updated_context, []
 
         # Get train and all targets
         train_context = context.copy()
@@ -84,17 +103,12 @@ class YTransformerMixinController(OperatorController):
         all_data = dataset.y(context)
 
         # Clone and fit the transformer on training targets
-        if mode != "predict":
-            transformer = clone(operator)
-            transformer.fit(train_data)
-        else:
-            transformer = loaded_binaries[0][1] if loaded_binaries else operator
+        transformer = clone(operator)
+        transformer.fit(train_data)
 
         # Transform all targets
         transformed_targets = transformer.transform(all_data)
 
-        # Create new processing name
-        new_processing_name = f"{current_y_processing}_{operator_name}{runner.next_op()}"
 
         # Add the processed targets to the dataset
         dataset.add_processed_targets(
@@ -103,7 +117,11 @@ class YTransformerMixinController(OperatorController):
             ancestor_processing=current_y_processing,
             transformer=transformer
         )
-
+        # print(f">>>>>>> Registered {transformer}")
+        # try:
+        #     print(transformer.data_min_, transformer.data_max_)
+        # except AttributeError:
+        #     print("Transformer does not have data_min_ or data_max_ attributes")
         # Update context to use the new y processing
         updated_context = context.copy()
         updated_context["y"] = new_processing_name

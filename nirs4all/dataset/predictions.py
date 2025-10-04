@@ -112,6 +112,55 @@ class Predictions:
 
         return result
 
+    @staticmethod
+    def save_predictions_to_csv(
+        y_true: Optional[Union[np.ndarray, List[float]]] = None,
+        y_pred: Optional[Union[np.ndarray, List[float]]] = None,
+        filepath: str = "",
+        prefix: str = "",
+        suffix: str = ""
+    ) -> None:
+        """
+        Save y_true and y_pred arrays to a CSV file.
+
+        Args:
+            y_true: True values array (optional, can be None for prediction-only mode)
+            y_pred: Predicted values array (required)
+            filepath: Output CSV file path
+            prefix: Optional prefix for column names
+            suffix: Optional suffix for column names
+        """
+        if y_pred is None:
+            raise ValueError("y_pred is required")
+
+        # Convert to numpy arrays if needed and flatten
+        y_pred_arr = np.array(y_pred) if not isinstance(y_pred, np.ndarray) else y_pred
+        y_pred_flat = y_pred_arr.flatten()
+
+        data_dict = {}
+        pred_col = f"{prefix}y_pred{suffix}"
+        data_dict[pred_col] = y_pred_flat.tolist()
+
+        # Handle y_true if provided
+        if y_true is not None:
+            y_true_arr = np.array(y_true) if not isinstance(y_true, np.ndarray) else y_true
+            y_true_flat = y_true_arr.flatten()
+
+            if len(y_true_flat) != len(y_pred_flat):
+                raise ValueError(f"Length mismatch after flattening: y_true ({len(y_true_flat)}) != y_pred ({len(y_pred_flat)})")
+
+            true_col = f"{prefix}y_true{suffix}"
+            data_dict[true_col] = y_true_flat.tolist()
+
+        # Create DataFrame and save to CSV
+        import polars as pl
+        df_csv = pl.DataFrame(data_dict)        # Create directory if it doesn't exist
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+
+        # Save to CSV
+        df_csv.write_csv(filepath)
+        print(f"💾 Saved predictions to {filepath}")
+
     def add_prediction(
         self,
         dataset_name: str,
@@ -359,6 +408,19 @@ class Predictions:
 
         return results
 
+    def get_similar(self, **filter_kwargs) -> Optional[Dict[str, Any]]:
+        """
+        Get the first prediction similar to the provided filter criteria.
+
+        Args:
+            **filter_kwargs: Filter criteria (same as filter_predictions)
+
+        Returns:
+            First matching prediction as dictionary, or None if no matches found
+        """
+        results = self.filter_predictions(**filter_kwargs)
+        return results[0] if results else None
+
     @property
     def num_predictions(self) -> int:
         """Get the number of stored predictions."""
@@ -476,7 +538,8 @@ class Predictions:
                 # print(f"📥 Loaded {len(self._df)} predictions from {filepath}")
 
         except Exception as e:
-            print(f"⚠️ Error loading predictions from {filepath}: {e}")
+            pass
+            # print(f"⚠️ Error loading predictions from {filepath}: {e}")
 
     @classmethod
     def load_from_file_cls(cls, filepath: str) -> 'Predictions':
@@ -619,6 +682,8 @@ class Predictions:
             if key in df_filtered.columns:
                 df_filtered = df_filtered.filter(pl.col(key) == value)
 
+        # print( f"🔍 Found {len(df_filtered)} predictions after filtering with criteria: {filters}")
+
         if df_filtered.is_empty():
             return []
 
@@ -707,7 +772,6 @@ class Predictions:
                 results = scores_data
             else:
                 results = scores_data[:k]
-            # print(len(results))
             # Add partition data if requested
             if len(aggregate_partitions) > 0:
                 results = self._add_partition_data(results, aggregate_partitions)
@@ -1003,3 +1067,4 @@ class Predictions:
     @classmethod
     def pred_long_string(cls, entry, metrics=None):  # ADAPT TO CLASSIFICATION
         return Predictions.pred_short_string(entry, metrics=metrics) + f" | [{entry['config_name']}]"
+

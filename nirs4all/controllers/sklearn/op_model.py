@@ -153,8 +153,6 @@ class SklearnModelController(BaseModelController):
 
     def _predict_model(self, model: BaseEstimator, X: np.ndarray) -> np.ndarray:
         """Generate predictions with sklearn model."""
-        print("🔮 Generating predictions...")
-        print(model)
         predictions = model.predict(X)
 
         # Ensure predictions are in the correct shape

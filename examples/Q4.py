@@ -1,116 +1,90 @@
+#!/usr/bin/env python3
+"""Simple Q4 Prediction Test - Run pipeline, then test 3 prediction methods"""
+
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
-
-# from deprec.controllers.models import data  # Comment out problematic import
-from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.pipeline.runner import PipelineRunner
-import json
-import os
+from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 import shutil
 from pathlib import Path
-
-
 import numpy as np
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
-# Clear old results to ensure fresh training with metadata
-results_path = Path("./results")
-if results_path.exists():
-    shutil.rmtree(results_path)
-    print("🧹 Cleared old results to ensure fresh training")
+from nirs4all.operators.models.cirad_tf import nicon
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 
 pipeline = [
-    # Normalize the spectra reflectance
     MinMaxScaler(),
     {"y_processing": MinMaxScaler},
-    ShuffleSplit(n_splits=3, test_size=.25),
-    {"model": PLSRegression(10)},
+    {
+        "feature_augmentation": {
+            "_or_": [StandardNormalVariate(), SavitzkyGolay(), Gaussian(), Haar()],
+            "size": [(2, 3), (1, 3)],
+            "count": 5
+        },
+    },
+    ShuffleSplit(n_splits=3, test_size=.25, random_state=42),
+    {"model": PLSRegression(10), "name": "Q4_model1"},  # Added a name for easier identification
+    {"model": PLSRegression(20), "name": "Q4_model2"},  # Added a name for easier identification
+    # {"model": RandomForestRegressor(n_estimators=20)},
+    {"model": GradientBoostingRegressor(n_estimators=20)},
+    # {
+    #     "model": nicon,
+    #     "train_params": {
+    #         "epochs": 100,
+    #         "patience": 50,
+    #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
+    #     },
+    # },
 ]
 
-# create pipeline config
 pipeline_config = PipelineConfigs(pipeline)
+dataset_config = DatasetConfigs(['sample_data/regression'])
+runner = PipelineRunner(save_files=True, verbose=0)
+run_predictions, _ = runner.run(pipeline_config, dataset_config)
 
-path = ['sample_data/regression']
-dataset_config = DatasetConfigs(path)
+# Best train model
+reference_prediction = run_predictions.top_k(1, partition="test")[0]
+prediction_id = reference_prediction['id']
 
-# Runner setup with spinner enabled (default is True, but let's be explicit)
-runner = PipelineRunner(save_files=True, verbose=0)  # CHANGED: Enable model saving for testing
-print("🔄 Running pipeline with spinner enabled - watch for loading animations during model training!")
-run_predictions, datasets_predictions = runner.run(pipeline_config, dataset_config)
+print("=== Q4 - Example ===")
+print("--- Source Model ---")
+print(f"Best model: {reference_prediction['model_name']} (id: {prediction_id})")
+reference_array = reference_prediction['y_pred'][:5].flatten()
+print("Y reference:", reference_array)
+print("-" * 120)
+# ####################################################################
 
-###############################################################################################################
-
-analyzer = PredictionAnalyzer(run_predictions)
-# Get top models to verify the real model names are displayed correctly
-best_count = 2
-top_2 = analyzer.get_top_k(best_count, 'rmse')
-for i, model in enumerate(top_2):
-    print(model.keys())
-
-### model > dict_keys(['dataset_name', 'dataset_path', 'config_name', 'config_path', 'step_idx', 'op_counter', 'model_name', 'model_classname', 'model_path', 'fold_id', 'sample_indices', 'weights', 'metadata', 'partition', 'y_true', 'y_pred', 'val_score', 'test_score', 'metric', 'task_type', 'n_samples', 'n_features', 'preprocessings', 'computed_score', 'computed_metric', 'rmse'])
-# #################################################################################################################
-
-prediction_data_config = DatasetConfigs(['sample_data/regression_2'])
+# Test prediction methods
+print("--- Method 1: Predict with a prediction entry ---")
+## Rebuild a pipeline runner and load dataset
 predictor = PipelineRunner(save_files=False, verbose=0)  # No need to save files here
-predictions = predictor.predict(top_2[0], prediction_data_config) # Prediction from model
+prediction_dataset = DatasetConfigs({
+    'X_test': 'sample_data/regression_2/Xval.csv.gz',
+})
+## Predict with the reference prediction entry
+method1_prediction, _ = predictor.predict(reference_prediction, prediction_dataset, verbose=0)
+method1_array = method1_prediction[:5].flatten()
+print("Y:", method1_array)
+identical = np.allclose(method1_array, reference_array)
+print(f"Method 1 identical to training: {'✅ YES' if identical else '❌ NO'}")
 
 
-# for dataset_name, dataset_prediction in datasets_predictions.items():
-#     print(f"Dataset: name={dataset_name}, number of predictions in the run={len(dataset_prediction['run_predictions'])}")
-#     analyzer = PredictionAnalyzer(dataset_prediction['run_predictions'])
-
-#     top_models = analyzer.get_top_k(10, 'rmse')  # Get more models to find non-virtual ones
-
-#     # Use the best model (can be virtual or real)
-#     best_model = top_models[0]
-
-#     # Extract metadata fields (they're stored in metadata dict)
-#     metadata = best_model.get("metadata", {})
-#     model_path = metadata.get("model_path", "unknown")
-#     config_path = metadata.get("config_path", "unknown")
-#     config_id = metadata.get("config_id", "unknown")
-#     prediction_model = best_model
-
-#     print(f"Using best model: {best_model['enhanced_model_name']} - RMSE: {best_model['metrics']['rmse']:.4f}")
-#     print(f"Model path: {model_path}")
-
-#     predicted_dataset = DatasetConfigs(['sample_data/regression_2'])
-#     predictions_from_model_path = PipelineRunner.predict( ## Directly use the model_path to retrieve the model and predict
-#         model_path,
-#         predicted_dataset
-#     )
-#     print(f"Predictions from model path: {model_path}")
-#     print(predictions_from_model_path)
-
-#     predictions_from_config_path = PipelineRunner.predict( ## GO in results, search for config_path, take the best(s) model(s) and predict
-#         config_path,
-#         predicted_dataset,
-#         # top_best = 1, # DEFAULT VALUE
-#     )
-#     print(f"Predictions from config path: {config_path}")
-#     print(predictions_from_config_path)
-
-#     predictions_from_prediction_model = PipelineRunner.predict( ## Directly use the model_info and tags of prediction model to retrieve the model and predict
-#         prediction_model,
-#         predicted_dataset,
-#     )
-#     print(f"Predictions from prediction model: {prediction_model}")
-#     print(predictions_from_prediction_model)
-
-#     predictions_from_config_id = PipelineRunner.predict( ## GO in results, search for config_id, take the best(s) model(s) and predict
-#         config_id,
-#         predicted_dataset,
-#         top_best = 3, # Use top 3 models from that config to predict
-#     )
-#     print(f"Predictions from config id: {config_id}")
-#     print(predictions_from_config_id)
-
-#     predictions_from_dataset_name = PipelineRunner.predict( ## GO in results, search for dataset_name, take the best(s) config(s) and predict
-#         dataset_name,
-#         predicted_dataset,
-#         top_best = 3, # Use top 3 models from that config to predict
-#     )
-#     print(f"Predictions from dataset name: {dataset_name}")
-#     print(predictions_from_dataset_name)
+####################################################################
+print("=" * 120)
+print("--- Method 2: Predict with a model ID ---")
+## Rebuild a pipeline runner and load dataset
+predictor = PipelineRunner(save_files=False, verbose=0)  # No need to save files here
+prediction_dataset = DatasetConfigs({
+    'X_test': 'sample_data/regression_2/Xval.csv.gz',
+})
+## Predict with the reference prediction entry
+reference_id = reference_prediction['id']
+print(f"Using model ID: [{reference_id}]")
+method2_prediction, _ = predictor.predict(reference_id, prediction_dataset, verbose=0)
+method2_array = method2_prediction[:5].flatten()
+print("Y:", method2_array)
+identical = np.allclose(method2_array, reference_array)
+print(f"Method 2 identical to training: {'✅ YES' if identical else '❌ NO'}")
+####################################################################

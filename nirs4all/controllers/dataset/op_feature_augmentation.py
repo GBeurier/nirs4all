@@ -52,7 +52,7 @@ class FeatureAugmentationController(OperatorController):
                 # Recréer source_processings à chaque itération pour éviter les mutations
                 source_processings = copy.deepcopy(original_source_processings)
                 local_context = copy.deepcopy(initial_context)
-                print(f"Applying feature augmentation operation {i + 1}/{len(step['feature_augmentation'])}: {operation}")
+                # print(f"Applying feature augmentation operation {i + 1}/{len(step['feature_augmentation'])}: {operation}")
                 # if i == 0 and operation is None:
                 #     print("Skipping no-op feature augmentation")
                 #     continue

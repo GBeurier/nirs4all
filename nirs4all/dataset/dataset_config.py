@@ -9,6 +9,7 @@ import copy
 import json
 import hashlib
 from pathlib import Path
+from tabnanny import verbose
 from typing import List, Union, Dict, Any
 from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.loader import handle_data
@@ -76,7 +77,7 @@ class DatasetConfigs:
             if y_test is not None:
                 dataset.add_targets(y_test)
 
-        print(f"✅ Loaded dataset '{dataset.name}' with {train_count} training and {test_count} test samples.")
+        # print(f"📊 Loaded dataset '{dataset.name}' with {train_count} training and {test_count} test samples.")
         return dataset
 
     def get_dataset_at(self, index) -> SpectroDataset:

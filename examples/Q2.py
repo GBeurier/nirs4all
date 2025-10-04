@@ -21,7 +21,7 @@ pipeline = [
     MinMaxScaler(feature_range=(0.1, 0.8)),
     MultiplicativeScatterCorrection,
     "3d_chart",
-    ShuffleSplit(n_splits=2),
+    ShuffleSplit(n_splits=3),
     {"y_processing": MinMaxScaler},
     {"model": PLSRegression(15)},
     {"model": PLSRegression(10)},
@@ -53,7 +53,7 @@ predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_conf
 ###############################################################################################################
 
 # Get top models to verify the real model names are displayed correctly
-best_count = 6
+best_count = 3
 rank_metric = 'rmse'  # 'rmse', 'mae', 'r2'
 
 for dataset_name, predict_dict in predictions_per_datasets.items():
@@ -89,6 +89,11 @@ fig3 = analyzer.plot_variable_heatmap(
     x_var="model_name",
     y_var="dataset_name",
     best_only=False,
+)
+
+fig3 = analyzer.plot_variable_heatmap(
+    x_var="model_name",
+    y_var="fold_id",
 )
 # # plt.savefig('test_heatmap2.png', dpi=300)
 plt.show()

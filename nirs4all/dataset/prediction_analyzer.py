@@ -197,13 +197,13 @@ class PredictionAnalyzer:
             ax_scatter.set_xlabel('True Values')
             ax_scatter.set_ylabel('Predicted Values')
 
-            model_display = pred['model_name'] + " (" + pred["config_name"] + ")"
+            model_display = pred['model_name'] + " [" + pred["id"] + "]"
             # if pred.get('fold_id') is not None:
             #     model_display += f" (Fold {pred['fold_id']})"
 
             title = f'{model_display}'
-            if partition not in ['all', 'ALL', 'All', '_all_', '']:
-                title += f' - {partition}'
+            # if partition not in ['all', 'ALL', 'All', '_all_', '']:
+                # title += f' - {partition}'
             ax_scatter.set_title(title)
             ax_scatter.grid(True, alpha=0.3)
 
