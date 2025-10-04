@@ -73,24 +73,28 @@ class SpectroDataset:
 
     def add_features(self,
                      features: InputFeatures,
-                     processings: ProcessingList) -> None:
+                     processings: ProcessingList,
+                     source: int = -1) -> None:
         # print("Adding features with processings:", processings)
-        self._features.update_features([], features, processings)
+        self._features.update_features([], features, processings, source=source)
         # Update the indexer to add new processings to existing processing lists
         self._indexer.add_processings(processings)
 
     def replace_features(self,
                          source_processings: ProcessingList,
                          features: InputFeatures,
-                         processings: ProcessingList) -> None:
-        self._features.update_features(source_processings, features, processings)
-        self._indexer.replace_processings(source_processings, processings)
+                         processings: ProcessingList,
+                         source: int = -1) -> None:
+        self._features.update_features(source_processings, features, processings, source=source)
+        if source <= 0:  # Update all sources or single source 0
+            self._indexer.replace_processings(source_processings, processings)
 
     def update_features(self,
                         source_processings: ProcessingList,
                         features: InputFeatures,
-                        processings: ProcessingList) -> None:
-        self._features.update_features(source_processings, features, processings)
+                        processings: ProcessingList,
+                        source: int = -1) -> None:
+        self._features.update_features(source_processings, features, processings, source=source)
 
     def augment_samples(self,
                         data: InputData,

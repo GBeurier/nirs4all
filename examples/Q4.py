@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """Simple Q4 Prediction Test - Run pipeline, then test 3 prediction methods"""
 
-from sklearn.model_selection import ShuffleSplit
+from sklearn.model_selection import ShuffleSplit, RepeatedKFold
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
-import shutil
-from pathlib import Path
 import numpy as np
 from nirs4all.operators.models.cirad_tf import nicon
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
@@ -24,7 +22,8 @@ pipeline = [
             "count": 5
         },
     },
-    ShuffleSplit(n_splits=3, test_size=.25, random_state=42),
+    # ShuffleSplit(n_splits=3, test_size=.25, random_state=42),
+    RepeatedKFold(n_splits=3, n_repeats=2, random_state=42),
     {"model": PLSRegression(10), "name": "Q4_model1"},  # Added a name for easier identification
     {"model": PLSRegression(20), "name": "Q4_model2"},  # Added a name for easier identification
     # {"model": RandomForestRegressor(n_estimators=20)},

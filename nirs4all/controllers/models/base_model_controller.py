@@ -180,15 +180,19 @@ class BaseModelController(OperatorController, ABC):
             base_model_name = ""
             model_classname = ""
             for fold_idx, (train_indices, val_indices) in enumerate(folds):
+                # if mode == "predict":
+                    # print(f"indices length: train {len(train_indices)}, val {len(val_indices)}")
+                    # print("data sizes:", X_train.shape, y_train.shape, X_test.shape, y_test.shape)
+
                 if verbose > 0:
                     print(f"📁 Training fold {fold_idx + 1}/{len(folds)}")
                 fold_val_indices.append(val_indices)
-                X_train_fold = X_train[train_indices]
-                y_train_fold = y_train[train_indices]
-                y_train_fold_unscaled = y_train_unscaled[train_indices]
-                X_val_fold = X_train[val_indices]
-                y_val_fold = y_train[val_indices]
-                y_val_fold_unscaled = y_train_unscaled[val_indices]
+                X_train_fold = X_train[train_indices] if X_train.shape[0] > 0 else np.array([])
+                y_train_fold = y_train[train_indices] if y_train.shape[0] > 0 else np.array([])
+                y_train_fold_unscaled = y_train_unscaled[train_indices] if y_train_unscaled.shape[0] > 0 else np.array([])
+                X_val_fold = X_train[val_indices] if X_train.shape[0] > 0 else np.array([])
+                y_val_fold = y_train[val_indices] if y_train.shape[0] > 0 else np.array([])
+                y_val_fold_unscaled = y_train_unscaled[val_indices] if y_train_unscaled.shape[0] > 0 else np.array([])
 
                 model, model_id, score, model_name, prediction_data = self.launch_training(
                     dataset, model_config, context, runner, prediction_store,
@@ -350,7 +354,7 @@ class BaseModelController(OperatorController, ABC):
             'test_score': score_test,
             'metric': metric,
             'task_type': dataset.task_type,
-            'n_features': X_train.shape[1],
+            'n_features': X_train.shape[1] if len(X_train.shape) > 1 else 1,
             'preprocessings': dataset.short_preprocessings_str(),
             'partitions': [
                 ("train", train_indices, y_train_unscaled, y_train_pred_unscaled),

@@ -27,21 +27,11 @@ class Features:
         for src, arr in zip(self.sources, data):
             src.add_samples(arr)
 
-    def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList) -> None:
+    def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList, source: int = -1) -> None:
         # Handle empty features list
         if not features:
             return
-
-        feats = [features] if isinstance(features[0], np.ndarray) else features
-
-        if len(self.sources) != len(feats):
-            raise ValueError(f"Expected {len(self.sources)} sources, got {len(feats)}")
-
-        if len(source_processings) == 0:
-            source_processings = [""] * len(processings)
-
-        for src, arr in zip(self.sources, feats):
-            src.update_features(source_processings, arr, processings)
+        self.sources[source if source >= 0 else 0].update_features(source_processings, features, processings)
 
     @property
     def num_samples(self) -> int:

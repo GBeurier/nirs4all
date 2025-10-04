@@ -135,20 +135,19 @@ class TransformerMixinController(OperatorController):
             new_processing_names.append(source_new_processing_names)
             processing_names.append(source_processing_names)
 
-        # Update dataset with transformed features
-        # Replace existing processings with transformed versions
-        for sd_idx, (source_features, new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names)):
+        for sd_idx, (source_features, src_new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names)):
             if "add_feature" in context and context["add_feature"]:
-                dataset.add_features(source_features, new_processing_names)
-                # context["processing"][sd_idx].extend(processing_names)
-                context["processing"][sd_idx] = new_processing_names
-                context["add_feature"] = False
+                dataset.add_features(source_features, src_new_processing_names, source=sd_idx)
+                context["processing"][sd_idx] = src_new_processing_names
             else:
                 dataset.replace_features(
                     source_processings=processing_names[sd_idx],
                     features=source_features,
-                    processings=new_processing_names
+                    processings=src_new_processing_names,
+                    source=sd_idx
                 )
-                context["processing"][sd_idx] = new_processing_names
+                context["processing"][sd_idx] = src_new_processing_names
+        context["add_feature"] = False
+
         # print(dataset)
         return context, fitted_transformers

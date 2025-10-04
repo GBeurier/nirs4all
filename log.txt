@@ -1,0 +1,64 @@
+ Multiple train_x files found for sample_data/multi: 3 sources detected.
+ Multiple test_x files found for sample_data/multi: 3 sources detected.
+========================================================================================================================
+ Starting Nirs4all run(s) with 1 pipeline on 1 dataset (1 total runs).
+========================================================================================================================
+ Starting pipeline config_b5239c on dataset multi
+------------------------------------------------------------------------------------------------------------------------
+ Q4_model1 rmse  [test: 12.3265], [val: 12.6062], (fold: 0, id: 1) - [2gcegp]
+ Q4_model1 rmse  [test: 13.5663], [val: 16.2444], (fold: 1, id: 2) - [adqh1r]
+ Q4_model1 rmse  [test: 12.8569], [val: 15.1812], (fold: 2, id: 3) - [o91uxv]
+ Q4_model1 rmse  [test: 12.1714], [val: 30.3290], (avg, id: 4) - [clre2s]
+ Q4_model1 rmse  [test: 12.1413], [val: 30.3687], (w_avg, id: 5) - [c467x1]
+ Pipeline Best: Q4_model1 - rmse [test: 12.3265], [val: 12.6062], , (fold: 0, id: 1, step: 5) - [2gcegp]
+========================================================================================================================
+ Best prediction in run for dataset 'multi': Q4_model1 - rmse [test: 12.3265], [val: 12.6062], , (fold: 0, id: 1, step: 5) - [2gcegp] | [config_b5239c]
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+|          | Nsample | Nfeature | Mean   | Median | Min    | Max     | SD     | CV     | R     | RMSE   | MSE     | SEP    | MAE    | RPD    | Bias   | Consistency |
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+| Cros Val | 33      | 12906    | 30.107 | 23.130 | 6.160  | 111.200 | 22.619 | 0.751  | 0.689  | 12.606 | 158.916 | 12.340 | 10.303 | 1.83   | 2.577  | 93.9        |
+| Train    | 97      | 12906    | 30.410 | 23.140 | 2.050  | 128.310 | 23.891 | 0.786  | 0.948  | 5.462  | 29.833  | 5.462  | 4.095  | 4.37   | -0.000 | 100.0       |
+| Test     | 59      | 12906    | 31.762 | 27.110 | 1.330  | 84.570  | 19.805 | 0.624  | 0.613  | 12.326 | 151.943 | 12.326 | 9.663  | 1.61   | 0.116  | 89.8        |
+|----------|---------|----------|--------|--------|--------|---------|--------|--------|--------|--------|---------|--------|--------|--------|--------|-------------|
+ Saved predictions to results\multi\10-04_21h3405s_Prediction_run(config_b5239c_Q4_model1)_[2gcegp].csv
+========================================================================================================================
+Top 5 models by rmse:
+1. Q4_model1 - rmse [test: 12.3265], [val: 12.6062], , (fold: 0, id: 1, step: 5) - [2gcegp] - MinMax|MinMax>Haar
+2. Q4_model1 - rmse [test: 12.8569], [val: 15.1812], , (fold: 2, id: 3, step: 5) - [o91uxv] - MinMax|MinMax>Haar
+3. Q4_model1 - rmse [test: 13.5663], [val: 16.2444], , (fold: 1, id: 2, step: 5) - [adqh1r] - MinMax|MinMax>Haar
+4. Q4_model1 - rmse [test: 12.1714], [val: 30.3290], , (fold: avg, id: 4, step: 5) - [clre2s] - MinMax|MinMax>Haar
+5. Q4_model1 - rmse [test: 12.1413], [val: 30.3687], , (fold: w_avg, id: 5, step: 5) - [c467x1] - MinMax|MinMax>Haar
+=== Q5 - Example ===
+--- Source Model ---
+Best model: Q4_model1 (id: 2gcegp)
+Y reference: [15.95824668 24.40196729 18.38944358 27.82324883 24.10255003]
+------------------------------------------------------------------------------------------------------------------------
+========================================================================================================================
+--- Predict with a model ID ---
+ Multiple train_x files found for sample_data/multi: 3 sources detected.
+ Multiple test_x files found for sample_data/multi: 3 sources detected.
+Using model ID: [2gcegp] in config_b5239c
+========================================================================================================================
+ Starting Nirs4all prediction(s)
+========================================================================================================================
+ Dataset: multi (regression)
+Features (samples=189, sources=3):
+- Source 0: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149)
+- Source 1: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149)
+- Source 2: (189, 1, 2151), processings=['raw'], min=-0.265, max=1.436, mean=0.466, var=0.149)
+Targets: (samples=189, targets=1, processings=['numeric'])
+- numeric: min=1.33, max=128.31, mean=30.779
+Indexes:
+- "train", ['raw']: 130 samples
+- "test", ['raw']: 59 samples
+ Starting pipeline prediction on dataset multi
+------------------------------------------------------------------------------------------------------------------------
+indices length: train 130, val 0
+data sizes: (130, 12906) (0,) (59, 12906) (0,)
+indices length: train 130, val 0
+data sizes: (130, 12906) (0,) (59, 12906) (0,)
+indices length: train 130, val 0
+data sizes: (130, 12906) (0,) (59, 12906) (0,)
+ Predicted with: Q4_model1 [ft0cc0]
+ Saved predictions to results\multi\10-04_21h34m09s_Prediction_[ft0cc0].csv
+Y: []
