@@ -80,8 +80,7 @@ class FeatureSource:
                            [savgol_data, msc_data, detrend_data],
                            ["savgol", "msc", "detrend"])
         """
-        self._validate_update_inputs(features, source_processings, processings)
-
+        # self._validate_update_inputs(features, source_processings, processings)
         # Separate operations: replacements and additions
         replacements, additions = self._categorize_operations(features, source_processings, processings)
 
@@ -89,21 +88,23 @@ class FeatureSource:
         self._apply_replacements(replacements)
         self._apply_additions(additions)
 
-    def _validate_update_inputs(self, features: List[np.ndarray], source_processings: List[str], processings: List[str]) -> None:
-        """Validate inputs for update_features."""
-        if len(features) != len(source_processings) or len(features) != len(processings):
-            raise ValueError("features, source_processings, and processings must have the same length")
+    # def _validate_update_inputs(self, features: List[np.ndarray], source_processings: List[str], processings: List[str]) -> None:
+    #     """Validate inputs for update_features."""
+    #     if len(features) != len(source_processings) or len(features) != len(processings):
+    #         raise ValueError("features, source_processings, and processings must have the same length")
 
-        # Validate that all arrays have the same number of samples
-        if self.num_samples > 0:
-            for i, arr in enumerate(features):
-                if arr.shape[0] != self.num_samples:
-                    raise ValueError(f"Array {i} has {arr.shape[0]} samples, expected {self.num_samples}")
+    #     # Validate that all arrays have the same number of samples
+    #     if self.num_samples > 0:
+    #         for i, arr in enumerate(features):
+    #             if arr.shape[0] != self.num_samples:
+    #                 raise ValueError(f"Array {i} has {arr.shape[0]} samples, expected {self.num_samples}")
 
     def _categorize_operations(self, features: List[np.ndarray], source_processings: List[str], processings: List[str]):
         """Separate operations into replacements and additions."""
         replacements = []  # (processing_idx, new_data, new_processing_name)
         additions = []     # (new_data, new_processing_name)
+        if len(source_processings) == 0:
+            source_processings = [""] * len(processings)
 
         for arr, source_proc, target_proc in zip(features, source_processings, processings):
             if source_proc == "":

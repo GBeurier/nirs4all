@@ -1,3 +1,4 @@
+
 from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +16,6 @@ from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.binary_loader import BinaryLoader
 from nirs4all.utils.tab_report_manager import TabReportManager
-
 
 class PipelineRunner:
     """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
@@ -85,7 +85,7 @@ class PipelineRunner:
                 dataset = dataset_configs.get_dataset(config, name)
                 dataset_name = name
 
-                if self.verbose > 1:
+                if self.verbose > 0:
                     print(dataset)
 
                 config_predictions = Predictions()
@@ -106,10 +106,10 @@ class PipelineRunner:
                     tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
                     print(tab_report)
                     if tab_report_csv_file:
-                        filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_run_({best['config_name']}_{best['model_name']})_[{best['id']}].csv"
+                        filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
                         self.saver.save_file(filename, tab_report_csv_file, into_dataset=True)
                 if self.save_files:
-                    prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Prediction_run({best['config_name']}_{best['model_name']})_[{best['id']}].csv"
+                    prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Best_prediction_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
                     prediction_path = self.saver.base_path / name / prediction_name
                     Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
 
@@ -210,13 +210,14 @@ class PipelineRunner:
             model_name=self.target_model.get('model_name', None),
             step_idx=self.target_model.get('step_idx', None),
             op_counter=self.target_model.get('op_counter', None),
-            fold_id=self.target_model.get('fold_id', None)
+            fold_id=self.target_model.get('fold_id', None),
+            partition='test'  # Always return test partition for predict
         )
         if single_pred is None:
             raise ValueError("No matching prediction found for the specified model criteria. Predict failed.")
 
         print(f"✅ Predicted with: {single_pred['model_name']} [{single_pred['id']}]")
-        filename = f"{datetime.now().strftime('%m-%d_%Hh%Mm%Ss')}_Prediction_[{single_pred['id']}].csv"
+        filename = f"Predict_[{single_pred['id']}].csv"
         y_pred = single_pred["y_pred"]
         prediction_path = self.saver.base_path / dataset.name / filename
         Predictions.save_predictions_to_csv(y_pred=y_pred, filepath=prediction_path)
@@ -390,14 +391,13 @@ class PipelineRunner:
                 raise RuntimeError(f"Pipeline step failed: {str(e)}") from e
 
         finally:
-            if not is_substep:
-                if self.verbose > 1:
-                    print("-" * 120)
-                after_dataset_str = str(dataset)
-                # print(before_dataset_str)
-                if before_dataset_str != after_dataset_str and self.verbose > 1:
-                    print(f"\033[97mUpdate: {after_dataset_str}\033[0m")
-                    print("-" * 120)
+            if self.verbose > 0:
+                print("-" * 120)
+            after_dataset_str = str(dataset)
+            # print(before_dataset_str)
+            if before_dataset_str != after_dataset_str and self.verbose > 0:
+                print(f"\033[97mUpdate: {after_dataset_str}\033[0m")
+                print("-" * 120)
 
     def _select_controller(self, step: Any, operator: Any = None, keyword: str = ""):
         matches = [cls for cls in CONTROLLER_REGISTRY if cls.matches(step, operator, keyword)]
