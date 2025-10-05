@@ -617,7 +617,7 @@ class Indexer:
 
         # Group by all columns and count (include null values)
         combinations = self.df.select(cols_to_include).group_by(cols_to_include).agg(
-            pl.count().alias("count")
+            pl.len().alias("count")
         ).sort("count", descending=True)
 
         # Format output

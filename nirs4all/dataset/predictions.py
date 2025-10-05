@@ -174,7 +174,7 @@ class Predictions:
         model_name: str = "",
         model_classname: str = "",
         model_path: str = "",
-        fold_id: Optional[str | int] = None,
+        fold_id: Optional[Union[str, int]] = None,
         sample_indices: Optional[List[int]] = None,
         weights: Optional[List[float]] = None,
         metadata: Optional[Dict[str, Any]] = None,

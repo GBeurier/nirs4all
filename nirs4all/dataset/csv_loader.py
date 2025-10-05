@@ -5,6 +5,7 @@ import gzip
 import zipfile
 from pathlib import Path
 import numpy as np
+from typing import Union
 
 
 # =============================================================================
@@ -254,7 +255,7 @@ def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', **u
             and other pandas.read_csv arguments.
 
     Returns:
-        (pandas.DataFrame | None, dict, pandas.Series | None):
+        (Union[pandas.DataFrame, None], dict, Union[pandas.Series, None]):
             - DataFrame with processed data (before NA row removal).
             - Report dictionary.
             - Boolean Series indicating rows with NAs (aligned with the returned DataFrame).

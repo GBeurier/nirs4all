@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, get_type_hints, get_origin, get_args, Annotated
+from typing import Any, get_type_hints, get_origin, get_args, Annotated, Union
 import importlib
 import json
 
@@ -178,7 +178,7 @@ def _changed_kwargs(obj):
     return out
 
 
-def _resolve_type(obj_or_cls: Any, name: str) -> type | Any | None:
+def _resolve_type(obj_or_cls: Any, name: str) -> Union[type, Any, None]:
     """Resolve the type of a parameter in a class or function
     based on its signature or type hints.
     If the parameter is not found, return None.

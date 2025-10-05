@@ -271,7 +271,7 @@ class SpectroDataset:
         return len(self._folds)
 
     @property
-    def num_features(self) -> List[int] | int:
+    def num_features(self) -> Union[List[int], int]:
         return self._features.num_features
 
     @property
