@@ -33,7 +33,7 @@ Near-Infrared Spectroscopy (NIRS) is a rapid and non-destructive analytical tech
 
 NIRS4ALL offers a wide range of functionalities:
 
-1. **Spectrum Preprocessing**: 
+1. **Spectrum Preprocessing**:
    - Baseline correction
    - Standard normal variate (SNV)
    - Robust normal variate
@@ -46,7 +46,7 @@ NIRS4ALL offers a wide range of functionalities:
    - Haar wavelet transformation
    - And more
 
-2. **Data Splitting Methods**: 
+2. **Data Splitting Methods**:
    - Kennard Stone
    - SPXY
    - Random sampling
@@ -79,12 +79,12 @@ NIRS4ALL offers a wide range of functionalities:
 ```bash
 pip install nirs4all
 ```
+# Install TensorFlow cpu support by default
 
 ### With Additional ML Frameworks
 
 ```bash
-# With TensorFlow support
-pip install nirs4all[tf]
+
 
 # With PyTorch support
 pip install nirs4all[torch]
@@ -108,6 +108,30 @@ git clone https://github.com/gbeurier/nirs4all.git
 cd nirs4all
 pip install -e .[dev]
 ```
+
+## Installation Testing
+
+After installing `nirs4all`, you can verify your installation and environment using the built-in CLI test commands:
+
+```bash
+# Basic installation test: checks required dependencies and versions
+nirs4all -test_install
+
+# Full installation test: checks dependencies and runs a TensorFlow test
+nirs4all -full_test_install
+
+# Integration test: runs a full pipeline on sample data (Random Forest, PLS fine-tuning, and a simple CNN)
+nirs4all -test_integration
+```
+
+Each command will print a summary of the test results and alert you to any missing dependencies or issues with your environment.
+
+You can also check the installed version:
+
+```bash
+nirs4all --version
+```
+
 
 ## Quick Start
 

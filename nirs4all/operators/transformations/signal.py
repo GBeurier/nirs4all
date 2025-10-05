@@ -60,6 +60,7 @@ class Baseline(TransformerMixin, BaseEstimator):
 
         first_pass = not hasattr(self, "mean_")
         # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
+        # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
 
         self.mean_ = np.mean(X, axis=0)
         return self
