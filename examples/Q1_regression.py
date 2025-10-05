@@ -1,0 +1,99 @@
+"""
+Q1 Example - Basic Regression Pipeline with PLS Models
+=====================================================
+Demonstrates NIRS regression analysis using PLS models with various preprocessing techniques.
+Features automated hyperparameter tuning for n_components and comprehensive result visualization.
+"""
+
+# Standard library imports
+import matplotlib.pyplot as plt
+
+# Third-party imports
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler
+
+# NIRS4All imports
+from nirs4all.dataset import DatasetConfigs
+from nirs4all.dataset.predictions import Predictions
+from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+from nirs4all.operators.transformations import (
+    Detrend, FirstDerivative, SecondDerivative, Gaussian,
+    StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
+)
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+
+# Configuration variables
+feature_scaler = MinMaxScaler()
+target_scaler = MinMaxScaler()
+preprocessing_options = [
+    Detrend, FirstDerivative, SecondDerivative, Gaussian,
+    StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
+]
+cross_validation = ShuffleSplit(n_splits=3, test_size=0.25)
+data_path = 'sample_data/regression'
+
+# Build the pipeline
+pipeline = [
+    "chart_2d",
+    feature_scaler,
+    {"y_processing": target_scaler},
+    {"feature_augmentation": {"_or_": preprocessing_options, "size": [1, (1, 2)], "count": 7}},  # Generate combinations of preprocessing techniques
+    cross_validation,
+]
+
+# Add PLS models with different numbers of components
+for n_components in range(1, 30, 3):
+    model_config = {
+        "name": f"PLS-{n_components}_components",
+        "model": PLSRegression(n_components=n_components)
+    }
+    pipeline.append(model_config)
+
+# Create configuration objects
+pipeline_config = PipelineConfigs(pipeline, "Q1")
+dataset_config = DatasetConfigs(data_path)
+
+# Run the pipeline
+runner = PipelineRunner(save_files=False, verbose=0)
+predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
+
+# Analysis and visualization
+best_model_count = 5
+ranking_metric = 'rmse'  # Options: 'rmse', 'mae', 'r2'
+
+# Display top performing models
+top_models = predictions.top_k(best_model_count, ranking_metric)
+print(f"Top {best_model_count} models by {ranking_metric}:")
+for idx, prediction in enumerate(top_models):
+    print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")
+
+# Create visualizations
+analyzer = PredictionAnalyzer(predictions)
+
+# Plot comparison of top models
+fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
+
+# Plot heatmap of model performance vs preprocessing
+fig2 = analyzer.plot_variable_heatmap(
+    x_var="model_name",
+    y_var="preprocessings",
+    metric='rmse',
+    best_only=False
+)
+
+# Plot simplified heatmap without count display
+fig3 = analyzer.plot_variable_heatmap(
+    x_var="model_name",
+    y_var="preprocessings",
+    metric='rmse',
+    display_n=False
+)
+
+# Plot candlestick chart for model performance distribution
+fig4 = analyzer.plot_variable_candlestick(
+    filters={"partition": "test"},
+    variable="model_name",
+)
+
+plt.show()

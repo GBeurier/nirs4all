@@ -1,56 +1,79 @@
+"""
+Q1 Classification Example - Random Forest Classification Pipeline
+===============================================================
+Demonstrates NIRS classification analysis using Random Forest models with various max_depth parameters.
+Shows confusion matrix visualization for model performance evaluation.
+"""
+
+# Standard library imports
 import os
-
-from nirs4all.dataset.predictions import Predictions
-# set to False to enable emojis
-os.environ['DISABLE_EMOJIS'] = '0'
-
-import numpy as np
 import matplotlib.pyplot as plt
 
+# Third-party imports
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import ShuffleSplit
+from sklearn.preprocessing import MinMaxScaler
 
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+# NIRS4All imports
 from nirs4all.dataset import DatasetConfigs
-from nirs4all.operators.transformations import *
+from nirs4all.dataset.predictions import Predictions
+from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+from nirs4all.operators.transformations import (
+    Detrend, FirstDerivative, SecondDerivative, Gaussian,
+    StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
+)
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
-x_scaler = MinMaxScaler() # StandardScaler(), RobustScaler(), QuantileTransformer(), PowerTransformer(), LogTransform()
-list_of_preprocessors = [Detrend, FirstDerivative, SecondDerivative, Gaussian, StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection]
-splitting_strategy = ShuffleSplit(n_splits=3, test_size=.25)
-dataset_folder = 'sample_data/classification'
+# Disable emojis in output (set to '1' to disable, '0' to enable)
+os.environ['DISABLE_EMOJIS'] = '0'
 
+# Configuration variables
+feature_scaler = MinMaxScaler()
+preprocessing_options = [
+    Detrend, FirstDerivative, SecondDerivative, Gaussian,
+    StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
+]
+cross_validation = ShuffleSplit(n_splits=3, test_size=0.25)
+data_path = 'sample_data/classification'
+
+# Build the pipeline
 pipeline = [
+    # Optional preprocessing steps (commented out for basic demonstration)
     # "chart_2d",
-    # x_scaler,
+    # feature_scaler,
     # "chart_3d",
-    # {"feature_augmentation": {"_or_": list_of_preprocessors, "size": [1, (1, 2)], "count": 5}}, # Generate all elements of size 1 and of order 1 or 2 (ie. "Gaussian", ["SavitzkyGolay", "Log"], etc.)
-    splitting_strategy,
+    # {"feature_augmentation": {"_or_": preprocessing_options, "size": [1, (1, 2)], "count": 5}},
+    cross_validation,
 ]
 
-for i in range(5, 100, 5):
-    model = {
-        "name": f"RF-depth-{i}",
-        "model": RandomForestClassifier(max_depth=i)
+# Add Random Forest models with different max_depth values
+for max_depth in range(5, 100, 5):
+    model_config = {
+        "name": f"RandomForest-depth-{max_depth}",
+        "model": RandomForestClassifier(max_depth=max_depth)
     }
-    pipeline.append(model)
+    pipeline.append(model_config)
 
-pipeline_config = PipelineConfigs(pipeline, "pipeline_Q1_classif")
-dataset_config = DatasetConfigs(dataset_folder)
+# Create configuration objects
+pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
+dataset_config = DatasetConfigs(data_path)
 
-# Create pipeline
+# Run the pipeline
 runner = PipelineRunner(save_files=False, verbose=0)
-run_predictions, other_predictions = runner.run(pipeline_config, dataset_config)
-print(run_predictions)
-# Get top models to verify the real model names are displayed correctly
-best_count = 5
-rank_metric = 'accuracy'
-top_n = run_predictions.top_k(best_count)
-print(f"Top {best_count} models by {rank_metric}:")
-for i, pred in enumerate(top_n):
-    print(f"{i+1}. {Predictions.pred_short_string(pred, metrics=[rank_metric])} - {pred['preprocessings']}")
+predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
-analyzer = PredictionAnalyzer(run_predictions)
-fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', partition='val')
+# Analysis and visualization
+best_model_count = 5
+ranking_metric = 'accuracy'
+
+# Display top performing models
+top_models = predictions.top_k(best_model_count)
+print(f"Top {best_model_count} models by {ranking_metric}:")
+for idx, prediction in enumerate(top_models):
+    print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")
+
+# Create confusion matrix visualization for top models
+analyzer = PredictionAnalyzer(predictions)
+confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', partition='val')
+
 plt.show()

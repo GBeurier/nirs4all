@@ -201,11 +201,11 @@ NIRS4ALL provides built-in CLI commands to verify your installation. These comma
 Test core dependencies and basic functionality:
 
 ```bash
-nirs4all --test_install
+nirs4all --test-install
 ```
 
 This command:
-- ✅ Checks Python version (requires ≥3.7)
+- ✅ Checks Python version (requires ≥3.9)
 - ✅ Verifies all required dependencies with correct versions
 - ✅ Checks for optional ML frameworks (TensorFlow, PyTorch, Keras, JAX)
 - ✅ Tests NIRS4ALL component imports
@@ -243,64 +243,44 @@ This command:
 ✓ Available ML frameworks: tensorflow, keras
 ```
 
-### Full Installation Test
-
-Comprehensive test including framework functionality:
-
-```bash
-nirs4all --full_test_install
-```
-
-This command:
-- 🔄 Runs the basic installation test first
-- 🧠 Tests TensorFlow functionality (model creation and inference)
-- 🔥 Tests PyTorch functionality (if installed)
-- 📊 Tests scikit-learn integration
-- 🔧 Tests NIRS4ALL transformations
-- 🖥️ Checks GPU availability
-- 📋 Provides detailed functionality report
-
 ### Integration Test
 
 Complete pipeline test with real sample data:
 
 ```bash
-nirs4all --test_integration
+nirs4all --test-integration
 ```
 
-This command runs three different model types:
-- 🌳 **Random Forest Classification** - Tests scikit-learn integration
-- 📈 **PLS Regression with Fine-tuning** - Tests hyperparameter optimization (5-15 components)
-- 🧠 **Simple CNN (3 epochs)** - Tests neural network functionality
+This command runs three different pipeline types:
+- 🌳 **Sklearn Extended Pipeline** - Tests multiple PLS models and RandomForest with comprehensive preprocessing
+- 🧠 **TensorFlow Pipeline** - Tests neural network functionality with NICON architecture
+- � **Optuna Extended Pipeline** - Tests hyperparameter optimization with multiple approaches
 
 **Expected output for successful integration test:**
 ```
 🧪 NIRS4ALL Integration Test...
 ==================================================
-Running Full Pipeline Integration Test...
+🔄 Running Pipeline Integration Tests...
 ==================================================
 
-Test 1: Random Forest Classification
-  ✓ Data shapes: X_train(300, 1665), Y_train(300, 1)
-  ✓ Execution time: 1.25 seconds
-  ✓ Model scores: {'accuracy': 0.94}
-  ✓ Random Forest Classification completed successfully!
+🔹 Test: Sklearn Extended Pipeline (Multiple PLS + RandomForest)
+✅ PLSRegression rmse ↓ [test: 2.22], [val: 0.58] - completed successfully (5.4s)
 
-Test 2: PLS Fine-tuning
-  ✓ Data shapes: X_train(130, 2151), Y_train(130, 1)
-  ✓ Best parameters: {'n_components': 12}
-  ✓ Model scores: {'mse': 285.3, 'r2': 0.27}
-  ✓ PLS Fine-tuning completed successfully!
+🔹 Test: TensorFlow Pipeline (NICON Neural Network)
+✅ nicon rmse ↓ [test: 10.26], [val: 10.06] - completed successfully (8.0s)
 
-Test 3: Simple CNN
-  ✓ Data shapes: X_train(300, 1665), Y_train(300, 1)
-  ✓ Execution time: 3.45 seconds
-  ✓ Model scores: {'accuracy': 0.89}
-  ✓ Simple CNN completed successfully!
+🔹 Test: Optuna Extended Pipeline (Comprehensive PLS Optimization)
+✅ PLS-Finetuned-Extended rmse ↓ [test: 2.11], [val: 0.83] - completed successfully (1.2s)
 
+📋 Integration Test Summary
+✅ PASS Sklearn Extended Pipeline: 5.40s
+✅ PASS TensorFlow Pipeline: 7.96s
+✅ PASS Optuna Extended Pipeline: 1.22s
+
+Total execution time: 14.58s
 🎉 Integration test PASSED!
-✓ All 3 pipeline tests completed successfully
-✓ NIRS4ALL is ready for use!
+✅ All 3 pipeline tests completed successfully
+🚀 NIRS4ALL is ready for use!
 ```
 
 ### Other Useful Commands
@@ -398,18 +378,37 @@ If you encounter issues not covered here:
 Once installed, verify everything works:
 
 ```python
-import nirs4all
-from nirs4all.data.dataset_loader import get_dataset
-from nirs4all.transformations import StandardNormalVariate
+# Import the new API components
+from nirs4all.dataset import DatasetConfigs
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.operators.transformations import StandardNormalVariate
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import ShuffleSplit
 
-# Load sample data
-dataset = get_dataset("binary")
-print(f"Dataset loaded: {dataset.X.shape}")
+# Create a simple pipeline
+pipeline = [
+    MinMaxScaler(),
+    StandardNormalVariate(),
+    ShuffleSplit(n_splits=2),
+    {"model": PLSRegression(n_components=5)}
+]
 
-# Apply transformation
-snv = StandardNormalVariate()
-X_transformed = snv.fit_transform(dataset.X)
-print("Transformation applied successfully!")
+# Configure and run
+pipeline_config = PipelineConfigs(pipeline, "TestPipeline")
+dataset_config = DatasetConfigs("sample_data/regression")
+
+runner = PipelineRunner(save_files=False, verbose=1)
+predictions, _ = runner.run(pipeline_config, dataset_config)
+
+print(f"Pipeline completed! Generated {len(predictions)} predictions.")
+print(f"Best model RMSE: {predictions.top_k(1, 'rmse')[0]['rmse']:.4f}")
 ```
 
-🎉 **Congratulations!** NIRS4ALL is now installed and ready to use. Check out the [walkthrough notebook](examples/nirs4all_walkthrough.ipynb) for a comprehensive tutorial.
+🎉 **Congratulations!** NIRS4ALL is now installed and ready to use. Check out the example scripts in the `examples/` directory:
+
+- `Q1.py` - Basic pipeline with feature augmentation
+- `Q1_finetune.py` - Hyperparameter optimization
+- `Q2.py` - Multi-model comparison
+
+For comprehensive tutorials and documentation.

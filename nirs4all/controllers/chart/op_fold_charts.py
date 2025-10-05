@@ -21,7 +21,7 @@ class FoldChartController(OperatorController):
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
-        return keyword == "fold_chart"
+        return keyword == "fold_chart" or keyword == "chart_fold"
 
     @classmethod
     def use_multi_source(cls) -> bool:
@@ -87,6 +87,8 @@ class FoldChartController(OperatorController):
         image_name = f"fold_visualization_{len(folds)}folds.png"
         img_list = [(image_name, img_png_binary)]
 
+        if runner.plots_visible:
+            plt.show()
         plt.close(fig)
 
         return context, img_list
