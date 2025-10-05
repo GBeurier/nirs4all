@@ -2,13 +2,15 @@
 Binning + Classification
 Q7
 ** RELEASE **
-SHAPE
+Train_params in finetuning tf
+SHAP
 Q6
 ** RELEASE **
 [CLI]
 [Logic flow in tf finetuning]
 ** RELEASE **
 [SEED]
+
 ** RELEASE **
 [Augmentation + Balanced Augmentation]
 ** RELEASE **
@@ -76,127 +78,6 @@ Minor: raw y name in display, not numeric
 Remove update feature for the first element in feature_augmentation.
   None can create problems with generation. ie. [None, savgol] = [savgol, None]
 
-#### TUTO ########
-dataset
-config
-all types of processings,
-folding
-charts
-model
-train / finetune
-predict
-generator
-save
-custom controller
-custom operator
-custom models
-
-
-
-
-
-
 
 ---------------------
-
-Topo Complet sur l'Usage de Predictions
-Basé sur l'analyse de ton code (principalement dans predictions.py, runner.py, dataset.py, et les notebooks Q1.ipynb et Q2.ipynb), voici une synthèse complète de ce qui est stocké dans l'objet Predictions, comment il fonctionne, et comment l'améliorer pour les filtres que tu demandes. Je vais d'abord décrire la structure actuelle, puis analyser les filtres existants et proposer des améliorations.
-
-1. Qu'est-ce qui est Sauvé dans Predictions ?
-L'objet Predictions est une classe dédiée à la gestion des prédictions générées par les pipelines de machine learning (ML) dans ton framework NIRS4ALL. Il agit comme un conteneur centralisé pour stocker les résultats de modèles sur différents datasets, pipelines, partitions (train/val/test), et folds. Voici ce qui est sauvé, sous quelle forme :
-
-Structure de Stockage :
-
-Dictionnaire Principal : _predictions est un Dict[str, Dict[str, Any]] où chaque clé est une chaîne unique au format f"{dataset}_{pipeline}_{model}_{partition}" (ex. : "regression_pipeline_Q1_PLSRegression(n_components=10)_val_fold_0").
-Contenu de Chaque Entrée (un dict avec ces champs obligatoires) :
-dataset (str) : Nom du dataset (ex. : "regression").
-pipeline (str) : Nom du pipeline (ex. : "pipeline_Q1").
-model (str) : Nom du modèle (ex. : "PLSRegression(n_components=10)" – note que c'est souvent avec des paramètres, ce qui complique les filtres canoniques).
-partition (str) : Type de partition (ex. : "train_fold_0", "val_fold_0", "test" – basé sur les folds de cross-validation).
-y_true (np.ndarray) : Valeurs réelles (targets inversées/transformées).
-y_pred (np.ndarray) : Prédictions du modèle (inversées/transformées).
-sample_indices (List[int]) : Indices des échantillons correspondants.
-fold_idx (Optional[int]) : Index du fold (si applicable).
-metadata (Dict[str, Any]) : Métadonnées supplémentaires (ex. : paramètres du modèle, erreurs, etc.).
-path (str) : Chemin d'enregistrement des résultats (lié à run_path).
-Forme des Données :
-
-Les arrays y_true et y_pred sont des numpy arrays plats (1D pour la plupart des cas de régression/classification).
-Tout est stocké en mémoire (dictionnaire Python), mais peut être sauvegardé/chargé depuis un fichier JSON (via save_to_file/load_from_file).
-Les prédictions sont ajoutées via add_prediction(), qui valide les shapes et évite les doublons (avec un warning si clé existante).
-Pas de Persistance Automatique : Par défaut, rien n'est sauvé sur disque sauf si tu appelles explicitement save_to_file(). Le run_path est défini dans PipelineRunner pour lier à un dossier de résultats.
-Comment les Prédictions Sont Générées et Stockées :
-
-Dans PipelineRunner (via runner.py), après l'exécution d'un step (ex. : un modèle), les contrôleurs (dans controllers/) appellent dataset._predictions.add_prediction() pour enregistrer les résultats.
-Les partitions sont créées à partir des folds (ex. : ShuffleSplit dans les notebooks génère des "train_fold_X" et "val_fold_X").
-Les transformations (y_processing, feature_augmentation) sont appliquées avant, mais seules les prédictions finales (inversées) sont stockées – pas les features intermédiaires.
-Exemple dans Q1/Q2 : Les pipelines incluent des prétraitements (ex. : MinMaxScaler, MultiplicativeScatterCorrection), mais seuls les résultats des modèles (PLSRegression, RandomForest, etc.) sont prédits et stockés.
-Méthodes Clés pour l'Accès :
-
-get_predictions() : Filtre par dataset/pipeline/model/partition (retourne un dict filtré).
-get_prediction_data() : Récupère une entrée spécifique.
-combine_folds() : Combine les prédictions de plusieurs folds en une moyenne.
-calculate_scores_for_predictions() : Calcule des métriques (RMSE, R², MAE) pour les prédictions filtrées.
-get_scores_ranking() / get_best_score() : Classement par métrique.
-Sauvegarde : save_predictions_to_csv() pour exporter en CSV avec scores.
-En résumé, Predictions est un stockage simple et efficace pour les résultats de ML, mais il est limité à des clés string et ne gère pas nativement des hiérarchies complexes (ex. : groupes de prétraitements). Il est optimisé pour la récupération par filtres basiques, mais pas pour des analyses avancées sans post-traitement.
-
-2. Filtres Existants et Propositions pour des Accès Facilités
-Ton code a déjà des filtres basiques via get_predictions(), mais ils sont limités et ne couvrent pas tes besoins (nom canonique du modèle, groupes de prétraitements). Voici une analyse et des propositions :
-
-Filtres Existants :
-
-Par Dataset : Facile avec get_predictions(dataset="regression"). Fonctionne bien, car dataset est un champ direct.
-Par Model : Possible avec get_predictions(model="PLSRegression(n_components=10)"), mais le nom inclut souvent des paramètres (ex. : "(n_components=10)"), ce qui rend le filtrage "canonique" (sans nombre) difficile. Tu dois parser manuellement (ex. : extraire "PLSRegression" avec regex).
-Par Pipeline : Via get_predictions(pipeline="pipeline_Q1"), mais ne distingue pas les sous-étapes comme les feature_augmentations.
-Par Partition : Via get_predictions(partition="val_fold_0"), utile pour les folds.
-Limitations : Pas de filtre direct pour "groupe de prétraitements" (ex. : toutes les prédictions avec SavitzkyGolay dans la pipeline). Les prétraitements sont dans le nom du pipeline ou metadata, mais pas indexés.
-Problèmes Identifiés dans Ton Code :
-
-Les noms de modèles incluent des params (ex. : "PLSRegression(n_components=10)"), rendant le filtrage canonique pénible (tu dois splitter ou regex).
-Les feature_augmentations (ex. : {"feature_augmentation": { "_or_": list_of_preprocessors }}) sont dans la config du pipeline, mais pas extraites dans Predictions. Elles ne sont pas stockées explicitement – seulement le nom du pipeline global.
-Pas de hiérarchie : Si tu veux grouper par "tous les modèles avec SavitzkyGolay", tu dois parser les noms de pipeline ou ajouter des tags dans metadata.
-Dans Q1/Q2, les pipelines sont des listes avec des dicts (ex. : {"feature_augmentation": ...}), mais Predictions ne les parse pas – il stocke juste le nom du pipeline.
-Propositions pour Améliorer les Filtres :
-
-Ajouter des Champs dans add_prediction() : Étends metadata pour inclure :
-model_canonical (str) : Nom canonique (ex. : "PLSRegression" au lieu de "PLSRegression(n_components=10)").
-preprocessing_groups (List[str]) : Liste des prétraitements appliqués (ex. : ["SavitzkyGolay", "Gaussian"] – extrait de la pipeline config).
-Exemple : Dans runner.py, avant add_prediction(), parse la pipeline pour extraire ces infos (via PipelineConfigs).
-Nouvelles Méthodes dans Predictions :
-get_predictions_by_model_canonical(model_canonical: str) : Filtre par nom canonique (utilise metadata).
-get_predictions_by_preprocessing_group(group: str) : Filtre par présence d'un prétraitement (ex. : "SavitzkyGolay").
-get_predictions_by_dataset_and_model(dataset: str, model_canonical: str) : Combinaison.
-Utilise des sets ou des index internes pour accélérer (ex. : un dict model_to_canonical).
-Exemple d'Implémentation : Dans add_prediction(), ajoute :
-Puis, dans les getters, filtre sur metadata.
-Impact : Cela rendrait les filtres plus faciles sans casser l'existant. Teste avec Q1/Q2 pour valider.
-3. Analyse du PredictionVisualizer : Ce qui est Pourri et Ce qu'il Faut Jeter
-Le PredictionVisualizer (dans prediction_visualizer.py) est censé visualiser les prédictions (plots de performance, comparaisons), mais il est effectivement "pourri" – complexe, redondant, et mal organisé. Voici un point détaillé basé sur l'analyse du code :
-
-Ce qui Marche (Points Positifs) :
-
-Extraction des données : _extract_prediction_data() récupère bien les prédictions depuis Predictions.
-Calculs de Métriques : _calculate_metrics() calcule RMSE, R², MAE correctement.
-Quelques Plots Utiles : plot_performance_matrix() (heatmap), plot_best_worst_models_comparison() (scatter + résidus), plot_models_performance_bars() (barres).
-Intégration : Utilisé dans Q1/Q2 pour afficher des tops (ex. : get_top_k()) et plots.
-Ce qui est Pourri :
-
-Complexité Excessive : Trop de méthodes (20+), beaucoup redondantes (ex. : plot_filtered_predictions() et _plot_bar_chart() font pareil). Le code est verbeux (1000+ lignes) avec des duplications (ex. : organisation des données répétée dans plusieurs méthodes).
-Manque de Cohérence : Les filtres (prediction_filter) sont mal implémentés (ex. : 'all', 'test', 'val' – mais pas intégré partout). Les noms de méthodes sont inconsistants (ex. : plot_best_models_predictions vs plot_models_performance_bars).
-Gestion des Données Faible : _organize_data_by_dataset_config_model() est lourde et ne gère pas bien les hiérarchies (ex. : pas de support natif pour groupes de prétraitements). Les données sont re-calculées à chaque appel au lieu d'être mises en cache.
-Plots Non Optimisés : Matplotlib est utilisé directement, mais les figures sont mal paramétrées (ex. : figsize hardcoded, pas de thèmes). Les erreurs (NaN) ne sont pas bien gérées. Les plots sont statiques et ne supportent pas d'interactivité.
-Pas d'Abstraction : Tout est dans une classe monolithique – pas de séparation (ex. : une classe pour les métriques, une pour les plots).
-Bugs Potentiels : Dans get_best_models_by_type(), le parsing des noms de modèles est fragile (split sur '('). Les partitions sont mal filtrées dans certains cas.
-Performance : Re-calcule tout à chaque plot – inefficace pour gros datasets.
-Ce qu'il Faut Jeter/Améliorer :
-
-Jeter : Les méthodes redondantes (ex. : fusionne plot_filtered_predictions et _plot_bar_chart en une). Supprime les duplications de code (ex. : factorise _organize_data_by_dataset_config_model()). Enlève les plots non essentiels si tu n'en as pas besoin (ex. : garde seulement plot_performance_matrix, plot_best_worst_models_comparison, et plot_models_performance_bars).
-Améliorer :
-Refactor en Modules : Sépare en classes (ex. : MetricsCalculator, Plotter). Utilise un cache pour les données organisées.
-Intègre les Nouveaux Filtres : Ajoute support pour model_canonical et preprocessing_groups (ex. : params dans __init__).
-Utilise une Lib Plus Avancée : Remplace Matplotlib par Plotly ou Seaborn pour des plots interactifs/thématiques.
-Simplifie l'API : Réduis à 5-7 méthodes clés, avec des defaults intelligents (ex. : auto-détection du dataset).
-Tests et Validation : Ajoute des asserts pour éviter les NaN, et teste avec Q1/Q2.
-Si les Prédictions S'améliorent : Le Visualizer s'améliorera automatiquement si tu ajoutes des métadonnées (ex. : groupes de prétraitements), car il repose dessus. Mais refactor d'abord pour éviter qu'il devienne encore plus pourri.
-En synthèse, Predictions est solide mais manque de filtres avancés – ajoute des metadata et méthodes pour les groupes. Le PredictionVisualizer est à refactorer complètement : simplifie, modularise, et jette le superflu pour le rendre maintenable. Si tu veux, je peux proposer un code refactoré pour les parties clés !
+To do for classification averaging

@@ -35,7 +35,7 @@ pipeline = [
             "sample": "grid",       # "random" for continuous parameters, "grid" for discrete/categorical parameters, "bayes" for Bayesian optimization,
                                     # "hyperband" for Hyperband optimization, "skopt" for Scikit-Optimize, "tpe" for Optuna's TPE sampler, "cmaes" for CMA-ES algorithm
             "model_params": {
-                'n_components': ('int', 1, 22),
+                'n_components': ('int', 1, 30),
             },
         }
     },
@@ -58,7 +58,7 @@ pipeline = [
     #         }
     #     },
     #     "train_params": {
-    #         "epochs": 10,
+    #         "epochs": 250,
     #         "verbose":0
     #     }
     # }

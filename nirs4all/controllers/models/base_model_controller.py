@@ -257,20 +257,21 @@ class BaseModelController(OperatorController, ABC):
             weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
 
             # Create fold averages and get average predictions data
-            avg_predictions, w_avg_predictions = self._create_fold_averages(
-                base_model_name, dataset, model_config, context, runner, prediction_store, model_classname,
-                folds_models, fold_val_indices, scores,
-                X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode, best_params=best_params
-            )
-            # Collect ALL predictions (folds + averages) and add them in one shot with same weights
-            all_predictions = all_fold_predictions + [avg_predictions, w_avg_predictions]
+            if dataset._task_type == 'regression':
+                avg_predictions, w_avg_predictions = self._create_fold_averages(
+                    base_model_name, dataset, model_config, context, runner, prediction_store, model_classname,
+                    folds_models, fold_val_indices, scores,
+                    X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode, best_params=best_params
+                )
+                # Collect ALL predictions (folds + averages) and add them in one shot with same weights
+                all_fold_predictions = all_fold_predictions + [avg_predictions, w_avg_predictions]
             # for p in all_predictions:
             #     fold_id = p['fold_id']
             #     for part in p['partitions']:
             #         if len(part[1]) > 0:
             #             print(f"Fold {fold_id} - Partition {part[0]}: {part[2].shape}")
 
-            self._add_all_predictions(prediction_store, all_predictions, weights, mode=mode)
+            self._add_all_predictions(prediction_store, all_fold_predictions, weights, mode=mode)
 
         else:
             print("\033[91m⚠️⚠️⚠️⚠️⚠️  WARNING: Using test set as validation set (no folds provided) ⚠️⚠️⚠️⚠️⚠️⚠️\033[0m")
@@ -379,6 +380,8 @@ class BaseModelController(OperatorController, ABC):
         score_train = Evaluator.eval(y_train_unscaled, y_train_pred_unscaled, metric)
         score_val = Evaluator.eval(y_val_unscaled, y_val_pred_unscaled, metric)
         score_test = Evaluator.eval(y_test_unscaled, y_test_pred_unscaled, metric)
+
+        print(f"📊 {model_name} scores: Train {metric} {direction} {score_train:.4f}, Val {metric} {direction} {score_val:.4f}, Test {metric} {direction} {score_test:.4f}")
 
         if train_indices is None:
             train_indices = list(range(len(y_train_unscaled)))
@@ -565,8 +568,11 @@ class BaseModelController(OperatorController, ABC):
 
         # X_val is the concatenation of all fold val sets
         X_val = np.vstack([X_train[val_idx] for val_idx in fold_val_indices])
-        y_val_unscaled = np.hstack([y_train_unscaled[val_idx] for val_idx in fold_val_indices])
+        print("Val shape for averages:", X_val.shape)
+        y_val_unscaled = np.vstack([y_train_unscaled[val_idx] for val_idx in fold_val_indices])
+        print("Val shape for averages:", y_val_unscaled.shape)
         all_val_indices = np.hstack(fold_val_indices)
+        print("Val indices shape for averages:", all_val_indices.shape)
 
         # Generate all predictions for train, val, test for each fold model
         all_train_preds = []
