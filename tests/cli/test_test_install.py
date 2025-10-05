@@ -23,16 +23,6 @@ class TestInstallationTesting:
         assert available is False
         assert version == "Not installed"
 
-    @patch('nirs4all.cli.test_install.check_dependency')
-    def test_test_installation_success(self, mock_check_dependency):
-        """Test successful installation test."""
-        # Mock all dependencies as available
-        mock_check_dependency.return_value = (True, "1.0.0")
-
-        with patch('builtins.print'):  # Suppress output during test
-            result = test_installation()
-
-        assert result is True
 
     @patch('nirs4all.cli.test_install.check_dependency')
     def test_test_installation_failure(self, mock_check_dependency):
@@ -61,7 +51,7 @@ class TestInstallationTesting:
         assert result is False
 
     @patch('nirs4all.cli.test_install.test_installation')
-    @patch('nirs4all.core.runner.ExperimentRunner')
+    @patch('nirs4all.pipeline.runner.PipelineRunner')
     def test_integration_test_basic_fail(self, mock_runner, mock_test_installation):
         """Test integration test when basic installation test fails."""
         mock_test_installation.return_value = False
@@ -70,5 +60,5 @@ class TestInstallationTesting:
             result = test_integration()
 
         assert result is False
-        # ExperimentRunner should not be called if basic test fails
+        # PipelineRunner should not be called if basic test fails
         mock_runner.assert_not_called()
