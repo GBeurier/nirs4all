@@ -60,22 +60,29 @@ class SklearnModelController(BaseModelController):
 
         return False
 
-    def _get_model_instance(self, model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> BaseEstimator:
+    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> BaseEstimator:
         """Create sklearn model instance from configuration."""
+        # print("Creating sklearn model instance from configuration...")
+        # print(model_config, force_params)
+        # If we have a model class and parameters, instantiate it
+        # ModelBuilder.build_single_model(model_config['model']['class'], mo)
         if 'model_instance' in model_config and force_params is None:
             model = model_config['model_instance']
             if isinstance(model, BaseEstimator):
                 return model
 
-        # If we have a model class and parameters, instantiate it
-        # ModelBuilder.build_single_model(model_config['model']['class'], mo)
         if 'model' in model_config and 'class' in model_config['model']:
             model_class = model_config['model']['class']
             model_params = model_config.get('model_params', {})
             if force_params:
                 model_params.update(force_params)
             # return model_class(**model_params)
-            return ModelBuilderFactory.build_single_model(model_class, model_params)
+            model = ModelBuilderFactory.build_single_model(model_class, dataset, model_params)
+            # print("Created model:", model)
+            # print(model.n_components if hasattr(model, 'n_components') else "No n_components")
+            return model
+
+
 
         raise ValueError("Could not create model instance from configuration")
 

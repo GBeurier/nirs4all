@@ -72,7 +72,7 @@
 #         except Exception:
 #             return False
 
-#     def _get_model_instance(self, model_config: Dict[str, Any]) -> nn.Module:
+#     def _get_model_instance(self, dataset: SpectroDataset, model_config: Dict[str, Any]) -> nn.Module:
 #         """Create PyTorch model instance from configuration."""
 #         if not TORCH_AVAILABLE:
 #             raise ImportError("PyTorch is not available")

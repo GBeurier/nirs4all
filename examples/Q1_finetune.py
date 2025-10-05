@@ -9,6 +9,7 @@ from nirs4all.dataset.predictions import Predictions
 from nirs4all.operators.transformations import Detrend, FirstDerivative, SecondDerivative, Gaussian, StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+from nirs4all.operators.models.cirad_tf import nicon, customizable_nicon
 
 
 x_scaler = MinMaxScaler()  # StandardScaler(), RobustScaler(), QuantileTransformer(), PowerTransformer(), LogTransform()
@@ -38,6 +39,29 @@ pipeline = [
             },
         }
     },
+    # {
+    #     "model": customizable_nicon,
+    #     "name": "PLS-Default",
+    #     "finetune_params": {
+    #         "n_trials": 30,
+    #         "verbose": 2,
+    #         "sample": "hyperband",
+    #         "approach": "single",
+    #         "model_params": {
+    #             "filters_1": [8, 16, 32, 64],
+    #             "filters_2": [8, 16, 32, 64],
+    #             "filters_3": [8, 16, 32, 64]
+    #         },
+    #         "train_params": {
+    #             "epochs": 10,
+    #             "verbose":0
+    #         }
+    #     },
+    #     "train_params": {
+    #         "epochs": 10,
+    #         "verbose":0
+    #     }
+    # }
 ]
 
 for i in range(1, 30, 5):

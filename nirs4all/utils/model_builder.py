@@ -22,9 +22,9 @@ class ModelBuilderFactory:
 
 
     @staticmethod
-    def build_single_model(model_config, dataset, task='regression', force_params={}):
-        # print(model_config, dataset, task, force_params)
-        if task == "classification":
+    def build_single_model(model_config, dataset, force_params={}):
+        # print("Building model with config:", model_config, "dataset:", dataset, "task:", task, "force_params:", force_params)
+        if dataset._task_type == "classification" or dataset._task_type == "binary_classification" or dataset._task_type == "multiclass_classification":
             force_params['num_classes'] = dataset.num_classes  # TODO get loss to applied num_classes (sparse_categorical_crossentropy = 1, categorical_crossentropy = num_classe)
             # force_params['num_classes'] = 1
 
@@ -70,6 +70,9 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _from_dict(model_dict, dataset, force_params=None):
+        if 'model' in model_dict:
+            model_dict = model_dict['model']
+
         if 'class' in model_dict:
             class_path = model_dict['class']
             params = model_dict.get('params', {})

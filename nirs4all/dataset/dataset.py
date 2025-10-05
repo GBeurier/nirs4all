@@ -199,7 +199,7 @@ class SpectroDataset:
             if n_unique == 2:
                 return "binary_classification"
             elif n_unique > 2:
-                return "multiclass_classification"
+                return "classification"
 
         return "regression"
 
