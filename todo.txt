@@ -1,6 +1,7 @@
 #### ROADMAP ########
-Binning + Classification
-Q7
+Add fold_chart to Q examples
+Add processings display option in top k chart
+Doc
 ** RELEASE **
 Train_params in finetuning tf
 SHAP
