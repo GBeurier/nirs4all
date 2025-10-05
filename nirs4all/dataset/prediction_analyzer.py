@@ -241,7 +241,9 @@ class PredictionAnalyzer:
         Returns:
             matplotlib Figure
         """
-        top_predictions = self.get_top_k(k, metric, partition, dataset_name)
+        print(self.predictions)
+        top_predictions = self.predictions.top_k(k, partition=partition)
+        print("length top_predictions", len(top_predictions))
 
         if not top_predictions:
             fig, ax = plt.subplots(figsize=figsize)
@@ -292,15 +294,18 @@ class PredictionAnalyzer:
             confusion_mat = sk_confusion_matrix(y_true_labels, y_pred_labels)
 
             # Plot confusion matrix
-            im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
+            im = ax.imshow(confusion_mat, interpolation='nearest', cmap='Blues')
 
             model_display = pred.get('model_name', 'Unknown')
             # Get metric value
-            if 'metrics' in pred and metric in pred['metrics']:
-                score_value = pred['metrics'][metric]
-                score_str = f'{score_value:.4f}' if isinstance(score_value, (int, float)) else str(score_value)
-            else:
-                score_str = 'N/A'
+            score_value = pred.get('val_score') if metric == 'loss' else pred.get('test_score')
+            if score_value is None:
+                # Try to get from computed metrics if available
+                if 'metrics' in pred and metric in pred['metrics']:
+                    score_value = pred['metrics'][metric]
+                else:
+                    score_value = 'N/A'
+            score_str = f'{score_value:.4f}' if isinstance(score_value, (int, float)) else str(score_value)
 
             ax.set_title(f'{model_display}\n{metric.upper()}: {score_str}')
 
@@ -321,10 +326,8 @@ class PredictionAnalyzer:
             for ii in range(confusion_mat.shape[0]):
                 for jj in range(confusion_mat.shape[1]):
                     ax.text(jj, ii, format(confusion_mat[ii, jj], 'd'),
-                           ha="center", va="center",
-                           color="white" if confusion_mat[ii, jj] > thresh else "black")
-
-        # Hide empty subplots
+                            ha="center", va="center",
+                            color="white" if confusion_mat[ii, jj] > thresh else "black")        # Hide empty subplots
         for i in range(n_plots, rows * cols):
             if rows > 1 and cols > 1:
                 axes[i // cols, i % cols].set_visible(False)
