@@ -106,7 +106,7 @@ class TensorFlowModelController(BaseModelController):
 
         return False
 
-    def _get_model_instance(self, model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
+    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
         """Create TensorFlow model instance from configuration."""
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is not available")

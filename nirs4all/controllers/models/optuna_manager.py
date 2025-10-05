@@ -47,6 +47,7 @@ class OptunaManager:
 
     def finetune(
         self,
+        dataset: 'SpectroDataset',
         model_config: Dict[str, Any],
         X_train: Any,
         y_train: Any,
@@ -95,6 +96,7 @@ class OptunaManager:
         if folds and strategy == 'individual':
             # Individual fold optimization: best_params = [], foreach fold: best_params.append(optuna.loop(...))
             return self._optimize_individual_folds(
+                dataset,
                 model_config, X_train, y_train, folds, finetune_params,
                 n_trials, context, controller, verbose
             )
@@ -102,6 +104,7 @@ class OptunaManager:
         elif folds and strategy == 'grouped':
             # Grouped fold optimization: return best_param = optuna.loop(objective(folds, data, evalMode))
             return self._optimize_grouped_folds(
+                dataset,
                 model_config, X_train, y_train, folds, finetune_params,
                 n_trials, context, controller, eval_mode, verbose
             )
@@ -111,12 +114,14 @@ class OptunaManager:
             # X_val, y_val = X_test, y_test  # Use test as validation
             X_val, y_val = X_train, y_train  # Use train as validation
             return self._optimize_single(
+                dataset,
                 model_config, X_train, y_train, X_val, y_val,
                 finetune_params, n_trials, context, controller, verbose
             )
 
     def _optimize_individual_folds(
         self,
+        dataset: 'SpectroDataset',
         model_config: Dict[str, Any],
         X_train: Any,
         y_train: Any,
@@ -146,6 +151,7 @@ class OptunaManager:
 
             # Run optimization for this fold
             fold_best_params = self._run_single_optimization(
+                dataset,
                 model_config, X_train_fold, y_train_fold, X_val_fold, y_val_fold,
                 finetune_params, n_trials, context, controller, verbose=0
             )
@@ -159,6 +165,7 @@ class OptunaManager:
 
     def _optimize_grouped_folds(
         self,
+        dataset: 'SpectroDataset',
         model_config: Dict[str, Any],
         X_train: Any,
         y_train: Any,
@@ -192,12 +199,13 @@ class OptunaManager:
                 y_val_fold = y_train[val_indices]
                 try:
                     # Create model with trial parameters using ModelBuilder
-                    model = ModelBuilderFactory.build_single_model(
-                        model_config["model"],
-                        controller.dataset,  # Pass dataset for framework detection
-                        task=getattr(controller.dataset, 'task_type', 'regression'),
-                        force_params=sampled_params
-                    )
+                    # model = ModelBuilderFactory.build_single_model(
+                    #     model_config,
+                    #     controller.dataset,  # Pass dataset for framework detection
+                    #     task=getattr(controller.dataset, 'task_type', 'regression'),
+                    #     force_params=sampled_params
+                    # )
+                    model = controller._get_model_instance(dataset, model_config, force_params=sampled_params)
                     # print(sampled_params)
                     # if hasattr(model, 'n_components'):
                         # print("n_components:", model.n_components)
@@ -238,6 +246,7 @@ class OptunaManager:
 
     def _optimize_single(
         self,
+        dataset: 'SpectroDataset',
         model_config: Dict[str, Any],
         X_train: Any,
         y_train: Any,
@@ -251,12 +260,14 @@ class OptunaManager:
     ) -> Dict[str, Any]:
         """Optimize without folds - single train/val split."""
         return self._run_single_optimization(
+            dataset,
             model_config, X_train, y_train, X_val, y_val,
             finetune_params, n_trials, context, controller, verbose
         )
 
     def _run_single_optimization(
         self,
+        dataset: 'SpectroDataset',
         model_config: Dict[str, Any],
         X_train: Any,
         y_train: Any,
@@ -282,12 +293,15 @@ class OptunaManager:
 
             try:
                 # Create model with trial parameters using ModelBuilder
-                model = ModelBuilderFactory.build_single_model(
-                    model_config["model"],
-                    controller.dataset,  # Pass dataset for framework detection
-                    task=getattr(controller.dataset, 'task_type', 'regression'),
-                    force_params=sampled_params
-                )
+                # print(">>>>>>> Sampled params:", sampled_params)
+                # model = ModelBuilderFactory.build_single_model(
+                #     model_config["model"],
+                #     controller.dataset,  # Pass dataset for framework detection
+                #     task=getattr(controller.dataset, 'task_type', 'regression'),
+                #     force_params=sampled_params
+                # )
+                # print(model)
+                model = controller._get_model_instance(dataset, model_config, force_params=sampled_params)
 
                 # Prepare data
                 X_train_prep, y_train_prep = controller._prepare_data(X_train, y_train, context)

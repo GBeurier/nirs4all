@@ -1,6 +1,4 @@
 #### ROADMAP ########
-
-Q1' - Finetuning
 Binning + Classification
 Q7
 ** RELEASE **
@@ -8,6 +6,7 @@ SHAPE
 Q6
 ** RELEASE **
 [CLI]
+[Logic flow in tf finetuning]
 ** RELEASE **
 [SEED]
 ** RELEASE **

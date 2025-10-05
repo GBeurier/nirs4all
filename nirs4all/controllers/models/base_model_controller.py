@@ -59,7 +59,7 @@ class BaseModelController(OperatorController, ABC):
 
     # Abstract methods that subclasses must implement for their frameworks
     @abstractmethod
-    def _get_model_instance(self, model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
+    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
         """Create model instance from config using ModelBuilderFactory."""
         pass
 
@@ -126,7 +126,6 @@ class BaseModelController(OperatorController, ABC):
         folds = dataset.folds
 
         binaries = []
-
         finetune_params = model_config.get('finetune_params')
         if runner.verbose > 0:
             print(f"🔍 Model config: {model_config}")
@@ -137,8 +136,9 @@ class BaseModelController(OperatorController, ABC):
                 print("🎯 Starting finetuning...")
 
             best_model_params = self.finetune(
+                dataset,
                 model_config, X_train, y_train, X_test, y_test,
-                folds, finetune_params, self.prediction_store, context, runner, dataset
+                folds, finetune_params, self.prediction_store, context, runner
             )
             # print("Best model params found:", best_model_params)
             print(f"📊 Best parameters: {best_model_params}")
@@ -163,6 +163,7 @@ class BaseModelController(OperatorController, ABC):
 
     def finetune(
         self,
+        dataset: 'SpectroDataset',
         model_config: Dict[str, Any],
         X_train: Any,
         y_train: Any,
@@ -173,7 +174,6 @@ class BaseModelController(OperatorController, ABC):
         predictions: Dict,
         context: Dict[str, Any],
         runner: 'PipelineRunner',
-        dataset: 'SpectroDataset'
     ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Finetune method - delegates to external Optuna manager.
@@ -186,6 +186,7 @@ class BaseModelController(OperatorController, ABC):
         self.dataset = dataset
 
         return self.optuna_manager.finetune(
+            dataset,
             model_config=model_config,
             X_train=X_train,
             y_train=y_train,
@@ -296,7 +297,7 @@ class BaseModelController(OperatorController, ABC):
         train_indices=None, val_indices=None, fold_idx=None, best_params=None,
         loaded_binaries=None, mode="train"):
 
-        base_model = self._get_model_instance(model_config)
+        base_model = self._get_model_instance(dataset, model_config)
         # Generate identifiers
         step_id = context['step_id']
         pipeline_name = runner.saver.pipeline_name
@@ -310,14 +311,16 @@ class BaseModelController(OperatorController, ABC):
             if mode == "finetune":
                 if best_params is not None:
                     print(f"Training model {model_name} with: {best_params}...")
-                model = ModelBuilderFactory.build_single_model(
-                    model_config["model"],
-                    dataset,
-                    task=dataset.task_type,
-                    force_params=best_params
-                )
+                # model = ModelBuilderFactory.build_single_model(
+                #     model_config["model"],
+                #     dataset,
+                #     task=dataset.task_type,
+                #     force_params=best_params
+                # )
+                model = self._get_model_instance(dataset, model_config, force_params=best_params)
             else:
                 model = self.model_helper.clone_model(base_model)
+
         else:
             # Load model from binaries
             if loaded_binaries is None:
