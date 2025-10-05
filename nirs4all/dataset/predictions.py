@@ -1077,3 +1077,20 @@ class Predictions:
     def pred_long_string(cls, entry, metrics=None):  # ADAPT TO CLASSIFICATION
         return Predictions.pred_short_string(entry, metrics=metrics) + f" | [{entry['config_name']}]"
 
+    def as_numpy(self) -> np.ndarray:
+        """
+        Get all predictions as a numpy array.
+
+        Returns:
+            List of all prediction dictionaries
+        """
+        return self._df.to_numpy()
+
+    def as_list(self) -> List[Dict[str, Any]]:
+        """
+        Get all predictions as a list of dictionaries.
+
+        Returns:
+            List of all prediction dictionaries
+        """
+        return self.as_numpy().tolist()
