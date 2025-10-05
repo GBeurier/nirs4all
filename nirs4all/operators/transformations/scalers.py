@@ -95,7 +95,7 @@ class Normalize(TransformerMixin, BaseEstimator):
             raise TypeError("Normalization does not support scipy.sparse input")
 
         first_pass = not hasattr(self, "min_")
-        # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
+        # # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
 
         if self.user_defined:
             self.min_ = np.min(X, axis=0)
@@ -121,6 +121,7 @@ class Normalize(TransformerMixin, BaseEstimator):
             The transformed data.
         """
         check_is_fitted(self)
+        # X = self._validate_data(X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self)
         # X = self._validate_data(X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self)
 
         if self.user_defined:
@@ -277,6 +278,7 @@ class SimpleScale(TransformerMixin, BaseEstimator):
             raise TypeError("Normalization does not support scipy.sparse input")
 
         first_pass = not hasattr(self, "min_")
+        # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
         # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
 
         self.min_ = np.min(X, axis=0)
