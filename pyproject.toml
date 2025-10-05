@@ -35,9 +35,6 @@ dependencies = [
     "shap>=0.41.0",
 ]
 
-[project.scripts]
-nirs4all = "nirs4all.cli.main:main"
-
 [project.optional-dependencies]
 gpu = ["tensorflow[and-cuda]>=2.10.0"]  # Explicit GPU version
 torch = ["torch>=2.0.0"]
@@ -65,7 +62,7 @@ dev = [
 ]
 
 [project.scripts]
-nirs4all = "nirs4all.cli.main:nirs4all_cli"
+nirs4all = "nirs4all.cli.main:main"
 
 [tool.setuptools.packages.find]
 include = ["nirs4all*"]
