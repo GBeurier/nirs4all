@@ -13,8 +13,7 @@ from nirs4all.dataset import DatasetConfigs
 from nirs4all.operators.transformations import *
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from sklearn.base import TransformerMixin, BaseEstimator
-from sklearn.preprocessing import KBinsDiscretizer
-
+from sklearn.preprocessing import KBinsDiscretizer, LabelEncoder
 from nirs4all.operators.transformations.targets import IntegerKBinsDiscretizer, RangeDiscretizer
 
 
@@ -30,8 +29,10 @@ pipeline = [
     "chart_3d",
     {"feature_augmentation": {"_or_": list_of_preprocessors, "size": [1, (1, 2)], "count": 5}}, # Generate all elements of size 1 and of order 1 or 2 (ie. "Gaussian", ["SavitzkyGolay", "Log"], etc.)
     splitting_strategy,
-    # {"y_processing": IntegerKBinsDiscretizer(n_bins=5, encode='ordinal', strategy='uniform')},
-    {"y_processing": RangeDiscretizer([14, 20, 30, 50])}
+    {"y_processing": RangeDiscretizer([14, 20, 30, 50])},
+    # {"y_processing": IntegerKBinsDiscretizer(n_bins=5, encode='ordinal', strategy='uniform')},  # Alternative discretization
+    # {"y_processing": KBinsDiscretizer(n_bins=5, encode='ordinal', strategy='uniform')},
+    # {"y_processing": LabelEncoder()},
 ]
 
 for i in range(5, 20, 5):
