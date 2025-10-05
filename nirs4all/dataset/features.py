@@ -41,7 +41,7 @@ class Features:
         return self.sources[0].num_samples
 
     @property
-    def num_processings(self) -> List[int] | int:
+    def num_processings(self) -> Union[List[int], int]:
         """Get the number of unique processing IDs per source."""
         if not self.sources:
             return 0
@@ -53,7 +53,7 @@ class Features:
         return res
 
     @property
-    def preprocessing_str(self) -> List[List[str]] | List[str]:
+    def preprocessing_str(self) -> Union[List[List[str]], List[str]]:
         """Get the list of processing IDs per source."""
         if not self.sources:
             return []
@@ -63,7 +63,7 @@ class Features:
         return res
 
     @property
-    def num_features(self) -> List[int] | int:
+    def num_features(self) -> Union[List[int], int]:
         """Get the number of features per source."""
         if not self.sources:
             return 0
@@ -106,7 +106,7 @@ class Features:
         for src, arr in zip(self.sources, data):
             src.augment_samples(sample_indices, arr, processings, count_list)
 
-    def x(self, indices: SampleIndices, layout: str = "2d", concat_source: bool = True) -> np.ndarray | list[np.ndarray]:
+    def x(self, indices: SampleIndices, layout: str = "2d", concat_source: bool = True) -> Union[np.ndarray, list[np.ndarray]]:
         if not self.sources:
             raise ValueError("No features available")
 

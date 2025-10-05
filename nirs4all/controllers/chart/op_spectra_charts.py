@@ -134,7 +134,7 @@ class SpectraChartController(OperatorController):
         feature_indices = np.arange(n_features)
 
         # Create colormap for gradient based on y values
-        colormap = cm.get_cmap('viridis')
+        colormap = plt.colormaps.get_cmap('viridis')
         y_min, y_max = y_sorted.min(), y_sorted.max()
 
         # Normalize y values to [0, 1] for colormap
@@ -180,7 +180,7 @@ class SpectraChartController(OperatorController):
         feature_indices = np.arange(n_features)
 
         # Create colormap for gradient based on y values
-        colormap = cm.get_cmap('viridis')
+        colormap = plt.colormaps.get_cmap('viridis')
         y_min, y_max = y_sorted.min(), y_sorted.max()
 
         # Normalize y values to [0, 1] for colormap
