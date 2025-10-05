@@ -141,7 +141,7 @@ class TestBasicPipelineIntegration:
             MinMaxScaler(),
             {"feature_augmentation": {
                 "_or_": list_of_preprocessors,
-                "size": [1, 2],
+                "size": 1,
                 "count": 3
             }},
             ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
@@ -158,8 +158,9 @@ class TestBasicPipelineIntegration:
         assert predictions.num_predictions >= 3
 
         # Each prediction should have different preprocessing
-        preprocessing_sets = {str(pred['preprocessings']) for pred in predictions._predictions}
-        assert len(preprocessing_sets) > 1
+        pd_predictions = predictions.to_pandas()
+        n_unique_preprocessings = pd_predictions['preprocessings'].nunique()
+        assert n_unique_preprocessings == 3
 
     def test_y_processing(self, test_data_manager):
         """Test y-axis preprocessing functionality."""
@@ -218,7 +219,7 @@ class TestBasicPipelineIntegration:
 
             # Check that prediction is reasonable
             best_pred = predictions.get_best(ascending=True)
-            assert np.isfinite(best_pred['rmse']), f"Invalid RMSE for {model.__class__.__name__}"
+            assert np.isfinite(best_pred['val_score']), f"Invalid RMSE for {model.__class__.__name__}"
 
     def test_prediction_analyzer_basic(self, test_data_manager):
         """Test basic functionality of PredictionAnalyzer."""
