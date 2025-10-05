@@ -21,7 +21,9 @@ dist/
 /bench/
 build/
 results/
+predict/
 trash/
+deprec/
 
 # Testing
 .pytest_cache/
@@ -29,4 +31,5 @@ test_experiment_manager/
 .coverage
 .coveragerc
 .coverage.*
-examples/.hypothesis
+examples/.hypothesis/
+log.txt

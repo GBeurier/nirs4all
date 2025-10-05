@@ -12,3 +12,4 @@ twinning>=0.0.5
 optuna>=2.0.0
 tensorflow>=2.0.0
 torch>=1.4.0
+click>=8.0.0

@@ -2,6 +2,24 @@
 Utility functions for the nirs4all package.
 """
 
-from nirs4all.utils.backend_utils import *
+from .backend_utils import (
+    TF_AVAILABLE,
+    # TORCH_AVAILABLE,
+    framework,
+    is_tensorflow_available,
+    # is_torch_available,
+    is_keras_available,
+    is_jax_available,
+    is_gpu_available
+)
 
-__all__ = []  # Update this list with actual classes/functions from the module
+__all__ = [
+    'TF_AVAILABLE',
+    # 'TORCH_AVAILABLE',
+    'framework',
+    'is_tensorflow_available',
+    # 'is_torch_available',
+    'is_keras_available',
+    'is_jax_available',
+    'is_gpu_available'
+]

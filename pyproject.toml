@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nirs4all"
-version = "0.0.6"
+version = "0.1.0"
 description = "NIRS Analyses made easy."
 authors = [
     { name="Gregory Beurier", email="beurier@cirad.fr" },
@@ -16,7 +16,7 @@ license = "CECILL-2.1"
 requires-python = ">=3.7"
 dependencies = [
     "numpy>=1.20.0",
-    "pandas>=1.0.0",
+    "pandas>=2.0.0",
     "scipy>=1.5.0",
     "scikit-learn>=0.24.0",
     "PyWavelets>=1.1.0",
@@ -31,7 +31,8 @@ dependencies = [
     "seaborn>=0.11.0",
     "tensorflow>=2.10.0",
     "h5py>=3.0.0",
-    "packaging>=20.0"
+    "packaging>=20.0",
+    "shap>=0.41.0",
 ]
 
 [project.scripts]
@@ -63,5 +64,19 @@ dev = [
     "build"
 ]
 
+[project.scripts]
+nirs4all = "nirs4all.cli.main:nirs4all_cli"
+
 [tool.setuptools.packages.find]
 include = ["nirs4all*"]
+
+[tool.pylint.'MESSAGES CONTROL']
+disable = ["invalid-name", "trailing-whitespace", "line-too-long", "import-outside-toplevel"]
+
+[tool.pylint.'FORMAT']
+max-line-length = 220
+
+[tool.flake8]
+max-line-length = 220
+ignore = ["E402","F841","F401","E302","E305","W293","W901","W291"]
+exclude = ["build", "dist", ".venv", "docs", "sample_data"]
