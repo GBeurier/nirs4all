@@ -64,7 +64,7 @@ class PipelineRunner:
                  show_spinner: bool = True,
                  enable_tab_reports: bool = True,
                  random_state: Optional[int] = None,
-                 plots_visible: bool = True):
+                 plots_visible: bool = False):
 
         if random_state is not None:
             init_global_random_state(random_state)

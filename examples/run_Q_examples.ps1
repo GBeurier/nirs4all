@@ -1,14 +1,23 @@
+$examples = @(
+    "Q1_regression.py",
+    "Q1_classif.py",
+    "Q2_multimodel.py",
+    "Q3_finetune.py",
+    "Q4_multidatasets.py",
+    "Q5_predict.py",
+    "Q6_multisource.py",
+    "Q7_discretization.py"
+)
+
 ## PARALLEL
-$examples = @("Q1.py", "Q1_classif.py", "Q2.5_finetune.py", "Q2.py", "Q3.py", "Q4.py", "Q5.py", "Q7.py")
 foreach ($example in $examples) {
     if (Test-Path "$example") {
-        Start-Process -FilePath "python" -ArgumentList "examples/$example" -NoNewWindow
+        Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow
         Write-Host "Lancé: $example"
     }
 }
 
 ## SEQUENTIAL
-# $examples = @("Q1.py", "Q1_classif.py", "Q2.5_finetune.py", "Q2.py", "Q3.py", "Q4.py", "Q5.py", "Q7.py")
 # foreach ($example in $examples) {
 #     if (Test-Path "$example") {
 #         Start-Process -FilePath "python" -ArgumentList "examples/$example" -NoNewWindow -Wait

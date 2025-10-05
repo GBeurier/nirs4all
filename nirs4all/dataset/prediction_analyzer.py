@@ -1085,6 +1085,8 @@ class PredictionAnalyzer:
         # Set ticks and labels
         ax.set_xticks(range(len(x_labels)))
         ax.set_yticks(range(len(y_labels)))
+        x_labels = [x if len(x) <= 25 else x[:22] + '...' for x in x_labels]
+        y_labels = [y if len(y) <= 25 else y[:22] + '...' for y in y_labels]
         ax.set_xticklabels(x_labels, rotation=45, ha='right')
         ax.set_yticklabels(y_labels)
         ax.set_xlabel(x_var.replace('_', ' ').title())
