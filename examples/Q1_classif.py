@@ -29,7 +29,7 @@ pipeline = [
     splitting_strategy,
 ]
 
-for i in range(5, 20, 5):
+for i in range(5, 100, 5):
     model = {
         "name": f"RF-depth-{i}",
         "model": RandomForestClassifier(max_depth=i)
@@ -52,5 +52,5 @@ for i, pred in enumerate(top_n):
     print(f"{i+1}. {Predictions.pred_short_string(pred, metrics=[rank_metric])} - {pred['preprocessings']}")
 
 analyzer = PredictionAnalyzer(run_predictions)
-fig = analyzer.plot_top_k_confusionMatrix(k=3, metric='accuracy', partition='test')
+fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', partition='val')
 plt.show()
