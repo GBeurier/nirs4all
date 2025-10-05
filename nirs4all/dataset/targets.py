@@ -138,7 +138,8 @@ class Targets:
                               targets: Union[np.ndarray, List, tuple],
                               ancestor: str = "numeric",
                               transformer: Optional[TransformerMixin] = None,
-                              mode: str = "train") -> None:
+                              mode: str = "train",
+                              labelizer: bool = True) -> None:
         """
         Add processed target data.
 
@@ -168,6 +169,9 @@ class Targets:
                 raise ValueError(f"Target data has {targets.shape[1]} targets, expected {self.num_targets}")
 
         self._add_processing(processing_name, targets, ancestor, transformer)
+        # if labelizer and self._detect_task_type(targets) == "classification":
+            # classif_targets, classif_transformer = self._make_numeric(targets)
+            # self._add_processing(processing_name, classif_targets, ancestor, classif_transformer)
 
     def get_targets(self,
                     processing: str = "numeric",
@@ -370,6 +374,8 @@ class Targets:
                         ancestor: Optional[str],
                         transformer: Optional[TransformerMixin]) -> None:
         """Internal method to add a processing."""
+
+
         if processing_name not in self._processing_id_to_index:
             # New processing: add to lists and mappings
             idx = len(self._processing_ids)

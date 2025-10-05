@@ -96,10 +96,19 @@ class BaseModelController(OperatorController, ABC):
         y_train = dataset.y(train_context)
         X_test = dataset.x(test_context, layout=layout)
         y_test = dataset.y(test_context)
-        train_context['y'] = 'numeric'
-        test_context['y'] = 'numeric'
-        y_train_unscaled = dataset.y(train_context)
-        y_test_unscaled = dataset.y(test_context)
+
+        # For classification tasks, use the transformed targets for evaluation
+        # For regression tasks, use the original "numeric" targets
+        if dataset.task_type and 'classification' in dataset.task_type:
+            # Use the same y context as the model training (transformed targets)
+            y_train_unscaled = dataset.y(train_context)
+            y_test_unscaled = dataset.y(test_context)
+        else:
+            # Use numeric targets for regression
+            train_context['y'] = 'numeric'
+            test_context['y'] = 'numeric'
+            y_train_unscaled = dataset.y(train_context)
+            y_test_unscaled = dataset.y(test_context)
         return X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled
 
 
@@ -357,7 +366,15 @@ class BaseModelController(OperatorController, ABC):
 
         # Transform predictions from scaled space back to unscaled space
         current_y_processing = context.get('y', 'numeric') if context else 'numeric'
-        if current_y_processing != 'numeric':
+
+        # For classification tasks, keep predictions in the same space as the targets
+        # For regression tasks, transform back to numeric space
+        if dataset.task_type and 'classification' in dataset.task_type:
+            # Keep predictions in the transformed space for classification
+            y_train_pred_unscaled = y_train_pred_scaled
+            y_val_pred_unscaled = y_val_pred_scaled
+            y_test_pred_unscaled = y_test_pred_scaled
+        elif current_y_processing != 'numeric':
             y_train_pred_unscaled = dataset._targets.transform_predictions(
                 y_train_pred_scaled, current_y_processing, 'numeric'
             )
@@ -381,7 +398,7 @@ class BaseModelController(OperatorController, ABC):
         score_val = Evaluator.eval(y_val_unscaled, y_val_pred_unscaled, metric)
         score_test = Evaluator.eval(y_test_unscaled, y_test_pred_unscaled, metric)
 
-        print(f"📊 {model_name} scores: Train {metric} {direction} {score_train:.4f}, Val {metric} {direction} {score_val:.4f}, Test {metric} {direction} {score_test:.4f}")
+        # print(f"📊 {model_name} scores: Train {metric} {direction} {score_train:.4f}, Val {metric} {direction} {score_val:.4f}, Test {metric} {direction} {score_test:.4f}")
 
         if train_indices is None:
             train_indices = list(range(len(y_train_unscaled)))

@@ -242,7 +242,7 @@ class PredictionAnalyzer:
             matplotlib Figure
         """
         print(self.predictions)
-        top_predictions = self.predictions.top_k(k, partition=partition)
+        top_predictions = self.predictions.top_k(k, partition=partition, ascending=False)
         print("length top_predictions", len(top_predictions))
 
         if not top_predictions:
