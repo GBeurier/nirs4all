@@ -126,7 +126,7 @@ class PipelineRunner:
 
             # Print best results for this dataset
             if run_dataset_predictions.num_predictions > 0:
-                best = run_dataset_predictions.get_best()
+                best = run_dataset_predictions.get_best(ascending=True if dataset.is_regression() else False)
                 print(f"🏆 Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
                 if self.enable_tab_reports:
                     best_by_partition = run_dataset_predictions.get_entry_partitions(best)
@@ -275,7 +275,7 @@ class PipelineRunner:
                 self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
                 if config_predictions.num_predictions > 0:
-                    pipeline_best = config_predictions.get_best()
+                    pipeline_best = config_predictions.get_best(ascending=True if dataset.is_regression() else False)
                     print(f"🥇 Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
                     if self.verbose > 0:
                         print(f"\033[94m🏁 Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")

@@ -163,6 +163,13 @@ class SpectroDataset:
     def is_multi_source(self) -> bool:
         return len(self._features.sources) > 1
 
+    def is_regression(self) -> bool:
+        return self._task_type == "regression"
+
+    def is_classification(self) -> bool:
+        return self._task_type in ["binary_classification", "multiclass_classification", "classification"]
+
+
     # def targets(self, filter: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
     #     indices = self._indexer.samples(filter)
     #     return self._targets.y(indices=indices, encoding=encoding)
@@ -208,10 +215,12 @@ class SpectroDataset:
                               targets: np.ndarray,
                               ancestor_processing: str = "numeric",
                               transformer: Optional[TransformerMixin] = None) -> None:
+        new_task_type = self._detect_task_type(targets)
+        if self._task_type != new_task_type:
+            print(f"🔄 Task type updated from {self._task_type} to {new_task_type}")
+            self._task_type = new_task_type
+
         self._targets.add_processed_targets(processing_name, targets, ancestor_processing, transformer)
-        # Update task type if this is the first target processing
-        if self._task_type is None:
-            self._task_type = self._detect_task_type(targets)
 
     @property
     def task_type(self) -> Optional[str]:

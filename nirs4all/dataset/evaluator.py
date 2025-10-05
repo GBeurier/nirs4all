@@ -96,7 +96,6 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: str) -> Union[float, Di
 
         # Classification metrics
         elif metric in ['accuracy']:
-            # print(y_pred, y_true)
             return accuracy_score(y_true, y_pred)
         elif metric in ['precision']:
             return precision_score(y_true, y_pred, average='weighted', zero_division=0)
