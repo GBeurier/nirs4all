@@ -1,6 +1,7 @@
 #### ROADMAP ########
 Add fold_chart to Q examples
 Add processings display option in top k chart
+Fix metrics errors in charts and task_type
 Doc
 ** RELEASE **
 Train_params in finetuning tf
