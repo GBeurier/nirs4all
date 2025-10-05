@@ -5,6 +5,7 @@ This module contains Predictions class for storing and managing model prediction
 with metadata using Polars DataFrame as the backend for efficient data manipulation.
 """
 
+import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple, Union
 import numpy as np
 import polars as pl
@@ -1077,7 +1078,7 @@ class Predictions:
     def pred_long_string(cls, entry, metrics=None):  # ADAPT TO CLASSIFICATION
         return Predictions.pred_short_string(entry, metrics=metrics) + f" | [{entry['config_name']}]"
 
-    def as_numpy(self) -> np.ndarray:
+    def to_numpy(self) -> np.ndarray:
         """
         Get all predictions as a numpy array.
 
@@ -1086,11 +1087,30 @@ class Predictions:
         """
         return self._df.to_numpy()
 
-    def as_list(self) -> List[Dict[str, Any]]:
+    def to_list(self) -> List[Dict[str, Any]]:
         """
         Get all predictions as a list of dictionaries.
 
         Returns:
             List of all prediction dictionaries
         """
-        return self.as_numpy().tolist()
+        return self.to_numpy().tolist()
+
+    def to_dicts(self) -> List[Dict[str, Any]]:
+        """
+        Get all predictions as a list of dictionaries.
+
+        Returns:
+            List of all prediction dictionaries
+        """
+        return self._df.to_dicts()
+
+    def to_pandas(self) -> 'pd.DataFrame':
+        """
+        Get all predictions as a pandas DataFrame.
+
+        Returns:
+            Pandas DataFrame of all predictions
+        """
+        return self._df.to_pandas()
+
