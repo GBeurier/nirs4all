@@ -119,6 +119,9 @@ class SpectraChartController(OperatorController):
                     image_name += f" (src {sd_idx})"
                 image_name += ".png"
                 img_list.append((image_name, img_png_binary))
+
+                if runner.plots_visible:
+                    plt.show()
                 plt.close(fig)
 
         return context, img_list

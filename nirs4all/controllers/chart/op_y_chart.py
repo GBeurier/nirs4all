@@ -76,6 +76,8 @@ class YChartController(OperatorController):
         img_buffer.close()
 
         img_list.append((chart_name, img_png_binary))
+        if runner.plots_visible:
+            plt.show()
         plt.close(fig)
 
         return context, img_list

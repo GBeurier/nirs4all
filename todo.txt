@@ -1,8 +1,6 @@
 #### ROADMAP ########
-Add fold_chart to Q examples
-Add processings display option in top k chart
 Fix metrics errors in charts and task_type
-Doc
+Add processings display option in top k chart
 ** RELEASE **
 Train_params in finetuning tf
 SHAP
@@ -11,12 +9,12 @@ Q6
 [CLI]
 [Logic flow in tf finetuning]
 ** RELEASE **
-[SEED]
-
+[SEED] review
 ** RELEASE **
 [Augmentation + Balanced Augmentation]
 ** RELEASE **
-Chart controller with x, y, folds, 3d, 2d operators.
+[Chart controller] with x, y, folds, 3d, 2d operators.
+[ReadsTheDoc]
 ** RELEASE **
 [METADATA]
 ** RELEASE **

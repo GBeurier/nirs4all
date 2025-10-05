@@ -63,10 +63,12 @@ class PipelineRunner:
                  load_existing_predictions: bool = True,
                  show_spinner: bool = True,
                  enable_tab_reports: bool = True,
-                 random_state: Optional[int] = None):
+                 random_state: Optional[int] = None,
+                 plots_visible: bool = True):
 
         if random_state is not None:
             init_global_random_state(random_state)
+        self.plots_visible = plots_visible
         self.max_workers = max_workers or -1  # -1 means use all available cores
         self.continue_on_error = continue_on_error
         self.backend = backend

@@ -585,11 +585,11 @@ class BaseModelController(OperatorController, ABC):
 
         # X_val is the concatenation of all fold val sets
         X_val = np.vstack([X_train[val_idx] for val_idx in fold_val_indices])
-        print("Val shape for averages:", X_val.shape)
+        # print("Val shape for averages:", X_val.shape)
         y_val_unscaled = np.vstack([y_train_unscaled[val_idx] for val_idx in fold_val_indices])
-        print("Val shape for averages:", y_val_unscaled.shape)
+        # print("Val shape for averages:", y_val_unscaled.shape)
         all_val_indices = np.hstack(fold_val_indices)
-        print("Val indices shape for averages:", all_val_indices.shape)
+        # print("Val indices shape for averages:", all_val_indices.shape)
 
         # Generate all predictions for train, val, test for each fold model
         all_train_preds = []
