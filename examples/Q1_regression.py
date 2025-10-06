@@ -38,12 +38,12 @@ pipeline = [
     # "chart_2d",
     feature_scaler,
     {"y_processing": target_scaler},
-    {"feature_augmentation": {"_or_": preprocessing_options, "size": [1, (1, 2)], "count": 7}},  # Generate combinations of preprocessing techniques
+    {"feature_augmentation": {"_or_": preprocessing_options, "size": [1, (1, 2)], "count": 15}},  # Generate combinations of preprocessing techniques
     cross_validation,
 ]
 
 # Add PLS models with different numbers of components
-for n_components in range(1, 30, 3):
+for n_components in range(1, 30, 2):
     model_config = {
         "name": f"PLS-{n_components}_components",
         "model": PLSRegression(n_components=n_components)
@@ -69,26 +69,29 @@ for idx, prediction in enumerate(top_models):
     print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")
 top_models[0].save_to_csv("Q1_classification_best_model.csv")
 
-# Create visualizations
+# # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot comparison of top models
 fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
 
 # Plot heatmap of model performance vs preprocessing
-fig2 = analyzer.plot_variable_heatmap(
+fig2 = analyzer.plot_heatmap_v2(
     x_var="model_name",
     y_var="preprocessings",
-    metric='rmse',
-    best_only=False
+    aggregation='best',  # Options: 'best', 'mean', 'median'
+    rank_metric="rmse",
+    rank_partition="val",
+    display_metric="r2",
+    display_partition="test"
 )
 
 # Plot simplified heatmap without count display
-fig3 = analyzer.plot_variable_heatmap(
+fig3 = analyzer.plot_heatmap_v2(
     x_var="model_name",
     y_var="preprocessings",
-    metric='rmse',
-    display_n=False
+    aggregation='mean',  # Show average instead of best
+    show_counts=False
 )
 
 # Plot candlestick chart for model performance distribution
@@ -97,6 +100,6 @@ fig4 = analyzer.plot_variable_candlestick(
     variable="model_name",
 )
 
-fig5 = analyzer.plot_score_histogram(partition="test")
+# fig5 = analyzer.plot_score_histogram(partition="test")
 
 plt.show()

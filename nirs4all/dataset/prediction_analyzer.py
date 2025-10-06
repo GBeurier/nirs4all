@@ -226,29 +226,46 @@ class PredictionAnalyzer:
         return fig
 
     def plot_top_k_confusionMatrix(self, k: int = 5, metric: str = 'accuracy',
-                                   partition: str = '', dataset_name: Optional[str] = None,
-                                   figsize: Tuple[int, int] = (16, 10)) -> Figure:
+                                   rank_partition: str = 'val', display_partition: str = 'test',
+                                   dataset_name: Optional[str] = None,
+                                   figsize: Tuple[int, int] = (16, 10), **filters) -> Figure:
         """
         Plot confusion matrices for top K classification models.
 
+        Models are ranked by the metric on rank_partition, then confusion matrices
+        are displayed using predictions from display_partition.
+
         Args:
             k: Number of top models to show
-            metric: Metric for ranking
-            partition: Partition type ('test', 'val', 'train')
-            dataset_name: Dataset filter
+            metric: Metric for ranking (default: 'accuracy')
+            rank_partition: Partition used for ranking models (default: 'val')
+            display_partition: Partition to display confusion matrix from (default: 'test')
+            dataset_name: Dataset filter (optional)
             figsize: Figure size
+            **filters: Additional filters (e.g., config_name="config1")
 
         Returns:
             matplotlib Figure
         """
-        print(self.predictions)
-        top_predictions = self.predictions.top_k(k, partition=partition, ascending=False)
-        print("length top_predictions", len(top_predictions))
+        # Build filters
+        if dataset_name:
+            filters['dataset_name'] = dataset_name
+
+        # Use top() method: rank on rank_partition, display from display_partition
+        top_predictions = self.predictions.top(
+            n=k,
+            rank_metric=metric,
+            rank_partition=rank_partition,
+            display_metrics=[metric],
+            display_partition=display_partition,
+            **filters
+        )
 
         if not top_predictions:
             fig, ax = plt.subplots(figsize=figsize)
-            ax.text(0.5, 0.5, f'No {partition} predictions found',
-                   ha='center', va='center', fontsize=16)
+            filter_desc = ', '.join(f"{k}={v}" for k, v in filters.items()) if filters else 'none'
+            ax.text(0.5, 0.5, f'No predictions found\nFilters: {filter_desc}',
+                   ha='center', va='center', fontsize=14)
             return fig
 
         n_plots = len(top_predictions)
@@ -297,17 +314,17 @@ class PredictionAnalyzer:
             im = ax.imshow(confusion_mat, interpolation='nearest', cmap='Blues')
 
             model_display = pred.get('model_name', 'Unknown')
-            # Get metric value
-            score_value = pred.get('val_score') if metric == 'loss' else pred.get('test_score')
+            # Get metric value - the metric should be available from the display_partition
+            score_value = pred.get(metric)
             if score_value is None:
-                # Try to get from computed metrics if available
-                if 'metrics' in pred and metric in pred['metrics']:
-                    score_value = pred['metrics'][metric]
-                else:
-                    score_value = 'N/A'
+                score_value = 'N/A'
             score_str = f'{score_value:.4f}' if isinstance(score_value, (int, float)) else str(score_value)
 
-            ax.set_title(f'{model_display}\n{metric.upper()}: {score_str}')
+            # Create title showing both partitions if different
+            title = f'{model_display}\n{metric.upper()}: {score_str}'
+            if rank_partition != display_partition:
+                title += f' [{display_partition}]'
+            ax.set_title(title)
 
             # Add colorbar
             plt.colorbar(im, ax=ax, shrink=0.8)
@@ -1204,6 +1221,184 @@ class PredictionAnalyzer:
                         text = score_text
                     ax.text(j, i, text, ha='center', va='center', fontsize=8,
                             color='white' if masked_matrix[i, j] < 0.0 else 'black')
+
+    def plot_heatmap_v2(self, x_var: str, y_var: str, rank_metric: str = 'rmse', rank_partition: str = 'val', display_metric: str = '',
+                        display_partition: str = 'test', figsize: Tuple[int, int] = (12, 8), normalize: bool = True,
+                        aggregation: str = 'best', show_counts: bool = True, **filters) -> Figure:
+        """
+        Plot heatmap showing performance across two variables with flexible ranking and display.
+
+        This is a cleaner, faster version that uses optimized data retrieval.
+        Models are ranked by rank_metric on rank_partition, then display_metric scores from
+        display_partition are shown in the heatmap.
+
+        Args:
+            x_var: Variable for x-axis (e.g., "model_name", "preprocessings", "config_name")
+            y_var: Variable for y-axis (e.g., "model_name", "preprocessings", "config_name")
+            rank_metric: Metric used to rank/select best models (default: 'rmse')
+            rank_partition: Partition used for ranking models (default: 'val')
+            display_metric: Metric to display in heatmap (default: same as rank_metric)
+            display_partition: Partition to display scores from (default: 'test')
+            figsize: Figure size tuple
+            normalize: Whether to normalize scores to [0,1] for better color comparison
+            aggregation: How to aggregate multiple scores per cell: 'best', 'mean', 'median'
+            show_counts: Whether to show sample counts in cells
+            **filters: Additional filters (e.g., dataset_name="mydata", config_name="config1")
+
+        Returns:
+            matplotlib Figure
+
+        Example:
+            # Rank on val RMSE, display test RMSE
+            fig = analyzer.plot_heatmap_v2("model_name", "preprocessings")
+
+            # Rank on val accuracy, display test F1
+            fig = analyzer.plot_heatmap_v2("model_name", "dataset_name",
+                                          rank_metric='accuracy',
+                                          display_metric='f1')
+        """
+        # Default display_metric to rank_metric if not specified
+        if not display_metric:
+            display_metric = rank_metric
+
+        # Determine if metric is "higher is better"
+        higher_better = display_metric.lower() in ['r2', 'accuracy', 'f1', 'precision', 'recall', 'auc']
+
+        # OPTIMIZATION: Use top_k which is faster - it uses precomputed scores when possible
+        # Get predictions from display_partition and use stored scores
+        if 'partition' not in filters:
+            filters['partition'] = display_partition
+
+        all_predictions = self.predictions.top_k(k=-1, metric=display_metric, ascending=(not higher_better), **filters)
+
+        if not all_predictions:
+            return self._create_empty_heatmap_figure(figsize, filters, "No predictions found")
+
+        # Build score matrix grouped by x_var and y_var
+        score_dict = self._build_score_dict(all_predictions, x_var, y_var, display_metric)
+
+        if not score_dict:
+            return self._create_empty_heatmap_figure(figsize, filters, f'No valid {display_metric} scores found')
+
+        # Extract sorted labels and build matrices
+        y_labels, x_labels, matrix, count_matrix = self._build_heatmap_matrices(score_dict, aggregation, higher_better)
+
+        # Normalize if requested
+        normalized_matrix = self._normalize_heatmap_matrix(matrix, normalize, higher_better)
+
+        # Create and render the plot
+        return self._render_heatmap_v2(matrix, normalized_matrix, count_matrix, x_labels, y_labels, x_var, y_var, rank_metric, rank_partition,
+                                       display_metric, display_partition, figsize, normalize, aggregation, show_counts)
+
+    def _create_empty_heatmap_figure(self, figsize: Tuple[int, int], filters: Dict, message: str) -> Figure:
+        """Create empty figure with message for heatmap."""
+        fig, ax = plt.subplots(figsize=figsize)
+        filter_desc = ', '.join(f"{k}={v}" for k, v in filters.items()) if filters else 'none'
+        full_message = f'{message}\nFilters: {filter_desc}'
+        ax.text(0.5, 0.5, full_message, ha='center', va='center', fontsize=14)
+        ax.set_title('No Data Available')
+        return fig
+
+    def _build_score_dict(self, all_predictions: List[Dict], x_var: str, y_var: str, display_metric: str) -> Dict:
+        """Build dictionary of scores grouped by x_var and y_var."""
+        score_dict = defaultdict(lambda: defaultdict(list))
+        for pred in all_predictions:
+            x_val = str(pred.get(x_var, 'unknown'))
+            y_val = str(pred.get(y_var, 'unknown'))
+            score = pred.get(display_metric)
+            if score is not None and not np.isnan(score):
+                score_dict[y_val][x_val].append(score)
+        return score_dict
+
+    def _build_heatmap_matrices(self, score_dict: Dict, aggregation: str, higher_better: bool) -> Tuple[List, List, np.ndarray, np.ndarray]:
+        """Build matrices for heatmap from score dictionary."""
+        y_labels = sorted(score_dict.keys(), key=self._natural_sort_key)
+        x_labels = sorted(set(x for y_data in score_dict.values() for x in y_data.keys()), key=self._natural_sort_key)
+
+        matrix = np.full((len(y_labels), len(x_labels)), np.nan)
+        count_matrix = np.zeros((len(y_labels), len(x_labels)), dtype=int)
+
+        for i, y_val in enumerate(y_labels):
+            for j, x_val in enumerate(x_labels):
+                scores = score_dict[y_val].get(x_val, [])
+                if scores:
+                    count_matrix[i, j] = len(scores)
+                    # Aggregate scores based on aggregation method
+                    if aggregation == 'best':
+                        matrix[i, j] = max(scores) if higher_better else min(scores)
+                    elif aggregation == 'mean':
+                        matrix[i, j] = np.mean(scores)
+                    elif aggregation == 'median':
+                        matrix[i, j] = np.median(scores)
+                    else:
+                        raise ValueError(f"Unknown aggregation: {aggregation}. Use 'best', 'mean', or 'median'")
+
+        return y_labels, x_labels, matrix, count_matrix
+
+    def _normalize_heatmap_matrix(self, matrix: np.ndarray, normalize: bool, higher_better: bool) -> np.ndarray:
+        """Normalize matrix for heatmap display."""
+        normalized_matrix = matrix.copy()
+        if normalize:
+            valid_mask = ~np.isnan(matrix)
+            if valid_mask.any():
+                min_val = np.nanmin(matrix)
+                max_val = np.nanmax(matrix)
+                if max_val > min_val:
+                    # For "higher is better": (score - min) / (max - min), For "lower is better": 1 - (score - min) / (max - min)
+                    normalized_matrix[valid_mask] = (matrix[valid_mask] - min_val) / (max_val - min_val)
+                    if not higher_better:
+                        normalized_matrix[valid_mask] = 1 - normalized_matrix[valid_mask]
+        return normalized_matrix
+
+    def _render_heatmap_v2(self, matrix: np.ndarray, normalized_matrix: np.ndarray, count_matrix: np.ndarray, x_labels: List, y_labels: List,
+                           x_var: str, y_var: str, rank_metric: str, rank_partition: str, display_metric: str, display_partition: str,
+                           figsize: Tuple[int, int], normalize: bool, aggregation: str, show_counts: bool) -> Figure:
+        """Render the final heatmap plot."""
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Use RdYlGn colormap (Red-Yellow-Green)
+        masked_matrix = np.ma.masked_invalid(normalized_matrix)
+        im = ax.imshow(masked_matrix, cmap='RdYlGn', aspect='auto', vmin=0, vmax=1)
+
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+        cbar_label = f'Normalized {display_metric.upper()}\n(1=best, 0=worst)' if normalize else f'{display_metric.upper()} Score'
+        cbar.set_label(cbar_label, fontsize=10)
+
+        # Set axis labels and ticks - Truncate long labels
+        x_labels_display = [lbl[:25] + '...' if len(lbl) > 25 else lbl for lbl in x_labels]
+        y_labels_display = [lbl[:25] + '...' if len(lbl) > 25 else lbl for lbl in y_labels]
+
+        ax.set_xticks(range(len(x_labels)))
+        ax.set_yticks(range(len(y_labels)))
+        ax.set_xticklabels(x_labels_display, rotation=45, ha='right', fontsize=9)
+        ax.set_yticklabels(y_labels_display, fontsize=9)
+        ax.set_xlabel(x_var.replace('_', ' ').title(), fontsize=11)
+        ax.set_ylabel(y_var.replace('_', ' ').title(), fontsize=11)
+
+        # Create title
+        title_parts = [f'{aggregation.title()} {display_metric.upper()}']
+        if rank_partition != display_partition or rank_metric != display_metric:
+            title_parts.append(f'(ranked by {rank_metric.upper()} on {rank_partition})')
+        title_parts.append(f'[{display_partition}]')
+        ax.set_title(' '.join(title_parts), fontsize=12, pad=10)
+
+        # Add text annotations to cells
+        self._add_heatmap_v2_annotations(ax, matrix, normalized_matrix, count_matrix, show_counts, x_labels, y_labels)
+
+        plt.tight_layout()
+        return fig
+
+    def _add_heatmap_v2_annotations(self, ax, matrix: np.ndarray, normalized_matrix: np.ndarray, count_matrix: np.ndarray,
+                                    show_counts: bool, x_labels: List, y_labels: List) -> None:
+        """Add text annotations to heatmap cells."""
+        for i in range(len(y_labels)):
+            for j in range(len(x_labels)):
+                if not np.isnan(matrix[i, j]):
+                    score_text = f'{matrix[i, j]:.3f}'
+                    text = f'{score_text}\n(n={count_matrix[i, j]})' if show_counts and count_matrix[i, j] > 1 else score_text
+                    # Always use black text for better readability
+                    ax.text(j, i, text, ha='center', va='center', fontsize=8, color='black', weight='bold')
 
     def plot_variable_candlestick(self, filters: Dict[str, Any], variable: str,
                                   metric: str = 'rmse', figsize: Tuple[int, int] = (12, 8)) -> Figure:
