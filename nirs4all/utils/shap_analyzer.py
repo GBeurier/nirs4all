@@ -110,6 +110,8 @@ class ShapAnalyzer:
 
         # Step 2: Compute SHAP values
         print("🔬 Computing SHAP values...")
+
+        # No need to reshape - the predict function wrapper handles it
         self.shap_values = self.explainer.shap_values(X_explain)
 
         # Handle multi-output case (e.g., multi-class classification)
@@ -117,6 +119,10 @@ class ShapAnalyzer:
             print(f"   Multi-output detected: {len(self.shap_values)} outputs")
             # For now, use first output
             self.shap_values = self.shap_values[0]
+
+        # Flatten if needed (Keras may return 3D)
+        if len(self.shap_values.shape) == 3 and self.shap_values.shape[2] == 1:
+            self.shap_values = self.shap_values.squeeze(axis=2)
 
         # Get base value (expected value)
         if hasattr(self.explainer, 'expected_value'):
@@ -267,21 +273,41 @@ class ShapAnalyzer:
             try:
                 return shap.TreeExplainer(model)
             except Exception as e:
-                print(f"   ⚠️ TreeExplainer failed: {e}, falling back to Kernel")
+                error_msg = str(e).split('\n')[0]
+                print(f"   ⚠️ TreeExplainer failed: {error_msg}, falling back to Kernel")
                 explainer_type = "kernel"
 
         if explainer_type == "linear":
             try:
                 return shap.LinearExplainer(model, X)
             except Exception as e:
-                print(f"   ⚠️ LinearExplainer failed: {e}, falling back to Kernel")
+                error_msg = str(e).split('\n')[0]
+                print(f"   ⚠️ LinearExplainer failed: {error_msg}, falling back to Kernel")
                 explainer_type = "kernel"
 
         if explainer_type == "deep":
             try:
-                return shap.DeepExplainer(model, X[:n_background])
+                # Suppress verbose TensorFlow warnings during explainer creation
+                import warnings
+                import logging
+
+                # Temporarily suppress TensorFlow logging
+                tf_logger = logging.getLogger('tensorflow')
+                old_level = tf_logger.level
+                tf_logger.setLevel(logging.ERROR)
+
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', category=Warning)
+                    explainer = shap.DeepExplainer(model, X[:n_background])
+
+                # Restore logging
+                tf_logger.setLevel(old_level)
+                return explainer
+
             except Exception as e:
-                print(f"   ⚠️ DeepExplainer failed: {e}, falling back to Kernel")
+                # Clean error message without stack trace
+                error_msg = str(e).split('\n')[0]  # First line only
+                print(f"   ⚠️ DeepExplainer failed: {error_msg}, falling back to Kernel")
                 explainer_type = "kernel"
 
         # Fallback to KernelExplainer (works with any model)
@@ -295,8 +321,34 @@ class ShapAnalyzer:
             else:
                 background = X
 
-            # Create prediction function
-            if hasattr(model, 'predict_proba') and task_type == 'classification':
+            # Create prediction function with proper wrapping for TensorFlow/Keras
+            model_type = type(model).__name__
+            is_keras = any(name in model_type for name in ['Sequential', 'Functional', 'Model'])
+
+            if is_keras:
+                # Keras/TensorFlow models with preprocessing are not directly compatible
+                raise ValueError(
+                    "\n" + "="*80 +
+                    "\n❌ SHAP Error: Keras/TensorFlow models are not directly supported.\n" +
+                    "\n" +
+                    "The issue: Your Keras model was trained on preprocessed data, but SHAP\n" +
+                    "needs to explain the raw features. The model expects a different input\n" +
+                    "shape than the raw data provides.\n" +
+                    "\n" +
+                    "Solutions:\n" +
+                    "1. Use a tree-based model instead (e.g., GradientBoostingRegressor,\n" +
+                    "   RandomForest, XGBoost) - these work perfectly with SHAP\n" +
+                    "2. Use PLSRegression or other sklearn models\n" +
+                    "3. For Keras models, you'd need to include preprocessing inside the model\n" +
+                    "   (not currently supported by the pipeline)\n" +
+                    "\n" +
+                    "Example with GradientBoost:\n" +
+                    "  {\"model\": GradientBoostingRegressor(n_estimators=100), \"name\": \"GradBoost\"}\n" +
+                    "\n" +
+                    "=" *80
+                )
+
+            elif hasattr(model, 'predict_proba') and task_type == 'classification':
                 predict_fn = model.predict_proba
             else:
                 predict_fn = model.predict
