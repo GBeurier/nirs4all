@@ -638,6 +638,7 @@ class BaseModelController(OperatorController, ABC):
 
         score_val = 0.0
         score_test = 0.0
+        score_train = 0.0
         metric, higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)
         if mode != "predict" and mode != "explain":
             direction = "↑" if higher_is_better else "↓"
@@ -645,6 +646,7 @@ class BaseModelController(OperatorController, ABC):
             score_train = Evaluator.eval(y_train_unscaled, all_train_avg_preds, metric)
             score_val = Evaluator.eval(y_val_unscaled, all_val_avg_preds, metric)
             score_test = Evaluator.eval(y_test_unscaled, all_test_avg_preds, metric)
+
         avg_counter = runner.next_op()
 
         # Prepare average predictions data for return
@@ -701,6 +703,7 @@ class BaseModelController(OperatorController, ABC):
         # Evaluate weighted average predictions
         score_val_w = 0.0
         score_test_w = 0.0
+        score_train_w = 0.0
         if mode != "predict" and mode != "explain":
             score_train_w = Evaluator.eval(y_train_unscaled, all_train_w_avg_preds, metric)
             score_val_w = Evaluator.eval(y_val_unscaled, all_val_w_avg_preds, metric)

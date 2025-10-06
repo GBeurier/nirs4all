@@ -6,7 +6,8 @@ $examples = @(
     "Q4_multidatasets.py",
     "Q5_predict.py",
     "Q6_multisource.py",
-    "Q7_discretization.py"
+    "Q7_discretization.py",
+    "Q8_shap.py"
 )
 
 ## PARALLEL
