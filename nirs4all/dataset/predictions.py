@@ -37,6 +37,7 @@ class Predictions:
     - y_pred: List[float] (stored as string)
     - val_score: Optional[float]
     - test_score: Optional[float]
+    - train_score: Optional[float]
     - metric: str
     - task_type: str
     - n_samples: int
@@ -65,6 +66,7 @@ class Predictions:
             "y_pred": pl.Utf8,  # JSON string
             "val_score": pl.Float64,
             "test_score": pl.Float64,
+            "train_score": pl.Float64,
             "metric": pl.Utf8,
             "task_type": pl.Utf8,
             "n_samples": pl.Int64,
@@ -183,6 +185,7 @@ class Predictions:
         y_pred: Optional[np.ndarray] = None,
         val_score: Optional[float] = None,
         test_score: Optional[float] = None,
+        train_score: Optional[float] = None,
         metric: str = "mse",
         task_type: str = "regression",
         n_samples: int = 0,
@@ -222,6 +225,7 @@ class Predictions:
             "y_pred": json.dumps(y_pred_list),
             "val_score": val_score,
             "test_score": test_score,
+            "train_score": train_score,
             "metric": metric,
             "task_type": task_type,
             "n_samples": n_samples,
@@ -258,6 +262,7 @@ class Predictions:
         y_pred: Union[Optional[np.ndarray], List[Optional[np.ndarray]]] = None,
         val_score: Union[Optional[float], List[Optional[float]]] = None,
         test_score: Union[Optional[float], List[Optional[float]]] = None,
+        train_score: Union[Optional[float], List[Optional[float]]] = None,
         metric: Union[str, List[str]] = "mse",
         task_type: Union[str, List[str]] = "regression",
         n_samples: Union[int, List[int]] = 0,
@@ -293,6 +298,7 @@ class Predictions:
             y_pred: Predicted values - can be single array or list of arrays
             val_score: Loss score(s) - can be single float or list
             test_score: Evaluation score(s) - can be single float or list
+            train_score: Training score(s) - can be single float or list
             metric: Metric(s) - can be single string or list
             task_type: Task type(s) - can be single string or list
             n_samples: Number of samples - can be single int or list
@@ -318,12 +324,13 @@ class Predictions:
             'y_pred': y_pred,
             'val_score': val_score,
             'test_score': test_score,
+            'train_score': train_score,
             'metric': metric,
             'task_type': task_type,
             'n_samples': n_samples,
             'n_features': n_features,
             'preprocessings': preprocessings,
-            'best_params': best_params
+            'best_params': best_params,
         }
 
         # Find the maximum length (number of predictions to create)
@@ -663,6 +670,221 @@ class Predictions:
 
         return pl.DataFrame(scores_data)
 
+    def _parse_vec_json(self, s: str) -> np.ndarray:
+        """Parse JSON string to numpy array."""
+        return np.asarray(json.loads(s), dtype=float)
+
+    def _rank_score_expr(self, rank_metric: str, rank_partition: str):
+        """
+        Create expression to compute or retrieve rank score.
+        If rank_metric matches the row's metric, use precomputed score.
+        Otherwise, recompute from y_true/y_pred.
+        """
+        score_col = f"{rank_partition}_score"
+        return (
+            pl.when(pl.col("metric") == rank_metric)
+              .then(pl.col(score_col))
+              .otherwise(
+                pl.struct(["y_true", "y_pred"]).map_elements(
+                    lambda s: Evaluator.eval(
+                        self._parse_vec_json(s["y_true"]),
+                        self._parse_vec_json(s["y_pred"]),
+                        rank_metric
+                    ),
+                    return_dtype=pl.Float64
+                )
+            )
+            .alias("rank_score")
+        )
+
+    def top(
+        self, n: int,
+        rank_metric: str = "",
+        rank_partition: str = "val",
+        display_metrics: list[str] = None,
+        display_partition: str = "test",
+        aggregate_partitions: bool = False,
+        ascending: bool = True,
+        group_by_fold: bool = False,
+        **filters
+    ):
+        """
+        Get top n models ranked by a metric on a specific partition.
+
+        Args:
+            n: Number of top models to return
+            rank_metric: Metric to rank by (if empty, uses record's metric or val_score)
+            rank_partition: Partition to rank on (default: "val")
+            display_metrics: Metrics to compute (default: task_type defaults)
+            display_partition: Partition to display (default: "test")
+            aggregate_partitions: If True, add train/val/test nested dicts
+            ascending: If True, lower scores rank higher
+            group_by_fold: If True, include fold_id in model identity
+            **filters: Additional filter criteria
+        """
+        # Apply filters (excluding partition)
+        _ = filters.pop("partition", None)
+        base = self._df.filter([pl.col(k) == v for k, v in filters.items()]) if filters else self._df
+        if base.height == 0:
+            return []
+
+        # Default rank_metric from data if not provided
+        if rank_metric == "":
+            rank_metric = base[0, "metric"]
+
+        # Model identity key
+        KEY = ["config_name", "step_idx", "model_name"]
+        if group_by_fold:
+            KEY.append("fold_id")
+
+        # 1) RANKING: Filter to rank_partition and compute scores
+        rank_data = base.filter(pl.col("partition") == rank_partition)
+        if rank_data.height == 0:
+            return []
+
+        # Compute rank score: use val_score if rank_metric matches record's metric, else compute
+        rank_scores = []
+        for row in rank_data.to_dicts():
+            if rank_metric == row["metric"]:
+                # Use precomputed val_score
+                score = row.get("val_score")
+            else:
+                # Compute metric from y_true/y_pred
+                try:
+                    y_true = self._parse_vec_json(row["y_true"])
+                    y_pred = self._parse_vec_json(row["y_pred"])
+                    score = Evaluator.eval(y_true, y_pred, rank_metric)
+                except:
+                    score = None
+
+            rank_scores.append({
+                **{k: row[k] for k in KEY},
+                "rank_score": score,
+                "id": row["id"]
+            })
+
+        # Sort and get top n
+        rank_scores = [r for r in rank_scores if r["rank_score"] is not None]
+        rank_scores.sort(key=lambda x: x["rank_score"], reverse=not ascending)
+        top_keys = rank_scores[:n]
+
+        if not top_keys:
+            return []
+
+        # 2) DISPLAY: Get display partition data for top models
+        results = []
+        for top_key in top_keys:
+            # Filter to this specific model
+            model_filter = {k: top_key[k] for k in KEY}
+
+            result = {
+                **model_filter,
+                "rank_metric": rank_metric,
+                "rank_score": top_key["rank_score"],
+                "rank_id": top_key["id"]  # ID of the record used for ranking
+            }
+
+            if aggregate_partitions:
+                # Add nested structure for all partitions
+                for partition in ["train", "val", "test"]:
+                    partition_data = base.filter(
+                        pl.col("partition") == partition
+                    ).filter([pl.col(k) == v for k, v in model_filter.items()])
+
+                    if partition_data.height > 0:
+                        row = partition_data.to_dicts()[0]
+                        y_true = self._parse_vec_json(row["y_true"])
+                        y_pred = self._parse_vec_json(row["y_pred"])
+
+                        partition_dict = {
+                            "y_true": y_true.tolist(),
+                            "y_pred": y_pred.tolist(),
+                            # Include all original scores
+                            "train_score": row.get("train_score"),
+                            "val_score": row.get("val_score"),
+                            "test_score": row.get("test_score")
+                        }
+
+                        # Add metadata to result (from first partition found)
+                        if partition == "train" or len(result) == len(model_filter) + 3:  # Only basic keys so far
+                            # Determine partition name: use "test" for aggregate mode (multiple partitions)
+                            partition_name = "test" if aggregate_partitions else display_partition
+                            result.update({
+                                "partition": partition_name,
+                                "dataset_name": row.get("dataset_name"),
+                                "dataset_path": row.get("dataset_path"),
+                                "config_path": row.get("config_path"),
+                                "model_classname": row.get("model_classname"),
+                                "model_path": row.get("model_path"),
+                                "sample_indices": json.loads(row.get("sample_indices", "[]")),
+                                "weights": json.loads(row.get("weights", "[]")),
+                                "metadata": json.loads(row.get("metadata", "{}")),
+                                "metric": row.get("metric"),
+                                "task_type": row.get("task_type", "regression"),
+                                "n_samples": row.get("n_samples"),
+                                "n_features": row.get("n_features"),
+                                "preprocessings": row.get("preprocessings"),
+                                "best_params": json.loads(row.get("best_params", "{}"))
+                            })
+
+                        # Compute display metrics
+                        metrics_to_compute = display_metrics or Evaluator.get_default_metrics(row.get("task_type", "regression"))
+                        for metric in metrics_to_compute:
+                            try:
+                                score = Evaluator.eval(y_true, y_pred, metric)
+                                partition_dict[metric] = score
+                            except:
+                                partition_dict[metric] = None
+
+                        result[partition] = partition_dict
+            else:
+                # Single partition display
+                display_data = base.filter(
+                    pl.col("partition") == display_partition
+                ).filter([pl.col(k) == v for k, v in model_filter.items()])
+
+                if display_data.height > 0:
+                    row = display_data.to_dicts()[0]
+                    y_true = self._parse_vec_json(row["y_true"])
+                    y_pred = self._parse_vec_json(row["y_pred"])
+
+                    result.update({
+                        "id": row.get("id"),  # Use ID from display partition, not ranking partition
+                        "partition": display_partition,  # The partition being displayed
+                        "dataset_name": row.get("dataset_name"),
+                        "dataset_path": row.get("dataset_path"),
+                        "config_path": row.get("config_path"),
+                        "model_classname": row.get("model_classname"),
+                        "model_path": row.get("model_path"),
+                        "sample_indices": json.loads(row.get("sample_indices", "[]")),
+                        "weights": json.loads(row.get("weights", "[]")),
+                        "metadata": json.loads(row.get("metadata", "{}")),
+                        "metric": row.get("metric"),
+                        "task_type": row.get("task_type", "regression"),
+                        "n_samples": row.get("n_samples"),
+                        "n_features": row.get("n_features"),
+                        "preprocessings": row.get("preprocessings"),
+                        "best_params": json.loads(row.get("best_params", "{}")),
+                        "y_true": y_true.tolist(),
+                        "y_pred": y_pred.tolist(),
+                        # Include all original scores
+                        "train_score": row.get("train_score"),
+                        "val_score": row.get("val_score"),
+                        "test_score": row.get("test_score")
+                    })                    # Compute display metrics
+                    metrics_to_compute = display_metrics or Evaluator.get_default_metrics(row.get("task_type", "regression"))
+                    for metric in metrics_to_compute:
+                        try:
+                            score = Evaluator.eval(y_true, y_pred, metric)
+                            result[metric] = score
+                        except:
+                            result[metric] = None
+
+            results.append(result)
+
+        return results
+
+
     def top_k(self, k: int = 5, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> List[Dict[str, Any]]:
         """
         Get top K predictions ranked by metric, val_score, or test_score.
@@ -842,23 +1064,6 @@ class Predictions:
         """
         top_results = self.top_k(k=1, metric=metric, ascending=ascending, aggregate_partitions=aggregate_partitions, **filters)
         return top_results[0] if top_results else None
-
-    def bottom_k(self, metric: str = "", k: int = 5, aggregate_partitions: List[str] = [], **filters) -> List[Dict[str, Any]]:
-        """
-        Get bottom K predictions (worst performing).
-        This is an alias for top_k with ascending=False.
-        By default filters to test partition unless otherwise specified.
-
-        Args:
-            metric: Metric name to rank by ("" for test_score, "loss" for val_score, else metric)
-            k: Number of bottom results to return (-1 to return all filtered predictions)
-            aggregate_partitions: List of partitions to aggregate y_true and y_pred from (e.g. ['train', 'val'])
-            **filters: Additional filter criteria
-
-        Returns:
-            List of bottom K prediction dictionaries (or all if k=-1)
-        """
-        return self.top_k(k=k, metric=metric, ascending=False, aggregate_partitions=aggregate_partitions, **filters)
 
     def clear(self) -> None:
         """Clear all predictions."""

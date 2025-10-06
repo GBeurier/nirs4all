@@ -1,21 +1,26 @@
 #### ROADMAP ########
-Fix metrics errors in charts and task_type
-Add processings display option in top k chart
+Bugs:
+  - Save Hash_pred_(val_test_train) -
+  - Add score computation in top_k predictions (as in model_utils)
+  - Slow heat variables.
+  - Fix metrics errors in charts and task_type (unify task type along the code)
+
 ** RELEASE **
-Train_params in finetuning tf
-SHAP
-Q6
+  - Add processings display option in top k chart
+  - Train_params in finetuning tf
+[CLI]  ## run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
+Options normalisation in charts (0-1 ou 1-0)
 ** RELEASE **
-[CLI]
-[Logic flow in tf finetuning]
-** RELEASE **
+[Logic flow in tf finetuning] ???
 [SEED] review
 ** RELEASE **
 [Augmentation + Balanced Augmentation]
 ** RELEASE **
 [Chart controller] with x, y, folds, 3d, 2d operators.
-[ReadsTheDoc]
 ** RELEASE **
+[Pipeline as single transformer]: pre instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN.
+** RELEASE **
+[ReadsTheDoc]
 [METADATA]
 ** RELEASE **
 [Transfer]

@@ -271,7 +271,7 @@ class ShapAnalyzer:
         # Create explainer
         if explainer_type == "tree":
             try:
-                return shap.TreeExplainer(model)
+                return shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
             except Exception as e:
                 error_msg = str(e).split('\n')[0]
                 print(f"   ⚠️ TreeExplainer failed: {error_msg}, falling back to Kernel")

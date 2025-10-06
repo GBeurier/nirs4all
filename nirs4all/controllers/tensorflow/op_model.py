@@ -259,13 +259,13 @@ class TensorFlowModelController(BaseModelController):
                     y_val, y_val_pred, task_type_str, "validation",
                     trained_model.__class__.__name__, show_detailed_scores=False
                 )
-                # Display concise validation summary
-                if val_scores:
-                    best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
-                    best_score = val_scores.get(best_metric)
-                    if best_score is not None:
-                        direction = "↑" if higher_is_better else "↓"
-                        all_scores_str = ModelUtils.format_scores(val_scores)
+                # # Display concise validation summary
+                # if val_scores:
+                #     best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
+                #     best_score = val_scores.get(best_metric)
+                #     if best_score is not None:
+                #         direction = "↑" if higher_is_better else "↓"
+                #         all_scores_str = ModelUtils.format_scores(val_scores)
                         # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
             elif validation_data is not None:
                 # Use validation data from training
