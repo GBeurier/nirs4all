@@ -85,31 +85,31 @@ analyzer = PredictionAnalyzer(predictions)
 fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
 
 # Plot heatmap: models vs partitions
-fig2 = analyzer.plot_variable_heatmap(
+fig2 = analyzer.plot_heatmap_v2(
     x_var="model_name",
     y_var="partition",
-    best_only=False
+    aggregation="best",  # Options: 'best', 'mean', 'median'
 )
 
 # Plot heatmap: models vs datasets
-fig3 = analyzer.plot_variable_heatmap(
+fig3 = analyzer.plot_heatmap_v2(
     x_var="model_name",
     y_var="dataset_name",
-    partition='val',
-    metric='rmse',
-    score_metric='rmse',
-    score_partition='test'
+    rank_partition='val', # default
+    metric='rmse',  # default
+    display_metric='rmse', # default
+    display_partition='test', # default
+    aggregation='best'  # default
 )
 
 # Plot heatmap: models vs datasets (all results)
-fig4 = analyzer.plot_variable_heatmap(
+fig4 = analyzer.plot_heatmap_v2(
     x_var="model_name",
     y_var="dataset_name",
-    best_only=False,
 )
 
 # Plot heatmap: models vs fold IDs
-fig5 = analyzer.plot_variable_heatmap(
+fig5 = analyzer.plot_heatmap_v2(
     x_var="model_name",
     y_var="fold_id",
 )

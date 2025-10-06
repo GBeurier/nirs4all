@@ -1261,30 +1261,116 @@ class PredictionAnalyzer:
         if not display_metric:
             display_metric = rank_metric
 
-        # Determine if metric is "higher is better"
-        higher_better = display_metric.lower() in ['r2', 'accuracy', 'f1', 'precision', 'recall', 'auc']
+        # Determine if metrics are "higher is better"
+        rank_higher_better = rank_metric.lower() in ['r2', 'accuracy', 'f1', 'precision', 'recall', 'auc']
+        display_higher_better = display_metric.lower() in ['r2', 'accuracy', 'f1', 'precision', 'recall', 'auc']
 
-        # OPTIMIZATION: Use top_k which is faster - it uses precomputed scores when possible
-        # Get predictions from display_partition and use stored scores
-        if 'partition' not in filters:
-            filters['partition'] = display_partition
+        # Strategy: Use fast top_k() calls and merge by model identity when needed
+        # 1. Get ranking from rank_partition
+        rank_filters = {k: v for k, v in filters.items() if k != 'partition'}
+        rank_filters['partition'] = rank_partition
+        
+        # Get all predictions from rank partition (fast - uses stored scores)
+        rank_predictions = self.predictions.top_k(k=-1, metric=rank_metric, ascending=(not rank_higher_better), **rank_filters)
 
-        all_predictions = self.predictions.top_k(k=-1, metric=display_metric, ascending=(not higher_better), **filters)
-
-        if not all_predictions:
+        if not rank_predictions:
             return self._create_empty_heatmap_figure(figsize, filters, "No predictions found")
 
-        # Build score matrix grouped by x_var and y_var
-        score_dict = self._build_score_dict(all_predictions, x_var, y_var, display_metric)
+        # 2. If rank_partition == display_partition and metrics match, we already have the data
+        if rank_partition == display_partition and rank_metric == display_metric:
+            all_predictions = rank_predictions
+        else:
+            # Need to get scores from display partition
+            # Optimization: Build lookup of what model identities we need
+            unique_models = {}  # identity_key -> rank_pred
+            for pred in rank_predictions:
+                identity_key = (
+                    pred.get('config_name', ''),
+                    pred.get('step_idx', 0),
+                    pred.get('model_name', ''),
+                    pred.get('fold_id', ''),
+                    pred.get('op_counter', 0)
+                )
+                unique_models[identity_key] = pred
+            
+            # Get display predictions using top_k with display partition
+            display_filters = {k: v for k, v in filters.items() if k != 'partition'}
+            display_filters['partition'] = display_partition
+            
+            # Use top_k for display partition (it's faster than filter_predictions)
+            display_predictions = self.predictions.top_k(
+                k=-1,
+                metric=display_metric if display_metric == rank_metric else "",  # Use same metric if possible for speed
+                ascending=(not display_higher_better),
+                **display_filters
+            )
+            
+            # Build lookup for display scores indexed by model identity
+            display_lookup = {}
+            for pred in display_predictions:
+                identity_key = (
+                    pred.get('config_name', ''),
+                    pred.get('step_idx', 0),
+                    pred.get('model_name', ''),
+                    pred.get('fold_id', ''),
+                    pred.get('op_counter', 0)
+                )
+                
+                # Only keep predictions for models we're interested in
+                if identity_key not in unique_models:
+                    continue
+                
+                # Get the display score
+                display_score_field = f'{display_partition}_score'
+                score = pred.get(display_score_field)
+                
+                # If score is None or we need a different metric, compute it
+                if score is None or (display_metric != rank_metric and display_metric != pred.get('metric', '')):
+                    # Compute the metric from y_true and y_pred
+                    try:
+                        from nirs4all.utils.evaluator import Evaluator
+                        y_true = pred.get('y_true', [])
+                        y_pred = pred.get('y_pred', [])
+                        if y_true and y_pred:
+                            score = Evaluator.eval(y_true, y_pred, display_metric)
+                    except Exception:
+                        score = None
+                
+                if score is not None:
+                    display_lookup[identity_key] = {
+                        'score': score,
+                        'x_var': pred.get(x_var),
+                        'y_var': pred.get(y_var),
+                    }
+            
+            # Merge: For each ranked prediction, attach its display score AND rank score
+            all_predictions = []
+            for identity_key, rank_pred in unique_models.items():
+                if identity_key in display_lookup:
+                    # Create merged prediction with display score
+                    merged_pred = rank_pred.copy()
+                    merged_pred[f'{display_partition}_score'] = display_lookup[identity_key]['score']
+                    # Store the rank score for proper aggregation
+                    merged_pred['_rank_score'] = rank_pred.get(f'{rank_partition}_score')
+                    # Also copy x_var and y_var from display if available
+                    merged_pred[x_var] = display_lookup[identity_key].get('x_var', rank_pred.get(x_var))
+                    merged_pred[y_var] = display_lookup[identity_key].get('y_var', rank_pred.get(y_var))
+                    all_predictions.append(merged_pred)
+
+        # Build score matrix - use {display_partition}_score field for display
+        # Pass rank score field for proper aggregation when rank != display partition
+        display_score_field = f'{display_partition}_score'
+        rank_score_field = '_rank_score' if rank_partition != display_partition else display_score_field
+        score_dict = self._build_score_dict_with_ranking(all_predictions, x_var, y_var, display_score_field, rank_score_field)
 
         if not score_dict:
             return self._create_empty_heatmap_figure(figsize, filters, f'No valid {display_metric} scores found')
 
-        # Extract sorted labels and build matrices
-        y_labels, x_labels, matrix, count_matrix = self._build_heatmap_matrices(score_dict, aggregation, higher_better)
+        # Extract sorted labels and build matrices (use display metric's directionality)
+        y_labels, x_labels, matrix, count_matrix = self._build_heatmap_matrices(score_dict, aggregation, display_higher_better)
 
         # Normalize if requested
-        normalized_matrix = self._normalize_heatmap_matrix(matrix, normalize, higher_better)
+        normalized_matrix = self._normalize_heatmap_matrix(matrix, normalize, display_higher_better)
 
         # Create and render the plot
         return self._render_heatmap_v2(matrix, normalized_matrix, count_matrix, x_labels, y_labels, x_var, y_var, rank_metric, rank_partition,
@@ -1310,8 +1396,33 @@ class PredictionAnalyzer:
                 score_dict[y_val][x_val].append(score)
         return score_dict
 
+    def _build_score_dict_with_ranking(self, all_predictions: List[Dict], x_var: str, y_var: str, 
+                                       display_score_field: str, rank_score_field: str) -> Dict:
+        """
+        Build dictionary of scores grouped by x_var and y_var, keeping ranking information.
+        
+        Returns dict structure: {y_val: {x_val: [(display_score, rank_score), ...]}}
+        """
+        score_dict = defaultdict(lambda: defaultdict(list))
+        for pred in all_predictions:
+            x_val = str(pred.get(x_var, 'unknown'))
+            y_val = str(pred.get(y_var, 'unknown'))
+            display_score = pred.get(display_score_field)
+            rank_score = pred.get(rank_score_field)
+            
+            if display_score is not None and not np.isnan(display_score):
+                # Store tuple of (display_score, rank_score) for proper aggregation
+                score_dict[y_val][x_val].append((display_score, rank_score if rank_score is not None else display_score))
+        return score_dict
+
     def _build_heatmap_matrices(self, score_dict: Dict, aggregation: str, higher_better: bool) -> Tuple[List, List, np.ndarray, np.ndarray]:
-        """Build matrices for heatmap from score dictionary."""
+        """
+        Build matrices for heatmap from score dictionary.
+        
+        score_dict can contain either:
+        - Simple scores: {y_val: {x_val: [score1, score2, ...]}}
+        - Tuples with ranking: {y_val: {x_val: [(display_score, rank_score), ...]}}
+        """
         y_labels = sorted(score_dict.keys(), key=self._natural_sort_key)
         x_labels = sorted(set(x for y_data in score_dict.values() for x in y_data.keys()), key=self._natural_sort_key)
 
@@ -1323,15 +1434,26 @@ class PredictionAnalyzer:
                 scores = score_dict[y_val].get(x_val, [])
                 if scores:
                     count_matrix[i, j] = len(scores)
-                    # Aggregate scores based on aggregation method
-                    if aggregation == 'best':
-                        matrix[i, j] = max(scores) if higher_better else min(scores)
-                    elif aggregation == 'mean':
-                        matrix[i, j] = np.mean(scores)
-                    elif aggregation == 'median':
-                        matrix[i, j] = np.median(scores)
+                    
+                    # Check if scores are tuples (display_score, rank_score) or simple values
+                    if scores and isinstance(scores[0], tuple):
+                        # Scores with ranking information
+                        if aggregation == 'best':
+                            # Select based on rank_score, display the corresponding display_score
+                            best_idx = np.argmin([rank for _, rank in scores]) if not higher_better else np.argmax([rank for _, rank in scores])
+                            matrix[i, j] = scores[best_idx][0]  # Display score of best ranked model
+                        elif aggregation == 'mean':
+                            matrix[i, j] = np.mean([disp for disp, _ in scores])
+                        elif aggregation == 'median':
+                            matrix[i, j] = np.median([disp for disp, _ in scores])
                     else:
-                        raise ValueError(f"Unknown aggregation: {aggregation}. Use 'best', 'mean', or 'median'")
+                        # Simple scores (backward compatibility)
+                        if aggregation == 'best':
+                            matrix[i, j] = max(scores) if higher_better else min(scores)
+                        elif aggregation == 'mean':
+                            matrix[i, j] = np.mean(scores)
+                        elif aggregation == 'median':
+                            matrix[i, j] = np.median(scores)
 
         return y_labels, x_labels, matrix, count_matrix
 
@@ -1398,7 +1520,7 @@ class PredictionAnalyzer:
                     score_text = f'{matrix[i, j]:.3f}'
                     text = f'{score_text}\n(n={count_matrix[i, j]})' if show_counts and count_matrix[i, j] > 1 else score_text
                     # Always use black text for better readability
-                    ax.text(j, i, text, ha='center', va='center', fontsize=8, color='black', weight='bold')
+                    ax.text(j, i, text, ha='center', va='center', fontsize=8, color='black')
 
     def plot_variable_candlestick(self, filters: Dict[str, Any], variable: str,
                                   metric: str = 'rmse', figsize: Tuple[int, int] = (12, 8)) -> Figure:
