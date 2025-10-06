@@ -1,8 +1,10 @@
 #### ROADMAP ########
 Bugs:
-  - Save Hash_pred_(val_test_train) -
-  - Add score computation in top_k predictions (as in model_utils)
-  - Slow heat variables.
+  - Align rank and display color
+  - verify accuracy in confusion matrix
+  - Slow heatmap variables.
+
+  - PCA
   - Fix metrics errors in charts and task_type (unify task type along the code)
 
 ** RELEASE **

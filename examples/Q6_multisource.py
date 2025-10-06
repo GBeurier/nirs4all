@@ -49,19 +49,20 @@ pipeline = [
     ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
 
     # Machine learning models
-    {"model": PLSRegression(10), "name": "Q5_PLS"},
+    {"model": PLSRegression(10), "name": "Q6_PLS_2"},
     MinMaxScaler(feature_range=(0.1, 0.8)),
-    {"model": RandomForestRegressor(n_estimators=20)},
+    # {"model": RandomForestRegressor(n_estimators=20)},
+    {"model": PLSRegression(10), "name": "Q6_PLS_2"},
 
-    # Neural network model
-    {
-        "model": nicon,
-        "train_params": {
-            "epochs": 100,
-            "patience": 50,
-            "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
-        },
-    },
+    # # Neural network model
+    # {
+    #     "model": nicon,
+    #     "train_params": {
+    #         "epochs": 100,
+    #         "patience": 50,
+    #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
+    #     },
+    # },
 ]
 
 # Create configuration objects
@@ -101,7 +102,7 @@ plt.show()
 best_prediction = predictions.top_k(1, partition="test")[0]
 model_id = best_prediction['id']
 
-print("\n=== Q5 - Model Reuse Example ===")
+print("\n=== Q6 - Multisource Model + Reuse Example ===")
 print("--- Source Model ---")
 print(f"Best model: {best_prediction['model_name']} (id: {model_id})")
 reference_predictions = best_prediction['y_pred'][:5].flatten()
