@@ -35,7 +35,7 @@ data_path = 'sample_data/regression'
 
 # Build the pipeline
 pipeline = [
-    "chart_2d",
+    # "chart_2d",
     feature_scaler,
     {"y_processing": target_scaler},
     {"feature_augmentation": {"_or_": preprocessing_options, "size": [1, (1, 2)], "count": 7}},  # Generate combinations of preprocessing techniques
@@ -63,10 +63,11 @@ best_model_count = 5
 ranking_metric = 'rmse'  # Options: 'rmse', 'mae', 'r2'
 
 # Display top performing models
-top_models = predictions.top_k(best_model_count, ranking_metric)
+top_models = predictions.top(best_model_count, ranking_metric)
 print(f"Top {best_model_count} models by {ranking_metric}:")
 for idx, prediction in enumerate(top_models):
     print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")
+top_models[0].save_to_csv("Q1_classification_best_model.csv")
 
 # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
@@ -74,26 +75,28 @@ analyzer = PredictionAnalyzer(predictions)
 # Plot comparison of top models
 fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
 
-# Plot heatmap of model performance vs preprocessing
-fig2 = analyzer.plot_variable_heatmap(
-    x_var="model_name",
-    y_var="preprocessings",
-    metric='rmse',
-    best_only=False
-)
+# # Plot heatmap of model performance vs preprocessing
+# fig2 = analyzer.plot_variable_heatmap(
+#     x_var="model_name",
+#     y_var="preprocessings",
+#     metric='rmse',
+#     best_only=False
+# )
 
-# Plot simplified heatmap without count display
-fig3 = analyzer.plot_variable_heatmap(
-    x_var="model_name",
-    y_var="preprocessings",
-    metric='rmse',
-    display_n=False
-)
+# # Plot simplified heatmap without count display
+# fig3 = analyzer.plot_variable_heatmap(
+#     x_var="model_name",
+#     y_var="preprocessings",
+#     metric='rmse',
+#     display_n=False
+# )
 
-# Plot candlestick chart for model performance distribution
-fig4 = analyzer.plot_variable_candlestick(
-    filters={"partition": "test"},
-    variable="model_name",
-)
+# # Plot candlestick chart for model performance distribution
+# fig4 = analyzer.plot_variable_candlestick(
+#     filters={"partition": "test"},
+#     variable="model_name",
+# )
+
+fig5 = analyzer.plot_score_histogram(partition="test")
 
 plt.show()

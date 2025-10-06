@@ -25,6 +25,7 @@ predict/
 trash/
 deprec/
 .github/instructions/Claude instructions.instructions.md
+examples/generated/
 
 # Testing
 .pytest_cache/
