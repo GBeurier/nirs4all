@@ -52,7 +52,7 @@ class FoldChartController(OperatorController):
             Tuple of (context, image_list) where image_list contains plot binaries
         """
         # Skip execution in prediction mode
-        if mode == "predict":
+        if mode == "predict" or mode == "explain":
             return context, []
 
         print(f"Executing fold charts for step: {step}, keyword: {context.get('keyword', '')}")
@@ -88,7 +88,7 @@ class FoldChartController(OperatorController):
         img_list = [(image_name, img_png_binary)]
 
         if runner.plots_visible:
-            plt.show()
+            plt.show(block=False)
         plt.close(fig)
 
         return context, img_list

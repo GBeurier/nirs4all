@@ -90,6 +90,8 @@ class PipelineRunner:
         self.config_path: Optional[str] = None
         self.target_model: Optional[Dict[str, Any]] = None
         self.model_weights: Optional[List[float]] = None
+        self._capture_model: bool = False  # Flag to capture model during prediction
+        self._captured_model: Optional[Any] = None  # Captured model for SHAP analysis
 
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> Any:
         """Run pipeline configurations on dataset configurations."""
@@ -169,14 +171,10 @@ class PipelineRunner:
 
         return run_predictions, datasets_predictions
 
-    def predict(self, prediction_obj: Union[Dict[str, Any], str], dataset_config: DatasetConfigs, verbose: int = 0) -> Tuple['Predictions', Dict[str, Any]]:
-        print("=" * 120)
-        print(f"\033[94m🚀 Starting Nirs4all prediction(s)\033[0m")
-        print("=" * 120)
 
-        self.mode = "predict"
-        self.verbose = verbose
-        config_path, target_model = self.saver.get_predict_targets(prediction_obj)
+
+    def prepare_replay(self, selection_obj: Union[Dict[str, Any], str], dataset_config: DatasetConfigs, verbose: int = 0):
+        config_path, target_model = self.saver.get_predict_targets(selection_obj)
         del target_model["y_pred"]  # Remove potentially large arrays
         del target_model["y_true"]
         self.config_path = config_path
@@ -195,7 +193,7 @@ class PipelineRunner:
         if not pipeline_json.exists():
             raise FileNotFoundError(f"Pipeline not found: {pipeline_json}")
 
-        with open(pipeline_json, 'r') as f:
+        with open(pipeline_json, 'r', encoding='utf-8') as f:
             pipeline_data = json.load(f)
 
         if isinstance(pipeline_data, dict) and "steps" in pipeline_data:
@@ -207,32 +205,32 @@ class PipelineRunner:
         metadata_file = config_dir / "metadata.json"
         metadata = {}
         if metadata_file.exists():
-            with open(metadata_file, 'r') as f:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
                 metadata = json.load(f)
         if 'binaries' not in metadata:
             metadata['binaries'] = {}
         if verbose > 0:
             print(f"🔍 {len(metadata['binaries'])} binaries found")
         self.binary_loader = BinaryLoader(self.saver.base_path, metadata)
+        return steps
 
-        # 5. Run pipeline exactly like train
+
+    def predict(self, prediction_obj: Union[Dict[str, Any], str], dataset_config: DatasetConfigs, verbose: int = 0) -> Tuple['Predictions', Dict[str, Any]]:
+        print("=" * 120)
+        print(f"\033[94m🚀 Starting Nirs4all prediction(s)\033[0m")
+        print("=" * 120)
+
+        self.mode = "predict"
+        self.verbose = verbose
+        steps = self.prepare_replay(prediction_obj, dataset_config, verbose=verbose)
+
         run_predictions = Predictions()
-        # datasets_predictions = {}
-
         for config, name in dataset_config.configs:
             dataset = dataset_config.get_dataset(config, name)
             config_predictions = Predictions()
-
-            # Run single pipeline (same as train)
             self._run_single(steps, "prediction", dataset, config_predictions)
             run_predictions.merge_predictions(config_predictions)
             # print(run_predictions)
-            # datasets_predictions[name] = {
-            #     "global_predictions": config_predictions,  # No global loading in predict
-            #     "run_predictions": config_predictions,
-            #     "dataset": dataset,
-            #     "dataset_name": name
-            # }
 
         # print(self.target_model)
         single_pred = run_predictions.get_similar(
@@ -250,7 +248,112 @@ class PipelineRunner:
         y_pred = single_pred["y_pred"]
         prediction_path = self.saver.base_path / dataset.name / filename
         Predictions.save_predictions_to_csv(y_pred=y_pred, filepath=prediction_path)
+
         return single_pred["y_pred"], run_predictions
+
+    def explain(
+        self,
+        prediction_obj: Union[Dict[str, Any], str],
+        dataset_config: DatasetConfigs,
+        shap_params: Optional[Dict[str, Any]] = None,
+        verbose: int = 0
+    ) -> Tuple[Dict[str, Any], str]:
+
+        print("=" * 120)
+        print(f"\033[94m🔍 Starting SHAP Explanation Analysis\033[0m")
+        print("=" * 120)
+
+        self.mode = "explain"
+        # Default SHAP parameters
+        if shap_params is None:
+            shap_params = {}
+        shap_params.setdefault('n_samples', 200)
+        shap_params.setdefault('visualizations', ['spectral', 'summary'])
+        shap_params.setdefault('explainer_type', 'auto')
+        shap_params.setdefault('bin_size', 20)
+        shap_params.setdefault('bin_stride', 10)
+        shap_params.setdefault('bin_aggregation', 'sum')
+
+        # Step 1: Enable model capture and run prediction pipeline
+        if verbose > 0:
+            print("📦 Step 1: Capturing model via prediction pipeline...")
+
+        self._capture_model = True
+        self._captured_model = None
+
+        try:
+            # Run predict() - it will load the model and capture it via the flag
+            config, name = dataset_config.configs[0]
+            steps = self.prepare_replay(prediction_obj, dataset_config, verbose=verbose)
+            dataset = dataset_config.get_dataset(config, name)
+            config_predictions = Predictions()
+            dataset, context = self._run_single(steps, "prediction", dataset, config_predictions)
+
+            # Step 2: Extract the captured model
+            if self._captured_model is None:
+                raise ValueError("Failed to capture model during prediction. Model controller may not support capture.")
+
+            model, controller = self._captured_model
+
+            # Get test data with proper layout
+            test_context = context.copy()
+            test_context['partition'] = 'test'
+            X_test = dataset.x(test_context, layout=controller.get_preferred_layout())
+            y_test = dataset.y(test_context)
+
+            # Get feature names (wavelengths if available)
+            feature_names = None
+            if hasattr(dataset, 'wavelengths') and dataset.wavelengths is not None:
+                feature_names = [f"λ{w:.1f}" for w in dataset.wavelengths]
+
+            # Detect task type
+            task_type = 'classification' if dataset.task_type and 'classification' in dataset.task_type else 'regression'
+
+            # Create output directory
+            model_id = self.target_model.get('id', 'unknown')
+            output_dir = self.saver.base_path / dataset.name / self.config_path / "explanations" / model_id
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            if verbose > 0:
+                print(f"📁 Output directory: {output_dir}")
+
+            # Initialize and run SHAP analyzer
+            from nirs4all.utils.shap_analyzer import ShapAnalyzer
+            analyzer = ShapAnalyzer()
+
+            shap_results = analyzer.explain_model(
+                model=model,
+                X=X_test,
+                y=y_test,
+                feature_names=feature_names,
+                task_type=task_type,
+                n_background=shap_params['n_samples'],
+                explainer_type=shap_params['explainer_type'],
+                output_dir=str(output_dir),
+                visualizations=shap_params['visualizations'],
+                bin_size=shap_params['bin_size'],
+                bin_stride=shap_params['bin_stride'],
+                bin_aggregation=shap_params['bin_aggregation']
+            )
+
+            # Add metadata
+            shap_results['model_name'] = self.target_model.get('model_name', 'unknown')
+            shap_results['model_id'] = model_id
+            shap_results['dataset_name'] = dataset.name
+
+            if verbose > 0:
+                print(f"\n✅ SHAP explanation completed!")
+                print(f"📁 Visualizations saved to: {output_dir}")
+                for viz in shap_params['visualizations']:
+                    print(f"   • {viz}.png")
+                print("=" * 120)
+
+            return shap_results, str(output_dir)
+
+        finally:
+            # Always reset capture flag
+            self._capture_model = False
+            self._captured_model = None
 
     def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset, config_predictions: 'Predictions') -> SpectroDataset:
         """Run a single pipeline configuration on a single dataset with external prediction store."""
@@ -265,7 +368,7 @@ class PipelineRunner:
         print("-" * 120)
 
         self.saver.register(dataset.name, config_name, self.mode)
-        if self.mode != "predict":
+        if self.mode != "predict" and self.mode != "explain":
             self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
         # Initialize context
@@ -273,7 +376,7 @@ class PipelineRunner:
 
         try:
             self.run_steps(steps, dataset, context, execution="sequential", prediction_store=config_predictions)
-            if self.mode != "predict":
+            if self.mode != "predict" and self.mode != "explain":
                 self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
                 if config_predictions.num_predictions > 0:
@@ -289,7 +392,7 @@ class PipelineRunner:
             traceback.print_exc()
             raise
 
-        return dataset
+        return dataset, context
 
     def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]],
                   execution: str = "sequential", prediction_store: Optional['Predictions'] = None,
@@ -389,14 +492,14 @@ class PipelineRunner:
                 if self.verbose > 1:
                     print(f"🔹 Selected controller: {controller.__class__.__name__}")
                 # Check if controller supports prediction mode
-                if self.mode == "predict" and not controller.supports_prediction_mode():
+                if (self.mode == "predict" or self.mode == "explain") and not controller.supports_prediction_mode():
                     if self.verbose > 0:
                         print(f"⚠️ Controller {controller.__class__.__name__} does not support prediction mode, skipping step {self.step_number}")
                     return context
 
                 # Load binaries if in prediction mode
                 loaded_binaries = propagated_binaries
-                if self.mode == "predict" and self.binary_loader is not None and loaded_binaries is None:
+                if (self.mode == "predict" or self.mode == "explain") and self.binary_loader is not None and loaded_binaries is None:
                     loaded_binaries = self.binary_loader.get_step_binaries(self.step_number)
                     if self.verbose > 1 and loaded_binaries:
                         print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")

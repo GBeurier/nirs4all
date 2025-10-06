@@ -120,7 +120,7 @@ class CrossValidatorController(OperatorController):
             kwargs["groups"] = groups
 
 
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             folds = list(operator.split(X, **kwargs))  # Convert to list to avoid iterator consumption
 
             # Store folds in dataset (if method exists)
