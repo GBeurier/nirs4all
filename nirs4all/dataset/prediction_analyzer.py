@@ -1269,7 +1269,7 @@ class PredictionAnalyzer:
         # 1. Get ranking from rank_partition
         rank_filters = {k: v for k, v in filters.items() if k != 'partition'}
         rank_filters['partition'] = rank_partition
-        
+
         # Get all predictions from rank partition (fast - uses stored scores)
         rank_predictions = self.predictions.top_k(k=-1, metric=rank_metric, ascending=(not rank_higher_better), **rank_filters)
 
@@ -1292,11 +1292,11 @@ class PredictionAnalyzer:
                     pred.get('op_counter', 0)
                 )
                 unique_models[identity_key] = pred
-            
+
             # Get display predictions using top_k with display partition
             display_filters = {k: v for k, v in filters.items() if k != 'partition'}
             display_filters['partition'] = display_partition
-            
+
             # Use top_k for display partition (it's faster than filter_predictions)
             display_predictions = self.predictions.top_k(
                 k=-1,
@@ -1304,7 +1304,7 @@ class PredictionAnalyzer:
                 ascending=(not display_higher_better),
                 **display_filters
             )
-            
+
             # Build lookup for display scores indexed by model identity
             display_lookup = {}
             for pred in display_predictions:
@@ -1315,15 +1315,15 @@ class PredictionAnalyzer:
                     pred.get('fold_id', ''),
                     pred.get('op_counter', 0)
                 )
-                
+
                 # Only keep predictions for models we're interested in
                 if identity_key not in unique_models:
                     continue
-                
+
                 # Get the display score
                 display_score_field = f'{display_partition}_score'
                 score = pred.get(display_score_field)
-                
+
                 # If score is None or we need a different metric, compute it
                 if score is None or (display_metric != rank_metric and display_metric != pred.get('metric', '')):
                     # Compute the metric from y_true and y_pred
@@ -1335,14 +1335,14 @@ class PredictionAnalyzer:
                             score = Evaluator.eval(y_true, y_pred, display_metric)
                     except Exception:
                         score = None
-                
+
                 if score is not None:
                     display_lookup[identity_key] = {
                         'score': score,
                         'x_var': pred.get(x_var),
                         'y_var': pred.get(y_var),
                     }
-            
+
             # Merge: For each ranked prediction, attach its display score AND rank score
             all_predictions = []
             for identity_key, rank_pred in unique_models.items():
@@ -1396,11 +1396,11 @@ class PredictionAnalyzer:
                 score_dict[y_val][x_val].append(score)
         return score_dict
 
-    def _build_score_dict_with_ranking(self, all_predictions: List[Dict], x_var: str, y_var: str, 
+    def _build_score_dict_with_ranking(self, all_predictions: List[Dict], x_var: str, y_var: str,
                                        display_score_field: str, rank_score_field: str) -> Dict:
         """
         Build dictionary of scores grouped by x_var and y_var, keeping ranking information.
-        
+
         Returns dict structure: {y_val: {x_val: [(display_score, rank_score), ...]}}
         """
         score_dict = defaultdict(lambda: defaultdict(list))
@@ -1409,7 +1409,7 @@ class PredictionAnalyzer:
             y_val = str(pred.get(y_var, 'unknown'))
             display_score = pred.get(display_score_field)
             rank_score = pred.get(rank_score_field)
-            
+
             if display_score is not None and not np.isnan(display_score):
                 # Store tuple of (display_score, rank_score) for proper aggregation
                 score_dict[y_val][x_val].append((display_score, rank_score if rank_score is not None else display_score))
@@ -1418,7 +1418,7 @@ class PredictionAnalyzer:
     def _build_heatmap_matrices(self, score_dict: Dict, aggregation: str, higher_better: bool) -> Tuple[List, List, np.ndarray, np.ndarray]:
         """
         Build matrices for heatmap from score dictionary.
-        
+
         score_dict can contain either:
         - Simple scores: {y_val: {x_val: [score1, score2, ...]}}
         - Tuples with ranking: {y_val: {x_val: [(display_score, rank_score), ...]}}
@@ -1434,7 +1434,7 @@ class PredictionAnalyzer:
                 scores = score_dict[y_val].get(x_val, [])
                 if scores:
                     count_matrix[i, j] = len(scores)
-                    
+
                     # Check if scores are tuples (display_score, rank_score) or simple values
                     if scores and isinstance(scores[0], tuple):
                         # Scores with ranking information

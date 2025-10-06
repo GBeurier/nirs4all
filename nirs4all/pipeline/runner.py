@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime
 from pathlib import Path
 import json
+import numpy as np
 
 from joblib import Parallel, delayed, parallel_backend
 from nirs4all.dataset.predictions import Predictions
@@ -64,7 +65,9 @@ class PipelineRunner:
                  show_spinner: bool = True,
                  enable_tab_reports: bool = True,
                  random_state: Optional[int] = None,
-                 plots_visible: bool = False):
+                 plots_visible: bool = False,
+                 keep_datasets: bool = True
+                 ):
 
         if random_state is not None:
             init_global_random_state(random_state)
@@ -92,6 +95,10 @@ class PipelineRunner:
         self.model_weights: Optional[List[float]] = None
         self._capture_model: bool = False  # Flag to capture model during prediction
         self._captured_model: Optional[Any] = None  # Captured model for SHAP analysis
+        self.keep_datasets = keep_datasets
+        if self.keep_datasets:
+            self.raw_data: Dict[str, np.ndarray] = {}
+            self.pp_data: Dict[str, Dict[str, np.ndarray]] = {}
 
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> Any:
         """Run pipeline configurations on dataset configurations."""
@@ -116,11 +123,21 @@ class PipelineRunner:
                 dataset = dataset_configs.get_dataset(config, name)
                 dataset_name = name
 
+                # Capture raw data BEFORE any preprocessing happens
+                if self.keep_datasets and dataset_name not in self.raw_data:
+                    self.raw_data[dataset_name] = dataset.x({}, layout="2d")
+
                 if self.verbose > 0:
                     print(dataset)
 
                 config_predictions = Predictions()
                 self._run_single(steps, config_name, dataset, config_predictions)
+
+                # Capture preprocessed data AFTER preprocessing
+                if self.keep_datasets:
+                    if dataset_name not in self.pp_data:
+                        self.pp_data[dataset_name] = {}
+                    self.pp_data[dataset_name][dataset.short_preprocessings_str()] = dataset.x({}, layout="2d")
 
                 # Merge new predictions into stores
                 if config_predictions.num_predictions > 0:

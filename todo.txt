@@ -1,18 +1,11 @@
 #### ROADMAP ########
-Bugs:
-  - Align rank and display color
-  - verify accuracy in confusion matrix
-  - Slow heatmap variables.
-
-  - PCA
-  - Fix metrics errors in charts and task_type (unify task type along the code)
-
+[CLI]  ## run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 ** RELEASE **
+Options normalisation in charts (0-1 ou 1-0)
+Bugs:
+  - Fix task_type (unify task type along the code)
   - Add processings display option in top k chart
   - Train_params in finetuning tf
-[CLI]  ## run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
-Options normalisation in charts (0-1 ou 1-0)
-** RELEASE **
 [Logic flow in tf finetuning] ???
 [SEED] review
 ** RELEASE **
