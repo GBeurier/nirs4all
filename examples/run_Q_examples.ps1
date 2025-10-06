@@ -10,18 +10,18 @@ $examples = @(
     "Q8_shap.py"
 )
 
-## PARALLEL
-foreach ($example in $examples) {
-    if (Test-Path "$example") {
-        Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow
-        Write-Host "Lancé: $example"
-    }
-}
-
-## SEQUENTIAL
+# ## PARALLEL
 # foreach ($example in $examples) {
 #     if (Test-Path "$example") {
-#         Start-Process -FilePath "python" -ArgumentList "examples/$example" -NoNewWindow -Wait
-#         Write-Host "Lancé: $example"
+#         Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow
+#         Write-Host "Launch: $example"
 #     }
 # }
+
+# SEQUENTIAL
+foreach ($example in $examples) {
+    if (Test-Path "$example") {
+        Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow -Wait
+        Write-Host "Launch: $example"
+    }
+}
