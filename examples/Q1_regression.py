@@ -75,27 +75,27 @@ analyzer = PredictionAnalyzer(predictions)
 # Plot comparison of top models
 fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
 
-# # Plot heatmap of model performance vs preprocessing
-# fig2 = analyzer.plot_variable_heatmap(
-#     x_var="model_name",
-#     y_var="preprocessings",
-#     metric='rmse',
-#     best_only=False
-# )
+# Plot heatmap of model performance vs preprocessing
+fig2 = analyzer.plot_variable_heatmap(
+    x_var="model_name",
+    y_var="preprocessings",
+    metric='rmse',
+    best_only=False
+)
 
-# # Plot simplified heatmap without count display
-# fig3 = analyzer.plot_variable_heatmap(
-#     x_var="model_name",
-#     y_var="preprocessings",
-#     metric='rmse',
-#     display_n=False
-# )
+# Plot simplified heatmap without count display
+fig3 = analyzer.plot_variable_heatmap(
+    x_var="model_name",
+    y_var="preprocessings",
+    metric='rmse',
+    display_n=False
+)
 
-# # Plot candlestick chart for model performance distribution
-# fig4 = analyzer.plot_variable_candlestick(
-#     filters={"partition": "test"},
-#     variable="model_name",
-# )
+# Plot candlestick chart for model performance distribution
+fig4 = analyzer.plot_variable_candlestick(
+    filters={"partition": "test"},
+    variable="model_name",
+)
 
 fig5 = analyzer.plot_score_histogram(partition="test")
 

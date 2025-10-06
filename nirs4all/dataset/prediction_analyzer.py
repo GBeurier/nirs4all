@@ -344,49 +344,91 @@ class PredictionAnalyzer:
         Plot histogram of scores for specified metric.
 
         Args:
-            metric: Metric to plot
-            dataset_name: Dataset filter
-            partition: Partition filter
+            metric: Metric to plot (default: 'rmse')
+            dataset_name: Dataset filter (optional)
+            partition: Partition to display scores from (default: 'test')
             bins: Number of histogram bins
             figsize: Figure size
 
         Returns:
             matplotlib Figure
         """
+        from nirs4all.dataset.predictions import PredictionResult
+
         filters = {}
         if dataset_name:
             filters['dataset_name'] = dataset_name
         if partition:
             filters['partition'] = partition
+        else:
+            filters['partition'] = 'test'  # Default to test partition
 
-        predictions = self._get_enhanced_predictions(**filters)
+        # Use top_k to get all predictions for the specified partition
+        predictions = self.predictions.top_k(
+            k=-1,  # Get all predictions
+            metric=metric,
+            **filters
+        )
 
         if not predictions:
             fig, ax = plt.subplots(figsize=figsize)
             ax.text(0.5, 0.5, 'No predictions found', ha='center', va='center', fontsize=16)
             return fig
 
-        scores = [p['metrics'].get(metric, np.nan) for p in predictions]
-        scores = [s for s in scores if not np.isnan(s)]
+        # Extract scores - use eval_score() to get the metric value
+        scores = []
+        for pred in predictions:
+            # Ensure pred is a PredictionResult object
+            if not isinstance(pred, PredictionResult):
+                pred = PredictionResult(pred)
+
+            try:
+                # Use eval_score to compute the metric
+                pred_scores = pred.eval_score(metrics=[metric])
+                score = pred_scores.get(metric)
+                if score is not None and not np.isnan(score):
+                    scores.append(float(score))
+            except Exception as e:
+                # Fallback: try to get stored score
+                if metric in pred:
+                    score = pred[metric]
+                    if score is not None and not np.isnan(score):
+                        scores.append(float(score))
 
         if not scores:
             fig, ax = plt.subplots(figsize=figsize)
-            ax.text(0.5, 0.5, f'No valid {metric} scores found',
-                   ha='center', va='center', fontsize=16)
+            partition_str = partition if partition else 'test'
+            ax.text(0.5, 0.5, f'No valid {metric} scores found for partition "{partition_str}"',
+                    ha='center', va='center', fontsize=16)
             return fig
 
+
         fig, ax = plt.subplots(figsize=figsize)
-        ax.hist(scores, bins=bins, alpha=0.7, edgecolor='black')
+        ax.hist(scores, bins=bins, alpha=0.7, edgecolor='black', color='#35B779')
         ax.set_xlabel(f'{metric.upper()} Score')
         ax.set_ylabel('Frequency')
-        ax.set_title(f'Distribution of {metric.upper()} Scores')
+
+        partition_label = partition if partition else 'test'
+        ax.set_title(f'Distribution of {metric.upper()} Scores\n({len(scores)} predictions, partition: {partition_label})')
         ax.grid(True, alpha=0.3)
 
         # Add statistics
-        mean_val = np.mean(scores)
-        median_val = np.median(scores)
-        ax.axvline(mean_val, color='r', linestyle='--', label=f'Mean: {mean_val:.4f}')
-        ax.axvline(median_val, color='g', linestyle='--', label=f'Median: {median_val:.4f}')
+        mean_val = float(np.mean(scores))
+        median_val = float(np.median(scores))
+        std_val = float(np.std(scores))
+        min_val = float(min(scores))
+        max_val = float(max(scores))
+
+        ax.axvline(mean_val, color='r', linestyle='--', linewidth=2, label=f'Mean: {mean_val:.4f}')
+        ax.axvline(median_val, color='g', linestyle='--', linewidth=2, label=f'Median: {median_val:.4f}')
+
+        # Add text box with statistics
+        stats_text = f'n={len(scores)}\nμ={mean_val:.4f}\nσ={std_val:.4f}\nmin={min_val:.4f}\nmax={max_val:.4f}'
+        ax.text(0.98, 0.98, stats_text, transform=ax.transAxes,
+                verticalalignment='top', horizontalalignment='right',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+                fontsize=9)
+
         ax.legend()
 
         return fig
