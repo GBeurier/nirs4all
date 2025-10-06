@@ -14,6 +14,195 @@ import json
 import hashlib
 import nirs4all.dataset.evaluator as Evaluator
 
+
+class PredictionResult(dict):
+    """
+    A dictionary that extends standard dict with prediction-specific methods.
+    Behaves like a normal dict but provides additional functionality for saving predictions.
+    """
+    @property
+    def id(self) -> str:
+        return self.get("id", "unknown")
+
+    @property
+    def fold_id(self) -> str:
+        return self.get("fold_id", "unknown")
+
+    @property
+    def dataset_name(self) -> str:
+        return self.get("dataset_name", "unknown")
+
+    @property
+    def model_name(self) -> str:
+        return self.get("model_name", "unknown")
+
+    @property
+    def step_idx(self) -> int:
+        return self.get("step_idx", 0)
+
+    @property
+    def op_counter(self) -> int:
+        return self.get("op_counter", 0)
+
+    @property
+    def config_name(self) -> str:
+        return self.get("config_name", "unknown")
+
+    def save_to_csv(self, path: str = "results", force_path: Optional[str] = None) -> None:
+        """
+        Save prediction result to CSV file.
+
+        Args:
+            path: Base path for saving (default: "results")
+            force_path: Complete path/filename override (optional)
+        """
+        if force_path:
+            filepath = Path(force_path)
+        else:
+            # Generate filename from model information
+            dataset_name = self.get("dataset_name", "unknown")
+            model_id = self.get("id", "unknown")
+
+            base_path = Path(path)
+            filepath = base_path / dataset_name / f"{model_id}.csv"
+
+        # Create directory if it doesn't exist
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+
+        # Determine data structure
+        csv_data = []
+
+        # Check if this is an aggregated result (has train/val/test keys)
+        has_partitions = all(k in self for k in ["train", "val", "test"])
+
+        if has_partitions:
+            # Aggregated data: create columns for each partition
+            for partition in ["train", "val", "test"]:
+                if partition in self and self[partition] is not None:
+                    partition_data = self[partition]
+                    y_true = partition_data.get("y_true", [])
+                    y_pred = partition_data.get("y_pred", [])
+
+                    # Get fold_id for column naming from partition data (more reliable)
+                    # For aggregated data, each partition might have its own fold_id
+                    partition_fold_id = partition_data.get("fold_id", self.get("fold_id", ""))
+                    if isinstance(partition_fold_id, list) and partition_fold_id:
+                        partition_fold_id = partition_fold_id[0]  # Take first if it's a list
+
+                    fold_suffix = f"_fold{partition_fold_id}" if partition_fold_id and partition in ["train", "val"] else ""
+
+                    # Extend csv_data with this partition's data
+                    max_len = max(len(y_true), len(y_pred)) if y_true or y_pred else 0
+
+                    for i in range(max_len):
+                        if i >= len(csv_data):
+                            csv_data.append({})
+
+                        if i < len(y_true):
+                            csv_data[i][f"y_true_{partition}{fold_suffix}"] = y_true[i]
+                        if i < len(y_pred):
+                            csv_data[i][f"y_pred_{partition}{fold_suffix}"] = y_pred[i]
+        else:
+            # Single partition data: use y_true/y_pred from root
+            y_true = self.get("y_true", [])
+            y_pred = self.get("y_pred", [])
+
+            max_len = max(len(y_true), len(y_pred)) if y_true or y_pred else 0
+
+            for i in range(max_len):
+                row = {}
+                if i < len(y_true):
+                    row["y_true"] = y_true[i]
+                if i < len(y_pred):
+                    row["y_pred"] = y_pred[i]
+                csv_data.append(row)
+
+        if csv_data:
+            # Convert to DataFrame and save
+            # Handle potential nested data by converting to strings
+            clean_csv_data = []
+            for row in csv_data:
+                clean_row = {}
+                for key, value in row.items():
+                    if isinstance(value, (list, np.ndarray)):
+                        clean_row[key] = float(value[0]) if len(value) > 0 else 0.0
+                    else:
+                        clean_row[key] = value
+                clean_csv_data.append(clean_row)
+
+            df_csv = pl.DataFrame(clean_csv_data)
+            df_csv.write_csv(str(filepath))
+            print(f"💾 Saved prediction result to {filepath}")
+        else:
+            print(f"⚠️ No prediction data found to save for {filepath}")
+
+    def eval_score(self, metrics: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Evaluate scores for this prediction using specified metrics.
+
+        Args:
+            metrics: List of metrics to compute (if None, returns all available metrics)
+
+        Returns:
+            Dictionary of metric names to scores.
+            For aggregated results: {"train": {...}, "val": {...}, "test": {...}}
+            For single partition: {"rmse": ..., "r2": ..., ...}
+        """
+        scores = {}
+
+        # Check if this is an aggregated result
+        has_partitions = all(k in self for k in ["train", "val", "test"])
+
+        if has_partitions:
+            # For aggregated results, organize scores by partition in sub-dicts
+            for partition in ["train", "val", "test"]:
+                if partition in self and self[partition] is not None:
+                    partition_data = self[partition]
+                    y_true = partition_data.get("y_true", [])
+                    y_pred = partition_data.get("y_pred", [])
+
+                    if len(y_true) > 0 and len(y_pred) > 0:
+                        y_true_arr = np.array(y_true)
+                        y_pred_arr = np.array(y_pred)
+
+                        if metrics is None:
+                            # Get all available metrics using task_type
+                            task_type = self.get("task_type", "regression")
+                            partition_scores = Evaluator.eval_multi(y_true_arr, y_pred_arr, task_type)
+                        else:
+                            # Get specific metrics
+                            partition_scores = {}
+                            for metric in metrics:
+                                try:
+                                    partition_scores[metric] = Evaluator.eval(y_true_arr, y_pred_arr, metric)
+                                except Exception:
+                                    partition_scores[metric] = None
+
+                        # Store scores in partition sub-dictionary
+                        scores[partition] = partition_scores
+        else:
+            # Single partition: use root y_true/y_pred
+            y_true = self.get("y_true", [])
+            y_pred = self.get("y_pred", [])
+
+            if len(y_true) > 0 and len(y_pred) > 0:
+                y_true_arr = np.array(y_true)
+                y_pred_arr = np.array(y_pred)
+
+                if metrics is None:
+                    # Get all available metrics using task_type
+                    task_type = self.get("task_type", "regression")
+                    scores = Evaluator.eval_multi(y_true_arr, y_pred_arr, task_type)
+                else:
+                    # Get specific metrics
+                    for metric in metrics:
+                        try:
+                            scores[metric] = Evaluator.eval(y_true_arr, y_pred_arr, metric)
+                        except Exception:
+                            scores[metric] = None
+
+        return scores
+
 class Predictions:
     """
     Storage for model predictions using Polars DataFrame backend.
@@ -164,6 +353,55 @@ class Predictions:
         # Save to CSV
         df_csv.write_csv(filepath)
         print(f"💾 Saved predictions to {filepath}")
+
+    @staticmethod
+    def save_all_to_csv(predictions: 'Predictions', path: str = "results", aggregate_partitions: bool = False, **filters) -> None:
+        """
+        Save all predictions to CSV files.
+
+        Args:
+            predictions: Predictions instance
+            path: Base path for saving (default: "results")
+            aggregate_partitions: If True, save one file per model with all partitions aggregated
+                                 If False, save one file per individual prediction
+            **filters: Additional filter criteria to apply before saving
+        """
+        if aggregate_partitions:
+            # Save one file per individual model/fold with all partitions aggregated
+            # Use group_by_fold=True to keep individual folds separate
+            all_results = predictions.top(
+                n=predictions.num_predictions,
+                aggregate_partitions=True,
+                group_by_fold=True,  # Include fold_id to keep individual folds
+                **filters
+            )
+
+            # No need for deduplication since group_by_fold=True keeps them separate
+            for result in all_results:
+                try:
+                    result.save_to_csv(path=path)
+                except Exception as e:
+                    model_id = result.get('id', 'unknown')
+                    print(f"⚠️ Failed to save prediction {model_id}: {e}")
+
+            print(f"✅ Saved {len(all_results)} aggregated model files to {path}")
+        else:
+            # Save one file per individual prediction (each partition/fold separately)
+            all_results = predictions.top(
+                n=predictions.num_predictions,
+                aggregate_partitions=False,
+                group_by_fold=True,  # Include fold in grouping for individual saves
+                **filters
+            )
+
+            for result in all_results:
+                try:
+                    result.save_to_csv(path=path)
+                except Exception as e:
+                    model_id = result.get('id', 'unknown')
+                    print(f"⚠️ Failed to save prediction {model_id}: {e}")
+
+            print(f"✅ Saved {len(all_results)} individual prediction files to {path}")
 
     def add_prediction(
         self,
@@ -563,6 +801,110 @@ class Predictions:
         instance.load_from_file(filepath)
         return instance
 
+    @classmethod
+    def load(
+        cls,
+        dataset_name: Optional[str] = None,
+        path: str = "results",
+        aggregate_partitions: bool = False,
+        **filters
+    ) -> 'Predictions':
+        """
+        Load predictions from JSON files in the results directory structure.
+
+        Args:
+            dataset_name: Name of dataset to load (if None, loads all datasets in path)
+            path: Base path to search for predictions (default: "results")
+                  If path points to a JSON file directly, loads it without going into /dataset_name
+            aggregate_partitions: If True, aggregate y_pred and y_true from all partitions
+                                 with the same id (similar to top() function)
+            **filters: Additional filter criteria to apply after loading
+
+        Returns:
+            Predictions instance with loaded data
+
+        Examples:
+            # Load all predictions from all datasets
+            predictions = Predictions.load()
+
+            # Load predictions for a specific dataset
+            predictions = Predictions.load(dataset_name="my_dataset")
+
+            # Load from a specific JSON file
+            predictions = Predictions.load(path="results/my_dataset/predictions.json")
+
+            # Load and filter by model name
+            predictions = Predictions.load(dataset_name="my_dataset", model_name="PLS_1")
+
+            # Load with partition aggregation
+            predictions = Predictions.load(dataset_name="my_dataset", aggregate_partitions=True)
+        """
+        instance = cls()
+        base_path = Path(path)
+
+        # Case 1: path is a JSON file, load it directly
+        if base_path.is_file() and base_path.suffix == '.json':
+            instance.load_from_file(str(base_path))
+            print(f"📥 Loaded {len(instance._df)} predictions from {base_path}")
+
+        # Case 2: path is a directory
+        elif base_path.is_dir():
+            # If dataset_name is specified, load only that dataset
+            if dataset_name:
+                dataset_path = base_path / dataset_name / "predictions.json"
+                if dataset_path.exists():
+                    temp_instance = cls()
+                    temp_instance.load_from_file(str(dataset_path))
+                    instance.merge_predictions(temp_instance)
+                    print(f"📥 Loaded {len(temp_instance._df)} predictions from {dataset_name}")
+                else:
+                    print(f"⚠️ No predictions.json found for dataset '{dataset_name}' at {dataset_path}")
+
+            # If dataset_name is None, browse all datasets in path
+            else:
+                # Find all predictions.json files in subdirectories
+                predictions_files = list(base_path.glob("*/predictions.json"))
+
+                if not predictions_files:
+                    print(f"⚠️ No predictions.json files found in {base_path}")
+                else:
+                    for pred_file in predictions_files:
+                        dataset_name_from_path = pred_file.parent.name
+                        temp_instance = cls()
+                        temp_instance.load_from_file(str(pred_file))
+                        instance.merge_predictions(temp_instance)
+                        print(f"📥 Loaded {len(temp_instance._df)} predictions from dataset '{dataset_name_from_path}'")
+
+                    print(f"✅ Total loaded: {len(instance._df)} predictions from {len(predictions_files)} datasets")
+
+        else:
+            print(f"⚠️ Path '{base_path}' does not exist or is not accessible")
+            return instance
+
+        # Apply filters if provided using existing filter on DataFrame
+        if filters:
+            # Build filter expressions for polars
+            filter_exprs = []
+            for key, value in filters.items():
+                if key in instance._df.columns:
+                    filter_exprs.append(pl.col(key) == value)
+
+            if filter_exprs:
+                instance._df = instance._df.filter(filter_exprs)
+                print(f"🔍 Filtered to {len(instance._df)} predictions matching criteria: {filters}")
+
+        # Apply partition aggregation if requested using existing _add_partition_data
+        if aggregate_partitions and len(instance._df) > 0:
+            # Get test partition predictions as base (one per model)
+            test_predictions = instance.filter_predictions(partition="test")
+
+            if test_predictions:
+                # Add partition data using existing method
+                aggregated = instance._add_partition_data(test_predictions, ["train", "val", "test"])
+                print(f"📦 Aggregated {len(aggregated)} models with partition data")
+
+        return instance
+
     def save_prediction_to_csv(self, filepath: str, index: Optional[int] = None) -> None:
         """
         Save a single prediction to CSV file.
@@ -760,7 +1102,8 @@ class Predictions:
             rank_scores.append({
                 **{k: row[k] for k in KEY},
                 "rank_score": score,
-                "id": row["id"]
+                "id": row["id"],
+                "fold_id": row["fold_id"]  # Always include fold_id for data retrieval
             })
 
         # Sort and get top n
@@ -777,19 +1120,25 @@ class Predictions:
             # Filter to this specific model
             model_filter = {k: top_key[k] for k in KEY}
 
-            result = {
+            result = PredictionResult({
                 **model_filter,
                 "rank_metric": rank_metric,
                 "rank_score": top_key["rank_score"],
-                "rank_id": top_key["id"]  # ID of the record used for ranking
-            }
+                "rank_id": top_key["id"],  # ID of the record used for ranking
+                "fold_id": top_key.get("fold_id")  # Add fold_id to top level
+            })
 
             if aggregate_partitions:
                 # Add nested structure for all partitions
                 for partition in ["train", "val", "test"]:
+                    # Filter by model AND the specific fold_id from ranking
                     partition_data = base.filter(
                         pl.col("partition") == partition
                     ).filter([pl.col(k) == v for k, v in model_filter.items()])
+
+                    # Also filter by fold_id to get the correct fold's data
+                    if top_key.get("fold_id") is not None:
+                        partition_data = partition_data.filter(pl.col("fold_id") == top_key["fold_id"])
 
                     if partition_data.height > 0:
                         row = partition_data.to_dicts()[0]
@@ -799,23 +1148,28 @@ class Predictions:
                         partition_dict = {
                             "y_true": y_true.tolist(),
                             "y_pred": y_pred.tolist(),
-                            # Include all original scores
+                            # Include all original scores (do NOT recompute)
                             "train_score": row.get("train_score"),
                             "val_score": row.get("val_score"),
-                            "test_score": row.get("test_score")
+                            "test_score": row.get("test_score"),
+                            # Preserve fold_id for CSV column naming
+                            "fold_id": row.get("fold_id")
                         }
 
-                        # Add metadata to result (from first partition found)
-                        if partition == "train" or len(result) == len(model_filter) + 3:  # Only basic keys so far
+                        # Add metadata to result from TEST partition (reference partition)
+                        if partition == "test":
                             # Determine partition name: use "test" for aggregate mode (multiple partitions)
                             partition_name = "test" if aggregate_partitions else display_partition
                             result.update({
+                                # DON'T overwrite the id - keep the rank_id which has the correct ID
                                 "partition": partition_name,
                                 "dataset_name": row.get("dataset_name"),
                                 "dataset_path": row.get("dataset_path"),
                                 "config_path": row.get("config_path"),
                                 "model_classname": row.get("model_classname"),
                                 "model_path": row.get("model_path"),
+                                "fold_id": row.get("fold_id"),  # Add fold_id explicitly
+                                "op_counter": row.get("op_counter"),  # Add op_counter for pred_short_string
                                 "sample_indices": json.loads(row.get("sample_indices", "[]")),
                                 "weights": json.loads(row.get("weights", "[]")),
                                 "metadata": json.loads(row.get("metadata", "{}")),
@@ -824,24 +1178,42 @@ class Predictions:
                                 "n_samples": row.get("n_samples"),
                                 "n_features": row.get("n_features"),
                                 "preprocessings": row.get("preprocessings"),
-                                "best_params": json.loads(row.get("best_params", "{}"))
+                                "best_params": json.loads(row.get("best_params", "{}")),
+                                # Include all original scores in main result from TEST partition
+                                "train_score": row.get("train_score"),
+                                "val_score": row.get("val_score"),
+                                "test_score": row.get("test_score")
                             })
+                            # Add the correct ID from ranking after metadata update
+                            result["id"] = result["rank_id"]
 
-                        # Compute display metrics
-                        metrics_to_compute = display_metrics or Evaluator.get_default_metrics(row.get("task_type", "regression"))
-                        for metric in metrics_to_compute:
-                            try:
-                                score = Evaluator.eval(y_true, y_pred, metric)
-                                partition_dict[metric] = score
-                            except:
-                                partition_dict[metric] = None
+                        # Add display metrics using STORED scores, not recomputed
+                        if display_metrics:
+                            for metric in display_metrics:
+                                # Use stored score if available, otherwise compute
+                                stored_score_key = f"{partition}_score" if partition != "val" else "val_score"
+                                if metric == row.get("metric"):
+                                    # Use the precomputed score from storage
+                                    partition_dict[metric] = row.get(stored_score_key)
+                                else:
+                                    # Compute other requested metrics
+                                    try:
+                                        score = Evaluator.eval(y_true, y_pred, metric)
+                                        partition_dict[metric] = score
+                                    except:
+                                        partition_dict[metric] = None
 
                         result[partition] = partition_dict
             else:
                 # Single partition display
+                # Filter by model AND the specific fold_id from ranking
                 display_data = base.filter(
                     pl.col("partition") == display_partition
                 ).filter([pl.col(k) == v for k, v in model_filter.items()])
+
+                # Also filter by fold_id to get the correct fold's data
+                if top_key.get("fold_id") is not None:
+                    display_data = display_data.filter(pl.col("fold_id") == top_key["fold_id"])
 
                 if display_data.height > 0:
                     row = display_data.to_dicts()[0]
@@ -849,13 +1221,15 @@ class Predictions:
                     y_pred = self._parse_vec_json(row["y_pred"])
 
                     result.update({
-                        "id": row.get("id"),  # Use ID from display partition, not ranking partition
+                        # Keep the rank_id which has the correct ID from ranking
                         "partition": display_partition,  # The partition being displayed
                         "dataset_name": row.get("dataset_name"),
                         "dataset_path": row.get("dataset_path"),
                         "config_path": row.get("config_path"),
                         "model_classname": row.get("model_classname"),
                         "model_path": row.get("model_path"),
+                        "fold_id": row.get("fold_id"),  # Add fold_id explicitly
+                        "op_counter": row.get("op_counter"),  # Add op_counter for pred_short_string
                         "sample_indices": json.loads(row.get("sample_indices", "[]")),
                         "weights": json.loads(row.get("weights", "[]")),
                         "metadata": json.loads(row.get("metadata", "{}")),
@@ -871,21 +1245,32 @@ class Predictions:
                         "train_score": row.get("train_score"),
                         "val_score": row.get("val_score"),
                         "test_score": row.get("test_score")
-                    })                    # Compute display metrics
-                    metrics_to_compute = display_metrics or Evaluator.get_default_metrics(row.get("task_type", "regression"))
-                    for metric in metrics_to_compute:
-                        try:
-                            score = Evaluator.eval(y_true, y_pred, metric)
-                            result[metric] = score
-                        except:
-                            result[metric] = None
+                    })
+                    # Set the correct ID from ranking
+                    result["id"] = result["rank_id"]
+
+                    # Add display metrics using STORED scores when possible
+                    if display_metrics:
+                        for metric in display_metrics:
+                            # Use stored score if it matches the record's metric
+                            if metric == row.get("metric"):
+                                # Use the precomputed score from storage
+                                stored_score_key = f"{display_partition}_score" if display_partition != "val" else "val_score"
+                                result[metric] = row.get(stored_score_key)
+                            else:
+                                # Compute other requested metrics
+                                try:
+                                    score = Evaluator.eval(y_true, y_pred, metric)
+                                    result[metric] = score
+                                except:
+                                    result[metric] = None
 
             results.append(result)
 
         return results
 
 
-    def top_k(self, k: int = 5, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> List[Dict[str, Any]]:
+    def top_k(self, k: int = 5, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> List[Union[Dict[str, Any], 'PredictionResult']]:
         """
         Get top K predictions ranked by metric, val_score, or test_score.
         By default filters to test partition unless otherwise specified.
@@ -934,7 +1319,7 @@ class Predictions:
             else:
                 top_k_rows = df_sorted.head(k)
 
-            # Convert to list of dictionaries with JSON deserialization
+            # Convert to list of PredictionResult with JSON deserialization
             results = []
             for row in top_k_rows.to_dicts():
                 # Deserialize JSON fields
@@ -944,7 +1329,7 @@ class Predictions:
                 row["best_params"] = json.loads(row["best_params"]) if row["best_params"] else {}
                 row["y_true"] = np.array(json.loads(row["y_true"]))
                 row["y_pred"] = np.array(json.loads(row["y_pred"]))
-                results.append(row)
+                results.append(PredictionResult(row))
 
             # Add partition data if requested
             if len(aggregate_partitions) > 0:
@@ -1001,16 +1386,16 @@ class Predictions:
 
             # Return all results if k=-1, otherwise return top k
             if k == -1:
-                results = scores_data
+                results = [PredictionResult(r) for r in scores_data]
             else:
-                results = scores_data[:k]
+                results = [PredictionResult(r) for r in scores_data[:k]]
             # Add partition data if requested
             if len(aggregate_partitions) > 0:
                 results = self._add_partition_data(results, aggregate_partitions)
 
             return results
 
-    def _add_partition_data(self, results: List[Dict[str, Any]], aggregate_partitions: List[str]) -> List[Dict[str, Any]]:
+    def _add_partition_data(self, results: List[Union[Dict[str, Any], 'PredictionResult']], aggregate_partitions: List[str]) -> List[Union[Dict[str, Any], 'PredictionResult']]:
         """
         Add y_true and y_pred data from all partitions to each result using simple filtering.
 
@@ -1048,7 +1433,7 @@ class Predictions:
 
         return results
 
-    def get_best(self, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> Optional[Dict[str, Any]]:
+    def get_best(self, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> Optional[Union[Dict[str, Any], 'PredictionResult']]:
         """
         Get the best prediction for a specific metric, val_score, or test_score.
         This is an alias for top_k with k=1.
