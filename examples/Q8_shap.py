@@ -45,7 +45,7 @@ print("Running SHAP analysis...")
 
 shap_params = {
     'n_samples': 200,
-    'explainer_type': 'auto',
+    'explainer_type': 'auto', # Options: 'auto', 'tree', 'kernel', 'deep', 'linear'
     'visualizations': ['spectral', 'waterfall', 'beeswarm'],
 
     # Different bin sizes for each visualization

@@ -9,7 +9,7 @@ Supports regression, binary classification, and multiclass classification metric
 using sklearn, scipy, and other standard libraries.
 """
 
-from typing import Dict, Any, Union, Optional
+from typing import Dict, Any, Union, Optional, List
 import numpy as np
 import warnings
 
@@ -45,7 +45,7 @@ except ImportError:
     SCIPY_AVAILABLE = False
 
 
-def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: str) -> Union[float, Dict[str, float]]:
+def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) -> Union[float, Dict[str, float]]:
     """
     Calculate a specific metric for given predictions.
 
@@ -487,6 +487,30 @@ def get_available_metrics(task_type: str) -> list:
                 'precision_macro', 'recall_macro', 'f1_macro',
                 'roc_auc', 'balanced_accuracy', 'matthews_corrcoef',
                 'cohen_kappa', 'jaccard', 'hamming_loss']
+
+    else:
+        raise ValueError(f"Unsupported task_type: {task_type}")
+
+
+def get_default_metrics(task_type: str) -> list:
+    """
+    Get list of default/essential metrics for a given task type.
+    This is a subset of available metrics, focusing on the most commonly used ones.
+
+    Args:
+        task_type: Type of task ('regression', 'binary_classification', 'multiclass_classification')
+
+    Returns:
+        List of default metric names
+    """
+    if task_type.lower() == 'regression':
+        return ['rmse', 'mae', 'r2']
+
+    elif task_type.lower() == 'binary_classification':
+        return ['accuracy', 'precision', 'recall', 'f1']
+
+    elif task_type.lower() == 'multiclass_classification':
+        return ['accuracy', 'precision', 'recall', 'f1']
 
     else:
         raise ValueError(f"Unsupported task_type: {task_type}")

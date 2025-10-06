@@ -240,6 +240,7 @@ class PipelineRunner:
             fold_id=self.target_model.get('fold_id', None),
             partition='test'  # Always return test partition for predict
         )
+
         if single_pred is None:
             raise ValueError("No matching prediction found for the specified model criteria. Predict failed.")
 
