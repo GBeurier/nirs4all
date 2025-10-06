@@ -67,7 +67,7 @@ top_models = predictions.top(best_model_count, ranking_metric)
 print(f"Top {best_model_count} models by {ranking_metric}:")
 for idx, prediction in enumerate(top_models):
     print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")
-top_models[0].save_to_csv("Q1_classification_best_model.csv")
+top_models[0].save_to_csv("Q1_regression_best_model.csv")
 
 # # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
@@ -82,7 +82,7 @@ fig2 = analyzer.plot_heatmap_v2(
     aggregation='best',  # Options: 'best', 'mean', 'median'
     rank_metric="rmse",
     rank_partition="val",
-    display_metric="r2",
+    display_metric="rmse",
     display_partition="test"
 )
 
@@ -90,8 +90,12 @@ fig2 = analyzer.plot_heatmap_v2(
 fig3 = analyzer.plot_heatmap_v2(
     x_var="model_name",
     y_var="preprocessings",
-    aggregation='mean',  # Show average instead of best
-    show_counts=False
+    aggregation='best',  # Show average instead of best
+    show_counts=False,
+    rank_metric="rmse",
+    rank_partition="test",
+    display_metric="rmse",
+    display_partition="test"
 )
 
 # Plot candlestick chart for model performance distribution
@@ -100,6 +104,6 @@ fig4 = analyzer.plot_variable_candlestick(
     variable="model_name",
 )
 
-# fig5 = analyzer.plot_score_histogram(partition="test")
+fig5 = analyzer.plot_score_histogram(partition="test")
 
 plt.show()
