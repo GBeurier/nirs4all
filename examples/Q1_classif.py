@@ -74,6 +74,7 @@ for idx, prediction in enumerate(top_models):
 
 # Create confusion matrix visualization for top models
 analyzer = PredictionAnalyzer(predictions)
-confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', partition='val')
+# Rank models by accuracy on val partition, display confusion matrix from test partition
+confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
 
 plt.show()

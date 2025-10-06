@@ -88,12 +88,18 @@ for idx, prediction in enumerate(top_models):
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
+# fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
 
-# Plot heatmap: models vs preprocessing
-fig2 = analyzer.plot_variable_heatmap(
+# Plot heatmap: models vs preprocessing using NEW v2 method
+# This properly ranks on val and displays test scores
+fig2 = analyzer.plot_heatmap_v2(
     x_var="model_name",
     y_var="preprocessings",
+    rank_metric="rmse",
+    rank_partition="val",
+    display_metric="rmse",
+    display_partition="test",
+    aggregation='best'  # Options: 'best', 'mean', 'median'
 )
 
 plt.show()
