@@ -6,7 +6,7 @@ from sklearn.preprocessing import MinMaxScaler
 from nirs4all.dataset import DatasetConfigs
 from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-
+from nirs4all.operators.models.cirad_tf import nicon
 print("Q8 - SHAP Model Explanation Example")
 
 pipeline = [
@@ -16,6 +16,7 @@ pipeline = [
     # MinMaxScaler((0.1, 0.8)),
     # {"model": GradientBoostingRegressor(n_estimators=60, random_state=42), "name": "Q8_GradientBoost"},
     PLSRegression(n_components=16, copy=True),
+    # {"model": nicon, "name": "Q8_NiCON_64", "train_params": {"epochs": 64, "batch_size": 16, "verbose": 0}},
 
 ]
 
@@ -30,7 +31,7 @@ best_prediction = predictions.top_k(1, metric='rmse', partition="test")[0]
 print(f"Best model: {best_prediction['model_name']} (RMSE: {best_prediction['rmse']:.4f})")
 
 print("Running SHAP analysis...")
-explainer = PipelineRunner(save_files=False, verbose=0)
+# Use the same runner instance to call explain
 
 # shap_params = {
 #     'n_samples': 200,
@@ -69,4 +70,4 @@ shap_params = {
     }
 }
 
-shap_results, output_dir = explainer.explain(best_prediction, dataset_config, shap_params=shap_params, verbose=0)
+shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params, verbose=0)
