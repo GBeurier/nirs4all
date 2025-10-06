@@ -77,7 +77,7 @@ class YTransformerMixinController(OperatorController):
         current_y_processing = context.get("y", "numeric")
         new_processing_name = f"{current_y_processing}_{operator_name}{runner.next_op()}"
 
-        if mode == "predict" and loaded_binaries:
+        if (mode == "predict" or mode == "explain") and loaded_binaries:
             transformer = loaded_binaries[0][1] if loaded_binaries else operator
             # print(f"🔄 Using pre-loaded transformer for prediction: {transformer}")
             dataset._targets.add_processed_targets(
@@ -127,7 +127,7 @@ class YTransformerMixinController(OperatorController):
         updated_context["y"] = new_processing_name
 
         # Serialize fitted transformer for potential reuse
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             transformer_binary = pickle.dumps(transformer)
             fitted_transformers = [(f"y_{operator_name}.pkl", transformer_binary)]
             return updated_context, fitted_transformers

@@ -64,7 +64,7 @@ class SimulationSaver:
         self.dataset_path = self.base_path / dataset_name
         self.dataset_path.mkdir(parents=True, exist_ok=True)
         self.current_path = self.base_path / dataset_name / pipeline_name
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             self.current_path.mkdir(parents=True, exist_ok=True)
 
         # Initialize metadata
@@ -78,7 +78,7 @@ class SimulationSaver:
         }
 
         # Save initial metadata
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             self._save_metadata()
 
         return self.current_path

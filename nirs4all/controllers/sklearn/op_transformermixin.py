@@ -107,7 +107,7 @@ class TransformerMixinController(OperatorController):
                 # print(f" Processing {processing_name} (idx {processing_idx}): train {train_2d.shape}, all {all_2d.shape}")
                 new_operator_name = f"{operator_name}_{runner.next_op()}"
 
-                if loaded_binaries and mode == "predict":
+                if loaded_binaries and (mode == "predict" or mode == "explain"):
                     transformer = dict(loaded_binaries).get(f"{new_operator_name}")
                     if transformer is None:
                         raise ValueError(f"Binary for {new_operator_name} not found in loaded_binaries")

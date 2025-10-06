@@ -317,16 +317,11 @@ class BaseModelController(OperatorController, ABC):
         operation_counter = runner.next_op()
         new_operator_name = f"{model_name}_{operation_counter}"
 
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             if mode == "finetune":
                 if best_params is not None:
                     print(f"Training model {model_name} with: {best_params}...")
-                # model = ModelBuilderFactory.build_single_model(
-                #     model_config["model"],
-                #     dataset,
-                #     task=dataset.task_type,
-                #     force_params=best_params
-                # )
+
                 model = self._get_model_instance(dataset, model_config, force_params=best_params)
             else:
                 model = self.model_helper.clone_model(base_model)
@@ -338,6 +333,17 @@ class BaseModelController(OperatorController, ABC):
             model = dict(loaded_binaries).get(f"{new_operator_name}")
             if model is None:
                 raise ValueError(f"Model binary for {model_name}_{operation_counter}.pkl not found in loaded_binaries")
+            if mode == "explain":
+                # print(f"Using model {model_name} for explanation...")
+                # print(f"Model ID: {runner.target_model['id']}, Name: {runner.target_model['model_name']}, Step: {runner.target_model['step_idx']}, Fold: {runner.target_model['fold_id']}, Op Counter: {runner.target_model['op_counter']}")
+                # print(f"vs Current: Name: {model_name}, Step: {step_id}, Fold: {fold_idx}, Op Counter: {operation_counter}")
+                 # Set the model to be explained in the runner for SHAP
+                if runner.target_model["model_name"] == model_name and \
+                        runner.target_model["step_idx"] == step_id:
+                        # runner.target_model["op_counter"] == operation_counter:
+                        # runner.target_model["fold_id"] == fold_idx and \
+                    # print("✅ Model matches the target model for explanation.")
+                    runner._captured_model = (model, self)
 
         # Apply best params if provided ####TODO RETRIEVE THE HOLD METHOD (construct with params !!!!)
         if best_params is not None:
@@ -352,7 +358,7 @@ class BaseModelController(OperatorController, ABC):
         # if self.verbose > 0:
         # print("🚀 Training model...")
         # print("Dataset:", dataset_name, "Shape:", X_train.shape)
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             trained_model = self._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **model_config.get('train_params', {}))
         else:
             trained_model = model
@@ -632,7 +638,7 @@ class BaseModelController(OperatorController, ABC):
         score_val = 0.0
         score_test = 0.0
         metric, higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             direction = "↑" if higher_is_better else "↓"
             # Evaluate average predictions
             score_train = Evaluator.eval(y_train_unscaled, all_train_avg_preds, metric)
@@ -643,7 +649,7 @@ class BaseModelController(OperatorController, ABC):
         # Prepare average predictions data for return
         prediction_array = []
         prediction_array.append(("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_avg_preds))
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             prediction_array.append(("val", all_val_indices.tolist(), y_val_unscaled, all_val_avg_preds))
         prediction_array.append(("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_avg_preds))
 
@@ -670,7 +676,7 @@ class BaseModelController(OperatorController, ABC):
 
         # Weighted average predictions based on fold scores
         scores = np.asarray(scores, dtype=float)
-        if mode == "predict":
+        if mode == "predict" or mode == "explain":
             weights = np.array(runner.target_model["weights"])
         else:
             weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
@@ -679,7 +685,7 @@ class BaseModelController(OperatorController, ABC):
         for arr, weight in zip(all_train_preds, weights):
             all_train_w_avg_preds += weight * arr
 
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             all_val_w_avg_preds = np.zeros_like(all_val_preds[0], dtype=float)
             for arr, weight in zip(all_val_preds, weights):
                 all_val_w_avg_preds += weight * arr
@@ -693,7 +699,7 @@ class BaseModelController(OperatorController, ABC):
         # Evaluate weighted average predictions
         score_val_w = 0.0
         score_test_w = 0.0
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             score_train_w = Evaluator.eval(y_train_unscaled, all_train_w_avg_preds, metric)
             score_val_w = Evaluator.eval(y_val_unscaled, all_val_w_avg_preds, metric)
             score_test_w = Evaluator.eval(y_test_unscaled, all_test_w_avg_preds, metric)
@@ -702,7 +708,7 @@ class BaseModelController(OperatorController, ABC):
         # Prepare weighted average predictions data for return
         prediction_array_w = []
         prediction_array_w.append(("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_w_avg_preds))
-        if mode != "predict":
+        if mode != "predict" and mode != "explain":
             prediction_array_w.append(("val", all_val_indices.tolist(), y_val_unscaled, all_val_w_avg_preds))
         prediction_array_w.append(("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_w_avg_preds))
 
@@ -783,7 +789,7 @@ class BaseModelController(OperatorController, ABC):
                 # Print only once per prediction_data (for the first partition)
                 if first_partition:
                     short_desc = f"✅ {model_name}"
-                    if mode != "predict":
+                    if mode != "predict" and mode != "explain":
                         short_desc += f" {metric} {direction}"
                         short_desc += f" [test: {test_score:.4f}], [val: {val_score:.4f}], ("
                     else:
@@ -795,7 +801,7 @@ class BaseModelController(OperatorController, ABC):
                         short_desc += f"{fold_id}, id: {op_counter})"
 
                     short_desc += f" - [{pred_id}]"
-                    if mode != "predict":
+                    if mode != "predict" and mode != "explain":
                         print(short_desc)
                     first_partition = False
 

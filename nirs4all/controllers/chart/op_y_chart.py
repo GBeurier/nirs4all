@@ -50,7 +50,7 @@ class YChartController(OperatorController):
             Tuple of (context, image_list) where image_list contains plot metadata
         """
         # Skip execution in prediction mode
-        if mode == "predict":
+        if mode == "predict" or mode == "explain":
             return context, []
 
         # Initialize image list to track generated plots
@@ -77,7 +77,7 @@ class YChartController(OperatorController):
 
         img_list.append((chart_name, img_png_binary))
         if runner.plots_visible:
-            plt.show()
+            plt.show(block=False)
         plt.close(fig)
 
         return context, img_list

@@ -308,7 +308,7 @@ fig3 = analyzer.plot_variable_candlestick(
 )
 plt.title('Model Performance Variability')
 
-plt.show()
+plt.show(block=False)
 ```
 
 ## Tutorials
@@ -389,4 +389,4 @@ This project is licensed under the CECILL-2.1 License - see the LICENSE file for
 ## Acknowledgments
 
 - [CIRAD](https://www.cirad.fr/) for supporting this research
-- [LLMs] for providing fast documentation, emoji in logs 😭 and useless tests.
+- [LLMs] for providing fast documentation, nice charts, emojis in logs 😭, and plenty of useless tests, booby-trapped source code, and misleading specifications.

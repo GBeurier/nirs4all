@@ -49,7 +49,7 @@ class SpectraChartController(OperatorController):
             Tuple of (context, image_list) where image_list contains plot metadata
         """
         # Skip execution in prediction mode
-        if mode == "predict":
+        if mode == "predict" or mode == "explain":
             return context, []
 
         is_3d = step == "chart_3d"
@@ -112,7 +112,7 @@ class SpectraChartController(OperatorController):
                 # img_list.append(img_info)
 
                 # Show the plot
-                # plt.show()
+                # plt.show(block=False)
                 image_name = "2D" if not is_3d else "3D"
                 image_name += "_Chart_"
                 if dataset.is_multi_source():
@@ -121,7 +121,7 @@ class SpectraChartController(OperatorController):
                 img_list.append((image_name, img_png_binary))
 
                 if runner.plots_visible:
-                    plt.show()
+                    plt.show(block=False)
                 plt.close(fig)
 
         return context, img_list
