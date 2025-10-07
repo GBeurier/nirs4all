@@ -12,8 +12,18 @@ authors = [
     { name="Lauriane Rouan", email="lauriane.rouan@cirad.fr" }
 ]
 readme = "README.md"
-license = "CECILL-2.1"
-requires-python = ">=3.7"
+license = { file = "LICENSE" }
+
+maintainers = [
+  { name = "Gregory Beurier", email = "gregory.beurier@cirad.fr" }
+]
+
+classifiers = [
+  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+  "Programming Language :: Python :: 3",
+]
+
+requires-python = ">=3.9"
 dependencies = [
     "numpy>=1.20.0",
     "pandas>=2.0.0",
@@ -78,3 +88,15 @@ max-line-length = 220
 max-line-length = 220
 ignore = ["E402","F841","F401","E302","E305","W293","W901","W291"]
 exclude = ["build", "dist", ".venv", "docs", "sample_data"]
+
+[project.urls]
+Homepage = "https://github.com/gbeurier/nirs4all"
+Documentation = "https://github.com/gbeurier/nirs4all#readme"
+Issues = "https://github.com/gbeurier/nirs4all/issues"
+
+[tool.nirs4all]
+product_owner = { name = "Denis Cornet", email = "denis.cornet@cirad.fr" }
+contributors = [
+  { name = "Denis Cornet" },
+  { name = "Lauriane Rouan" }
+]

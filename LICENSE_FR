@@ -1,0 +1,16 @@
+Ce dépôt (projet **nirs4all**) est distribué en **DOUBLE LICENCE**.
+
+1) **Open-source (par défaut)** : **AGPL-3.0-or-later**
+   - Voir le texte intégral dans `LICENSES/AGPL-3.0-or-later.txt`.
+   - SPDX par défaut : **AGPL-3.0-or-later** (ajoutez-le dans les en-têtes de fichiers).
+   - Variantes possibles : **GPL-3.0-or-later** ou **CeCILL-2.1**.
+
+2) **Commerciale** :
+   - Une licence propriétaire permettant l’usage fermé, y compris en SaaS, sans obligation de publier votre code.
+   - Voir `LICENSES/COMMERCIAL-LICENSE.md` pour les conditions et la procédure d’obtention.
+   - Contact : <denis.cornet@cirad.fr>.
+
+Sauf accord commercial explicite, l’usage de ce code est régi par **AGPL-3.0-or-later**.
+
+En-tête SPDX recommandé dans les fichiers Python :
+    # SPDX-License-Identifier: AGPL-3.0-or-later
