@@ -89,7 +89,8 @@ class FoldChartController(OperatorController):
 
         if runner.plots_visible:
             plt.show(block=False)
-        plt.close(fig)
+        else:
+            plt.close(fig)
 
         return context, img_list
 

@@ -1,3 +1,6 @@
+headers in Graph
+Resampling
+
 #### ROADMAP ########
 [CLI]  ## run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 ** RELEASE **

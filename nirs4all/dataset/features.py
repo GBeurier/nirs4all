@@ -14,7 +14,7 @@ class Features:
         self.sources: List[FeatureSource] = []
         self.cache = cache
 
-    def add_samples(self, data: InputData) -> None:
+    def add_samples(self, data: InputData, headers: Optional[Union[List[str], List[List[str]]]] = None) -> None:
         if isinstance(data, np.ndarray):
             data = [data]
 
@@ -24,8 +24,17 @@ class Features:
         elif len(self.sources) != n_sources:
             raise ValueError(f"Expected {len(self.sources)} sources, got {n_sources}")
 
-        for src, arr in zip(self.sources, data):
-            src.add_samples(arr)
+        # verify headers
+        if headers is not None:
+            if isinstance(headers[0], str):
+                headers = [headers] * n_sources
+            if len(headers) != n_sources:
+                raise ValueError(f"Expected {n_sources} headers lists, got {len(headers)}")
+        else:
+            headers = [None] * n_sources
+
+        for src, arr, hdr in zip(self.sources, data, headers):
+            src.add_samples(arr, hdr)
 
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList, source: int = -1) -> None:
         # Handle empty features list
