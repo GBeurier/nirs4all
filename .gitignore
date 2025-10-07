@@ -35,3 +35,4 @@ test_experiment_manager/
 .coverage.*
 examples/.hypothesis/
 log.txt
+.travis.yml
