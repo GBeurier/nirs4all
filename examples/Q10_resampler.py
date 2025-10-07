@@ -32,12 +32,12 @@ def main():
     print("Example 1: Resample using wavelengths from classification dataset")
     print("-" * 70)
 
-    # Get wavelengths from classification dataset as target
-    classification_config = DatasetConfigs("examples/sample_data/classification")
+    # # Get wavelengths from classification dataset as target
+    classification_config = DatasetConfigs("sample_data/regression_2")
     ref_dataset = classification_config.iter_datasets().__next__()
     target_wl_from_other = ref_dataset.float_headers(0)
-    print(f"Target wavelengths from classification dataset: {len(target_wl_from_other)} points")
-    print(f"Range: {target_wl_from_other[0]:.1f} to {target_wl_from_other[-1]:.1f} cm-1")
+    # print(f"Target wavelengths from classification dataset: {len(target_wl_from_other)} points")
+    # print(f"Range: {target_wl_from_other[0]:.1f} to {target_wl_from_other[-1]:.1f} cm-1")
 
     pipeline_other = [
         "chart_2d",
@@ -46,10 +46,10 @@ def main():
     ]
 
     # Apply to regression dataset
-    dataset_config = DatasetConfigs("examples/sample_data/regression")
+    dataset_config = DatasetConfigs("sample_data/regression_3")
     pipeline_config = PipelineConfigs(pipeline_other, name="Other_Dataset_Pipeline")
 
-    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=True)
+    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=True)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Example 2: Downsample to fewer points (descending order)

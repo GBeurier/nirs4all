@@ -123,8 +123,6 @@ class PipelineRunner:
                 dataset = dataset_configs.get_dataset(config, name)
                 dataset_name = name
 
-                print(dataset.headers(0))
-
                 # Capture raw data BEFORE any preprocessing happens
                 if self.keep_datasets and dataset_name not in self.raw_data:
                     self.raw_data[dataset_name] = dataset.x({}, layout="2d")
@@ -134,7 +132,6 @@ class PipelineRunner:
 
                 config_predictions = Predictions()
                 self._run_single(steps, config_name, dataset, config_predictions)
-                print(dataset.headers(0))
                 # Capture preprocessed data AFTER preprocessing
                 if self.keep_datasets:
                     if dataset_name not in self.pp_data:
@@ -187,15 +184,6 @@ class PipelineRunner:
                 "dataset": dataset,
                 "dataset_name": dataset_name
             }
-
-        # If plots are visible, keep them open after run completes
-        if self.plots_visible:
-            import matplotlib.pyplot as plt
-            if plt.get_fignums():  # Only block if there are figures to show
-                print("\n" + "=" * 120)
-                print("📊 Charts are displayed. Close all chart windows to continue...")
-                print("=" * 120)
-                plt.show(block=True)
 
         return run_predictions, datasets_predictions
 
@@ -291,15 +279,6 @@ class PipelineRunner:
         y_pred = single_pred["y_pred"]
         prediction_path = self.saver.base_path / dataset.name / filename
         Predictions.save_predictions_to_csv(y_pred=y_pred, filepath=prediction_path)
-
-        # If plots are visible, keep them open after prediction completes
-        if self.plots_visible:
-            import matplotlib.pyplot as plt
-            if plt.get_fignums():  # Only block if there are figures to show
-                print("\n" + "=" * 120)
-                print("📊 Charts are displayed. Close all chart windows to continue...")
-                print("=" * 120)
-                plt.show(block=True)
 
         return single_pred["y_pred"], run_predictions
 
@@ -399,15 +378,6 @@ class PipelineRunner:
                 for viz in shap_params['visualizations']:
                     print(f"   • {viz}.png")
                 print("=" * 120)
-
-            # If plots are visible, keep them open after explanation completes
-            if self.plots_visible:
-                import matplotlib.pyplot as plt
-                if plt.get_fignums():  # Only block if there are figures to show
-                    print("\n" + "=" * 120)
-                    print("📊 Charts are displayed. Close all chart windows to continue...")
-                    print("=" * 120)
-                    plt.show(block=True)
 
             return shap_results, str(output_dir)
 
