@@ -287,6 +287,21 @@ class ResamplerController(OperatorController):
             # Update headers AFTER replacing features (so they don't get reset)
             dataset._features.sources[sd_idx].set_headers(new_headers)
 
+            if runner.save_files:
+                print(f"Exporting resampled features for dataset '{dataset.name}', source {sd_idx} to CSV...")
+                print(dataset.features_processings(sd_idx))
+                train_context = {"partition": "train"}
+                train_x_full = dataset.x(train_context, "2d", concat_source=True)
+                test_context = {"partition": "test"}
+                test_x_full = dataset.x(test_context, "2d", concat_source=True)
+                # save train and test features to CSV for debugging, create folder if needed
+                import os
+                os.makedirs(f"{dataset.name}_export_resample", exist_ok=True)
+                np.savetxt(f"{dataset.name}_export_resample/X_train.csv", train_x_full, delimiter=",")
+                np.savetxt(f"{dataset.name}_export_resample/X_test.csv", test_x_full, delimiter=",")
+
         context["add_feature"] = False
+
+
 
         return context, fitted_resamplers

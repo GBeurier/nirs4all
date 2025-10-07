@@ -179,7 +179,6 @@ class ModelBuilderFactory:
             if TF_AVAILABLE:
                 from tensorflow.keras.models import clone_model
                 cloned_model = clone_model(model)
-                print("Model cloned")
                 return cloned_model
 
         # elif framework == 'pytorch':
