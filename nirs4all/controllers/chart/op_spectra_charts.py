@@ -181,9 +181,8 @@ class SpectraChartController(OperatorController):
             image_name += ".png"
             img_list.append((image_name, img_png_binary))
 
-            if runner.plots_visible:
-                plt.show(block=False)
-            else:
+            # Keep figure open if plots are visible, close otherwise
+            if not runner.plots_visible:
                 plt.close(fig)
 
         return context, img_list

@@ -72,6 +72,12 @@ class PipelineRunner:
         if random_state is not None:
             init_global_random_state(random_state)
         self.plots_visible = plots_visible
+
+        # Enable interactive mode for plots if visible
+        if self.plots_visible:
+            import matplotlib.pyplot as plt
+            plt.ion()  # Turn on interactive mode
+
         self.max_workers = max_workers or -1  # -1 means use all available cores
         self.continue_on_error = continue_on_error
         self.backend = backend
@@ -184,6 +190,15 @@ class PipelineRunner:
                 "dataset": dataset,
                 "dataset_name": dataset_name
             }
+
+        # Show plots if visible
+        if self.plots_visible:
+            import matplotlib.pyplot as plt
+            if plt.get_fignums():
+                print("\n" + "=" * 120)
+                print("📊 Charts displayed. Close all windows to continue...")
+                print("=" * 120)
+                plt.show(block=True)
 
         return run_predictions, datasets_predictions
 

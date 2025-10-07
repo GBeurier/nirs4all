@@ -55,7 +55,7 @@ class FoldChartController(OperatorController):
         if mode == "predict" or mode == "explain":
             return context, []
 
-        print(f"Executing fold charts for step: {step}, keyword: {context.get('keyword', '')}")
+        # print(f"Executing fold charts for step: {step}, keyword: {context.get('keyword', '')}")
 
         # Get data for visualization
         local_context = copy.deepcopy(context)
@@ -71,7 +71,7 @@ class FoldChartController(OperatorController):
             print("⚠️ No folds found in dataset. Run cross-validation first.")
             return context, []
 
-        print(f"Found {len(folds)} folds to visualize")
+        # print(f"Found {len(folds)} folds to visualize")
 
         # Create fold visualization
         fig, plot_info = self._create_fold_chart(folds, y_flat, len(y_flat))
@@ -87,9 +87,8 @@ class FoldChartController(OperatorController):
         image_name = f"fold_visualization_{len(folds)}folds.png"
         img_list = [(image_name, img_png_binary)]
 
-        if runner.plots_visible:
-            plt.show(block=False)
-        else:
+        # Keep figure open if plots are visible, close otherwise
+        if not runner.plots_visible:
             plt.close(fig)
 
         return context, img_list
