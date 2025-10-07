@@ -1,6 +1,6 @@
 """SpectraChartController - Unified 2D and 3D spectra visualization controller."""
 
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -94,7 +94,6 @@ class SpectraChartController(OperatorController):
 
         # Initialize image list to track generated plots
         img_list = []
-        print(context)
         local_context = context.copy()
         spectra_data = dataset.x(local_context, "3d", False)
         y = dataset.y(local_context)
@@ -109,13 +108,14 @@ class SpectraChartController(OperatorController):
 
         for sd_idx, x in enumerate(spectra_data):
             processing_ids = dataset.features_processings(sd_idx)
-            print(processing_ids)
+            spectra_headers = dataset.headers(sd_idx)
             n_processings = x.shape[1]
 
             # Debug: print what we got
             if runner.verbose > 0:
                 print(f"   Source {sd_idx}: {n_processings} processings: {processing_ids}")
                 print(f"   Data shape: {x.shape}")
+                print(f"   Headers available: {len(spectra_headers) if spectra_headers else 0}")
 
             # Calculate subplot grid (prefer horizontal layout)
             n_cols = min(3, n_processings)  # Max 3 columns
@@ -145,10 +145,10 @@ class SpectraChartController(OperatorController):
                 # Create subplot
                 if is_3d:
                     ax = fig.add_subplot(n_rows, n_cols, processing_idx + 1, projection='3d')
-                    self._plot_3d_spectra(ax, x_sorted, y_sorted, short_name)
+                    self._plot_3d_spectra(ax, x_sorted, y_sorted, short_name, spectra_headers)
                 else:
                     ax = fig.add_subplot(n_rows, n_cols, processing_idx + 1)
-                    self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name)
+                    self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name, spectra_headers)
 
             # Adjust layout to prevent overlap
             plt.tight_layout(rect=[0, 0, 1, 0.96])
@@ -175,11 +175,24 @@ class SpectraChartController(OperatorController):
 
         return context, img_list
 
-    def _plot_2d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str) -> None:
+    def _plot_2d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None) -> None:
         """Plot 2D spectra on given axis."""
         # Create feature indices (wavelengths)
         n_features = x_sorted.shape[1]
-        feature_indices = np.arange(n_features)
+
+        # Use headers if available, otherwise fall back to indices
+        if headers and len(headers) == n_features:
+            # Try to convert headers to numeric values for wavelengths
+            try:
+                x_values = np.array([float(h) for h in headers])
+                x_label = 'Wavelength (nm)'
+            except (ValueError, TypeError):
+                # If headers are not numeric, use them as categorical labels
+                x_values = np.arange(n_features)
+                x_label = 'Features'
+        else:
+            x_values = np.arange(n_features)
+            x_label = 'Features'
 
         # Create colormap for gradient based on y values
         colormap = plt.colormaps.get_cmap('viridis')
@@ -194,10 +207,10 @@ class SpectraChartController(OperatorController):
         # Plot each spectrum as a 2D line with gradient colors
         for i, spectrum in enumerate(x_sorted):
             color = colormap(y_normalized[i])
-            ax.plot(feature_indices, spectrum,
+            ax.plot(x_values, spectrum,
                     color=color, alpha=0.7, linewidth=1)
 
-        ax.set_xlabel('Features', fontsize=9)
+        ax.set_xlabel(x_label, fontsize=9)
         ax.set_ylabel('Intensity', fontsize=9)
 
         # Subtitle with preprocessing name and dimensions
@@ -211,11 +224,24 @@ class SpectraChartController(OperatorController):
         cbar.set_label('y', fontsize=8)
         cbar.ax.tick_params(labelsize=7)
 
-    def _plot_3d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str) -> None:
+    def _plot_3d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None) -> None:
         """Plot 3D spectra on given axis."""
         # Create feature indices (wavelengths)
         n_features = x_sorted.shape[1]
-        feature_indices = np.arange(n_features)
+
+        # Use headers if available, otherwise fall back to indices
+        if headers and len(headers) == n_features:
+            # Try to convert headers to numeric values for wavelengths
+            try:
+                x_values = np.array([float(h) for h in headers])
+                x_label = 'Wavelength (nm)'
+            except (ValueError, TypeError):
+                # If headers are not numeric, use them as categorical labels
+                x_values = np.arange(n_features)
+                x_label = 'Features'
+        else:
+            x_values = np.arange(n_features)
+            x_label = 'Features'
 
         # Create colormap for gradient based on y values
         colormap = plt.colormaps.get_cmap('viridis')
@@ -230,10 +256,10 @@ class SpectraChartController(OperatorController):
         # Plot each spectrum as a line in 3D space with gradient colors
         for i, (spectrum, y_val) in enumerate(zip(x_sorted, y_sorted)):
             color = colormap(y_normalized[i])
-            ax.plot(feature_indices, [y_val] * n_features, spectrum,
+            ax.plot(x_values, [y_val] * n_features, spectrum,
                     color=color, alpha=0.7, linewidth=1)
 
-        ax.set_xlabel('Features', fontsize=9)
+        ax.set_xlabel(x_label, fontsize=9)
         ax.set_ylabel('y (sorted)', fontsize=9)
         ax.set_zlabel('Intensity', fontsize=9)
 

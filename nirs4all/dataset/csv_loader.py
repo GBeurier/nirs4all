@@ -381,8 +381,8 @@ def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', **u
 
         if data.empty:  # If all columns were NA or file was effectively empty after header
             report['warnings'].append("Data is empty after removing all-NA columns or due to empty content.")
-            # Return empty DataFrame, report, and an empty Series for na_row_mask
-            return pd.DataFrame(), report, pd.Series(dtype=bool)
+            # Return empty DataFrame, report, an empty Series for na_row_mask, and empty headers
+            return pd.DataFrame(), report, pd.Series(dtype=bool), []
 
         # --- 5) Handle type conversion based on data_type ---
         # Ensure categorical_info is reset for this run, it's part of the main report dict.
@@ -460,7 +460,7 @@ def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', **u
                 report['error'] = error_msg
                 report['na_handling']['na_detected'] = True
                 # Return None for data, and the na_mask_after_conversions (though caller might not use if error)
-                return None, report, na_mask_after_conversions
+                return None, report, na_mask_after_conversions, None
 
             elif na_policy == 'remove':
                 # Update report fields about the rows that are about to be removed
@@ -481,16 +481,20 @@ def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', **u
         # Return the 'data' (possibly with rows removed by this function if na_policy='remove')
         # and 'na_mask_after_conversions' (which is the mask *before* this function's internal NA removal).
         # data_array = data.to_numpy().astype(np.float32)
-        return data, report, na_mask_after_conversions
+
+        # Extract headers (column names)
+        headers = data.columns.tolist() if not data.empty else []
+
+        return data, report, na_mask_after_conversions, headers
 
     except FileNotFoundError as e:
         report['error'] = str(e)
-        return None, report, None
+        return None, report, None, None
     except ValueError as e:
         report['error'] = f"ValueError during processing: {e}"
-        return None, report, None
+        return None, report, None, None
     except Exception as e:
         # Catch any other unexpected error during loading/processing
         import traceback
         report['error'] = f"Unexpected error in load_csv: {e}\n{traceback.format_exc()}"
-        return None, report, None
+        return None, report, None, None
