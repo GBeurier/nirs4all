@@ -241,7 +241,12 @@ class PipelineRunner:
         return steps
 
 
-    def predict(self, prediction_obj: Union[Dict[str, Any], str], dataset_config: DatasetConfigs, verbose: int = 0) -> Tuple['Predictions', Dict[str, Any]]:
+    def predict(self,
+                prediction_obj: Union[Dict[str, Any], str],
+                dataset_config: DatasetConfigs,
+                all_predictions: bool = False,
+                verbose: int = 0
+                ) :
         print("=" * 120)
         print(f"\033[94m🚀 Starting Nirs4all prediction(s)\033[0m")
         print("=" * 120)
@@ -257,6 +262,15 @@ class PipelineRunner:
             self._run_single(steps, "prediction", dataset, config_predictions)
             run_predictions.merge_predictions(config_predictions)
             # print(run_predictions)
+
+        if all_predictions:
+            res = {}
+            for pred in run_predictions.to_dicts():
+                res[pred['dataset_name']] = {}
+                res[pred['dataset_name']][pred['id']] = pred['y_pred']
+                return res, run_predictions
+
+
 
         # print(self.target_model)
         single_pred = run_predictions.get_similar(
