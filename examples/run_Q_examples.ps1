@@ -7,21 +7,22 @@ $examples = @(
     "Q5_predict.py",
     "Q6_multisource.py",
     "Q7_discretization.py",
-    "Q8_shap.py"
+    "Q8_shap.py",
+    "Q9_data_analysis.py"
 )
 
-# ## PARALLEL
-# foreach ($example in $examples) {
-#     if (Test-Path "$example") {
-#         Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow
-#         Write-Host "Launch: $example"
-#     }
-# }
-
-# SEQUENTIAL
+## PARALLEL
 foreach ($example in $examples) {
     if (Test-Path "$example") {
-        Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow -Wait
+        Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow
         Write-Host "Launch: $example"
     }
 }
+
+# # SEQUENTIAL
+# foreach ($example in $examples) {
+#     if (Test-Path "$example") {
+#         Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow -Wait
+#         Write-Host "Launch: $example"
+#     }
+# }

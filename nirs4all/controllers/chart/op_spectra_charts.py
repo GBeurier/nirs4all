@@ -108,14 +108,12 @@ class SpectraChartController(OperatorController):
 
         for sd_idx, x in enumerate(spectra_data):
             processing_ids = dataset.features_processings(sd_idx)
-            spectra_headers = dataset.headers(sd_idx)
             n_processings = x.shape[1]
 
             # Debug: print what we got
             if runner.verbose > 0:
                 print(f"   Source {sd_idx}: {n_processings} processings: {processing_ids}")
                 print(f"   Data shape: {x.shape}")
-                print(f"   Headers available: {len(spectra_headers) if spectra_headers else 0}")
 
             # Calculate subplot grid (prefer horizontal layout)
             n_cols = min(3, n_processings)  # Max 3 columns
@@ -142,13 +140,28 @@ class SpectraChartController(OperatorController):
                 x_2d = x[:, processing_idx, :]
                 x_sorted = x_2d[sorted_indices]
 
+                # Get headers for this specific processing (may differ after resampling)
+                # Headers are shared across all processings in a source, so we check if they match
+                spectra_headers = dataset.headers(sd_idx)
+                current_n_features = x_2d.shape[1]
+
+                # Only use headers if they match the current number of features
+                if spectra_headers and len(spectra_headers) == current_n_features:
+                    processing_headers = spectra_headers
+                else:
+                    # Headers don't match - likely after dimension-changing operation
+                    processing_headers = None
+
+                if runner.verbose > 0 and processing_idx == 0:
+                    print(f"   Headers available: {len(spectra_headers) if spectra_headers else 0}, features: {current_n_features}")
+
                 # Create subplot
                 if is_3d:
                     ax = fig.add_subplot(n_rows, n_cols, processing_idx + 1, projection='3d')
-                    self._plot_3d_spectra(ax, x_sorted, y_sorted, short_name, spectra_headers)
+                    self._plot_3d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers)
                 else:
                     ax = fig.add_subplot(n_rows, n_cols, processing_idx + 1)
-                    self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name, spectra_headers)
+                    self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers)
 
             # Adjust layout to prevent overlap
             plt.tight_layout(rect=[0, 0, 1, 0.96])
@@ -185,7 +198,7 @@ class SpectraChartController(OperatorController):
             # Try to convert headers to numeric values for wavelengths
             try:
                 x_values = np.array([float(h) for h in headers])
-                x_label = 'Wavelength (nm)'
+                x_label = 'Wavelength (cm-1)'
             except (ValueError, TypeError):
                 # If headers are not numeric, use them as categorical labels
                 x_values = np.arange(n_features)
@@ -209,6 +222,11 @@ class SpectraChartController(OperatorController):
             color = colormap(y_normalized[i])
             ax.plot(x_values, spectrum,
                     color=color, alpha=0.7, linewidth=1)
+
+        # Force axis order to prevent matplotlib from auto-sorting
+        if len(x_values) > 1 and x_values[0] > x_values[-1]:
+            # Descending order - set limits to force this display
+            ax.set_xlim(x_values[0], x_values[-1])
 
         ax.set_xlabel(x_label, fontsize=9)
         ax.set_ylabel('Intensity', fontsize=9)
@@ -234,7 +252,7 @@ class SpectraChartController(OperatorController):
             # Try to convert headers to numeric values for wavelengths
             try:
                 x_values = np.array([float(h) for h in headers])
-                x_label = 'Wavelength (nm)'
+                x_label = 'Wavelength (cm-1)'
             except (ValueError, TypeError):
                 # If headers are not numeric, use them as categorical labels
                 x_values = np.arange(n_features)
@@ -258,6 +276,11 @@ class SpectraChartController(OperatorController):
             color = colormap(y_normalized[i])
             ax.plot(x_values, [y_val] * n_features, spectrum,
                     color=color, alpha=0.7, linewidth=1)
+
+        # Force axis order to prevent matplotlib from auto-sorting
+        if len(x_values) > 1 and x_values[0] > x_values[-1]:
+            # Descending order - set limits to force this display
+            ax.set_xlim(x_values[0], x_values[-1])
 
         ax.set_xlabel(x_label, fontsize=9)
         ax.set_ylabel('y (sorted)', fontsize=9)

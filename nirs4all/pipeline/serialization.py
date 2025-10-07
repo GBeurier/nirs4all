@@ -170,7 +170,17 @@ def _changed_kwargs(obj):
             # fall back to what's in cvargs if it exists
             current = obj.__dict__.get("cvargs", {}).get(name, default)
 
-        if current != default:
+        # Handle comparison with numpy arrays and other array-like objects
+        try:
+            is_different = current != default
+            # For numpy arrays and similar, convert boolean array to single boolean
+            if hasattr(is_different, '__iter__') and not isinstance(is_different, str):
+                is_different = not all(is_different) if hasattr(is_different, '__len__') else True
+        except (ValueError, TypeError):
+            # If comparison fails (e.g., array vs None), consider them different
+            is_different = True
+
+        if is_different:
             if isinstance(current, tuple):
                 current = list(current)
             # out[name] = (current, current_type)

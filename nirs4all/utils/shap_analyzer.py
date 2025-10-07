@@ -384,7 +384,7 @@ class ShapAnalyzer:
         if feature_names and len(feature_names) == n_features:
             try:
                 wavelengths = np.array([
-                    float(name.replace('λ', '').replace('nm', '').strip())
+                    float(name.replace('λ', '').replace('cm-1', '').strip())
                     for name in feature_names
                 ])
             except Exception:
@@ -465,7 +465,7 @@ class ShapAnalyzer:
         ]
         ax1.legend(handles=legend_elements, loc='best', framealpha=0.9, fontsize=9)
 
-        ax1.set_xlabel('Wavelength (nm)' if feature_names else 'Feature Index',
+        ax1.set_xlabel('Wavelength (cm-1)' if feature_names else 'Feature Index',
                       fontsize=12, fontweight='bold')
         ax1.set_ylabel('Absorbance', fontsize=12, fontweight='bold')
         ax1.set_title(f'Mean Spectrum with Important Regions (Band Width = Bin Size: {self.bin_size} wavelengths)',
@@ -495,7 +495,7 @@ class ShapAnalyzer:
         cbar.set_label('Relative Importance', rotation=270, labelpad=20, fontsize=10, fontweight='bold')
         cbar.ax.tick_params(labelsize=9)
 
-        ax2.set_xlabel('Wavelength (nm)' if feature_names else 'Feature Index',
+        ax2.set_xlabel('Wavelength (cm-1)' if feature_names else 'Feature Index',
                       fontsize=12, fontweight='bold')
         ax2.set_ylabel('Aggregated SHAP Importance', fontsize=12, fontweight='bold')
 
@@ -687,7 +687,7 @@ class ShapAnalyzer:
                 # Use wavelength ranges
                 wl_start = self.wavelengths[start]
                 wl_end = self.wavelengths[end - 1]
-                bin_labels.append(f"{wl_start:.1f}-{wl_end:.1f} nm")
+                bin_labels.append(f"{wl_start:.1f}-{wl_end:.1f} cm-1")
             else:
                 bin_labels.append(f"Bin {start}-{end}")
 

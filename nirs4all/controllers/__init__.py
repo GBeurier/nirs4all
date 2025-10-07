@@ -33,6 +33,7 @@ from .sklearn.op_transformermixin import TransformerMixinController
 from .sklearn.op_y_transformermixin import YTransformerMixinController
 from .dataset.op_feature_augmentation import FeatureAugmentationController
 from .dataset.op_sample_augmentation import SampleAugmentationController
+from .dataset.op_resampler import ResamplerController
 from .sklearn.op_split import CrossValidatorController
 from .chart.op_spectra_charts import SpectraChartController
 from .chart.op_fold_charts import FoldChartController
@@ -46,6 +47,7 @@ __all__ = [
     'YTransformerMixinController',
     'FeatureAugmentationController',
     'SampleAugmentationController',
+    'ResamplerController',
     'CrossValidatorController',
     'SpectraChartController',
     'FoldChartController',

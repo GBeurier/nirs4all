@@ -72,7 +72,9 @@ class FeatureSource:
 
         self._headers = headers
 
-
+    def set_headers(self, headers: List[str]) -> None:
+        """Set feature headers (wavelengths)."""
+        self._headers = headers
 
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList) -> None:
         """
@@ -90,12 +92,57 @@ class FeatureSource:
                            ["savgol", "msc", "detrend"])
         """
         # self._validate_update_inputs(features, source_processings, processings)
+        # Normalize features to list of arrays
+        feature_list: List[np.ndarray] = []
+        if isinstance(features, np.ndarray):
+            feature_list = [features]
+        elif isinstance(features, list):
+            if not features:
+                return
+            # Check if it's list of lists or list of arrays
+            if isinstance(features[0], list):
+                # Handle list of lists (multi-source case) - take first source
+                feature_list = list(features[0])  # type: ignore
+            elif isinstance(features[0], np.ndarray):
+                feature_list = list(features)  # type: ignore
+            else:
+                return
+        else:
+            return
+
         # Separate operations: replacements and additions
-        replacements, additions = self._categorize_operations(features, source_processings, processings)
+        replacements, additions = self._categorize_operations(feature_list, source_processings, processings)
+
+        # Check if all processings are being replaced with same new feature dimension
+        if replacements and not additions:
+            # Get new feature dimensions
+            new_feature_dims = [new_data.shape[1] for _, new_data, _ in replacements]
+            if len(set(new_feature_dims)) == 1 and new_feature_dims[0] != self.num_features:
+                # All replacements have same new dimension - resize array
+                self._resize_features(new_feature_dims[0])
 
         # Apply replacements first, then additions
         self._apply_replacements(replacements)
         self._apply_additions(additions)
+
+    def _resize_features(self, new_num_features: int) -> None:
+        """Resize the feature dimension of the array."""
+        if self.num_samples == 0:
+            return
+
+        # Create new array with new feature dimension
+        new_shape = (self.num_samples, self.num_processings, new_num_features)
+        new_array = np.zeros(new_shape, dtype=self._array.dtype)
+
+        # Copy existing data (will be replaced anyway, but initialize properly)
+        min_features = min(self.num_features, new_num_features)
+        new_array[:, :, :min_features] = self._array[:, :, :min_features]
+
+        self._array = new_array
+
+        # Clear headers since they won't match the new feature dimension
+        # Headers will be set by the controller after replacement
+        self._headers = None
 
     # def _validate_update_inputs(self, features: List[np.ndarray], source_processings: List[str], processings: List[str]) -> None:
     #     """Validate inputs for update_features."""
