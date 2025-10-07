@@ -78,7 +78,8 @@ class YChartController(OperatorController):
         img_list.append((chart_name, img_png_binary))
         if runner.plots_visible:
             plt.show(block=False)
-        plt.close(fig)
+        else:
+            plt.close(fig)
 
         return context, img_list
 

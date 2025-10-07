@@ -1,6 +1,7 @@
 """SpectraChartController - Unified 2D and 3D spectra visualization controller."""
 
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
@@ -51,6 +52,13 @@ class SpectraChartController(OperatorController):
         # Skip execution in prediction mode
         if mode == "predict" or mode == "explain":
             return context, []
+
+        # Ensure non-interactive backend is used when plots are not visible
+        # This prevents GUI-related errors in headless/test environments
+        if not runner.plots_visible:
+            current_backend = matplotlib.get_backend()
+            if current_backend not in ['Agg', 'agg']:
+                matplotlib.use('Agg', force=True)
 
         is_3d = step == "chart_3d"
 
@@ -122,7 +130,8 @@ class SpectraChartController(OperatorController):
 
                 if runner.plots_visible:
                     plt.show(block=False)
-                plt.close(fig)
+                else:
+                    plt.close(fig)
 
         return context, img_list
 

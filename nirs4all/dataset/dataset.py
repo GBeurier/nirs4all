@@ -66,10 +66,11 @@ class SpectroDataset:
     # FEATURES
     def add_samples(self,
                     data: InputData,
-                    indexes: Optional[IndexDict] = None) -> None:
+                    indexes: Optional[IndexDict] = None,
+                    headers: Optional[Union[List[str], List[List[str]]]] = None) -> None:
         num_samples = get_num_samples(data)
         self._indexer.add_samples_dict(num_samples, indexes)
-        self._features.add_samples(data)
+        self._features.add_samples(data, headers=headers)
 
     def add_features(self,
                      features: InputFeatures,
