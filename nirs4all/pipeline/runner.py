@@ -123,6 +123,8 @@ class PipelineRunner:
                 dataset = dataset_configs.get_dataset(config, name)
                 dataset_name = name
 
+                print(dataset.headers(0))
+
                 # Capture raw data BEFORE any preprocessing happens
                 if self.keep_datasets and dataset_name not in self.raw_data:
                     self.raw_data[dataset_name] = dataset.x({}, layout="2d")
@@ -132,7 +134,7 @@ class PipelineRunner:
 
                 config_predictions = Predictions()
                 self._run_single(steps, config_name, dataset, config_predictions)
-
+                print(dataset.headers(0))
                 # Capture preprocessed data AFTER preprocessing
                 if self.keep_datasets:
                     if dataset_name not in self.pp_data:

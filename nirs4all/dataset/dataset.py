@@ -131,6 +131,12 @@ class SpectroDataset:
     def headers(self, src: int) -> List[str]:
         return self._features.headers(src)
 
+    def float_headers(self, src: int) -> np.ndarray:
+        try:
+            return np.array([float(header) for header in self._features.headers(src)])
+        except ValueError as e:
+            raise ValueError(f"Cannot convert headers to float: {e}")
+
     def short_preprocessings_str(self) -> str:
         processings_list = self._features.sources[0].processing_ids
         processings_list.pop(0)

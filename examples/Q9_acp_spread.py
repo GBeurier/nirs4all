@@ -30,8 +30,8 @@ preprocessing_options = [
 # Build the pipeline
 pipeline = [
     MinMaxScaler(),
-    {"feature_augmentation": {"_or_": preprocessing_options, "size": [3, (1, 3)], "count": 10}},  # no adapted to procrustes
-    {"_or_": preprocessing_options, "size": (1, 3), "count": 1},
+    # {"feature_augmentation": {"_or_": preprocessing_options, "size": [3, (1, 3)], "count": 10}},  # no adapted to procrustes
+    {"_or_": preprocessing_options, "size": (1, 3), "count": 10},
     # "2d_chart",
 ]
 
@@ -67,6 +67,7 @@ print("  - procrustes: Distance from raw PCA (lower is better, <0.1 is excellent
 print("  - trustworthiness: k-NN preservation (higher is better, >0.95 is excellent)")
 print("  - grassmann: NaN when feature dimensions change (e.g., feature augmentation)")
 print("="*120)
+
 
 # ============================================================================
 # NEW: Cross-Dataset Analysis for Multi-Machine Compatibility

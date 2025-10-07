@@ -15,6 +15,7 @@ from .nirs import (Haar, MultiplicativeScatterCorrection, SavitzkyGolay, Wavelet
 from .scalers import (Derivate, Normalize, SimpleScale, derivate, norml, spl_norml)
 from .signal import Baseline, Detrend, Gaussian, baseline, detrend, gaussian
 from .features import CropTransformer, ResampleTransformer
+from .resampler import Resampler
 
 
 __all__ = [
@@ -67,5 +68,8 @@ __all__ = [
 
     # Features
     "CropTransformer",
-    "ResampleTransformer"
+    "ResampleTransformer",
+
+    # Wavelength resampling
+    "Resampler"
 ]
