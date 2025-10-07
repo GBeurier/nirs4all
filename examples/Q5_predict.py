@@ -55,6 +55,7 @@ predictions, _ = runner.run(pipeline_config, dataset_config)
 # Get best performing model for prediction testing
 best_prediction = predictions.top_k(1, partition="test")[0]
 model_id = best_prediction['id']
+fold_id = best_prediction['fold_id']
 
 print("=== Q4 - Model Persistence and Prediction Example ===")
 print("--- Source Model ---")
@@ -67,7 +68,7 @@ print("-" * 80)
 print("--- Method 1: Predict with a prediction entry ---")
 predictor = PipelineRunner(save_files=False, verbose=0)
 prediction_dataset = DatasetConfigs({
-    'X_test': 'sample_data/regression_2/Xval.csv.gz',
+    'X_test': 'sample_data/regression/Xtest.csv',
 })
 
 # Make predictions using the best prediction entry
@@ -83,7 +84,7 @@ print("=" * 80)
 print("--- Method 2: Predict with a model ID ---")
 predictor = PipelineRunner(save_files=False, verbose=0)
 prediction_dataset = DatasetConfigs({
-    'X_test': 'sample_data/regression_2/Xval.csv.gz',
+    'X_test': 'sample_data/regression/Xtest.csv',
 })
 
 print(f"Using model ID: [{model_id}]")
@@ -92,3 +93,18 @@ method2_array = method2_predictions[:5].flatten()
 print("Method 2 predictions:", method2_array)
 is_identical = np.allclose(method2_array, reference_predictions)
 print(f"Method 2 identical to training: {'✅ YES' if is_identical else '❌ NO'}")
+
+# Method 3: Predict using a model ID and all predictions
+print("--- Method 3: Predict with a model ID and return all predictions ---")
+method3_predictions, all_preds = predictor.predict(model_id, prediction_dataset, all_predictions=True, verbose=0)
+for pred in all_preds.to_dicts():
+    if (
+        pred['id'] == model_id and
+        pred['fold_id'] == fold_id and
+        pred['dataset_name'] == prediction_dataset.configs[0][0] and
+        pred['partition'] == 'test'
+    ):
+        method3_array = pred['y_pred'][:5].flatten()
+        print("Method 3 predictions:", method3_array)
+        is_identical = np.allclose(method3_array, reference_predictions)
+        print(f"Method 3 identical to training: {'✅ YES' if is_identical else '❌ NO'}")
