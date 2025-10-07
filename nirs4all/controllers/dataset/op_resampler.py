@@ -296,9 +296,10 @@ class ResamplerController(OperatorController):
                 test_x_full = dataset.x(test_context, "2d", concat_source=True)
                 # save train and test features to CSV for debugging, create folder if needed
                 import os
-                os.makedirs(f"{dataset.name}_export_resample", exist_ok=True)
-                np.savetxt(f"{dataset.name}_export_resample/X_train.csv", train_x_full, delimiter=",")
-                np.savetxt(f"{dataset.name}_export_resample/X_test.csv", test_x_full, delimiter=",")
+                root_path = runner.saver.base_path
+                os.makedirs(f"{root_path}/{dataset.name}", exist_ok=True)
+                np.savetxt(f"{root_path}/{dataset.name}/Export_X_train.csv", train_x_full, delimiter=",")
+                np.savetxt(f"{root_path}/{dataset.name}/Export_X_test.csv", test_x_full, delimiter=",")
 
         context["add_feature"] = False
 
