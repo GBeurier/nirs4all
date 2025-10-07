@@ -1,27 +1,22 @@
-headers in Graph
-Resampling
-
 #### ROADMAP ########
-[CLI]  ## run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
+[CLI]  ## Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 ** RELEASE **
-Options normalisation in charts (0-1 ou 1-0)
+Enh - Options normalisation in charts (0-1 ou 1-0)
 Bugs:
-  - Fix task_type (unify task type along the code)
-  - Add processings display option in top k chart
-  - Train_params in finetuning tf
-[Logic flow in tf finetuning] ???
+  - Unify task_type usage and detection
+  - Fix train_params in finetuning for Tensorflow
 [SEED] review
 ** RELEASE **
 [Augmentation + Balanced Augmentation]
 ** RELEASE **
-[Chart controller] with x, y, folds, 3d, 2d operators.
+[Chart controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 ** RELEASE **
-[Pipeline as single transformer]: pre instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN.
+[Pipeline as single transformer]: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN.
 ** RELEASE **
-[ReadsTheDoc]
-[METADATA]
+[ReadsTheDoc] update
+[METADATA] Reup load / stratificiation
 ** RELEASE **
-[Transfer]
+[Transfer] Automate best transfer model
 ** RELEASE **
 [Stacking]
 ** RELEASE **
@@ -38,6 +33,7 @@ GLOBAL REVIEW - refactoring: predictions / predictions analyze / runner (clean) 
 ** RELEASE **
 [Stacking]
 ** RELEASE **
+[Predictions] as a pipeline context
 [Mid Fusion]
 ** RELEASE **
 [HugginFace deploy]
@@ -46,42 +42,31 @@ GLOBAL REVIEW - refactoring: predictions / predictions analyze / runner (clean) 
 [CLUSTERED COMPUTATION + SERV/CLIENT]
 ** RELEASE **
 
-## TO REVIEW
-
-* Runner, externalize all that is not runner logic.
-* Generator > seems good > add internal generation (ie. automatic generation of multiple model into the config)
-* Metrics
-* Predictions visualizer
-* Prints
-
-## TO Refactor (vive coding involved)
-Predictions
-Base_model_controller
-
-EXCITERS:
-- Pouvoir charger le dataset automatiquement (sans passer par la config)
--- Graph fifa avec metrics de denis
--- option: save best model only
-
-#### FORMATION ####
-
-Q1: Finetuning PLS sur 1 BDD
-1 à 60 composantes ; 10 prétraitements et combinaison d'ordre 1 à 2
-Pas de sauvegarde du modèle (seulement les prédictions)
-=> comparaison de RMSE et résidus
-
->> Verifier la non sauvegarde. Display residu. Report scores. Display Scores.
-
-
 #### BUGS ########
 
-!!!!!!!!!!!!! Predict on multiple dataset
+#### FEATURES #####
 
-Minor: raw y name in display, not numeric
+* [Generator] add in-place/internal generation
+* [Metrics] uniformize Model_Utils / Evaluator / Predictions
+- [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
+- [Classification] averaging
 
-Remove update feature for the first element in feature_augmentation.
-  None can create problems with generation. ie. [None, savgol] = [savgol, None]
+#### MINORS ####
+- feature_augmentation with first replacement
+
+#### Review #####
+Predictions > clean redondancy, optimize search and metadata building
+Base_model_controller > disintricate
+
+#### EXCITERS ####
+- Clean user interface on datasetConfig/dataset, pipelineConfig/pipeline, predictions
+- Enhanced file savings: better logic, options, enhanced data_types, dynamic loading, caching
+- Charts in 'raw' y for categorical
+- More tunable and explicit generation
+
+
+
+
 
 
 ---------------------
-To do for classification averaging
