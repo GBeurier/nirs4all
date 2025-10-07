@@ -128,6 +128,9 @@ class SpectroDataset:
     def features_processings(self, src: int) -> List[str]:
         return self._features.preprocessing_str[src]
 
+    def headers(self, src: int) -> List[str]:
+        return self._features.headers(src)
+
     def short_preprocessings_str(self) -> str:
         processings_list = self._features.sources[0].processing_ids
         processings_list.pop(0)

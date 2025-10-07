@@ -72,6 +72,22 @@ class Features:
         return res
 
     @property
+    def headers_list(self) -> Union[List[List[str]], List[str]]:
+        """Get the list of feature headers per source."""
+        if not self.sources:
+            return []
+        res = []
+        for src in self.sources:
+            res.append(src.headers)
+        return res
+
+    def headers(self, src: int) -> List[str]:
+        """Get the list of feature headers for a specific source."""
+        if not self.sources:
+            return []
+        return self.sources[src].headers
+
+    @property
     def num_features(self) -> Union[List[int], int]:
         """Get the number of features per source."""
         if not self.sources:

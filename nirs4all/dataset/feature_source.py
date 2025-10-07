@@ -17,7 +17,7 @@ class FeatureSource:
         self._array = np.empty((0, 1, 0), dtype=np.float32)  # Initialize with empty shape (samples, processings, features)
         self._processing_ids: List[str] = ["raw"]  # Default processing ID
         self._processing_id_to_index: Dict[str, int] = {"raw": 0}  # Maps processing ID to index
-        self.headers: Optional[List[str]] = None  # Optional feature headers
+        self._headers: Optional[List[str]] = None  # Optional feature headers
 
     def __repr__(self):
         return f"FeatureSource(shape={self._array.shape}, dtype={self._array.dtype}, processing_ids={self._processing_ids})"
@@ -28,6 +28,10 @@ class FeatureSource:
         min_value = round(float(np.min(self._array)), 3) if self._array.size > 0 else 0.0
         max_value = round(float(np.max(self._array)), 3) if self._array.size > 0 else 0.0
         return f"{self._array.shape}, processings={self._processing_ids}, min={min_value}, max={max_value}, mean={mean_value}, var={variance_value})"
+
+    @property
+    def headers(self) -> Optional[List[str]]:
+        return self._headers
 
     @property
     def num_samples(self) -> int:
@@ -65,6 +69,8 @@ class FeatureSource:
             prepared_data = self._prepare_data_for_storage(X)
             new_data_3d = prepared_data[:, None, :]
             self._array = np.concatenate((self._array, new_data_3d), axis=0)
+
+        self._headers = headers
 
 
 

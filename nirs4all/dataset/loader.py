@@ -100,7 +100,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params):
     - y_params (dict): Parameters for loading Y data.
 
     Returns:
-    - tuple: (x, y) where x and y are numpy arrays.
+    - tuple: (x, y, x_headers) where x and y are numpy arrays and x_headers is list of column names.
 
     Raises:
     - ValueError: If data is invalid or if there are inconsistencies.
@@ -116,7 +116,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params):
 
     # Load X data
     try:
-        x_df, x_report, x_na_mask = load_csv(x_path, **x_params)
+        x_df, x_report, x_na_mask, x_headers = load_csv(x_path, **x_params)
         if x_report.get("error") is not None or x_df is None:
             raise ValueError(f"Failed to load X data from {x_path}: {x_report.get('error', 'Unknown error')}")
     except Exception as e:
@@ -149,7 +149,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params):
             if 'data_type' not in y_params_copy:
                 y_params_copy['data_type'] = 'y'
 
-            y_df, y_report, y_na_mask = load_csv(y_path, **y_params_copy)
+            y_df, y_report, y_na_mask, _ = load_csv(y_path, **y_params_copy)
             if y_report.get("error") is not None or y_df is None:
                 raise ValueError(f"Failed to load Y data from {y_path}: {y_report.get('error', 'Unknown error')}")
         except Exception as e:
@@ -166,6 +166,9 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params):
     if not y_df.empty and x_df.shape[0] != y_df.shape[0]:
         raise ValueError(f"Row count mismatch: X({x_df.shape[0]}) Y({y_df.shape[0]})")
 
+    # Update x_headers after potential column removal (if Y was extracted from X)
+    x_headers = x_df.columns.tolist()
+
     # Convert to numpy arrays
     try:
         x = x_df.astype(np.float32).values if not x_df.empty else np.empty((0, x_df.shape[1]), dtype=np.float32)
@@ -173,7 +176,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params):
     except Exception as e:
         raise ValueError(f"Error converting data to numpy arrays: {str(e)}")
 
-    return x, y
+    return x, y, x_headers
 
 
 def handle_data(config, t_set):
@@ -186,7 +189,8 @@ def handle_data(config, t_set):
     - t_set (str): The dataset type ('train', 'test').
 
     Returns:
-    - tuple: (x, y) where x is numpy array or list of arrays, y is numpy array
+    - tuple: (x, y, headers) where x is numpy array or list of arrays, y is numpy array,
+             headers is list of column names or list of lists for multi-source
     """
     if config is None:
         raise ValueError(f"Configuration for {t_set} dataset is None")
@@ -207,22 +211,24 @@ def handle_data(config, t_set):
     # Handle multi-source X data
     if isinstance(x_path, list):
         x_arrays = []
+        headers_arrays = []
         y_array = None
 
         for i, single_x_path in enumerate(x_path):
             try:
                 # For multi-source, only the first source should handle Y extraction
                 if i == 0:
-                    x_single, y_array = load_XY(single_x_path, x_filter, x_params, y_path, y_filter, y_params)
+                    x_single, y_array, x_headers = load_XY(single_x_path, x_filter, x_params, y_path, y_filter, y_params)
                 else:
                     # For additional sources, don't extract Y (set y_path=None and y_filter=None)
-                    x_single, _ = load_XY(single_x_path, x_filter, x_params, None, None, y_params)
+                    x_single, _, x_headers = load_XY(single_x_path, x_filter, x_params, None, None, y_params)
 
                 x_arrays.append(x_single)
+                headers_arrays.append(x_headers)
             except Exception as e:
                 raise ValueError(f"Error loading X source {i} from {single_x_path}: {str(e)}")
 
-        return x_arrays, y_array
+        return x_arrays, y_array, headers_arrays
     else:
         # Single source
         return load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params)
