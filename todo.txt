@@ -40,6 +40,7 @@ GLOBAL REVIEW - refactoring: predictions / predictions analyze / runner (clean) 
 ** RELEASE **
 [Mid Fusion]
 ** RELEASE **
+[HugginFace deploy]
 [WEBAPP]
 ** RELEASE **
 [CLUSTERED COMPUTATION + SERV/CLIENT]
