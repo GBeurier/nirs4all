@@ -45,11 +45,11 @@ pipeline = [
         "model": PLSRegression(),
         "name": "PLS-Finetuned",
         "finetune_params": {
-            "n_trials": 50,
-            "verbose": 2,           # 0=silent, 1=basic, 2=detailed
-            "approach": "single",  # "grouped", "individual", or "single"
-            "eval_mode": "best",     # "best" or "avg" (for grouped approach)
-            "sample": "grid",       # "random", "grid", "bayes", "hyperband", "skopt", "tpe", "cmaes"
+            "n_trials": 20,
+            "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
+            "approach": "single",                                  # "grouped", "individual", or "single"
+            "eval_mode": "best",                    # "best" or "avg" (for grouped approach)
+            "sample": "grid",                       # "random", "grid", "bayes", "hyperband", "skopt", "tpe", "cmaes"
             "model_params": {
                 'n_components': ('int', 1, 30),
             },
@@ -81,7 +81,7 @@ pipeline = [
 ]
 
 # Add standard PLS models for comparison
-for n_components in range(1, 30, 5):
+for n_components in range(1, 30, 3):
     model_config = {
         "name": f"PLS-{n_components}_components",
         "model": PLSRegression(n_components=n_components)

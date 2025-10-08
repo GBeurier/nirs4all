@@ -44,6 +44,8 @@ pipeline = [
         [MultiplicativeScatterCorrection, SavitzkyGolay],
         [MultiplicativeScatterCorrection, Haar],
     ]},
+    "chart_2d",
+    "y_chart",
 
     # Cross-validation and target processing
     ShuffleSplit(n_splits=3),
@@ -53,27 +55,33 @@ pipeline = [
     {"model": PLSRegression(15)},
     {"model": ElasticNet()},
 
+
     # Neural network model with enhanced training parameters
-    {
-        "model": nicon,
-        "train_params": {
-            "epochs": 50,
-            "patience": 50,
-            "batch_size": 500,
-            "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
-        },
-    },
+    # {
+    #     "model": nicon,
+    #     "train_params": {
+    #         "epochs": 50,
+    #         "patience": 50,
+    #         "batch_size": 500,
+    #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
+    #     },
+    # },
 ]
+
+
 
 # Create pipeline configuration
 pipeline_config = PipelineConfigs(pipeline, name="Q3")
 
 # Multi-dataset configuration
 data_paths = ['sample_data/regression', 'sample_data/regression_2', 'sample_data/regression_3']
+
 dataset_config = DatasetConfigs(data_paths)
 
+
+
 # Run the pipeline across multiple datasets
-runner = PipelineRunner(save_files=False, verbose=0)
+runner = PipelineRunner(save_files=True, verbose=0)
 print("🔄 Running pipeline with spinner enabled - watch for loading animations during model training!")
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 

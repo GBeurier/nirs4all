@@ -74,10 +74,6 @@ class PipelineRunner:
         self.plots_visible = plots_visible
 
         # Enable interactive mode for plots if visible
-        if self.plots_visible:
-            import matplotlib.pyplot as plt
-            plt.ion()  # Turn on interactive mode
-
         self.max_workers = max_workers or -1  # -1 means use all available cores
         self.continue_on_error = continue_on_error
         self.backend = backend
@@ -106,8 +102,14 @@ class PipelineRunner:
             self.raw_data: Dict[str, np.ndarray] = {}
             self.pp_data: Dict[str, Dict[str, np.ndarray]] = {}
 
+        # Store figure references to prevent garbage collection
+        self._figure_refs: List[Any] = []
+
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> Any:
         """Run pipeline configurations on dataset configurations."""
+
+        # Clear previous figure references
+        self._figure_refs.clear()
 
         nb_combinations = len(pipeline_configs.steps) * len(dataset_configs.configs)
         print("=" * 120)
@@ -191,14 +193,9 @@ class PipelineRunner:
                 "dataset_name": dataset_name
             }
 
-        # Show plots if visible
-        if self.plots_visible:
-            import matplotlib.pyplot as plt
-            if plt.get_fignums():
-                print("\n" + "=" * 120)
-                print("📊 Charts displayed. Close all windows to continue...")
-                print("=" * 120)
-                plt.show(block=True)
+        # if self.plots_visible:
+        #     import matplotlib.pyplot as plt
+        #     plt.show(block=True)
 
         return run_predictions, datasets_predictions
 

@@ -27,13 +27,7 @@ pipeline = [
     {"y_processing": MinMaxScaler},
 
     # Feature augmentation with preprocessing combinations
-    {
-        "feature_augmentation": {
-            "_or_": [StandardNormalVariate(), SavitzkyGolay(), Gaussian(), Haar()],
-            "size": [(2, 3), (1, 3)],
-            "count": 5
-        },
-    },
+    {"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay(), Gaussian(), Haar()]},
 
     # Cross-validation setup
     RepeatedKFold(n_splits=3, n_repeats=2, random_state=42),
@@ -46,7 +40,7 @@ pipeline = [
 
 # Create configuration objects
 pipeline_config = PipelineConfigs(pipeline)
-dataset_config = DatasetConfigs(['sample_data/regression'])
+dataset_config = DatasetConfigs(['sample_data/regression_2'])
 
 # Run pipeline with model saving enabled
 runner = PipelineRunner(save_files=True, verbose=0)
@@ -66,10 +60,11 @@ print("-" * 80)
 
 # Method 1: Predict using a prediction entry
 print("--- Method 1: Predict with a prediction entry ---")
-predictor = PipelineRunner(save_files=False, verbose=0)
-prediction_dataset = DatasetConfigs({
-    'X_test': 'sample_data/regression/Xtest.csv',
-})
+
+predictor = PipelineRunner()
+prediction_dataset = DatasetConfigs({'X_test': 'sample_data/regression_2/Xtest.csv'})
+
+
 
 # Make predictions using the best prediction entry
 method1_predictions, _ = predictor.predict(best_prediction, prediction_dataset, verbose=0)
@@ -84,7 +79,7 @@ print("=" * 80)
 print("--- Method 2: Predict with a model ID ---")
 predictor = PipelineRunner(save_files=False, verbose=0)
 prediction_dataset = DatasetConfigs({
-    'X_test': 'sample_data/regression/Xtest.csv',
+    'X_test': 'sample_data/regression_2/Xtest.csv',
 })
 
 print(f"Using model ID: [{model_id}]")

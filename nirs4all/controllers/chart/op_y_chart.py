@@ -77,8 +77,11 @@ class YChartController(OperatorController):
 
         img_list.append((chart_name, img_png_binary))
 
-        # Keep figure open if plots are visible, close otherwise
-        if not runner.plots_visible:
+        if runner.plots_visible:
+            # Store figure reference - user will call plt.show() at the end
+            runner._figure_refs.append(fig)
+            plt.show()
+        else:
             plt.close(fig)
 
         return context, img_list
