@@ -165,7 +165,7 @@ class FoldChartController(OperatorController):
         """
         n_folds = len(folds)
         is_cv_folds = original_folds is not None and len(original_folds) > 0
-        
+
         # Check if there's a test partition to display (when CV folds exist)
         test_partition_indices = None
         if is_cv_folds and dataset is not None:
@@ -179,7 +179,7 @@ class FoldChartController(OperatorController):
         # Calculate figure width including test partition if present
         extra_bars = 1 if test_partition_indices else 0
         fig_width = max(12, (n_folds + extra_bars) * 3)
-        
+
         # Create figure
         fig, ax = plt.subplots(1, 1, figsize=(fig_width, 8))
 
@@ -230,21 +230,21 @@ class FoldChartController(OperatorController):
                 test_label = 'Test' if not is_cv_folds else f'V{fold_idx}'
                 ax.text(test_pos, len(test_y) + 1, f'{test_label}\n({len(test_y)})',
                        ha='center', va='bottom', fontsize=9, fontweight='bold')
-        
+
         # Add test partition bar if CV folds exist and test data is available
         if test_partition_indices:
             # Position after all folds
             test_partition_pos = n_folds * (2 + gap_between_folds)
-            
+
             # Get test partition y values
             test_partition_y = y_values[test_partition_indices]
             test_sorted_indices = np.argsort(test_partition_y)
             test_y_sorted = test_partition_y[test_sorted_indices]
-            
+
             # Create stacked bar for test partition
             self._create_stacked_bar(ax, test_partition_pos, test_y_sorted, colormap,
                                    y_min, y_max, bar_width, 'Test Partition')
-            
+
             # Add label
             ax.text(test_partition_pos, len(test_y_sorted) + 1, f'Test\n({len(test_y_sorted)})',
                    ha='center', va='bottom', fontsize=9, fontweight='bold', color='darkred')
@@ -278,7 +278,7 @@ class FoldChartController(OperatorController):
             else:
                 x_positions.extend([base_pos, base_pos + 1] if len(test_idx) > 0 else [base_pos])
                 x_labels.extend(['Train', 'Test'] if len(test_idx) > 0 else ['Train'])
-        
+
         # Add test partition to x-axis if present
         if test_partition_indices:
             test_partition_pos = n_folds * (2 + gap_between_folds)
@@ -292,7 +292,7 @@ class FoldChartController(OperatorController):
         for fold_idx in range(1, n_folds):
             separator_pos = fold_idx * (2 + gap_between_folds) - gap_between_folds / 2
             ax.axvline(x=separator_pos, color='gray', linestyle='--', alpha=0.5)
-        
+
         # Add separator before test partition if present (lighter to distinguish from folds)
         if test_partition_indices:
             separator_pos = n_folds * (2 + gap_between_folds) - gap_between_folds / 2

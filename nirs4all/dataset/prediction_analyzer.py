@@ -106,6 +106,9 @@ class PredictionAnalyzer:
             List of top K predictions
         """
         filters = {'partition': partition}
+        if partition == 'all':
+            filters.pop('partition')  # Remove to include all partitions
+
         if dataset_name:
             filters['dataset_name'] = dataset_name
         if model_name:
@@ -141,10 +144,13 @@ class PredictionAnalyzer:
         """
         Plot top K models with predicted vs true and residuals.
 
+        When partition is '' or 'all', displays predictions from all partitions (train, val, test)
+        with different colors for each partition in the same scatter plot.
+
         Args:
             k: Number of top models to show
             metric: Metric for ranking
-            partition: Partition type ('test', 'val', 'train')
+            partition: Partition type ('test', 'val', 'train', '' or 'all' for all partitions)
             dataset_name: Dataset filter
             figsize: Figure size
 
@@ -153,15 +159,68 @@ class PredictionAnalyzer:
         """
 
         if partition == '':
-            partition = 'val'
-        top_predictions = self.get_top_k(k, metric, partition, dataset_name)
-        if not top_predictions:
-            fig, ax = plt.subplots(figsize=figsize)
-            ax.text(0.5, 0.5, f'No {partition} predictions found',
-                   ha='center', va='center', fontsize=16)
-            return fig
+            partition = 'all'
 
-        n_plots = len(top_predictions)
+        # Define partition colors
+        partition_colors = {
+            'train': '#1f77b4',  # Blue
+            'val': '#ff7f0e',    # Orange
+            'test': '#2ca02c'    # Green
+        }
+
+        # Check if we need to aggregate multiple partitions
+        show_all_partitions = partition in ['all', 'ALL', 'All', '_all_']
+
+        if show_all_partitions:
+            # Get top k models based on aggregated performance across all partitions
+            top_predictions = self.get_top_k(k, metric, partition, dataset_name)
+            if not top_predictions:
+                fig, ax = plt.subplots(figsize=figsize)
+                ax.text(0.5, 0.5, f'No predictions found',
+                       ha='center', va='center', fontsize=16)
+                return fig
+
+            # For each top model, collect predictions from all partitions
+            model_predictions_by_partition = []
+            for pred in top_predictions:
+                model_id = pred.get('id') or pred.get('model_name')
+
+                # Get predictions for this model from each partition
+                partition_data = {}
+                for part in ['train', 'val', 'test']:
+                    part_preds = self.predictions.filter_predictions(
+                        partition=part,
+                        id=model_id
+                    )
+                    if part_preds:
+                        # Take the first matching prediction (should be unique per partition)
+                        partition_data[part] = part_preds[0]
+
+                if partition_data:
+                    model_predictions_by_partition.append({
+                        'model_name': pred['model_name'],
+                        'model_id': model_id,
+                        'partitions': partition_data,
+                        'aggregate_score': pred.get(metric, 'N/A')
+                    })
+
+            if not model_predictions_by_partition:
+                fig, ax = plt.subplots(figsize=figsize)
+                ax.text(0.5, 0.5, f'No multi-partition predictions found',
+                       ha='center', va='center', fontsize=16)
+                return fig
+
+            n_plots = len(model_predictions_by_partition)
+        else:
+            # Single partition mode - original behavior
+            top_predictions = self.get_top_k(k, metric, partition, dataset_name)
+            if not top_predictions:
+                fig, ax = plt.subplots(figsize=figsize)
+                ax.text(0.5, 0.5, f'No {partition} predictions found',
+                       ha='center', va='center', fontsize=16)
+                return fig
+            n_plots = len(top_predictions)
+
         cols = 2
         rows = n_plots
 
@@ -169,58 +228,114 @@ class PredictionAnalyzer:
 
         # Handle different subplot configurations
         if n_plots == 1:
-            # For single row, axes is 1D array [ax_left, ax_right]
-            axes = [axes]  # Wrap in list to make it [[ax_left, ax_right]]
+            axes = [axes]
         elif rows == 1:
-            # This shouldn't happen with our logic, but just in case
             axes = [axes]
 
-        for i, pred in enumerate(top_predictions):
-            # Predicted vs True plot
-            ax_scatter = axes[i][0]
+        if show_all_partitions:
+            # Plot with multiple partitions per model
+            for i, model_data in enumerate(model_predictions_by_partition):
+                ax_scatter = axes[i][0]
+                ax_resid = axes[i][1]
 
-            y_true = np.asarray(pred['y_true']).flatten()
-            y_pred = np.asarray(pred['y_pred']).flatten()
+                # Collect data from all partitions
+                all_y_true = []
+                all_y_pred = []
+                all_colors = []
+                partition_labels = []
 
-            # Check if arrays have the same size for scatter plot
-            if len(y_true) != len(y_pred):
-                print(f"⚠️ Warning: Array size mismatch for {pred['model_name']}: "
-                      f"y_true({len(y_true)}) vs y_pred({len(y_pred)})")
-                min_len = min(len(y_true), len(y_pred))
-                y_true = y_true[:min_len]
-                y_pred = y_pred[:min_len]
+                for part_name in ['train', 'val', 'test']:
+                    if part_name in model_data['partitions']:
+                        pred = model_data['partitions'][part_name]
+                        y_true = np.asarray(pred['y_true']).flatten()
+                        y_pred = np.asarray(pred['y_pred']).flatten()
 
-            ax_scatter.scatter(y_true, y_pred, alpha=0.6, s=20)
-            min_val = min(y_true.min(), y_pred.min())
-            max_val = max(y_true.max(), y_pred.max())
-            ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8)
-            ax_scatter.set_xlabel('True Values')
-            ax_scatter.set_ylabel('Predicted Values')
+                        # Check size mismatch
+                        if len(y_true) != len(y_pred):
+                            min_len = min(len(y_true), len(y_pred))
+                            y_true = y_true[:min_len]
+                            y_pred = y_pred[:min_len]
 
-            model_display = pred['model_name'] + " [" + pred["id"] + "]"
-            # if pred.get('fold_id') is not None:
-            #     model_display += f" (Fold {pred['fold_id']})"
+                        # Scatter plot with partition-specific color
+                        ax_scatter.scatter(y_true, y_pred, alpha=0.6, s=20,
+                                         color=partition_colors[part_name],
+                                         label=part_name.capitalize())
 
-            title = f'{model_display}'
-            # if partition not in ['all', 'ALL', 'All', '_all_', '']:
-                # title += f' - {partition}'
-            ax_scatter.set_title(title)
-            ax_scatter.grid(True, alpha=0.3)
+                        # Collect for residuals
+                        all_y_true.extend(y_true)
+                        all_y_pred.extend(y_pred)
+                        all_colors.extend([partition_colors[part_name]] * len(y_true))
+                        partition_labels.append(part_name)
 
-            # Residuals plot
-            ax_resid = axes[i][1]
+                # Add diagonal line
+                if all_y_true:
+                    min_val = min(all_y_true + all_y_pred)
+                    max_val = max(all_y_true + all_y_pred)
+                    ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8)
+                    ax_scatter.set_xlabel('True Values')
+                    ax_scatter.set_ylabel('Predicted Values')
+                    ax_scatter.legend(loc='best')
 
-            residuals = y_true - y_pred
-            ax_resid.scatter(y_pred, residuals, alpha=0.6, s=20)
-            ax_resid.axhline(y=0, color='r', linestyle='--', alpha=0.8)
-            ax_resid.set_xlabel('Predicted Values')
-            ax_resid.set_ylabel('Residuals')
+                    model_display = model_data['model_name'] + " [" + model_data['model_id'] + "]"
+                    ax_scatter.set_title(f'{model_display}')
+                    ax_scatter.grid(True, alpha=0.3)
 
-            # Calculate metric on-the-fly if not in prediction
-            score_value = pred.get(metric, 'N/A')
-            ax_resid.set_title(f'Residuals - {metric.upper()}: {score_value:.4f}'
-                               if isinstance(score_value, (int, float)) else f'Residuals - {metric.upper()}: {score_value}')
-            ax_resid.grid(True, alpha=0.3)
+                    # Residuals plot with colors
+                    all_y_true = np.array(all_y_true)
+                    all_y_pred = np.array(all_y_pred)
+                    residuals = all_y_true - all_y_pred
+
+                    ax_resid.scatter(all_y_pred, residuals, alpha=0.6, s=20, c=all_colors)
+                    ax_resid.axhline(y=0, color='r', linestyle='--', alpha=0.8)
+                    ax_resid.set_xlabel('Predicted Values')
+                    ax_resid.set_ylabel('Residuals')
+
+                    score_value = model_data['aggregate_score']
+                    ax_resid.set_title(f'Residuals - {metric.upper()}: {score_value:.4f}'
+                                     if isinstance(score_value, (int, float)) else f'Residuals - {metric.upper()}: {score_value}')
+                    ax_resid.grid(True, alpha=0.3)
+        else:
+            # Original single-partition plotting
+            for i, pred in enumerate(top_predictions):
+                ax_scatter = axes[i][0]
+
+                y_true = np.asarray(pred['y_true']).flatten()
+                y_pred = np.asarray(pred['y_pred']).flatten()
+
+                # Check if arrays have the same size for scatter plot
+                if len(y_true) != len(y_pred):
+                    print(f"⚠️ Warning: Array size mismatch for {pred['model_name']}: "
+                          f"y_true({len(y_true)}) vs y_pred({len(y_pred)})")
+                    min_len = min(len(y_true), len(y_pred))
+                    y_true = y_true[:min_len]
+                    y_pred = y_pred[:min_len]
+
+                ax_scatter.scatter(y_true, y_pred, alpha=0.6, s=20)
+                min_val = min(y_true.min(), y_pred.min())
+                max_val = max(y_true.max(), y_pred.max())
+                ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8)
+                ax_scatter.set_xlabel('True Values')
+                ax_scatter.set_ylabel('Predicted Values')
+
+                model_display = pred['model_name'] + " [" + pred["id"] + "]"
+                title = f'{model_display} - {partition}'
+                ax_scatter.set_title(title)
+                ax_scatter.grid(True, alpha=0.3)
+
+                # Residuals plot
+                ax_resid = axes[i][1]
+
+                residuals = y_true - y_pred
+                ax_resid.scatter(y_pred, residuals, alpha=0.6, s=20)
+                ax_resid.axhline(y=0, color='r', linestyle='--', alpha=0.8)
+                ax_resid.set_xlabel('Predicted Values')
+                ax_resid.set_ylabel('Residuals')
+
+                # Calculate metric on-the-fly if not in prediction
+                score_value = pred.get(metric, 'N/A')
+                ax_resid.set_title(f'Residuals - {metric.upper()}: {score_value:.4f}'
+                                   if isinstance(score_value, (int, float)) else f'Residuals - {metric.upper()}: {score_value}')
+                ax_resid.grid(True, alpha=0.3)
 
         plt.tight_layout()
         return fig
