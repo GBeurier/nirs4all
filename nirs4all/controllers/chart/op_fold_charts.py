@@ -57,24 +57,75 @@ class FoldChartController(OperatorController):
 
         # print(f"Executing fold charts for step: {step}, keyword: {context.get('keyword', '')}")
 
+        # Determine which partition to use (default to train if not specified)
+        partition = context.get("partition", "train")
+        if partition not in ["train", "test"]:
+            print(f"⚠️ Invalid partition '{partition}'. Using 'train' instead.")
+            partition = "train"
+
         # Get data for visualization
         local_context = copy.deepcopy(context)
-        local_context["partition"] = "train"  # Use train data for fold visualization
-
-        # Get y values for color coding
-        y = dataset.y(local_context)
-        y_flat = y.flatten() if y.ndim > 1 else y
+        local_context["partition"] = partition
 
         # Get folds from dataset
         folds = dataset.folds
+        use_absolute_indices = False  # Flag to indicate if folds contain absolute indices
+
+        # Fallback logic: If no folds, create a simple train/test split visualization
         if not folds:
-            print("⚠️ No folds found in dataset. Run cross-validation first.")
-            return context, []
+            print("ℹ️ No CV folds found. Creating visualization from train/test partition.")
+
+            # Try to get train and test data
+            train_context = copy.deepcopy(context)
+            train_context["partition"] = "train"
+            test_context = copy.deepcopy(context)
+            test_context["partition"] = "test"
+
+            train_indices = dataset._indexer.x_indices(train_context)
+            test_indices = dataset._indexer.x_indices(test_context)
+
+            if len(test_indices) > 0:
+                # We have both train and test data - create a single "fold" with simple indices
+                folds = [(list(range(len(train_indices))), list(range(len(test_indices))))]
+                print(f"  Using train ({len(train_indices)} samples) and test ({len(test_indices)} samples) partitions.")
+            elif len(train_indices) > 0:
+                # Only train data exists - show it as a single bar
+                folds = [(list(range(len(train_indices))), [])]
+                print(f"  Only train partition available ({len(train_indices)} samples).")
+            else:
+                print("⚠️ No data available for visualization.")
+                return context, []
+
+        # Get y values for color coding
+        # For CV folds: get all data for proper indexing
+        # For fallback (train/test): get data for the specific partition
+        if dataset.folds:
+            # CV folds mode: need all data since indices refer to full dataset
+            all_context = copy.deepcopy(context)
+            all_context["partition"] = "all"
+            y = dataset.y(all_context)
+        else:
+            # Fallback mode: get train and test separately and concatenate
+            train_ctx = copy.deepcopy(context)
+            train_ctx["partition"] = "train"
+            test_ctx = copy.deepcopy(context)
+            test_ctx["partition"] = "test"
+
+            y_train = dataset.y(train_ctx)
+            y_test = dataset.y(test_ctx)
+
+            # Concatenate train and test for visualization
+            if len(y_test) > 0:
+                y = np.concatenate([y_train, y_test])
+            else:
+                y = y_train
+
+        y_flat = y.flatten() if y.ndim > 1 else y
 
         # print(f"Found {len(folds)} folds to visualize")
 
         # Create fold visualization
-        fig, plot_info = self._create_fold_chart(folds, y_flat, len(y_flat))
+        fig, plot_info = self._create_fold_chart(folds, y_flat, len(y_flat), partition, dataset.folds, dataset)
 
         # Save plot to memory buffer as PNG binary
         img_buffer = io.BytesIO()
@@ -83,8 +134,9 @@ class FoldChartController(OperatorController):
         img_png_binary = img_buffer.getvalue()
         img_buffer.close()
 
-        # Create filename
-        image_name = f"fold_visualization_{len(folds)}folds.png"
+        # Create filename with partition info
+        fold_suffix = f"{len(folds)}folds" if dataset.folds else "traintest_split"
+        image_name = f"fold_visualization_{fold_suffix}_{partition}.png"
         img_list = [(image_name, img_png_binary)]
 
         if runner.plots_visible:
@@ -96,8 +148,7 @@ class FoldChartController(OperatorController):
 
         return context, img_list
 
-    def _create_fold_chart(self, folds: List[Tuple[List[int], List[int]]],
-                          y_values: np.ndarray, n_samples: int) -> Tuple[Any, Dict[str, Any]]:
+    def _create_fold_chart(self, folds: List[Tuple[List[int], List[int]]], y_values: np.ndarray, n_samples: int, partition: str = "train", original_folds: List = None, dataset: 'SpectroDataset' = None) -> Tuple[Any, Dict[str, Any]]:
         """
         Create a fold visualization chart with stacked bars showing y-value distribution.
 
@@ -105,14 +156,32 @@ class FoldChartController(OperatorController):
             folds: List of (train_indices, test_indices) tuples
             y_values: Target values for color coding
             n_samples: Total number of samples
+            partition: Which partition to visualize ('train' or 'test')
+            original_folds: Original folds from dataset (to distinguish CV from simple split)
+            dataset: The dataset object (used to check for test partition when CV folds exist)
 
         Returns:
             Tuple of (figure, plot_info)
         """
         n_folds = len(folds)
+        is_cv_folds = original_folds is not None and len(original_folds) > 0
+        
+        # Check if there's a test partition to display (when CV folds exist)
+        test_partition_indices = None
+        if is_cv_folds and dataset is not None:
+            test_ctx = {"partition": "test"}
+            test_partition_indices = dataset._indexer.x_indices(test_ctx)
+            if len(test_partition_indices) > 0:
+                test_partition_indices = test_partition_indices.tolist()
+            else:
+                test_partition_indices = None
 
+        # Calculate figure width including test partition if present
+        extra_bars = 1 if test_partition_indices else 0
+        fig_width = max(12, (n_folds + extra_bars) * 3)
+        
         # Create figure
-        fig, ax = plt.subplots(1, 1, figsize=(max(12, n_folds * 3), 8))
+        fig, ax = plt.subplots(1, 1, figsize=(fig_width, 8))
 
         # Create colormap
         colormap = cm.get_cmap('viridis')
@@ -147,38 +216,87 @@ class FoldChartController(OperatorController):
             self._create_stacked_bar(ax, train_pos, train_y_sorted, colormap,
                                    y_min, y_max, bar_width, f'Train F{fold_idx}')
 
-            # Créer les barres empilées pour TEST
-            self._create_stacked_bar(ax, test_pos, test_y_sorted, colormap,
-                                   y_min, y_max, bar_width, f'Test F{fold_idx}')
+            # Créer les barres empilées pour TEST (only if test data exists)
+            if len(test_idx) > 0:
+                self._create_stacked_bar(ax, test_pos, test_y_sorted, colormap,
+                                       y_min, y_max, bar_width, f'Test F{fold_idx}')
 
             # Ajouter les labels au-dessus des barres
-            ax.text(train_pos, len(train_y) + 1, f'T{fold_idx}\n({len(train_y)})',
-                   ha='center', va='bottom', fontsize=9, fontweight='bold')
-            ax.text(test_pos, len(test_y) + 1, f'V{fold_idx}\n({len(test_y)})',
+            train_label = 'Train' if not is_cv_folds else f'T{fold_idx}'
+            ax.text(train_pos, len(train_y) + 1, f'{train_label}\n({len(train_y)})',
                    ha='center', va='bottom', fontsize=9, fontweight='bold')
 
+            if len(test_idx) > 0:
+                test_label = 'Test' if not is_cv_folds else f'V{fold_idx}'
+                ax.text(test_pos, len(test_y) + 1, f'{test_label}\n({len(test_y)})',
+                       ha='center', va='bottom', fontsize=9, fontweight='bold')
+        
+        # Add test partition bar if CV folds exist and test data is available
+        if test_partition_indices:
+            # Position after all folds
+            test_partition_pos = n_folds * (2 + gap_between_folds)
+            
+            # Get test partition y values
+            test_partition_y = y_values[test_partition_indices]
+            test_sorted_indices = np.argsort(test_partition_y)
+            test_y_sorted = test_partition_y[test_sorted_indices]
+            
+            # Create stacked bar for test partition
+            self._create_stacked_bar(ax, test_partition_pos, test_y_sorted, colormap,
+                                   y_min, y_max, bar_width, 'Test Partition')
+            
+            # Add label
+            ax.text(test_partition_pos, len(test_y_sorted) + 1, f'Test\n({len(test_y_sorted)})',
+                   ha='center', va='bottom', fontsize=9, fontweight='bold', color='darkred')
+
         # Configuration des axes
-        ax.set_xlabel('Folds (T=Train, V=Validation)', fontsize=12)
+        if is_cv_folds and test_partition_indices:
+            xlabel = 'CV Folds (T=Train, V=Validation) + Test Partition'
+        elif is_cv_folds:
+            xlabel = 'Folds (T=Train, V=Validation)'
+        else:
+            xlabel = 'Data Split'
+        ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel('Number of Samples', fontsize=12)
-        ax.set_title(f'Y-Value Distribution Across {n_folds} Folds\n'
-                    f'(Colors represent target values: {y_min:.2f} - {y_max:.2f})',
+
+        if is_cv_folds:
+            title = f'Y-Value Distribution Across {n_folds} CV Folds (Partition: {partition.upper()})\n'
+        else:
+            title = f'Y-Value Distribution - Train/Test Split (Partition: {partition.upper()})\n'
+
+        ax.set_title(title + f'(Colors represent target values: {y_min:.2f} - {y_max:.2f})',
                     fontsize=14)
 
         # Configurer les ticks x
         x_positions = []
         x_labels = []
-        for fold_idx in range(n_folds):
+        for fold_idx, (train_idx, test_idx) in enumerate(folds):
             base_pos = fold_idx * (2 + gap_between_folds)
-            x_positions.extend([base_pos, base_pos + 1])
-            x_labels.extend([f'T{fold_idx}', f'V{fold_idx}'])
+            if is_cv_folds:
+                x_positions.extend([base_pos, base_pos + 1] if len(test_idx) > 0 else [base_pos])
+                x_labels.extend([f'T{fold_idx}', f'V{fold_idx}'] if len(test_idx) > 0 else [f'T{fold_idx}'])
+            else:
+                x_positions.extend([base_pos, base_pos + 1] if len(test_idx) > 0 else [base_pos])
+                x_labels.extend(['Train', 'Test'] if len(test_idx) > 0 else ['Train'])
+        
+        # Add test partition to x-axis if present
+        if test_partition_indices:
+            test_partition_pos = n_folds * (2 + gap_between_folds)
+            x_positions.append(test_partition_pos)
+            x_labels.append('Test')
 
         ax.set_xticks(x_positions)
         ax.set_xticklabels(x_labels, rotation=45)
 
         # Ajouter des séparateurs visuels entre les folds
         for fold_idx in range(1, n_folds):
-            separator_pos = fold_idx * (2 + gap_between_folds) - gap_between_folds/2
+            separator_pos = fold_idx * (2 + gap_between_folds) - gap_between_folds / 2
             ax.axvline(x=separator_pos, color='gray', linestyle='--', alpha=0.5)
+        
+        # Add separator before test partition if present (lighter to distinguish from folds)
+        if test_partition_indices:
+            separator_pos = n_folds * (2 + gap_between_folds) - gap_between_folds / 2
+            ax.axvline(x=separator_pos, color='gray', linestyle=':', alpha=0.3, linewidth=1)
 
         # Ajouter colorbar
         mappable = cm.ScalarMappable(cmap=colormap)
