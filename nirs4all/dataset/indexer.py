@@ -504,6 +504,18 @@ class Indexer:
                 pl.when(condition).then(cast_value).otherwise(pl.col(col)).alias(col)
             )
 
+    def update_by_indices(self, sample_indices: SampleIndices, updates: Dict[str, Any]) -> None:
+        sample_ids = self._normalize_indices(sample_indices, len(sample_indices) if isinstance(sample_indices, (list, np.ndarray)) else 1, "sample_indices")
+        condition = pl.col("row").is_in(sample_ids)
+
+        for col, value in updates.items():
+            # Cast the literal value to the expected column type
+            cast_value = pl.lit(value).cast(self.df.schema[col])
+            self.df = self.df.with_columns(
+                pl.when(condition).then(cast_value).otherwise(pl.col(col)).alias(col)
+            )
+
+
     def next_row_index(self) -> int:
         if len(self.df) == 0:
             return 0

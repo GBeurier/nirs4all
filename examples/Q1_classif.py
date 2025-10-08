@@ -23,7 +23,7 @@ from nirs4all.operators.transformations import (
     StandardNormalVariate as StdNorm, SavitzkyGolay as SavGol, Haar, MultiplicativeScatterCorrection as MSC
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-
+from nirs4all.operators.splitters import SPXYSplitter
 # Disable emojis in output (set to '1' to disable, '0' to enable)
 os.environ['DISABLE_EMOJIS'] = '0'
 
@@ -33,36 +33,45 @@ preprocessing_options = [
     Detrend, FstDer, SndDer, Gauss,
     StdNorm, SavGol, Haar, MSC
 ]
+split = SPXYSplitter(0.25)
 cross_validation = ShuffleSplit(n_splits=3, test_size=0.25)
-data_path = 'sample_data/classification'
+# data_path = 'sample_data/classification'
+data_path = {
+    'X_train': 'sample_data/classification/Xtrain.csv',
+    'y_train': 'sample_data/classification/Ytrain.csv',
+}
 
 # Build the pipeline
 pipeline = [
-    # Optional preprocessing steps (commented out for basic demonstration)
     "chart_3d",
     feature_scaler,
+    "chart_2d",
     {"feature_augmentation": {"_or_": preprocessing_options, "size": [5, (1, 2)], "count": 2}},
     "chart_2d",
+    "fold_chart",
+    split,
+    "fold_chart",
     cross_validation,
+    "fold_chart",
 ]
 
 f = \
 [SavGol, Gauss, StdNorm, SavGol, Haar ]
 
 # Add Random Forest models with different max_depth values
-# for max_depth in range(5, 100, 2):
-#     model_config = {
-#         "name": f"RandomForest-depth-{max_depth}",
-#         "model": RandomForestClassifier(max_depth=max_depth)
-#     }
-#     pipeline.append(model_config)
+for max_depth in range(5, 100, 2):
+    model_config = {
+        "name": f"RandomForest-depth-{max_depth}",
+        "model": RandomForestClassifier(max_depth=max_depth)
+    }
+    pipeline.append(model_config)
 
 # Create configuration objects
 pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=0, plots_visible=True)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization
