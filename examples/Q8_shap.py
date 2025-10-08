@@ -10,14 +10,12 @@ from nirs4all.operators.models.cirad_tf import nicon
 print("Q8 - SHAP Model Explanation Example")
 
 pipeline = [
-    MinMaxScaler((0.1, 0.8)),
     {"y_processing": MinMaxScaler},
-    # {"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay(), Gaussian()]},
-    # MinMaxScaler((0.1, 0.8)),
-    # {"model": GradientBoostingRegressor(n_estimators=60, random_state=42), "name": "Q8_GradientBoost"},
-    PLSRegression(n_components=16, copy=True),
-    # {"model": nicon, "name": "Q8_NiCON_64", "train_params": {"epochs": 64, "batch_size": 16, "verbose": 0}},
-
+    MinMaxScaler,
+    Gaussian,
+    SavitzkyGolay,
+    StandardNormalVariate,
+    PLSRegression(n_components=16),
 ]
 
 pipeline_config = PipelineConfigs(pipeline)
@@ -50,16 +48,16 @@ shap_params = {
 
     # Different bin sizes for each visualization
     'bin_size': {
-        'spectral': 20,      # Fine-grained for spectral overview
-        'waterfall': 50,     # Coarser for waterfall (fewer bars)
-        'beeswarm': 50       # Medium for beeswarm
+        'spectral': 10,      # Fine-grained for spectral overview
+        'waterfall': 20,     # Coarser for waterfall (fewer bars)
+        'beeswarm': 20       # Medium for beeswarm
     },
 
     # Different strides (50% overlap for all, but matches bin_size)
     'bin_stride': {
-        'spectral': 10,      # 50% overlap with bin_size=20
-        'waterfall': 25,     # 50% overlap with bin_size=50
-        'beeswarm': 50       # 50% overlap with bin_size=30
+        'spectral': 2,      # 50% overlap with bin_size=20
+        'waterfall': 10,     # 50% overlap with bin_size=50
+        'beeswarm': 20       # 50% overlap with bin_size=30
     },
 
     # Different aggregation methods
@@ -70,4 +68,4 @@ shap_params = {
     }
 }
 
-shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params, verbose=0)
+shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params)

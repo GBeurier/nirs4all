@@ -31,7 +31,7 @@ preprocessing_options = [
 pipeline = [
     MinMaxScaler(),
     # {"feature_augmentation": {"_or_": preprocessing_options, "size": [3, (1, 3)], "count": 10}},  # no adapted to procrustes
-    {"_or_": preprocessing_options, "size": (1, 3), "count": 10},
+    {"_or_": preprocessing_options, "size": (2, 4), "count": 10},
     # "2d_chart",
 ]
 
@@ -51,8 +51,10 @@ datasets_pp = runner.pp_data  # {dataset_name: {preproc_name: np_array(n_samples
 
 # Create evaluator and fit
 print("\n📊 Analyzing PCA geometry preservation...")
+
+
 evaluator = PreprocPCAEvaluator(r_components=12, knn=10)
-evaluator.fit(datasets_raw, datasets_pp)  # Automatic structure detection!
+evaluator.fit(datasets_raw, datasets_pp)                    # Automatic structure detection!
 
 # Display results table
 print("\n" + "="*120)
@@ -177,7 +179,7 @@ else:
 print("\n   📈 7. Within-dataset structure preservation metrics...")
 evaluator.plot_preservation_summary(by="preproc")
 
-plt.show()
+plt.show(block=True)
 
 print("\n✅ Analysis complete!")
 print("="*120)

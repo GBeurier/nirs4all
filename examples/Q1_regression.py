@@ -33,13 +33,15 @@ preprocessing_options = [
 cross_validation = ShuffleSplit(n_splits=3, test_size=0.25)
 data_path = 'sample_data/regression'
 
+
 # Build the pipeline
 pipeline = [
-    # "chart_2d",
     feature_scaler,
     {"y_processing": target_scaler},
-    {"feature_augmentation": {"_or_": preprocessing_options, "size": [1, (1, 2)], "count": 15}},  # Generate combinations of preprocessing techniques
+    {"feature_augmentation": {"_or_": [Detrend, FirstDerivative, Gaussian, SavitzkyGolay, Haar], "size": 2}},  # Generate combinations of preprocessing techniques
+    "chart_2d",
     cross_validation,
+
 ]
 
 # Add PLS models with different numbers of components
@@ -54,9 +56,11 @@ for n_components in range(1, 30, 2):
 pipeline_config = PipelineConfigs(pipeline, "Q1")
 dataset_config = DatasetConfigs(data_path)
 
+
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=0)
+runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
+
 
 # Analysis and visualization
 best_model_count = 5
@@ -71,7 +75,6 @@ top_models[0].save_to_csv("Q1_regression_best_model.csv")
 
 # # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
-
 # Plot comparison of top models
 fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
 

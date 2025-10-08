@@ -83,13 +83,6 @@ class SpectraChartController(OperatorController):
         if mode == "predict" or mode == "explain":
             return context, []
 
-        # Ensure non-interactive backend is used when plots are not visible
-        # This prevents GUI-related errors in headless/test environments
-        if not runner.plots_visible:
-            current_backend = matplotlib.get_backend()
-            if current_backend not in ['Agg', 'agg']:
-                matplotlib.use('Agg', force=True)
-
         is_3d = (step == "chart_3d") or (step == "3d_chart")
 
         # Initialize image list to track generated plots
@@ -181,8 +174,11 @@ class SpectraChartController(OperatorController):
             image_name += ".png"
             img_list.append((image_name, img_png_binary))
 
-            # Keep figure open if plots are visible, close otherwise
-            if not runner.plots_visible:
+            if runner.plots_visible:
+                # Store figure reference - user will call plt.show() at the end
+                runner._figure_refs.append(fig)
+                plt.show()
+            else:
                 plt.close(fig)
 
         return context, img_list

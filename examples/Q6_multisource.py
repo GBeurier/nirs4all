@@ -46,12 +46,13 @@ pipeline = [
     },
 
     # Cross-validation setup
-    ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+    ShuffleSplit(n_splits=3),
+    "fold_chart",
 
     # Machine learning models
-    {"model": PLSRegression(10), "name": "Q6_PLS_2"},
     MinMaxScaler(feature_range=(0.1, 0.8)),
-    # {"model": RandomForestRegressor(n_estimators=20)},
+    {"model": PLSRegression(10), "name": "Q6_PLS_3"},
+    {"model": RandomForestRegressor(n_estimators=20)},
     {"model": PLSRegression(10), "name": "Q6_PLS_2"},
 
     # # Neural network model
@@ -127,3 +128,41 @@ reuse_array = reuse_predictions[:5].flatten()
 print("Reuse predictions:", reuse_array)
 is_identical = np.allclose(reuse_array, reference_predictions)
 print(f"Model reuse identical to training: {'✅ YES' if is_identical else '❌ NO'}")
+
+# # Create visualizations
+analyzer = PredictionAnalyzer(predictions)
+# Plot comparison of top models
+fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
+
+# Plot heatmap of model performance vs preprocessing
+fig2 = analyzer.plot_heatmap_v2(
+    x_var="model_name",
+    y_var="preprocessings",
+    aggregation='best',  # Options: 'best', 'mean', 'median'
+    rank_metric="rmse",
+    rank_partition="val",
+    display_metric="rmse",
+    display_partition="test"
+)
+
+# Plot simplified heatmap without count display
+fig3 = analyzer.plot_heatmap_v2(
+    x_var="model_name",
+    y_var="preprocessings",
+    aggregation='best',  # Show average instead of best
+    show_counts=False,
+    rank_metric="rmse",
+    rank_partition="test",
+    display_metric="rmse",
+    display_partition="test"
+)
+
+# Plot candlestick chart for model performance distribution
+fig4 = analyzer.plot_variable_candlestick(
+    filters={"partition": "test"},
+    variable="model_name",
+)
+
+fig5 = analyzer.plot_score_histogram(partition="test")
+
+plt.show()

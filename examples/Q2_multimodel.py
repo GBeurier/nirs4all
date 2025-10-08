@@ -32,8 +32,10 @@ pipeline = [
     MultiplicativeScatterCorrection,
     "3d_chart",
     "2d_chart",
+
     # Cross-validation setup
     ShuffleSplit(n_splits=3),
+
     "fold_chart",
     {"y_processing": MinMaxScaler},
 
