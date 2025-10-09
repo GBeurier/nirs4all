@@ -11,7 +11,7 @@ __author__ = "NIRS4All Project"
 # Main public API
 from .dataset import SpectroDataset
 from .dataset_config import DatasetConfigs
-from .predictions import Predictions
+from .predictions import Predictions, PredictionResult, PredictionResultsList
 from .prediction_analyzer import PredictionAnalyzer
 
-__all__ = ["SpectroDataset", "DatasetConfigs", "Predictions", "PredictionAnalyzer"]
+__all__ = ["SpectroDataset", "DatasetConfigs", "Predictions", "PredictionResult", "PredictionResultsList", "PredictionAnalyzer"]

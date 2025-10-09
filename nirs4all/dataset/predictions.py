@@ -13,6 +13,8 @@ from pathlib import Path
 import json
 import hashlib
 import nirs4all.dataset.evaluator as Evaluator
+import csv
+import io
 
 
 class PredictionResult(dict):
@@ -202,6 +204,237 @@ class PredictionResult(dict):
                             scores[metric] = None
 
         return scores
+
+    def summary(self) -> str:
+        """
+        Generate a summary tab report for this prediction.
+        Works with both aggregated and non-aggregated prediction results.
+
+        Returns:
+            Formatted string with tab report
+        """
+        # Import tab report manager
+        try:
+            from nirs4all.utils.tab_report_manager import TabReportManager
+        except ImportError:
+            return "⚠️ TabReportManager not available"
+
+        # Check if this is an aggregated result (has train/val/test keys)
+        has_partitions = all(k in self for k in ["train", "val", "test"])
+
+        if has_partitions:
+            # Build partition dictionary with y_true/y_pred and metadata
+            best_by_partition = {}
+            for partition in ["train", "val", "test"]:
+                if partition in self and self[partition] is not None:
+                    partition_data = self[partition].copy() if isinstance(self[partition], dict) else {}
+                    # Add metadata from root level
+                    partition_data['n_features'] = self.get('n_features', 0)
+                    partition_data['task_type'] = self.get('task_type', 'regression')
+                    best_by_partition[partition] = partition_data
+        else:
+            # Single partition result - treat as test partition
+            partition = self.get('partition', 'test')
+            best_by_partition = {
+                partition: {
+                    'y_true': self.get('y_true', []),
+                    'y_pred': self.get('y_pred', []),
+                    'n_features': self.get('n_features', 0),
+                    'task_type': self.get('task_type', 'regression')
+                }
+            }
+
+        # Generate tab report using TabReportManager
+        formatted_string, _ = TabReportManager.generate_best_score_tab_report(best_by_partition)
+        return formatted_string
+
+    def __repr__(self) -> str:
+        """String representation showing key info."""
+        return f"PredictionResult(id={self.id}, model={self.model_name}, dataset={self.dataset_name}, fold={self.fold_id}, step={self.step_idx}, op={self.op_counter})"
+
+    def __str__(self) -> str:
+        """String representation showing key info."""
+        return self.__repr__()
+
+
+class PredictionResultsList(list):
+    """
+    A list wrapper for PredictionResult objects with additional functionality.
+    Provides save(), get() methods and maintains compatibility with standard list operations.
+    """
+
+    def __init__(self, predictions: Optional[List[Union[Dict[str, Any], PredictionResult]]] = None):
+        """Initialize with optional list of PredictionResult objects."""
+        super().__init__(predictions or [])
+
+    def save(self, path: str = "results", filename: Optional[str] = None) -> None:
+        """
+        Save all predictions to a single CSV file with structured headers.
+
+        CSV Structure:
+        - Line 1: dataset_name
+        - Line 2: model_classname + model_id
+        - Line 3: fold_id
+        - Line 4: partition
+        - Lines 5+: prediction data (y_true, y_pred columns)
+
+        Args:
+            path: Base directory path (default: "results")
+            filename: Optional filename (if None, auto-generated from first prediction)
+        """
+        if not self:
+            print("⚠️ No predictions to save")
+            return
+
+        # Generate filename if not provided
+        if filename is None:
+            first_pred = self[0]
+            dataset = first_pred.get("dataset_name", "unknown")
+            config = first_pred.get("config_name", "unknown")
+            filename = f"{dataset}_{config}_predictions.csv"
+
+        # Ensure path directory exists
+        path_obj = Path(path)
+        path_obj.mkdir(parents=True, exist_ok=True)
+        filepath = path_obj / filename
+
+        # Prepare CSV data
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Collect all columns needed
+        all_columns = []
+
+        for pred in self:
+            # Check if aggregated (has train/val/test partitions)
+            has_partitions = all(k in pred for k in ["train", "val", "test"])
+
+            if has_partitions:
+                # Add columns for each partition
+                for partition in ["train", "val", "test"]:
+                    if partition in pred and pred[partition] is not None:
+                        fold_id = pred.get("fold_id", "")
+                        fold_suffix = f"_fold{fold_id}" if fold_id and partition in ["train", "val"] else ""
+                        all_columns.extend([
+                            f"y_true_{partition}{fold_suffix}",
+                            f"y_pred_{partition}{fold_suffix}"
+                        ])
+            else:
+                # Single partition columns
+                partition = pred.get("partition", "test")
+                fold_id = pred.get("fold_id", "")
+                fold_suffix = f"_fold{fold_id}" if fold_id else ""
+                all_columns.extend([
+                    f"y_true_{partition}{fold_suffix}",
+                    f"y_pred_{partition}{fold_suffix}"
+                ])
+
+        # Remove duplicates while preserving order
+        seen = set()
+        all_columns = [x for x in all_columns if not (x in seen or seen.add(x))]
+
+        # Write header rows (metadata)
+        for pred in self:
+            # Row 1: dataset_name
+            writer.writerow([pred.get("dataset_name", "unknown")])
+            # Row 2: model_classname + model_id
+            model_classname = pred.get("model_classname", "unknown")
+            model_id = pred.get("id", "unknown")
+            writer.writerow([f"{model_classname}_{model_id}"])
+            # Row 3: fold_id
+            writer.writerow([pred.get("fold_id", "")])
+            # Row 4: partition
+            writer.writerow([pred.get("partition", "test")])
+
+        # Row 5: Column headers
+        writer.writerow(all_columns)
+
+        # Write data rows
+        for pred in self:
+            has_partitions = all(k in pred for k in ["train", "val", "test"])
+
+            if has_partitions:
+                # Collect data from all partitions
+                row_data = {}
+                for partition in ["train", "val", "test"]:
+                    if partition in pred and pred[partition] is not None:
+                        partition_data = pred[partition]
+                        y_true = partition_data.get("y_true", [])
+                        y_pred = partition_data.get("y_pred", [])
+
+                        fold_id = pred.get("fold_id", "")
+                        fold_suffix = f"_fold{fold_id}" if fold_id and partition in ["train", "val"] else ""
+
+                        # Store in dict by column name
+                        row_data[f"y_true_{partition}{fold_suffix}"] = y_true
+                        row_data[f"y_pred_{partition}{fold_suffix}"] = y_pred
+
+                # Find max length
+                max_len = max((len(v) for v in row_data.values() if isinstance(v, (list, np.ndarray))), default=0)
+
+                # Write rows
+                for i in range(max_len):
+                    row = []
+                    for col in all_columns:
+                        if col in row_data:
+                            data = row_data[col]
+                            row.append(data[i] if i < len(data) else "")
+                        else:
+                            row.append("")
+                    writer.writerow(row)
+            else:
+                # Single partition
+                y_true = pred.get("y_true", [])
+                y_pred = pred.get("y_pred", [])
+
+                partition = pred.get("partition", "test")
+                fold_id = pred.get("fold_id", "")
+                fold_suffix = f"_fold{fold_id}" if fold_id else ""
+
+                col_true = f"y_true_{partition}{fold_suffix}"
+                col_pred = f"y_pred_{partition}{fold_suffix}"
+
+                max_len = max(len(y_true), len(y_pred))
+
+                for i in range(max_len):
+                    row = []
+                    for col in all_columns:
+                        if col == col_true:
+                            row.append(y_true[i] if i < len(y_true) else "")
+                        elif col == col_pred:
+                            row.append(y_pred[i] if i < len(y_pred) else "")
+                        else:
+                            row.append("")
+                    writer.writerow(row)
+
+        # Write to file
+        with open(filepath, 'w', newline='') as f:
+            f.write(output.getvalue())
+
+        output.close()
+        print(f"💾 Saved {len(self)} predictions to {filepath}")
+
+    def get(self, prediction_id: str) -> Optional[PredictionResult]:
+        """
+        Get a prediction by its ID.
+
+        Args:
+            prediction_id: The ID of the prediction to retrieve
+
+        Returns:
+            PredictionResult if found, None otherwise
+        """
+        for pred in self:
+            if pred.get("id") == prediction_id:
+                return pred
+        return None
+
+    def __repr__(self) -> str:
+        """String representation showing count and brief info."""
+        if not self:
+            return "PredictionResultsList([])"
+        return f"PredictionResultsList({len(self)} predictions)"
+
 
 class Predictions:
     """
@@ -1068,7 +1301,7 @@ class Predictions:
         _ = filters.pop("partition", None)
         base = self._df.filter([pl.col(k) == v for k, v in filters.items()]) if filters else self._df
         if base.height == 0:
-            return []
+            return PredictionResultsList([])
 
         # Default rank_metric from data if not provided
         if rank_metric == "":
@@ -1082,7 +1315,7 @@ class Predictions:
         # 1) RANKING: Filter to rank_partition and compute scores
         rank_data = base.filter(pl.col("partition") == rank_partition)
         if rank_data.height == 0:
-            return []
+            return PredictionResultsList([])
 
         # Compute rank score: use val_score if rank_metric matches record's metric, else compute
         rank_scores = []
@@ -1112,7 +1345,7 @@ class Predictions:
         top_keys = rank_scores[:n]
 
         if not top_keys:
-            return []
+            return PredictionResultsList([])
 
         # 2) DISPLAY: Get display partition data for top models
         results = []
@@ -1267,7 +1500,7 @@ class Predictions:
 
             results.append(result)
 
-        return results
+        return PredictionResultsList(results)
 
 
     def top_k(self, k: int = 5, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> List[Union[Dict[str, Any], 'PredictionResult']]:
@@ -1300,7 +1533,7 @@ class Predictions:
         # print( f"🔍 Found {len(df_filtered)} predictions after filtering with criteria: {filters}")
 
         if df_filtered.is_empty():
-            return []
+            return PredictionResultsList([])
 
         # Handle different ranking scenarios
         if metric == "" or metric == "loss":
@@ -1309,7 +1542,7 @@ class Predictions:
             df_ranked = df_filtered.filter(pl.col(rank_col).is_not_null())
 
             if df_ranked.is_empty():
-                return []
+                return PredictionResultsList([])
 
             df_sorted = df_ranked.sort(rank_col, descending=not ascending)
 
@@ -1334,7 +1567,7 @@ class Predictions:
             # Add partition data if requested
             if len(aggregate_partitions) > 0:
                 results = self._add_partition_data(results, aggregate_partitions)
-            return results
+            return PredictionResultsList(results)
 
         else:
             # Calculate metric on-the-fly for all filtered entries
@@ -1346,7 +1579,7 @@ class Predictions:
                 model_utils = ModelUtils()
             except ImportError:
                 print("⚠️ Cannot import ModelUtils for score calculation")
-                return []
+                return PredictionResultsList([])
 
             for i, row in enumerate(df_filtered.to_dicts()):
                 # Deserialize prediction arrays
@@ -1379,7 +1612,7 @@ class Predictions:
 
             # Sort by computed metric and return top k (or all if k=-1)
             if not scores_data:
-                return []
+                return PredictionResultsList([])
             if ModelUtils._is_higher_better(metric):
                 ascending = not ascending  # Reverse for higher is better
             scores_data.sort(key=lambda x: x["computed_score"], reverse=not ascending)
@@ -1393,7 +1626,7 @@ class Predictions:
             if len(aggregate_partitions) > 0:
                 results = self._add_partition_data(results, aggregate_partitions)
 
-            return results
+            return PredictionResultsList(results)  # type: ignore
 
     def _add_partition_data(self, results: List[Union[Dict[str, Any], 'PredictionResult']], aggregate_partitions: List[str]) -> List[Union[Dict[str, Any], 'PredictionResult']]:
         """
