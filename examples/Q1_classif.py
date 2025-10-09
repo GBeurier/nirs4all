@@ -41,37 +41,65 @@ data_path = {
     'y_train': 'sample_data/classification/Ytrain.csv',
 }
 
-# Build the pipeline
+# # Build the pipeline
+# pipeline = [
+#     "chart_3d",
+#     feature_scaler,
+#     "chart_2d",
+#     {"feature_augmentation": {"_or_": preprocessing_options, "size": [5, (1, 2)], "count": 2}},
+#     "chart_2d",
+#     "fold_chart",
+#     split,
+#     "fold_chart",
+#     cross_validation,
+#     "fold_chart",
+# ]
+
+# f = \
+# [SavGol, Gauss, StdNorm, SavGol, Haar ]
+
+# # Add Random Forest models with different max_depth values
+# for max_depth in range(5, 100, 2):
+#     model_config = {
+#         "name": f"RandomForest-depth-{max_depth}",
+#         "model": RandomForestClassifier(max_depth=max_depth)
+#     }
+#     pipeline.append(model_config)
+
+import random
+from sklearn.preprocessing import StandardScaler
+
+
+
+
 pipeline = [
     "chart_3d",
-    feature_scaler,
+    StandardScaler,
     "chart_2d",
-    {"feature_augmentation": {"_or_": preprocessing_options, "size": [5, (1, 2)], "count": 2}},
+    {"feature_augmentation": [
+        Detrend, FstDer, SndDer, Gauss,
+        StdNorm, SavGol, Haar, MSC
+    ]},
     "chart_2d",
     "fold_chart",
-    split,
+    SPXYSplitter(0.25),
     "fold_chart",
-    cross_validation,
+    ShuffleSplit(n_splits=3, test_size=0.25),
     "fold_chart",
+    RandomForestClassifier(max_depth=30)
 ]
 
-f = \
-[SavGol, Gauss, StdNorm, SavGol, Haar ]
 
-# Add Random Forest models with different max_depth values
-for max_depth in range(5, 100, 2):
-    model_config = {
-        "name": f"RandomForest-depth-{max_depth}",
-        "model": RandomForestClassifier(max_depth=max_depth)
-    }
-    pipeline.append(model_config)
+
+
+
 
 # Create configuration objects
 pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=True)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization
