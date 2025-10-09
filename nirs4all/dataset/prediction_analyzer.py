@@ -1757,7 +1757,14 @@ class PredictionAnalyzer:
 
             # Add count as text below
             ax.text(i, mins[i] - (maxs[i] - mins[i]) * 0.05, f'n={counts[i]}',
-                    ha='center', va='top', fontsize=9, alpha=0.8)        # Customize the plot
+                    ha='center', va='top', fontsize=9, alpha=0.8)
+
+        # Add line connecting all means
+        ax.plot(range(len(var_labels)), means, color='darkred', linewidth=1.5,
+                alpha=0.6, linestyle='-', marker='o', markersize=4,
+                label='Mean trend', zorder=10)
+
+        # Customize the plot
         ax.set_xticks(range(len(var_labels)))
         ax.set_xticklabels(var_labels, rotation=45, ha='right')
         ax.set_ylabel(f'{metric.upper()} Score')

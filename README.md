@@ -403,10 +403,10 @@ If you use NIRS4ALL in your research, please cite:
 
 ```
 @software{beurier2025nirs4all,
-  author = {Gregory Beurier and Denis Cornet and Lauriane Rouan},
-  title = {NIRS4ALL: Unlocking Spectroscopy for Everyone},
+  author = {Gregory Beurier and Denis Cornet and Camille Noûs and Lauriane Rouan},
+  title = {nirs4all is all your nirs: Open spectroscopy for everyone},
   url = {https://github.com/gbeurier/nirs4all},
-  version = {0.1.0},
+  version = {0.2.1},
   year = {2025},
 }
 ```
