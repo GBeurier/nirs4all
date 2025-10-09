@@ -338,9 +338,38 @@ For experienced users ready for sophisticated techniques:
 
 These tutorials demonstrate real-world workflows and best practices for production-ready NIRS analysis.
 
+## Examples
+
+Ready-to-run example scripts demonstrating common NIRS workflows:
+
+- **[Q1_regression.py](examples/Q1_regression.py)** - Basic regression with PLS models and preprocessing combinations
+- **[Q1_classif.py](examples/Q1_classif.py)** - Classification pipeline with Random Forest and preprocessing
+- **[Q2_multimodel.py](examples/Q2_multimodel.py)** - Compare multiple model types (PLS, RF, SVM) in one run
+- **[Q3_finetune.py](examples/Q3_finetune.py)** - Hyperparameter optimization with Optuna
+- **[Q4_multidatasets.py](examples/Q4_multidatasets.py)** - Cross-dataset validation and transfer learning
+- **[Q5_predict.py](examples/Q5_predict.py)** - Load saved models and predict on new data
+- **[Q6_multisource.py](examples/Q6_multisource.py)** - Multi-target regression from single dataset
+- **[Q7_discretization.py](examples/Q7_discretization.py)** - Convert continuous targets to categorical
+- **[Q8_shap.py](examples/Q8_shap.py)** - SHAP analysis for model interpretability
+- **[Q9_acp_spread.py](examples/Q9_acp_spread.py)** - PCA-based dataset analysis and visualization
+- **[Q10_resampler.py](examples/Q10_resampler.py)** - Wavelength resampling and interpolation techniques
+
+Run any example with: `python examples/<example_name>.py`
+
 ## Documentation
 
-Detailed documentation will be soon available at [https://nirs4all.readthedocs.io/](https://nirs4all.readthedocs.io/)
+### Core Documentation
+
+- **[Preprocessing.md](docs/Preprocessing.md)** - Complete reference of transformers (nirs4all, sklearn, scipy) with usage examples
+- **[CONFIG_FORMAT.md](docs/CONFIG_FORMAT.md)** - Pipeline configuration file format and structure
+- **[NESTED_CROSS_VALIDATION.md](docs/NESTED_CROSS_VALIDATION.md)** - Nested CV for unbiased hyperparameter tuning
+- **[PREDICTION_RESULTS_LIST.md](docs/PREDICTION_RESULTS_LIST.md)** - Understanding prediction results and metrics
+- **[SHAP_EXPLANATION.md](docs/SHAP_EXPLANATION.md)** - Model interpretability with SHAP values
+- **[RESAMPLER.md](docs/RESAMPLER.md)** - Wavelength resampling strategies
+- **[COMBINATION_GENERATOR.md](docs/COMBINATION_GENERATOR.md)** - Feature augmentation and preprocessing combinations
+- **[CROSS_DATASET_METRICS_EXPLANATION.md](docs/CROSS_DATASET_METRICS_EXPLANATION.md)** - Cross-dataset validation metrics
+
+Full documentation will be available at [https://nirs4all.readthedocs.io/](https://nirs4all.readthedocs.io/)
 
 ## Dependencies
 

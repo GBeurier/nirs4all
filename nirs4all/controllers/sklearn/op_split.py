@@ -25,7 +25,7 @@ def _needs(splitter: Any) -> Tuple[bool, bool]:
     sig = inspect.signature(split_fn)
     params = sig.parameters
 
-    needs_y = "y" in params and params["y"].default is inspect._empty
+    needs_y = "y" in params # and params["y"].default is inspect._empty
     needs_g = "groups" in params and params["groups"].default is inspect._empty
 
     # Honour estimator tags (sklearn >=1.3)
@@ -123,29 +123,35 @@ class CrossValidatorController(OperatorController):
         if mode != "predict" and mode != "explain":
             folds = list(operator.split(X, **kwargs))  # Convert to list to avoid iterator consumption
 
-            # Store folds in dataset (if method exists)
-            if hasattr(dataset, 'set_folds'):
+            if dataset.x({"partition": "test"}).shape[0] == 0:
+                print("⚠️ No test partition found; using first fold as test set.")
+                fold_1 = folds[0]
+                dataset._indexer.update_by_indices(
+                    fold_1[1], {"partition": "test"}
+                )
+                return context, []
+            else:
                 dataset.set_folds(folds)
 
-            headers = [f"fold_{i}" for i in range(len(folds))]
-            binary = ",".join(headers).encode("utf-8") + b"\n"
-            max_train_samples = max(len(train_idx) for train_idx, _ in folds)
+                headers = [f"fold_{i}" for i in range(len(folds))]
+                binary = ",".join(headers).encode("utf-8") + b"\n"
+                max_train_samples = max(len(train_idx) for train_idx, _ in folds)
 
-            for row_idx in range(max_train_samples):
-                row_values = []
-                for fold_idx, (train_idx, val_idx) in enumerate(folds):
-                    if row_idx < len(train_idx):
-                        row_values.append(str(train_idx[row_idx]))
-                    else:
-                        row_values.append("")  # Empty cell if this fold has fewer samples
-                binary += ",".join(row_values).encode("utf-8") + b"\n"
+                for row_idx in range(max_train_samples):
+                    row_values = []
+                    for fold_idx, (train_idx, val_idx) in enumerate(folds):
+                        if row_idx < len(train_idx):
+                            row_values.append(str(train_idx[row_idx]))
+                        else:
+                            row_values.append("")  # Empty cell if this fold has fewer samples
+                    binary += ",".join(row_values).encode("utf-8") + b"\n"
 
-            folds_name = f"folds_{operator.__class__.__name__}"
-            if hasattr(operator, "random_state"):
-                seed = getattr(operator, "random_state")
-                if seed is not None:
-                    folds_name += f"_seed{seed}"
-            folds_name += ".csv"
+                folds_name = f"folds_{operator.__class__.__name__}"
+                if hasattr(operator, "random_state"):
+                    seed = getattr(operator, "random_state")
+                    if seed is not None:
+                        folds_name += f"_seed{seed}"
+                folds_name += ".csv"
 
             # print(f"Generated {len(folds)} folds.")
 
