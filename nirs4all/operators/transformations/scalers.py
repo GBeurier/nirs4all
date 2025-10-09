@@ -11,7 +11,134 @@ from sklearn.utils.validation import check_array, check_is_fitted, FLOAT_DTYPES
 
 IdentityTransformer = FunctionTransformer
 RobustNormalVariate = RobustScaler
-StandardNormalVariate = StandardScaler
+
+
+class StandardNormalVariate(TransformerMixin, BaseEstimator):
+    """Standard Normal Variate (SNV) transformation.
+
+    SNV is a row-wise normalization technique commonly used in spectroscopy
+    to remove scatter effects. Each sample (row) is centered and scaled
+    independently.
+
+    For each sample: SNV = (X - mean(X)) / std(X)
+
+    Parameters
+    ----------
+    axis : int, default=1
+        Axis along which to compute mean and standard deviation.
+        - axis=1: Row-wise (default, standard SNV behavior for spectroscopy)
+        - axis=0: Column-wise (equivalent to StandardScaler)
+
+    with_mean : bool, default=True
+        If True, center the data before scaling.
+
+    with_std : bool, default=True
+        If True, scale the data to unit variance.
+
+    ddof : int, default=0
+        Delta Degrees of Freedom for standard deviation calculation.
+
+    copy : bool, default=True
+        If False, try to avoid a copy and do inplace scaling instead.
+
+    Examples
+    --------
+    >>> from nirs4all.operators.transformations import StandardNormalVariate
+    >>> import numpy as np
+    >>> X = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=float)
+    >>> snv = StandardNormalVariate()
+    >>> X_transformed = snv.fit_transform(X)
+    """
+
+    def __init__(self, axis=1, with_mean=True, with_std=True, ddof=0, copy=True):
+        self.axis = axis
+        self.with_mean = with_mean
+        self.with_std = with_std
+        self.ddof = ddof
+        self.copy = copy
+
+    def fit(self, X, y=None):
+        """Fit the StandardNormalVariate transformer.
+
+        For SNV, this is a no-op as the transformation is computed
+        independently for each sample.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The training data.
+
+        y : None
+            Ignored variable.
+
+        Returns
+        -------
+        self : object
+            Returns the instance itself.
+        """
+        if scipy.sparse.issparse(X):
+            raise TypeError("StandardNormalVariate does not support scipy.sparse input")
+
+        # Validate input
+        X = check_array(X, dtype=FLOAT_DTYPES, copy=False)
+
+        # SNV is computed per sample, so no fitting is needed
+        # But we validate the axis parameter
+        if self.axis not in [0, 1]:
+            raise ValueError(f"axis must be 0 or 1, got {self.axis}")
+
+        return self
+
+    def transform(self, X):
+        """Perform SNV transformation.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input data to be transformed.
+
+        Returns
+        -------
+        X_transformed : ndarray of shape (n_samples, n_features)
+            The transformed data.
+        """
+        if scipy.sparse.issparse(X):
+            raise TypeError("StandardNormalVariate does not support scipy.sparse input")
+
+        X = check_array(X, dtype=FLOAT_DTYPES, copy=self.copy)
+
+        if self.with_mean:
+            mean = np.mean(X, axis=self.axis, keepdims=True)
+            X = X - mean
+
+        if self.with_std:
+            std = np.std(X, axis=self.axis, ddof=self.ddof, keepdims=True)
+            # Avoid division by zero
+            std[std == 0] = 1.0
+            X = X / std
+
+        return X
+
+    def fit_transform(self, X, y=None):
+        """Fit to data, then transform it.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            The input data.
+
+        y : None
+            Ignored variable.
+
+        Returns
+        -------
+        X_transformed : ndarray of shape (n_samples, n_features)
+            The transformed data.
+        """
+        return self.fit(X, y).transform(X)
+
+    def _more_tags(self):
+        return {"allow_nan": False, "stateless": True}
 
 
 class Normalize(TransformerMixin, BaseEstimator):

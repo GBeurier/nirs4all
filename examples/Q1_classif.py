@@ -70,11 +70,9 @@ import random
 from sklearn.preprocessing import StandardScaler
 
 
-
-
 pipeline = [
-    "chart_3d",
-    StandardScaler,
+    # "chart_3d",
+    # StandardScaler,
     "chart_2d",
     {"feature_augmentation": [
         Detrend, FstDer, SndDer, Gauss,
@@ -88,9 +86,6 @@ pipeline = [
     "fold_chart",
     RandomForestClassifier(max_depth=30)
 ]
-
-
-
 
 
 

@@ -9,10 +9,12 @@ from ..augmentation.abc_augmenter import Augmenter, IdentityAugmenter
 
 from sklearn.preprocessing import FunctionTransformer as IdentityTransformer
 from sklearn.preprocessing import RobustScaler as RobustNormalVariate
-from sklearn.preprocessing import StandardScaler as StandardNormalVariate
 
-from .nirs import (Haar, MultiplicativeScatterCorrection, SavitzkyGolay, Wavelet, msc, savgol, wavelet_transform, LogTransform, FirstDerivative, SecondDerivative, log_transform, first_derivative, second_derivative)
-from .scalers import (Derivate, Normalize, SimpleScale, derivate, norml, spl_norml)
+from .nirs import (Haar, MultiplicativeScatterCorrection, SavitzkyGolay, Wavelet, msc, savgol,
+                   wavelet_transform, LogTransform, FirstDerivative, SecondDerivative,
+                   log_transform, first_derivative, second_derivative)
+from .scalers import (Derivate, Normalize, SimpleScale, derivate, norml, spl_norml,
+                      StandardNormalVariate)
 from .signal import Baseline, Detrend, Gaussian, baseline, detrend, gaussian
 from .features import CropTransformer, ResampleTransformer
 from .resampler import Resampler
