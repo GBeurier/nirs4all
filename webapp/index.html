@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIRSCAPE - NIRS Analysis Platform</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        .sidebar-item.active {
+            background-color: #3b82f6;
+            color: white;
+        }
+        .component-card {
+            transition: all 0.2s ease-in-out;
+        }
+        .component-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        .param-accordion {
+            transition: max-height 0.3s ease-out;
+            overflow: hidden;
+        }
+        .drag-over {
+            border: 2px dashed #3b82f6;
+            background-color: #f0f9ff;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <!-- Navigation Sidebar -->
+    <div class="flex h-screen">
+        <div class="w-64 bg-white shadow-lg border-r border-gray-200">
+            <div class="p-6 border-b border-gray-200">
+                <h1 class="text-xl font-bold text-gray-800 flex items-center">
+                    <i data-feather="activity" class="mr-2 text-blue-600"></i>
+                    NIRSCAPE
+                </h1>
+                <p class="text-sm text-gray-600 mt-1">NIRS Analysis Platform</p>
+            </div>
+            <nav class="mt-6">
+                <a href="workspace.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="folder" class="mr-3"></i>
+                    Workspace
+                </a>
+                <a href="pipeline.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="git-branch" class="mr-3"></i>
+                    Pipeline Editor
+                </a>
+                <a href="predictions.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="database" class="mr-3"></i>
+                    Predictions DB
+                </a>
+                <a href="dashboard.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="bar-chart-2" class="mr-3"></i>
+                    Prediction Dashboard
+                </a>
+                <a href="analysis.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="layers" class="mr-3"></i>
+                    Analysis Tools
+                </a>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <div class="p-8">
+                <div class="max-w-6xl mx-auto">
+                    <div class="text-center mb-12">
+                        <h1 class="text-4xl font-bold text-gray-900 mb-4">Welcome to NIRSCAPE</h1>
+                        <p class="text-xl text-gray-600 mb-8">Advanced NIRS Analysis Pipeline Management</p>
+                        <div class="grid md:grid-cols-3 gap-8 mt-12">
+                            <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+                                <i data-feather="folder" class="w-12 h-12 text-blue-600 mx-auto mb-4"></i>
+                                <h3 class="text-lg font-semibold mb-2">Workspace Management</h3>
+                                <p class="text-gray-600">Organize your datasets and analysis projects</p>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+                                <i data-feather="git-branch" class="w-12 h-12 text-green-600 mx-auto mb-4"></i>
+                                <h3 class="text-lg font-semibold mb-2">Pipeline Editor</h3>
+                                <p class="text-gray-600">Drag-and-drop pipeline creation and execution</p>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+                                <i data-feather="bar-chart-2" class="w-12 h-12 text-purple-600 mx-auto mb-4"></i>
+                                <h3 class="text-lg font-semibold mb-2">Data Visualization</h3>
+                                <p class="text-gray-600">Advanced analytics and prediction dashboards</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        feather.replace();
+        // Set active navigation item
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            if (item.getAttribute('href') === 'index.html') {
+                item.classList.add('active');
+            }
+        });
+        // Fetch and display prediction counts (minimal MVP widget)
+        async function refreshPredictionCounts() {
+            const container = document.getElementById('predictionCounts');
+            if (!container) return;
+            container.innerHTML = 'Loading...';
+            try {
+                const resp = await fetch('/api/predictions/counts');
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+                const counts = data.counts || {};
+                const total = data.total || 0;
+                const items = Object.entries(counts).map(([k, v]) => `<li class="py-1"><strong>${k}</strong>: ${v}</li>`);
+                container.innerHTML = `<div class="bg-white p-4 rounded shadow"><h3 class="font-semibold mb-2">Prediction counts</h3><ul>${items.join('')}</ul><div class="text-sm text-gray-500 mt-2">Total: ${total}</div></div>`;
+            } catch (err) {
+                container.innerHTML = `<div class="text-red-600">Failed to load prediction counts: ${err}</div>`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', refreshPredictionCounts);
+    </script>
+</body>
+</html>

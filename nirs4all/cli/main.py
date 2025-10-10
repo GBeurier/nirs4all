@@ -51,6 +51,16 @@ def main():
         version=f'%(prog)s {get_version()}'
     )
 
+    # Minimal UI launcher options
+    parser.add_argument(
+        '--ui',
+        action='store_true',
+        help='Launch the nirs4all local web UI (development)'
+    )
+    parser.add_argument('--ui-host', default='127.0.0.1', help='Host for the web UI')
+    parser.add_argument('--ui-port', default=8000, type=int, help='Port for the web UI')
+    parser.add_argument('--ui-reload', action='store_true', help='Enable auto-reload when launching the web UI (dev only)')
+
     args = parser.parse_args()
 
     if args.test_install:
@@ -61,10 +71,37 @@ def main():
         from .test_install import test_integration
         result = test_integration()
         sys.exit(0 if result else 1)
+    elif args.ui:
+        # Delegate to the ui CLI module to start uvicorn
+        try:
+            from nirs4all.ui.cli import main as ui_main
+        except Exception as e:
+            print(f"❌ Cannot import nirs4all.ui.cli: {e}")
+            sys.exit(2)
+
+        # Build arg list for the ui CLI entrypoint
+        ui_args = [f'--host={args.ui_host}', f'--port={args.ui_port}']
+        if args.ui_reload:
+            ui_args.append('--reload')
+
+        ui_main(ui_args)
     else:
         parser.print_help()
         sys.exit(0)
 
 
 if __name__ == '__main__':
+    main()
+
+
+# Backwards compatibility: older installers / console scripts imported
+# `nirs4all_cli` from this module. Keep a small wrapper so those entry
+# points continue to work without forcing users to reinstall.
+def nirs4all_cli() -> None:
+    """Legacy entrypoint wrapper that calls :func:`main`.
+
+    Some older generated entrypoints import ``nirs4all_cli`` from
+    ``nirs4all.cli.main``. Export this symbol to avoid ImportError when
+    users run the console script created earlier.
+    """
     main()
