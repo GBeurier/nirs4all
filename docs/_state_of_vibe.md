@@ -14,7 +14,7 @@ The UI is intentionally file-system centric (server has read/write access to loc
 
 ## What is implemented (status)
 
-- FastAPI-based minimal UI server: `nirs4all/ui/server.py` — serves API endpoints and static files from `webapp/`.
+ - FastAPI-based minimal UI server: `nirs4all/ui/server.py` — serves API endpoints and static files from `ui_templates/` (preferred canonical templates). If `ui_templates/` is not present the server will look for a legacy `webapp/` folder. When neither `ui_templates/` nor `webapp/` exists the server will fall back to serve the archived mockup located in `webapp_mockup/` under the same `/webapp` mount so local development can still open the UI at `/webapp/index.html` or `/webapp/predictions.html`.
 - CLI integration: `nirs4all --ui` starts the local web UI (already wired in the CLI scaffolding).
 - Predictions management backend using the existing Predictions API: `nirs4all/dataset/predictions.py` (loads `results/<dataset>/predictions.json`).
 - Server endpoints (non-exhaustive):
@@ -34,7 +34,7 @@ The UI is intentionally file-system centric (server has read/write access to loc
 
 - Local-first: UI uses server-side filesystem access (file browser, saving dataset configs, reading `results/`) instead of a remote storage API. This is fast and simple for local workflows but unsuitable for untrusted remote hosting.
 - Server-side search & pagination for the Predictions DB: avoids transferring very large JSON payloads to the browser and scales to many predictions.
-- Client-side hiding of heavy payload columns: `y_true`, `y_pred`, and `sample_indices` are excluded from table rendering (they are still returned server-side unless explicitly removed).
+ - Server-side default stripping of heavy payload fields: `y_true`, `y_pred`, `y_proba`, and `sample_indices` (and similar large arrays) are omitted by default from list/search endpoints to avoid very large payloads. The API supports a query parameter `include_arrays=true` to request full rows when needed.
 - Pipeline retrieval: predictions must include a `config_path` (or similar) that points to the run folder. The server resolves that path relative to the workspace results folder and loads `pipeline.json`.
 
 ## Key files & functions to inspect
@@ -51,8 +51,8 @@ The UI is intentionally file-system centric (server has read/write access to loc
 ## How to run and debug locally
 
 1. Activate the virtualenv used for the project: `& .\.venv\Scripts\Activate.ps1` (PowerShell on Windows).
-2. Start the web UI: `nirs4all --ui` (this launches the FastAPI app and serves `webapp/` under `/webapp`).
-3. Open a browser at the root (`/`) — the server redirects to `/webapp/index.html`.
+2. Start the web UI: `nirs4all --ui` (this launches the FastAPI app and serves `ui_templates/` under `/webapp` if present; otherwise it serves `webapp/`, and finally `webapp_mockup/` as a last resort). The server will log which source is being used.
+3. Open a browser at the root (`/`) — the server redirects to `/webapp/workspace.html`. If you only need the Predictions page open `/webapp/predictions.html` directly.
 4. Use the Predictions page and Pipeline editor; open DevTools to monitor network requests, console logs and inspect any fetch failures. Look specifically for requests to `/api/pipeline/from-prediction` when opening the pipeline editor from a prediction.
 
 ## Current development state (what's done vs pending)
@@ -62,15 +62,23 @@ Done:
 - Predictions DB backend with server-side pagination, search, sorting, and meta endpoint
 - Pipeline-from-prediction endpoint and frontend flow (modal + auto-load using `?prediction_id=`)
 
+Recent regression and fixes applied (2025-10-10):
+- Regression root cause: when `webapp/` was not present the server returned no UI; an automatic fallback and an aggressive redirect/meta-refresh introduced a reload loop and replaced several UI pages with mock-only behaviors (workspace selection was mocked client-side, predictions filters/sorting were not wired to the server, and the pipeline editor displayed raw JSON). This made the workspace appear non-functional and removed persistent save flows.
+- Fixes applied:
+	- Restored workspace UX integration with backend endpoints (`/api/workspace/*`) so selection, dataset linking, results folder and pipeline repo settings persist and reflect server state.
+	- Restored predictions page behavior: filters, date range, server-side sorting and pagination, and default array-stripping (`include_arrays=false`).
+	- Implemented a best-effort pipeline renderer in the pipeline mockup so loaded pipelines appear as component cards rather than raw JSON; pipeline auto-load now surfaces errors with a toast + Retry.
+	- Replaced meta-refresh redirect and adjusted root-serving logic so `/` serves the workspace page (or redirects only when neither workspace nor index are present).
+
 In-progress / partially done:
-- Server still returns heavy array columns in prediction rows; the UI hides them but they remain in API responses (optimize server-side to reduce payload size).
-- Several backend functions contain broad except blocks and have lint warnings for being too complex — refactor recommended.
+- Server-side heavy-array handling: heavy array fields are now stripped by default from list/search endpoints (use `include_arrays=true` to request full arrays). We still should add tests and small optimizations to ensure the payloads are minimal and consistent across endpoints.
+- Several backend functions still contain broad `except Exception:` catches and have linter warnings for high complexity — targeted refactors and improved error handling are recommended.
 
 Missing / recommended next work (prioritized)
 
 1. Critical (quick win)
 	 - Ensure end-to-end visible failure messages when pipeline auto-load fails (display a toast/modal on error instead of console warnings) — file: `webapp/pipeline.html`.
-	 - Server-side filtering to avoid returning heavy arrays at all (strip `y_true`, `y_pred`, `sample_indices` from list/search endpoints). Modify `_to_json_basic()` or strip keys before returning rows in `predictions_search`/`predictions_list`.
+ 	 - Server-side filtering to avoid returning heavy arrays at all (strip `y_true`, `y_pred`, `sample_indices` from list/search endpoints). The implementation now strips these fields by default; use `include_arrays=true` if you need full arrays.
 
 2. High value
 	 - Add server-side delete/download endpoints for predictions and wire them to the UI actions (the buttons exist but actions are placeholders).
@@ -101,14 +109,12 @@ Missing / recommended next work (prioritized)
 
 - To inspect predictions file format, open: `results/<dataset>/predictions.json` (small sample records are useful for testing).
 
-## Immediate next steps I can take for you
+## Immediate next steps I will take
 
-- Implement server-side removal/truncation of heavy array fields in search/list endpoints to reduce payload sizes.
-- Add visible UI error messages for pipeline auto-load failures and a small retry button.
-- Create unit tests for the pipeline-from-prediction flow.
+- Server now strips heavy array fields by default in the search/list endpoints. If you rely on full arrays for debugging or re-play, call the endpoints with `include_arrays=true` (or temporarily modify the client to request include_arrays=true).
 - Refactor and reduce complexity in `nirs4all/ui/server.py` (break into smaller helpers and narrow exceptions).
 
-If you want me to continue, tell me which of the immediate next steps you want prioritized (server-side trimming, visible UI errors, tests, or refactor) and I will implement it next.
+- Add visible UI error messages for pipeline auto-load failures and a small retry button.
 
 ---
 Last updated: 2025-10-10

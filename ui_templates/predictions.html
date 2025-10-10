@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Predictions DB - NIRSCAPE</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div class="flex h-screen">
+        <!-- Navigation Sidebar -->
+        <div class="w-64 bg-white shadow-lg border-r border-gray-200">
+            <div class="p-6 border-b border-gray-200">
+                <h1 class="text-xl font-bold text-gray-800 flex items-center">
+                    <i data-feather="activity" class="mr-2 text-blue-600"></i>
+                    NIRSCAPE
+                </h1>
+                <p class="text-sm text-gray-600 mt-1">NIRS Analysis Platform</p>
+            </div>
+            <nav class="mt-6">
+                <a href="index.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="home" class="mr-3"></i>
+                    Home
+                </a>
+                <a href="workspace.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="folder" class="mr-3"></i>
+                    Workspace
+                </a>
+                <a href="pipeline.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="git-branch" class="mr-3"></i>
+                    Pipeline Editor
+                </a>
+                <a href="predictions.html" class="sidebar-item active flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="database" class="mr-3"></i>
+                    Predictions DB
+                </a>
+                <a href="dashboard.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="bar-chart-2" class="mr-3"></i>
+                    Prediction Dashboard
+                </a>
+                <a href="analysis.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="layers" class="mr-3"></i>
+                    Analysis Tools
+                </a>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <div class="p-8">
+                <div class="max-w-7xl mx-auto">
+                    <div class="mb-8">
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Predictions Database</h1>
+                        <p class="text-gray-600">Manage and analyze your NIRS prediction results</p>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                            <input id="predSearchInput" type="text" placeholder="Search predictions..." class="border border-gray-300 rounded-lg px-3 py-2">
+                            <select id="predDatasetSelect" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">All Datasets</option>
+                            </select>
+                            <select id="predModelSelect" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">All Models</option>
+                            </select>
+                            <select id="predConfigSelect" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">All Configs</option>
+                            </select>
+                            <div class="flex items-center space-x-2">
+                                <input id="predDateInput" type="date" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <div id="predResultsPath" class="text-xs text-gray-500 ml-2">Results: -</div>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span id="predTotals" class="text-sm text-gray-600">0 predictions found</span>
+                            <div class="flex space-x-2">
+                                <button id="predDownloadBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors" title="Download selected">
+                                    <i data-feather="download" class="w-4 h-4"></i>
+                                </button>
+                                <button id="predDeleteBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors" title="Delete selected">
+                                    <i data-feather="trash-2" class="w-4 h-4"></i>
+                                </button>
+                                <button id="predChartBtn" class="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors" title="Show chart">
+                                    <i data-feather="bar-chart-2" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Predictions Table -->
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table id="predictionsTable" class="w-full">
+                                <thead id="predTableHead" class="bg-gray-50">
+                                    <!-- dynamically generated -->
+                                </thead>
+                                <tbody id="predTableBody" class="divide-y divide-gray-200">
+                                    <!-- dynamically generated rows -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div class="bg-gray-50 px-4 py-3 flex items-center justify-between border-t border-gray-200">
+                            <div class="flex items-center space-x-3">
+                                <button id="predPrevBtn" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">Previous</button>
+                                <button id="predNextBtn" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">Next</button>
+                                <label class="text-sm text-gray-600">Page size</label>
+                                <select id="predPageSize" class="border rounded px-2 py-1 text-sm">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50" selected>50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <span id="predPageInfo" class="text-sm text-gray-700">0 of 0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        feather.replace();
+
+        // Set active navigation item
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            if (item.getAttribute('href') === 'predictions.html') {
+                item.classList.add('active');
+            }
+        });
+
+        // Right-click context menu
+        document.addEventListener('contextmenu', (e) => {
+            if (e.target.closest('tr')) {
+                e.preventDefault();
+                // Context menu implementation would go here
+                console.log('Right-click on prediction row');
+            }
+        });
+
+        // Predictions page dynamic logic
+        // Client-side state for search & pagination
+        const _state = {
+            dataset: '',
+            model: '',
+            config: '',
+            q: '',
+            date_from: '',
+            date_to: '',
+            sort_by: null,
+            sort_dir: 'desc',
+            page_size: 50,
+            cursor: null,
+            next_cursor: null,
+            prev_cursor: null
+        };
+
+        async function loadDatasetsList() {
+            const resp = await fetch('/api/predictions/datasets');
+            if (!resp.ok) throw new Error(await resp.text());
+            return await resp.json();
+        }
+
+        async function loadMeta(datasetName) {
+            const url = datasetName ? `/api/predictions/meta?dataset=${encodeURIComponent(datasetName)}` : '/api/predictions/meta';
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(await resp.text());
+            return await resp.json();
+        }
+
+        async function fetchPage(cursor=null) {
+            const params = new URLSearchParams();
+            if (_state.dataset) params.set('dataset', _state.dataset);
+            params.set('page_size', String(_state.page_size));
+            if (cursor !== null && cursor !== undefined) params.set('cursor', String(cursor));
+            if (_state.sort_by) params.set('sort_by', _state.sort_by);
+            if (_state.sort_dir) params.set('sort_dir', _state.sort_dir);
+            if (_state.model) params.set('model_name', _state.model);
+            if (_state.config) params.set('config_name', _state.config);
+            if (_state.q) params.set('q', _state.q);
+            if (_state.date_from) params.set('date_from', _state.date_from);
+            if (_state.date_to) params.set('date_to', _state.date_to);
+
+            const url = '/api/predictions/search?' + params.toString();
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(await resp.text());
+            const data = await resp.json();
+
+            // update cursors and page info
+            _state.cursor = data.cursor || 0;
+            _state.next_cursor = data.next_cursor;
+            _state.prev_cursor = data.prev_cursor;
+            document.getElementById('predTotals').textContent = `${data.total || 0} predictions found`;
