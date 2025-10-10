@@ -1,96 +1,94 @@
 ## ROADMAP ##
-> [CLI]  ## Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
-**RELEASE**
-> **Enhancement**: Options normalisation in charts (0-1 ou 1-0)
+> [CLI]  ## Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
+**RELEASE** 0.3
+
+> [METADATA] Reup load / stratificiation
+
+> [Augmentation + Balanced Augmentation]
 
 > **Bugs**:
 >   - Unify task_type usage and detection
 >   - Fix train_params in finetuning for Tensorflow
-> - [SEED] review
+>   - Review R2 computation / Q2 value
+> [SEED] review
 
-**RELEASE**
-> - [Augmentation + Balanced Augmentation]
+> **Enhancement**: Options normalisation in charts (0-1 ou 1-0)
 
-**RELEASE**
+**RELEASE** 0.4
+
+> [ReadsTheDoc] minimal subset of signatures + export MD
+
+**RELEASE** 0.5
+
 > [Chart controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
-**RELEASE**
+> [Predictions] refactoring and as a pipeline context
+
+> [Metrics] uniformize Model_Utils / Evaluator / Predictions
+
+**RELEASE** 0.6
+
 > [Pipeline as single transformer]: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN.
 
-**RELEASE**
-> [ReadsTheDoc] update
-> [METADATA] Reup load / stratificiation
+> [WEBAPP] miniature version
 
-**RELEASE**
-> [Transfer] Automate best transfer model
+**RELEASE** 0.7
 
-**RELEASE**
-> [Stacking]
+> [Workspace] structure management
 
-**RELEASE**
+> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
+
+> [Y_pipeline in models]
+
+**RELEASE** 0.8
+
 > [Logs]
 
-**RELEASE**
-> GLOBAL REVIEW - refactoring: predictions / predictions analyze / runner (clean) /
+> [GLOBAL REVIEW] > signatures freeze
 
-**RELEASE**
-> [Workflows: branch, merge, split_src, scope]
-> [Multi source models] - early/mid fusion
-> [Late Fusion - avg / w_avg]
+**RELEASE**  0.9
 
-**RELEASE**
-> [Y_pipeline in models]
-> [Clustering Controllers]
-
-**RELEASE**
 > [Stacking]
 
-**RELEASE**
-> [Predictions] as a pipeline context
-> [Mid Fusion]
+> [Workflows: branch, merge, split_src, scope]
 
-**RELEASE**
+**RELEASE** 0.10
+
+> [WEBAPP] full version
+
+> [DEPLOY] standalone installer, web installer
+
+**RELEASE** 0.11 rc
+
+> [REVIEW++]
+
+**RELEASE** 1.0
+
+**RELEASE** 1.x.x
+
+> [Transfer] Automate best transfer model
+
+> [Mid Fusion] Multi head models
+
+> [Late Fusion] avg / w_avg / asymetric ensembling
+
+> [Clustering Controllers]
+
 > [HugginFace deploy]
-> [WEBAPP]
 
-**RELEASE**
 > [CLUSTERED COMPUTATION + SERV/CLIENT]
 
-**RELEASE**
-
-## REVIEW / POLISH ##
-> cli
-> - run, predict, viz commands
-> - packaging exe
-> controller
-> - base_model_controller
-> dataset
-> - predictions
-> - targets
-
-## BUGS ##
-- link mean in candlesticks
-
-## DOCS ##
-> Splitter illustration and tutorial
-> Transformer mixin illustration and tutorial
-> Update ReadsTheDocs
-
-
-## FEATURES ##
-> optional processings tags on models
-> [Generator] add in-place/internal generation
-> [Metrics] uniformize Model_Utils / Evaluator / Predictions
-> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 > [Classification] averaging
 
-## MINORS ##
-> feature_augmentation with first replacement
+> [PRINT] optional processings tags on models
 
-## Review ##
-> Predictions > clean redondancy, optimize search and metadata building
-> Base_model_controller > disintricate
+> [Generator] add in-place/internal generation
+
+
+## MINORS ##
+
+> [feature_augmentation] with first replacement
 
 #### EXCITERS ####
 - Clean user interface on datasetConfig/dataset, pipelineConfig/pipeline, predictions
@@ -99,8 +97,18 @@
 - More tunable and explicit generation
 
 
+## REVIEW / POLISH ##
+> [cli]
+> - run, predict, viz commands
+> - packaging exe
 
+> [controller]
+> - base_model_controller
 
+> [dataset]
+> - predictions > clean redondancy, metrics usage, optimize search and metadata building
+> - targets > clean redondancy (task_type), export 'raw' instead of 'numeric', explicit context
 
-
----------------------
+## DOCS ##
+> Splitter illustration and tutorial
+> Transformer mixin illustration and tutorial
