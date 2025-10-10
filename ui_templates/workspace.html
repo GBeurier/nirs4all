@@ -57,49 +57,46 @@
                         <p class="text-gray-600">Manage your NIRS analysis projects and datasets</p>
                     </div>
 
-                    <!-- Workspace Selection -->
-                    <div class="bg-white rounded-lg shadow-md p-6 mb-8">
-                        <div class="flex items-center justify-between mb-4">
-                            <h2 class="text-xl font-semibold">Current Workspace</h2>
-                            <div class="space-x-2">
-                                <button id="chooseWorkspaceBtn" class="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700">Choose Workspace</button>
-                                <span id="workspacePathDisplay" class="font-mono text-sm ml-3 text-gray-700">No workspace selected</span>
+                    <!-- Workspace + Dataset + Results compact controls -->
+                    <div class="bg-white rounded-lg shadow-md p-4 mb-6">
+                        <div class="flex items-start justify-between mb-2 gap-4">
+                            <div class="flex items-center gap-3">
+                                <div class="flex flex-col">
+                                    <label class="text-sm font-medium text-gray-700">Workspace</label>
+                                    <div class="flex items-center mt-1">
+                                        <button id="chooseWorkspaceBtn" class="bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700">Choose</button>
+                                        <span id="workspacePathDisplay" class="font-mono text-sm ml-3 text-gray-700">No workspace selected</span>
+                                    </div>
+                                </div>
+
+                                <div class="flex flex-col">
+                                    <label class="text-sm font-medium text-gray-700">Results</label>
+                                    <div class="flex items-center mt-1">
+                                        <button id="detectResultsBtn" class="bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700">Detect</button>
+                                        <button id="changeResultsBtn" class="bg-gray-100 text-gray-700 px-3 py-1 rounded-lg hover:bg-gray-200 ml-2">Change</button>
+                                        <span id="resultsPathDisplay" class="text-sm text-gray-600 ml-3">Not set</span>
+                                    </div>
+                                </div>
                             </div>
+
+                            <!-- Dataset linking moved to the Linked Datasets tab header -->
                         </div>
-                        <div id="currentWorkspace" class="text-gray-700 p-4 bg-gray-50 rounded-lg">No workspace selected</div>
+
+                        <div id="currentWorkspace" class="text-gray-700 p-3 bg-gray-50 rounded-lg text-sm">No workspace selected</div>
                     </div>
 
                     <!-- Workspace details: pipeline repo + datasets -->
-                    <div class="bg-white rounded-lg shadow-md p-6 mb-8">
-                        <h2 class="text-xl font-semibold mb-4">Workspace Configuration</h2>
+                    <div class="bg-white rounded-lg shadow-md p-4 mb-8">
+                        <h2 class="text-xl font-semibold mb-3">Workspace Configuration</h2>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Pipelines repository</label>
-                                <div class="flex items-center space-x-2">
-                                        <button id="browsePipelineRepoBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Browse</button>
-                                        <span class="text-sm text-gray-500 italic">(Repo applied when selected via Browse)</span>
-                                    </div>
-                                <div id="pipelineRepoDisplay" class="text-sm text-gray-600 mt-2">Not set</div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Pipelines repository</label>
+                                <div id="pipelineRepoDisplay" class="text-sm text-gray-600 mt-1">Not set</div>
+                                <div class="text-xs text-gray-500 italic mt-1">Pipeline repository is shown for information. Use repository controls in Pipeline Editor.</div>
                             </div>
-
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Link dataset</label>
-                                <div class="flex items-center space-x-2">
-                                    <button id="linkDatasetBtn" class="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700">Link Dataset</button>
-                                    <button id="manageGroupsBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Manage Groups</button>
-                                    <span id="datasetSelectionDisplay" class="text-sm text-gray-600 ml-3">No selection</span>
-                                </div>
-                                <div id="datasetsList" class="mt-3 text-sm text-gray-700"></div>
-                            </div>
-                        </div>
-
-                        <!-- Results folder configuration -->
-                        <div class="mt-2">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Results folder</label>
-                            <div class="flex items-center space-x-2">
-                                <button id="detectResultsBtn" class="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700">Detect Results Folder</button>
-                                <button id="changeResultsBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Change Results Folder</button>
-                                <span id="resultsPathDisplay" class="text-sm text-gray-600 ml-3">Not set</span>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Linked datasets</label>
+                                <div class="text-xs text-gray-500 italic mt-1">Manage linked datasets in the table below.</div>
                             </div>
                         </div>
                     </div>
@@ -183,6 +180,26 @@
     let _fbTargetInput = null;
     let _fbCurrentListingPath = null;
     let _fbSelectedPaths = new Set();
+    // Selected datasets in the linked datasets table (for bulk group creation)
+    let _dsSelectedDatasets = new Set();
+    // Cache of all existing groups across datasets (for add-to-group selects)
+    let _allGroupsList = [];
+
+    function toggleDatasetSelection(cb) {
+        const p = cb && cb.dataset && cb.dataset.path;
+        if (!p) return;
+        if (cb.checked) _dsSelectedDatasets.add(p); else _dsSelectedDatasets.delete(p);
+    }
+
+    function toggleSelectAllDatasets(cb) {
+        const checked = cb.checked;
+        document.querySelectorAll('#datasetsTableBody input[data-ds-select]').forEach(i => {
+            i.checked = checked;
+            const p = i.dataset.path;
+            if (!p) return;
+            if (checked) _dsSelectedDatasets.add(p); else _dsSelectedDatasets.delete(p);
+        });
+    }
 
         async function refreshWorkspace() {
             try {
@@ -192,7 +209,6 @@
 
                 const currentDiv = document.getElementById('currentWorkspace');
                 const pipelineDisplay = document.getElementById('pipelineRepoDisplay');
-                const datasetsList = document.getElementById('datasetsList');
 
                 const cfg = data.config || {datasets: [], pipeline_repo: null};
                 // update minimal top displays
@@ -204,18 +220,12 @@
 
                 if (!data.workspace) {
                     currentDiv.innerHTML = '<div class="text-gray-500">No workspace selected</div>';
-                    datasetsList.innerHTML = '';
                     return;
                 }
 
                 currentDiv.innerHTML = `<div class="text-sm">Workspace: <span class="font-mono">${data.workspace}</span></div><div class="text-xs text-gray-500 mt-1">Config: ${data.workspace_config_path}</div>`;
 
-                // Render datasets simple list (we will also render a detailed table below)
-                if ((cfg.datasets || []).length === 0) {
-                    datasetsList.innerHTML = '<div class="text-gray-500">No datasets linked</div>';
-                } else {
-                    datasetsList.innerHTML = '<ul class="divide-y divide-gray-100">' + (cfg.datasets || []).map(d => `\n<li class="py-2 flex justify-between items-center">\n  <span class="break-all">${d}</span>\n  <button class="text-red-600 hover:text-red-800" onclick="unlinkDataset('${encodeURI(d)}')">Unlink</button>\n</li>`).join('') + '\n</ul>';
-                }
+                // minimal dataset list removed — linked datasets are managed in the table below
 
                 // Refresh the detailed datasets table
                 await refreshDatasetsTable();
@@ -313,6 +323,15 @@
                 // Fetch individual dataset configs to retrieve groups and metadata where available
                 const cfgPromises = datasets.map(ds => fetch('/api/workspace/datasets/config?path=' + encodeURIComponent(ds.path)).then(r => r.ok ? r.json().catch(() => null) : null).catch(() => null));
                 const cfgs = await Promise.all(cfgPromises);
+                // Aggregate existing groups across configs
+                const allGroupsSet = new Set();
+                cfgs.forEach(c => {
+                    if (!c) return;
+                    const groups = c.groups || c.group || [];
+                    if (Array.isArray(groups)) groups.forEach(g => allGroupsSet.add(g));
+                });
+                const allGroups = Array.from(allGroupsSet).filter(Boolean);
+                _allGroupsList = allGroups;
 
                 // For entries missing sample/feature info call backend that loads DatasetConfigs and returns computed props
                 const propsPromises = datasets.map((ds, i) => {
@@ -335,8 +354,11 @@
                     const n_sources = dcfg.n_sources || computed.n_sources || '—';
                     const caps = Array.isArray(groups) ? groups.map(g => `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 mr-1">${g} <button onclick="removeGroup('${encodeURI(ds.path)}','${encodeURIComponent(g)}')" class="ml-2 text-red-500">×</button></span>`).join(' ') : '';
                     const tr = document.createElement('tr');
+                    // mark row with encoded path for quick lookups
+                    tr.dataset.pathEncoded = encodeURIComponent(ds.path);
                     tr.className = 'hover:bg-gray-50';
                     tr.innerHTML = `
+                        <td class="px-4 py-2"><input data-ds-select type="checkbox" data-path="${ds.path}" onchange="toggleDatasetSelection(this)" ${_dsSelectedDatasets.has(ds.path) ? 'checked' : ''}></td>
                         <td class="px-4 py-2 break-all">${ds.name}</td>
                         <td class="px-4 py-2">${caps}</td>
                         <td class="px-4 py-2">${ds.size_human || ''}</td>
@@ -350,11 +372,26 @@
                             <button class="text-yellow-600 hover:text-yellow-800 mr-2" onclick="editDataset('${encodeURI(ds.path)}')">Edit</button>
                             <button class="text-indigo-600 hover:text-indigo-800 mr-2" onclick="gotoPredictions('${encodeURIComponent(ds.name || ds.path)}')">Predictions</button>
                             <button class="text-green-600 hover:text-green-800 mr-2" onclick="analyzeDataset('${encodeURI(ds.path)}')">Analyze</button>
-                            <button class="text-gray-700 hover:text-gray-900" onclick="promptAddGroup('${encodeURI(ds.path)}')">Add to Group</button>
+                            <button class="text-red-600 hover:text-red-800 mr-2" onclick="unlinkDataset('${encodeURI(ds.path)}')">Unlink</button>
+                            <!-- Inline add-to-group: icon toggles a select of existing groups -->
+                            <span class="inline-flex items-center ml-2">
+                                <button class="text-gray-600 hover:text-gray-900 mr-1" onclick="(function(elId){ const s = document.getElementById(elId); if(s) s.classList.toggle('hidden'); })('addGroupSelect-${i}')" title="Add to group"><i data-feather="plus-square"></i></button>
+                                <select id="addGroupSelect-${i}" data-row-addgroup class="text-xs border rounded px-1 py-0.5 hidden" onchange="(function(path, sel){ const v = sel.options[sel.selectedIndex].value; if(!v) return; addGroupToDataset(path, decodeURIComponent(v)).then(()=>{ sel.classList.add('hidden'); sel.selectedIndex = -1; }); })('${encodeURI(ds.path)}', this)">
+                                    <option value="">--</option>
+                                    ${allGroups.map(g => `<option value="${encodeURIComponent(g)}">${g}</option>`).join('')}
+                                </select>
+                            </span>
                         </td>
                     `;
                     tbody.appendChild(tr);
                 });
+                // Update select-all header checkbox according to current selection
+                try {
+                    const sah = document.getElementById('selectAllDatasets');
+                    if (sah) sah.checked = datasets.length ? datasets.every(ds => _dsSelectedDatasets.has(ds.path)) : false;
+                } catch (e) { /* ignore */ }
+                // Replace feather icons used in row actions
+                try { feather.replace(); } catch (e) { /* ignore */ }
             } catch (err) {
                 console.error('Failed to refresh datasets table', err);
             }
@@ -587,83 +624,42 @@
             if (document.getElementById('setWorkspaceBtn')) document.getElementById('setWorkspaceBtn').addEventListener('click', setWorkspace);
             if (document.getElementById('setPipelineRepoBtn')) document.getElementById('setPipelineRepoBtn').addEventListener('click', setPipelineRepo);
             // new UI bindings
-            // Try server-native dialog first (best-effort). If it returns nothing, fall back to
+            // Try server-native dialog once (best-effort). If it returns nothing, fall back to
             // the server-side filesystem browser modal which lists existing files/folders.
             async function _tryNativeOrBrowser(targetType) {
                 try {
-                    // dataset can accept files or folder; prefer files dialog first
                     if (targetType === 'dataset') {
-                        try {
-                            const res = await fetch('/api/files/dialog/files', {method: 'POST'});
-                            if (res.ok) {
-                                const j = await res.json();
-                                const paths = j.paths || [];
-                                if (paths.length) {
-                                    // Open dataset config modal directly with chosen files
-                                    openDatasetConfigModal(paths, null);
-                                    return;
-                                }
-                            }
-                        } catch (e) {
-                            console.debug('Native files dialog failed, falling back', e);
-                        }
-                        // if native files picker returned nothing, try folder dialog (may return folder)
-                        try {
-                            const res2 = await fetch('/api/files/dialog/folder', {method: 'POST'});
-                            if (res2.ok) {
-                                const j2 = await res2.json();
-                                if (j2.path) {
-                                    // Open dataset config modal for the selected folder
-                                    openDatasetConfigModal([j2.path], j2.path, null, null);
-                                    return;
-                                }
-                            }
-                        } catch (e) {
-                            console.debug('Native folder dialog failed for dataset, falling back', e);
+                        // prefer native files dialog for datasets
+                        const res = await fetch('/api/files/dialog/files', {method: 'POST'}).catch(() => null);
+                        if (res && res.ok) {
+                            const j = await res.json();
+                            const paths = j.paths || [];
+                            if (paths.length) { openDatasetConfigModal(paths, null); return; }
                         }
                     } else {
                         // workspace / pipeline / results expect a folder
-                        try {
-                            const res = await fetch('/api/files/dialog/folder', {method: 'POST'});
-                            if (res.ok) {
-                                const j = await res.json();
-                                if (j.path) {
-                                    // Apply immediately depending on target
-                                    if (targetType === 'workspace') {
-                                        const disp = document.getElementById('workspacePathDisplay');
-                                        if (disp) disp.textContent = j.path;
-                                        await setWorkspace(j.path);
-                                        return;
-                                    }
-                                    if (targetType === 'pipeline') {
-                                        const disp = document.getElementById('pipelineRepoDisplay');
-                                        if (disp) disp.textContent = j.path;
-                                        await setPipelineRepo(j.path);
-                                        return;
-                                    }
-                                    if (targetType === 'results') {
-                                        const disp = document.getElementById('resultsPathDisplay');
-                                        if (disp) disp.textContent = j.path;
-                                        try {
-                                            const resp = await fetch('/api/workspace/set-results-folder', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path: j.path})});
-                                            const data = await resp.json();
-                                            if (!resp.ok) throw new Error(data.detail || JSON.stringify(data));
-                                            await refreshWorkspace();
-                                        } catch (err) {
-                                            alert('Failed to set results folder: ' + err);
-                                        }
-                                        return;
-                                    }
+                        const res = await fetch('/api/files/dialog/folder', {method: 'POST'}).catch(() => null);
+                        if (res && res.ok) {
+                            const j = await res.json();
+                            if (j.path) {
+                                if (targetType === 'workspace') {
+                                    const disp = document.getElementById('workspacePathDisplay'); if (disp) disp.textContent = j.path; await setWorkspace(j.path); return;
+                                }
+                                if (targetType === 'pipeline') {
+                                    const disp = document.getElementById('pipelineRepoDisplay'); if (disp) disp.textContent = j.path; await setPipelineRepo(j.path); return;
+                                }
+                                if (targetType === 'results') {
+                                    const disp = document.getElementById('resultsPathDisplay'); if (disp) disp.textContent = j.path;
+                                    try { const resp = await fetch('/api/workspace/set-results-folder', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path: j.path})}); const data = await resp.json(); if (!resp.ok) throw new Error(data.detail || JSON.stringify(data)); await refreshWorkspace(); } catch (err) { alert('Failed to set results folder: ' + err); }
+                                    return;
                                 }
                             }
-                        } catch (e) {
-                            console.debug('Native folder dialog failed, falling back', e);
                         }
                     }
                 } catch (err) {
                     console.error('Error while trying native dialog', err);
                 }
-                // Fallback: open the server-side filesystem browser modal
+                // Fallback to server-side browser
                 _openFileBrowser(targetType);
             }
 
@@ -690,34 +686,22 @@
             _openFileBrowser('workspace');
         });
 
-        document.getElementById('browsePipelineRepoBtn').addEventListener('click', () => _tryNativeOrBrowser('pipeline'));
+    if (document.getElementById('browsePipelineRepoBtn')) document.getElementById('browsePipelineRepoBtn').addEventListener('click', () => _tryNativeOrBrowser('pipeline'));
 
-        document.getElementById('linkDatasetBtn').addEventListener('click', async () => {
-            // Try native files dialog first
+        if (document.getElementById('linkDatasetSmallBtn')) document.getElementById('linkDatasetSmallBtn').addEventListener('click', async () => {
             try {
-                const res = await fetch('/api/files/dialog/files', {method: 'POST'});
-                if (res.ok) {
-                    const j = await res.json();
-                    const paths = j.paths || [];
-                    if (paths.length) {
-                        openDatasetConfigModal(paths, null);
-                        return;
-                    }
+                // Try native folder dialog first (allow folder selection)
+                const resFolder = await fetch('/api/files/dialog/folder', {method: 'POST'}).catch(() => null);
+                if (resFolder && resFolder.ok) {
+                    const j2 = await resFolder.json(); if (j2.path) { document.getElementById('datasetSelectionDisplay').textContent = j2.path; openDatasetConfigModal([j2.path], j2.path); return; }
                 }
-            } catch (err) {
-                console.debug('Native files dialog failed, trying folder dialog', err);
-            }
-            // Try folder dialog next
-            try {
-                const res2 = await fetch('/api/files/dialog/folder', {method: 'POST'});
-                if (res2.ok) {
-                    const j2 = await res2.json();
-                    if (j2.path) { openDatasetConfigModal([j2.path], j2.path); return; }
+                // Try files dialog next
+                const resFiles = await fetch('/api/files/dialog/files', {method: 'POST'}).catch(() => null);
+                if (resFiles && resFiles.ok) {
+                    const j = await resFiles.json(); const paths = j.paths || []; if (paths.length) { openDatasetConfigModal(paths, null); return; }
                 }
-            } catch (err) {
-                console.debug('Native folder dialog failed for dataset', err);
-            }
-            // fallback: open UI file browser modal for dataset selection
+            } catch (e) { console.debug('Native dataset dialog failed', e); }
+            // fallback to server-side browser
             _openFileBrowser('dataset');
         });
 
@@ -942,23 +926,58 @@
             try {
                 // Attempt to load existing dataset config (path may be a config file)
                 const cfgResp = await fetch('/api/workspace/datasets/config?path=' + encodeURIComponent(datasetPath));
+                let createdNew = false;
                 if (cfgResp.ok) {
                     const cfg = await cfgResp.json();
                     cfg.groups = cfg.groups || [];
                     if (!cfg.groups.includes(groupName)) cfg.groups.push(groupName);
-                    // Save back by pointing to same path so it overwrites
-                    const saveResp = await fetch('/api/workspace/datasets/save', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path: datasetPath, config: cfg})});
+                    const derivedName = cfg.name || sanitizeNameForFile((datasetPath || '').split(/[\\\/]+/).filter(Boolean).pop() || 'dataset');
+                    const saveResp = await fetch('/api/workspace/datasets/save', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path: datasetPath, config: cfg, name: derivedName})});
                     if (!saveResp.ok) throw new Error(await saveResp.text());
                 } else {
                     // Not a config file: create a new dataset config that references the folder
                     const cfg = { folder: datasetPath, groups: [groupName] };
-                    const saveResp = await fetch('/api/workspace/datasets/save', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name: null, config: cfg})});
+                    const derivedName = sanitizeNameForFile((datasetPath || '').split(/[\\\/]+/).filter(Boolean).pop() || 'dataset');
+                    const saveResp = await fetch('/api/workspace/datasets/save', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name: derivedName, config: cfg})});
                     if (!saveResp.ok) throw new Error(await saveResp.text());
+                    createdNew = true;
                     // Remove the original folder entry to avoid duplication
                     try { await fetch('/api/workspace/unlink-dataset', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path: datasetPath})}); } catch (_) {}
                 }
-                await refreshDatasetsTable();
-                await refreshWorkspace();
+
+                // Update UI in-place to avoid full refresh: find the table row and append a capsule
+                try {
+                    const enc = encodeURIComponent(datasetPath);
+                    const tr = document.querySelector(`#datasetsTableBody tr[data-path-encoded='${enc}']`);
+                    if (tr) {
+                        const groupsCell = tr.children[2];
+                        // Append capsule only if not already present
+                        const exists = Array.from(groupsCell.querySelectorAll('span')).some(s => s.textContent && s.textContent.trim().startsWith(groupName));
+                        if (!exists) {
+                            const span = document.createElement('span');
+                            span.className = 'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 mr-1';
+                            span.innerHTML = `${groupName} <button class="ml-2 text-red-500" onclick="removeGroup('${encodeURI(datasetPath)}','${encodeURIComponent(groupName)}')">×</button>`;
+                            groupsCell.insertBefore(span, groupsCell.firstChild);
+                        }
+                        // ensure the per-row add-to-group select contains the group as an option
+                        document.querySelectorAll('select[data-row-addgroup]').forEach(s => {
+                            const has = Array.from(s.options).some(o => decodeURIComponent(o.value) === groupName);
+                            if (!has) {
+                                const opt = document.createElement('option'); opt.value = encodeURIComponent(groupName); opt.textContent = groupName; s.appendChild(opt);
+                            }
+                        });
+                        // keep global list updated
+                        if (!_allGroupsList.includes(groupName)) _allGroupsList.push(groupName);
+                    } else {
+                        // fallback if row not present (newly created config) -> refresh
+                        await refreshDatasetsTable();
+                    }
+                } catch (e) {
+                    // best-effort: refresh on errors
+                    await refreshDatasetsTable();
+                }
+                // Only refresh workspace summary when a new dataset config was created (safer)
+                if (createdNew) await refreshWorkspace();
             } catch (err) {
                 alert('Failed to add group: ' + err);
             }
@@ -975,7 +994,21 @@
                 cfg.groups = Array.isArray(cfg.groups) ? cfg.groups.filter(g => g !== groupName) : [];
                 const saveResp = await fetch('/api/workspace/datasets/save', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path: path, config: cfg})});
                 if (!saveResp.ok) throw new Error(await saveResp.text());
-                await refreshDatasetsTable();
+                try {
+                    const enc = encodeURIComponent(path);
+                    const tr = document.querySelector(`#datasetsTableBody tr[data-path-encoded='${enc}']`);
+                    if (tr) {
+                        const groupsCell = tr.children[2];
+                        Array.from(groupsCell.querySelectorAll('span')).forEach(s => {
+                            if ((s.textContent || '').trim().startsWith(groupName)) s.remove();
+                        });
+                    } else {
+                        await refreshDatasetsTable();
+                    }
+                } catch (e) {
+                    await refreshDatasetsTable();
+                }
+                // update workspace summary as necessary
                 await refreshWorkspace();
             } catch (err) {
                 alert('Failed to remove group: ' + err);
@@ -990,7 +1023,12 @@
                     <div style="width:760px;background:#fff;padding:12px;border-radius:8px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><strong>Create Group and Assign Datasets</strong><button id="groups-close">Close</button></div>
                         <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
-                            <label style="flex:1">Group name <input id="groups-name" type="text" style="width:60%;margin-left:6px;padding:6px;border:1px solid #ddd;border-radius:4px;"></label>
+                            <label style="flex:1">Group name <input id="groups-name" type="text" style="width:50%;margin-left:6px;padding:6px;border:1px solid #ddd;border-radius:4px;"></label>
+                            <label style="flex:0">Or pick existing
+                                <select id="groups-existing" style="margin-left:6px;padding:6px;border:1px solid #ddd;border-radius:4px;min-width:160px;">
+                                    <option value="">--</option>
+                                </select>
+                            </label>
                         </div>
                         <div style="max-height:300px;overflow:auto;border:1px solid #eee;padding:8px;border-radius:6px;" id="groups-dataset-list"></div>
                         <div style="margin-top:8px;text-align:right;"><button id="groups-apply" style="background:#1f6feb;color:#fff;padding:8px 12px;border-radius:6px;">Apply</button></div>
@@ -1000,8 +1038,10 @@
             document.body.appendChild(modal);
             modal.querySelector('#groups-close').addEventListener('click', ()=>{ modal.style.display='none'; });
             modal.querySelector('#groups-apply').addEventListener('click', async ()=>{
-                const g = modal.querySelector('#groups-name').value.trim();
-                if (!g) { alert('Enter a group name'); return; }
+                const existing = modal.querySelector('#groups-existing').value || '';
+                const typed = modal.querySelector('#groups-name').value.trim();
+                const g = existing ? decodeURIComponent(existing) : typed;
+                if (!g) { alert('Enter a group name or pick an existing one'); return; }
                 const checks = Array.from(modal.querySelectorAll('input[data-ds-check]:checked')).map(e=>e.dataset.path);
                 if (!checks.length) { alert('Select at least one dataset'); return; }
                 for (const p of checks) {
@@ -1009,27 +1049,40 @@
                 }
                 modal.style.display='none';
             });
-            modal.open = async function(){
+            modal.open = async function(preselectedPaths){
+                const pre = new Set((preselectedPaths && Array.isArray(preselectedPaths)) ? preselectedPaths : []);
                 modal.style.display='block';
                 const list = modal.querySelector('#groups-dataset-list'); list.innerHTML='';
                 try{
+                    // populate existing groups combobox from cached list
+                    const existingSel = modal.querySelector('#groups-existing');
+                    existingSel.innerHTML = '<option value="">--</option>' + _allGroupsList.map(g => `<option value="${encodeURIComponent(g)}">${g}</option>`).join('');
                     const r = await fetch('/api/workspace/datasets'); if(!r.ok) throw new Error(await r.text()); const j = await r.json(); const rows = j.datasets || [];
-                    rows.forEach(row=>{ const el = document.createElement('div'); el.style.padding='6px 4px'; el.innerHTML=`<label><input data-ds-check data-path='${row.path}' type='checkbox'> ${row.name} <span style='font-size:12px;color:#666'>${row.path}</span></label>`; list.appendChild(el); });
+                    rows.forEach(row=>{ const el = document.createElement('div'); el.style.padding='6px 4px'; const checked = pre.has(row.path) ? 'checked' : ''; el.innerHTML=`<label><input data-ds-check data-path='${row.path}' type='checkbox' ${checked}> ${row.name} <span style='font-size:12px;color:#666'>${row.path}</span></label>`; list.appendChild(el); });
                 }catch(e){ alert('Failed to load datasets: '+e); }
             };
-            document.getElementById('manageGroupsBtn').addEventListener('click', ()=>{ modal.open(); });
+            // Expose open API for other UI elements to bind later
+            window.openGroupsModal = modal.open;
         })();
         // Render the datasets table at the bottom area
         (async function attachBottomDatasetsTable(){
             const container = document.createElement('div');
             container.className = 'max-w-6xl mx-auto p-6';
-            container.innerHTML = `
-                <div class="bg-white rounded-lg shadow-md p-6 mt-6">
-                    <h2 class="text-xl font-semibold mb-4">Linked Datasets</h2>
-                    <div id="datasetsTableContainer" class="mt-4">
+                        container.innerHTML = `
+                                <div class="bg-white rounded-lg shadow-md p-6 mt-6 relative">
+                                        <div class="flex items-start justify-between">
+                                            <h2 class="text-xl font-semibold mb-4">Linked Datasets</h2>
+                                            <div class="ml-4 flex items-center gap-2">
+                                                <button id="groupsCornerBtn" class="text-sm bg-gray-100 px-2 py-1 rounded" title="Create group"><i data-feather="plus-square"></i></button>
+                                                <button id="linkDatasetSmallBtn" class="text-sm bg-blue-600 text-white px-2 py-1 rounded" title="Link dataset"><i data-feather="folder"></i></button>
+                                                <span id="datasetSelectionDisplay" class="text-xs text-gray-600 ml-2">No selection</span>
+                                            </div>
+                                        </div>
+                                        <div id="datasetsTableContainer" class="mt-4">
                         <table id="datasetsTable" class="w-full table-auto bg-white rounded shadow">
                             <thead>
                                 <tr class="bg-gray-50 text-left">
+                                    <th class="px-4 py-2"><input id="selectAllDatasets" type="checkbox" onchange="toggleSelectAllDatasets(this)" /></th>
                                     <th class="px-4 py-2">Name</th>
                                     <th class="px-4 py-2">Groups</th>
                                     <th class="px-4 py-2">Size</th>
@@ -1047,8 +1100,13 @@
                 </div>
             `;
             document.querySelector('.flex-1').appendChild(container);
+            // Bind the corner create-group button to the injected modal
+            const cornerBtn = document.getElementById('groupsCornerBtn');
+            if (cornerBtn) cornerBtn.addEventListener('click', async () => { if (window.openGroupsModal) { await window.openGroupsModal(Array.from(_dsSelectedDatasets)); } else { alert('Group modal not available'); } });
             // refresh contents immediately
             await refreshDatasetsTable();
+            // Replace feather icons for dynamically-inserted icons
+            try { feather.replace(); } catch (e) { /* ignore if feather not available */ }
         })();
     </script>
 </body>

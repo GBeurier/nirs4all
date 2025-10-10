@@ -27,8 +27,17 @@ HERE = Path(__file__).resolve()
 WEBAPP_DIR = HERE.parents[2] / "webapp"
 WEBAPP_MOCKUP_DIR = HERE.parents[2] / "webapp_mockup"
 UI_TEMPLATES_DIR = HERE.parents[2] / "ui_templates"
-if UI_TEMPLATES_DIR.exists():
-    # Use ui_templates/ as the canonical source for UI templates when present
+WEBAPP_REACT_DIR = HERE.parents[2] / "webapp_react"
+if WEBAPP_REACT_DIR.exists():
+    # Prefer a React-built SPA when present (new webapp)
+    app.mount("/webapp", StaticFiles(directory=str(WEBAPP_REACT_DIR), html=True), name="webapp_react")
+
+    @app.get("/")
+    def _root_redirect_react():
+        # SPA entrypoint
+        return RedirectResponse('/webapp/')
+elif UI_TEMPLATES_DIR.exists():
+    # Use ui_templates/ as the canonical source for HTML templates when present
     app.mount("/webapp", StaticFiles(directory=str(UI_TEMPLATES_DIR), html=True), name="ui_templates")
 
     @app.get("/")
