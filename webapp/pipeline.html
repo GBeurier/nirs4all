@@ -238,6 +238,10 @@
                                         <button class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors">
                                             <i data-feather="save" class="w-4 h-4"></i>
                                         </button>
+                                        <button id="loadFromPredictionBtn" class="bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-colors" title="Load pipeline from a prediction">
+                                            <i data-feather="download" class="w-4 h-4 mr-1"></i>
+                                            Load from Prediction
+                                        </button>
                                         <button class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors">
                                             <i data-feather="folder" class="w-4 h-4"></i>
                                         </button>
@@ -379,6 +383,132 @@
             const content = document.getElementById(`${subsection}-content`);
             content.classList.toggle('hidden');
         }
+
+        // Load from prediction modal
+        const loadModalHtml = `
+        <div id="loadPredictionModal" class="fixed inset-0 hidden items-center justify-center bg-black bg-opacity-50">
+            <div class="bg-white rounded-lg w-11/12 md:w-1/2 lg:w-1/3 p-4">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="font-semibold">Load Pipeline from Prediction</h3>
+                    <button id="closeLoadPredictionModal" class="text-gray-500">✕</button>
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Prediction ID</label>
+                        <input id="loadPredictionId" class="w-full border rounded px-2 py-1" placeholder="Paste prediction ID here" />
+                    </div>
+                    <div id="loadPredictionMsg" class="text-sm text-red-600"></div>
+                </div>
+                <div class="mt-4 flex justify-end space-x-2">
+                    <button id="doLoadPrediction" class="bg-indigo-600 text-white px-4 py-2 rounded">Load</button>
+                    <button id="cancelLoadPrediction" class="px-4 py-2 bg-gray-100 rounded">Cancel</button>
+                </div>
+            </div>
+        </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', loadModalHtml);
+
+        document.getElementById('loadFromPredictionBtn').addEventListener('click', () => {
+            document.getElementById('loadPredictionModal').classList.remove('hidden');
+            document.getElementById('loadPredictionMsg').textContent = '';
+            document.getElementById('loadPredictionId').value = '';
+        });
+        document.getElementById('closeLoadPredictionModal').addEventListener('click', () => { document.getElementById('loadPredictionModal').classList.add('hidden'); });
+        document.getElementById('cancelLoadPrediction').addEventListener('click', () => { document.getElementById('loadPredictionModal').classList.add('hidden'); });
+
+        document.getElementById('doLoadPrediction').addEventListener('click', async () => {
+            const pid = document.getElementById('loadPredictionId').value.trim();
+            const msg = document.getElementById('loadPredictionMsg');
+            if (!pid) { msg.textContent = 'Enter a prediction ID'; return; }
+            try {
+                // Use the server's expected query name 'prediction_id'
+                const resp = await fetch('/api/pipeline/from-prediction?prediction_id=' + encodeURIComponent(pid));
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.detail || resp.statusText || 'Failed to load');
+                }
+                const data = await resp.json();
+                const pipeline = data.pipeline;
+                renderPipelineFromJSON(pipeline);
+                document.getElementById('loadPredictionModal').classList.add('hidden');
+            } catch (err) {
+                msg.textContent = 'Error: ' + (err.message || err);
+            }
+        });
+
+        function renderPipelineFromJSON(pipeline) {
+            // Clear existing canvas
+            const canvas = document.getElementById('pipelineCanvas');
+            canvas.innerHTML = '';
+            // The saved pipeline may be either a list of steps or a dict with 'pipeline' key
+            let steps = pipeline;
+            if (pipeline && typeof pipeline === 'object' && !Array.isArray(pipeline)) {
+                if (Array.isArray(pipeline.pipeline)) steps = pipeline.pipeline;
+                else if (Array.isArray(pipeline.steps)) steps = pipeline.steps;
+            }
+            if (!Array.isArray(steps)) {
+                const p = document.createElement('p'); p.className='text-gray-500 text-center py-8'; p.textContent = 'Loaded pipeline is empty or not a recognized format.'; canvas.appendChild(p); return;
+            }
+
+            steps.forEach(step => {
+                const label = summarizeStep(step);
+                const comp = document.createElement('div'); comp.className = 'bg-white border border-gray-200 rounded-lg p-4 mb-3 shadow-sm';
+                comp.innerHTML = `<div class="flex justify-between items-center mb-2"><span class="font-medium">${label}</span><button class="text-gray-400 hover:text-red-600" onclick="this.parentElement.parentElement.remove()"><i data-feather="x" class="w-4 h-4"></i></button></div>`;
+                // append a small parameters block
+                const params = document.createElement('pre'); params.className = 'text-xs text-gray-600 bg-gray-50 p-2 rounded overflow-auto';
+                // sanitize large arrays
+                const safe = JSON.stringify(step, (k, v) => {
+                    if (k === 'y_true' || k === 'y_pred' || k === 'sample_indices') return `[${String(v || '').slice(0, 120)}${String(v || '').length > 120 ? '...': ''}]`;
+                    return v;
+                }, 2);
+                params.textContent = safe;
+                comp.appendChild(params);
+                canvas.appendChild(comp);
+            });
+            feather.replace();
+        }
+
+        function summarizeStep(step) {
+            if (!step) return 'No-op';
+            if (typeof step === 'string') return step;
+            if (Array.isArray(step)) return `Sub-pipeline (${step.length} steps)`;
+            if (typeof step === 'object') {
+                if ('class' in step) {
+                    const cls = String(step.class).split('.').pop();
+                    if (step.params) return `${cls}(${Object.keys(step.params).join(',')})`;
+                    return cls;
+                }
+                const keys = Object.keys(step);
+                if (keys.length === 1) return keys[0];
+                return `Step (${keys.join(',')})`;
+            }
+            return String(step);
+        }
+
+        // Auto-load pipeline when pipeline.html is opened with a prediction id query parameter
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                // Support multiple query parameter names for backward compatibility
+                const pid = params.get('pred_id') || params.get('id') || params.get('prediction_id');
+                if (!pid) return;
+                // Fetch pipeline for this prediction id
+                const resp = await fetch('/api/pipeline/from-prediction?prediction_id=' + encodeURIComponent(pid));
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    console.warn('Failed to auto-load pipeline:', err.detail || resp.statusText);
+                    return;
+                }
+                const data = await resp.json();
+                if (data && data.pipeline) {
+                    renderPipelineFromJSON(data.pipeline);
+                } else {
+                    console.warn('No pipeline returned for prediction', pid);
+                }
+            } catch (err) {
+                console.error('Error auto-loading pipeline from prediction:', err);
+            }
+        });
 </script>
 
 </body>

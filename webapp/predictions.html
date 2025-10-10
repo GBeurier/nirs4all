@@ -60,30 +60,31 @@
                     <!-- Filters -->
                     <div class="bg-white rounded-lg shadow-md p-6 mb-6">
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                            <input type="text" placeholder="Search predictions..." class="border border-gray-300 rounded-lg px-3 py-2">
-                            <select class="border border-gray-300 rounded-lg px-3 py-2">
-                                <option>All Datasets</option>
-                                <option>cortical_activity_001</option>
-                                <option>motor_task_study</option>
+                            <input id="predSearchInput" type="text" placeholder="Search predictions..." class="border border-gray-300 rounded-lg px-3 py-2">
+                            <select id="predDatasetSelect" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">All Datasets</option>
                             </select>
-                            <select class="border border-gray-300 rounded-lg px-3 py-2">
-                                <option>All Models</option>
-                                <option>Random Forest</option>
-                                <option>SVM</option>
-                                <option>Neural Network</option>
+                            <select id="predModelSelect" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">All Models</option>
                             </select>
-                            <input type="date" class="border border-gray-300 rounded-lg px-3 py-2">
+                            <select id="predConfigSelect" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">All Configs</option>
+                            </select>
+                            <div class="flex items-center space-x-2">
+                                <input id="predDateInput" type="date" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <div id="predResultsPath" class="text-xs text-gray-500 ml-2">Results: -</div>
+                            </div>
                         </div>
                         <div class="flex justify-between items-center">
-                            <span class="text-sm text-gray-600">156 predictions found</span>
+                            <span id="predTotals" class="text-sm text-gray-600">0 predictions found</span>
                             <div class="flex space-x-2">
-                                <button class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors">
+                                <button id="predDownloadBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors" title="Download selected">
                                     <i data-feather="download" class="w-4 h-4"></i>
                                 </button>
-                                <button class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors">
+                                <button id="predDeleteBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors" title="Delete selected">
                                     <i data-feather="trash-2" class="w-4 h-4"></i>
                                 </button>
-                                <button class="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                                <button id="predChartBtn" class="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors" title="Show chart">
                                     <i data-feather="bar-chart-2" class="w-4 h-4"></i>
                                 </button>
                             </div>
@@ -93,105 +94,31 @@
                     <!-- Predictions Table -->
                     <div class="bg-white rounded-lg shadow-md overflow-hidden">
                         <div class="overflow-x-auto">
-                            <table class="w-full">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">
-                                            <input type="checkbox" class="rounded">
-                                        </th>
-                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
-                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Run ID</th>
-                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Dataset</th>
-                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Score</th>
-                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Model</th>
-                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
-                                    </tr>
+                            <table id="predictionsTable" class="w-full">
+                                <thead id="predTableHead" class="bg-gray-50">
+                                    <!-- dynamically generated -->
                                 </thead>
-                                <tbody class="divide-y divide-gray-200">
-                                    <tr class="hover:bg-gray-50">
-                                        <td class="py-3 px-4">
-                                            <input type="checkbox" class="rounded">
-                                        </td>
-                                        <td class="py-3 px-4">2024-01-15 14:30</td>
-                                        <td class="py-3 px-4 font-mono text-sm">RUN_0012</td>
-                                        <td class="py-3 px-4">cortical_activity_001</td>
-                                        <td class="py-3 px-4">
-                                            <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">0.92</span>
-                                        </td>
-                                        <td class="py-3 px-4">Random Forest</td>
-                                        <td class="py-3 px-4">
-                                            <div class="flex space-x-2">
-                                                <button class="text-blue-600 hover:text-blue-800" title="Go to Report">
-                                                    <i data-feather="file-text" class="w-4 h-4"></i>
-                                                </button>
-                                                <button class="text-green-600 hover:text-green-800" title="Replay">
-                                                    <i data-feather="repeat" class="w-4 h-4"></i>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    <tr class="hover:bg-gray-50">
-                                        <td class="py-3 px-4">
-                                            <input type="checkbox" class="rounded">
-                                        </td>
-                                        <td class="py-3 px-4">2024-01-14 11:20</td>
-                                        <td class="py-3 px-4 font-mono text-sm">RUN_0011</td>
-                                        <td class="py-3 px-4">motor_task_study</td>
-                                        <td class="py-3 px-4">
-                                            <span class="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full">0.78</span>
-                                        </td>
-                                        <td class="py-3 px-4">SVM</td>
-                                        <td class="py-3 px-4">
-                                            <div class="flex space-x-2">
-                                                <button class="text-blue-600 hover:text-blue-800" title="Go to Report">
-                                                    <i data-feather="file-text" class="w-4 h-4"></i>
-                                                </button>
-                                                <button class="text-green-600 hover:text-green-800" title="Replay">
-                                                    <i data-feather="repeat" class="w-4 h-4"></i>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    <tr class="hover:bg-gray-50">
-                                        <td class="py-3 px-4">
-                                            <input type="checkbox" class="rounded">
-                                        </td>
-                                        <td class="py-3 px-4">2024-01-13 16:45</td>
-                                        <td class="py-3 px-4 font-mono text-sm">RUN_0010</td>
-                                        <td class="py-3 px-4">cortical_activity_001</td>
-                                        <td class="py-3 px-4">
-                                            <span class="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-full">0.65</span>
-                                        </td>
-                                        <td class="py-3 px-4">Neural Network</td>
-                                        <td class="py-3 px-4">
-                                            <div class="flex space-x-2">
-                                                <button class="text-blue-600 hover:text-blue-800" title="Go to Report">
-                                                    <i data-feather="file-text" class="w-4 h-4"></i>
-                                                </button>
-                                                <button class="text-green-600 hover:text-green-800" title="Replay">
-                                                    <i data-feather="repeat" class="w-4 h-4"></i>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
+                                <tbody id="predTableBody" class="divide-y divide-gray-200">
+                                    <!-- dynamically generated rows -->
                                 </tbody>
                             </table>
                         </div>
 
                         <!-- Pagination -->
                         <div class="bg-gray-50 px-4 py-3 flex items-center justify-between border-t border-gray-200">
-                            <div class="flex-1 flex justify-between items-center">
-                                <button class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                    Previous
-                                </button>
-                                <div class="hidden md:flex">
-                                    <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">1</span>
-                                    <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">2</span>
-                                    <span class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50">3</span>
-                                </div>
-                                <button class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                                    Next
-                                </button>
+                            <div class="flex items-center space-x-3">
+                                <button id="predPrevBtn" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">Previous</button>
+                                <button id="predNextBtn" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">Next</button>
+                                <label class="text-sm text-gray-600">Page size</label>
+                                <select id="predPageSize" class="border rounded px-2 py-1 text-sm">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50" selected>50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <span id="predPageInfo" class="text-sm text-gray-700">0 of 0</span>
                             </div>
                         </div>
                     </div>
@@ -218,6 +145,178 @@
                 console.log('Right-click on prediction row');
             }
         });
+
+        // Predictions page dynamic logic
+        // Client-side state for search & pagination
+        const _state = {
+            dataset: '',
+            model: '',
+            config: '',
+            q: '',
+            date_from: '',
+            date_to: '',
+            sort_by: null,
+            sort_dir: 'desc',
+            page_size: 50,
+            cursor: null,
+            next_cursor: null,
+            prev_cursor: null
+        };
+
+        async function loadDatasetsList() {
+            const resp = await fetch('/api/predictions/datasets');
+            if (!resp.ok) throw new Error(await resp.text());
+            return await resp.json();
+        }
+
+        async function loadMeta(datasetName) {
+            const url = datasetName ? `/api/predictions/meta?dataset=${encodeURIComponent(datasetName)}` : '/api/predictions/meta';
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(await resp.text());
+            return await resp.json();
+        }
+
+        async function fetchPage(cursor=null) {
+            const params = new URLSearchParams();
+            if (_state.dataset) params.set('dataset', _state.dataset);
+            params.set('page_size', String(_state.page_size));
+            if (cursor !== null && cursor !== undefined) params.set('cursor', String(cursor));
+            if (_state.sort_by) params.set('sort_by', _state.sort_by);
+            if (_state.sort_dir) params.set('sort_dir', _state.sort_dir);
+            if (_state.model) params.set('model_name', _state.model);
+            if (_state.config) params.set('config_name', _state.config);
+            if (_state.q) params.set('q', _state.q);
+            if (_state.date_from) params.set('date_from', _state.date_from);
+            if (_state.date_to) params.set('date_to', _state.date_to);
+
+            const url = '/api/predictions/search?' + params.toString();
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(await resp.text());
+            const data = await resp.json();
+
+            // update cursors and page info
+            _state.cursor = data.cursor || 0;
+            _state.next_cursor = data.next_cursor;
+            _state.prev_cursor = data.prev_cursor;
+            document.getElementById('predTotals').textContent = `${data.total || 0} predictions found`;
+            document.getElementById('predPageInfo').textContent = `${(_state.cursor || 0) + 1} - ${Math.min((_state.cursor || 0) + _state.page_size, data.total || 0)} of ${data.total || 0}`;
+
+            renderPredictionsTable(data.columns || [], data.predictions || []);
+            // update Prev/Next buttons
+            document.getElementById('predPrevBtn').disabled = !(_state.prev_cursor !== null && _state.prev_cursor !== undefined);
+            document.getElementById('predNextBtn').disabled = !(_state.next_cursor !== null && _state.next_cursor !== undefined);
+        }
+
+        function renderPredictionsTable(columns, rows) {
+            const thead = document.getElementById('predTableHead');
+            const tbody = document.getElementById('predTableBody');
+            thead.innerHTML = '';
+            tbody.innerHTML = '';
+
+            // header
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<th class="text-left py-3 px-4 font-semibold text-gray-700"><input id="predSelectAll" type="checkbox" class="rounded"></th>`;
+            // Filter out large payload columns we don't want to display
+            const excludedCols = new Set(['y_true', 'y_pred', 'sample_indices', 'sample_index']);
+            const displayCols = columns.filter(c => !excludedCols.has(c));
+            displayCols.forEach(c => {
+                const th = document.createElement('th');
+                th.className = 'text-left py-3 px-4 font-semibold text-gray-700 cursor-pointer select-none';
+                th.textContent = c;
+                th.onclick = () => {
+                    if (_state.sort_by === c) _state.sort_dir = (_state.sort_dir === 'asc' ? 'desc' : 'asc'); else _state.sort_by = c;
+                    // reset cursor when sorting
+                    _state.cursor = null; _state.next_cursor = null; _state.prev_cursor = null;
+                    fetchPage(null);
+                };
+                tr.appendChild(th);
+            });
+            const actionsTh = document.createElement('th');
+            actionsTh.className = 'text-left py-3 px-4 font-semibold text-gray-700';
+            actionsTh.textContent = 'Actions';
+            tr.appendChild(actionsTh);
+            thead.appendChild(tr);
+
+            // rows
+            rows.forEach(r => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50';
+                const selTd = document.createElement('td'); selTd.className = 'py-3 px-4'; selTd.innerHTML = '<input type="checkbox" class="pred-row-select rounded">'; row.appendChild(selTd);
+                // Only render displayCols to avoid printing large arrays
+                displayCols.forEach(c => {
+                    const td = document.createElement('td'); td.className = 'py-3 px-4'; let val = r[c]; if (val === undefined || val === null) val = '';
+                    if (c.toLowerCase().includes('score') && val !== '') {
+                        const span = document.createElement('span'); const num = Number(val);
+                        const cls = num >= 0.9 ? 'bg-green-100 text-green-800' : (num >= 0.75 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800');
+                        span.className = cls + ' text-xs px-2 py-1 rounded-full'; span.textContent = typeof val === 'number' ? val.toFixed(3) : val; td.appendChild(span);
+                    } else if (c === '_date') { td.textContent = val || ''; }
+                    else { td.textContent = typeof val === 'object' ? JSON.stringify(val) : String(val); }
+                    row.appendChild(td);
+                });
+                const actions = document.createElement('td'); actions.className = 'py-3 px-4'; actions.innerHTML = `
+                    <div class="flex space-x-2">
+                        <button class="text-blue-600 hover:text-blue-800" title="Go to Report" onclick="openReport('${r.id || ''}')"><i data-feather="file-text" class="w-4 h-4"></i></button>
+                        <button class="text-indigo-600 hover:text-indigo-800" title="Open Pipeline" onclick="openPipeline('${r.id || ''}')"><i data-feather="git-branch" class="w-4 h-4"></i></button>
+                        <button class="text-green-600 hover:text-green-800" title="Replay" onclick="replayPrediction('${r.id || ''}')"><i data-feather="repeat" class="w-4 h-4"></i></button>
+                    </div>
+                `; row.appendChild(actions);
+                tbody.appendChild(row);
+            });
+            feather.replace();
+
+            // wire select-all
+            const selAll = document.getElementById('predSelectAll');
+            if (selAll) selAll.onclick = (e) => { document.querySelectorAll('.pred-row-select').forEach(cb => cb.checked = e.target.checked); };
+        }
+
+        async function initPredictionsPage() {
+            try {
+                const ds = await loadDatasetsList();
+                const select = document.getElementById('predDatasetSelect'); select.innerHTML = '<option value="">All Datasets</option>';
+                ds.datasets.forEach(d => { const opt = document.createElement('option'); opt.value = d.name; opt.textContent = `${d.name} (${d.predictions_count})`; select.appendChild(opt); });
+                if (ds.results_path) document.getElementById('predResultsPath').textContent = 'Results: ' + ds.results_path;
+
+                // wire dataset change -> reload meta & first page
+                select.addEventListener('change', async (e) => {
+                    _state.dataset = e.target.value || '';
+                    _state.cursor = null; _state.next_cursor = null; _state.prev_cursor = null;
+                    // load meta and populate model/config
+                    const meta = await loadMeta(_state.dataset || '');
+                    const msel = document.getElementById('predModelSelect'); msel.innerHTML = '<option value="">All Models</option>' + (meta.models || []).map(m => `<option value="${m}">${m}</option>`).join('');
+                    const csel = document.getElementById('predConfigSelect'); csel.innerHTML = '<option value="">All Configs</option>' + (meta.configs || []).map(c => `<option value="${c}">${c}</option>`).join('');
+                    fetchPage(null);
+                });
+
+                // initial meta for global
+                const meta0 = await loadMeta('');
+                document.getElementById('predModelSelect').innerHTML = '<option value="">All Models</option>' + (meta0.models || []).map(m => `<option value="${m}">${m}</option>`).join('');
+                document.getElementById('predConfigSelect').innerHTML = '<option value="">All Configs</option>' + (meta0.configs || []).map(c => `<option value="${c}">${c}</option>`).join('');
+
+                // wire other filters
+                document.getElementById('predModelSelect').addEventListener('change', (e) => { _state.model = e.target.value || ''; fetchPage(null); });
+                document.getElementById('predConfigSelect').addEventListener('change', (e) => { _state.config = e.target.value || ''; fetchPage(null); });
+                document.getElementById('predSearchInput').addEventListener('input', (e) => { _state.q = e.target.value || ''; /* debounce might be added */ fetchPage(null); });
+                document.getElementById('predPageSize').addEventListener('change', (e) => { _state.page_size = parseInt(e.target.value, 10) || 50; _state.cursor = null; fetchPage(null); });
+                document.getElementById('predPrevBtn').addEventListener('click', (e) => { if (_state.prev_cursor !== null && _state.prev_cursor !== undefined) fetchPage(_state.prev_cursor); });
+                document.getElementById('predNextBtn').addEventListener('click', (e) => { if (_state.next_cursor !== null && _state.next_cursor !== undefined) fetchPage(_state.next_cursor); });
+
+                // initial load
+                await fetchPage(null);
+            } catch (err) {
+                console.error('Failed to initialize predictions page', err);
+                alert('Failed to load predictions: ' + err);
+            }
+        }
+
+        window.openReport = function(id) { alert('Open report for ' + id); };
+        window.replayPrediction = function(id) { alert('Replay prediction ' + id); };
+        window.openPipeline = function(id) {
+            if (!id) { alert('No prediction id'); return; }
+            // navigate to pipeline editor with prediction id (use 'prediction_id' for server compatibility)
+            window.location.href = `pipeline.html?prediction_id=${encodeURIComponent(id)}`;
+        };
+
+        initPredictionsPage();
     </script>
 </body>
 </html>

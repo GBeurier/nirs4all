@@ -12,12 +12,20 @@ import json
 from datetime import datetime
 import sys
 import subprocess
+import numpy as np
 
 try:
     # Import predictions manager from nirs4all core
     from nirs4all.dataset.predictions import Predictions
 except Exception:  # pragma: no cover - best-effort import
     Predictions = None
+
+try:
+    from nirs4all.dataset.dataset_config_parser import folder_to_name
+except Exception:  # pragma: no cover - fall back to simple namer
+    def folder_to_name(folder_path: str) -> str:  # type: ignore[override]
+        p = Path(folder_path)
+        return p.name or 'dataset'
 
 
 app = FastAPI(title="nirs4all UI (minimal)")
@@ -168,6 +176,467 @@ def predictions_counts(path: str = "results") -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
+
+def _resolve_results_path() -> Path:
+    """Resolve the results folder to an absolute Path using the current workspace config.
+
+    Priority:
+    - If workspace config contains an absolute path in 'results_folder' use it
+    - If workspace config contains a relative path, interpret it relative to the workspace
+    - Otherwise fallback to a 'results' folder relative to the workspace or current working dir
+    """
+    cfg = CURRENT_WORKSPACE_CONFIG or (load_workspace_config(CURRENT_WORKSPACE_PATH) if CURRENT_WORKSPACE_PATH else {})
+    rf = cfg.get('results_folder') if cfg else None
+    if rf:
+        p = Path(rf)
+        if p.is_absolute():
+            return p.expanduser().resolve()
+        # relative to workspace when possible
+        if CURRENT_WORKSPACE_PATH is not None:
+            return (CURRENT_WORKSPACE_PATH / p).expanduser().resolve()
+        return p.expanduser().resolve()
+    # fallback
+    if CURRENT_WORKSPACE_PATH is not None:
+        return (CURRENT_WORKSPACE_PATH / 'results').expanduser().resolve()
+    return Path('results').expanduser().resolve()
+
+
+def _to_json_basic(obj: Any):
+    """Convert numpy and Path types to JSON-serializable basic Python types.
+
+    This function recursively handles common container types as well.
+    """
+    # numpy array -> list
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    # numpy scalar -> python scalar
+    if hasattr(obj, 'dtype') and getattr(obj, 'dtype', None) is not None:
+        try:
+            return obj.item()
+        except Exception:
+            pass
+    # numpy generic (e.g., np.int64, np.float64)
+    if isinstance(obj, (np.generic,)):
+        try:
+            return obj.item()
+        except Exception:
+            return str(obj)
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, dict):
+        return {str(k): _to_json_basic(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_json_basic(v) for v in obj]
+    # default: let json serializer handle or convert to string as last resort
+    try:
+        json.dumps(obj)
+        return obj
+    except Exception:
+        return str(obj)
+
+
+def _parse_iso_date(v: Optional[str]) -> Optional[datetime]:
+    if not v:
+        return None
+    try:
+        return datetime.fromisoformat(v)
+    except Exception:
+        # try common fallback
+        try:
+            return datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+
+
+def _apply_filters_to_rows(rows: List[Dict[str, Any]],
+                           model_name: Optional[str] = None,
+                           config_name: Optional[str] = None,
+                           partition: Optional[str] = None,
+                           min_score: Optional[float] = None,
+                           max_score: Optional[float] = None,
+                           score_field: str = 'test_score',
+                           text_query: Optional[str] = None,
+                           date_from: Optional[str] = None,
+                           date_to: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Filter a list of prediction rows (dictionaries) in memory.
+
+    Supports equality filters, numeric ranges and a simple substring text search.
+    Date filters operate on '_date' field when present or on metadata.created_at.
+    """
+    out = []
+    q = text_query.lower() if text_query else None
+    df = _parse_iso_date(date_from) if date_from else None
+    dt = _parse_iso_date(date_to) if date_to else None
+
+    for r in rows:
+        # equality filters
+        if model_name and str(r.get('model_name', '')).lower() != model_name.lower():
+            continue
+        if config_name and str(r.get('config_name', '')).lower() != config_name.lower():
+            continue
+        if partition and str(r.get('partition', '')).lower() != partition.lower():
+            continue
+
+        # score range
+        if min_score is not None or max_score is not None:
+            val = r.get(score_field)
+            try:
+                num = float(val) if val is not None and val != '' else None
+            except Exception:
+                num = None
+            if num is None:
+                # if no numeric score, skip when any numeric constraint exists
+                if min_score is not None or max_score is not None:
+                    continue
+            else:
+                if min_score is not None and num < min_score:
+                    continue
+                if max_score is not None and num > max_score:
+                    continue
+
+        # date filter
+        if df or dt:
+            meta = r.get('metadata') if isinstance(r.get('metadata'), dict) else None
+            date_val = r.get('_date') or (meta and meta.get('created_at'))
+            parsed = None
+            if date_val:
+                parsed = _parse_iso_date(str(date_val))
+            # if no date, exclude when filters specified
+            if parsed is None:
+                continue
+            if df and parsed < df:
+                continue
+            if dt and parsed > dt:
+                continue
+
+        # text query: search in a concatenation of main fields
+        if q:
+            hay = ' '.join([str(r.get('dataset_name', '')), str(r.get('config_name', '')), str(r.get('model_name', '')), str(r.get('id', ''))]).lower()
+            if q not in hay:
+                # also try stringifying values
+                if q not in json.dumps(r).lower():
+                    continue
+
+        out.append(r)
+
+    return out
+
+
+@app.get("/api/predictions/search")
+def predictions_search(dataset: Optional[str] = None,
+                       page: int = 1,
+                       page_size: int = 50,
+                       cursor: Optional[int] = None,
+                       sort_by: Optional[str] = None,
+                       sort_dir: str = 'desc',
+                       model_name: Optional[str] = None,
+                       config_name: Optional[str] = None,
+                       partition: Optional[str] = None,
+                       min_score: Optional[float] = None,
+                       max_score: Optional[float] = None,
+                       score_field: str = 'test_score',
+                       q: Optional[str] = None,
+                       date_from: Optional[str] = None,
+                       date_to: Optional[str] = None) -> Dict[str, Any]:
+    """Server-side paginated, sortable and filterable predictions endpoint.
+
+    - dataset: dataset name (subfolder) or path
+    - page/page_size: pagination (page starts at 1)
+    - sort_by: column name to sort on
+    - sort_dir: 'asc' or 'desc'
+    - model_name/config_name/partition: equality filters
+    - min_score/max_score: numeric range filtering on given score_field
+    - q: free-text search
+    - date_from/date_to: ISO dates to filter by prediction creation date
+    """
+    # load predictions for dataset or all
+    results = predictions_list(dataset) if dataset is not None else predictions_all()
+    rows = results.get('predictions', [])
+
+    # apply filters
+    filtered = _apply_filters_to_rows(rows, model_name=model_name, config_name=config_name, partition=partition,
+                                      min_score=min_score, max_score=max_score, score_field=score_field,
+                                      text_query=q, date_from=date_from, date_to=date_to)
+
+    total = len(filtered)
+
+    # sort
+    if sort_by:
+        reverse = (sort_dir.lower() != 'asc')
+        try:
+            filtered.sort(key=lambda r: (r.get(sort_by) is None, r.get(sort_by)), reverse=reverse)
+        except Exception:
+            # fallback to string sort
+            filtered.sort(key=lambda r: str(r.get(sort_by, '')), reverse=reverse)
+
+    # paginate: support cursor-based pagination for large datasets
+    if cursor is not None:
+        try:
+            start = int(cursor)
+            if start < 0:
+                start = 0
+        except Exception:
+            start = 0
+    else:
+        if page < 1:
+            page = 1
+        start = (page - 1) * page_size
+    end = start + page_size
+    page_rows = filtered[start:end]
+
+    # columns ordering
+    cols = results.get('columns') or []
+    if sort_by and sort_by not in cols:
+        cols = [sort_by] + cols
+
+    next_cursor = end if end < total else None
+    prev_cursor = max(0, start - page_size) if start > 0 else None
+    return {"predictions": page_rows, "columns": cols, "total": total, "page": page, "page_size": page_size, "cursor": start, "next_cursor": next_cursor, "prev_cursor": prev_cursor}
+
+
+@app.get("/api/predictions/datasets")
+def predictions_datasets() -> Dict[str, Any]:
+    """List direct dataset subfolders inside the configured results folder.
+
+    Returns dataset entries with name, path, predictions_file (if present) and predictions_count.
+    """
+    if CURRENT_WORKSPACE_PATH is None:
+        return {"datasets": [], "results_path": None}
+
+    results_path = _resolve_results_path()
+    if not results_path.exists() or not results_path.is_dir():
+        return {"datasets": [], "results_path": str(results_path)}
+
+    datasets = []
+    for entry in sorted(results_path.iterdir(), key=lambda e: e.name.lower()):
+        if not entry.is_dir():
+            continue
+        preds_file = entry / 'predictions.json'
+        count = 0
+        file_mtime = None
+        if preds_file.exists():
+            try:
+                if Predictions is not None:
+                    p = Predictions.load_from_file_cls(str(preds_file))
+                    count = p.num_predictions
+                else:
+                    count = 0
+                try:
+                    file_mtime = preds_file.stat().st_mtime
+                except Exception:
+                    file_mtime = None
+            except Exception:
+                count = 0
+
+        datasets.append({
+            "name": entry.name,
+            "path": str(entry),
+            "predictions_file": str(preds_file) if preds_file.exists() else None,
+            "predictions_count": count,
+            "predictions_mtime": file_mtime,
+        })
+
+    return {"datasets": datasets, "results_path": str(results_path)}
+
+
+@app.get("/api/predictions/list")
+def predictions_list(dataset: Optional[str] = None) -> Dict[str, Any]:
+    """Return predictions for a dataset (or all datasets when dataset is omitted).
+
+    The 'dataset' argument may be either a dataset name (direct subfolder under results)
+    or an absolute path to a dataset folder. The endpoint returns a 'columns' list
+    and list of serialized 'predictions' rows where numpy arrays are converted to lists.
+    """
+    results_path = _resolve_results_path()
+    if not results_path.exists() or not results_path.is_dir():
+        return {"predictions": [], "columns": [], "count": 0, "results_path": str(results_path)}
+
+    if Predictions is None:
+        raise HTTPException(status_code=500, detail="Predictions backend is not available in this environment")
+
+    try:
+        if not dataset:
+            preds = Predictions.load(path=str(results_path))
+        else:
+            # If dataset looks like an existing path, use it; otherwise treat as name
+            ds_path = Path(dataset)
+            if ds_path.exists() and ds_path.is_dir():
+                preds_file = ds_path / 'predictions.json'
+                if preds_file.exists():
+                    preds = Predictions.load_from_file_cls(str(preds_file))
+                else:
+                    preds = Predictions()
+            else:
+                # treat as dataset name under results_path
+                preds = Predictions.load(dataset_name=dataset, path=str(results_path))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load predictions: {e}") from e
+
+    # Retrieve raw prediction rows
+    try:
+        rows = preds.filter_predictions()  # returns list of dicts with numpy arrays etc.
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to query predictions: {e}") from e
+
+    serialized = []
+    columns_set = []
+    # Try to find the dataset predictions file mtime to use as fallback for date
+    preds_file_mtime = None
+    if dataset:
+        ds_p = Path(dataset)
+        if not (ds_p.exists() and ds_p.is_dir()):
+            ds_p = results_path / dataset
+        preds_file = ds_p / 'predictions.json'
+        if preds_file.exists():
+            try:
+                preds_file_mtime = preds_file.stat().st_mtime
+            except Exception:
+                preds_file_mtime = None
+
+    for r in rows:
+        ser = {}
+        for k, v in r.items():
+            ser[k] = _to_json_basic(v)
+            if k not in columns_set:
+                columns_set.append(k)
+        # attach a best-effort date: attempt metadata.created_at or metadata.saved_at, else file mtime
+        date_val = None
+        meta = r.get('metadata') if isinstance(r.get('metadata'), dict) else None
+        if meta:
+            date_val = meta.get('created_at') or meta.get('saved_at') or meta.get('timestamp')
+        if not date_val and preds_file_mtime:
+            try:
+                date_val = datetime.utcfromtimestamp(preds_file_mtime).isoformat()
+            except Exception:
+                date_val = None
+        ser['_date'] = date_val
+        serialized.append(ser)
+
+    # Prefer a sensible column ordering when possible
+    preferred = [
+        'id', 'dataset_name', 'dataset_path', 'config_name', 'config_path',
+        'model_name', 'model_classname', 'metric', 'test_score', 'val_score', 'train_score',
+        'fold_id', 'op_counter', 'n_samples', 'n_features'
+    ]
+    # produce ordered unique columns
+    ordered = []
+    for p in preferred:
+        if p in columns_set and p not in ordered:
+            ordered.append(p)
+    for c in columns_set:
+        if c not in ordered:
+            ordered.append(c)
+
+    return {"predictions": serialized, "columns": ordered, "count": len(serialized), "results_path": str(results_path)}
+
+
+@app.get("/api/predictions/all")
+def predictions_all() -> Dict[str, Any]:
+    """Return all predictions across datasets as a list of lightweight records.
+
+    Uses Predictions.load(path=results_path) and returns a flattened list where
+    arrays are converted to basic Python types.
+    """
+    results_path = _resolve_results_path()
+    if Predictions is None:
+        raise HTTPException(status_code=500, detail="Predictions backend not available")
+    try:
+        preds = Predictions.load(path=str(results_path))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load predictions: {e}") from e
+
+    rows = preds.filter_predictions()
+    out = []
+    for r in rows:
+        rec = {k: _to_json_basic(v) for k, v in r.items()}
+        out.append(rec)
+    return {"predictions": out, "count": len(out), "results_path": str(results_path)}
+
+
+@app.get("/api/predictions/meta")
+def predictions_meta(dataset: Optional[str] = None) -> Dict[str, Any]:
+    """Return unique models, configs, partitions and a total count for a dataset or for all datasets."""
+    results_path = _resolve_results_path()
+    if Predictions is None:
+        raise HTTPException(status_code=500, detail="Predictions backend not available")
+
+    try:
+        if dataset:
+            preds = Predictions.load(dataset_name=dataset, path=str(results_path))
+        else:
+            preds = Predictions.load(path=str(results_path))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load predictions for meta: {e}") from e
+
+    try:
+        models = preds.get_models()
+    except Exception:
+        models = []
+    try:
+        configs = preds.get_configs()
+    except Exception:
+        configs = []
+    try:
+        parts = preds.get_partitions()
+    except Exception:
+        parts = []
+
+    return {"models": models, "configs": configs, "partitions": parts, "count": preds.num_predictions}
+
+
+@app.get("/api/pipeline/from-prediction")
+def pipeline_from_prediction(prediction_id: str) -> Dict[str, Any]:
+    """Return the pipeline.json associated with a prediction ID.
+
+    The prediction record must include a 'config_path' field which is interpreted
+    relative to the results folder when not absolute.
+    """
+    if Predictions is None:
+        raise HTTPException(status_code=500, detail="Predictions backend not available")
+
+    results_path = _resolve_results_path()
+    try:
+        preds = Predictions.load(path=str(results_path))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load predictions: {e}") from e
+
+    try:
+        matches = preds.filter_predictions(id=prediction_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error searching prediction id: {e}") from e
+
+    if not matches:
+        raise HTTPException(status_code=404, detail=f"Prediction id not found: {prediction_id}")
+
+    rec = matches[0]
+    cfg_path = rec.get('config_path') or rec.get('config') or ''
+    if not cfg_path:
+        raise HTTPException(status_code=404, detail="Prediction does not contain a config_path")
+
+    cfg_p = Path(cfg_path)
+    if not cfg_p.is_absolute():
+        cfg_p = results_path / cfg_p
+
+    pipeline_file = cfg_p / 'pipeline.json'
+    if not pipeline_file.exists():
+        raise HTTPException(status_code=404, detail=f"pipeline.json not found at {pipeline_file}")
+
+    try:
+        with pipeline_file.open('r', encoding='utf-8') as fh:
+            data = json.load(fh)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read pipeline file: {e}") from e
+
+    # Return pipeline and basic prediction metadata
+    return {
+        'pipeline': data,
+        'prediction': {
+            'id': rec.get('id'),
+            'dataset_name': rec.get('dataset_name'),
+            'model_name': rec.get('model_name'),
+            'config_path': str(cfg_p),
+        }
+    }
 
 # Workspace management endpoints ------------------------------------------------
 @app.get("/api/workspace")
@@ -407,6 +876,174 @@ def pipelines_list() -> Dict[str, Any]:
     return {"repo": str(repo_path), "files": files}
 
 
+@app.post("/api/workspace/set-results-folder")
+def set_results_folder(req: PathRequest) -> Dict[str, Any]:
+    """Set the results folder used to store run outputs and predictions."""
+    global CURRENT_WORKSPACE_PATH, CURRENT_WORKSPACE_CONFIG
+    if CURRENT_WORKSPACE_PATH is None:
+        raise HTTPException(status_code=400, detail="No workspace selected")
+    path = req.path
+    try:
+        res_path = Path(path).expanduser().resolve()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid results path: {e}") from e
+    if not res_path.exists():
+        try:
+            res_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Cannot create results path: {e}") from e
+
+    cfg = CURRENT_WORKSPACE_CONFIG or load_workspace_config(CURRENT_WORKSPACE_PATH)
+    cfg['results_folder'] = str(res_path)
+    try:
+        save_workspace_config(CURRENT_WORKSPACE_PATH, cfg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cannot save workspace config: {e}") from e
+
+    CURRENT_WORKSPACE_CONFIG = cfg
+    return {"ok": True, "results_folder": cfg.get('results_folder')}
+
+
+class SaveDatasetRequest(BaseModel):
+    name: Optional[str]
+    config: Dict[str, Any]
+    path: Optional[str] = None
+
+
+@app.post("/api/workspace/datasets/save")
+def save_dataset_config(req: SaveDatasetRequest) -> Dict[str, Any]:
+    """Save a dataset configuration JSON inside the workspace datasets folder.
+
+    The frontend should post a JSON object with optional 'name' and mandatory
+    'config' (a dict compatible with nirs4all dataset loader). The server will
+    create workspace/datasets/<name>.json and add it to the workspace config
+    list so it appears in the UI.
+    """
+    global CURRENT_WORKSPACE_PATH, CURRENT_WORKSPACE_CONFIG
+    if CURRENT_WORKSPACE_PATH is None:
+        raise HTTPException(status_code=400, detail="No workspace selected")
+
+    cfg = CURRENT_WORKSPACE_CONFIG or load_workspace_config(CURRENT_WORKSPACE_PATH)
+    datasets_dir = CURRENT_WORKSPACE_PATH / "datasets"
+    datasets_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine a name for the config file
+    name = req.name
+    if not name:
+        # Try to infer a name from config: folder or first train_x/test_x
+        folder = req.config.get('folder')
+        if folder:
+            name = folder_to_name(folder)
+        else:
+            first = None
+            for k in ('train_x', 'test_x'):
+                v = req.config.get(k)
+                if v:
+                    if isinstance(v, list):
+                        first = v[0]
+                    else:
+                        first = v
+                    break
+            if first:
+                try:
+                    name = folder_to_name(str(Path(first).parent))
+                except Exception:
+                    name = 'dataset'
+            else:
+                name = 'dataset'
+
+    # If a path was provided, try to update existing file (must be under workspace datasets dir)
+    provided = req.path
+    if provided:
+        try:
+            provided_p = Path(provided).expanduser().resolve()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid provided path: {e}") from e
+        # Ensure provided path is inside datasets_dir
+        try:
+            provided_p.relative_to(datasets_dir)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Provided path is not inside workspace datasets folder")
+        dest = provided_p
+        try:
+            _save_json_atomic(dest, req.config)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to write dataset config: {e}") from e
+        ds_list = cfg.setdefault('datasets', [])
+        if str(dest) not in ds_list:
+            ds_list.append(str(dest))
+    else:
+        safe = folder_to_name(name)
+        dest = datasets_dir / f"{safe}.json"
+        i = 1
+        while dest.exists():
+            dest = datasets_dir / f"{safe}-{i}.json"
+            i += 1
+        try:
+            _save_json_atomic(dest, req.config)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to write dataset config: {e}") from e
+        # Ensure config path is saved in workspace config
+        ds_list = cfg.setdefault('datasets', [])
+        if str(dest) not in ds_list:
+            ds_list.append(str(dest))
+    try:
+        save_workspace_config(CURRENT_WORKSPACE_PATH, cfg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to persist workspace config: {e}") from e
+
+    CURRENT_WORKSPACE_CONFIG = cfg
+    return {"ok": True, "path": str(dest)}
+
+
+@app.get("/api/workspace/datasets/config")
+def get_dataset_config(path: str) -> Dict[str, Any]:
+    """Return the contents of a saved dataset config file."""
+    try:
+        p = Path(path).expanduser().resolve()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid path: {e}") from e
+    if not p.exists() or not p.is_file():
+        raise HTTPException(status_code=404, detail="Config file not found")
+    try:
+        with p.open('r', encoding='utf-8') as fh:
+            return json.load(fh)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cannot read config file: {e}") from e
+
+
+@app.delete("/api/workspace/datasets")
+def delete_dataset_config(path: str) -> Dict[str, Any]:
+    """Delete a saved dataset config file and remove it from the workspace config."""
+    global CURRENT_WORKSPACE_PATH, CURRENT_WORKSPACE_CONFIG
+    if CURRENT_WORKSPACE_PATH is None:
+        raise HTTPException(status_code=400, detail="No workspace selected")
+    try:
+        p = Path(path).expanduser().resolve()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid path: {e}") from e
+    if not p.exists() or not p.is_file():
+        raise HTTPException(status_code=404, detail="Config file not found")
+    try:
+        p.unlink()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {e}") from e
+
+    cfg = CURRENT_WORKSPACE_CONFIG or load_workspace_config(CURRENT_WORKSPACE_PATH)
+    ds_list = cfg.setdefault('datasets', [])
+    try:
+        ds_list.remove(str(p))
+    except ValueError:
+        pass
+    try:
+        save_workspace_config(CURRENT_WORKSPACE_PATH, cfg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to persist workspace config: {e}") from e
+
+    CURRENT_WORKSPACE_CONFIG = cfg
+    return {"ok": True}
+
+
 # --- File browsing API (server-side file picker used by the UI) ----------
 @app.get("/api/files/roots")
 def files_roots() -> Dict[str, List[str]]:
@@ -541,28 +1178,92 @@ def workspace_datasets(predictions_path: str = "results") -> Dict[str, Any]:
             continue
         if not p.exists():
             continue
-        # compute size
-        if p.is_file():
+        # compute size & hash
+        if p.is_file() and p.suffix.lower() == '.json':
+            # This is a saved dataset config file. Load config and attempt to
+            # compute summary stats from referenced data paths.
             try:
-                size = p.stat().st_size
+                with p.open('r', encoding='utf-8') as fh:
+                    cfg_json = json.load(fh)
             except Exception:
+                cfg_json = None
+
+            if cfg_json:
+                # Attempt to compute total size from train_x/test_x entries
                 size = 0
-            h = _compute_file_hash(p) if size < 200 * 1024 * 1024 else None
-        else:
-            # directory
-            size = 0
-            for root, _dirs, files in os.walk(p):
-                for fname in files:
+                referenced_paths = []
+                for key in ('train_x', 'test_x'):
+                    val = cfg_json.get(key)
+                    if val:
+                        if isinstance(val, list):
+                            referenced_paths.extend(val)
+                        else:
+                            referenced_paths.append(val)
+
+                for ref in referenced_paths:
                     try:
-                        size += (Path(root) / fname).stat().st_size
+                        refp = Path(ref).expanduser().resolve()
+                        if refp.exists():
+                            if refp.is_file():
+                                size += refp.stat().st_size
+                            else:
+                                for _root, _dirs, files in os.walk(refp):
+                                    for fname in files:
+                                        try:
+                                            size += (Path(_root) / fname).stat().st_size
+                                        except Exception:
+                                            continue
                     except Exception:
                         continue
-            # compute a directory hash based on filenames and mtimes (fast, non-content)
-            h = _compute_dir_hash(p, max_files=2000)
 
-        # attempt to match predictions by base name or full path
+                # Use config file hash (fast) as identifier for the dataset config
+                try:
+                    h = _compute_file_hash(p) if p.stat().st_size < 200 * 1024 * 1024 else None
+                except Exception:
+                    h = None
+            else:
+                # fallback: config unreadable
+                try:
+                    size = p.stat().st_size
+                except Exception:
+                    size = 0
+                h = _compute_file_hash(p) if size < 200 * 1024 * 1024 else None
+        else:
+            if p.is_file():
+                try:
+                    size = p.stat().st_size
+                except Exception:
+                    size = 0
+                h = _compute_file_hash(p) if size < 200 * 1024 * 1024 else None
+            else:
+                # directory
+                size = 0
+                for _root, _dirs, files in os.walk(p):
+                    for fname in files:
+                        try:
+                            size += (Path(_root) / fname).stat().st_size
+                        except Exception:
+                            continue
+                # compute a directory hash based on filenames and mtimes (fast, non-content)
+                h = _compute_dir_hash(p, max_files=2000)
+
+        # attempt to match predictions by config-derived name, base name or full path
         name = p.name
-        pred_count = preds_counts.get(name) or preds_counts.get(str(p)) or 0
+        # if JSON config, try to extract a more meaningful dataset name
+        if p.is_file() and p.suffix.lower() == '.json' and 'cfg_json' in locals() and cfg_json:
+            # Prefer explicit name in config if present
+            conf_name = cfg_json.get('name') or cfg_json.get('dataset_name')
+            if conf_name:
+                name = conf_name
+            else:
+                # try to derive from first referenced path
+                if referenced_paths:
+                    try:
+                        name = folder_to_name(str(Path(referenced_paths[0]).parent))
+                    except Exception:
+                        name = p.stem
+
+        pred_count = preds_counts.get(name) or preds_counts.get(p.stem) or preds_counts.get(str(p)) or 0
 
         results.append({
             "name": name,
