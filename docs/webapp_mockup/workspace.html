@@ -139,57 +139,11 @@
         </div>
     </div>
 
-    <script>
-        feather.replace();
-        
-        // Set active navigation item
-        document.querySelectorAll('.sidebar-item').forEach(item => {
-            if (item.getAttribute('href') === 'workspace.html') {
-                item.classList.add('active');
-            }
-        });
-
-        function selectWorkspace() {
-            // Mock workspace selection
-            document.getElementById('currentWorkspace').innerHTML = 
-                '<div class="flex items-center justify-between"><span>/Users/researcher/nirs_project_2024</span><span class="text-green-600 text-sm">✓ Active</span></div>';
-            
-            // Update stats
-            document.getElementById('datasetCount').textContent = '12';
-            document.getElementById('pipelineCount').textContent = '8';
-            document.getElementById('predictionCount').textContent = '156';
-            
-            // Update datasets table
-            document.getElementById('datasetsTable').innerHTML = `
-                <tr class="border-b border-gray-100 hover:bg-gray-50">
-                    <td class="py-3 px-4">cortical_activity_001</td>
-                    <td class="py-3 px-4 font-mono text-sm">a1b2c3d4e5</td>
-                    <td class="py-3 px-4">2.4 GB</td>
-                    <td class="py-3 px-4">2024-01-15 14:30</td>
-                    <td class="py-3 px-4">
-                        <button class="text-red-600 hover:text-red-800">
-                            <i data-feather="unlink" class="w-4 h-4"></i>
-                        </button>
-                    </td>
-                </tr>
-                <tr class="border-b border-gray-100 hover:bg-gray-50">
-                    <td class="py-3 px-4">motor_task_study</td>
-                    <td class="py-3 px-4 font-mono text-sm">f6g7h8i9j0</td>
-                    <td class="py-3 px-4">1.8 GB</td>
-                    <td class="py-3 px-4">2024-01-14 09:15</td>
-                    <td class="py-3 px-4">
-                        <button class="text-red-600 hover:text-red-800">
-                            <i data-feather="unlink" class="w-4 h-4"></i>
-                        </button>
-                    </td>
-                </tr>
-            `;
-            feather.replace();
-        }
-
-        function linkDataset() {
-            alert('Dataset linking functionality would be implemented here');
-        }
-    </script>
+    <meta http-equiv="refresh" content="0; url=/webapp/workspace.html" />
+    <style>body{font-family: Arial, Helvetica, sans-serif; padding: 2rem;}</style>
+    <h1>Moved</h1>
+    <p>The UI mockup was moved to <a href="/webapp/workspace.html">/webapp/workspace.html</a>.
+       The original mockup content has been archived to
+       <code>/archives/webapp_mockup_backup/</code>.</p>
 </body>
 </html>

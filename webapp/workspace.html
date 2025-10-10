@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workspace - NIRSCAPE</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div class="flex h-screen">
+        <!-- Navigation Sidebar -->
+        <div class="w-64 bg-white shadow-lg border-r border-gray-200">
+            <div class="p-6 border-b border-gray-200">
+                <h1 class="text-xl font-bold text-gray-800 flex items-center">
+                    <i data-feather="activity" class="mr-2 text-blue-600"></i>
+                    NIRSCAPE
+                </h1>
+                <p class="text-sm text-gray-600 mt-1">NIRS Analysis Platform</p>
+            </div>
+            <nav class="mt-6">
+                <a href="index.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="home" class="mr-3"></i>
+                    Home
+                </a>
+                <a href="workspace.html" class="sidebar-item active flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="folder" class="mr-3"></i>
+                    Workspace
+                </a>
+                <a href="pipeline.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="git-branch" class="mr-3"></i>
+                    Pipeline Editor
+                </a>
+                <a href="predictions.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="database" class="mr-3"></i>
+                    Predictions DB
+                </a>
+                <a href="dashboard.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="bar-chart-2" class="mr-3"></i>
+                    Prediction Dashboard
+                </a>
+                <a href="analysis.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="layers" class="mr-3"></i>
+                    Analysis Tools
+                </a>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <div class="p-8">
+                <div class="max-w-6xl mx-auto">
+                    <div class="mb-8">
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Workspace Management</h1>
+                        <p class="text-gray-600">Manage your NIRS analysis projects and datasets</p>
+                    </div>
+
+                    <!-- Workspace Selection -->
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-semibold">Current Workspace</h2>
+                            <div class="space-x-2">
+                                <input id="workspacePathInput" type="text" placeholder="C:\\path\\to\\workspace" class="border border-gray-300 rounded-lg px-3 py-2 mr-2" style="width:420px">
+                                <button id="browseWorkspaceBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Browse</button>
+                                <label class="inline-flex items-center mr-2"><input id="persistGlobal" type="checkbox" checked class="mr-2"> Persist pointer</label>
+                                <label class="inline-flex items-center mr-2"><input id="persistEnv" type="checkbox" class="mr-2"> Persist env (Windows)</label>
+                                <button id="setWorkspaceBtn" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">Set Workspace</button>
+                            </div>
+                        </div>
+                        <div id="currentWorkspace" class="text-gray-700 p-4 bg-gray-50 rounded-lg">No workspace selected</div>
+                    </div>
+
+                    <!-- Workspace details: pipeline repo + datasets -->
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+                        <h2 class="text-xl font-semibold mb-4">Workspace Configuration</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Pipelines repository</label>
+                                <div class="flex items-center space-x-2">
+                                    <input id="pipelineRepoInput" type="text" placeholder="C:\\path\\to\\pipelines_repo" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                    <button id="browsePipelineRepoBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Browse</button>
+                                    <button id="setPipelineRepoBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Set</button>
+                                </div>
+                                <div id="pipelineRepoDisplay" class="text-sm text-gray-600 mt-2">Not set</div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Link dataset</label>
+                                <div class="flex items-center space-x-2">
+                                    <input id="datasetPathInput" type="text" placeholder="C:\\path\\to\\dataset" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                    <button id="browseDatasetBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Browse</button>
+                                    <button id="linkDatasetBtn" class="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700">Link</button>
+                                </div>
+                                <div id="datasetsList" class="mt-3 text-sm text-gray-700"></div>
+
+                                <!-- Datasets datatable -->
+                                <div id="datasetsTableContainer" class="mt-4">
+                                    <table id="datasetsTable" class="w-full table-auto bg-white rounded shadow">
+                                        <thead>
+                                            <tr class="bg-gray-50 text-left">
+                                                <th class="px-4 py-2">Name</th>
+                                                <th class="px-4 py-2">Size</th>
+                                                <th class="px-4 py-2">Hash</th>
+                                                <th class="px-4 py-2">Path</th>
+                                                <th class="px-4 py-2">Predictions</th>
+                                                <th class="px-4 py-2">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="datasetsTableBody" class="divide-y divide-gray-100 text-sm"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- File browser modal (server-side) -->
+    <div id="fileBrowserModal" class="fixed inset-0 hidden items-center justify-center bg-black bg-opacity-50">
+        <div class="bg-white rounded-lg w-11/12 md:w-2/3 lg:w-1/2 p-4">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="font-semibold">Select folder</h3>
+                <button id="closeFileBrowserBtn" class="text-gray-500">✕</button>
+            </div>
+            <div class="mb-2">
+                <div class="flex items-center space-x-2">
+                    <button id="fbUpBtn" class="px-2 py-1 bg-gray-100 rounded">Up</button>
+                    <select id="fbRoots" class="border rounded px-2 py-1"></select>
+                    <div id="fbCurrentPath" class="flex-1 text-xs text-gray-600 break-all"></div>
+                </div>
+            </div>
+            <div id="fbList" class="h-64 overflow-auto border rounded p-2"></div>
+            <div class="mt-3 flex justify-end space-x-2">
+                <button id="fbChooseBtn" class="bg-blue-600 text-white px-4 py-2 rounded">Choose</button>
+                <button id="fbCancelBtn" class="px-4 py-2 bg-gray-100 rounded">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        feather.replace();
+
+        // Set active navigation item
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            if (item.getAttribute('href') === 'workspace.html') {
+                item.classList.add('active');
+            }
+        });
+
+        let _fbTargetInput = null;
+        let _fbCurrentListingPath = null;
+
+        async function refreshWorkspace() {
+            try {
+                const resp = await fetch('/api/workspace');
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+
+                const currentDiv = document.getElementById('currentWorkspace');
+                const pipelineDisplay = document.getElementById('pipelineRepoDisplay');
+                const datasetsList = document.getElementById('datasetsList');
+
+                if (!data.workspace) {
+                    currentDiv.innerHTML = '<div class="text-gray-500">No workspace selected</div>';
+                    pipelineDisplay.textContent = 'Not set';
+                    datasetsList.innerHTML = '';
+                    return;
+                }
+
+                currentDiv.innerHTML = `<div class="font-mono text-sm">${data.workspace}</div><div class="text-xs text-gray-500 mt-1">Config: ${data.workspace_config_path}</div>`;
+
+                const cfg = data.config || {datasets: [], pipeline_repo: null};
+                pipelineDisplay.textContent = cfg.pipeline_repo || 'Not set';
+
+                // Render datasets simple list (kept for compatibility)
+                if ((cfg.datasets || []).length === 0) {
+                    datasetsList.innerHTML = '<div class="text-gray-500">No datasets linked</div>';
+                } else {
+                    datasetsList.innerHTML = '<ul class="divide-y divide-gray-100">' + (cfg.datasets || []).map(d => `\n<li class="py-2 flex justify-between items-center">\n  <span class="break-all">${d}</span>\n  <button class="text-red-600 hover:text-red-800" onclick="unlinkDataset('${encodeURI(d)}')">Unlink</button>\n</li>`).join('') + '\n</ul>';
+                }
+
+                // Refresh the datatable with richer metadata
+                await refreshDatasetsTable();
+            } catch (err) {
+                console.error('Failed to refresh workspace:', err);
+                alert('Failed to load workspace: ' + err);
+            }
+        }
+
+        async function setWorkspace() {
+            const input = document.getElementById('workspacePathInput');
+            const path = input.value.trim();
+            if (!path) { alert('Enter a workspace path'); return; }
+            const persistGlobal = document.getElementById('persistGlobal').checked;
+            const persistEnv = document.getElementById('persistEnv').checked;
+
+            try {
+                const resp = await fetch('/api/workspace/select', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, create:true, persist_global: persistGlobal, persist_env: persistEnv})});
+                const data = await resp.json();
+                if (!resp.ok) { throw new Error(data.detail || JSON.stringify(data)); }
+                await refreshWorkspace();
+                alert('Workspace set');
+            } catch (err) {
+                console.error('Failed to set workspace', err);
+                alert('Failed to set workspace: ' + err);
+            }
+        }
+
+        async function linkDataset() {
+            const input = document.getElementById('datasetPathInput');
+            const path = input.value.trim();
+            if (!path) { alert('Enter dataset path'); return; }
+            try {
+                const resp = await fetch('/api/workspace/link-dataset', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path})});
+                const data = await resp.json();
+                if (!resp.ok) { throw new Error(data.detail || JSON.stringify(data)); }
+                input.value = '';
+                await refreshWorkspace();
+                alert('Dataset linked');
+            } catch (err) {
+                console.error('Failed to link dataset', err);
+                alert('Failed to link dataset: ' + err);
+            }
+        }
+
+        async function unlinkDataset(encodedPath) {
+            const path = decodeURI(encodedPath);
+            if (!confirm('Unlink dataset ' + path + '?')) return;
+            try {
+                const resp = await fetch('/api/workspace/unlink-dataset', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path})});
+                const data = await resp.json();
+                if (!resp.ok) { throw new Error(data.detail || JSON.stringify(data)); }
+                await refreshWorkspace();
+            } catch (err) {
+                console.error('Failed to unlink dataset', err);
+                alert('Failed to unlink dataset: ' + err);
+            }
+        }
+
+        async function setPipelineRepo() {
+            const input = document.getElementById('pipelineRepoInput');
+            const path = input.value.trim();
+            if (!path) { alert('Enter pipeline repo path'); return; }
+            try {
+                let resp = await fetch('/api/workspace/set-pipeline-repo', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, allow_force:false})});
+                let data = await resp.json();
+                if (!resp.ok) {
+                    // If the repo is rejected because it's not a sibling we prompt the user to force it
+                    if (resp.status === 400 && data.detail && data.detail.includes('Pipeline repository must be located')) {
+                        if (confirm(data.detail + '\n\nForce set repository anyway?')) {
+                            resp = await fetch('/api/workspace/set-pipeline-repo', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, allow_force:true})});
+                            data = await resp.json();
+                        } else {
+                            throw new Error(data.detail);
+                        }
+                    } else {
+                        throw new Error(data.detail || JSON.stringify(data));
+                    }
+                }
+                await refreshWorkspace();
+                alert('Pipeline repo set');
+            } catch (err) {
+                console.error('Failed to set pipeline repo', err);
+                alert('Failed to set pipeline repo: ' + err);
+            }
+        }
+
+        async function refreshDatasetsTable() {
+            try {
+                const resp = await fetch('/api/workspace/datasets');
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+                const tbody = document.getElementById('datasetsTableBody');
+                tbody.innerHTML = '';
+                (data.datasets || []).forEach(ds => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-gray-50';
+                    tr.innerHTML = `
+                        <td class="px-4 py-2 break-all">${ds.name}</td>
+                        <td class="px-4 py-2">${ds.size_human || ''}</td>
+                        <td class="px-4 py-2 font-mono text-xs">${ds.hash || ''}</td>
+                        <td class="px-4 py-2 break-all">${ds.path}</td>
+                        <td class="px-4 py-2">${ds.predictions_count || 0}</td>
+                        <td class="px-4 py-2">
+                            <button class="text-blue-600 hover:text-blue-800 mr-2" onclick="viewDataset('${encodeURI(ds.path)}')">View</button>
+                            <button class="text-green-600 hover:text-green-800" onclick="analyzeDataset('${encodeURI(ds.path)}')">Analyze</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error('Failed to refresh datasets table', err);
+            }
+        }
+
+        window.viewDataset = function(encodedPath) {
+            const path = decodeURI(encodedPath);
+            alert('View dataset: ' + path);
+            // placeholder: open dataset viewer or report
+        };
+
+        window.analyzeDataset = function(encodedPath) {
+            const path = decodeURI(encodedPath);
+            alert('Analyze dataset: ' + path + '\n(This will be implemented in the pipeline run flow)');
+        };
+
+        // File browser client-side functions
+        function _openFileBrowser(targetInput) {
+            _fbTargetInput = targetInput;
+            const modal = document.getElementById('fileBrowserModal');
+            modal.classList.remove('hidden');
+            // populate roots
+            fetch('/api/files/roots').then(r => r.json()).then(data => {
+                const roots = data.roots || [];
+                const sel = document.getElementById('fbRoots');
+                sel.innerHTML = '';
+                roots.forEach(r => {
+                    const opt = document.createElement('option'); opt.value = r; opt.textContent = r; sel.appendChild(opt);
+                });
+                // list first root
+                if (roots.length) updateFileBrowserList(roots[0]);
+            }).catch(err => console.error('Failed to load FS roots', err));
+        }
+
+        async function updateFileBrowserList(path) {
+            try {
+                const resp = await fetch('/api/files/list?path=' + encodeURIComponent(path));
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json();
+                _fbCurrentListingPath = data.path;
+                document.getElementById('fbCurrentPath').textContent = data.path;
+                const list = document.getElementById('fbList');
+                list.innerHTML = '';
+                data.items.forEach(it => {
+                    const row = document.createElement('div');
+                    row.className = 'py-1 px-2 rounded hover:bg-gray-100 flex justify-between items-center cursor-pointer';
+                    row.textContent = it.name + (it.is_dir ? '/' : '');
+                    row.onclick = () => {
+                        if (it.is_dir) updateFileBrowserList(it.path);
+                    };
+                    list.appendChild(row);
+                });
+            } catch (err) {
+                console.error('Failed to list path', err);
+                alert('Failed to list path: ' + err);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // existing wiring
+            document.getElementById('setWorkspaceBtn').addEventListener('click', setWorkspace);
+            document.getElementById('linkDatasetBtn').addEventListener('click', linkDataset);
+            document.getElementById('setPipelineRepoBtn').addEventListener('click', setPipelineRepo);
+            // new UI bindings
+            document.getElementById('browseWorkspaceBtn').addEventListener('click', () => _openFileBrowser('workspacePathInput'));
+            document.getElementById('browsePipelineRepoBtn').addEventListener('click', () => _openFileBrowser('pipelineRepoInput'));
+            document.getElementById('browseDatasetBtn').addEventListener('click', () => _openFileBrowser('datasetPathInput'));
+            document.getElementById('closeFileBrowserBtn').addEventListener('click', () => document.getElementById('fileBrowserModal').classList.add('hidden'));
+            document.getElementById('fbCancelBtn').addEventListener('click', () => document.getElementById('fileBrowserModal').classList.add('hidden'));
+            document.getElementById('fbRoots').addEventListener('change', (e) => updateFileBrowserList(e.target.value));
+            document.getElementById('fbUpBtn').addEventListener('click', async () => {
+                try {
+                    if (!_fbCurrentListingPath) return;
+                    const resp = await fetch('/api/files/parent?path=' + encodeURIComponent(_fbCurrentListingPath));
+                    if (!resp.ok) throw new Error(await resp.text());
+                    const data = await resp.json();
+                    if (data.parent) updateFileBrowserList(data.parent);
+                } catch (err) {
+                    // fallback: go to roots
+                    const sel = document.getElementById('fbRoots');
+                    if (sel.options.length) updateFileBrowserList(sel.options[0].value);
+                }
+            });
+            document.getElementById('fbChooseBtn').addEventListener('click', () => {
+                if (!_fbTargetInput || !_fbCurrentListingPath) return;
+                document.getElementById(_fbTargetInput).value = _fbCurrentListingPath;
+                document.getElementById('fileBrowserModal').classList.add('hidden');
+            });
+            // Start
+            refreshWorkspace();
+        });
+    </script>
+</body>
+</html>
