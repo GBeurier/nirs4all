@@ -62,11 +62,11 @@
                         <div class="flex items-center justify-between mb-4">
                             <h2 class="text-xl font-semibold">Current Workspace</h2>
                             <div class="space-x-2">
-                                <input id="workspacePathInput" type="text" placeholder="C:\\path\\to\\workspace" class="border border-gray-300 rounded-lg px-3 py-2 mr-2" style="width:420px">
                                 <button id="browseWorkspaceBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Browse</button>
+                                <span id="workspacePathDisplay" class="font-mono text-sm ml-3 text-gray-700">No workspace selected</span>
                                 <label class="inline-flex items-center mr-2"><input id="persistGlobal" type="checkbox" checked class="mr-2"> Persist pointer</label>
                                 <label class="inline-flex items-center mr-2"><input id="persistEnv" type="checkbox" class="mr-2"> Persist env (Windows)</label>
-                                <button id="setWorkspaceBtn" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">Set Workspace</button>
+                                <span class="text-sm text-gray-500 italic">(Folder is applied when selected via Browse)</span>
                             </div>
                         </div>
                         <div id="currentWorkspace" class="text-gray-700 p-4 bg-gray-50 rounded-lg">No workspace selected</div>
@@ -79,9 +79,8 @@
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Pipelines repository</label>
                                 <div class="flex items-center space-x-2">
-                                    <input id="pipelineRepoInput" type="text" placeholder="C:\\path\\to\\pipelines_repo" class="w-full border border-gray-300 rounded-lg px-3 py-2">
                                     <button id="browsePipelineRepoBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Browse</button>
-                                    <button id="setPipelineRepoBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Set</button>
+                                    <span class="text-sm text-gray-500 italic">(Repo applied when selected via Browse)</span>
                                 </div>
                                 <div id="pipelineRepoDisplay" class="text-sm text-gray-600 mt-2">Not set</div>
                             </div>
@@ -89,32 +88,64 @@
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Link dataset</label>
                                 <div class="flex items-center space-x-2">
-                                    <input id="datasetPathInput" type="text" placeholder="C:\\path\\to\\dataset" class="w-full border border-gray-300 rounded-lg px-3 py-2">
                                     <button id="browseDatasetBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Browse</button>
-                                    <button id="linkDatasetBtn" class="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700">Link</button>
+                                    <span id="datasetSelectionDisplay" class="text-sm text-gray-600 ml-3">No selection</span>
                                 </div>
                                 <div id="datasetsList" class="mt-3 text-sm text-gray-700"></div>
+                            </div>
+                        </div>
 
-                                <!-- Datasets datatable -->
-                                <div id="datasetsTableContainer" class="mt-4">
-                                    <table id="datasetsTable" class="w-full table-auto bg-white rounded shadow">
-                                        <thead>
-                                            <tr class="bg-gray-50 text-left">
-                                                <th class="px-4 py-2">Name</th>
-                                                <th class="px-4 py-2">Size</th>
-                                                <th class="px-4 py-2">Hash</th>
-                                                <th class="px-4 py-2">Path</th>
-                                                <th class="px-4 py-2">Predictions</th>
-                                                <th class="px-4 py-2">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="datasetsTableBody" class="divide-y divide-gray-100 text-sm"></tbody>
-                                    </table>
-                                </div>
+                        <!-- Results folder configuration -->
+                        <div class="mt-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Results folder</label>
+                            <div class="flex items-center space-x-2">
+                                <button id="browseResultsBtn" class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200">Browse</button>
+                                <span id="resultsPathDisplay" class="text-sm text-gray-600 ml-3">Not set</span>
+                                <span class="text-sm text-gray-500">(Applied when selected)</span>
                             </div>
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+    <!-- Dataset configuration modal -->
+    <div id="datasetConfigModal" class="fixed inset-0 hidden items-center justify-center bg-black bg-opacity-50">
+        <div class="bg-white rounded-lg w-11/12 md:w-2/3 lg:w-1/2 p-4">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="font-semibold">Configure Dataset</h3>
+                <button id="closeDatasetConfigBtn" class="text-gray-500">✕</button>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Dataset name</label>
+                    <input id="datasetNameInput" class="w-full border rounded px-2 py-1" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Global CSV parameters</label>
+                    <div class="grid grid-cols-3 gap-2 mt-2">
+                        <input id="cfgDelimiter" placeholder="delimiter (e.g. ;)" class="border rounded px-2 py-1" />
+                        <select id="cfgDecimal" class="border rounded px-2 py-1">
+                            <option value=".">.</option>
+                            <option value="," selected>,</option>
+                        </select>
+                        <select id="cfgHeaderType" class="border rounded px-2 py-1">
+                            <option value="none">None</option>
+                            <option value="nm">Header (nm)</option>
+                            <option value="cm-1">Header (cm-1)</option>
+                            <option value="text">Header (text)</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Files</label>
+                    <div id="datasetFilesList" class="h-48 overflow-auto border rounded p-2 mt-2"></div>
+                    <div class="text-xs text-gray-500 mt-1">Select role for each file (Train / Test / None)</div>
+                </div>
+            </div>
+            <div class="mt-4 flex justify-end space-x-2">
+                <button id="datasetSaveBtn" class="bg-blue-600 text-white px-4 py-2 rounded">Save</button>
+                <button id="datasetCancelBtn" class="px-4 py-2 bg-gray-100 rounded">Cancel</button>
             </div>
         </div>
     </div>
@@ -151,8 +182,9 @@
             }
         });
 
-        let _fbTargetInput = null;
-        let _fbCurrentListingPath = null;
+    let _fbTargetInput = null;
+    let _fbCurrentListingPath = null;
+    let _fbSelectedPaths = new Set();
 
         async function refreshWorkspace() {
             try {
@@ -164,17 +196,21 @@
                 const pipelineDisplay = document.getElementById('pipelineRepoDisplay');
                 const datasetsList = document.getElementById('datasetsList');
 
+                const cfg = data.config || {datasets: [], pipeline_repo: null};
+                // update minimal top displays
+                const wsDisp = document.getElementById('workspacePathDisplay');
+                if (wsDisp) wsDisp.textContent = data.workspace || 'No workspace selected';
+                pipelineDisplay.textContent = cfg.pipeline_repo || 'Not set';
+                const resultsDisp = document.getElementById('resultsPathDisplay');
+                if (resultsDisp) resultsDisp.textContent = cfg.results_folder || 'Not set';
+
                 if (!data.workspace) {
                     currentDiv.innerHTML = '<div class="text-gray-500">No workspace selected</div>';
-                    pipelineDisplay.textContent = 'Not set';
                     datasetsList.innerHTML = '';
                     return;
                 }
 
-                currentDiv.innerHTML = `<div class="font-mono text-sm">${data.workspace}</div><div class="text-xs text-gray-500 mt-1">Config: ${data.workspace_config_path}</div>`;
-
-                const cfg = data.config || {datasets: [], pipeline_repo: null};
-                pipelineDisplay.textContent = cfg.pipeline_repo || 'Not set';
+                currentDiv.innerHTML = `<div class="text-sm">Workspace: <span class="font-mono">${data.workspace}</span></div><div class="text-xs text-gray-500 mt-1">Config: ${data.workspace_config_path}</div>`;
 
                 // Render datasets simple list (kept for compatibility)
                 if ((cfg.datasets || []).length === 0) {
@@ -191,10 +227,9 @@
             }
         }
 
-        async function setWorkspace() {
-            const input = document.getElementById('workspacePathInput');
-            const path = input.value.trim();
-            if (!path) { alert('Enter a workspace path'); return; }
+        async function setWorkspace(pathArg) {
+            const path = pathArg || (document.getElementById('workspacePathDisplay') && document.getElementById('workspacePathDisplay').textContent.trim());
+            if (!path || path === 'No workspace selected') { alert('Enter a workspace path'); return; }
             const persistGlobal = document.getElementById('persistGlobal').checked;
             const persistEnv = document.getElementById('persistEnv').checked;
 
@@ -211,14 +246,15 @@
         }
 
         async function linkDataset() {
-            const input = document.getElementById('datasetPathInput');
-            const path = input.value.trim();
-            if (!path) { alert('Enter dataset path'); return; }
+            const disp = document.getElementById('datasetSelectionDisplay');
+            const path = disp ? disp.textContent.trim() : null;
+            if (!path || path === 'No selection') { alert('Select dataset folder or files first'); return; }
             try {
                 const resp = await fetch('/api/workspace/link-dataset', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path})});
                 const data = await resp.json();
                 if (!resp.ok) { throw new Error(data.detail || JSON.stringify(data)); }
-                input.value = '';
+                // clear selection
+                if (disp) disp.textContent = 'No selection';
                 await refreshWorkspace();
                 alert('Dataset linked');
             } catch (err) {
@@ -241,10 +277,9 @@
             }
         }
 
-        async function setPipelineRepo() {
-            const input = document.getElementById('pipelineRepoInput');
-            const path = input.value.trim();
-            if (!path) { alert('Enter pipeline repo path'); return; }
+        async function setPipelineRepo(pathArg) {
+            const path = pathArg || (document.getElementById('pipelineRepoDisplay') && document.getElementById('pipelineRepoDisplay').textContent.trim());
+            if (!path || path === 'Not set') { alert('Enter pipeline repo path'); return; }
             try {
                 let resp = await fetch('/api/workspace/set-pipeline-repo', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, allow_force:false})});
                 let data = await resp.json();
@@ -287,6 +322,8 @@
                         <td class="px-4 py-2">${ds.predictions_count || 0}</td>
                         <td class="px-4 py-2">
                             <button class="text-blue-600 hover:text-blue-800 mr-2" onclick="viewDataset('${encodeURI(ds.path)}')">View</button>
+                            <button class="text-yellow-600 hover:text-yellow-800 mr-2" onclick="editDataset('${encodeURI(ds.path)}')">Edit</button>
+                            <button class="text-red-600 hover:text-red-800 mr-2" onclick="deleteDataset('${encodeURI(ds.path)}')">Delete</button>
                             <button class="text-green-600 hover:text-green-800" onclick="analyzeDataset('${encodeURI(ds.path)}')">Analyze</button>
                         </td>
                     `;
@@ -303,14 +340,53 @@
             // placeholder: open dataset viewer or report
         };
 
+        window.editDataset = async function(encodedPath) {
+            const path = decodeURI(encodedPath);
+            try {
+                const resp = await fetch('/api/workspace/datasets/config?path=' + encodeURIComponent(path));
+                if (!resp.ok) throw new Error(await resp.text());
+                const cfg = await resp.json();
+                // Determine selected files/folder
+                let selected = [];
+                if (cfg.folder) selected.push(cfg.folder);
+                else {
+                    ['train_x','test_x'].forEach(k => {
+                        const v = cfg[k];
+                        if (!v) return;
+                        if (Array.isArray(v)) selected.push(...v);
+                        else selected.push(v);
+                    });
+                }
+                // open modal for editing
+                openDatasetConfigModal(selected, null, cfg, path);
+            } catch (err) {
+                alert('Failed to load config: ' + err);
+            }
+        };
+
+        window.deleteDataset = async function(encodedPath) {
+            const path = decodeURI(encodedPath);
+            if (!confirm('Delete dataset config ' + path + '?')) return;
+            try {
+                const resp = await fetch('/api/workspace/datasets?path=' + encodeURIComponent(path), {method: 'DELETE'});
+                if (!resp.ok) throw new Error(await resp.text());
+                await refreshWorkspace();
+                await refreshDatasetsTable();
+            } catch (err) {
+                alert('Failed to delete dataset: ' + err);
+            }
+        };
+
         window.analyzeDataset = function(encodedPath) {
             const path = decodeURI(encodedPath);
             alert('Analyze dataset: ' + path + '\n(This will be implemented in the pipeline run flow)');
         };
 
         // File browser client-side functions
-        function _openFileBrowser(targetInput) {
-            _fbTargetInput = targetInput;
+        function _openFileBrowser(targetType) {
+            // targetType should be one of: 'workspace', 'pipeline', 'dataset', 'results'
+            _fbTargetInput = targetType;
+            _fbSelectedPaths = new Set();
             const modal = document.getElementById('fileBrowserModal');
             modal.classList.remove('hidden');
             // populate roots
@@ -337,28 +413,158 @@
                 list.innerHTML = '';
                 data.items.forEach(it => {
                     const row = document.createElement('div');
-                    row.className = 'py-1 px-2 rounded hover:bg-gray-100 flex justify-between items-center cursor-pointer';
-                    row.textContent = it.name + (it.is_dir ? '/' : '');
-                    row.onclick = () => {
-                        if (it.is_dir) updateFileBrowserList(it.path);
-                    };
+                    row.className = 'py-1 px-2 rounded hover:bg-gray-100 flex justify-between items-center';
+                    // checkbox for selection
+                    const left = document.createElement('div');
+                    left.className = 'flex items-center space-x-2';
+                    const ck = document.createElement('input');
+                    ck.type = 'checkbox';
+                    ck.dataset.path = it.path;
+                    ck.dataset.isDir = it.is_dir ? '1' : '0';
+                    ck.addEventListener('change', (e) => {
+                        if (ck.checked) _fbSelectedPaths.add(it.path); else _fbSelectedPaths.delete(it.path);
+                    });
+                    const label = document.createElement('span');
+                    label.className = 'cursor-pointer';
+                    label.textContent = it.name + (it.is_dir ? '/' : '');
+                    label.onclick = () => { if (it.is_dir) updateFileBrowserList(it.path); };
+                    left.appendChild(ck);
+                    left.appendChild(label);
+                    row.appendChild(left);
+                    // meta
+                    const right = document.createElement('div');
+                    right.className = 'text-xs text-gray-500';
+                    right.textContent = it.is_dir ? 'dir' : (it.size ? Math.round(it.size/1024) + ' KB' : '');
+                    row.appendChild(right);
                     list.appendChild(row);
                 });
+                // clear selected paths when navigating
+                _fbSelectedPaths.clear();
             } catch (err) {
                 console.error('Failed to list path', err);
                 alert('Failed to list path: ' + err);
             }
         }
 
+        // Helper safe name
+        function sanitizeNameForFile(p) {
+            return p.replace(/[\\/:*?"<>|\s]+/g, '_').replace(/[^a-zA-Z0-9_\-\.]/g, '').toLowerCase();
+        }
+
+        // Open the dataset configuration modal. `selected` is an array of paths
+        // (files or folders). `currentFolder` is the folder the browser currently shows.
+        async function openDatasetConfigModal(selected, currentFolder, preloadedConfig=null, configPath=null) {
+            const modal = document.getElementById('datasetConfigModal');
+            const nameInput = document.getElementById('datasetNameInput');
+            const filesList = document.getElementById('datasetFilesList');
+            const delimiterInput = document.getElementById('cfgDelimiter');
+            const decimalSelect = document.getElementById('cfgDecimal');
+            const headerSelect = document.getElementById('cfgHeaderType');
+            // reset
+            filesList.innerHTML = '';
+            delimiterInput.value = ';';
+            decimalSelect.value = '.';
+            headerSelect.value = 'none';
+            // set name
+            if (preloadedConfig && preloadedConfig.name) {
+                nameInput.value = preloadedConfig.name;
+            } else {
+                // derive name from first selected path
+                const first = selected && selected.length ? selected[0] : currentFolder;
+                let deriv = first.split(/[\\/]+/).filter(Boolean).pop() || 'dataset';
+                deriv = sanitizeNameForFile(deriv);
+                nameInput.value = deriv;
+            }
+
+            // Build files list
+            let allFiles = [];
+            // If user selected a folder, list its files from server
+            for (const s of selected) {
+                try {
+                    const resp = await fetch('/api/files/list?path=' + encodeURIComponent(s));
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        // include files in this folder
+                        data.items.forEach(it => { if (!it.is_dir) allFiles.push(it.path); });
+                    } else {
+                        // not a folder, assume file
+                        allFiles.push(s);
+                    }
+                } catch (err) {
+                    // fallback: add as raw path
+                    allFiles.push(s);
+                }
+            }
+            // unique
+            allFiles = Array.from(new Set(allFiles));
+            // Populate UI
+            let idx = 0;
+            allFiles.forEach(fpath => {
+                const row = document.createElement('div');
+                row.dataset.filePath = fpath;
+                row.className = 'py-1 flex items-center justify-between';
+                const left = document.createElement('div'); left.className = 'flex items-center space-x-2';
+                const name = document.createElement('span'); name.className='break-all'; name.textContent = fpath.split(/[\\/]+/).pop();
+                left.appendChild(name);
+                const right = document.createElement('div');
+                right.innerHTML = `
+                    <label class="inline-flex items-center mr-2"><input type="radio" name="role_${idx}" value="none" checked class="mr-1">None</label>
+                    <label class="inline-flex items-center mr-2"><input type="radio" name="role_${idx}" value="train" class="mr-1">Train</label>
+                    <label class="inline-flex items-center"><input type="radio" name="role_${idx}" value="test" class="mr-1">Test</label>
+                `;
+                row.appendChild(left); row.appendChild(right);
+                filesList.appendChild(row);
+                idx += 1;
+            });
+
+            // If the config is provided (editing), prefill fields and roles
+            if (preloadedConfig) {
+                // params: support various shapes saved by older code or by the server
+                let gp = {};
+                if (preloadedConfig.params) {
+                    // params may contain global_params (older shaped objects) or be the global params itself
+                    if (preloadedConfig.params.global_params) gp = preloadedConfig.params.global_params;
+                    else gp = preloadedConfig.params;
+                } else {
+                    gp = preloadedConfig.global_params || preloadedConfig.train_params || preloadedConfig.test_params || {};
+                }
+                if (gp.delimiter) delimiterInput.value = gp.delimiter;
+                if (gp.decimal_separator) decimalSelect.value = gp.decimal_separator;
+                if (gp.wavelength_unit) headerSelect.value = gp.wavelength_unit;
+                // roles assignment
+                const assignRole = (listKey, role) => {
+                    const paths = preloadedConfig[listKey];
+                    if (!paths) return;
+                    const arr = Array.isArray(paths) ? paths : [paths];
+                    filesList.querySelectorAll('[data-file-path]').forEach((r, i) => {
+                        const p = r.dataset.filePath;
+                        if (arr.includes(p)) {
+                            const el = r.querySelector(`input[name="role_${i}"][value="${role}"]`);
+                            if (el) el.checked = true;
+                        }
+                    });
+                };
+                assignRole('train_x','train'); assignRole('test_x','test');
+            }
+
+            // Show modal
+            modal.classList.remove('hidden');
+            // store editing path if configPath provided
+            modal.dataset.editing = configPath || '';
+            // keep a copy of original selection for save heuristics
+            try { modal.dataset.selection = JSON.stringify(selected || []); } catch (e) { modal.dataset.selection = '[]'; }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             // existing wiring
-            document.getElementById('setWorkspaceBtn').addEventListener('click', setWorkspace);
-            document.getElementById('linkDatasetBtn').addEventListener('click', linkDataset);
-            document.getElementById('setPipelineRepoBtn').addEventListener('click', setPipelineRepo);
+            if (document.getElementById('setWorkspaceBtn')) document.getElementById('setWorkspaceBtn').addEventListener('click', setWorkspace);
+            if (document.getElementById('linkDatasetBtn')) document.getElementById('linkDatasetBtn').addEventListener('click', linkDataset);
+            if (document.getElementById('setPipelineRepoBtn')) document.getElementById('setPipelineRepoBtn').addEventListener('click', setPipelineRepo);
             // new UI bindings
-            document.getElementById('browseWorkspaceBtn').addEventListener('click', () => _openFileBrowser('workspacePathInput'));
-            document.getElementById('browsePipelineRepoBtn').addEventListener('click', () => _openFileBrowser('pipelineRepoInput'));
-            document.getElementById('browseDatasetBtn').addEventListener('click', () => _openFileBrowser('datasetPathInput'));
+            document.getElementById('browseWorkspaceBtn').addEventListener('click', () => _openFileBrowser('workspace'));
+            document.getElementById('browsePipelineRepoBtn').addEventListener('click', () => _openFileBrowser('pipeline'));
+            document.getElementById('browseDatasetBtn').addEventListener('click', () => _openFileBrowser('dataset'));
+            document.getElementById('browseResultsBtn').addEventListener('click', () => _openFileBrowser('results'));
             document.getElementById('closeFileBrowserBtn').addEventListener('click', () => document.getElementById('fileBrowserModal').classList.add('hidden'));
             document.getElementById('fbCancelBtn').addEventListener('click', () => document.getElementById('fileBrowserModal').classList.add('hidden'));
             document.getElementById('fbRoots').addEventListener('change', (e) => updateFileBrowserList(e.target.value));
@@ -375,14 +581,177 @@
                     if (sel.options.length) updateFileBrowserList(sel.options[0].value);
                 }
             });
-            document.getElementById('fbChooseBtn').addEventListener('click', () => {
+            document.getElementById('fbChooseBtn').addEventListener('click', async () => {
                 if (!_fbTargetInput || !_fbCurrentListingPath) return;
-                document.getElementById(_fbTargetInput).value = _fbCurrentListingPath;
-                document.getElementById('fileBrowserModal').classList.add('hidden');
+                const chosen = Array.from(_fbSelectedPaths);
+                // If nothing selected, default to current listing path
+                if (chosen.length === 0) chosen.push(_fbCurrentListingPath);
+
+                // Dataset selection -> open dataset configuration modal
+                if (_fbTargetInput === 'dataset') {
+                    // Show dataset config modal with chosen list
+                    // Update selection display
+                    const dsDisp = document.getElementById('datasetSelectionDisplay');
+                    if (dsDisp) {
+                        if (chosen.length === 1) dsDisp.textContent = chosen[0];
+                        else dsDisp.textContent = chosen[0].split(/\\/).pop() + ` (+ ${chosen.length-1} more)`;
+                    }
+                    openDatasetConfigModal(chosen, _fbCurrentListingPath);
+                    return;
+                }
+
+                // For workspace/pipeline/results we apply selection immediately
+                if (_fbTargetInput === 'workspace') {
+                    const path = chosen[0];
+                    const disp = document.getElementById('workspacePathDisplay');
+                    if (disp) disp.textContent = path;
+                    // Call backend to set workspace
+                    try {
+                        const resp = await fetch('/api/workspace/select', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, create:true, persist_global: document.getElementById('persistGlobal').checked, persist_env: document.getElementById('persistEnv').checked})});
+                        const data = await resp.json();
+                        if (!resp.ok) throw new Error(data.detail || JSON.stringify(data));
+                        document.getElementById('fileBrowserModal').classList.add('hidden');
+                        await refreshWorkspace();
+                    } catch (err) {
+                        alert('Failed to set workspace: ' + err);
+                    }
+                    return;
+                }
+
+                if (_fbTargetInput === 'pipeline') {
+                    const path = chosen[0];
+                    const disp = document.getElementById('pipelineRepoDisplay');
+                    if (disp) disp.textContent = path;
+                    try {
+                        let resp = await fetch('/api/workspace/set-pipeline-repo', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, allow_force:false})});
+                        let data = await resp.json();
+                        if (!resp.ok) {
+                            if (resp.status === 400 && data.detail && data.detail.includes('Pipeline repository must be located')) {
+                                if (confirm(data.detail + '\n\nForce set repository anyway?')) {
+                                    resp = await fetch('/api/workspace/set-pipeline-repo', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path, allow_force:true})});
+                                    data = await resp.json();
+                                } else {
+                                    throw new Error(data.detail);
+                                }
+                            } else {
+                                throw new Error(data.detail || JSON.stringify(data));
+                            }
+                        }
+                        document.getElementById('fileBrowserModal').classList.add('hidden');
+                        await refreshWorkspace();
+                    } catch (err) {
+                        alert('Failed to set pipeline repo: ' + err);
+                    }
+                    return;
+                }
+
+                if (_fbTargetInput === 'results') {
+                    const path = chosen[0];
+                    const disp = document.getElementById('resultsPathDisplay');
+                    if (disp) disp.textContent = path;
+                    try {
+                        const resp = await fetch('/api/workspace/set-results-folder', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path})});
+                        const data = await resp.json();
+                        if (!resp.ok) throw new Error(data.detail || JSON.stringify(data));
+                        document.getElementById('fileBrowserModal').classList.add('hidden');
+                        await refreshWorkspace();
+                    } catch (err) {
+                        alert('Failed to set results folder: ' + err);
+                    }
+                    return;
+                }
             });
             // Start
             refreshWorkspace();
+            // Dataset modal bindings
+            document.getElementById('closeDatasetConfigBtn').addEventListener('click', () => {
+                const modal = document.getElementById('datasetConfigModal');
+                modal.classList.add('hidden');
+                modal.dataset.editing = '';
+            });
+            document.getElementById('datasetCancelBtn').addEventListener('click', () => {
+                const modal = document.getElementById('datasetConfigModal');
+                modal.classList.add('hidden');
+                modal.dataset.editing = '';
+            });
+            document.getElementById('datasetSaveBtn').addEventListener('click', async () => {
+                const modal = document.getElementById('datasetConfigModal');
+                const name = document.getElementById('datasetNameInput').value.trim();
+                const delimiter = document.getElementById('cfgDelimiter').value || ';';
+                const decimal = document.getElementById('cfgDecimal').value || '.';
+                const headerType = document.getElementById('cfgHeaderType').value || 'none';
+                const filesList = document.getElementById('datasetFilesList');
+                // collect roles
+                const train = [];
+                const test = [];
+                filesList.querySelectorAll('[data-file-path]').forEach((r, i) => {
+                    const role = (r.querySelector(`input[name="role_${i}"]:checked`) || {}).value || 'none';
+                    if (role === 'train') train.push(r.dataset.filePath);
+                    if (role === 'test') test.push(r.dataset.filePath);
+                });
+
+                // build config
+                let cfg = {};
+                const gp = { 'delimiter': delimiter, 'decimal_separator': decimal };
+                if (headerType && headerType !== 'none') gp['wavelength_unit'] = headerType;
+
+                // Heuristic: if no explicit train/test selected and original selection was a single folder, save as folder-based config
+                let original = [];
+                try { original = JSON.parse(modal.dataset.selection || '[]'); } catch (e) { original = []; }
+                if (train.length === 0 && test.length === 0 && original.length === 1) {
+                    cfg['folder'] = original[0];
+                    // parse_config expects params to be the global params object
+                    cfg['params'] = gp;
+                } else {
+                    if (train.length === 1) cfg['train_x'] = train[0]; else if (train.length > 1) cfg['train_x'] = train;
+                    if (test.length === 1) cfg['test_x'] = test[0]; else if (test.length > 1) cfg['test_x'] = test;
+                    cfg['global_params'] = gp;
+                }
+
+                const payload = { name: name || undefined, config: cfg };
+                if (modal.dataset.editing) payload.path = modal.dataset.editing;
+                try {
+                    const resp = await fetch('/api/workspace/datasets/save', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error(data.detail || JSON.stringify(data));
+                    // success
+                    modal.classList.add('hidden');
+                    modal.dataset.editing = '';
+                    await refreshWorkspace();
+                    await refreshDatasetsTable();
+                } catch (err) {
+                    alert('Failed to save dataset config: ' + err);
+                }
+            });
         });
+        // Render the datasets table at the bottom area
+        (async function attachBottomDatasetsTable(){
+            const container = document.createElement('div');
+            container.className = 'max-w-6xl mx-auto p-6';
+            container.innerHTML = `
+                <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+                    <h2 class="text-xl font-semibold mb-4">Linked Datasets</h2>
+                    <div id="datasetsTableContainer" class="mt-4">
+                        <table id="datasetsTable" class="w-full table-auto bg-white rounded shadow">
+                            <thead>
+                                <tr class="bg-gray-50 text-left">
+                                    <th class="px-4 py-2">Name</th>
+                                    <th class="px-4 py-2">Size</th>
+                                    <th class="px-4 py-2">Hash</th>
+                                    <th class="px-4 py-2">Path</th>
+                                    <th class="px-4 py-2">Predictions</th>
+                                    <th class="px-4 py-2">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="datasetsTableBody" class="divide-y divide-gray-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            document.querySelector('.flex-1').appendChild(container);
+            // refresh contents immediately
+            await refreshDatasetsTable();
+        })();
     </script>
 </body>
 </html>
