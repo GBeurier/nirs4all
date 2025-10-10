@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workspace - NIRSCAPE</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div class="flex h-screen">
+        <!-- Navigation Sidebar -->
+        <div class="w-64 bg-white shadow-lg border-r border-gray-200">
+            <div class="p-6 border-b border-gray-200">
+                <h1 class="text-xl font-bold text-gray-800 flex items-center">
+                    <i data-feather="activity" class="mr-2 text-blue-600"></i>
+                    NIRSCAPE
+                </h1>
+                <p class="text-sm text-gray-600 mt-1">NIRS Analysis Platform</p>
+            </div>
+            <nav class="mt-6">
+                <a href="index.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="home" class="mr-3"></i>
+                    Home
+                </a>
+                <a href="workspace.html" class="sidebar-item active flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="folder" class="mr-3"></i>
+                    Workspace
+                </a>
+                <a href="pipeline.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="git-branch" class="mr-3"></i>
+                    Pipeline Editor
+                </a>
+                <a href="predictions.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="database" class="mr-3"></i>
+                    Predictions DB
+                </a>
+                <a href="dashboard.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="bar-chart-2" class="mr-3"></i>
+                    Prediction Dashboard
+                </a>
+                <a href="analysis.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="layers" class="mr-3"></i>
+                    Analysis Tools
+                </a>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <div class="p-8">
+                <div class="max-w-6xl mx-auto">
+                    <div class="mb-8">
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Workspace Management</h1>
+                        <p class="text-gray-600">Manage your NIRS analysis projects and datasets</p>
+                    </div>
+
+                    <!-- Workspace Selection -->
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-semibold">Current Workspace</h2>
+                            <button onclick="selectWorkspace()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center">
+                                <i data-feather="folder-plus" class="mr-2 w-4 h-4"></i>
+                                Select Workspace
+                            </button>
+                        </div>
+                        <div id="currentWorkspace" class="text-gray-700 p-4 bg-gray-50 rounded-lg">
+                            No workspace selected
+                        </div>
+                    </div>
+
+                    <!-- Dashboard Stats -->
+                    <div class="grid md:grid-cols-3 gap-6 mb-8">
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <div class="flex items-center">
+                                <div class="p-3 rounded-full bg-blue-100 text-blue-600 mr-4">
+                                    <i data-feather="database" class="w-6 h-6"></i>
+                                </div>
+                                <div>
+                                    <p class="text-sm text-gray-600">Datasets</p>
+                                    <p class="text-2xl font-bold" id="datasetCount">0</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <div class="flex items-center">
+                                <div class="p-3 rounded-full bg-green-100 text-green-600 mr-4">
+                                    <i data-feather="git-branch" class="w-6 h-6"></i>
+                                </div>
+                                <div>
+                                    <p class="text-sm text-gray-600">Pipelines</p>
+                                    <p class="text-2xl font-bold" id="pipelineCount">0</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <div class="flex items-center">
+                                <div class="p-3 rounded-full bg-purple-100 text-purple-600 mr-4">
+                                    <i data-feather="bar-chart-2" class="w-6 h-6"></i>
+                                </div>
+                                <div>
+                                    <p class="text-sm text-gray-600">Predictions</p>
+                                    <p class="text-2xl font-bold" id="predictionCount">0</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Active Datasets -->
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <h2 class="text-xl font-semibold mb-4">Active Datasets</h2>
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead>
+                                    <tr class="border-b border-gray-200">
+                                        <th class="text-left py-3 px-4">Dataset Name</th>
+                                        <th class="text-left py-3 px-4">Hash</th>
+                                        <th class="text-left py-3 px-4">Size</th>
+                                        <th class="text-left py-3 px-4">Last Modified</th>
+                                        <th class="text-left py-3 px-4">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="datasetsTable">
+                                    <tr>
+                                        <td colspan="5" class="text-center py-8 text-gray-500">No datasets linked to workspace</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <button onclick="linkDataset()" class="mt-4 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors flex items-center">
+                            <i data-feather="link" class="mr-2 w-4 h-4"></i>
+                            Link Dataset
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        feather.replace();
+
+        // Set active navigation item
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            if (item.getAttribute('href') === 'workspace.html') {
+                item.classList.add('active');
+            }
+        });
+
+        // Toast helper
+        function showToast(msg, level = 'info') {
+            let c = document.getElementById('toast-container');
+            if (!c) {
+                c = document.createElement('div');
+                c.id = 'toast-container';
+                c.style.position = 'fixed';
+                c.style.right = '16px';
+                c.style.top = '16px';
+                c.style.zIndex = 9999;
+                document.body.appendChild(c);
+            }
+            const el = document.createElement('div');
+            el.className = 'mb-2 px-4 py-3 rounded shadow-lg bg-white border';
+            el.innerText = msg;
+            c.appendChild(el);
+            setTimeout(() => { try { c.removeChild(el); } catch (e) {} }, 6000);
+        }
+
+        async function loadWorkspace() {
+            try {
+                const res = await fetch('/api/workspace');
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                if (!data.workspace) {
+                    document.getElementById('currentWorkspace').innerHTML = 'No workspace selected';
+                } else {
+                    document.getElementById('currentWorkspace').innerHTML = '<div class="flex items-center justify-between"><span>' + data.workspace + '</span><span class="text-green-600 text-sm">✓ Active</span></div>';
+                }
+                const cfg = data.config || {};
+                document.getElementById('datasetCount').textContent = cfg.datasets ? String(cfg.datasets.length) : '0';
+                // update pipeline/repo counts via pipelines list endpoint
+                const pl = await fetch('/api/pipelines/list');
+                if (pl.ok) {
+                    const plj = await pl.json();
+                    document.getElementById('pipelineCount').textContent = String((plj.files || []).length);
+                }
+                // predictions count
+                const pc = await fetch('/api/predictions/counts');
+                if (pc.ok) {
+                    const pcj = await pc.json();
+                    document.getElementById('predictionCount').textContent = String(pcj.total || 0);
+                }
+                await refreshDatasetsTable();
+            } catch (err) {
+                showToast('Failed to load workspace: ' + err.message, 'error');
+            }
+        }
+
+        // Workspace selection modal (replaces prompt to allow persistence options)
+        (function injectWorkspaceModal(){
+            const modal = document.createElement('div');
+            modal.id = 'workspace-modal';
+            modal.style.display = 'none';
+            modal.innerHTML = `
+                <div style="position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999;">
+                    <div style="width:560px;background:#fff;padding:16px;border-radius:8px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><strong>Select Workspace</strong><button id="workspace-modal-close">Close</button></div>
+                        <div style="margin-bottom:8px;"><label>Workspace path (absolute)</label><input id="workspace-path-input" type="text" style="width:100%;padding:6px;margin-top:4px;border:1px solid #ddd;border-radius:4px;" placeholder="C:\\path\\to\\workspace"></div>
+                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><label><input id="workspace-create" type="checkbox" checked> Create if missing</label><label><input id="workspace-persist-global" type="checkbox" checked> Persist globally (last_workspace)</label><label><input id="workspace-persist-env" type="checkbox"> Persist in env (Windows only)</label></div>
+                        <div style="text-align:right;"><button id="workspace-modal-submit" style="background:#1f6feb;color:#fff;padding:8px 12px;border-radius:6px;">Select</button></div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            document.getElementById('workspace-modal-close').addEventListener('click', () => { modal.style.display = 'none'; });
+            document.getElementById('workspace-modal-submit').addEventListener('click', async () => {
+                const path = document.getElementById('workspace-path-input').value || '';
+                const create = !!document.getElementById('workspace-create').checked;
+                const persist_global = !!document.getElementById('workspace-persist-global').checked;
+                const persist_env = !!document.getElementById('workspace-persist-env').checked;
+                if (!path) { showToast('Please enter a workspace path', 'error'); return; }
+                try {
+                    const res = await fetch('/api/workspace/select', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path: path, create: create, persist_global: persist_global, persist_env: persist_env})});
+                    if (!res.ok) throw new Error(await res.text());
+                    const data = await res.json();
+                    if (data.ok) {
+                        showToast('Workspace selected: ' + data.workspace, 'success');
+                        modal.style.display = 'none';
+                        await loadWorkspace();
+                    } else {
+                        showToast('Failed to select workspace: ' + (data.error || JSON.stringify(data)), 'error');
+                    }
+                } catch (err) {
+                    showToast('Error selecting workspace: ' + err.message, 'error');
+                }
+            });
+        })();
+
+        function selectWorkspace() { document.getElementById('workspace-modal').style.display = 'block'; }
+
+        // File picker modal for selecting folders or files
+        (function injectFilePicker(){
+            const modal = document.createElement('div');
+            modal.id = 'file-picker-modal';
+            modal.style.display = 'none';
+            modal.innerHTML = `
+                <div style="position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999;">
+                    <div style="width:900px;max-width:95%;background:#fff;padding:12px;border-radius:8px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><strong>File browser</strong><button id="file-picker-close">Close</button></div>
+                        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+                            <select id="file-picker-roots"></select>
+                            <button id="file-picker-up">Up</button>
+                            <input id="file-picker-path" type="text" style="flex:1;padding:6px;border:1px solid #ddd;border-radius:4px;" readonly>
+                        </div>
+                        <div style="height:320px;overflow:auto;border:1px solid #eee;padding:8px;border-radius:6px;" id="file-picker-list"></div>
+                        <div style="margin-top:8px;text-align:right;display:flex;gap:6px;justify-content:flex-end;">
+                            <button id="file-picker-native-folder" style="margin-right:8px;">Open native folder dialog</button>
+                            <button id="file-picker-native-files" style="margin-right:8px;">Open native files dialog</button>
+                            <button id="file-picker-link-folder" style="margin-right:8px;">Link selected folder</button>
+                            <button id="file-picker-choose-files">Choose selected files</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            const rootsSel = modal.querySelector('#file-picker-roots');
+            const pathInput = modal.querySelector('#file-picker-path');
+            const listDiv = modal.querySelector('#file-picker-list');
+            let currentPath = null;
+            let selectedFiles = new Set();
+
+            modal.querySelector('#file-picker-close').addEventListener('click', () => { modal.style.display = 'none'; selectedFiles.clear(); });
+            modal.querySelector('#file-picker-up').addEventListener('click', () => { if (!currentPath) return; fetchPath(PathParent(currentPath)); });
+            modal.querySelector('#file-picker-link-folder').addEventListener('click', async () => {
+                if (!currentPath) { showToast('No folder selected', 'error'); return; }
+                try {
+                    const res = await fetch('/api/workspace/link-dataset', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path: currentPath})});
+                    if (!res.ok) throw new Error(await res.text());
+                    const j = await res.json();
+                    if (j.ok) { showToast('Folder linked as dataset'); modal.style.display='none'; await loadWorkspace(); } else { showToast('Failed to link folder: '+JSON.stringify(j), 'error'); }
+                } catch (err) { showToast('Error linking folder: '+err.message, 'error'); }
+            });
+            modal.querySelector('#file-picker-choose-files').addEventListener('click', () => {
+                if (!selectedFiles.size) { showToast('No files selected', 'error'); return; }
+                openDatasetMapping(Array.from(selectedFiles));
+            });
+
+            // Native dialog: open OS-native folder picker on the server and link
+            modal.querySelector('#file-picker-native-folder').addEventListener('click', async () => {
+                try {
+                    const res = await fetch('/api/files/dialog/folder', {method: 'POST'});
+                    if (!res.ok) {
+                        const t = await res.text();
+                        throw new Error(t || res.statusText);
+                    }
+                    const j = await res.json();
+                    if (!j.path) { showToast('No folder selected', 'info'); return; }
+                    // link dataset
+                    const linkRes = await fetch('/api/workspace/link-dataset', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path: j.path})});
+                    if (!linkRes.ok) throw new Error(await linkRes.text());
+                    const lj = await linkRes.json();
+                    if (lj.ok) { showToast('Folder linked: '+j.path, 'success'); modal.style.display='none'; await loadWorkspace(); }
+                    else showToast('Failed to link folder: '+JSON.stringify(lj), 'error');
+                } catch (err) { showToast('Native folder dialog failed: '+err.message, 'error'); }
+            });
+
+            // Native dialog: open OS-native file picker on the server and open mapping
+            modal.querySelector('#file-picker-native-files').addEventListener('click', async () => {
+                try {
+                    const res = await fetch('/api/files/dialog/files', {method: 'POST'});
+                    if (!res.ok) { throw new Error(await res.text()); }
+                    const j = await res.json();
+                    const paths = j.paths || [];
+                    if (!paths.length) { showToast('No files selected', 'info'); return; }
+                    modal.style.display='none';
+                    openDatasetMapping(paths);
+                } catch (err) { showToast('Native files dialog failed: '+err.message, 'error'); }
+            });
+
+            // Create hidden browser file inputs (fallback where server cannot open native dialogs)
+            const browserFilesInput = document.createElement('input');
+            browserFilesInput.type = 'file';
+            browserFilesInput.id = 'browser-file-input';
+            browserFilesInput.style.display = 'none';
+            browserFilesInput.multiple = true;
+            document.body.appendChild(browserFilesInput);
+
+            const browserDirInput = document.createElement('input');
+            browserDirInput.type = 'file';
+            browserDirInput.id = 'browser-dir-input';
+            browserDirInput.style.display = 'none';
+            browserDirInput.setAttribute('webkitdirectory', '');
+            browserDirInput.setAttribute('directory', '');
+            document.body.appendChild(browserDirInput);
+            modal.querySelector('#file-picker-native-files').insertAdjacentHTML('afterend', '');
+            // add two buttons for browser picks
+            const btnBrowserFiles = document.createElement('button'); btnBrowserFiles.textContent='Browser files...'; btnBrowserFiles.style.marginRight='8px';
+            const btnBrowserDir = document.createElement('button'); btnBrowserDir.textContent='Browser folder (upload)...'; btnBrowserDir.style.marginRight='8px';
+            modal.querySelector('#file-picker-native-files').after(btnBrowserFiles);
+            btnBrowserFiles.addEventListener('click', () => browserFilesInput.click());
+            modal.querySelector('#file-picker-link-folder').after(btnBrowserDir);
+            btnBrowserDir.addEventListener('click', () => browserDirInput.click());
+
+            async function uploadFilesToServer(fileList) {
+                const fd = new FormData();
+                for (let i=0;i<fileList.length;i++) fd.append('files', fileList[i], fileList[i].name);
+                const res = await fetch('/api/workspace/datasets/upload', {method:'POST', body: fd});
+                if (!res.ok) throw new Error(await res.text());
+                return await res.json();
+            }
+
+            browserFilesInput.addEventListener('change', async (e) => {
+                const files = e.target.files;
+                if (!files || !files.length) { showToast('No files selected'); return; }
+                try {
+                    showToast('Uploading files...');
+                    const j = await uploadFilesToServer(files);
+                    if (j.saved_paths && j.saved_paths.length) {
+                        modal.style.display='none';
+                        openDatasetMapping(j.saved_paths);
+                    } else {
+                        showToast('No files saved on server', 'error');
+                    }
+                } catch (err) { showToast('Upload failed: '+err.message, 'error'); }
+            });
+
+            browserDirInput.addEventListener('change', async (e) => {
+                const files = e.target.files;
+                if (!files || !files.length) { showToast('No files selected in folder'); return; }
+                try {
+                    showToast('Uploading folder files...');
+                    const j = await uploadFilesToServer(files);
+                    if (j.saved_paths && j.saved_paths.length) {
+                        modal.style.display='none';
+                        openDatasetMapping(j.saved_paths);
+                    } else {
+                        showToast('No files saved on server', 'error');
+                    }
+                } catch (err) { showToast('Upload failed: '+err.message, 'error'); }
+            });
+
+            async function populateRoots(){
+                try{ const r = await fetch('/api/files/roots'); if (!r.ok) throw new Error(await r.text()); const jr = await r.json(); rootsSel.innerHTML=''; jr.roots.forEach(rt=>{ const o=document.createElement('option'); o.value=rt; o.textContent=rt; rootsSel.appendChild(o); }); rootsSel.onchange=()=>fetchPath(rootsSel.value); }
+                catch(err){ showToast('Failed to load roots: '+err.message,'error'); }
+            }
+
+            function PathParent(p){ try{ const url = new URL('file://'+p); const up = p.split(/[\\/]/).slice(0,-1).join('/'); return up || p; } catch(e){ return p.replace(/\\[^\\]+$/,'').replace(/\/[^/]+$/,''); }
+            }
+
+            async function fetchPath(p){
+                try{
+                    const res = await fetch('/api/files/list?path=' + encodeURIComponent(p));
+                    if (!res.ok) throw new Error(await res.text());
+                    const j = await res.json();
+                    currentPath = j.path; pathInput.value = currentPath; selectedFiles.clear();
+                    listDiv.innerHTML='';
+                    j.items.forEach(it => {
+                        const row = document.createElement('div');
+                        row.style.display='flex'; row.style.justifyContent='space-between'; row.style.padding='6px 4px';
+                        const left = document.createElement('div'); left.style.display='flex'; left.style.alignItems='center';
+                        if (it.is_dir){
+                            const a=document.createElement('a'); a.href='#'; a.textContent='📁 '+it.name; a.onclick=(e)=>{ e.preventDefault(); fetchPath(it.path); };
+                            left.appendChild(a);
+                        } else {
+                            const cb = document.createElement('input'); cb.type='checkbox'; cb.dataset.path=it.path; cb.onchange=(e)=>{ if(e.currentTarget.checked) selectedFiles.add(e.currentTarget.dataset.path); else selectedFiles.delete(e.currentTarget.dataset.path); };
+                            left.appendChild(cb);
+                            const span=document.createElement('span'); span.textContent=' '+it.name; left.appendChild(span);
+                        }
+                        const right = document.createElement('div'); right.style.color='#666'; right.textContent = it.is_dir ? '' : (it.size ? human_readable_size(it.size) : '');
+                        row.appendChild(left); row.appendChild(right); listDiv.appendChild(row);
+                    });
+                } catch (err){ showToast('Failed to list path: '+err.message,'error'); }
+            }
+
+            modal.showFilePicker = function(startPath){ modal.style.display='block'; populateRoots(); fetchPath(startPath || rootsSel.value || '/'); };
+        })();
+
+        // Open the file picker to select files or a folder
+        function linkDataset(){
+            // open picker starting at workspace results folder if available
+            const wsCfg = document.getElementById('currentWorkspace')?.textContent || '';
+            // prefer workspace results folder if set in backend
+            (async ()=>{
+                try{
+                    const r = await fetch('/api/workspace'); if (!r.ok) throw new Error(await r.text()); const j = await r.json(); let start = '/'; if (j.config && j.config.results_folder) start = j.config.results_folder; document.getElementById('file-picker-modal').showFilePicker(start);
+                }catch(e){ document.getElementById('file-picker-modal').showFilePicker('/'); }
+            })();
+        }
+
+        async function setPipelineRepo() {
+            const p = prompt('Enter pipeline repo path');
+            if (!p) return;
+            try {
+                const res = await fetch('/api/workspace/set-pipeline-repo', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path: p})});
+                if (!res.ok) throw new Error(await res.text());
+                const j = await res.json();
+                if (j.ok) { showToast('Pipeline repo set'); await loadWorkspace(); } else { showToast('Failed to set repo: ' + JSON.stringify(j), 'error'); }
+            } catch (err) { showToast('Error setting pipeline repo: ' + err.message, 'error'); }
+        }
+
+        async function setResultsFolder() {
+            const p = prompt('Enter results folder path');
+            if (!p) return;
+            try {
+                const res = await fetch('/api/workspace/set-results-folder', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({path: p})});
+                if (!res.ok) throw new Error(await res.text());
+                const j = await res.json();
+                if (j.ok) { showToast('Results folder set'); await loadWorkspace(); } else { showToast('Failed to set results folder: ' + JSON.stringify(j), 'error'); }
+            } catch (err) { showToast('Error setting results folder: ' + err.message, 'error'); }
+        }
+
+        async function refreshDatasetsTable() {
+            try {
+                const res = await fetch('/api/workspace/datasets');
+                if (!res.ok) throw new Error(await res.text());
+                const j = await res.json();
+                const rows = j.datasets || [];
+                const tbody = document.getElementById('datasetsTable');
+                if (!rows.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-500">No datasets linked to workspace</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = '';
+                rows.forEach(r => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'border-b border-gray-100 hover:bg-gray-50';
+                    tr.innerHTML = `
+                        <td class="py-3 px-4">${escapeHtml(r.name)}</td>
+                        <td class="py-3 px-4 font-mono text-sm">${escapeHtml(r.hash || '')}</td>
+                        <td class="py-3 px-4">${escapeHtml(r.size_human || '')}</td>
+                        <td class="py-3 px-4">${escapeHtml(r.predictions_count || 0)}</td>
+                        <td class="py-3 px-4"><button class="text-red-600 unlink-btn" data-path="${escapeHtml(r.path)}"><i data-feather='unlink' class='w-4 h-4'></i></button></td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+                document.querySelectorAll('.unlink-btn').forEach(btn => btn.addEventListener('click', async (e) => {
+                    const p = e.currentTarget.dataset.path;
+                    try { const res = await fetch('/api/workspace/unlink-dataset', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path: p})}); if (!res.ok) throw new Error(await res.text()); showToast('Dataset unlinked'); await loadWorkspace(); } catch (err) { showToast('Failed to unlink: ' + err.message, 'error'); }
+                }));
+                feather.replace();
+            } catch (err) {
+                showToast('Failed to refresh datasets: ' + err.message, 'error');
+            }
+        }
+
+        function escapeHtml(s) { return String(s || '').replace(/[&<>"]+/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+        // Initialize workspace state on load
+        loadWorkspace();
+
+        // Dataset mapping modal for selected files
+        (function injectMappingModal(){
+            const modal = document.createElement('div'); modal.id='dataset-mapping-modal'; modal.style.display='none';
+            modal.innerHTML = `
+                <div style="position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999;">
+                    <div style="width:760px;background:#fff;padding:12px;border-radius:8px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><strong>Configure Dataset from Files</strong><button id="mapping-close">Close</button></div>
+                        <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+                            <label style="flex:1">Delimiter <input id="mapping-delim" type="text" value="," style="width:80px;margin-left:6px"></label>
+                            <label>Decimal <select id="mapping-decimal"><option value=".">.</option><option value="," selected>,</option></select></label>
+                            <label>Header <select id="mapping-header"><option value="none">None</option><option value="nm">nm</option><option value="cm-1">cm-1</option><option value="other">Other</option></select></label>
+                            <input id="mapping-header-other" type="text" placeholder="custom header" style="display:none;margin-left:6px;border:1px solid #ddd;padding:4px;border-radius:4px;">
+                        </div>
+                        <div style="max-height:300px;overflow:auto;border:1px solid #eee;padding:8px;border-radius:6px;" id="mapping-files-list"></div>
+                        <div style="margin-top:8px;text-align:right;"><button id="mapping-save" style="background:#1f6feb;color:#fff;padding:8px 12px;border-radius:6px;">Save Dataset</button></div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            modal.querySelector('#mapping-close').addEventListener('click', ()=>{ modal.style.display='none'; });
+            modal.querySelector('#mapping-save').addEventListener('click', async ()=>{
+                const files = JSON.parse(modal.dataset.files || '[]');
+                const delim = document.getElementById('mapping-delim').value || ',';
+                const dec = document.getElementById('mapping-decimal').value || '.';
+                const header = document.getElementById('mapping-header').value || 'none';
+                const headerOther = document.getElementById('mapping-header-other').value || null;
+                // gather mapping selections
+                const roles = {};
+                modal.querySelectorAll('.mapping-role').forEach(sel => {
+                    const p = sel.dataset.path; const v = sel.value; if (!roles[v]) roles[v]=[]; roles[v].push(p);
+                });
+                const cfg = {};
+                // map roles to config keys
+                if (roles['train_x']) cfg['train_x'] = roles['train_x'];
+                if (roles['train_y']) cfg['train_y'] = roles['train_y'];
+                if (roles['test_x']) cfg['test_x'] = roles['test_x'];
+                if (roles['test_y']) cfg['test_y'] = roles['test_y'];
+                if (roles['source']) cfg['source'] = roles['source'];
+                cfg['metadata'] = { delimiter: delim, decimal: dec, header: header === 'other' ? (headerOther || '') : header };
+                // ask for name
+                const name = prompt('Optional dataset name (leave empty to infer)');
+                try{
+                    const body = { name: name || null, config: cfg };
+                    const res = await fetch('/api/workspace/datasets/save', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+                    if (!res.ok) throw new Error(await res.text());
+                    const j = await res.json(); showToast('Saved dataset config: '+(j.path||''),'success'); modal.style.display='none'; await loadWorkspace();
+                }catch(err){ showToast('Failed to save dataset config: '+err.message,'error'); }
+            });
+            modal.openWithFiles = function(files){ modal.dataset.files = JSON.stringify(files); const list = modal.querySelector('#mapping-files-list'); list.innerHTML=''; files.forEach(p=>{
+                const div=document.createElement('div'); div.style.display='flex'; div.style.justifyContent='space-between'; div.style.padding='6px 4px';
+                div.innerHTML = `<div>${escapeHtml(p)}</div><div><select class='mapping-role' data-path='${escapeHtml(p)}'><option value='train_x'>train_x</option><option value='train_y'>train_y</option><option value='test_x'>test_x</option><option value='test_y'>test_y</option><option value='source' selected>source</option></select></div>`;
+                list.appendChild(div);
+            }); modal.style.display='block'; };
+            // header other input toggle
+            modal.querySelector('#mapping-header').addEventListener('change', (e)=>{
+                const v = e.currentTarget.value;
+                const other = modal.querySelector('#mapping-header-other');
+                if (v === 'other') other.style.display = 'inline-block'; else other.style.display = 'none';
+            });
+        })();
+
+        function openDatasetMapping(filesArray){ document.getElementById('dataset-mapping-modal').openWithFiles(filesArray); }
+    </script>
+</body>
+</html>
