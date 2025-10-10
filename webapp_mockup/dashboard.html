@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prediction Dashboard - NIRSCAPE</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div class="flex h-screen">
+        <!-- Navigation Sidebar -->
+        <div class="w-64 bg-white shadow-lg border-r border-gray-200">
+            <div class="p-6 border-b border-gray-200">
+                <h1 class="text-xl font-bold text-gray-800 flex items-center">
+                    <i data-feather="activity" class="mr-2 text-blue-600"></i>
+                    NIRSCAPE
+                </h1>
+                <p class="text-sm text-gray-600 mt-1">NIRS Analysis Platform</p>
+            </div>
+            <nav class="mt-6">
+                <a href="index.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="home" class="mr-3"></i>
+                    Home
+                </a>
+                <a href="workspace.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="folder" class="mr-3"></i>
+                    Workspace
+                </a>
+                <a href="pipeline.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="git-branch" class="mr-3"></i>
+                    Pipeline Editor
+                </a>
+                <a href="predictions.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="database" class="mr-3"></i>
+                    Predictions DB
+                </a>
+                <a href="dashboard.html" class="sidebar-item active flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="bar-chart-2" class="mr-3"></i>
+                    Prediction Dashboard
+                </a>
+                <a href="analysis.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="layers" class="mr-3"></i>
+                    Analysis Tools
+                </a>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <div class="p-8">
+                <div class="max-w-7xl mx-auto">
+                    <div class="mb-8">
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Prediction Dashboard</h1>
+                        <p class="text-gray-600">Interactive visualization and analysis of prediction results</p>
+                    </div>
+
+                    <!-- Dashboard Controls -->
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <select class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option>Performance Metrics</option>
+                                <option>Confusion Matrix</option>
+                                <option>ROC Curves</option>
+                                <option>Feature Importance</option>
+                            </select>
+                            <select class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option>All Models</option>
+                                <option>Random Forest</option>
+                                <option>SVM</option>
+                                <option>Neural Network</option>
+                            </select>
+                            <select class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option>All Datasets</option>
+                                <option>cortical_activity_001</option>
+                                <option>motor_task_study</option>
+                            </select>
+                            <button class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                                Update Dashboard
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Visualization Grid -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <!-- Performance Metrics -->
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h2 class="text-lg font-semibold">Model Performance</h2>
+                                <button class="text-gray-400 hover:text-gray-600">
+                                    <i data-feather="maximize" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                            <div id="performanceChart" class="h-64"></div>
+                        </div>
+
+                        <!-- Confusion Matrix -->
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h2 class="text-lg font-semibold">Confusion Matrix</h2>
+                                <button class="text-gray-400 hover:text-gray-600">
+                                    <i data-feather="maximize" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                            <div id="confusionMatrix" class="h-64"></div>
+                        </div>
+
+                        <!-- ROC Curves -->
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h2 class="text-lg font-semibold">ROC Curves</h2>
+                                <button class="text-gray-400 hover:text-gray-600">
+                                    <i data-feather="maximize" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                            <div id="rocCurve" class="h-64"></div>
+                        </div>
+
+                        <!-- Feature Importance -->
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h2 class="text-lg font-semibold">Feature Importance</h2>
+                                <button class="text-gray-400 hover:text-gray-600">
+                                    <i data-feather="maximize" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                            <div id="featureImportance" class="h-64"></div>
+                        </div>
+                    </div>
+
+                    <!-- Additional Visualizations -->
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-lg font-semibold">Prediction Distribution</h2>
+                            <div class="flex space-x-2">
+                                <button class="text-gray-400 hover:text-gray-600">
+                                    <i data-feather="download" class="w-4 h-4"></i>
+                                </button>
+                                <button class="text-gray-400 hover:text-gray-600">
+                                    <i data-feather="maximize" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="predictionDistribution" class="h-80"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        feather.replace();
+        
+        // Set active navigation item
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            if (item.getAttribute('href') === 'dashboard.html') {
+                item.classList.add('active');
+            }
+        });
+
+        // Initialize Plotly charts
+        document.addEventListener('DOMContentLoaded', function() {
+            // Performance Metrics Chart
+            Plotly.newPlot('performanceChart', [{
+                x: ['Random Forest', 'SVM', 'Neural Network'],
+                y: [0.92, 0.78, 0.65],
+                type: 'bar',
+                marker: {
+                    color: ['#10b981', '#f59e0b', '#ef4444']
+                }
+            }], {
+                margin: { t: 0, r: 0, l: 40, b: 30 },
+                yaxis: { title: 'Accuracy' }
+            });
+
+            // Confusion Matrix
+            Plotly.newPlot('confusionMatrix', [{
+                z: [[85, 5], [3, 87]],
+                x: ['Predicted Negative', 'Predicted Positive'],
+                y: ['Actual Negative', 'Actual Positive'],
+                type: 'heatmap',
+                colorscale: 'Blues'
+            }], {
+                margin: { t: 0, r: 0, l: 50, b: 30 }
+            });
+
+            // ROC Curve
+            Plotly.newPlot('rocCurve', [{
+                x: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+                y: [0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.98, 1],
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Model ROC'
+            }, {
+                x: [0, 1],
+                y: [0, 1],
+                type: 'scatter',
+                mode: 'lines',
+                line: { dash: 'dash' },
+                name: 'Random'
+            }], {
+                margin: { t: 0, r: 0, l: 40, b: 30 },
+                xaxis: { title: 'False Positive Rate' },
+                yaxis: { title: 'True Positive Rate' }
+            });
+
+            // Feature Importance
+            Plotly.newPlot('featureImportance', [{
+                x: [0.15, 0.12, 0.09, 0.07, 0.05, 0.04, 0.03, 0.02],
+                y: ['HbO2 Concentration', 'HbR Concentration', 'Signal Variance', 'Mean Frequency', 'Peak Power', 'Spectral Entropy', 'Skewness', 'Kurtosis'],
+                type: 'bar',
+                orientation: 'h'
+            }], {
+                margin: { t: 0, r: 0, l: 150, b: 30 }
+            });
+
+            // Prediction Distribution
+            Plotly.newPlot('predictionDistribution', [{
+                x: Array.from({length: 100}, (_, i) => i/100),
+                y: Array.from({length: 100}, () => Math.random() * 10),
+                type: 'histogram',
+                nbinsx: 20,
+                marker: {
+                    color: '#3b82f6'
+                }
+            }], {
+                margin: { t: 0, r: 0, l: 40, b: 30 },
+                xaxis: { title: 'Prediction Score' },
+                yaxis: { title: 'Frequency' }
+            });
+        });
+    </script>
+</body>
+</html>

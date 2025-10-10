@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIRSCAPE - NIRS Analysis Platform</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>body{font-family: Arial, Helvetica, sans-serif; padding: 2rem;}</style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <h1>Local UI mockup</h1>
+    <p>The production UI folder is not present. For local development you can use the archived mockup that is being served under <code>/webapp/</code>.</p>
+    <p>Choose a page to continue:</p>
+    <ul>
+        <li><a class="text-blue-600 hover:underline" href="/webapp/predictions.html">Open Predictions DB (mockup)</a></li>
+        <li><a class="text-blue-600 hover:underline" href="/webapp/pipeline.html">Open Pipeline Editor (mockup)</a></li>
+    </ul>
+
+    <script>
+        feather.replace();
+        // Set active navigation item
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            if (item.getAttribute('href') === 'index.html') {
+                item.classList.add('active');
+            }
+        });
+            // Fetch and display prediction counts (minimal MVP widget)
+            async function refreshPredictionCounts() {
+                const container = document.getElementById('predictionCounts');
+                if (!container) return;
+                container.innerHTML = 'Loading...';
+                try {
+                    const resp = await fetch('/api/predictions/counts');
+                    if (!resp.ok) throw new Error(await resp.text());
+                    const data = await resp.json();
+                    const counts = data.counts || {};
+                    const total = data.total || 0;
+                    const items = Object.entries(counts).map(([k, v]) => `<li class="py-1"><strong>${k}</strong>: ${v}</li>`);
+                    container.innerHTML = `<div class="bg-white p-4 rounded shadow"><h3 class="font-semibold mb-2">Prediction counts</h3><ul>${items.join('')}</ul><div class="text-sm text-gray-500 mt-2">Total: ${total}</div></div>`;
+                } catch (err) {
+                    container.innerHTML = `<div class="text-red-600">Failed to load prediction counts: ${err}</div>`;
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', refreshPredictionCounts);
+    </script>
+</body>
+</html>

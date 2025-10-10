@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Predictions DB - NIRSCAPE</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div class="flex h-screen">
+        <!-- Navigation Sidebar -->
+        <div class="w-64 bg-white shadow-lg border-r border-gray-200">
+            <div class="p-6 border-b border-gray-200">
+                <h1 class="text-xl font-bold text-gray-800 flex items-center">
+                    <i data-feather="activity" class="mr-2 text-blue-600"></i>
+                    NIRSCAPE
+                </h1>
+                <p class="text-sm text-gray-600 mt-1">NIRS Analysis Platform</p>
+            </div>
+            <nav class="mt-6">
+                <a href="index.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="home" class="mr-3"></i>
+                    Home
+                </a>
+                <a href="workspace.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="folder" class="mr-3"></i>
+                    Workspace
+                </a>
+                <a href="pipeline.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="git-branch" class="mr-3"></i>
+                    Pipeline Editor
+                </a>
+                <a href="predictions.html" class="sidebar-item active flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="database" class="mr-3"></i>
+                    Predictions DB
+                </a>
+                <a href="dashboard.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="bar-chart-2" class="mr-3"></i>
+                    Prediction Dashboard
+                </a>
+                <a href="analysis.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="layers" class="mr-3"></i>
+                    Analysis Tools
+                </a>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <div class="p-8">
+                <div class="max-w-7xl mx-auto">
+                    <div class="mb-8">
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Predictions Database</h1>
+                        <p class="text-gray-600">Manage and analyze your NIRS prediction results</p>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
+                            <input id="pred-q" type="text" placeholder="Search predictions..." class="border border-gray-300 rounded-lg px-3 py-2">
+                            <select id="pred-dataset" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">All Datasets</option>
+                            </select>
+                            <select id="pred-model" class="border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">All Models</option>
+                            </select>
+                            <input id="pred-date-from" type="date" class="border border-gray-300 rounded-lg px-3 py-2">
+                            <input id="pred-date-to" type="date" class="border border-gray-300 rounded-lg px-3 py-2">
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span id="predictions-count" class="text-sm text-gray-600">156 predictions found</span>
+                            <div class="flex space-x-2">
+                                <button class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors">
+                                    <i data-feather="download" class="w-4 h-4"></i>
+                                </button>
+                                <button class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors">
+                                    <i data-feather="trash-2" class="w-4 h-4"></i>
+                                </button>
+                                <button class="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                                    <i data-feather="bar-chart-2" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Predictions Table -->
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">
+                                            <input type="checkbox" class="rounded">
+                                        </th>
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700 sortable" data-sort-key="_date">Date</th>
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700 sortable" data-sort-key="id">Run ID</th>
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700 sortable" data-sort-key="dataset_name">Dataset</th>
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700 sortable" data-sort-key="test_score">Score</th>
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700 sortable" data-sort-key="model_name">Model</th>
+                                        <th class="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="predictions-tbody" class="divide-y divide-gray-200">
+                                    <!-- Rows rendered dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div class="bg-gray-50 px-4 py-3 flex items-center justify-between border-t border-gray-200">
+                            <div class="flex-1 flex justify-between items-center">
+                                <button id="pred-prev" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                    Previous
+                                </button>
+                                <div class="hidden md:flex" id="pred-pages">
+                                    <!-- page buttons inserted here -->
+                                </div>
+                                <button id="pred-next" class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        feather.replace();
+
+        // Set active navigation item
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            if (item.getAttribute('href') === 'predictions.html') {
+                item.classList.add('active');
+            }
+        });
+
+        // Simple toast helper (supports Retry with a callback)
+        function showToast(message, level = 'info', retryCallback = null) {
+            const containerId = 'toast-container';
+            let container = document.getElementById(containerId);
+            if (!container) {
+                container = document.createElement('div');
+                container.id = containerId;
+                container.style.position = 'fixed';
+                container.style.right = '16px';
+                container.style.top = '16px';
+                container.style.zIndex = 9999;
+                document.body.appendChild(container);
+            }
+
+            const toast = document.createElement('div');
+            toast.className = 'mb-2 px-4 py-3 rounded shadow-lg bg-white border';
+            toast.style.minWidth = '220px';
+            toast.innerHTML = `<div class="text-sm text-gray-800">${message}</div>`;
+
+            if (retryCallback) {
+                const retryBtn = document.createElement('button');
+                retryBtn.className = 'mt-2 inline-block text-sm text-blue-600 hover:underline';
+                retryBtn.textContent = 'Retry';
+                retryBtn.onclick = () => {
+                    retryCallback();
+                    container.removeChild(toast);
+                };
+                toast.appendChild(retryBtn);
+            }
+
+            container.appendChild(toast);
+            setTimeout(() => {
+                try { container.removeChild(toast); } catch (e) {}
+            }, 8000);
+        }
+
+    // API helpers
+    const STATE = { page: 1, page_size: 20, total: 0, sort_by: null, sort_dir: 'desc' };
+
+        async function fetchPredictions(options = {}) {
+            const page = options.page || STATE.page || 1;
+            const page_size = options.page_size || STATE.page_size || 20;
+            const q = options.q || document.getElementById('pred-q').value || '';
+            const dataset = document.getElementById('pred-dataset').value || '';
+            const model_name = document.getElementById('pred-model').value || '';
+            const date_from = document.getElementById('pred-date-from').value || '';
+            const date_to = document.getElementById('pred-date-to').value || '';
+
+            // include_arrays=false by default to avoid heavy payloads
+            const params = new URLSearchParams({ page: String(page), page_size: String(page_size), include_arrays: 'false' });
+            if (q) params.append('q', q);
+            if (STATE.sort_by) params.append('sort_by', STATE.sort_by);
+            if (STATE.sort_dir) params.append('sort_dir', STATE.sort_dir);
+            if (dataset) params.append('dataset', dataset);
+            if (model_name) params.append('model_name', model_name);
+            if (date_from) params.append('date_from', date_from);
+            if (date_to) params.append('date_to', date_to);
+
+            try {
+                const res = await fetch('/api/predictions/search?' + params.toString());
+                if (!res.ok) {
+                    const txt = await res.text();
+                    showToast('Failed to load predictions: ' + res.status + ' ' + txt, 'error');
+                    return;
+                }
+                const data = await res.json();
+                STATE.page = data.page || page;
+                STATE.page_size = data.page_size || page_size;
+                STATE.total = data.total || 0;
+                renderPredictions(data.predictions || []);
+                renderPagination();
+                const countEl = document.getElementById('predictions-count');
+                if (countEl) countEl.textContent = `${STATE.total} predictions found`;
+            } catch (err) {
+                showToast('Error loading predictions: ' + err.message, 'error');
+            }
+        }
+
+        function renderPredictions(rows) {
+            const tbody = document.getElementById('predictions-tbody');
+            tbody.innerHTML = '';
+            if (!rows || rows.length === 0) {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-50';
+                tr.innerHTML = `<td class="py-3 px-4" colspan="7">No predictions found</td>`;
+                tbody.appendChild(tr);
+                return;
+            }
+
+            rows.forEach(r => {
+                const date = r._date || '';
+                const id = r.id || r.run_id || '-';
+                const dataset = r.dataset_name || r.dataset_path || '-';
+                const model = r.model_name || r.model_classname || '-';
+                const score = (r.test_score !== undefined) ? r.test_score : (r.val_score !== undefined ? r.val_score : (r.train_score !== undefined ? r.train_score : '-'));
+
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-50';
+                tr.innerHTML = `
+                    <td class="py-3 px-4"><input type="checkbox" class="rounded"></td>
+                    <td class="py-3 px-4">${date}</td>
+                    <td class="py-3 px-4 font-mono text-sm">${escapeHtml(id)} ${r._arrays_stripped ? '<span title="Some arrays were omitted to keep payload small" class="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">truncated</span>' : ''}</td>
+                    <td class="py-3 px-4">${escapeHtml(dataset)}</td>
+                    <td class="py-3 px-4"><span class="${score !== '-' && score >= 0.9 ? 'bg-green-100 text-green-800' : score !== '-' && score >= 0.75 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'} text-xs px-2 py-1 rounded-full">${escapeHtml(String(score))}</span></td>
+                    <td class="py-3 px-4">${escapeHtml(model)}</td>
+                    <td class="py-3 px-4">
+                        <div class="flex space-x-2">
+                            <button class="text-blue-600 hover:text-blue-800 btn-report" data-id="${escapeHtml(id)}" title="Go to Report">
+                                <i data-feather="file-text" class="w-4 h-4"></i>
+                            </button>
+                            <button class="text-green-600 hover:text-green-800 btn-replay" data-id="${escapeHtml(id)}" title="Replay">
+                                <i data-feather="repeat" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </td>
+                `;
+
+                tbody.appendChild(tr);
+            });
+
+            // re-initialize feather icons for any new icons
+            feather.replace();
+
+            // attach handlers
+            document.querySelectorAll('.btn-replay').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const id = e.currentTarget.dataset.id;
+                    window.location.href = '/webapp/pipeline.html?prediction_id=' + encodeURIComponent(id);
+                });
+            });
+
+            // attach header sorting
+            document.querySelectorAll('th.sortable').forEach(th => {
+                th.style.cursor = 'pointer';
+                th.onclick = () => {
+                    const key = th.dataset.sortKey;
+                    if (STATE.sort_by === key) {
+                        STATE.sort_dir = STATE.sort_dir === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        STATE.sort_by = key; STATE.sort_dir = 'desc';
+                    }
+                    fetchPredictions({page: 1});
+                };
+            });
+        }
+
+        function renderPagination() {
+            const pagesEl = document.getElementById('pred-pages');
+            pagesEl.innerHTML = '';
+            const totalPages = Math.ceil((STATE.total || 0) / STATE.page_size) || 1;
+            for (let i = 1; i <= Math.min(totalPages, 7); i++) {
+                const btn = document.createElement('button');
+                btn.className = 'relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50';
+                btn.textContent = i;
+                if (i === STATE.page) btn.classList.add('bg-gray-100');
+                btn.addEventListener('click', () => { STATE.page = i; fetchPredictions({page: i}); });
+                pagesEl.appendChild(btn);
+            }
+            document.getElementById('pred-prev').onclick = () => { if (STATE.page > 1) { STATE.page--; fetchPredictions({page: STATE.page}); } };
+            document.getElementById('pred-next').onclick = () => { STATE.page++; fetchPredictions({page: STATE.page}); };
+        }
+
+        function escapeHtml(s) {
+            return String(s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[c]);
+        }
+
+        // Replay/pipeline load with retry toast
+        async function replayPrediction(predictionId) {
+            const attempt = async () => {
+                try {
+                    const res = await fetch('/api/pipeline/from-prediction?prediction_id=' + encodeURIComponent(predictionId));
+                    if (!res.ok) {
+                        const txt = await res.text();
+                        throw new Error(res.status + ' ' + txt);
+                    }
+                    const data = await res.json();
+                    showToast('Pipeline loaded for ' + predictionId, 'success');
+                    // TODO: navigate to pipeline editor and load data.pipeline
+                } catch (err) {
+                    showToast('Failed to load pipeline: ' + err.message, 'error', attempt);
+                }
+            };
+            attempt();
+        }
+
+        // Simple search handler
+        document.querySelector('input[placeholder="Search predictions..."]').addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') {
+                STATE.page = 1;
+                fetchPredictions({page: 1});
+            }
+        });
+
+        // Right-click context menu
+        document.addEventListener('contextmenu', (e) => {
+            if (e.target.closest('tr')) {
+                e.preventDefault();
+                // Context menu implementation would go here
+                console.log('Right-click on prediction row');
+            }
+        });
+
+        // populate filters from server metadata and initial load
+        (async function initFilters() {
+            try {
+                const res = await fetch('/api/predictions/meta');
+                if (res.ok) {
+                    const meta = await res.json();
+                    const ds = document.getElementById('pred-dataset');
+                    (meta.models || []).forEach(m => {
+                        const opt = document.createElement('option'); opt.value = m; opt.textContent = m; document.getElementById('pred-model').appendChild(opt);
+                    });
+                    (meta.configs || []).forEach(c => {
+                        // configs might include dataset names in their paths — skip
+                    });
+                    (meta.partitions || []).forEach(p => {});
+                    const countsRes = await fetch('/api/predictions/datasets');
+                    if (countsRes.ok) {
+                        const cjson = await countsRes.json();
+                        (cjson.datasets || []).forEach(d => { const opt = document.createElement('option'); opt.value = d.name; opt.textContent = d.name; ds.appendChild(opt); });
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
+            fetchPredictions().catch(err => showToast('Init error: ' + err.message, 'error'));
+        })();
+    </script>
+</body>
+</html>

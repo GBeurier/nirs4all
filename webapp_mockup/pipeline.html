@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Editor - NIRS4ALL UI</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div class="flex h-screen">
+        <!-- Navigation Sidebar -->
+        <div class="w-64 bg-white shadow-lg border-r border-gray-200">
+            <div class="p-6 border-b border-gray-200">
+                <h1 class="text-xl font-bold text-gray-800 flex items-center">
+                    <i data-feather="activity" class="mr-2 text-blue-600"></i>
+                    NIRS4ALL
+                </h1>
+                <p class="text-sm text-gray-600 mt-1">NIRS Analysis Platform</p>
+            </div>
+            <nav class="mt-6">
+                <a href="index.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="home" class="mr-3"></i>
+                    Home
+                </a>
+                <a href="workspace.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="folder" class="mr-3"></i>
+                    Workspace
+                </a>
+                <a href="pipeline.html" class="sidebar-item active flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="git-branch" class="mr-3"></i>
+                    Pipeline Editor
+                </a>
+                <a href="predictions.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="database" class="mr-3"></i>
+                    Predictions DB
+                </a>
+                <a href="dashboard.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="bar-chart-2" class="mr-3"></i>
+                    Prediction Dashboard
+                </a>
+                <a href="analysis.html" class="sidebar-item flex items-center px-6 py-3 text-gray-700 hover:bg-blue-50 transition-colors">
+                    <i data-feather="layers" class="mr-3"></i>
+                    Analysis Tools
+                </a>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 overflow-auto">
+            <div class="p-8">
+                <div class="max-w-7xl mx-auto">
+                    <div class="mb-8">
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Pipeline Editor</h1>
+                        <p class="text-gray-600">Create and configure NIRS analysis pipelines with drag-and-drop components</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                        <!-- Component Library -->
+                        <div class="lg:col-span-1">
+                            <div class="bg-white rounded-lg shadow-md p-6 sticky top-6">
+                                <h2 class="text-lg font-semibold mb-4">Component Library</h2>
+                                <div class="space-y-3">
+                                    <!-- Preprocessing Accordion -->
+                                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                                        <button class="w-full flex justify-between items-center p-4 bg-blue-50 hover:bg-blue-100 transition-colors" onclick="toggleAccordion('preprocessing')">
+                                            <div class="flex items-center">
+                                                <i data-feather="filter" class="text-blue-600 mr-3"></i>
+                                                <span class="font-medium">Preprocessing</span>
+                                            </div>
+                                            <i data-feather="chevron-down" class="transform transition-transform" id="preprocessing-chevron"></i>
+                                        </button>
+                                        <div id="preprocessing-content" class="hidden border-t border-gray-200">
+                                            <div class="p-3 space-y-2">
+                                                <div class="pl-4 border-l-2 border-blue-200">
+                                                    <button class="w-full text-left text-sm font-medium text-gray-700 mb-2" onclick="toggleSubAccordion('scalers')">Scalers</button>
+                                                    <div id="scalers-content" class="hidden pl-4 space-y-1">
+                                                        <div class="component-card bg-blue-50 border border-blue-200 rounded p-2 cursor-move text-sm" data-component="minmax_scaler">
+                                                            MinMax Scaler
+                                                        </div>
+                                                        <div class="component-card bg-blue-50 border border-blue-200 rounded p-2 cursor-move text-sm" data-component="standard_scaler">
+                                                            Standard Scaler
+                                                        </div>
+                                                        <div class="component-card bg-blue-50 border border-blue-200 rounded p-2 cursor-move text-sm" data-component="robust_scaler">
+                                                            Robust Scaler
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="pl-4 border-l-2 border-blue-200">
+                                                    <button class="w-full text-left text-sm font-medium text-gray-700 mb-2" onclick="toggleSubAccordion('filters')">Filters</button>
+                                                    <div id="filters-content" class="hidden pl-4 space-y-1">
+                                                        <div class="component-card bg-blue-50 border border-blue-200 rounded p-2 cursor-move text-sm" data-component="bandpass_filter">
+                                                            Bandpass Filter
+                                                        </div>
+                                                        <div class="component-card bg-blue-50 border border-blue-200 rounded p-2 cursor-move text-sm" data-component="lowpass_filter">
+                                                            Lowpass Filter
+                                                        </div>
+                                                        <div class="component-card bg-blue-50 border border-blue-200 rounded p-2 cursor-move text-sm" data-component="highpass_filter">
+                                                            Highpass Filter
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="pl-4 border-l-2 border-blue-200">
+                                                    <button class="w-full text-left text-sm font-medium text-gray-700 mb-2" onclick="toggleSubAccordion('baseline')">Baseline Correction</button>
+                                                    <div id="baseline-content" class="hidden pl-4 space-y-1">
+                                                        <div class="component-card bg-blue-50 border border-blue-200 rounded p-2 cursor-move text-sm" data-component="detrend">
+                                                            Detrend
+                                                        </div>
+                                                        <div class="component-card bg-blue-50 border border-blue-200 rounded p-2 cursor-move text-sm" data-component="polynomial_baseline">
+                                                            Polynomial Baseline
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Feature Extraction Accordion -->
+                                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                                        <button class="w-full flex justify-between items-center p-4 bg-green-50 hover:bg-green-100 transition-colors" onclick="toggleAccordion('feature_extraction')">
+                                            <div class="flex items-center">
+                                                <i data-feather="layers" class="text-green-600 mr-3"></i>
+                                                <span class="font-medium">Feature Extraction</span>
+                                            </div>
+                                            <i data-feather="chevron-down" class="transform transition-transform" id="feature_extraction-chevron"></i>
+                                        </button>
+                                        <div id="feature_extraction-content" class="hidden border-t border-gray-200">
+                                            <div class="p-3 space-y-2">
+                                                <div class="pl-4 border-l-2 border-green-200">
+                                                    <button class="w-full text-left text-sm font-medium text-gray-700 mb-2" onclick="toggleSubAccordion('statistical')">Statistical Features</button>
+                                                    <div id="statistical-content" class="hidden pl-4 space-y-1">
+                                                        <div class="component-card bg-green-50 border border-green-200 rounded p-2 cursor-move text-sm" data-component="mean_feature">
+                                                            Mean
+                                                        </div>
+                                                        <div class="component-card bg-green-50 border border-green-200 rounded p-2 cursor-move text-sm" data-component="std_feature">
+                                                            Standard Deviation
+                                                        </div>
+                                                        <div class="component-card bg-green-50 border border-green-200 rounded p-2 cursor-move text-sm" data-component="variance_feature">
+                                                            Variance
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="pl-4 border-l-2 border-green-200">
+                                                    <button class="w-full text-left text-sm font-medium text-gray-700 mb-2" onclick="toggleSubAccordion('frequency')">Frequency Domain</button>
+                                                    <div id="frequency-content" class="hidden pl-4 space-y-1">
+                                                        <div class="component-card bg-green-50 border border-green-200 rounded p-2 cursor-move text-sm" data-component="fft_features">
+                                                            FFT Features
+                                                        </div>
+                                                        <div class="component-card bg-green-50 border border-green-200 rounded p-2 cursor-move text-sm" data-component="wavelet_features">
+                                                            Wavelet Features
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Model Training Accordion -->
+                                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                                        <button class="w-full flex justify-between items-center p-4 bg-purple-50 hover:bg-purple-100 transition-colors" onclick="toggleAccordion('model_training')">
+                                            <div class="flex items-center">
+                                                <i data-feather="cpu" class="text-purple-600 mr-3"></i>
+                                                <span class="font-medium">Model Training</span>
+                                            </div>
+                                            <i data-feather="chevron-down" class="transform transition-transform" id="model_training-chevron"></i>
+                                        </button>
+                                        <div id="model_training-content" class="hidden border-t border-gray-200">
+                                            <div class="p-3 space-y-2">
+                                                <div class="pl-4 border-l-2 border-purple-200">
+                                                    <button class="w-full text-left text-sm font-medium text-gray-700 mb-2" onclick="toggleSubAccordion('classical')">Classical ML</button>
+                                                    <div id="classical-content" class="hidden pl-4 space-y-1">
+                                                        <div class="component-card bg-purple-50 border border-purple-200 rounded p-2 cursor-move text-sm" data-component="svm">
+                                                            SVM
+                                                        </div>
+                                                        <div class="component-card bg-purple-50 border border-purple-200 rounded p-2 cursor-move text-sm" data-component="random_forest">
+                                                            Random Forest
+                                                        </div>
+                                                        <div class="component-card bg-purple-50 border border-purple-200 rounded p-2 cursor-move text-sm" data-component="logistic_regression">
+                                                            Logistic Regression
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="pl-4 border-l-2 border-purple-200">
+                                                    <button class="w-full text-left text-sm font-medium text-gray-700 mb-2" onclick="toggleSubAccordion('neural')">Neural Networks</button>
+                                                    <div id="neural-content" class="hidden pl-4 space-y-1">
+                                                        <div class="component-card bg-purple-50 border border-purple-200 rounded p-2 cursor-move text-sm" data-component="cnn">
+                                                            CNN
+                                                        </div>
+                                                        <div class="component-card bg-purple-50 border border-purple-200 rounded p-2 cursor-move text-sm" data-component="lstm">
+                                                            LSTM
+                                                        </div>
+                                                        <div class="component-card bg-purple-50 border border-purple-200 rounded p-2 cursor-move text-sm" data-component="mlp">
+                                                            MLP
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Prediction Accordion -->
+                                    <div class="border border-gray-200 rounded-lg overflow-hidden">
+                                        <button class="w-full flex justify-between items-center p-4 bg-red-50 hover:bg-red-100 transition-colors" onclick="toggleAccordion('prediction')">
+                                            <div class="flex items-center">
+                                                <i data-feather="activity" class="text-red-600 mr-3"></i>
+                                                <span class="font-medium">Prediction</span>
+                                            </div>
+                                            <i data-feather="chevron-down" class="transform transition-transform" id="prediction-chevron"></i>
+                                        </button>
+                                        <div id="prediction-content" class="hidden border-t border-gray-200">
+                                            <div class="p-3 space-y-2">
+                                                <div class="pl-4 border-l-2 border-red-200">
+                                                    <div class="component-card bg-red-50 border border-red-200 rounded p-2 cursor-move text-sm" data-component="batch_prediction">
+                                                        Batch Prediction
+                                                    </div>
+                                                    <div class="component-card bg-red-50 border border-red-200 rounded p-2 cursor-move text-sm" data-component="real_time_prediction">
+                                                        Real-time Prediction
+                                                    </div>
+                                                    <div class="component-card bg-red-50 border border-red-200 rounded p-2 cursor-move text-sm" data-component="probability_calibration">
+                                                        Probability Calibration
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+<!-- Pipeline Canvas -->
+                        <div class="lg:col-span-2">
+                            <div class="bg-white rounded-lg shadow-md p-6">
+                                <div class="flex justify-between items-center mb-4">
+                                    <h2 class="text-lg font-semibold">Pipeline Canvas</h2>
+                                    <div class="flex space-x-2">
+                                        <button class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors">
+                                            <i data-feather="save" class="w-4 h-4"></i>
+                                        </button>
+                                        <button class="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors">
+                                            <i data-feather="folder" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div id="pipelineCanvas" class="min-h-96 border-2 border-dashed border-gray-300 rounded-lg p-4">
+                                    <p class="text-gray-500 text-center py-8">Drag components from the library to build your pipeline</p>
+                                </div>
+
+                                <div class="mt-6 grid grid-cols-2 gap-4">
+                                    <select class="border border-gray-300 rounded-lg px-3 py-2">
+                                        <option>Select Dataset</option>
+                                        <option>cortical_activity_001</option>
+                                        <option>motor_task_study</option>
+                                    </select>
+                                    <button class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center">
+                                        <i data-feather="play" class="mr-2 w-4 h-4"></i>
+                                        Launch Pipeline
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Output Window -->
+                            <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+                                <h2 class="text-lg font-semibold mb-4">Output</h2>
+                                <div class="bg-gray-900 text-green-400 font-mono text-sm p-4 rounded-lg h-48 overflow-auto">
+                                    <div>> Pipeline initialized...</div>
+                                    <div>> Loading components...</div>
+                                    <div>> Ready for execution</div>
+                                </div>
+                                <div class="mt-4">
+                                    <div class="w-full bg-gray-200 rounded-full h-2">
+                                        <div class="bg-blue-600 h-2 rounded-full" style="width: 0%"></div>
+                                    </div>
+                                    <div class="text-sm text-gray-600 mt-2">Estimated time: --:--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Component Configuration -->
+                        <div class="lg:col-span-1">
+                            <div class="bg-white rounded-lg shadow-md p-6 sticky top-6">
+                                <h2 class="text-lg font-semibold mb-4">Component Configuration</h2>
+                                <div id="componentConfig" class="text-gray-500">
+                                    Select a component to configure its parameters
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        feather.replace();
+
+        // Set active navigation item
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            if (item.getAttribute('href') === 'pipeline.html') {
+                item.classList.add('active');
+            }
+        });
+
+        // Initialize drag and drop
+        const components = document.querySelectorAll('.component-card');
+        const canvas = document.getElementById('pipelineCanvas');
+
+        components.forEach(component => {
+            component.setAttribute('draggable', true);
+
+            component.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', component.dataset.component);
+                component.classList.add('opacity-50');
+            });
+
+            component.addEventListener('dragend', () => {
+                component.classList.remove('opacity-50');
+            });
+        });
+
+        canvas.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            canvas.classList.add('drag-over');
+        });
+
+        canvas.addEventListener('dragleave', () => {
+            canvas.classList.remove('drag-over');
+        });
+
+        canvas.addEventListener('drop', (e) => {
+            e.preventDefault();
+            canvas.classList.remove('drag-over');
+
+            const componentType = e.dataTransfer.getData('text/plain');
+            addComponentToCanvas(componentType);
+        });
+        function addComponentToCanvas(type) {
+            const component = document.createElement('div');
+            component.className = 'bg-white border border-gray-200 rounded-lg p-4 mb-3 shadow-sm';
+            component.innerHTML = `
+                <div class="flex justify-between items-center mb-2">
+                    <span class="font-medium">${type.replace(/_/g, ' ').toUpperCase()}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" class="text-gray-400 hover:text-red-600">
+                        <i data-feather="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <div class="text-sm text-gray-600">Click to configure parameters</div>
+                <div class="param-accordion mt-2 hidden">
+                    <div class="space-y-2">
+                        <input type="text" placeholder="Parameter 1" class="w-full border border-gray-300 rounded px-2 py-1 text-sm">
+                        <input type="text" placeholder="Parameter 2" class="w-full border border-gray-300 rounded px-2 py-1 text-sm">
+                    </div>
+                </div>
+            `;
+
+            component.addEventListener('click', () => {
+                const accordion = component.querySelector('.param-accordion');
+                accordion.classList.toggle('hidden');
+                accordion.style.maxHeight = accordion.classList.contains('hidden') ? '0' : '100px';
+            });
+
+            canvas.querySelector('p')?.remove();
+            canvas.appendChild(component);
+            feather.replace();
+        }
+
+        function toggleAccordion(section) {
+            const content = document.getElementById(`${section}-content`);
+            const chevron = document.getElementById(`${section}-chevron`);
+            const isHidden = content.classList.contains('hidden');
+
+            content.classList.toggle('hidden');
+            chevron.classList.toggle('rotate-180');
+        }
+
+        function toggleSubAccordion(subsection) {
+            const content = document.getElementById(`${subsection}-content`);
+            content.classList.toggle('hidden');
+        }
+
+        // Simple toast helper reused from mockup predictions page
+        function showToast(message, level = 'info', retryCallback = null) {
+            let container = document.getElementById('toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toast-container';
+                container.style.position = 'fixed';
+                container.style.right = '16px';
+                container.style.top = '16px';
+                container.style.zIndex = 9999;
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            toast.className = 'mb-2 px-4 py-3 rounded shadow-lg bg-white border';
+            toast.innerText = message;
+            if (retryCallback) {
+                const b = document.createElement('button');
+                b.className = 'ml-2 text-sm text-blue-600 hover:underline';
+                b.innerText = 'Retry';
+                b.onclick = () => { retryCallback(); container.removeChild(toast); };
+                toast.appendChild(b);
+            }
+            container.appendChild(toast);
+            setTimeout(() => { try { container.removeChild(toast); } catch (e) {} }, 8000);
+        }
+
+        // Auto-load pipeline from prediction_id query param
+        (function tryAutoLoadFromQuery() {
+            const qp = new URLSearchParams(window.location.search);
+            const pid = qp.get('prediction_id');
+            if (!pid) return;
+
+            async function attempt() {
+                try {
+                    const res = await fetch('/api/pipeline/from-prediction?prediction_id=' + encodeURIComponent(pid));
+                    if (!res.ok) {
+                        const txt = await res.text();
+                        throw new Error(res.status + ' ' + txt);
+                    }
+                    const data = await res.json();
+                    showToast('Pipeline loaded from prediction ' + pid, 'success');
+                    // Placeholder: render pipeline JSON into the canvas
+                    if (window.renderPipelineFromJSON && typeof window.renderPipelineFromJSON === 'function') {
+                        window.renderPipelineFromJSON(data.pipeline);
+                    } else {
+                        // Minimal visual feedback
+                        // attempt to render using a best-effort renderer
+                        try {
+                            renderPipelineFromJSON(data.pipeline);
+                        } catch (e) {
+                            const canvas = document.getElementById('pipelineCanvas');
+                            canvas.innerHTML = '<pre class="text-sm font-mono">' + JSON.stringify(data.pipeline, null, 2) + '</pre>';
+                        }
+                    }
+                } catch (err) {
+                    showToast('Failed to load pipeline: ' + err.message, 'error', attempt);
+                }
+            }
+            attempt();
+        })();
+
+        // Best-effort renderer for pipeline JSON -> component cards on canvas
+        function renderPipelineFromJSON(pipeline) {
+            const canvas = document.getElementById('pipelineCanvas');
+            canvas.innerHTML = '';
+            let steps = null;
+            if (Array.isArray(pipeline)) steps = pipeline;
+            else if (pipeline && Array.isArray(pipeline.steps)) steps = pipeline.steps;
+            else if (pipeline && Array.isArray(pipeline.nodes)) steps = pipeline.nodes;
+            else if (pipeline && Array.isArray(pipeline.components)) steps = pipeline.components;
+            else {
+                throw new Error('Unsupported pipeline format');
+            }
+
+            steps.forEach((s, idx) => {
+                // try to detect a component type
+                const type = s.component || s.name || s.type || s.op || ('component_' + idx);
+                addComponentToCanvas(type || 'component');
+                const comp = canvas.lastElementChild;
+                // open param accordion if params exist
+                const acc = comp.querySelector('.param-accordion');
+                if (acc) {
+                    acc.classList.remove('hidden');
+                    // populate known params into the simple inputs if present
+                    const inputs = acc.querySelectorAll('input[type="text"]');
+                    const params = s.params || s.parameters || s.config || {};
+                    const keys = Object.keys(params || {});
+                    for (let i = 0; i < inputs.length && i < keys.length; i++) {
+                        try { inputs[i].value = params[keys[i]]; } catch (e) {}
+                    }
+                    // add extra param lines for any remaining params
+                    if (keys.length > inputs.length) {
+                        const container = acc.querySelector('.space-y-2');
+                        for (let i = inputs.length; i < keys.length; i++) {
+                            const line = document.createElement('div');
+                            line.className = 'flex space-x-2';
+                            line.innerHTML = `<input type="text" class="w-full border border-gray-300 rounded px-2 py-1 text-sm" value="${String(params[keys[i]])}"><span class="text-xs font-mono text-gray-500">${keys[i]}</span>`;
+                            container.appendChild(line);
+                        }
+                    }
+                }
+            });
+            feather.replace();
+        }
+</script>
+</body>
+</html>
