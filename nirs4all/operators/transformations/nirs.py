@@ -166,7 +166,7 @@ class SavitzkyGolay(TransformerMixin, BaseEstimator):
     def __init__(
         self,
         window_length: int = 11,
-        polyorder: int = 3,
+        polyorder: int = 2,
         deriv: int = 0,
         delta: float = 1.0,
         *,

@@ -159,6 +159,10 @@ instrument drift, temperature effects, slight wavelength shifts, or baseline flu
   - Signature: `ResampleTransformer(num_samples: int)`
   - Usage: useful to standardize spectra with different lengths or to down/up-sample.
 
+- `StandardNormalVariate` - `...transformations.features.ResampleTransformer`
+  - Purpose: normalizes each spectrum (sample) individually to remove multiplicative scatter effects.
+  - Signature: `StandardNormalVariate(axis=1, with_mean=True, with_std=True, ddof=0)`
+  - Usage: By default, SNV operates row-wise (axis=1), each spectrum (row) is centered and scaled independently.
 
 ## Useful scikit-learn TransformerMixin classes for NIRS (quick reference)
 
@@ -278,7 +282,7 @@ function, purpose and typical usage note.
   only when it is meaningful (check class methods).
 - For advanced usage, consult the specific source file in `nirs4all/operators/` for
   parameter details and behavior.
-- When using augmenters, set `random_state` for reproducibility in experiments.
+- When using tranformers, set `random_state` for reproducibility in experiments.
 
 ---
 
