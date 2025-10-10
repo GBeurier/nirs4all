@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NIRSCAPE (React prototype)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React + ReactDOM from CDN (development build for prototype) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800">
+  <div id="root"></div>
+  <script type="module">
+    // Minimal SPA that talks to the same FastAPI endpoints
+    const e = React.createElement;
+    const { useState, useEffect } = React;
+
+    function useApi(path) {
+      const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      useEffect(() => {
+        setLoading(true); setError(null);
+        fetch(path).then(r => r.ok ? r.json() : Promise.reject(r)).then(j => setData(j)).catch(err => setError(err)).finally(()=>setLoading(false));
+      }, [path]);
+      return { data, loading, error };
+    }
+
+    function Workspace() {
+      const w = useApi('/api/workspace');
+      const ds = useApi('/api/workspace/datasets');
+      const [selected, setSelected] = useState(new Set());
+
+      function toggle(p) {
+        setSelected(prev => {
+          const s = new Set(prev);
+          if (s.has(p)) s.delete(p); else s.add(p);
+          return s;
+        });
+      }
+
+      async function openLinkDialog() {
+        // simple server-side dialog attempt; fallback to prompt
+        try {
+          const res = await fetch('/api/files/dialog/folder', {method: 'POST'});
+          if (res.ok) {
+            const j = await res.json();
+            if (j.path) {
+              // open the dataset config modal (simple prompt in prototype)
+              const name = prompt('Name for dataset config (prototype):', (j.path || '').split(/[\\/]+/).pop());
+              if (!name) return;
+              const payload = { name, config: { folder: j.path } };
+              const save = await fetch('/api/workspace/datasets/save', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+              if (!save.ok) throw new Error(await save.text());
+              alert('Dataset linked (prototype)');
+              window.location.reload();
+            }
+          }
+        } catch (e) {
+          const p = prompt('Enter dataset folder path (prototype):');
+          if (!p) return;
+          const name = prompt('Name for dataset config (prototype):', p.split(/[\\/]+/).pop());
+          if (!name) return;
+          const payload = { name, config: { folder: p } };
+          await fetch('/api/workspace/datasets/save', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+          window.location.reload();
+        }
+      }
+
+      if (w.loading || ds.loading) return e('div', {className:'p-6'}, 'Loading...');
+      if (w.error) return e('div', {className:'p-6 text-red-600'}, 'Failed to load workspace');
+
+      const datasets = (ds.data && ds.data.datasets) || [];
+
+      return e('div', {className:'p-6 max-w-6xl mx-auto'}, [
+        e('div', {className:'flex items-center justify-between mb-4'}, [
+          e('div', {className:'flex items-center gap-3'}, [
+            e('h1', {className:'text-2xl font-semibold'}, 'Workspace'),
+            e('div', {className:'text-sm text-gray-600'}, w.data && w.data.workspace)
+          ]),
+          e('div', {className:'flex items-center gap-2'}, [
+            e('button', {className:'bg-blue-600 text-white px-3 py-1 rounded', onClick: openLinkDialog}, 'Link dataset'),
+            e('button', {className:'bg-gray-100 px-3 py-1 rounded', onClick: ()=>{ const name = prompt('Group name (prototype)'); if(!name) return; for(const d of selected) fetch('/api/workspace/datasets/config?path='+encodeURIComponent(d)).then(r=>{ if(!r.ok) return null; return r.json(); }).then(async cfg => { if(!cfg) { await fetch('/api/workspace/datasets/save', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, config:{ folder: d, groups:[name] }})}); } else { cfg.groups = cfg.groups||[]; if(!cfg.groups.includes(name)) cfg.groups.push(name); await fetch('/api/workspace/datasets/save', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({path:d, config:cfg, name: cfg.name||name})}); }}); window.location.reload(); }, title:'Create group for selected'}, 'Create group')
+          ])
+        ]),
+        e('div', {className:'bg-white rounded shadow p-4'}, [
+          e('h2', {className:'font-semibold mb-2'}, 'Linked Datasets'),
+          e('table', {className:'w-full text-sm'}, [
+            e('thead', null, e('tr', null, [
+              e('th', {className:'px-2 py-2 text-left'}, ''),
+              e('th', {className:'px-2 py-2 text-left'}, 'Name'),
+              e('th', {className:'px-2 py-2 text-left'}, 'Path'),
+              e('th', {className:'px-2 py-2 text-left'}, 'Actions')
+            ])),
+            e('tbody', null, datasets.map(d => e('tr', {key:d.path}, [
+              e('td', {className:'px-2 py-2'}, e('input', {type:'checkbox', checked:selected.has(d.path), onChange:()=>toggle(d.path)})),
+              e('td', {className:'px-2 py-2'}, d.name),
+              e('td', {className:'px-2 py-2 break-all'}, d.path),
+              e('td', {className:'px-2 py-2'}, [
+                e('button', {className:'text-blue-600 mr-2', onClick: ()=> alert('Display: '+d.path)}, 'Display'),
+                e('button', {className:'text-red-600', onClick: async ()=> { if(!confirm('Unlink dataset?')) return; await fetch('/api/workspace/unlink-dataset', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path:d.path})}); window.location.reload(); }}, 'Unlink')
+              ])
+            ])))
+          ])
+        ])
+      ]);
+    }
+
+    function App(){
+      return e('div', null, e(Workspace));
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(e(App));
+  </script>
+</body>
+</html>
