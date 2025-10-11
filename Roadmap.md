@@ -1,6 +1,9 @@
 ## ROADMAP ##
 
-> [CLI]  ## Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
+> [Workspace] structure management
+
+> [WEBAPP] miniature version > keep print and matplotlib, pilot with react.
+
 **RELEASE** 0.3
 
 > [METADATA] Reup load / stratificiation
@@ -17,6 +20,8 @@
 
 **RELEASE** 0.4
 
+> [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
+
 > [ReadsTheDoc] minimal subset of signatures + export MD
 
 **RELEASE** 0.5
@@ -31,11 +36,7 @@
 
 > [Pipeline as single transformer]: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN.
 
-> [WEBAPP] miniature version
-
 **RELEASE** 0.7
-
-> [Workspace] structure management
 
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 
@@ -47,15 +48,21 @@
 
 > [GLOBAL REVIEW] > signatures freeze
 
+> [TEST] Prod coverage (transformations, controllers, predictions, datasets, runner)
+
 **RELEASE**  0.9
 
 > [Stacking]
 
 > [Workflows: branch, merge, split_src, scope]
 
+> [Transformations] Asymetric processings (PCA in pipelines) > padding or cropping
+
 **RELEASE** 0.10
 
-> [WEBAPP] full version
+> [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
+
+> [WEBAPP] full react version - hidden fastapi / nirs4all
 
 > [DEPLOY] standalone installer, web installer
 
@@ -95,7 +102,6 @@
 - Enhanced file savings: better logic, options, enhanced data_types, dynamic loading, caching
 - Charts in 'raw' y for categorical
 - More tunable and explicit generation
-
 
 ## REVIEW / POLISH ##
 > [cli]
