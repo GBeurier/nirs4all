@@ -74,6 +74,8 @@
 
 **RELEASE** 1.x.x
 
+> [Pipeline + Optuna] Pipeline as optuna trial. The pp become a choice param. Goal is to stack pp each time score stop progress, select the good ones by feats augmentation and by pp order (1st, 2nd, etc.) and stop once it drops.
+
 > [Transfer] Automate best transfer model
 
 > [Mid Fusion] Multi head models
@@ -102,6 +104,7 @@
 - Enhanced file savings: better logic, options, enhanced data_types, dynamic loading, caching
 - Charts in 'raw' y for categorical
 - More tunable and explicit generation
+- Visualize effect of a preprocessing in the ui
 
 ## REVIEW / POLISH ##
 > [cli]
