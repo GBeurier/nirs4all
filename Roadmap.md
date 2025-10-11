@@ -28,7 +28,7 @@
 
 > [Chart controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
-> [Predictions] refactoring and as a pipeline context
+> [Predictions] refactoring and as a pipeline context and change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
 
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions
 
