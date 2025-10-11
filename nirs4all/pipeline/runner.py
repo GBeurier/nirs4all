@@ -105,6 +105,9 @@ class PipelineRunner:
         # Store figure references to prevent garbage collection
         self._figure_refs: List[Any] = []
 
+
+
+
     def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> Any:
         """Run pipeline configurations on dataset configurations."""
 
@@ -153,37 +156,8 @@ class PipelineRunner:
                     run_predictions.merge_predictions(config_predictions)
 
             # Print best results for this dataset
-            if run_dataset_predictions.num_predictions > 0:
-                best = run_dataset_predictions.get_best(ascending=True if dataset.is_regression() else False)
-                print(f"🏆 Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
-                if self.enable_tab_reports:
-                    best_by_partition = run_dataset_predictions.get_entry_partitions(best)
-                    tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
-                    print(tab_report)
-                    if tab_report_csv_file:
-                        filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
-                        self.saver.save_file(filename, tab_report_csv_file, into_dataset=True)
-                if self.save_files:
-                    prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Best_prediction_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
-                    prediction_path = self.saver.base_path / name / prediction_name
-                    Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
+            self.print_best_predictions(run_dataset_predictions, global_dataset_predictions, dataset, dataset_name, dataset_prediction_path)
 
-            if global_dataset_predictions.num_predictions > 0:
-                global_dataset_predictions.save_to_file(dataset_prediction_path)
-            #     best_overall = global_dataset_predictions.get_best()
-            #     print(f"🏆 Best prediction overall for dataset '{name}': {Predictions.pred_long_string(best_overall)}")
-            #     if self.enable_tab_reports:
-            #         overall_best_by_partition = global_dataset_predictions.get_entry_partitions(best_overall)
-            #         tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(overall_best_by_partition)
-            #         print(tab_report)
-            #         if tab_report_csv_file:
-            #             filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_overall_({best_overall['config_name']}_{best_overall['model_name']})_[{best_overall['id']}].csv"
-            #             self.saver.save_file(filename, tab_report_csv_file, into_dataset=True)
-            #     if self.save_files:
-            #         prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Prediction_best_({best_overall['config_name']}_{best_overall['model_name']})_[{best_overall['id']}].csv"
-            #         prediction_path = self.saver.base_path / name / prediction_name
-            #         Predictions.save_predictions_to_csv(best_overall["y_true"], best_overall["y_pred"], prediction_path)
-            print("=" * 120)
 
             # Generate best score tab report
             datasets_predictions[dataset_name] = {
@@ -199,6 +173,42 @@ class PipelineRunner:
 
         return run_predictions, datasets_predictions
 
+
+
+
+    def print_best_predictions(self, run_dataset_predictions: Predictions, global_dataset_predictions: Predictions,
+                               dataset: SpectroDataset, name: str, dataset_prediction_path: str):
+        if run_dataset_predictions.num_predictions > 0:
+            best = run_dataset_predictions.get_best(ascending=True if dataset.is_regression() else False)
+            print(f"🏆 Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
+            if self.enable_tab_reports:
+                best_by_partition = run_dataset_predictions.get_entry_partitions(best)
+                tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
+                print(tab_report)
+                if tab_report_csv_file:
+                    filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
+                    self.saver.save_file(filename, tab_report_csv_file, into_dataset=True)
+            if self.save_files:
+                prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Best_prediction_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
+                prediction_path = self.saver.base_path / name / prediction_name
+                Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
+
+        if global_dataset_predictions.num_predictions > 0:
+            global_dataset_predictions.save_to_file(dataset_prediction_path)
+        #     best_overall = global_dataset_predictions.get_best()
+        #     print(f"🏆 Best prediction overall for dataset '{name}': {Predictions.pred_long_string(best_overall)}")
+        #     if self.enable_tab_reports:
+        #         overall_best_by_partition = global_dataset_predictions.get_entry_partitions(best_overall)
+        #         tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(overall_best_by_partition)
+        #         print(tab_report)
+        #         if tab_report_csv_file:
+        #             filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_overall_({best_overall['config_name']}_{best_overall['model_name']})_[{best_overall['id']}].csv"
+        #             self.saver.save_file(filename, tab_report_csv_file, into_dataset=True)
+        #     if self.save_files:
+        #         prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Prediction_best_({best_overall['config_name']}_{best_overall['model_name']})_[{best_overall['id']}].csv"
+        #         prediction_path = self.saver.base_path / name / prediction_name
+        #         Predictions.save_predictions_to_csv(best_overall["y_true"], best_overall["y_pred"], prediction_path)
+        print("=" * 120)
 
 
     def prepare_replay(self, selection_obj: Union[Dict[str, Any], str], dataset_config: DatasetConfigs, verbose: int = 0):
