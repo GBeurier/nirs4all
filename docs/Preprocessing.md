@@ -83,7 +83,6 @@ instrument drift, temperature effects, slight wavelength shifts, or baseline flu
 2. **Smoothing** (Savitzky–Golay or Gaussian) — reduces high-frequency noise
 3. **Baseline correction** (detrending or derivatives) — removes offset and slope
 4. **Scaling** (StandardScaler or normalization) — standardizes feature magnitudes
-5. **Dimensionality reduction** (PCA) — reduces correlated wavelength information
 
 - `Normalize` — `nirs4all.operators.transformations.scalers.Normalize`
   - Purpose: normalize spectra either by linear feature range or by linalg norm.
@@ -184,6 +183,8 @@ outputs. Each entry is short — their docstrings and parameters are in scikit-l
 - `FunctionTransformer` (`sklearn.preprocessing.FunctionTransformer`)
   - Purpose: wrap arbitrary numpy functions as transformers.
   - Typical usage: `FunctionTransformer(np.log1p)` or custom lambda for quick ops.
+
+## The asymetric spectra resizing is deprecated in current version. Planned for version
 
 - `PCA` (`sklearn.decomposition.PCA`)
   - Purpose: dimensionality reduction preserving variance; common for denoising.
