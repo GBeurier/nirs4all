@@ -11,7 +11,7 @@ Nirs4all Documentation
    :alt: Nirs4all logo
 
 
-.. image:: https://img.shields.io/pypi/v/nirs4all.svg
+.. image:: https://img.shields.io/pypi/v/nirs4all_icon.svg
    :target: https://pypi.python.org/pypi/nirs4all
    :alt: PyPI version
 
@@ -35,7 +35,7 @@ Nirs4all includes the following features:
 ..  figure:: ../pipeline.jpg
    :width: 100%
    :class: with-shadow
-   
+
    *Illustrated End-to-End NIRS Analysis Pipeline using Nirs4all, Scikit-learn and Tensorflow: Data Input, Augmentation, Preprocessing, Training, Prediction, and Interpretation*
 
 
