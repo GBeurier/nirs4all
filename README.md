@@ -1,7 +1,7 @@
 <div align="center">
 <img src="docs/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
 
-[![PyPI version](https://img.shields.io/pypi/v/nirs4all.svg)](https://pypi.org/project/nirs4all/)
+[![PyPI version](https://img.shields.io/pypi/v/nirs4all_icon.svg)](https://pypi.org/project/nirs4all/)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/release/python-370/)
 [![License: CECILL-2.1](https://img.shields.io/badge/license-CECILL--2.1-blue.svg)](LICENSE)
 </div>
