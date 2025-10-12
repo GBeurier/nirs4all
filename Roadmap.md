@@ -1,7 +1,5 @@
 ## ROADMAP ##
 
-> [Workspace] structure management
-
 > [WEBAPP] miniature version > keep print and matplotlib, pilot with react.
 
 **RELEASE** 0.3
@@ -42,11 +40,13 @@
 
 > [Y_pipeline in models]
 
-**RELEASE** 0.8
-
 > [Logs]
 
-> [GLOBAL REVIEW] > signatures freeze
+**RELEASE** 0.8
+
+> [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
+
+> [GLOBAL REVIEW] v1.0 signatures freeze
 
 > [TEST] Prod coverage (transformations, controllers, predictions, datasets, runner)
 
@@ -56,11 +56,9 @@
 
 > [Workflows: branch, merge, split_src, scope]
 
-> [Transformations] Asymetric processings (PCA in pipelines) > padding or cropping
+> [Transformations] Asymetric processings (PCA in pipelines) > auto/optional padding and cropping
 
 **RELEASE** 0.10
-
-> [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
 
@@ -68,7 +66,7 @@
 
 **RELEASE** 0.11 rc
 
-> [REVIEW++]
+> [REVIEW++] cf Review section
 
 **RELEASE** 1.0
 
@@ -97,7 +95,7 @@
 
 ## MINORS ##
 
-> [feature_augmentation] with first replacement
+> [feature_augmentation] with first item replacement
 
 #### EXCITERS ####
 - Clean user interface on datasetConfig/dataset, pipelineConfig/pipeline, predictions

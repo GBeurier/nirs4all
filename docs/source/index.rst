@@ -11,7 +11,7 @@ Nirs4all Documentation
    :alt: Nirs4all logo
 
 
-.. image:: https://img.shields.io/pypi/v/nirs4all_icon.svg
+.. image:: https://img.shields.io/pypi/v/nirs4all.svg
    :target: https://pypi.python.org/pypi/nirs4all
    :alt: PyPI version
 
