@@ -5,7 +5,6 @@ Tracks pipeline execution with detailed logging and provides
 methods to save/load fitted operations and execution state.
 """
 import json
-import pickle
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -240,9 +239,12 @@ class PipelineHistory:
             json.dump(data, f, indent=2)
 
     def save_fitted_operations(self, filepath: Union[str, Path]):
-        """Save fitted operations to pickle file"""
+        """Save fitted operations using new serializer"""
+        from nirs4all.utils.serializer import to_bytes
+
+        data, _ = to_bytes(self.fitted_operations, format_hint=None)
         with open(filepath, 'wb') as f:
-            pickle.dump(self.fitted_operations, f)
+            f.write(data)
 
     def create_pipeline_bundle(self, bundle_path: Union[str, Path],
                              include_dataset: bool = False, dataset = None):
@@ -278,8 +280,10 @@ class PipelineHistory:
 
             # Save dataset if requested
             if include_dataset and dataset:
+                from nirs4all.utils.serializer import to_bytes
+                data, _ = to_bytes(dataset, format_hint=None)
                 with open("temp_dataset.pkl", 'wb') as f:
-                    pickle.dump(dataset, f)
+                    f.write(data)
                 zipf.write("temp_dataset.pkl", "dataset.pkl")
                 Path("temp_dataset.pkl").unlink()
 
@@ -296,9 +300,11 @@ class PipelineHistory:
 
             # Load fitted operations
             if "fitted_operations.pkl" in zipf.namelist():
+                from nirs4all.utils.serializer import from_bytes
                 with zipf.open("fitted_operations.pkl") as f:
-                    result["fitted_operations"] = pickle.load(f)
-                    self.fitted_operations = result["fitted_operations"]
+                    data = f.read()
+                result["fitted_operations"] = from_bytes(data, 'cloudpickle')
+                self.fitted_operations = result["fitted_operations"]
 
             # Load pipeline config
             if "pipeline_config.json" in zipf.namelist():
@@ -307,8 +313,10 @@ class PipelineHistory:
 
             # Load dataset
             if "dataset.pkl" in zipf.namelist():
+                from nirs4all.utils.serializer import from_bytes
                 with zipf.open("dataset.pkl") as f:
-                    result["dataset"] = pickle.load(f)
+                    data = f.read()
+                result["dataset"] = from_bytes(data, 'cloudpickle')
 
         return result
 
@@ -342,14 +350,17 @@ class PipelineHistory:
             f.write(self.to_json())
 
     def save_pickle(self, filepath: Union[str, Path]):
-        """Save complete history as pickle file"""
-        data = {
+        """Save complete history using new serializer"""
+        from nirs4all.utils.serializer import to_bytes
+
+        data_obj = {
             'history': self,
             'fitted_operations': self.fitted_operations,
             'timestamp': datetime.now()
         }
+        data, _ = to_bytes(data_obj, format_hint=None)
         with open(filepath, 'wb') as f:
-            pickle.dump(data, f)
+            f.write(data)
 
     def save_bundle(self, filepath: Union[str, Path]):
         """Save complete pipeline bundle as zip file"""
@@ -376,11 +387,13 @@ class PipelineHistory:
             log_path = temp_path / "execution_log.json"
             self.save_execution_log(log_path)
 
-            # Save fitted operations as pickle
+            # Save fitted operations using new serializer
             if pipeline_data.get('fitted_operations'):
+                from nirs4all.utils.serializer import to_bytes
                 ops_path = temp_path / "fitted_operations.pkl"
+                data, _ = to_bytes(pipeline_data['fitted_operations'], format_hint=None)
                 with open(ops_path, 'wb') as f:
-                    pickle.dump(pipeline_data['fitted_operations'], f)
+                    f.write(data)
 
             # Save pipeline config as JSON
             config_path = temp_path / "pipeline_config.json"
@@ -389,10 +402,12 @@ class PipelineHistory:
                 with open(config_path, 'w') as f:
                     json.dump(config, f, indent=2)
 
-            # Save complete pipeline data
+            # Save complete pipeline data using new serializer
+            from nirs4all.utils.serializer import to_bytes
             complete_path = temp_path / "pipeline_data.pkl"
+            data, _ = to_bytes(pipeline_data, format_hint=None)
             with open(complete_path, 'wb') as f:
-                pickle.dump(pipeline_data, f)
+                f.write(data)
 
             # Create zip bundle
             with zipfile.ZipFile(filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -401,13 +416,16 @@ class PipelineHistory:
                         zipf.write(file_path, file_path.name)
 
     def _save_pickle_bundle(self, filepath: Path, pipeline_data: Dict[str, Any]):
-        """Save as single pickle file"""
+        """Save as single file using new serializer"""
+        from nirs4all.utils.serializer import to_bytes
+
         complete_data = {
             **pipeline_data,
             'execution_history': self.to_dict()
         }
+        data, _ = to_bytes(complete_data, format_hint=None)
         with open(filepath, 'wb') as f:
-            pickle.dump(complete_data, f)
+            f.write(data)
 
     def _save_json_bundle(self, filepath: Path, pipeline_data: Dict[str, Any]):
         """Save as JSON (excluding non-serializable fitted operations)"""

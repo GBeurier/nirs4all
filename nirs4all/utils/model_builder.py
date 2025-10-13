@@ -424,11 +424,13 @@ class ModelBuilderFactory:
             model = torch.load(model_path)
             return model
 
-        # Sklearn model
+        # Sklearn model or pickled model
         elif ext == '.pkl':
-            import pickle
+            from nirs4all.utils.serializer import from_bytes
             with open(model_path, 'rb') as f:
-                model = pickle.load(f)
+                data = f.read()
+            # Use cloudpickle format for compatibility
+            model = from_bytes(data, 'cloudpickle')
             return model
 
         else:

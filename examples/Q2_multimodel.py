@@ -67,7 +67,7 @@ data_paths = ['sample_data/regression']
 dataset_config = DatasetConfigs(data_paths)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=0, plots_visible=True)
+runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization

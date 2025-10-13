@@ -3,6 +3,8 @@ Simulation IO Manager - Save and manage simulation outputs
 
 Provides organized storage for pipeline simulation results with
 dataset and pipeline-based folder structure management.
+
+REFACTORED: Now uses content-addressed artifact storage via serializer.
 """
 import json
 import pickle
@@ -23,12 +25,13 @@ class SimulationSaver:
     Provides methods to save files, binaries, and metadata with overwrite protection.
     """
 
-    def __init__(self, base_path: Optional[Union[str, Path]] = "simulations"):
+    def __init__(self, base_path: Optional[Union[str, Path]] = "simulations", save_files: bool = True):
         """
         Initialize the simulation saver.
 
         Args:
             base_path: Base directory for all simulation outputs
+            save_files: Whether to actually save files (can disable for dry runs)
         """
         self.base_path = Path(base_path) if base_path is not None else Path("results")
         self.dataset_name: Optional[str] = None
@@ -36,6 +39,7 @@ class SimulationSaver:
         self.current_path: Optional[Path] = None
         self._metadata: Dict[str, Any] = {}
         self.dataset_path: Optional[Path] = None
+        self.save_files = save_files
 
     def register(self, dataset_name: str, pipeline_name: str, mode: str) -> Path:
         """
@@ -359,6 +363,120 @@ class SimulationSaver:
 
         return saved_paths
 
+    def persist_artifact(
+        self,
+        step_number: int,
+        name: str,
+        obj: Any,
+        format_hint: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Persist artifact using the new serializer with content-addressed storage.
+
+        NOTE: This is for internal binary artifacts (models, transformers, etc.)
+        For human-readable outputs (charts, reports), use save_output() instead.
+
+        Args:
+            step_number: Pipeline step number
+            name: Artifact name (for reference)
+            obj: Object to persist
+            format_hint: Optional format hint for serializer
+
+        Returns:
+            Artifact metadata dictionary (empty if save_files=False)
+        """
+        # Skip if save_files is disabled
+        if not self.save_files:
+            return {
+                "name": name,
+                "step": step_number,
+                "skipped": True,
+                "reason": "save_files=False"
+            }
+
+        from nirs4all.utils.serializer import persist
+
+        self._check_registered()
+
+        # Create artifacts directory structure
+        artifacts_dir = self.base_path / "artifacts" / "objects"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        # Persist using new serializer
+        artifact = persist(obj, artifacts_dir, name, format_hint)
+        artifact["step"] = step_number
+
+        # Update metadata
+        if str(step_number) not in self._metadata["binaries"]:
+            self._metadata["binaries"][str(step_number)] = []
+
+        self._metadata["binaries"][str(step_number)].append(artifact)
+        self._save_metadata()
+
+        return artifact
+
+    def save_output(
+        self,
+        step_number: int,
+        name: str,
+        data: Union[bytes, str],
+        extension: str = ".png"
+    ) -> Optional[Path]:
+        """
+        Save a human-readable output file (chart, report, etc.) to the outputs directory.
+
+        Outputs are organized as: base_path/outputs/<dataset>_<pipeline>/<name>
+
+        Args:
+            step_number: Pipeline step number
+            name: Output name (e.g., "2D_Chart")
+            data: Binary or text data to save
+            extension: File extension (e.g., ".png", ".csv", ".txt")
+
+        Returns:
+            Path to saved file, or None if save_files=False
+        """
+        # Skip if save_files is disabled
+        if not self.save_files:
+            return None
+
+        self._check_registered()
+
+        # Create outputs directory structure
+        output_dir = self.base_path / "outputs" / f"{self.dataset_name}_{self.pipeline_name}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create filename
+        if not name.endswith(extension):
+            filename = f"{name}{extension}"
+        else:
+            filename = name
+
+        filepath = output_dir / filename
+
+        # Save the file
+        if isinstance(data, bytes):
+            filepath.write_bytes(data)
+        elif isinstance(data, str):
+            filepath.write_text(data, encoding="utf-8")
+        else:
+            raise TypeError(f"Data must be bytes or str, got {type(data)}")
+
+        # Update metadata (optional tracking)
+        if "outputs" not in self._metadata:
+            self._metadata["outputs"] = {}
+        if str(step_number) not in self._metadata["outputs"]:
+            self._metadata["outputs"][str(step_number)] = []
+
+        self._metadata["outputs"][str(step_number)].append({
+            "name": name,
+            "path": str(filepath.relative_to(self.base_path)),
+            "size": filepath.stat().st_size,
+            "saved_at": datetime.now().isoformat()
+        })
+        self._save_metadata()
+
+        return filepath
 
     def get_path(self) -> Path:
         """Get the current simulation path."""

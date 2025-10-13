@@ -155,7 +155,15 @@ class CrossValidatorController(OperatorController):
 
             # print(f"Generated {len(folds)} folds.")
 
-            return context, [(folds_name, binary)]
+            # Persist the folds CSV using the new serializer
+            artifact = runner.saver.persist_artifact(
+                step_number=runner.step_number,
+                name=folds_name,
+                obj=binary,
+                format_hint='bytes'
+            )
+
+            return context, [artifact]
         else:
             n_folds = operator.get_n_splits(**kwargs) if hasattr(operator, "get_n_splits") else 1
             dataset.set_folds([(list(range(n_samples)), [])] * n_folds)

@@ -4,6 +4,18 @@ from datetime import datetime
 from pathlib import Path
 import json
 import numpy as np
+import sys
+import io
+
+# Fix UTF-8 encoding for Windows terminals to handle emoji characters
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except (AttributeError, io.UnsupportedOperation):
+        # Fallback for older Python or non-reconfigurable streams
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 from joblib import Parallel, delayed, parallel_backend
 from nirs4all.dataset.predictions import Predictions
@@ -12,6 +24,7 @@ from nirs4all.pipeline.serialization import deserialize_component
 from nirs4all.pipeline.history import PipelineHistory
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.io import SimulationSaver
+from nirs4all.pipeline.manifest_manager import ManifestManager
 from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
@@ -82,7 +95,9 @@ class PipelineRunner:
         self.parallel = parallel
         self.step_number = 0  # Initialize step number for tracking
         self.substep_number = -1  # Initialize sub-step number for tracking
-        self.saver = SimulationSaver(results_path)
+        self.saver = SimulationSaver(results_path, save_files=save_files)
+        self.manifest_manager = ManifestManager(self.saver.base_path)  # NEW: Manifest manager
+        self.pipeline_uid: Optional[str] = None  # NEW: Current pipeline UID
         self.operation_count = 0
         self.save_files = save_files
         self.mode = mode
@@ -239,17 +254,85 @@ class PipelineRunner:
         else:
             steps = pipeline_data
 
-        # 3. Load metadata for binary resolution
-        metadata_file = config_dir / "metadata.json"
-        metadata = {}
-        if metadata_file.exists():
-            with open(metadata_file, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-        if 'binaries' not in metadata:
-            metadata['binaries'] = {}
-        if verbose > 0:
-            print(f"🔍 {len(metadata['binaries'])} binaries found")
-        self.binary_loader = BinaryLoader(self.saver.base_path, metadata)
+        # 3. Load binaries - try new manifest system first, then fall back to old metadata.json
+        config_dir = Path(f"{self.saver.base_path}/{config_path}")
+
+        # Try to find pipeline UID and load from manifest
+        manifest_manager = None
+        pipeline_uid = None
+
+        # Check if this is a new-style manifest-based pipeline
+        pipelines_dir = self.saver.base_path / "pipelines"
+        if pipelines_dir.exists():
+            # Try to find the pipeline by config_path (which might be the UID or pipeline name)
+            from nirs4all.pipeline.manifest_manager import ManifestManager
+            manifest_manager = ManifestManager(self.saver.base_path)
+
+            # Extract potential UID from config_path
+            config_name = Path(config_path).name
+
+            # Try to load manifest directly if config_path looks like a UID
+            manifest_path = pipelines_dir / config_name / "manifest.yaml"
+            if manifest_path.exists():
+                pipeline_uid = config_name
+            else:
+                # Try to find by pipeline name in dataset indexes
+                # For now, just try to list all pipelines and match by name
+                pass
+
+        if pipeline_uid and manifest_manager:
+            # New manifest-based loading
+            if verbose > 0:
+                print(f"🔍 Loading from manifest: {pipeline_uid}")
+            manifest = manifest_manager.load_manifest(pipeline_uid)
+            self.binary_loader = BinaryLoader.from_manifest(manifest, self.saver.base_path)
+        else:
+            # Backward compatibility: Load from old metadata.json
+            metadata_file = config_dir / "metadata.json"
+            if metadata_file.exists():
+                if verbose > 0:
+                    print(f"🔍 Loading from legacy metadata.json")
+                with open(metadata_file, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+
+                # Convert old metadata format to artifact list
+                artifacts = []
+                binaries = metadata.get('binaries', {})
+                for step_key, binary_list in binaries.items():
+                    # Parse step number from key like "0_0"
+                    try:
+                        step_num = int(step_key.split('_')[0])
+                    except (ValueError, IndexError):
+                        continue
+
+                    # Handle both old format (list of strings) and new format (list of dicts)
+                    for binary_item in binary_list:
+                        if isinstance(binary_item, dict):
+                            # Already in artifact format (shouldn't happen in legacy, but handle it)
+                            artifacts.append(binary_item)
+                        else:
+                            # Old format: string filename
+                            binary_filename = binary_item
+                            binary_path = config_dir / binary_filename
+                            if binary_path.exists():
+                                artifacts.append({
+                                    "name": binary_filename,
+                                    "step": step_num,
+                                    "path": str(binary_path.relative_to(self.saver.base_path)),
+                                    "format": "legacy_pickle",  # Mark as legacy
+                                    "hash": "",  # No hash for legacy files
+                                    "size": binary_path.stat().st_size
+                                })
+
+                if verbose > 0:
+                    print(f"🔍 {len(artifacts)} legacy binaries found")
+                self.binary_loader = BinaryLoader(artifacts, self.saver.base_path)
+            else:
+                # No binaries available
+                if verbose > 0:
+                    print("⚠️ No binaries found for prediction")
+                self.binary_loader = BinaryLoader([], self.saver.base_path)
+
         return steps
 
 
@@ -421,6 +504,16 @@ class PipelineRunner:
         print("-" * 120)
 
         self.saver.register(dataset.name, config_name, self.mode)
+
+        # NEW: Create manifest for training mode
+        if self.mode == "train":
+            pipeline_config = {"steps": PipelineConfigs.serializable_steps(steps)}
+            self.pipeline_uid = self.manifest_manager.create_pipeline(
+                name=config_name,
+                dataset=dataset.name,
+                pipeline_config=pipeline_config
+            )
+
         if self.mode != "predict" and self.mode != "explain":
             self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
 
@@ -665,23 +758,15 @@ class PipelineRunner:
         # Always show final score for model controllers when verbose=0
         is_model_controller = 'model' in controller_name.lower()
         # print("🔹 Controller execution completed")
-        # Save binaries if in training mode and saving is enabled
-        if self.mode == "train" and self.save_files and binaries:
-            # Track binaries for this step with correct naming
-            step_id = f"{self.step_number}_{self.substep_number}"
 
-            # Store the actual filenames that will be saved (with step prefixes)
-            actual_filenames = []
-            for binary_name, _ in binaries:
-                # Construct the actual saved filename (same logic as in io.py)
-                prefixed_name = str(self.step_number)
-                if self.substep_number > 0:
-                    prefixed_name += "_" + str(self.substep_number)
-                prefixed_name += "_" + str(binary_name)
-                actual_filenames.append(prefixed_name)
-
-            self.step_binaries[step_id] = actual_filenames
-            self.saver.save_files(self.step_number, self.substep_number, binaries, self.save_files)
+        # Handle artifact metadata from controllers
+        if self.mode == "train" and binaries:
+            # Binaries are now List[ArtifactMeta] instead of List[Tuple[str, bytes]]
+            # They've already been persisted by controllers, just append to manifest
+            if self.manifest_manager and self.pipeline_uid:
+                self.manifest_manager.append_artifacts(self.pipeline_uid, binaries)
+                if self.verbose > 1:
+                    print(f"📦 Appended {len(binaries)} artifacts to manifest")
 
         return context
 

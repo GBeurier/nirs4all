@@ -1,13 +1,13 @@
 """
 Binary Loader - Manages loading and caching of saved pipeline binaries
 
+REFACTORED: Now loads from manifest-based artifact metadata using the new serializer.
+
 This module provides functionality to load and cache binaries saved during
 pipeline execution for use in prediction mode. It handles efficient loading
 and memory management of fitted transformers and trained models.
 """
 
-import pickle
-import json
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 import warnings
@@ -15,127 +15,98 @@ import warnings
 
 class BinaryLoader:
     """
-    Manages loading and caching of saved pipeline binaries.
+    Manages loading and caching of saved pipeline binaries from manifest artifacts.
 
     This class handles the loading of saved fitted transformers and trained models
-    from disk, providing efficient caching to avoid redundant file I/O operations
-    during prediction mode execution.
+    from content-addressed storage, providing efficient caching to avoid redundant
+    file I/O operations during prediction mode execution.
+
+    REFACTORED: Now works with manifest artifact metadata instead of direct file paths.
     """
 
-    def __init__(self, simulation_path: Path, step_binaries: Optional[Dict[str, List[str]]] = None):
+    def __init__(self, artifacts: List[Dict[str, Any]], results_dir: Path):
         """
-        Initialize the binary loader.
+        Initialize the binary loader with artifacts from manifest.
 
         Args:
-            simulation_path: Path to the saved pipeline directory
-            step_binaries: Mapping of step IDs to binary filenames
+            artifacts: List of artifact metadata dictionaries from manifest
+            results_dir: Path to results directory (contains artifacts/ subdirectory)
         """
-        self.simulation_path = Path(simulation_path)
-        self.step_binaries = step_binaries["binaries"] or {}
-        # for key, value in self.step_binaries.items():
-        #     for item in value:
-        #         print(f"{key}: {item['path']}")
+        self.results_dir = Path(results_dir)
+        self.artifacts_by_step: Dict[int, List[Dict[str, Any]]] = {}
+        self._cache: Dict[str, Any] = {}
 
-    # def _validate_simulation_path(self) -> None:
-    #     """Validate that the simulation path exists and contains required files."""
-    #     if not self.simulation_path.exists():
-    #         raise FileNotFoundError(f"Simulation path does not exist: {self.simulation_path}")
+        # Group artifacts by step number
+        for artifact in artifacts:
+            step = artifact.get("step", -1)
+            if step not in self.artifacts_by_step:
+                self.artifacts_by_step[step] = []
+            self.artifacts_by_step[step].append(artifact)
 
-    #     pipeline_json_path = self.simulation_path / "pipeline.json"
-    #     if not pipeline_json_path.exists():
-    #         raise FileNotFoundError(f"Pipeline configuration not found: {pipeline_json_path}")
-
-    #     # Load step binaries from pipeline.json if not provided
-    #     if not self.step_binaries:
-    #         try:
-    #             with open(pipeline_json_path, 'r') as f:
-    #                 pipeline_data = json.load(f)
-
-    #             # Handle both old and new format
-    #             if "execution_metadata" in pipeline_data:
-    #                 self.step_binaries = pipeline_data["execution_metadata"].get("step_binaries", {})
-    #             else:
-    #                 # Old format - no metadata, warn user
-    #                 warnings.warn(
-    #                     f"Pipeline at {self.simulation_path} was saved without binary metadata. "
-    #                     "This pipeline needs to be re-run in training mode to support prediction. "
-    #                     "Use save_files=True when training to enable prediction mode.",
-    #                     UserWarning
-    #                 )
-    #                 self.step_binaries = {}
-
-    #         except (json.JSONDecodeError, KeyError) as e:
-    #             raise ValueError(f"Invalid pipeline configuration: {e}")
-
-
-    def get_step_binaries(self, step_id: str) -> List[Any]:
+    def get_step_binaries(self, step_id: str) -> List[Tuple[str, Any]]:
         """
-        Load binary files for a specific step ID.
+        Load binary artifacts for a specific step ID using the new serializer.
 
         Args:
-            step_id: Step identifier in format "step_substep"
+            step_id: Step identifier in format "step_substep" (e.g., "0_0", "1_0")
+                     Also supports just step number as int or str (e.g., 0, "0")
 
         Returns:
-            List of loaded binary objects
+            List of (name, loaded_object) tuples
         """
-        if str(step_id) not in self.step_binaries:
-            # No binaries for this step - this is normal for some steps
+        from nirs4all.utils.serializer import load
+
+        # Parse step_id - handle both "step_substep" format and simple step number
+        if isinstance(step_id, int):
+            step_num = step_id
+        elif "_" in str(step_id):
+            step_num = int(str(step_id).split("_")[0])
+        else:
+            step_num = int(step_id)
+
+        # Check cache first
+        cache_key = f"step_{step_num}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        # No artifacts for this step
+        if step_num not in self.artifacts_by_step:
             return []
 
-        binaries = self.step_binaries[str(step_id)]
+        artifacts = self.artifacts_by_step[step_num]
         loaded_binaries = []
 
-        for binary in binaries:
-            binary_path = self.simulation_path / binary["path"]
-
-            if not binary_path.exists():
-                warnings.warn(f"Binary file not found: {binary_path}. Skipping.")
-                continue
-            filename = binary["relative_path"]
-            op_name = binary.get("op_name", "unknown_operator")
+        for artifact in artifacts:
             try:
-                # Handle different file types appropriately
-                if filename.endswith('.csv'):
-                    # Load CSV files as text
-                    with open(binary_path, 'r', encoding='utf-8') as f:
-                        csv_content = f.read()
-                    loaded_binaries.append((op_name, csv_content))
-                elif filename.endswith(('.json', '.txt')):
-                    # Load text files as strings
-                    with open(binary_path, 'r', encoding='utf-8') as f:
-                        text_content = f.read()
-                    loaded_binaries.append((op_name, text_content))
-                elif filename.endswith(('.pkl', '.pickle')):
-                    # Load pickle files as objects
-                    with open(binary_path, 'rb') as f:
-                        binary_obj = pickle.load(f)
-                    loaded_binaries.append((op_name, binary_obj))
-                else:
-                    # Default to pickle for other files (backward compatibility)
-                    with open(binary_path, 'rb') as f:
-                        binary_obj = pickle.load(f)
-                    loaded_binaries.append((op_name, binary_obj))
+                # Load using new serializer
+                obj = load(artifact, self.results_dir)
+                name = artifact.get("name", "unknown")
+                loaded_binaries.append((name, obj))
 
-            except Exception as e:
-                # Skip problematic files with a warning instead of failing completely
-                warnings.warn(f"Failed to load binary file {binary_path}: {e}. Skipping.")
+            except FileNotFoundError:
+                warnings.warn(f"Artifact file not found: {artifact.get('path', 'unknown')}. Skipping.")
                 continue
+            except (ValueError, IOError, OSError) as e:
+                warnings.warn(f"Failed to load artifact {artifact.get('name', 'unknown')}: {e}. Skipping.")
+                continue
+
+        # Cache the loaded binaries
+        self._cache[cache_key] = loaded_binaries
 
         return loaded_binaries
 
-    def has_binaries_for_step(self, step_number: int, substep_number: int) -> bool:
+    def has_binaries_for_step(self, step_number: int, substep_number: Optional[int] = None) -> bool:
         """
         Check if binaries exist for a specific step.
 
         Args:
             step_number: The main step number
-            substep_number: The substep number
+            substep_number: The substep number (ignored in new architecture)
 
         Returns:
             True if binaries exist for this step
         """
-        step_id = f"{step_number}_{substep_number}"
-        return step_id in self.step_binaries and len(self.step_binaries[step_id]) > 0
+        return step_number in self.artifacts_by_step and len(self.artifacts_by_step[step_number]) > 0
 
     def clear_cache(self) -> None:
         """Clear the binary cache to free memory."""
@@ -151,19 +122,21 @@ class BinaryLoader:
         return {
             "cached_steps": list(self._cache.keys()),
             "cache_size": len(self._cache),
-            "available_steps": list(self.step_binaries.keys()),
-            "total_available_binaries": sum(len(binaries) for binaries in self.step_binaries.values())
+            "available_steps": list(self.artifacts_by_step.keys()),
+            "total_available_artifacts": sum(len(artifacts) for artifacts in self.artifacts_by_step.values())
         }
 
     @classmethod
-    def from_pipeline_path(cls, pipeline_path: Path) -> 'BinaryLoader':
+    def from_manifest(cls, manifest: Dict[str, Any], results_dir: Path) -> 'BinaryLoader':
         """
-        Create a BinaryLoader from a pipeline directory path.
+        Create a BinaryLoader from a pipeline manifest.
 
         Args:
-            pipeline_path: Path to the saved pipeline directory
+            manifest: Pipeline manifest dictionary
+            results_dir: Path to results directory
 
         Returns:
             Initialized BinaryLoader instance
         """
-        return cls(pipeline_path)
+        artifacts = manifest.get("artifacts", [])
+        return cls(artifacts, results_dir)
