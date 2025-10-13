@@ -207,28 +207,40 @@ nirs4all/
 
 ### New Filesystem Structure
 
+**See:** `docs/RUN_BASED_ARCHITECTURE.md` for complete specification.
+
 ```
 results/
-├── artifacts/
-│   └── objects/
-│       └── <hash[:2]>/              # Git-style sharding (e.g., "ab/")
-│           └── <sha256>.<ext>       # Deduplicated binary files
+├── 2024-10-14_wheat_quality/              # Date_runid (chronological)
+│   ├── .artifacts/                        # Per-run cache (hidden)
+│   │   ├── StandardScaler_abc123.pkl     # Human-readable + short hash
+│   │   └── PLS_model_def456.pkl
+│   │
+│   ├── regression_Q1_c20f9b/              # dataset_pipelineid
+│   │   ├── pipeline.yaml                  # Portable configuration
+│   │   ├── metadata.yaml                  # Training metadata
+│   │   ├── scores.yaml                    # All metrics consolidated
+│   │   ├── outputs/                       # Charts & visualizations
+│   │   ├── predictions/                   # Prediction CSVs
+│   │   └── binaries/                      # Symlinks to cached artifacts
+│   │       └── scaler_0.pkl -> ../../.artifacts/StandardScaler_abc123.pkl
+│   │
+│   └── regression_Q2_xyz789/              # Another pipeline (shares cache)
+│       └── binaries/
+│           └── scaler_0.pkl -> ../../.artifacts/StandardScaler_abc123.pkl  # REUSED!
 │
-├── pipelines/
-│   └── <pipeline_uid>/              # UUID for each pipeline
-│       └── manifest.yaml            # Single file with ALL pipeline info
-│
-└── datasets/
-    └── <dataset_name>/
-        └── index.yaml               # Maps pipeline names → UIDs
+└── 2024-10-15_corn_analysis/              # Another run (separate cache)
+    └── ...
 ```
 
 **Key Benefits**:
-- ✅ **Single file per pipeline** - `manifest.yaml` replaces pipeline.json + metadata.json
-- ✅ **Easy deletion** - `rm -rf pipelines/<uid>` removes entire pipeline
-- ✅ **No database** - Pure YAML/JSON/binary files
-- ✅ **Deduplication** - Content-addressed artifacts prevent duplicate storage
-- ✅ **Human-readable** - YAML manifests, dataset indexes
+- ✅ **Date-first organization** - Chronological sorting by default
+- ✅ **Self-contained runs** - Each run includes its own artifact cache
+- ✅ **Symlink deduplication** - Identical artifacts stored once per run
+- ✅ **Export function** - Creates portable packages by resolving symlinks
+- ✅ **Human-readable names** - Artifacts like `StandardScaler_abc123.pkl`
+- ✅ **Simple cleanup** - `rm -rf 2024-10-14_*` removes everything
+- ✅ **No global state** - No databases, no global indexes
 
 ### New Artifact Flow
 
