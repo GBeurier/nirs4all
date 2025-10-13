@@ -40,8 +40,6 @@ class ResamplerController(OperatorController):
         model_obj = None
         if isinstance(step, dict) and 'model' in step:
             model_obj = step['model']
-            if isinstance(model_obj, dict) and '_runtime_instance' in model_obj:
-                model_obj = model_obj['_runtime_instance']
         elif operator is not None:
             model_obj = operator
         else:

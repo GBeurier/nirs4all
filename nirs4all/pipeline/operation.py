@@ -33,19 +33,6 @@ class PipelineOperation:
     # def __hash__(self) -> int:
     #     return hash((self.get_name(), self.keyword, frozenset(self.params.items()), self.wrapper.__class__.__name__, self.operator.__hash__() if self.operator else None))
 
-    # def save(self, path: str):
-    #     """Save the operation to a file."""
-    #     import pickle
-    #     with open(path, 'wb') as f:
-    #         pickle.dump(self, f)
-
-    # @classmethod
-    # def load(cls, path: str):
-    #     """Load the operation from a file."""
-    #     import pickle
-    #     with open(path, 'rb') as f:
-    #         return pickle.load(f)
-
 # # pipeline/runners/torch_runner.py
 # import torch.nn as nn
 # from . import register_runner

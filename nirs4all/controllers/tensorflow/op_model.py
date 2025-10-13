@@ -49,8 +49,6 @@ class TensorFlowModelController(BaseModelController):
         # Check if step contains a TensorFlow model or function
         if isinstance(step, dict) and 'model' in step:
             model = step['model']
-            if isinstance(model, dict) and '_runtime_instance' in model:
-                model = model['_runtime_instance']
             return cls._is_tensorflow_model_or_function(model)
 
         # Check direct TensorFlow objects or functions
@@ -608,9 +606,6 @@ class TensorFlowModelController(BaseModelController):
                         model_config['model_instance'] = func
                     except (ImportError, AttributeError) as e:
                         raise ValueError(f"Could not import function {function_path}: {e}")
-                # Handle runtime instance
-                elif isinstance(model, dict) and '_runtime_instance' in model:
-                    model_config['model_instance'] = model['_runtime_instance']
                 # Handle model factory functions or direct models
                 elif callable(model) and hasattr(model, 'framework') and model.framework == 'tensorflow':
                     model_config['model_instance'] = model

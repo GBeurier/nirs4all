@@ -39,9 +39,6 @@ class SklearnModelController(BaseModelController):
         # Check if step contains a model key with sklearn object
         if isinstance(step, dict) and 'model' in step:
             model = step['model']
-            # Handle serialized model format
-            if isinstance(model, dict) and '_runtime_instance' in model:
-                model = model['_runtime_instance']
 
             if isinstance(model, BaseEstimator):
                 # Prioritize supervised models (need both X and y) over transformers

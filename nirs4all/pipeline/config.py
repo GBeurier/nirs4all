@@ -175,25 +175,14 @@ class PipelineConfigs:
         return PipelineConfigs._load_steps(pipeline_definition)
 
     @staticmethod
-    def serializable_steps(steps) -> Any:
-        """Remove runtime instances from the configuration"""
-        def clean_recursive(obj):
-            if isinstance(obj, dict):
-                return {k: clean_recursive(v) for k, v in obj.items() if k != "_runtime_instance"}
-            elif isinstance(obj, list):
-                return [clean_recursive(item) for item in obj]
-            else:
-                return obj
-
-        return clean_recursive(steps)
-
-    @staticmethod
     def get_hash(steps) -> str:
         """
         Generate a hash for the pipeline configuration.
+
+        Note: No longer needs to strip _runtime_instance since it's no longer used.
         """
         import hashlib
-        serializable = json.dumps(PipelineConfigs.serializable_steps(steps), sort_keys=True).encode('utf-8')
+        serializable = json.dumps(steps, sort_keys=True, default=str).encode('utf-8')
         return hashlib.md5(serializable).hexdigest()[0:8]
 
     @staticmethod
