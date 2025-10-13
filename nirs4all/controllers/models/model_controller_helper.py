@@ -54,8 +54,6 @@ class ModelControllerHelper:
             elif 'class' in model_config:
                 class_path = model_config['class']
                 return class_path.split('.')[-1]  # Get class name from full path
-            elif '_runtime_instance' in model_config:
-                return self.get_model_class_name(model_config['_runtime_instance'])
             elif 'model' in model_config:
                 # Handle nested model structure
                 model_obj = model_config['model']
@@ -65,8 +63,6 @@ class ModelControllerHelper:
                         print(">>>> model_obj:", model_obj)
                         function_path = model_obj['function']
                         return function_path.split('.')[-1] if isinstance(function_path, str) else str(function_path)
-                    elif '_runtime_instance' in model_obj:
-                        return self.get_model_class_name(model_obj['_runtime_instance'])
                     elif 'class' in model_obj:
                         return model_obj['class'].split('.')[-1]
                 else:
@@ -166,8 +162,6 @@ class ModelControllerHelper:
                 if isinstance(model_obj, dict):
                     if 'model' in model_obj:
                         return model_obj['model']
-                    elif '_runtime_instance' in model_obj:
-                        return model_obj['_runtime_instance']
                     else:
                         return model_obj
                 else:

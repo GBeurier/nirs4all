@@ -556,8 +556,6 @@ class BaseModelController(OperatorController, ABC):
                         config['model_instance'] = model_obj['model']
                         if 'name' in model_obj:
                             config['name'] = model_obj['name']
-                    elif '_runtime_instance' in model_obj:
-                        config['model_instance'] = model_obj['_runtime_instance']
                     else:
                         config['model_instance'] = model_obj
                 else:

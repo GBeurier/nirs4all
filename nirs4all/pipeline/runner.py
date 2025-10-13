@@ -58,7 +58,6 @@ def init_global_random_state(seed: Optional[int] = None):
 class PipelineRunner:
     """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
 
-    ##TODO operators should not be located in workflow and serialization but only in registry (basically hardcode of class, _runtime_instance and so, dynamic loading for the rest)
     ##TODO handle the models defined as a class
     WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack",
                           "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d", "fold_chart",
@@ -507,7 +506,7 @@ class PipelineRunner:
 
         # NEW: Create manifest for training mode
         if self.mode == "train":
-            pipeline_config = {"steps": PipelineConfigs.serializable_steps(steps)}
+            pipeline_config = {"steps": steps}
             self.pipeline_uid = self.manifest_manager.create_pipeline(
                 name=config_name,
                 dataset=dataset.name,
@@ -515,7 +514,7 @@ class PipelineRunner:
             )
 
         if self.mode != "predict" and self.mode != "explain":
-            self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
+            self.saver.save_json("pipeline.json", steps)
 
         # Initialize context
         context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
@@ -523,7 +522,7 @@ class PipelineRunner:
         try:
             self.run_steps(steps, dataset, context, execution="sequential", prediction_store=config_predictions)
             if self.mode != "predict" and self.mode != "explain":
-                self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
+                self.saver.save_json("pipeline.json", steps)
 
                 if config_predictions.num_predictions > 0:
                     pipeline_best = config_predictions.get_best(ascending=True if dataset.is_regression() else False)
@@ -600,19 +599,13 @@ class PipelineRunner:
                 if key := next((k for k in step if k in self.WORKFLOW_OPERATORS), None):
                     # print(f"📋 Workflow operation: {key}")
                     if 'class' in step[key]:
-                        if '_runtime_instance' in step[key]:
-                            operator = step[key]['_runtime_instance']
-                        else:
-                            operator = deserialize_component(step[key])
+                        operator = deserialize_component(step[key])
                         controller = self._select_controller(step, keyword=key, operator=operator)
                     else:
                         controller = self._select_controller(step, keyword=key)
                 elif key := next((k for k in step if k in self.SERIALIZATION_OPERATORS), None):
                     # print(f"📦 Deserializing dict operation: {key}")
-                    if '_runtime_instance' in step:
-                        operator = step['_runtime_instance']
-                    else:
-                        operator = deserialize_component(step)
+                    operator = deserialize_component(step)
                     controller = self._select_controller(step, operator=operator)
                 else:
                     # print(f"🔗 Running dict operation: {step}")

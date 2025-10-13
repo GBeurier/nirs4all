@@ -8,15 +8,20 @@ build_aliases = {
     # Add common aliases here if needed
 }
 
-def serialize_component(obj: Any, include_runtime: bool = True) -> Any:
-    """Return something that json.dumps can handle."""
+def serialize_component(obj: Any, include_runtime: bool = False) -> Any:
+    """
+    Return something that json.dumps can handle.
+
+    Note: include_runtime parameter is deprecated and kept for backward compatibility only.
+    Runtime instances are no longer embedded in serialized components.
+    """
 
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
     if isinstance(obj, dict):
-        return {k: serialize_component(v, include_runtime) for k, v in obj.items()}
+        return {k: serialize_component(v, False) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [serialize_component(x, include_runtime) for x in obj]
+        return [serialize_component(x, False) for x in obj]
     if isinstance(obj, tuple):
         # Preserve tuples that look like hyperparameter range specifications
         # e.g., ('int', min, max) or ('float', min, max)
@@ -26,7 +31,7 @@ def serialize_component(obj: Any, include_runtime: bool = True) -> Any:
                 isinstance(obj[2], (int, float))):
             return obj  # Preserve tuple for hyperparameter ranges
         else:
-            return [serialize_component(x, include_runtime) for x in obj]
+            return [serialize_component(x, False) for x in obj]
 
     if inspect.isclass(obj):
         return f"{obj.__module__}.{obj.__qualname__}"
@@ -38,7 +43,7 @@ def serialize_component(obj: Any, include_runtime: bool = True) -> Any:
             "function": f"{obj.__module__}.{obj.__name__}"
         }
         if params:
-            func_serialized["params"] = serialize_component(params, include_runtime)
+            func_serialized["params"] = serialize_component(params, False)
         return func_serialized
 
     def_serialized = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
@@ -46,14 +51,7 @@ def serialize_component(obj: Any, include_runtime: bool = True) -> Any:
     if params:
         def_serialized = {
             "class": def_serialized,
-            "params": serialize_component(params),
-        }
-        if include_runtime:
-            def_serialized["_runtime_instance"] = obj
-    elif include_runtime:
-        def_serialized = {
-            "class": def_serialized,
-            "_runtime_instance": obj
+            "params": serialize_component(params, False),
         }
 
     return def_serialized
