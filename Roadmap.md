@@ -1,10 +1,10 @@
 ## ROADMAP ##
 
-> [WEBAPP] miniature version > keep print and matplotlib, pilot with react.
-
-**RELEASE** 0.3
+> [Serialization] serialization refactoring
 
 > [METADATA] Reup load / stratificiation
+
+**RELEASE** 0.3
 
 > [Augmentation + Balanced Augmentation]
 
