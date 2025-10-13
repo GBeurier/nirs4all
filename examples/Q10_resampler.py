@@ -49,7 +49,7 @@ def main():
     dataset_config = DatasetConfigs("sample_data/regression_3")
     pipeline_config = PipelineConfigs(pipeline_other, name="Other_Dataset_Pipeline")
 
-    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=True)
+    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Example 2: Downsample to fewer points (descending order)
@@ -66,7 +66,7 @@ def main():
     ]
 
     pipeline_config = PipelineConfigs(pipeline_downsample, name="Downsample_Pipeline")
-    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=True)
+    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Example 3: Focus on fingerprint region (descending order)
@@ -87,7 +87,7 @@ def main():
 
     pipeline_config = PipelineConfigs(pipeline_cropped, name="Cropped_Pipeline")
 
-    runner = PipelineRunner(plots_visible=True)
+    runner = PipelineRunner(plots_visible=False)
 
     predictions, _ = runner.run(pipeline_config, dataset_config)
 

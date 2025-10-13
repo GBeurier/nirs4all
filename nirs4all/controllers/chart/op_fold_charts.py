@@ -137,7 +137,23 @@ class FoldChartController(OperatorController):
         # Create filename with partition info
         fold_suffix = f"{len(folds)}folds" if dataset.folds else "traintest_split"
         image_name = f"fold_visualization_{fold_suffix}_{partition}.png"
-        img_list = [(image_name, img_png_binary)]
+
+        # Save the chart as a human-readable output file
+        output_path = runner.saver.save_output(
+            step_number=runner.step_number,
+            name=image_name.replace('.png', ''),  # Name without extension
+            data=img_png_binary,
+            extension='.png'
+        )
+
+        # Add to image list for tracking (only if saved)
+        img_list = []
+        if output_path:
+            img_list.append({
+                "name": image_name,
+                "path": str(output_path),
+                "type": "chart_output"
+            })
 
         if runner.plots_visible:
             # Store figure reference - user will call plt.show() at the end

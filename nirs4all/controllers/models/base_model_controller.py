@@ -29,6 +29,7 @@ import nirs4all.dataset.evaluator as Evaluator
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.dataset.dataset import SpectroDataset
+    from nirs4all.pipeline.io import ArtifactMeta
 
 
 class BaseModelController(OperatorController, ABC):
@@ -123,7 +124,7 @@ class BaseModelController(OperatorController, ABC):
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
         prediction_store: 'Predictions' = None  # NEW: External prediction store
-    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+    ) -> Tuple[Dict[str, Any], List['ArtifactMeta']]:
         self.prediction_store = prediction_store
         model_config = self._extract_model_config(step, operator)
         self.verbose = model_config.get('train_params', {}).get('verbose', 0)
@@ -214,7 +215,7 @@ class BaseModelController(OperatorController, ABC):
         dataset, model_config, context, runner, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
         best_params=None, loaded_binaries=None, mode="train"
-    ) -> Dict:
+    ) -> List['ArtifactMeta']:
 
         verbose = model_config.get('train_params', {}).get('verbose', 0)
 
@@ -257,7 +258,12 @@ class BaseModelController(OperatorController, ABC):
                 folds_models.append((model_id, model, score))
                 all_fold_predictions.append(prediction_data)
                 base_model_name = model_name
-                binaries.append((f"{model_id}.pkl", self._binarize_model(model)))
+
+                # Only persist in train mode, not in predict/explain modes
+                if mode == "train":
+                    artifact = self._persist_model(runner, model, model_id)
+                    binaries.append(artifact)
+
                 scores.append(score)
                 model_classname = model.__class__.__name__
 
@@ -291,7 +297,8 @@ class BaseModelController(OperatorController, ABC):
                 y_train_unscaled, y_test_unscaled, y_test_unscaled,
                 loaded_binaries=loaded_binaries, mode=mode
             )
-            binaries.append((f"{model_id}.pkl", self._binarize_model(model)))
+            artifact = self._persist_model(runner, model, model_id)
+            binaries.append(artifact)
 
             # Add predictions for single model case (no weights)
             self._add_all_predictions(prediction_store, [prediction_data], None, mode=mode)
@@ -330,9 +337,25 @@ class BaseModelController(OperatorController, ABC):
             # Load model from binaries
             if loaded_binaries is None:
                 raise ValueError("loaded_binaries must be provided in prediction mode")
-            model = dict(loaded_binaries).get(f"{new_operator_name}")
+
+            # Try to find model with various naming patterns for backward compatibility:
+            # 1. Exact match: "Q4_PLS_10_1"
+            # 2. With .pkl extension: "Q4_PLS_10_1.pkl"
+            # 3. With .joblib extension: "Q4_PLS_10_1.joblib"
+            binaries_dict = dict(loaded_binaries)
+            model = binaries_dict.get(new_operator_name)
             if model is None:
-                raise ValueError(f"Model binary for {model_name}_{operation_counter}.pkl not found in loaded_binaries")
+                model = binaries_dict.get(f"{new_operator_name}.pkl")
+            if model is None:
+                model = binaries_dict.get(f"{new_operator_name}.joblib")
+
+            if model is None:
+                available_keys = list(binaries_dict.keys())
+                raise ValueError(
+                    f"Model binary for {new_operator_name} not found in loaded_binaries. "
+                    f"Available keys: {available_keys}"
+                )
+
             if mode == "explain":
                 # print(f"Using model {model_name} for explanation...")
                 # print(f"Model ID: {runner.target_model['id']}, Name: {runner.target_model['model_name']}, Step: {runner.target_model['step_idx']}, Fold: {runner.target_model['fold_id']}, Op Counter: {runner.target_model['op_counter']}")
@@ -487,8 +510,8 @@ class BaseModelController(OperatorController, ABC):
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
-        loaded_binaries: Optional[List[Tuple[str, bytes]]]
-    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        loaded_binaries: Optional[List[Tuple[str, Any]]]
+    ) -> Tuple[Dict[str, Any], List['ArtifactMeta']]:
         """Handle prediction mode: load model and predict."""
 
         if not loaded_binaries:
@@ -508,7 +531,9 @@ class BaseModelController(OperatorController, ABC):
         # predictions_csv = prediction_store.create_prediction_csv(y_true, y_pred)  # TODO: implement CSV creation
         pred_filename = f"predictions_{runner.next_op()}.csv"
 
-        return context, [(pred_filename, "predictions csv placeholder".encode('utf-8'))]
+        # TODO: This should use persist_artifact for predictions CSV
+        # For now, return empty list since predictions are handled separately
+        return context, []
 
     def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
         """Extract model configuration from step or operator."""
@@ -567,20 +592,28 @@ class BaseModelController(OperatorController, ABC):
                 y_all = dataset.y(context)
                 return {'X': X_all, 'y': y_all}
 
-    def _load_model_from_binaries(self, loaded_binaries: List[Tuple[str, bytes]]) -> Any:
-        """Load trained model from binary data."""
-        import pickle
+    def _load_model_from_binaries(self, loaded_binaries: List[Tuple[str, Any]]) -> Any:
+        """Load trained model from loaded artifacts.
 
-        model_binary = None
-        for name, binary in loaded_binaries:
+        Note: The BinaryLoader already deserializes the objects using the new
+        serializer infrastructure, so we just need to find the right artifact.
+
+        Args:
+            loaded_binaries: List of (name, loaded_object) tuples
+
+        Returns:
+            The loaded model object
+        """
+        model_obj = None
+        for name, obj in loaded_binaries:
             if name.endswith('.pkl') and ('model' in name.lower() or 'trained' in name.lower()):
-                model_binary = binary
+                model_obj = obj
                 break
 
-        if model_binary is None:
-            raise ValueError("No model binary found")
+        if model_obj is None:
+            raise ValueError("No model object found in loaded binaries")
 
-        return pickle.loads(model_binary)
+        return model_obj
 
     def _create_fold_averages(
         self,
@@ -812,11 +845,37 @@ class BaseModelController(OperatorController, ABC):
                         print(short_desc)
                     first_partition = False
 
-    def _binarize_model(self, model: Any) -> bytes:
-        """Serialize model to binary using pickle."""
-        import pickle
-        try:
-            return pickle.dumps(model)
-        except Exception as e:
-            print(f"⚠️ Could not serialize model: {e}")
-            return b""
+    def _persist_model(self, runner: 'PipelineRunner', model: Any, model_id: str) -> 'ArtifactMeta':
+        """Persist model using the new serializer infrastructure.
+
+        Args:
+            runner: Pipeline runner with saver instance
+            model: The trained model to persist
+            model_id: Identifier for the model
+
+        Returns:
+            ArtifactMeta: Metadata about the persisted artifact
+        """
+        # Detect framework hint from model type
+        model_type = type(model).__module__
+        if 'sklearn' in model_type:
+            format_hint = 'sklearn'
+        elif 'tensorflow' in model_type or 'keras' in model_type:
+            format_hint = 'tensorflow'
+        elif 'torch' in model_type:
+            format_hint = 'pytorch'
+        elif 'xgboost' in model_type:
+            format_hint = 'xgboost'
+        elif 'catboost' in model_type:
+            format_hint = 'catboost'
+        elif 'lightgbm' in model_type:
+            format_hint = 'lightgbm'
+        else:
+            format_hint = None  # Let serializer auto-detect
+
+        return runner.saver.persist_artifact(
+            step_number=runner.step_number,
+            name=f"{model_id}.pkl",
+            obj=model,
+            format_hint=format_hint
+        )

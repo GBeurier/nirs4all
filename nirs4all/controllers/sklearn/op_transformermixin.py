@@ -10,7 +10,6 @@ if TYPE_CHECKING:
     from nirs4all.spectra.spectra_dataset import SpectroDataset
 
 import numpy as np
-import pickle
 from sklearn.base import clone
 ## TODO add parrallel support for multi-source datasets and multi-processing datasets
 
@@ -125,9 +124,15 @@ class TransformerMixinController(OperatorController):
                 source_new_processing_names.append(new_processing_name)
                 source_processing_names.append(processing_name)
 
-                # Serialize fitted transformer
-                transformer_binary = pickle.dumps(transformer)
-                fitted_transformers.append((f"{new_operator_name}.pkl", transformer_binary))
+                # Persist fitted transformer using new serializer
+                if mode == "train":
+                    artifact = runner.saver.persist_artifact(
+                        step_number=runner.step_number,
+                        name=new_operator_name,
+                        obj=transformer,
+                        format_hint='sklearn'
+                    )
+                    fitted_transformers.append(artifact)
 
             # print("🔹 Finished processing source", sd_idx, len(fitted_transformers))
             # ("🔹 New processing names:", source_new_processing_names)

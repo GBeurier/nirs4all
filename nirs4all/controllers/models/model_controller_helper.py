@@ -238,14 +238,10 @@ class ModelControllerHelper:
 
     def is_model_serializable(self, model: Any) -> bool:
         """
-        Check if a model can be serialized with pickle.
+        Check if a model can be serialized using the new serializer infrastructure.
         """
-        try:
-            import pickle
-            pickle.dumps(model)
-            return True
-        except Exception:
-            return False
+        from nirs4all.utils.serializer import is_serializable
+        return is_serializable(model)
 
     def get_model_info(self, model: Any) -> Dict[str, Any]:
         """

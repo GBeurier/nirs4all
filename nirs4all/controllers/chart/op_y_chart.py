@@ -75,7 +75,21 @@ class YChartController(OperatorController):
         img_png_binary = img_buffer.getvalue()
         img_buffer.close()
 
-        img_list.append((chart_name, img_png_binary))
+        # Save the chart as a human-readable output file
+        output_path = runner.saver.save_output(
+            step_number=runner.step_number,
+            name=chart_name.replace('.png', ''),  # Name without extension
+            data=img_png_binary,
+            extension='.png'
+        )
+
+        # Add to image list for tracking (only if saved)
+        if output_path:
+            img_list.append({
+                "name": chart_name,
+                "path": str(output_path),
+                "type": "chart_output"
+            })
 
         if runner.plots_visible:
             # Store figure reference - user will call plt.show() at the end
@@ -85,7 +99,6 @@ class YChartController(OperatorController):
             plt.close(fig)
 
         return context, img_list
-
     def _create_bicolor_histogram(self, y_train: np.ndarray, y_test: np.ndarray, y_all: np.ndarray) -> Tuple[Any, Dict[str, Any]]:
         """Create a bicolor histogram showing train/test distribution."""
         fig, ax = plt.subplots(figsize=(12, 6))
