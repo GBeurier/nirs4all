@@ -11,7 +11,7 @@
 > **Bugs**:
 >   - Unify task_type usage and detection
 >   - Fix train_params in finetuning for Tensorflow
->   - Review R2 computation / Q2 value
+>   - Review R2 computation / Q2 value - GOF (goodness of fit)
 > [SEED] review
 
 > **Enhancement**: Options normalisation in charts (0-1 ou 1-0)
@@ -50,7 +50,7 @@
 
 > [TEST] Prod coverage (transformations, controllers, predictions, datasets, runner)
 
-**RELEASE**  0.9
+**RELEASE**  0.9 apha
 
 > [Stacking]
 
@@ -58,7 +58,7 @@
 
 > [Transformations] Asymetric processings (PCA in pipelines) > auto/optional padding and cropping
 
-**RELEASE** 0.10
+**RELEASE** 0.10 beta
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
 
