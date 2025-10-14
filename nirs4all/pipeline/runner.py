@@ -49,7 +49,7 @@ class PipelineRunner:
     ##TODO handle the models defined as a class
     WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack",
                           "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d", "fold_chart",
-                          "model", "y_processing", "y_chart", "split"]
+                          "model", "y_processing", "y_chart", "split", "preprocessing"]
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     def __init__(self, ##TODO add resume / overwrite support / realtime viz
@@ -106,10 +106,200 @@ class PipelineRunner:
         self._figure_refs: List[Any] = []
 
 
+    def _normalize_pipeline(
+        self,
+        pipeline: Union[PipelineConfigs, List[Any], Dict, str],
+        name: str = "",
+        max_generation_count: int = 10000
+    ) -> PipelineConfigs:
+        """
+        Normalize pipeline input to PipelineConfigs.
+
+        Args:
+            pipeline: Can be:
+                - PipelineConfigs instance (return as-is)
+                - List[Any]: serialized steps (wrap as PipelineConfigs)
+                - Dict/str: raw definition (parse via PipelineConfigs)
+            name: Optional name for the pipeline
+            max_generation_count: Max combinations to generate
+
+        Returns:
+            PipelineConfigs instance
+        """
+        if isinstance(pipeline, PipelineConfigs):
+            return pipeline
+
+        if isinstance(pipeline, list):
+            # This is a list of serialized steps
+            # Wrap it in a dict with "pipeline" key to match PipelineConfigs format
+            pipeline_dict = {"pipeline": pipeline}
+            return PipelineConfigs(pipeline_dict, name=name, max_generation_count=max_generation_count)
+
+        # Otherwise, it's a raw definition (Dict or str)
+        return PipelineConfigs(pipeline, name=name, max_generation_count=max_generation_count)
 
 
-    def run(self, pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> Any:
-        """Run pipeline configurations on dataset configurations."""
+    def _normalize_dataset(
+        self,
+        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        dataset_name: str = "array_dataset"
+    ) -> DatasetConfigs:
+        """
+        Normalize dataset input to DatasetConfigs.
+
+        Args:
+            dataset: Can be:
+                - DatasetConfigs instance (return as-is)
+                - SpectroDataset instance (wrap in DatasetConfigs)
+                - np.ndarray: X data only (for prediction)
+                - Tuple[np.ndarray, np.ndarray]: (X, y) for training/evaluation
+                - Tuple[np.ndarray, np.ndarray, Dict]: (X, y, partition_info) with partition dict
+                - Dict/List[Dict]/str/List[str]: raw configs (parse via DatasetConfigs)
+            dataset_name: Name to use for array-based datasets
+
+        Returns:
+            DatasetConfigs instance
+        """
+        if isinstance(dataset, DatasetConfigs):
+            return dataset
+
+        if isinstance(dataset, SpectroDataset):
+            # Wrap existing SpectroDataset in DatasetConfigs
+            # Create a synthetic config that marks this as a preloaded dataset
+            configs = DatasetConfigs.__new__(DatasetConfigs)
+            configs.configs = [({"_preloaded_dataset": dataset}, dataset.name)]
+            configs.cache = {dataset.name: self._extract_dataset_cache(dataset)}
+            return configs
+
+        if isinstance(dataset, np.ndarray):
+            # Single array - assume X only (for prediction mode)
+            spectro_dataset = SpectroDataset(name=dataset_name)
+            spectro_dataset.add_samples(dataset, indexes={"partition": "test"})
+
+            configs = DatasetConfigs.__new__(DatasetConfigs)
+            configs.configs = [({"_preloaded_dataset": spectro_dataset}, dataset_name)]
+            configs.cache = {dataset_name: self._extract_dataset_cache(spectro_dataset)}
+            return configs
+
+        if isinstance(dataset, tuple) and len(dataset) >= 2:
+            # Tuple of arrays: (X, y) or (X, y, partition_info)
+            X, y = dataset[0], dataset[1]
+
+            if not isinstance(X, np.ndarray) or not isinstance(y, np.ndarray):
+                raise ValueError("Tuple dataset must contain numpy arrays for X and y")
+
+            spectro_dataset = SpectroDataset(name=dataset_name)
+
+            # Check if there's partition information
+            if len(dataset) >= 3 and isinstance(dataset[2], dict):
+                partition_info = dataset[2]
+                # Split data according to partition info
+                # Expected format: {"train": slice/indices, "test": slice/indices}
+                # or {"train": int} for train_size
+                if "train" in partition_info and "test" in partition_info:
+                    train_idx = partition_info["train"]
+                    test_idx = partition_info["test"]
+
+                    if isinstance(train_idx, int):
+                        # Assume it's train size
+                        train_idx = slice(0, train_idx)
+                        test_idx = slice(train_idx.stop, None)
+
+                    X_train = X[train_idx]
+                    y_train = y[train_idx]
+                    X_test = X[test_idx]
+                    y_test = y[test_idx]
+
+                    spectro_dataset.add_samples(X_train, indexes={"partition": "train"})
+                    spectro_dataset.add_targets(y_train)
+                    spectro_dataset.add_samples(X_test, indexes={"partition": "test"})
+                    spectro_dataset.add_targets(y_test)
+                elif "train" in partition_info:
+                    # Only train size specified
+                    train_size = partition_info["train"]
+                    X_train, X_test = X[:train_size], X[train_size:]
+                    y_train, y_test = y[:train_size], y[train_size:]
+
+                    spectro_dataset.add_samples(X_train, indexes={"partition": "train"})
+                    spectro_dataset.add_targets(y_train)
+                    if len(X_test) > 0:
+                        spectro_dataset.add_samples(X_test, indexes={"partition": "test"})
+                        spectro_dataset.add_targets(y_test)
+                else:
+                    # No valid partition info, add all as train
+                    spectro_dataset.add_samples(X, indexes={"partition": "train"})
+                    spectro_dataset.add_targets(y)
+            else:
+                # No partition info, add all as train
+                spectro_dataset.add_samples(X, indexes={"partition": "train"})
+                spectro_dataset.add_targets(y)
+
+            configs = DatasetConfigs.__new__(DatasetConfigs)
+            configs.configs = [({"_preloaded_dataset": spectro_dataset}, dataset_name)]
+            configs.cache = {dataset_name: self._extract_dataset_cache(spectro_dataset)}
+            return configs
+
+        # Otherwise, it's a raw config
+        return DatasetConfigs(dataset)
+
+
+    def _extract_dataset_cache(self, dataset: SpectroDataset) -> Tuple:
+        """Extract cache tuple from a SpectroDataset for DatasetConfigs cache."""
+        # Try to extract train data
+        try:
+            x_train = dataset.x({"partition": "train"}, layout="2d")
+            y_train = dataset.y({"partition": "train"})
+            # Metadata and headers are optional
+            try:
+                m_train = dataset.metadata({"partition": "train"})
+            except:
+                m_train = None
+            train_headers = None  # Not easily accessible from dataset
+            m_train_headers = None
+        except:
+            x_train = y_train = m_train = train_headers = m_train_headers = None
+
+        # Try to extract test data
+        try:
+            x_test = dataset.x({"partition": "test"}, layout="2d")
+            y_test = dataset.y({"partition": "test"})
+            try:
+                m_test = dataset.metadata({"partition": "test"})
+            except:
+                m_test = None
+            test_headers = None
+            m_test_headers = None
+        except:
+            x_test = y_test = m_test = test_headers = m_test_headers = None
+
+        return (x_train, y_train, m_train, train_headers, m_train_headers,
+                x_test, y_test, m_test, test_headers, m_test_headers)
+
+
+    def run(
+        self,
+        pipeline: Union[PipelineConfigs, List[Any], Dict, str],
+        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        pipeline_name: str = "",
+        dataset_name: str = "dataset",
+        max_generation_count: int = 10000
+    ) -> Any:
+        """
+        Run pipeline configurations on dataset configurations.
+
+        Args:
+            pipeline: Pipeline definition (PipelineConfigs, List[steps], Dict, or file path)
+            dataset: Dataset definition (DatasetConfigs, SpectroDataset, numpy arrays, Dict, or file path)
+            pipeline_name: Optional name for the pipeline
+            dataset_name: Optional name for array-based datasets
+            max_generation_count: Maximum number of pipeline combinations to generate
+
+        Returns:
+            Tuple of (run_predictions, datasets_predictions)
+        """
+        # Normalize inputs
+        pipeline_configs = self._normalize_pipeline(pipeline, name=pipeline_name, max_generation_count=max_generation_count)
+        dataset_configs = self._normalize_dataset(dataset, dataset_name=dataset_name)
 
         # Clear previous figure references
         self._figure_refs.clear()
@@ -253,15 +443,33 @@ class PipelineRunner:
         return steps
 
 
-    def predict(self,
-                prediction_obj: Union[Dict[str, Any], str],
-                dataset_config: DatasetConfigs,
-                all_predictions: bool = False,
-                verbose: int = 0
-                ) :
+    def predict(
+        self,
+        prediction_obj: Union[Dict[str, Any], str],
+        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        dataset_name: str = "prediction_dataset",
+        all_predictions: bool = False,
+        verbose: int = 0
+    ):
+        """
+        Run prediction using a saved model on new dataset.
+
+        Args:
+            prediction_obj: Reference to saved model/prediction (Dict or file path)
+            dataset: Dataset definition (DatasetConfigs, SpectroDataset, numpy arrays, Dict, or file path)
+            dataset_name: Optional name for array-based datasets
+            all_predictions: Whether to return all predictions
+            verbose: Verbosity level
+
+        Returns:
+            Predictions for the specified model
+        """
         print("=" * 120)
-        print(f"\033[94m🚀 Starting Nirs4all prediction(s)\033[0m")
+        print("\033[94m🚀 Starting Nirs4all prediction(s)\033[0m")
         print("=" * 120)
+
+        # Normalize dataset input
+        dataset_config = self._normalize_dataset(dataset, dataset_name=dataset_name)
 
         self.mode = "predict"
         self.verbose = verbose
@@ -307,14 +515,30 @@ class PipelineRunner:
     def explain(
         self,
         prediction_obj: Union[Dict[str, Any], str],
-        dataset_config: DatasetConfigs,
+        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        dataset_name: str = "explain_dataset",
         shap_params: Optional[Dict[str, Any]] = None,
         verbose: int = 0
     ) -> Tuple[Dict[str, Any], str]:
+        """
+        Generate SHAP explanations for a saved model.
 
+        Args:
+            prediction_obj: Reference to saved model/prediction (Dict or file path)
+            dataset: Dataset definition (DatasetConfigs, SpectroDataset, numpy arrays, Dict, or file path)
+            dataset_name: Optional name for array-based datasets
+            shap_params: SHAP analysis parameters
+            verbose: Verbosity level
+
+        Returns:
+            Tuple of (shap_results, output_directory)
+        """
         print("=" * 120)
-        print(f"\033[94m🔍 Starting SHAP Explanation Analysis\033[0m")
+        print("\033[94m🔍 Starting SHAP Explanation Analysis\033[0m")
         print("=" * 120)
+
+        # Normalize dataset input
+        dataset_config = self._normalize_dataset(dataset, dataset_name=dataset_name)
 
         self.mode = "explain"
         # Default SHAP parameters

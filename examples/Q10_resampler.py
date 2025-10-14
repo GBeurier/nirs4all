@@ -63,6 +63,7 @@ def main():
     pipeline_downsample = [
         "chart_2d",
         Resampler(target_wavelengths=target_wl_downsample, method='linear'),
+        "chart_2d",
     ]
 
     pipeline_config = PipelineConfigs(pipeline_downsample, name="Downsample_Pipeline")
@@ -77,7 +78,7 @@ def main():
     target_wl_cropped = np.linspace(9500, 7000, 50)  # Descending, 50 points
 
     pipeline_cropped = [
-        'chart_3d',
+        'chart_2d',
         Resampler(
             target_wavelengths=target_wl_cropped,
             method='linear'  # Linear interpolation
