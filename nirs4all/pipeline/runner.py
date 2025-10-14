@@ -538,10 +538,12 @@ class PipelineRunner:
                 if key := next((s for s in step.split() if s in self.WORKFLOW_OPERATORS), None):
                     # print(f"📋 Workflow operation: {key}")
                     controller = self._select_controller(key, keyword=key)
+                    context["keyword"] = key  # Store keyword in context for controller use
                 else:
                     # print(f"📦 Deserializing str operation: {step}")
                     operator = deserialize_component(step)
                     controller = self._select_controller(step, operator=operator, keyword=step)
+                    context["keyword"] = step  # Store keyword in context for controller use
 
             else:
                 print(f"🔍 Unknown step type: {type(step).__name__}, executing as operation")

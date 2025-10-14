@@ -181,8 +181,34 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
                 m_params_copy['categorical_mode'] = 'preserve'  # Keep original types for metadata
             if 'data_type' not in m_params_copy:
                 m_params_copy['data_type'] = 'metadata'
+            # Use 'remove' policy but we'll ignore the removed rows for metadata
+            # (we want to keep all metadata rows even if some columns have NAs)
+            if 'na_policy' not in m_params_copy:
+                m_params_copy['na_policy'] = 'remove'
 
-            m_df, m_report, m_na_mask, m_headers = load_csv(m_path, **m_params_copy)
+            m_df_temp, m_report, m_na_mask, m_headers = load_csv(m_path, **m_params_copy)
+
+            # For metadata, we want to keep ALL rows including those with NAs
+            # So we reload the data without NA row removal if rows were removed
+            if m_report.get('na_handling', {}).get('nb_removed_rows', 0) > 0:
+                # Rows were removed - reload with explicit na_filter=False to keep everything
+                m_params_no_na_removal = m_params_copy.copy()
+                # We can't directly disable NA removal in load_csv, so we use pandas directly
+                import csv
+                read_csv_kwargs = {
+                    'sep': m_report['delimiter'],
+                    'decimal': m_report['decimal_separator'],
+                    'header': 0 if m_report['has_header'] else None,
+                    'na_filter': True,  # Still detect NAs but don't remove them
+                    'keep_default_na': True,
+                    'engine': 'python',
+                }
+                m_df = pd.read_csv(m_path, **read_csv_kwargs)
+                m_df.columns = m_df.columns.astype(str)
+                m_headers = m_df.columns.tolist()
+            else:
+                m_df = m_df_temp
+
             if m_report.get("error") is not None or m_df is None:
                 raise ValueError(f"Failed to load metadata from {m_path}: {m_report.get('error', 'Unknown error')}")
         except Exception as e:
