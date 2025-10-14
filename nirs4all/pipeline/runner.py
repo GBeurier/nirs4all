@@ -232,6 +232,10 @@ class PipelineRunner:
         self.config_path = config_path
         self.target_model = target_model
         self.model_weights = target_model['weights'] if target_model else None
+
+        # Extract pipeline_uid from target_model if available
+        pipeline_uid = target_model.get('pipeline_uid') if target_model else None
+
         # print(f"🚀 Starting prediction using config: {config_path} on {len(dataset_config.configs)} dataset configuration(s)."
             #   if target_model else "")
 
@@ -253,84 +257,33 @@ class PipelineRunner:
         else:
             steps = pipeline_data
 
-        # 3. Load binaries - try new manifest system first, then fall back to old metadata.json
-        config_dir = Path(f"{self.saver.base_path}/{config_path}")
+        # 3. Load binaries from manifest system
+        if not pipeline_uid:
+            raise ValueError(
+                f"No pipeline_uid found in prediction metadata. "
+                f"This prediction was created with an older version of nirs4all. "
+                f"Please retrain the model to use the new manifest system."
+            )
 
-        # Try to find pipeline UID and load from manifest
-        manifest_manager = None
-        pipeline_uid = None
-
-        # Check if this is a new-style manifest-based pipeline
+        # Load from manifest
         pipelines_dir = self.saver.base_path / "pipelines"
-        if pipelines_dir.exists():
-            # Try to find the pipeline by config_path (which might be the UID or pipeline name)
-            from nirs4all.pipeline.manifest_manager import ManifestManager
-            manifest_manager = ManifestManager(self.saver.base_path)
+        if not pipelines_dir.exists():
+            raise FileNotFoundError(f"Pipelines directory not found: {pipelines_dir}")
 
-            # Extract potential UID from config_path
-            config_name = Path(config_path).name
+        from nirs4all.pipeline.manifest_manager import ManifestManager
+        manifest_manager = ManifestManager(self.saver.base_path)
 
-            # Try to load manifest directly if config_path looks like a UID
-            manifest_path = pipelines_dir / config_name / "manifest.yaml"
-            if manifest_path.exists():
-                pipeline_uid = config_name
-            else:
-                # Try to find by pipeline name in dataset indexes
-                # For now, just try to list all pipelines and match by name
-                pass
+        manifest_path = pipelines_dir / pipeline_uid / "manifest.yaml"
+        if not manifest_path.exists():
+            raise FileNotFoundError(
+                f"Manifest not found: {manifest_path}\n"
+                f"Pipeline UID: {pipeline_uid}\n"
+                f"The model artifacts may have been deleted or moved."
+            )
 
-        if pipeline_uid and manifest_manager:
-            # New manifest-based loading
-            if verbose > 0:
-                print(f"🔍 Loading from manifest: {pipeline_uid}")
-            manifest = manifest_manager.load_manifest(pipeline_uid)
-            self.binary_loader = BinaryLoader.from_manifest(manifest, self.saver.base_path)
-        else:
-            # Backward compatibility: Load from old metadata.json
-            metadata_file = config_dir / "metadata.json"
-            if metadata_file.exists():
-                if verbose > 0:
-                    print(f"🔍 Loading from legacy metadata.json")
-                with open(metadata_file, 'r', encoding='utf-8') as f:
-                    metadata = json.load(f)
-
-                # Convert old metadata format to artifact list
-                artifacts = []
-                binaries = metadata.get('binaries', {})
-                for step_key, binary_list in binaries.items():
-                    # Parse step number from key like "0_0"
-                    try:
-                        step_num = int(step_key.split('_')[0])
-                    except (ValueError, IndexError):
-                        continue
-
-                    # Handle both old format (list of strings) and new format (list of dicts)
-                    for binary_item in binary_list:
-                        if isinstance(binary_item, dict):
-                            # Already in artifact format (shouldn't happen in legacy, but handle it)
-                            artifacts.append(binary_item)
-                        else:
-                            # Old format: string filename
-                            binary_filename = binary_item
-                            binary_path = config_dir / binary_filename
-                            if binary_path.exists():
-                                artifacts.append({
-                                    "name": binary_filename,
-                                    "step": step_num,
-                                    "path": str(binary_path.relative_to(self.saver.base_path)),
-                                    "format": "legacy_pickle",  # Mark as legacy
-                                    "hash": "",  # No hash for legacy files
-                                    "size": binary_path.stat().st_size
-                                })
-
-                if verbose > 0:
-                    print(f"🔍 {len(artifacts)} legacy binaries found")
-                self.binary_loader = BinaryLoader(artifacts, self.saver.base_path)
-            else:
-                # No binaries available
-                if verbose > 0:
-                    print("⚠️ No binaries found for prediction")
-                self.binary_loader = BinaryLoader([], self.saver.base_path)
+        print(f"🔍 Loading from manifest: {pipeline_uid}")
+        manifest = manifest_manager.load_manifest(pipeline_uid)
+        self.binary_loader = BinaryLoader.from_manifest(manifest, self.saver.base_path)
 
         return steps
 
@@ -598,7 +551,11 @@ class PipelineRunner:
             if isinstance(step, dict):
                 if key := next((k for k in step if k in self.WORKFLOW_OPERATORS), None):
                     # print(f"📋 Workflow operation: {key}")
-                    if 'class' in step[key]:
+                    if isinstance(step[key], dict) and 'class' in step[key]:
+                        operator = deserialize_component(step[key])
+                        controller = self._select_controller(step, keyword=key, operator=operator)
+                    elif isinstance(step[key], str):
+                        # Handle serialized string format (e.g., "sklearn.preprocessing.StandardScaler")
                         operator = deserialize_component(step[key])
                         controller = self._select_controller(step, keyword=key, operator=operator)
                     else:

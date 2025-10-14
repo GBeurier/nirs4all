@@ -474,6 +474,7 @@ class Predictions:
             "dataset_path": pl.Utf8,
             "config_name": pl.Utf8,
             "config_path": pl.Utf8,
+            "pipeline_uid": pl.Utf8,
             "step_idx": pl.Int64,
             "op_counter": pl.Int64,
             "model_name": pl.Utf8,
@@ -642,6 +643,7 @@ class Predictions:
         dataset_path: str = "",
         config_name: str = "",
         config_path: str = "",
+        pipeline_uid: Optional[str] = None,
         step_idx: int = 0,
         op_counter: int = 0,
         model_name: str = "",
@@ -682,6 +684,7 @@ class Predictions:
             "dataset_path": dataset_path,
             "config_name": config_name,
             "config_path": config_path,
+            "pipeline_uid": pipeline_uid,
             "step_idx": step_idx,
             "op_counter": op_counter,
             "model_name": model_name,
@@ -719,6 +722,7 @@ class Predictions:
         dataset_path: Union[str, List[str]] = "",
         config_name: Union[str, List[str]] = "",
         config_path: Union[str, List[str]] = "",
+        pipeline_uid: Union[Optional[str], List[Optional[str]]] = None,
         step_idx: Union[int, List[int]] = 0,
         op_counter: Union[int, List[int]] = 0,
         model_name: Union[str, List[str]] = "",
@@ -781,6 +785,7 @@ class Predictions:
             'dataset_path': dataset_path,
             'config_name': config_name,
             'config_path': config_path,
+            'pipeline_uid': pipeline_uid,
             'step_idx': step_idx,
             'op_counter': op_counter,
             'model_name': model_name,
@@ -1730,10 +1735,10 @@ class Predictions:
 
                 # Use the predefined schema order from __init__ to ensure consistency
                 predefined_order = [
-                    "id", "dataset_name", "dataset_path", "config_name", "config_path",
+                    "id", "dataset_name", "dataset_path", "config_name", "config_path", "pipeline_uid",
                     "step_idx", "op_counter", "model_name", "model_classname", "model_path",
                     "fold_id", "sample_indices", "weights", "metadata", "partition",
-                    "y_true", "y_pred", "val_score", "test_score", "metric", "task_type",
+                    "y_true", "y_pred", "val_score", "test_score", "train_score", "metric", "task_type",
                     "n_samples", "n_features", "preprocessings", "best_params"
                 ]
 

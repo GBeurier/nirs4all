@@ -77,7 +77,7 @@ print("=" * 80)
 
 # Method 2: Predict using a model ID
 print("--- Method 2: Predict with a model ID ---")
-predictor = PipelineRunner(save_files=False, verbose=0)
+predictor = PipelineRunner(save_files=False, verbose=1)
 prediction_dataset = DatasetConfigs({
     'X_test': 'sample_data/regression_2/Xtest.csv',
 })

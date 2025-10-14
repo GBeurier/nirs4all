@@ -442,11 +442,13 @@ class BaseModelController(OperatorController, ABC):
         test_indices = list(range(len(y_test_unscaled)))
 
         # Prepare prediction data for return (don't store yet)
+        pipeline_uid = getattr(runner, 'pipeline_uid', None)
         prediction_data = {
             'dataset_name': dataset_name,
             'dataset_path': dataset_name,
             'config_name': pipeline_name,
             'config_path': f"{dataset_name}/{pipeline_name}",
+            'pipeline_uid': pipeline_uid,
             'step_idx': step_id,
             'op_counter': operation_counter,
             'model_name': model_name,
@@ -692,6 +694,7 @@ class BaseModelController(OperatorController, ABC):
             'dataset_path': dataset.name,
             'config_name': runner.saver.pipeline_name,
             'config_path': f"{dataset.name}/{runner.saver.pipeline_name}",
+            'pipeline_uid': getattr(runner, 'pipeline_uid', None),
             'step_idx': context['step_id'],
             'op_counter': avg_counter,
             'model_name': f"{base_model_name}",
@@ -753,6 +756,7 @@ class BaseModelController(OperatorController, ABC):
             'dataset_path': dataset.name,
             'config_name': runner.saver.pipeline_name,
             'config_path': f"{dataset.name}/{runner.saver.pipeline_name}",
+            'pipeline_uid': getattr(runner, 'pipeline_uid', None),
             'step_idx': context['step_id'],
             'op_counter': w_avg_counter,
             'model_name': f"{base_model_name}",
@@ -801,6 +805,7 @@ class BaseModelController(OperatorController, ABC):
                     dataset_path=prediction_data['dataset_path'],
                     config_name=prediction_data['config_name'],
                     config_path=prediction_data['config_path'],
+                    pipeline_uid=prediction_data.get('pipeline_uid'),
                     step_idx=prediction_data['step_idx'],
                     op_counter=prediction_data['op_counter'],
                     model_name=prediction_data['model_name'],

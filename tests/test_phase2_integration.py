@@ -84,7 +84,7 @@ class TestSimulationSaverPersist:
         assert artifact1["path"] == artifact2["path"]
 
     def test_persist_artifact_updates_metadata(self, saver):
-        """Test that persist_artifact updates metadata correctly."""
+        """Test that persist_artifact saves files correctly (manifest system handles metadata)."""
         saver.register("test_dataset", "test_pipeline", "train")
 
         scaler = StandardScaler()
@@ -92,11 +92,18 @@ class TestSimulationSaverPersist:
 
         artifact = saver.persist_artifact(0, "scaler_0", scaler)
 
-        metadata = saver.get_metadata()
-        assert "0" in metadata["binaries"]
-        assert len(metadata["binaries"]["0"]) == 1
-        assert metadata["binaries"]["0"][0]["name"] == "scaler_0"
-        assert metadata["binaries"]["0"][0]["hash"] == artifact["hash"]
+        # Verify artifact was saved with correct structure
+        assert artifact["name"] == "scaler_0"
+        assert "hash" in artifact
+        assert "path" in artifact
+
+        # Verify the file was actually saved
+        # Artifacts are saved to base_path/artifacts/objects, not current_path
+        artifact_path = saver.base_path / "artifacts" / artifact["path"]
+        assert artifact_path.exists()
+
+        # Note: Metadata tracking has been replaced by the manifest system
+        # The manifest system handles artifact tracking at the pipeline level
 
 
 class TestManifestManagerIntegration:
