@@ -1,8 +1,9 @@
 ## ROADMAP ##
 
-> [METADATA] Reup load / stratification
-
 > [Split] test avec stratification
+
+
+**RELEASE** 0.3
 
 > **Bugs**:
 >   - NA in pred charts
@@ -13,9 +14,6 @@
 >   - Unify task_type usage and detection
 
 > [Serialization] serialization refactoring
-
-**RELEASE** 0.3
-
 
 > [Headers] verify and clean header management (none, cm-1, nm, str or num_feature)
 

@@ -5,6 +5,7 @@ def normalize_config_keys(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize dataset configuration keys to standard format.
     Maps variations like 'x_train', 'X_train', 'Xtrain' to 'train_x'
+    Maps metadata variations like 'metadata_train', 'train_metadata', 'm_train' to 'train_group'
 
     Args:
         config: Original configuration dictionary
@@ -18,6 +19,18 @@ def normalize_config_keys(config: Dict[str, Any]) -> Dict[str, Any]:
         'train_y': ['train_y', 'y_train', 'ytrain', 'trainy'],
         'test_x': ['test_x', 'x_test', 'xtest', 'testx', 'val_x', 'x_val', 'xval', 'valx'],
         'test_y': ['test_y', 'y_test', 'ytest', 'testy', 'val_y', 'y_val', 'yval', 'valy'],
+        'train_group': ['train_group', 'group_train', 'grouptrain', 'traingroup',
+                        'train_metadata', 'metadata_train', 'metadatatrain', 'trainmetadata',
+                        'train_meta', 'meta_train', 'metatrain', 'trainmeta',
+                        'train_m', 'm_train', 'mtrain', 'trainm'],
+        'test_group': ['test_group', 'group_test', 'grouptest', 'testgroup',
+                       'test_metadata', 'metadata_test', 'metadatatest', 'testmetadata',
+                       'test_meta', 'meta_test', 'metatest', 'testmeta',
+                       'test_m', 'm_test', 'mtest', 'testm',
+                       'val_group', 'group_val', 'groupval', 'valgroup',
+                       'val_metadata', 'metadata_val', 'metadataval', 'valmetadata',
+                       'val_meta', 'meta_val', 'metaval', 'valmeta',
+                       'val_m', 'm_val', 'mval', 'valm'],
     }
 
     # Build case-insensitive mapping
@@ -63,8 +76,12 @@ def browse_folder(folder_path, global_params=None):
         "test_x": ["Xval", "X_val", "val_X", "valX", "Xtest", "X_test", "test_X", "testX"],
         "train_y": ["Ycal", "Y_cal", "Cal_Y", "calY", "train_Y", "trainY", "Y_train", "Ytrain"],
         "test_y": ["Ytest", "Y_test", "test_Y", "testY", "Yval", "Y_val", "val_Y", "valY"],
-        "train_group": ["Gcal", "G_cal", "Cal_G", "calG", "train_G", "trainG", "G_train", "Gtrain"],
-        "test_group": ["Gtest", "G_test", "test_G", "testG", "Gval", "G_val", "val_G", "valG"],
+        "train_group": ["Mcal", "M_cal", "Cal_M", "calM", "train_M", "trainM", "M_train", "Mtrain",
+                        "Metacal", "Meta_cal", "Cal_Meta", "calMeta", "train_Meta", "trainMeta", "Meta_train", "Metatrain",
+                        "metadatacal", "metadata_cal", "Cal_metadata", "calMetadata", "train_metadata", "trainMetadata", "metadata_train", "metadatatrain"],
+        "test_group": ["Mtest", "M_test", "test_M", "testM", "Mval", "M_val", "val_M", "valM",
+                       "Metatest", "Meta_test", "test_Meta", "testMeta", "Metaval", "Meta_val", "val_Meta", "valMeta",
+                       "metadatatest", "metadata_test", "test_metadata", "testMetadata", "metadataval", "metadata_val", "val_metadata", "valMetadata"],
     }
 
     dataset_dir = Path(folder_path)

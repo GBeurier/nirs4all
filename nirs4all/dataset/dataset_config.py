@@ -39,27 +39,27 @@ class DatasetConfigs:
     def get_dataset(self, config, name) -> SpectroDataset:
         dataset = SpectroDataset(name=name)
         if name in self.cache:
-            x_train, y_train, train_headers, x_test, y_test, test_headers = self.cache[name]
+            x_train, y_train, m_train, train_headers, m_train_headers, x_test, y_test, m_test, test_headers, m_test_headers = self.cache[name]
         else:
             # Try to load train data
             try:
-                x_train, y_train, train_headers = handle_data(config, "train")
+                x_train, y_train, m_train, train_headers, m_train_headers = handle_data(config, "train")
             except (ValueError, FileNotFoundError) as e:
                 if "x_path is None" in str(e) or "train_x" in str(e):
-                    x_train, y_train, train_headers = None, None, None
+                    x_train, y_train, m_train, train_headers, m_train_headers = None, None, None, None, None
                 else:
                     raise
 
             # Try to load test data
             try:
-                x_test, y_test, test_headers = handle_data(config, "test")
+                x_test, y_test, m_test, test_headers, m_test_headers = handle_data(config, "test")
             except (ValueError, FileNotFoundError) as e:
                 if "x_path is None" in str(e) or "test_x" in str(e):
-                    x_test, y_test, test_headers = None, None, None
+                    x_test, y_test, m_test, test_headers, m_test_headers = None, None, None, None, None
                 else:
                     raise
 
-            self.cache[name] = (x_train, y_train, train_headers, x_test, y_test, test_headers)
+            self.cache[name] = (x_train, y_train, m_train, train_headers, m_train_headers, x_test, y_test, m_test, test_headers, m_test_headers)
 
         # Add samples and targets only if they exist
         train_count = 0
@@ -70,12 +70,16 @@ class DatasetConfigs:
             train_count = len(x_train) if not isinstance(x_train, list) else len(x_train[0])
             if y_train is not None:
                 dataset.add_targets(y_train)
+            if m_train is not None:
+                dataset.add_metadata(m_train, headers=m_train_headers)
 
         if x_test is not None:
             dataset.add_samples(x_test, {"partition": "test"}, headers=test_headers)
             test_count = len(x_test) if not isinstance(x_test, list) else len(x_test[0])
             if y_test is not None:
                 dataset.add_targets(y_test)
+            if m_test is not None:
+                dataset.add_metadata(m_test, headers=m_test_headers)
 
         # print(f"📊 Loaded dataset '{dataset.name}' with {train_count} training and {test_count} test samples.")
         return dataset

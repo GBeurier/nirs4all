@@ -55,29 +55,29 @@ pipeline = [
             },
         }
     },
-    # {
-    #     "model": customizable_nicon,
-    #     "name": "PLS-Default",
-    #     "finetune_params": {
-    #         "n_trials": 30,
-    #         "verbose": 2,
-    #         "sample": "hyperband",
-    #         "approach": "single",
-    #         "model_params": {
-    #             "filters_1": [8, 16, 32, 64],
-    #             "filters_2": [8, 16, 32, 64],
-    #             "filters_3": [8, 16, 32, 64]
-    #         },
-    #         "train_params": {
-    #             "epochs": 10,
-    #             "verbose":0
-    #         }
-    #     },
-    #     "train_params": {
-    #         "epochs": 250,
-    #         "verbose":0
-    #     }
-    # }
+    {
+        "model": customizable_nicon,
+        "name": "PLS-Default",
+        "finetune_params": {
+            "n_trials": 30,
+            "verbose": 2,
+            "sample": "hyperband",
+            "approach": "single",
+            "model_params": {
+                "filters_1": [8, 16, 32, 64],
+                "filters_2": [8, 16, 32, 64],
+                "filters_3": [8, 16, 32, 64]
+            },
+            "train_params": {
+                "epochs": 10,
+                "verbose": 0
+            }
+        },
+        "train_params": {
+            "epochs": 250,
+            "verbose": 0
+        }
+    }
 ]
 
 # Add standard PLS models for comparison
@@ -134,4 +134,4 @@ fig4 = analyzer.plot_variable_candlestick(
     variable="model_name",
 )
 
-plt.show()
+# plt.show()

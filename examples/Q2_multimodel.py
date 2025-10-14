@@ -115,4 +115,4 @@ fig5 = analyzer.plot_heatmap_v2(
     y_var="fold_id",
 )
 
-plt.show()
+# plt.show()
