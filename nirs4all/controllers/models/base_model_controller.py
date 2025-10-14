@@ -66,7 +66,7 @@ class BaseModelController(OperatorController, ABC):
 
     @abstractmethod
     def _train_model(self, model: Any, X_train: Any, y_train: Any,
-                    X_val: Any = None, y_val: Any = None, **kwargs) -> Any:
+                     X_val: Any = None, y_val: Any = None, **kwargs) -> Any:
         """Train the model using framework-specific logic."""
         pass
 
