@@ -8,14 +8,14 @@ import sys
 import io
 
 # Fix UTF-8 encoding for Windows terminals to handle emoji characters
-if sys.platform == 'win32':
-    try:
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
-    except (AttributeError, io.UnsupportedOperation):
-        # Fallback for older Python or non-reconfigurable streams
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+# if sys.platform == 'win32':
+#     try:
+#         sys.stdout.reconfigure(encoding='utf-8')
+#         sys.stderr.reconfigure(encoding='utf-8')
+#     except (AttributeError, io.UnsupportedOperation):
+#         # Fallback for older Python or non-reconfigurable streams
+#         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+#         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 from joblib import Parallel, delayed, parallel_backend
 from nirs4all.dataset.predictions import Predictions
