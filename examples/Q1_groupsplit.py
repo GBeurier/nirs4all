@@ -42,6 +42,7 @@ data_path = 'sample_data/classification'
 import random
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import StratifiedGroupKFold
 
 
 pipeline = [
@@ -50,11 +51,25 @@ pipeline = [
     "fold_Sample_ID",
     # RandomForestClassifier(max_depth=30)
 ]
-
-
-
 # Create configuration objects
 pipeline_config = PipelineConfigs(pipeline, "Q1_groupsplit")
+dataset_config = DatasetConfigs(data_path)
+
+# Run the pipeline
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=True)
+predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
+
+
+pipeline_stratified = [
+    "fold_Sample_ID",
+    {"split": StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42), "group": "Sample_ID"},
+    "fold_Sample_ID",
+    "fold_chart",
+    # RandomForestClassifier(max_depth=30)
+]
+
+# Create configuration objects
+pipeline_config = PipelineConfigs(pipeline_stratified, "Q1_groupsplit")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
