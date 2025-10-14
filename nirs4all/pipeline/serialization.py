@@ -102,7 +102,7 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
 
             mod = importlib.import_module(mod_name)
             cls_or_func = getattr(mod, cls_or_func_name)
-            
+
             # Try to instantiate without parameters
             try:
                 return cls_or_func()
