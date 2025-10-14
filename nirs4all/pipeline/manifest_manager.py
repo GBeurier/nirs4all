@@ -119,8 +119,11 @@ class ManifestManager:
         manifest_path = self.pipelines_dir / uid / "manifest.yaml"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Sanitize manifest to convert tuples to lists for YAML compatibility
+        sanitized_manifest = _sanitize_for_yaml(manifest)
+
         with open(manifest_path, "w", encoding="utf-8") as f:
-            yaml.dump(manifest, f, default_flow_style=False, sort_keys=False)
+            yaml.dump(sanitized_manifest, f, default_flow_style=False, sort_keys=False)
 
     def load_manifest(self, uid: str) -> dict:
         """
