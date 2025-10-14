@@ -58,7 +58,7 @@ dataset_config = DatasetConfigs(data_path)
 
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+runner = PipelineRunner(save_files=True, verbose=0, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 

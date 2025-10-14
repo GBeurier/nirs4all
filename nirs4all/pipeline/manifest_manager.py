@@ -18,6 +18,27 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 
+def _sanitize_for_yaml(obj: Any) -> Any:
+    """
+    Recursively sanitize data structures for safe YAML serialization.
+    Converts tuples to lists to avoid Python-specific YAML tags.
+
+    Args:
+        obj: Object to sanitize
+
+    Returns:
+        Sanitized object safe for YAML safe_load
+    """
+    if isinstance(obj, tuple):
+        return [_sanitize_for_yaml(item) for item in obj]
+    elif isinstance(obj, list):
+        return [_sanitize_for_yaml(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: _sanitize_for_yaml(value) for key, value in obj.items()}
+    else:
+        return obj
+
+
 class ManifestManager:
     """
     Manage pipeline manifests and dataset indexes using YAML.

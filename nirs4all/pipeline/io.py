@@ -80,10 +80,6 @@ class SimulationSaver:
             "binaries": {}
         }
 
-        # Save initial metadata
-        if mode != "predict" and mode != "explain":
-            self._save_metadata()
-
         return self.current_path
 
     def _find_prediction_by_id(self, prediction_id: str) -> Optional[Dict[str, Any]]:
@@ -156,15 +152,7 @@ class SimulationSaver:
         with open(filepath, 'w', encoding=encoding) as f:
             f.write(content)
 
-        # Update metadata
-        self._metadata["files"][filename] = {
-            "path": str(filepath.relative_to(self.base_path)),
-            "size": filepath.stat().st_size,
-            "encoding": encoding,
-            "saved_at": datetime.now().isoformat(),
-            "overwritten": filepath.existed_before if hasattr(filepath, 'existed_before') else False
-        }
-        self._save_metadata()
+        # Note: metadata tracking removed - using manifest system now
 
         return filepath
 
@@ -222,12 +210,7 @@ class SimulationSaver:
         artifact = persist(obj, artifacts_dir, name, format_hint)
         artifact["step"] = step_number
 
-        # Update metadata
-        if str(step_number) not in self._metadata["binaries"]:
-            self._metadata["binaries"][str(step_number)] = []
-
-        self._metadata["binaries"][str(step_number)].append(artifact)
-        self._save_metadata()
+        # Note: metadata tracking removed - using manifest system now
 
         return artifact
 
@@ -279,18 +262,7 @@ class SimulationSaver:
             raise TypeError(f"Data must be bytes or str, got {type(data)}")
 
         # Update metadata (optional tracking)
-        if "outputs" not in self._metadata:
-            self._metadata["outputs"] = {}
-        if str(step_number) not in self._metadata["outputs"]:
-            self._metadata["outputs"][str(step_number)] = []
-
-        self._metadata["outputs"][str(step_number)].append({
-            "name": name,
-            "path": str(filepath.relative_to(self.base_path)),
-            "size": filepath.stat().st_size,
-            "saved_at": datetime.now().isoformat()
-        })
-        self._save_metadata()
+        # Note: metadata tracking removed - using manifest system now
 
         return filepath
 
@@ -361,13 +333,4 @@ class SimulationSaver:
             return False
 
         return True
-
-    def _save_metadata(self) -> None:
-        """Save metadata to file."""
-        if self.current_path is None:
-            return
-
-        metadata_path = self.current_path / "metadata.json"
-        with open(metadata_path, 'w') as f:
-            json.dump(self._metadata, f, indent=2, default=str)
 
