@@ -1,9 +1,5 @@
 ## ROADMAP ##
 
-> [Split] test avec stratification
-
-> Runner with raw dataset and raw pipeline
-
 **RELEASE** 0.3
 
 > **Bugs**:
@@ -43,6 +39,8 @@
 **RELEASE** 0.6
 
 > [Pipeline as single transformer]: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN.
+
+> [Runner] retrieve raw and pp dataset after run
 
 **RELEASE** 0.7
 
@@ -102,6 +100,8 @@
 
 > [Generator] add in-place/internal generation
 
+> [Analysis] t-sne, umap
+
 
 ## MINORS ##
 
@@ -132,6 +132,40 @@
 > Transformer mixin illustration and tutorial
 
 ### TMP
+
+workspace/
+	export/
+		predictions_XXX.csv
+		report_XXX.csv
+
+	favorites_pipelines/
+		my_pipeline_N.zip # with binaries and/or source data
+		my_pipeline_3.json # only pipeline definition for retraining
+
+	runs/
+		yyyy-mm-dd_run-N-dataset/
+			metadata.json
+			report.json
+
+			binaries/
+				#indexed cache
+
+			predictions/
+				predictions_N.csv
+				report_N.csv
+
+			outputs/
+				XXX.png
+				YYY.csv
+
+			pipelines/
+				manifest_pipeline_N.json
+				metadata_pipeline_N.json
+
+	predictions/
+		dataset1_name.predictions # parquet + json
+		dataset1_name.predictions
+
 
 Technique                          |  Main Usage/Effect
 -----------------------------------+----------------------------------------------------------------------------------------------------------------------------------

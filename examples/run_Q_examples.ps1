@@ -1,16 +1,17 @@
 $examples = @(
-    "Q1_groupsplit.py",
-    "Q1_regression.py",
-    "Q1_classif.py",
-    "Q2_multimodel.py",
-    "Q3_finetune.py",
+    # "Q1_groupsplit.py",
+    # "Q1_regression.py",
+    # "Q1_classif.py",
+    # "Q2_multimodel.py",
+    # "Q3_finetune.py",
     "Q4_multidatasets.py",
     "Q5_predict.py",
     "Q6_multisource.py",
     "Q7_discretization.py",
     "Q8_shap.py",
     "Q9_data_analysis.py",
-    "Q10_resampler.py"
+    "Q10_resampler.py",
+    "Q11_flexible_inputs.py"
 )
 
 # ## PARALLEL

@@ -37,6 +37,10 @@ class DatasetConfigs:
             yield dataset
 
     def get_dataset(self, config, name) -> SpectroDataset:
+        # Handle preloaded datasets
+        if isinstance(config, dict) and "_preloaded_dataset" in config:
+            return config["_preloaded_dataset"]
+
         dataset = SpectroDataset(name=name)
         if name in self.cache:
             x_train, y_train, m_train, train_headers, m_train_headers, x_test, y_test, m_test, test_headers, m_test_headers = self.cache[name]

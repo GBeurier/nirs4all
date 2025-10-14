@@ -263,6 +263,28 @@ def handle_data(config, t_set):
     x_path = config.get(f'{t_set}_x')
     y_path = config.get(f'{t_set}_y')
     m_path = config.get(f'{t_set}_group')  # Metadata uses 'group' key
+
+    # Check if we already have numpy arrays (not file paths)
+    if isinstance(x_path, np.ndarray):
+        # Data is already loaded as numpy arrays
+        x_array = x_path
+        y_array = y_path if isinstance(y_path, np.ndarray) else None
+        m_data = m_path if isinstance(m_path, (pd.DataFrame, np.ndarray)) else None
+
+        # Generate simple headers
+        if isinstance(x_array, np.ndarray):
+            x_headers = [f"feature_{i}" for i in range(x_array.shape[1] if x_array.ndim > 1 else 1)]
+        else:
+            x_headers = []
+
+        m_headers = []
+        if isinstance(m_data, pd.DataFrame):
+            m_headers = list(m_data.columns)
+        elif isinstance(m_data, np.ndarray) and m_data.ndim > 1:
+            m_headers = [f"meta_{i}" for i in range(m_data.shape[1])]
+
+        return x_array, y_array, m_data, x_headers, m_headers
+
     x_filter = config.get(f'{t_set}_x_filter')
     y_filter = config.get(f'{t_set}_y_filter')
     m_filter = config.get(f'{t_set}_group_filter')

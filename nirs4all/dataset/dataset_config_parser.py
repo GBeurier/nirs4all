@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Dict, Any
+import numpy as np
 
 def normalize_config_keys(config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -143,6 +144,12 @@ def parse_config(data_config):
             if all(key in normalized_config for key in required_keys_pattern):
                 # Standard case: has train_x
                 train_file = normalized_config.get("train_x")
+
+                # Check if data is already a numpy array (not a file path)
+                if isinstance(train_file, np.ndarray):
+                    dataset_name = normalized_config.get("name", "array_dataset")
+                    return normalized_config, dataset_name
+
                 if isinstance(train_file, list):
                     train_file = train_file[0]
                 train_file = Path(str(train_file))
@@ -151,6 +158,12 @@ def parse_config(data_config):
             elif all(key in normalized_config for key in alternative_keys_pattern):
                 # Prediction case: has test_x but no train_x
                 test_file = normalized_config.get("test_x")
+
+                # Check if data is already a numpy array (not a file path)
+                if isinstance(test_file, np.ndarray):
+                    dataset_name = normalized_config.get("name", "array_dataset")
+                    return normalized_config, dataset_name
+
                 if isinstance(test_file, list):
                     test_file = test_file[0]
                 test_file = Path(str(test_file))
