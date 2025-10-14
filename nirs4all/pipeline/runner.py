@@ -49,7 +49,7 @@ class PipelineRunner:
     ##TODO handle the models defined as a class
     WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack",
                           "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d", "fold_chart",
-                          "model", "y_processing", "y_chart"]
+                          "model", "y_processing", "y_chart", "split"]
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     def __init__(self, ##TODO add resume / overwrite support / realtime viz
@@ -506,14 +506,20 @@ class PipelineRunner:
             if isinstance(step, dict):
                 if key := next((k for k in step if k in self.WORKFLOW_OPERATORS), None):
                     # print(f"📋 Workflow operation: {key}")
-                    if 'class' in step[key]:
+                    if isinstance(step[key], dict) and 'class' in step[key]:
                         if '_runtime_instance' in step[key]:
                             operator = step[key]['_runtime_instance']
                         else:
                             operator = deserialize_component(step[key])
                         controller = self._select_controller(step, keyword=key, operator=operator)
+                    elif isinstance(step[key], dict):
+                        # Dict without 'class' key - try to deserialize
+                        operator = deserialize_component(step[key])
+                        controller = self._select_controller(step, keyword=key, operator=operator)
                     else:
-                        controller = self._select_controller(step, keyword=key)
+                        # Direct operator instance (e.g., GroupKFold())
+                        operator = step[key]
+                        controller = self._select_controller(step, keyword=key, operator=operator)
                 elif key := next((k for k in step if k in self.SERIALIZATION_OPERATORS), None):
                     # print(f"📦 Deserializing dict operation: {key}")
                     if '_runtime_instance' in step:
