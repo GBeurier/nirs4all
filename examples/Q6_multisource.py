@@ -52,7 +52,7 @@ pipeline = [
     # Machine learning models
     MinMaxScaler(feature_range=(0.1, 0.8)),
     {"model": PLSRegression(10), "name": "Q6_PLS_3"},
-    {"model": RandomForestRegressor(n_estimators=20)},
+    {"model": RandomForestRegressor(n_estimators=2)},
     {"model": PLSRegression(10), "name": "Q6_PLS_2"},
 
     # # Neural network model
