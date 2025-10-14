@@ -2,6 +2,7 @@
 
 > [Split] test avec stratification
 
+> Runner with raw dataset and raw pipeline
 
 **RELEASE** 0.3
 
@@ -13,11 +14,11 @@
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
 >   - Unify task_type usage and detection
 
-> [Serialization] serialization refactoring
+> [Serialization] serialization refactoring (merge branch)
 
-> [Headers] verify and clean header management (none, cm-1, nm, str or num_feature)
+> [Headers] verify and clean header management (none, cm-1, nm, str or num_feature) > ensure tests are okay and raise error on related classes (ie resampler)
 
-> [PipelineConfig] enhance folder browsing and autodetection
+> [PipelineConfig] enhance folder browsing and autodetection ???????????? better dataset ? load class custom ?
 
 > [Augmentation + Balanced Augmentation]
 
