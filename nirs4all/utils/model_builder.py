@@ -22,7 +22,14 @@ class ModelBuilderFactory:
 
 
     @staticmethod
+    @staticmethod
     def build_single_model(model_config, dataset, force_params={}):
+        # DEBUG: Print what we received
+        print(f"DEBUG build_single_model received model_config: {model_config}")
+        print(f"DEBUG model_config type: {type(model_config)}")
+        if isinstance(model_config, dict):
+            print(f"DEBUG dict keys: {list(model_config.keys())}")
+
         # print("Building model with config:", model_config, "dataset:", dataset, "task:", task, "force_params:", force_params)
         if dataset._task_type == "classification" or dataset._task_type == "binary_classification" or dataset._task_type == "multiclass_classification":
             force_params['num_classes'] = dataset.num_classes  # TODO get loss to applied num_classes (sparse_categorical_crossentropy = 1, categorical_crossentropy = num_classe)
@@ -107,6 +114,16 @@ class ModelBuilderFactory:
 
         elif 'function' in model_dict:
             callable_model = model_dict['function']
+
+            # If function is a string path, import it first
+            if isinstance(callable_model, str):
+                try:
+                    mod_name, _, func_name = callable_model.rpartition(".")
+                    mod = importlib.import_module(mod_name)
+                    callable_model = getattr(mod, func_name)
+                except (ImportError, AttributeError) as e:
+                    raise ValueError(f"Could not import function {callable_model}: {e}")
+
             params = model_dict.get('params', {}).copy()  # copy to avoid mutating input
             framework = model_dict.get('framework', None)
             if framework is None:
@@ -194,15 +211,21 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _get_input_dim(framework, dataset):
-        if framework == 'tensorflow':
-            input_dim = dataset.x_train_('union').shape[1:]
-        elif framework == 'sklearn':
-            input_dim = dataset.x_train.shape[1:]
-        # elif framework == 'pytorch':
-            # input_dim = dataset.x_train.shape[1:]
-        else:
-            raise ValueError("Unknown framework.")
-        return input_dim
+        # Get X data with correct context
+        context = {'partition': 'train'}
+        layout = '3d' if framework == 'tensorflow' else '2d'
+
+        try:
+            X = dataset.x(context, layout=layout, concat_source=True)
+            if framework == 'tensorflow':
+                input_dim = X.shape[1:]  # (samples, features) → (features,) or (samples, time, features) → (time, features)
+            elif framework == 'sklearn':
+                input_dim = X.shape[1:]  # (samples, features) → (features,)
+            else:
+                input_dim = X.shape[1:]
+            return input_dim
+        except Exception as e:
+            raise ValueError(f"Could not determine input_dim from dataset: {str(e)}")
 
     @staticmethod
     def import_class(class_path):

@@ -125,6 +125,12 @@ class BaseModelController(OperatorController, ABC):
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
         prediction_store: 'Predictions' = None  # NEW: External prediction store
     ) -> Tuple[Dict[str, Any], List['ArtifactMeta']]:
+        # DEBUG
+        step_repr = step if not callable(step) else f'<callable>'
+        operator_repr = operator if not callable(operator) else f'<callable>'
+        print(f"DEBUG execute() step type: {type(step)}, step: {step_repr}")
+        print(f"DEBUG execute() operator type: {type(operator)}, operator: {operator_repr}")
+
         self.prediction_store = prediction_store
         model_config = self._extract_model_config(step, operator)
         self.verbose = model_config.get('train_params', {}).get('verbose', 0)
@@ -539,15 +545,30 @@ class BaseModelController(OperatorController, ABC):
 
     def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
         """Extract model configuration from step or operator."""
+        # DEBUG
+        print(f"DEBUG _extract_model_config called")
+        print(f"  step: {step if not callable(step) else '<callable>'}")
+        print(f"  operator: {operator if not callable(operator) else '<callable>'}")
+        print(f"  operator is not None: {operator is not None}")
+
         if operator is not None:
+            print(f"DEBUG operator branch taken")
             if isinstance(step, dict):
                 config = step.copy()
                 config['model_instance'] = operator
+                print(f"DEBUG returning config (step is dict): {list(config.keys())}")
                 return config
             else:
+                print(f"DEBUG returning model_instance wrapper")
                 return {'model_instance': operator}
 
         if isinstance(step, dict):
+            # If step is already a serialized format with 'function', 'class', or 'import',
+            # pass it through as-is for ModelBuilderFactory
+            if any(key in step for key in ('function', 'class', 'import')):
+                print(f"DEBUG returning step as-is: {step}")
+                return step
+
             if 'model' in step:
                 config = step.copy()
                 model_obj = step['model']

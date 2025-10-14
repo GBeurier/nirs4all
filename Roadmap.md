@@ -6,6 +6,10 @@
 
 **RELEASE** 0.3
 
+> [Headers] verify and clean header management (none, cm-1, nm, str or num_feature)
+
+> [PipelineConfig] enhance folder browsing and autodetection
+
 > [Augmentation + Balanced Augmentation]
 
 > **Bugs**:
@@ -119,3 +123,19 @@
 ## DOCS ##
 > Splitter illustration and tutorial
 > Transformer mixin illustration and tutorial
+
+### TMP
+
+Technique                          |  Main Usage/Effect
+-----------------------------------+----------------------------------------------------------------------------------------------------------------------------------
+Savitzky-Golay Smoothing           |  Reduces spectral noise; preserves peaks and features .
+Derivative Spectroscopy            |  Removes baseline effects; resolves overlapping bands .
+Standard Normal Variate (SNV)      |  Corrects scatter; normalizes each spectrum .
+Multiplicative Scatter Correction  |  Removes scatter artifacts from particle size/path length .
+Local/Robust SNV (LSNV, RNV)       |  Enhanced scatter correction for difficult outliers .
+Detrending                         |  Removes global or polynomial trends in spectra .
+Baseline Correction                |  Subtracts or fits baseline drift with polynomial or other methods .
+Mean Centering/Autoscaling         |  Adjusts spectral features to centered/scaled form .
+Normalization (e.g., area)         |  Adjusts all spectra to same overall intensity .
+Wavelength Selection               |  Focuses analysis on most relevant regions .
+Haar Wavelet Transform             |  Sometimes usedfor noise reduction and feature extraction; less common than above methods but useful in some advanced pipelines .
