@@ -8,24 +8,40 @@ build_aliases = {
     # Add common aliases here if needed
 }
 
-def serialize_component(obj: Any, include_runtime: bool = False) -> Any:
+def serialize_component(obj: Any) -> Any:
     """
     Return something that json.dumps can handle.
 
-    Note: include_runtime parameter is deprecated and kept for backward compatibility only.
-    Runtime instances are no longer embedded in serialized components.
+    Normalizes all syntaxes to canonical form for hash-based uniqueness.
+    All instances serialize to their internal module paths with only non-default parameters.
     """
 
-    if obj is None or isinstance(obj, (bool, int, float, str)):
+    if obj is None or isinstance(obj, (bool, int, float)):
+        return obj
+
+    if isinstance(obj, str):
+        # Normalize string module paths to internal module paths for hash consistency
+        # e.g., "sklearn.preprocessing.StandardScaler" → "sklearn.preprocessing._data.StandardScaler"
+        if "." in obj and not obj.endswith(('.pkl', '.h5', '.keras', '.joblib', '.pt', '.pth')):
+            try:
+                # Try to import and get canonical internal module path
+                mod_name, _, cls_name = obj.rpartition(".")
+                mod = importlib.import_module(mod_name)
+                cls = getattr(mod, cls_name)
+                # Return canonical form (internal module path)
+                return f"{cls.__module__}.{cls.__qualname__}"
+            except (ImportError, AttributeError):
+                # If import fails, pass through as-is (e.g., controller names, invalid paths)
+                pass
         return obj
     if isinstance(obj, dict):
-        return {k: serialize_component(v, False) for k, v in obj.items()}
+        return {k: serialize_component(v) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [serialize_component(x, False) for x in obj]
+        return [serialize_component(x) for x in obj]
     if isinstance(obj, tuple):
         # Convert tuples to lists for YAML/JSON compatibility
         # Hyperparameter range specifications like ('int', min, max) become ['int', min, max]
-        return [serialize_component(x, False) for x in obj]
+        return [serialize_component(x) for x in obj]
 
     if inspect.isclass(obj):
         return f"{obj.__module__}.{obj.__qualname__}"
@@ -37,7 +53,7 @@ def serialize_component(obj: Any, include_runtime: bool = False) -> Any:
             "function": f"{obj.__module__}.{obj.__name__}"
         }
         if params:
-            func_serialized["params"] = serialize_component(params, False)
+            func_serialized["params"] = serialize_component(params)
         return func_serialized
 
     def_serialized = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
@@ -45,7 +61,7 @@ def serialize_component(obj: Any, include_runtime: bool = False) -> Any:
     if params:
         def_serialized = {
             "class": def_serialized,
-            "params": serialize_component(params, False),
+            "params": serialize_component(params),
         }
 
     return def_serialized
@@ -121,8 +137,19 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
                     params[k] = deserialize_component(v, _resolve_type(cls_or_func, k))
 
             try:
-                if key == "class" or key == "instance" or key == "function":
+                # Functions are NOT instantiated during deserialization
+                # They're returned as references for ModelBuilder to call later with input_shape
+                if key == "function":
+                    if params:
+                        # Return dict format that ModelBuilder._from_dict expects
+                        return {"function": cls_or_func, "params": params}
+                    return cls_or_func
+
+                # Classes and instances ARE instantiated (no runtime context needed)
+                elif key == "class" or key == "instance":
                     return cls_or_func(**params)
+
+                # Fallback for other cases
                 if len(params) == 0:
                     return cls_or_func
                 else:

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.model_utils import ModelUtils, TaskType
+from nirs4all.utils.model_builder import ModelBuilderFactory
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -105,25 +106,39 @@ class TensorFlowModelController(BaseModelController):
         return False
 
     def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
-        """Create TensorFlow model instance from configuration."""
+        """Create TensorFlow model instance from configuration using ModelBuilderFactory."""
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is not available")
 
-        if 'model_instance' in model_config:
-            model = model_config['model_instance']
-            if self._is_tensorflow_model(model):
-                return model
-            elif callable(model):
-                # Assume callable models are TensorFlow model factories
-                return model
+        # DEBUG: Print what we received
+        print(f"DEBUG _get_model_instance received model_config: {model_config}")
+        print(f"DEBUG model_config type: {type(model_config)}")
+        if isinstance(model_config, dict):
+            for k, v in model_config.items():
+                print(f"  {k}: {type(v)} = {v if not callable(v) else f'<function {v.__name__}>'}")
 
-        # If we have a model factory function, call it
-        if 'model_factory' in model_config:
-            factory = model_config['model_factory']
-            factory_params = model_config.get('factory_params', {})
-            return factory(**factory_params)
+        # Use ModelBuilderFactory to handle all model configuration formats
+        # This supports: functions, classes, instances, file paths, dicts with 'function' key, etc.
+        try:
+            model = ModelBuilderFactory.build_single_model(model_config, dataset, force_params or {})
+            return model
+        except Exception as e:
+            # Fallback for legacy formats not handled by ModelBuilderFactory
+            if 'model_instance' in model_config:
+                model = model_config['model_instance']
+                if self._is_tensorflow_model(model):
+                    return model
+                elif callable(model):
+                    # Assume callable models are TensorFlow model factories
+                    return model
 
-        raise ValueError("Could not create TensorFlow model instance from configuration")
+            # If we have a model factory function, call it
+            if 'model_factory' in model_config:
+                factory = model_config['model_factory']
+                factory_params = model_config.get('factory_params', {})
+                return factory(**factory_params)
+
+            raise ValueError(f"Could not create TensorFlow model instance from configuration: {str(e)}") from e
 
     def _create_model_from_function(self, model_function: Any, input_shape: Tuple, params: Optional[Dict[str, Any]] = None) -> Any:
         """Create a TensorFlow model by calling a model factory function."""
@@ -591,6 +606,14 @@ class TensorFlowModelController(BaseModelController):
     def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
         """Extract model configuration from step, handling TensorFlow-specific cases."""
         if isinstance(step, dict):
+            # Handle direct function serialization (step itself is {'function': '...', 'params': {...}})
+            if 'function' in step:
+                return step  # Pass through to ModelBuilderFactory as-is
+
+            # Handle 'class' or 'import' serialization
+            if 'class' in step or 'import' in step:
+                return step  # Pass through to ModelBuilderFactory as-is
+
             model_config = {}
 
             if 'model' in step:

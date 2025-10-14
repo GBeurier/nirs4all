@@ -19,6 +19,7 @@ from sklearn.preprocessing import MinMaxScaler
 from nirs4all.dataset import DatasetConfigs
 from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.operators.models.cirad_tf import nicon
 
 # Build the pipeline with feature augmentation and model persistence
 pipeline = [
@@ -30,12 +31,13 @@ pipeline = [
     {"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay(), Gaussian(), Haar()]},
 
     # Cross-validation setup
-    RepeatedKFold(n_splits=3, n_repeats=2, random_state=42),
+    RepeatedKFold(n_splits=2, n_repeats=1, random_state=42),
 
     # Machine learning models
-    {"model": PLSRegression(10), "name": "Q4_PLS_10"},
-    {"model": PLSRegression(20), "name": "Q4_PLS_20"},
-    {"model": GradientBoostingRegressor(n_estimators=20)},
+    # {"model": PLSRegression(10), "name": "Q4_PLS_10"},
+    # {"model": PLSRegression(20), "name": "Q4_PLS_20"},
+    # {"model": GradientBoostingRegressor(n_estimators=20)},
+    nicon
 ]
 
 # Create configuration objects

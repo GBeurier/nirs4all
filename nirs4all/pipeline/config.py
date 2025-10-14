@@ -26,7 +26,7 @@ class PipelineConfigs:
         self.description = description
         self.steps = self._load_steps(definition)
         self.steps = self._preprocess_steps(self.steps)
-        self.steps = serialize_component(self.steps, include_runtime=True)
+        self.steps = serialize_component(self.steps)
 
         ## Generation
         self.has_configurations = False
