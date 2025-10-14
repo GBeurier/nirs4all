@@ -1,7 +1,5 @@
 ## ROADMAP ##
 
-**RELEASE** 0.3
-
 > **Bugs**:
 >   - NA in pred charts
 >   - Pred charts missing in multi datasets
