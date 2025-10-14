@@ -109,4 +109,4 @@ fig4 = analyzer.plot_variable_candlestick(
 
 fig5 = analyzer.plot_score_histogram(partition="test")
 
-plt.show()
+# plt.show()

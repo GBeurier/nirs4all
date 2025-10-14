@@ -87,9 +87,9 @@ def _merge_params(local_params, handler_params, global_params):
     return merged_params
 
 
-def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params):
+def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None, m_filter=None, m_params=None):
     """
-    Load X and Y data from single paths. For multi-source, this will be called multiple times.
+    Load X, Y, and metadata from single paths. For multi-source, this will be called multiple times.
 
     Parameters:
     - x_path (str): Single path to X data file.
@@ -98,9 +98,12 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params):
     - y_path (str): Path to the Y data file (can be None).
     - y_filter: Filter to apply to Y data (or indices if y_path is None).
     - y_params (dict): Parameters for loading Y data.
+    - m_path (str): Path to metadata file (can be None).
+    - m_filter: Filter to apply to metadata (not implemented yet).
+    - m_params (dict): Parameters for loading metadata.
 
     Returns:
-    - tuple: (x, y, x_headers) where x and y are numpy arrays and x_headers is list of column names.
+    - tuple: (x, y, m, x_headers, m_headers) where x, y, m are numpy arrays/DataFrames and headers are lists of column names.
 
     Raises:
     - ValueError: If data is invalid or if there are inconsistencies.
@@ -166,6 +169,32 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params):
     if not y_df.empty and x_df.shape[0] != y_df.shape[0]:
         raise ValueError(f"Row count mismatch: X({x_df.shape[0]}) Y({y_df.shape[0]})")
 
+    # Load metadata if provided
+    m_df = pd.DataFrame()
+    m_headers = []
+    if m_path is not None:
+        try:
+            if m_params is None:
+                m_params = {}
+            m_params_copy = m_params.copy()
+            if 'categorical_mode' not in m_params_copy:
+                m_params_copy['categorical_mode'] = 'preserve'  # Keep original types for metadata
+            if 'data_type' not in m_params_copy:
+                m_params_copy['data_type'] = 'metadata'
+
+            m_df, m_report, m_na_mask, m_headers = load_csv(m_path, **m_params_copy)
+            if m_report.get("error") is not None or m_df is None:
+                raise ValueError(f"Failed to load metadata from {m_path}: {m_report.get('error', 'Unknown error')}")
+        except Exception as e:
+            raise ValueError(f"Error loading metadata from {m_path}: {str(e)}")
+
+        if m_filter is not None:
+            raise NotImplementedError("Metadata filtering not implemented yet")
+
+        # Ensure metadata has same number of rows as X
+        if not m_df.empty and x_df.shape[0] != m_df.shape[0]:
+            raise ValueError(f"Row count mismatch: X({x_df.shape[0]}) Metadata({m_df.shape[0]})")
+
     # Update x_headers after potential column removal (if Y was extracted from X)
     x_headers = x_df.columns.tolist()
 
@@ -173,10 +202,12 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params):
     try:
         x = x_df.astype(np.float32).values if not x_df.empty else np.empty((0, x_df.shape[1]), dtype=np.float32)
         y = y_df.values if not y_df.empty else np.empty((x_df.shape[0], 0))  # Match X rows but 0 columns
+        # Keep metadata as DataFrame (don't convert to numeric)
+        m = m_df if not m_df.empty else None
     except Exception as e:
         raise ValueError(f"Error converting data to numpy arrays: {str(e)}")
 
-    return x, y, x_headers
+    return x, y, m, x_headers, m_headers
 
 
 def handle_data(config, t_set):
@@ -189,8 +220,12 @@ def handle_data(config, t_set):
     - t_set (str): The dataset type ('train', 'test').
 
     Returns:
-    - tuple: (x, y, headers) where x is numpy array or list of arrays, y is numpy array,
-             headers is list of column names or list of lists for multi-source
+    - tuple: (x, y, m, x_headers, m_headers) where:
+        - x is numpy array or list of arrays
+        - y is numpy array
+        - m is DataFrame or None (metadata)
+        - x_headers is list of column names or list of lists for multi-source
+        - m_headers is list of metadata column names
     """
     if config is None:
         raise ValueError(f"Configuration for {t_set} dataset is None")
@@ -201,34 +236,47 @@ def handle_data(config, t_set):
     # Get paths
     x_path = config.get(f'{t_set}_x')
     y_path = config.get(f'{t_set}_y')
+    m_path = config.get(f'{t_set}_group')  # Metadata uses 'group' key
     x_filter = config.get(f'{t_set}_x_filter')
     y_filter = config.get(f'{t_set}_y_filter')
+    m_filter = config.get(f'{t_set}_group_filter')
 
     # Merge parameters
     x_params = _merge_params(config.get(f'{t_set}_x_params'), config.get(f'{t_set}_params'), config.get('global_params'))
     y_params = _merge_params(config.get(f'{t_set}_y_params'), config.get(f'{t_set}_params'), config.get('global_params'))
+    m_params = _merge_params(config.get(f'{t_set}_group_params'), config.get(f'{t_set}_params'), config.get('global_params'))
 
     # Handle multi-source X data
     if isinstance(x_path, list):
         x_arrays = []
         headers_arrays = []
         y_array = None
+        m_data = None
+        m_headers = []
 
         for i, single_x_path in enumerate(x_path):
             try:
-                # For multi-source, only the first source should handle Y extraction
+                # For multi-source, only the first source should handle Y and metadata extraction
                 if i == 0:
-                    x_single, y_array, x_headers = load_XY(single_x_path, x_filter, x_params, y_path, y_filter, y_params)
+                    x_single, y_array, m_data, x_headers, m_headers = load_XY(
+                        single_x_path, x_filter, x_params,
+                        y_path, y_filter, y_params,
+                        m_path, m_filter, m_params
+                    )
                 else:
-                    # For additional sources, don't extract Y (set y_path=None and y_filter=None)
-                    x_single, _, x_headers = load_XY(single_x_path, x_filter, x_params, None, None, y_params)
+                    # For additional sources, don't extract Y or metadata
+                    x_single, _, _, x_headers, _ = load_XY(
+                        single_x_path, x_filter, x_params,
+                        None, None, y_params,
+                        None, None, None
+                    )
 
                 x_arrays.append(x_single)
                 headers_arrays.append(x_headers)
             except Exception as e:
                 raise ValueError(f"Error loading X source {i} from {single_x_path}: {str(e)}")
 
-        return x_arrays, y_array, headers_arrays
+        return x_arrays, y_array, m_data, headers_arrays, m_headers
     else:
         # Single source
-        return load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params)
+        return load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path, m_filter, m_params)

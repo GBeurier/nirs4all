@@ -16,7 +16,7 @@ from nirs4all.dataset.indexer import Indexer
 from nirs4all.dataset.metadata import Metadata
 from nirs4all.dataset.predictions import Predictions
 from sklearn.base import TransformerMixin
-from typing import Optional, Union, List, Tuple, Dict, Any
+from typing import Optional, Union, List, Tuple, Dict, Any, Literal
 
 
 class SpectroDataset:
@@ -234,12 +234,107 @@ class SpectroDataset:
         Manually set the task type.
 
         Args:
-            task_type: "regression", "binary_classification", or "multiclass_classification"
+            task_type: One of "regression", "binary_classification", "multiclass_classification"
         """
-        valid_types = ["regression", "binary_classification", "multiclass_classification"]
+        valid_types = ["regression", "binary_classification", "multiclass_classification", "classification"]
         if task_type not in valid_types:
-            raise ValueError(f"Invalid task type. Must be one of: {valid_types}")
+            raise ValueError(f"Invalid task_type. Must be one of {valid_types}")
         self._task_type = task_type
+
+    # METADATA
+    def add_metadata(self,
+                     data: Union[np.ndarray, Any],
+                     headers: Optional[List[str]] = None) -> None:
+        """
+        Add metadata rows (aligns with add_samples call order).
+
+        Args:
+            data: Metadata as 2D array (n_samples, n_cols) or DataFrame
+            headers: Column names (required if data is ndarray)
+        """
+        self._metadata.add_metadata(data, headers)
+
+    def metadata(self,
+                 selector: Optional[Selector] = None,
+                 columns: Optional[List[str]] = None):
+        """
+        Get metadata as DataFrame.
+
+        Args:
+            selector: Filter selector (e.g., {"partition": "train"})
+            columns: Specific columns to return (None = all)
+
+        Returns:
+            Polars DataFrame with metadata
+        """
+        indices = self._indexer.x_indices(selector) if selector else None
+        return self._metadata.get(indices, columns)
+
+    def metadata_column(self,
+                        column: str,
+                        selector: Optional[Selector] = None) -> np.ndarray:
+        """
+        Get single metadata column as array.
+
+        Args:
+            column: Column name
+            selector: Filter selector (e.g., {"partition": "train"})
+
+        Returns:
+            Numpy array of column values
+        """
+        indices = self._indexer.x_indices(selector) if selector else None
+        return self._metadata.get_column(column, indices)
+
+    def metadata_numeric(self,
+                         column: str,
+                         selector: Optional[Selector] = None,
+                         method: Literal["label", "onehot"] = "label") -> Tuple[np.ndarray, Dict]:
+        """
+        Get numeric encoding of metadata column.
+
+        Args:
+            column: Column name
+            selector: Filter selector (e.g., {"partition": "train"})
+            method: "label" for label encoding or "onehot" for one-hot encoding
+
+        Returns:
+            Tuple of (numeric_array, encoding_info)
+        """
+        indices = self._indexer.x_indices(selector) if selector else None
+        return self._metadata.to_numeric(column, indices, method)
+
+    def update_metadata(self,
+                        column: str,
+                        values: Union[List, np.ndarray],
+                        selector: Optional[Selector] = None) -> None:
+        """
+        Update metadata values for selected samples.
+
+        Args:
+            column: Column name
+            values: New values
+            selector: Filter selector (None = all samples)
+        """
+        indices = self._indexer.x_indices(selector) if selector else list(range(self._metadata.num_rows))
+        self._metadata.update_metadata(indices, column, values)
+
+    def add_metadata_column(self,
+                            column: str,
+                            values: Union[List, np.ndarray]) -> None:
+        """
+        Add new metadata column.
+
+        Args:
+            column: Column name
+            values: Column values (must match number of samples)
+        """
+        self._metadata.add_column(column, values)
+
+    @property
+    def metadata_columns(self) -> List[str]:
+        """Get list of metadata column names."""
+        return self._metadata.columns
 
     # def set_targets(self, filter: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
     #     self._targets.set_y(filter, y, transformer, new_processing)
@@ -303,6 +398,8 @@ class SpectroDataset:
         txt += "\n" + str(self._features)
         txt += "\n" + str(self._targets)
         txt += "\n" + str(self._indexer)
+        if self._metadata.num_rows > 0:
+            txt += f"\n{str(self._metadata)}"
         if self._folds:
             txt += f"\nFolds: {self._fold_str()}"
         return txt
@@ -336,6 +433,15 @@ class SpectroDataset:
         else:
             print("📊 Features: No data")
         print()
+
+        # Metadata summary
+        if self._metadata.num_rows > 0:
+            print(f"📋 Metadata: {self._metadata.num_rows} rows, {len(self._metadata.columns)} columns")
+            print(f"Columns: {self._metadata.columns}")
+            print()
+        else:
+            print("📋 Metadata: None")
+            print()
 
     # IO methods (commented out)
     # def save(self, path: str) -> None:

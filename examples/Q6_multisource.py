@@ -15,6 +15,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import ElasticNet
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
@@ -22,9 +23,10 @@ from sklearn.preprocessing import MinMaxScaler
 from nirs4all.dataset import DatasetConfigs
 from nirs4all.dataset.predictions import Predictions
 from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
-from nirs4all.operators.models.cirad_tf import nicon
+# from nirs4all.operators.models.cirad_tf import nicon
 from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from sklearn.linear_model import ElasticNet
 
 # Disable emojis in output
 os.environ['DISABLE_EMOJIS'] = '1'
@@ -52,7 +54,8 @@ pipeline = [
     # Machine learning models
     MinMaxScaler(feature_range=(0.1, 0.8)),
     {"model": PLSRegression(10), "name": "Q6_PLS_3"},
-    {"model": RandomForestRegressor(n_estimators=20)},
+    # {"model": RandomForestRegressor(n_estimators=20)},
+    ElasticNet(alpha=0.1, l1_ratio=0.5),
     {"model": PLSRegression(10), "name": "Q6_PLS_2"},
 
     # # Neural network model
@@ -103,7 +106,7 @@ fig2 = analyzer.plot_heatmap_v2(
     aggregation='best'  # Options: 'best', 'mean', 'median'
 )
 
-plt.show()
+# plt.show()
 
 # Model reuse demonstration
 best_prediction = predictions.top_k(1, partition="test")[0]
@@ -165,4 +168,4 @@ fig4 = analyzer.plot_variable_candlestick(
 
 fig5 = analyzer.plot_score_histogram(partition="test")
 
-plt.show()
+# plt.show()
