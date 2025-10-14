@@ -46,6 +46,14 @@ def serialize_component(obj: Any) -> Any:
     if inspect.isclass(obj):
         return f"{obj.__module__}.{obj.__qualname__}"
 
+    # Handle numpy arrays and other array-like objects
+    # Convert to list for JSON/YAML serialization
+    if hasattr(obj, '__array__') or (hasattr(obj, 'tolist') and hasattr(obj, 'shape')):
+        try:
+            return obj.tolist()
+        except (AttributeError, TypeError):
+            pass
+
     params = _changed_kwargs(obj)
 
     if inspect.isfunction(obj) or inspect.isbuiltin(obj):
@@ -65,7 +73,6 @@ def serialize_component(obj: Any) -> Any:
         }
 
     return def_serialized
-
 
 
 def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
@@ -95,7 +102,27 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
 
             mod = importlib.import_module(mod_name)
             cls_or_func = getattr(mod, cls_or_func_name)
-            return cls_or_func()
+            
+            # Try to instantiate without parameters
+            try:
+                return cls_or_func()
+            except TypeError as e:
+                # If instantiation fails due to missing required parameters,
+                # check if there are required parameters without defaults
+                if inspect.isclass(cls_or_func):
+                    sig = inspect.signature(cls_or_func.__init__)
+                    required_params = [
+                        name for name, param in sig.parameters.items()
+                        if name != "self" and param.default is inspect._empty
+                    ]
+                    if required_params:
+                        raise TypeError(
+                            f"Cannot deserialize {blob} from string representation: "
+                            f"class requires parameters {required_params} but none were provided. "
+                            f"This usually means the serialization failed to capture required parameters. "
+                            f"Original error: {e}"
+                        ) from e
+                raise
         except (ImportError, AttributeError):
             return blob
 
@@ -103,6 +130,17 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
         if infer_type is not None and isinstance(infer_type, type):
             if issubclass(infer_type, tuple):
                 return tuple(deserialize_component(x) for x in blob)
+            # Handle numpy array deserialization
+            try:
+                import numpy as np
+                is_numpy_type = (infer_type is np.ndarray or
+                                 (hasattr(infer_type, '__module__') and
+                                  infer_type.__module__ == 'numpy' and
+                                  infer_type.__name__ == 'ndarray'))
+                if is_numpy_type:
+                    return np.array(blob)
+            except ImportError:
+                pass
         return [deserialize_component(x) for x in blob]
 
     if isinstance(blob, dict):
@@ -194,7 +232,8 @@ def _changed_kwargs(obj):
             is_different = current != default
             # For numpy arrays and similar, convert boolean array to single boolean
             if hasattr(is_different, '__iter__') and not isinstance(is_different, str):
-                is_different = not all(is_different) if hasattr(is_different, '__len__') else True
+                # any(is_different) means at least one element differs
+                is_different = any(is_different) if hasattr(is_different, '__len__') else True
         except (ValueError, TypeError):
             # If comparison fails (e.g., array vs None), consider them different
             is_different = True

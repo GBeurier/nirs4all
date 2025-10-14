@@ -506,6 +506,7 @@ class Predictions:
         """
         Generate a 6-character hash from row dictionary.
         Uses key identifying fields to create a diverse, reproducible hash.
+        Includes pipeline_uid to ensure predictions from different runs have unique IDs.
         """
         # Select key fields that uniquely identify a prediction
         key_fields = [
@@ -515,6 +516,7 @@ class Predictions:
             str(row_dict.get('fold_id', '')),
             str(row_dict.get('step_idx', 0)),
             str(row_dict.get('op_counter', 0)),
+            str(row_dict.get('pipeline_uid', '')),  # Include pipeline_uid to differentiate runs
         ]
 
         # Create a string to hash

@@ -2,6 +2,8 @@ import os
 import importlib
 import inspect
 
+from nirs4all.utils.backend_utils import TF_AVAILABLE, TORCH_AVAILABLE
+
 # 1. str
 # "/myexp/cnn.pt"
 # "sklearn.linear_model.ElasticNet"
@@ -24,11 +26,11 @@ class ModelBuilderFactory:
     @staticmethod
     @staticmethod
     def build_single_model(model_config, dataset, force_params={}):
-        # DEBUG: Print what we received
-        print(f"DEBUG build_single_model received model_config: {model_config}")
-        print(f"DEBUG model_config type: {type(model_config)}")
-        if isinstance(model_config, dict):
-            print(f"DEBUG dict keys: {list(model_config.keys())}")
+        # # DEBUG: Print what we received
+        # print(f"DEBUG build_single_model received model_config: {model_config}")
+        # print(f"DEBUG model_config type: {type(model_config)}")
+        # if isinstance(model_config, dict):
+        #     print(f"DEBUG dict keys: {list(model_config.keys())}")
 
         # print("Building model with config:", model_config, "dataset:", dataset, "task:", task, "force_params:", force_params)
         if dataset._task_type == "classification" or dataset._task_type == "binary_classification" or dataset._task_type == "multiclass_classification":
@@ -213,12 +215,14 @@ class ModelBuilderFactory:
     def _get_input_dim(framework, dataset):
         # Get X data with correct context
         context = {'partition': 'train'}
-        layout = '3d' if framework == 'tensorflow' else '2d'
+        # Use '3d_transpose' for TensorFlow to match the layout used during training
+        # This ensures Conv1D receives input_shape=(features, processings) not (processings, features)
+        layout = '3d_transpose' if framework == 'tensorflow' else '2d'
 
         try:
             X = dataset.x(context, layout=layout, concat_source=True)
             if framework == 'tensorflow':
-                input_dim = X.shape[1:]  # (samples, features) → (features,) or (samples, time, features) → (time, features)
+                input_dim = X.shape[1:]  # (samples, features, processings) → (features, processings) for Conv1D
             elif framework == 'sklearn':
                 input_dim = X.shape[1:]  # (samples, features) → (features,)
             else:

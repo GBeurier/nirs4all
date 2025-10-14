@@ -125,11 +125,11 @@ class BaseModelController(OperatorController, ABC):
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
         prediction_store: 'Predictions' = None  # NEW: External prediction store
     ) -> Tuple[Dict[str, Any], List['ArtifactMeta']]:
-        # DEBUG
-        step_repr = step if not callable(step) else f'<callable>'
-        operator_repr = operator if not callable(operator) else f'<callable>'
-        print(f"DEBUG execute() step type: {type(step)}, step: {step_repr}")
-        print(f"DEBUG execute() operator type: {type(operator)}, operator: {operator_repr}")
+        # # DEBUG
+        # step_repr = step if not callable(step) else f'<callable>'
+        # operator_repr = operator if not callable(operator) else f'<callable>'
+        # print(f"DEBUG execute() step type: {type(step)}, step: {step_repr}")
+        # print(f"DEBUG execute() operator type: {type(operator)}, operator: {operator_repr}")
 
         self.prediction_store = prediction_store
         model_config = self._extract_model_config(step, operator)
@@ -320,12 +320,21 @@ class BaseModelController(OperatorController, ABC):
         train_indices=None, val_indices=None, fold_idx=None, best_params=None,
         loaded_binaries=None, mode="train"):
 
-        base_model = self._get_model_instance(dataset, model_config)
+        # Extract model classname from config consistently (works for both train and predict modes)
+        # This ensures the same name is used for saving and loading models
+        model_classname = self.model_helper.extract_core_name(model_config)
+
+        # In prediction/explain mode, we don't need to instantiate the model yet
+        # We just need to extract metadata to find the model in binaries
+        if mode in ("predict", "explain"):
+            base_model = None  # Will be loaded from binaries later
+        else:
+            base_model = self._get_model_instance(dataset, model_config)
+
         # Generate identifiers
         step_id = context['step_id']
         pipeline_name = runner.saver.pipeline_name
         dataset_name = dataset.name
-        model_classname = self.model_helper.extract_core_name(base_model)
         model_name = model_config.get('name', model_classname)
         operation_counter = runner.next_op()
         new_operator_name = f"{model_name}_{operation_counter}"
@@ -545,28 +554,28 @@ class BaseModelController(OperatorController, ABC):
 
     def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
         """Extract model configuration from step or operator."""
-        # DEBUG
-        print(f"DEBUG _extract_model_config called")
-        print(f"  step: {step if not callable(step) else '<callable>'}")
-        print(f"  operator: {operator if not callable(operator) else '<callable>'}")
-        print(f"  operator is not None: {operator is not None}")
+        # # DEBUG
+        # print(f"DEBUG _extract_model_config called")
+        # print(f"  step: {step if not callable(step) else '<callable>'}")
+        # print(f"  operator: {operator if not callable(operator) else '<callable>'}")
+        # print(f"  operator is not None: {operator is not None}")
 
         if operator is not None:
-            print(f"DEBUG operator branch taken")
+            # print(f"DEBUG operator branch taken")
             if isinstance(step, dict):
                 config = step.copy()
                 config['model_instance'] = operator
-                print(f"DEBUG returning config (step is dict): {list(config.keys())}")
+                # print(f"DEBUG returning config (step is dict): {list(config.keys())}")
                 return config
             else:
-                print(f"DEBUG returning model_instance wrapper")
+                # print(f"DEBUG returning model_instance wrapper")
                 return {'model_instance': operator}
 
         if isinstance(step, dict):
             # If step is already a serialized format with 'function', 'class', or 'import',
             # pass it through as-is for ModelBuilderFactory
             if any(key in step for key in ('function', 'class', 'import')):
-                print(f"DEBUG returning step as-is: {step}")
+                # print(f"DEBUG returning step as-is: {step}")
                 return step
 
             if 'model' in step:

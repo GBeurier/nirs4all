@@ -2,9 +2,20 @@
 
 > [Serialization] serialization refactoring
 
-> [METADATA] Reup load / stratificiation
+> [METADATA] Reup load / stratification
+
+> [Split] test avec stratification
+
+
+> **Bugs**:
+>   - NA in pred charts
+>   - Pred charts missing in multi datasets
+>   - Finetuning not working in Q finetuning or multimodel
+>   - Fix train_params in finetuning for Tensorflow
+>   - Review R2 computation / Q2 value - GOF (goodness of fit)
 
 **RELEASE** 0.3
+
 
 > [Headers] verify and clean header management (none, cm-1, nm, str or num_feature)
 
@@ -12,10 +23,6 @@
 
 > [Augmentation + Balanced Augmentation]
 
-> **Bugs**:
->   - Unify task_type usage and detection
->   - Fix train_params in finetuning for Tensorflow
->   - Review R2 computation / Q2 value - GOF (goodness of fit)
 > [SEED] review
 
 > **Enhancement**: Options normalisation in charts (0-1 ou 1-0)
@@ -107,6 +114,7 @@
 - Charts in 'raw' y for categorical
 - More tunable and explicit generation
 - Visualize effect of a preprocessing in the ui
+- Authorize vertical index (col 1 header - vertical header) in csv
 
 ## REVIEW / POLISH ##
 > [cli]

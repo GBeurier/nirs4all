@@ -110,9 +110,9 @@ class TensorFlowModelController(BaseModelController):
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is not available")
 
-        # DEBUG: Print what we received
-        print(f"DEBUG _get_model_instance received model_config: {model_config}")
-        print(f"DEBUG model_config type: {type(model_config)}")
+        # # DEBUG: Print what we received
+        # print(f"DEBUG _get_model_instance received model_config: {model_config}")
+        # print(f"DEBUG model_config type: {type(model_config)}")
         if isinstance(model_config, dict):
             for k, v in model_config.items():
                 print(f"  {k}: {type(v)} = {v if not callable(v) else f'<function {v.__name__}>'}")
@@ -145,8 +145,6 @@ class TensorFlowModelController(BaseModelController):
         if params is None:
             params = {}
 
-        # print(f"🏗️ Creating TensorFlow model from function {model_function.__name__} with input_shape={input_shape}")
-
         # Call the model function with input_shape and params
         try:
             model = model_function(input_shape, params)
@@ -174,11 +172,10 @@ class TensorFlowModelController(BaseModelController):
             train_params = {}
 
         # Handle model factory functions
-        if callable(model):
+        if callable(model) and not self._is_tensorflow_model(model):
             # This is a model factory function, we need to create the actual model
             input_shape = X_train.shape[1:]  # Get input shape from training data
             model_params = train_params.get('model_params', {})
-            # print(f"🏗️ Creating TensorFlow model from function {model.__name__} with input_shape={input_shape}")
             model = self._create_model_from_function(model, input_shape, model_params)
 
         verbose = train_params.get('verbose', 0)
@@ -590,8 +587,15 @@ class TensorFlowModelController(BaseModelController):
                 return float('inf')
 
     def get_preferred_layout(self) -> str:
-        """Return the preferred data layout for TensorFlow models."""
-        return "3d"
+        """Return the preferred data layout for TensorFlow models.
+
+        TensorFlow Conv1D expects input shape (features, channels) where:
+        - features = number of wavelengths/spectral points (timesteps for convolution)
+        - channels = number of preprocessing methods
+
+        The '3d_transpose' layout returns (samples, features, processings) which is correct for Conv1D.
+        """
+        return "3d_transpose"
 
     def _clone_model(self, model: Any) -> Any:
         """Clone TensorFlow model, handling model factory functions."""
