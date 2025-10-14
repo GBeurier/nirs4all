@@ -1,4 +1,5 @@
 $examples = @(
+    "Q1_groupsplit.py",
     "Q1_regression.py",
     "Q1_classif.py",
     "Q2_multimodel.py",
