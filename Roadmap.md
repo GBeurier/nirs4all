@@ -1,17 +1,28 @@
 ## ROADMAP ##
 
-> [WEBAPP] miniature version > keep print and matplotlib, pilot with react.
+> [METADATA] Reup load / stratification
+
+> [Split] test avec stratification
+
+> **Bugs**:
+>   - NA in pred charts
+>   - Pred charts missing in multi datasets
+>   - Finetuning not working in Q finetuning or multimodel
+>   - Fix train_params in finetuning for Tensorflow
+>   - Review R2 computation / Q2 value - GOF (goodness of fit)
+>   - Unify task_type usage and detection
+
+> [Serialization] serialization refactoring
 
 **RELEASE** 0.3
 
-> [METADATA] Reup load / stratificiation
+
+> [Headers] verify and clean header management (none, cm-1, nm, str or num_feature)
+
+> [PipelineConfig] enhance folder browsing and autodetection
 
 > [Augmentation + Balanced Augmentation]
 
-> **Bugs**:
->   - Unify task_type usage and detection
->   - Fix train_params in finetuning for Tensorflow
->   - Review R2 computation / Q2 value - GOF (goodness of fit)
 > [SEED] review
 
 > **Enhancement**: Options normalisation in charts (0-1 ou 1-0)
@@ -103,6 +114,7 @@
 - Charts in 'raw' y for categorical
 - More tunable and explicit generation
 - Visualize effect of a preprocessing in the ui
+- Authorize vertical index (col 1 header - vertical header) in csv
 
 ## REVIEW / POLISH ##
 > [cli]
@@ -119,3 +131,19 @@
 ## DOCS ##
 > Splitter illustration and tutorial
 > Transformer mixin illustration and tutorial
+
+### TMP
+
+Technique                          |  Main Usage/Effect
+-----------------------------------+----------------------------------------------------------------------------------------------------------------------------------
+Savitzky-Golay Smoothing           |  Reduces spectral noise; preserves peaks and features .
+Derivative Spectroscopy            |  Removes baseline effects; resolves overlapping bands .
+Standard Normal Variate (SNV)      |  Corrects scatter; normalizes each spectrum .
+Multiplicative Scatter Correction  |  Removes scatter artifacts from particle size/path length .
+Local/Robust SNV (LSNV, RNV)       |  Enhanced scatter correction for difficult outliers .
+Detrending                         |  Removes global or polynomial trends in spectra .
+Baseline Correction                |  Subtracts or fits baseline drift with polynomial or other methods .
+Mean Centering/Autoscaling         |  Adjusts spectral features to centered/scaled form .
+Normalization (e.g., area)         |  Adjusts all spectra to same overall intensity .
+Wavelength Selection               |  Focuses analysis on most relevant regions .
+Haar Wavelet Transform             |  Sometimes usedfor noise reduction and feature extraction; less common than above methods but useful in some advanced pipelines .
