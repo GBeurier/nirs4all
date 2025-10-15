@@ -76,20 +76,5 @@ dataset_config = DatasetConfigs(data_path)
 runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
-# # Analysis and visualization
-# best_model_count = 5
-# ranking_metric = 'accuracy'
 
-# # Display top performing models
-# top_models = predictions.top_k(best_model_count)
-# print(f"Top {best_model_count} models by {ranking_metric}:")
-# for idx, prediction in enumerate(top_models):
-#     print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")
-
-# # Create confusion matrix visualization for top models
-# analyzer = PredictionAnalyzer(predictions)
-# # Rank models by accuracy on val partition, display confusion matrix from test partition
-# confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
-
-# Keep all charts open (blocking)
 # plt.show()

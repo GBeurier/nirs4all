@@ -31,7 +31,6 @@ from .nirs import (
 # RobustNormalVariate which are defined in the scalers module)
 from .scalers import (
     IdentityTransformer,
-    RobustNormalVariate,
     Derivate,
     Normalize,
     SimpleScale,
@@ -39,6 +38,8 @@ from .scalers import (
     norml,
     spl_norml,
     StandardNormalVariate,
+    LocalStandardNormalVariate,
+    RobustStandardNormalVariate,
 )
 from .signal import Baseline, Detrend, Gaussian, baseline, detrend, gaussian
 from .features import CropTransformer, ResampleTransformer
@@ -78,8 +79,9 @@ __all__ = [
 
     # Sklearn aliases
     "IdentityTransformer",  # sklearn.preprocessing.FunctionTransformer alias
-    "StandardNormalVariate",  # sklearn.preprocessing.StandardScaler alias
-    "RobustNormalVariate",  # sklearn.preprocessing.RobustScaler alias
+    "StandardNormalVariate",
+    "LocalStandardNormalVariate",
+    "RobustStandardNormalVariate",
 
     # NIRS transformations
     "SavitzkyGolay",

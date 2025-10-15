@@ -2,21 +2,15 @@
 
 > [Augmentation + Balanced Augmentation]
 
-> [Serialization] serialization refactoring (merge branch)
-
 > **Bugs**:
 >   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
->   - [Finetuning} not working in Q finetuning or multimodel and Fix train_params in finetuning for Tensorflow
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
 >   - Unify task_type usage and detection
 > 	- Repasser sur les transformers
 
 > [Headers] verify and clean header management (none, cm-1, nm, str or num_feature) > ensure tests are okay and raise error on related classes (ie resampler)
 
-> [PipelineConfig] enhance folder browsing and autodetection ???????????? better dataset ? load class custom ?
-
-> [TransformerMixin] add L-SNV and R-SNV
-
+> [Serialization] serialization refactoring (merge branch)
 
 **RELEASE** 0.4
 
