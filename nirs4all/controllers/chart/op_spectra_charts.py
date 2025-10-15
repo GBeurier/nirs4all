@@ -227,7 +227,7 @@ class SpectraChartController(OperatorController):
         ax.set_ylabel('Intensity', fontsize=9)
 
         # Subtitle with preprocessing name and dimensions
-        subtitle = f"{processing_name}\n({len(y_sorted)} samples × {x_sorted.shape[1]} features)"
+        subtitle = f"{processing_name} - ({len(y_sorted)} samples × {x_sorted.shape[1]} features)"
         ax.set_title(subtitle, fontsize=10)
 
         # Add colorbar to show the y-value gradient
@@ -282,7 +282,7 @@ class SpectraChartController(OperatorController):
         ax.set_zlabel('Intensity', fontsize=9)
 
         # Subtitle with preprocessing name and dimensions
-        subtitle = f"{processing_name}\n({len(y_sorted)} samples × {x_sorted.shape[1]} features)"
+        subtitle = f"{processing_name} - ({len(y_sorted)} samples × {x_sorted.shape[1]} features)"
         ax.set_title(subtitle, fontsize=10)
 
         # Add colorbar to show the y-value gradient
