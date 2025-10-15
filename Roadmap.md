@@ -1,18 +1,22 @@
 ## ROADMAP ##
 
 > **Bugs**:
->   - NA in pred charts
->   - Pred charts missing in multi datasets
->   - Finetuning not working in Q finetuning or multimodel
->   - Fix train_params in finetuning for Tensorflow
->   - Review R2 computation / Q2 value - GOF (goodness of fit)
->   - Unify task_type usage and detection
+>   - train == val when using groupKFold
 
 > [Serialization] serialization refactoring (merge branch)
+
+> **Bugs**:
+>   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
+>   - [Finetuning} not working in Q finetuning or multimodel and Fix train_params in finetuning for Tensorflow
+>   - Review R2 computation / Q2 value - GOF (goodness of fit)
+>   - Unify task_type usage and detection
+> 	- Repasser sur les transformers
 
 > [Headers] verify and clean header management (none, cm-1, nm, str or num_feature) > ensure tests are okay and raise error on related classes (ie resampler)
 
 > [PipelineConfig] enhance folder browsing and autodetection ???????????? better dataset ? load class custom ?
+
+> [TransformerMixin] add L-SNV and R-SNV
 
 > [Augmentation + Balanced Augmentation]
 
@@ -31,6 +35,8 @@
 > [Chart controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
 > [Predictions] refactoring and as a pipeline context and change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
+
+> [Model selection] Tools to select "best" predictions
 
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions
 
@@ -141,7 +147,7 @@ workspace/
 		my_pipeline_3.json # only pipeline definition for retraining
 
 	runs/
-		yyyy-mm-dd_run-N-dataset/
+		yyyy-mm-dd_run-N-datasetName/ ### OR Custom session _ datasetname
 			metadata.json
 			report.json
 

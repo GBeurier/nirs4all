@@ -67,7 +67,7 @@ data_paths = ['sample_data/regression']
 dataset_config = DatasetConfigs(data_paths)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=0, plots_visible=True)
+runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization
@@ -83,7 +83,7 @@ for idx, model in enumerate(top_models):
 # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
+fig1 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse')
 
 # Plot heatmap: models vs partitions
 fig2 = analyzer.plot_heatmap_v2(

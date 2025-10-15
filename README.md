@@ -290,7 +290,7 @@ import matplotlib.pyplot as plt
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot top performing models
-fig1 = analyzer.plot_top_k_comparison(k=5, metric='rmse')
+fig1 = analyzer.plot_top_k_comparison(k=5, rank_metric='rmse')
 plt.title('Top 5 Models Comparison')
 
 # Create heatmap of model performance across preprocessing methods

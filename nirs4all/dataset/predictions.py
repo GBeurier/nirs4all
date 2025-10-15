@@ -1317,19 +1317,20 @@ class Predictions:
         if rank_data.height == 0:
             return PredictionResultsList([])
 
-        # Compute rank score: use val_score if rank_metric matches record's metric, else compute
+        # Compute rank score: use stored score if rank_metric matches record's metric, else compute
         rank_scores = []
         for row in rank_data.to_dicts():
             if rank_metric == row["metric"]:
-                # Use precomputed val_score
-                score = row.get("val_score")
+                # Use precomputed score for the rank_partition
+                score_field = f"{rank_partition}_score"
+                score = row.get(score_field)
             else:
                 # Compute metric from y_true/y_pred
                 try:
                     y_true = self._parse_vec_json(row["y_true"])
                     y_pred = self._parse_vec_json(row["y_pred"])
                     score = Evaluator.eval(y_true, y_pred, rank_metric)
-                except:
+                except Exception as e:
                     score = None
 
             rank_scores.append({

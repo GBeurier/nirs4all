@@ -53,113 +53,39 @@ class PredictionAnalyzer:
 
         return [convert(c) for c in re.split(r'(\d+)', str(text))]
 
-    def _get_enhanced_predictions(self, **filters) -> List[Dict[str, Any]]:
-        """Get predictions with enhanced metrics calculated on-the-fly."""
-        predictions = self.predictions.filter_predictions(**filters)
-        enhanced_predictions = []
-
-        for pred in predictions:
-            # Calculate metrics using ModelUtils if not already present
-            y_true = np.array(pred.get('y_true', []))
-            y_pred = np.array(pred.get('y_pred', []))
-
-            if len(y_true) > 0 and len(y_pred) > 0:
-                try:
-                    task_type = self.model_utils.detect_task_type(y_true)
-                    metrics = self.model_utils.calculate_scores(y_true, y_pred, task_type)
-                except Exception as e:
-                    print(f"⚠️ Error calculating metrics: {e}")
-                    metrics = {}
-            else:
-                metrics = {}
-
-            # Enhanced prediction record
-            enhanced_pred = {
-                'dataset_name': self.dataset_name_override or pred.get('dataset_name', 'unknown'),
-                'model_name': pred.get('model_name', 'unknown'),
-                'partition': pred.get('partition', 'unknown'),
-                'fold_id': pred.get('fold_id'),
-                'y_true': y_true,
-                'y_pred': y_pred,
-                'metrics': metrics,
-                'sample_count': len(y_true),
-                'metadata': pred.get('metadata', {})
-            }
-            enhanced_predictions.append(enhanced_pred)
-
-        return enhanced_predictions
-
-    def get_top_k(self, k: int = 5, metric: str = 'rmse',
-                  partition: str = '', dataset_name: Optional[str] = None,
-                  model_name: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Get top K performing predictions using the Predictions API.
-
-        Args:
-            k: Number of top predictions to return
-            metric: Metric to rank by
-            partition: Partition to consider ('test', 'val', 'train')
-            dataset_name: Dataset filter
-            model_name: Model filter
-
-        Returns:
-            List of top K predictions
-        """
-        filters = {'partition': partition}
-        if partition == 'all':
-            filters.pop('partition')  # Remove to include all partitions
-
-        if dataset_name:
-            filters['dataset_name'] = dataset_name
-        if model_name:
-            filters['model_name'] = model_name
-
-        # Use the Predictions API directly
-        try:
-            top_predictions = self.predictions.top_k(
-                k=k,
-                metric=metric,
-                ascending=(metric not in ['r2', 'accuracy', 'f1']),
-                **filters
-            )
-            return top_predictions
-        except Exception as e:
-            print(f"⚠️ Error getting top k predictions: {e}")
-            # Fallback to manual calculation
-            enhanced_preds = self._get_enhanced_predictions(**filters)
-            if not enhanced_preds:
-                return []
-
-            # Sort by metric
-            higher_better = metric in ['r2', 'accuracy', 'f1', 'precision', 'recall']
-            enhanced_preds.sort(
-                key=lambda x: x['metrics'].get(metric, float('inf') if higher_better else float('-inf')),
-                reverse=higher_better
-            )
-            return enhanced_preds[:k]
-
-    def plot_top_k_comparison(self, k: int = 5, metric: str = 'rmse',
-                              partition: str = '', dataset_name: Optional[str] = None,
+    def plot_top_k_comparison(self, k: int = 5, rank_metric: str = 'rmse',
+                              rank_partition: str = 'val', display_partition: str = 'all',
+                              dataset_name: Optional[str] = None,
                               figsize: Tuple[int, int] = (16, 10)) -> Figure:
         """
         Plot top K models with predicted vs true and residuals.
 
-        When partition is '' or 'all', displays predictions from all partitions (train, val, test)
-        with different colors for each partition in the same scatter plot.
+        Uses the top() method to rank models by a metric on rank_partition,
+        then displays predictions from display_partition(s).
 
         Args:
             k: Number of top models to show
-            metric: Metric for ranking
-            partition: Partition type ('test', 'val', 'train', '' or 'all' for all partitions)
+            rank_metric: Metric for ranking models (default: 'rmse')
+            rank_partition: Partition used for ranking (default: 'val')
+            display_partition: Partition(s) to display in plots (default: 'all' for train/val/test, or 'test', 'val', 'train')
             dataset_name: Dataset filter
             figsize: Figure size
 
         Returns:
             matplotlib Figure
         """
+        # Build filters
+        filters = {}
+        if dataset_name:
+            filters['dataset_name'] = dataset_name
 
-        if partition == '':
-            partition = 'all'
+        # Determine which partitions to display
+        show_all_partitions = display_partition in ['all', 'ALL', 'All', '_all_', '']
+
+        if show_all_partitions:
+            partitions_to_display = ['train', 'val', 'test']
+        else:
+            partitions_to_display = [display_partition]
 
         # Define partition colors
         partition_colors = {
@@ -168,59 +94,31 @@ class PredictionAnalyzer:
             'test': '#2ca02c'    # Green
         }
 
-        # Check if we need to aggregate multiple partitions
-        show_all_partitions = partition in ['all', 'ALL', 'All', '_all_']
+        # Use top() method to rank models - we'll get the first partition for ranking
+        ascending = rank_metric not in ['r2', 'accuracy', 'f1', 'precision', 'recall']
 
-        if show_all_partitions:
-            # Get top k models based on aggregated performance across all partitions
-            top_predictions = self.get_top_k(k, metric, partition, dataset_name)
-            if not top_predictions:
-                fig, ax = plt.subplots(figsize=figsize)
-                ax.text(0.5, 0.5, f'No predictions found',
-                       ha='center', va='center', fontsize=16)
-                return fig
+        # Get top models by ranking on rank_partition
+        # We use aggregate_partitions=True to get data for all partitions
+        # NOTE: display_partition param in top() is ignored when aggregate_partitions=True
+        top_predictions = self.predictions.top(
+            n=k,
+            rank_metric=rank_metric,
+            rank_partition=rank_partition,
+            display_partition='test',  # Doesn't matter with aggregate_partitions=True, but use test as reference partition
+            ascending=ascending,
+            aggregate_partitions=True,  # Get all partition data
+            **filters
+        )
 
-            # For each top model, collect predictions from all partitions
-            model_predictions_by_partition = []
-            for pred in top_predictions:
-                model_id = pred.get('id') or pred.get('model_name')
+        print(top_predictions[0])
 
-                # Get predictions for this model from each partition
-                partition_data = {}
-                for part in ['train', 'val', 'test']:
-                    part_preds = self.predictions.filter_predictions(
-                        partition=part,
-                        id=model_id
-                    )
-                    if part_preds:
-                        # Take the first matching prediction (should be unique per partition)
-                        partition_data[part] = part_preds[0]
+        if not top_predictions:
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.text(0.5, 0.5, 'No predictions found',
+                    ha='center', va='center', fontsize=16)
+            return fig
 
-                if partition_data:
-                    model_predictions_by_partition.append({
-                        'model_name': pred['model_name'],
-                        'model_id': model_id,
-                        'partitions': partition_data,
-                        'aggregate_score': pred.get(metric, 'N/A')
-                    })
-
-            if not model_predictions_by_partition:
-                fig, ax = plt.subplots(figsize=figsize)
-                ax.text(0.5, 0.5, f'No multi-partition predictions found',
-                       ha='center', va='center', fontsize=16)
-                return fig
-
-            n_plots = len(model_predictions_by_partition)
-        else:
-            # Single partition mode - original behavior
-            top_predictions = self.get_top_k(k, metric, partition, dataset_name)
-            if not top_predictions:
-                fig, ax = plt.subplots(figsize=figsize)
-                ax.text(0.5, 0.5, f'No {partition} predictions found',
-                       ha='center', va='center', fontsize=16)
-                return fig
-            n_plots = len(top_predictions)
-
+        n_plots = len(top_predictions)
         cols = 2
         rows = n_plots
 
@@ -232,24 +130,32 @@ class PredictionAnalyzer:
         elif rows == 1:
             axes = [axes]
 
-        if show_all_partitions:
-            # Plot with multiple partitions per model
-            for i, model_data in enumerate(model_predictions_by_partition):
-                ax_scatter = axes[i][0]
-                ax_resid = axes[i][1]
+        # Create figure title
+        fig_title = f'Top {k} Models - Best {rank_metric.upper()} ({rank_partition})'
+        fig.suptitle(fig_title, fontsize=14, fontweight='bold')
+        fig.subplots_adjust(top=0.95)
 
-                # Collect data from all partitions
-                all_y_true = []
-                all_y_pred = []
-                all_colors = []
-                partition_labels = []
+        # Plot each model
+        for i, pred in enumerate(top_predictions):
+            ax_scatter = axes[i][0]
+            ax_resid = axes[i][1]
 
-                for part_name in ['train', 'val', 'test']:
-                    if part_name in model_data['partitions']:
-                        pred = model_data['partitions'][part_name]
-                        y_true = np.asarray(pred['y_true']).flatten()
-                        y_pred = np.asarray(pred['y_pred']).flatten()
+            model_display = pred['model_name']
+            rank_score = pred.get('rank_score', 'N/A')
 
+            # Collect data from requested partitions
+            all_y_true = []
+            all_y_pred = []
+            all_colors = []
+            partition_scores = {}
+
+            for part_name in partitions_to_display:
+                if part_name in pred:
+                    part_data = pred[part_name]
+                    y_true = np.asarray(part_data.get('y_true', [])).flatten()
+                    y_pred = np.asarray(part_data.get('y_pred', [])).flatten()
+
+                    if len(y_true) > 0 and len(y_pred) > 0:
                         # Check size mismatch
                         if len(y_true) != len(y_pred):
                             min_len = min(len(y_true), len(y_pred))
@@ -265,77 +171,67 @@ class PredictionAnalyzer:
                         all_y_true.extend(y_true)
                         all_y_pred.extend(y_pred)
                         all_colors.extend([partition_colors[part_name]] * len(y_true))
-                        partition_labels.append(part_name)
 
-                # Add diagonal line
-                if all_y_true:
-                    min_val = min(all_y_true + all_y_pred)
-                    max_val = max(all_y_true + all_y_pred)
-                    ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8)
-                    ax_scatter.set_xlabel('True Values')
-                    ax_scatter.set_ylabel('Predicted Values')
-                    ax_scatter.legend(loc='best')
+                        # Calculate score for this partition
+                        try:
+                            from nirs4all.dataset.evaluator import eval as eval_metric
+                            score = eval_metric(y_true, y_pred, rank_metric)
+                            partition_scores[part_name] = score
+                        except Exception as e:
+                            print(f"⚠️ Error calculating {rank_metric} for partition {part_name}: {e}")
+                            partition_scores[part_name] = None
 
-                    model_display = model_data['model_name'] + " [" + model_data['model_id'] + "]"
-                    ax_scatter.set_title(f'{model_display}')
-                    ax_scatter.grid(True, alpha=0.3)
+            if not all_y_true:
+                ax_scatter.text(0.5, 0.5, 'No data available',
+                              ha='center', va='center', transform=ax_scatter.transAxes)
+                ax_resid.text(0.5, 0.5, 'No data available',
+                            ha='center', va='center', transform=ax_resid.transAxes)
+                continue
 
-                    # Residuals plot with colors
-                    all_y_true = np.array(all_y_true)
-                    all_y_pred = np.array(all_y_pred)
-                    residuals = all_y_true - all_y_pred
+            # Add diagonal line to scatter plot
+            min_val = min(all_y_true + all_y_pred)
+            max_val = max(all_y_true + all_y_pred)
+            ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8, linewidth=1.5)
+            ax_scatter.set_xlabel('True Values')
+            ax_scatter.set_ylabel('Predicted Values')
 
-                    ax_resid.scatter(all_y_pred, residuals, alpha=0.6, s=20, c=all_colors)
-                    ax_resid.axhline(y=0, color='r', linestyle='--', alpha=0.8)
-                    ax_resid.set_xlabel('Predicted Values')
-                    ax_resid.set_ylabel('Residuals')
+            # Add legend if showing multiple partitions
+            if show_all_partitions:
+                ax_scatter.legend(loc='best', fontsize=8)
 
-                    score_value = model_data['aggregate_score']
-                    ax_resid.set_title(f'Residuals - {metric.upper()}: {score_value:.4f}'
-                                     if isinstance(score_value, (int, float)) else f'Residuals - {metric.upper()}: {score_value}')
-                    ax_resid.grid(True, alpha=0.3)
-        else:
-            # Original single-partition plotting
-            for i, pred in enumerate(top_predictions):
-                ax_scatter = axes[i][0]
+            # Scatter plot title with calculated partition score (not database rank_score)
+            display_score = partition_scores.get(rank_partition, rank_score)
+            score_str = f'{display_score:.4f}' if isinstance(display_score, (int, float)) else str(display_score)
+            scatter_title = f'{model_display}\nBest {rank_partition} {rank_metric.upper()}: {score_str}'
+            ax_scatter.set_title(scatter_title, fontsize=10)
+            ax_scatter.grid(True, alpha=0.3)
 
-                y_true = np.asarray(pred['y_true']).flatten()
-                y_pred = np.asarray(pred['y_pred']).flatten()
+            # Residuals plot with colors
+            all_y_true = np.array(all_y_true)
+            all_y_pred = np.array(all_y_pred)
+            residuals = all_y_true - all_y_pred
 
-                # Check if arrays have the same size for scatter plot
-                if len(y_true) != len(y_pred):
-                    print(f"⚠️ Warning: Array size mismatch for {pred['model_name']}: "
-                          f"y_true({len(y_true)}) vs y_pred({len(y_pred)})")
-                    min_len = min(len(y_true), len(y_pred))
-                    y_true = y_true[:min_len]
-                    y_pred = y_pred[:min_len]
+            ax_resid.scatter(all_y_pred, residuals, alpha=0.6, s=20, c=all_colors)
+            ax_resid.axhline(y=0, color='r', linestyle='--', alpha=0.8, linewidth=1.5)
+            ax_resid.set_xlabel('Predicted Values')
+            ax_resid.set_ylabel('Residuals')
 
-                ax_scatter.scatter(y_true, y_pred, alpha=0.6, s=20)
-                min_val = min(y_true.min(), y_pred.min())
-                max_val = max(y_true.max(), y_pred.max())
-                ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8)
-                ax_scatter.set_xlabel('True Values')
-                ax_scatter.set_ylabel('Predicted Values')
+            # Residuals title with scores for each displayed partition
+            if partition_scores:
+                score_strs = []
+                for part_name in partitions_to_display:
+                    if part_name in partition_scores and partition_scores[part_name] is not None:
+                        score_strs.append(f'{part_name}: {partition_scores[part_name]:.4f}')
 
-                model_display = pred['model_name'] + " [" + pred["id"] + "]"
-                title = f'{model_display} - {partition}'
-                ax_scatter.set_title(title)
-                ax_scatter.grid(True, alpha=0.3)
+                if score_strs:
+                    resid_title = f'Residuals - {rank_metric.upper()}\n' + ', '.join(score_strs)
+                else:
+                    resid_title = 'Residuals'
+            else:
+                resid_title = 'Residuals'
 
-                # Residuals plot
-                ax_resid = axes[i][1]
-
-                residuals = y_true - y_pred
-                ax_resid.scatter(y_pred, residuals, alpha=0.6, s=20)
-                ax_resid.axhline(y=0, color='r', linestyle='--', alpha=0.8)
-                ax_resid.set_xlabel('Predicted Values')
-                ax_resid.set_ylabel('Residuals')
-
-                # Calculate metric on-the-fly if not in prediction
-                score_value = pred.get(metric, 'N/A')
-                ax_resid.set_title(f'Residuals - {metric.upper()}: {score_value:.4f}'
-                                   if isinstance(score_value, (int, float)) else f'Residuals - {metric.upper()}: {score_value}')
-                ax_resid.grid(True, alpha=0.3)
+            ax_resid.set_title(resid_title, fontsize=10)
+            ax_resid.grid(True, alpha=0.3)
 
         plt.tight_layout()
         return fig
@@ -1443,11 +1339,11 @@ class PredictionAnalyzer:
                 if score is None or (display_metric != rank_metric and display_metric != pred.get('metric', '')):
                     # Compute the metric from y_true and y_pred
                     try:
-                        from nirs4all.utils.evaluator import Evaluator
+                        from nirs4all.dataset.evaluator import eval as eval_metric
                         y_true = pred.get('y_true', [])
                         y_pred = pred.get('y_pred', [])
                         if y_true and y_pred:
-                            score = Evaluator.eval(y_true, y_pred, display_metric)
+                            score = eval_metric(y_true, y_pred, display_metric)
                     except Exception:
                         score = None
 
