@@ -1,6 +1,6 @@
 ## ROADMAP ##
 
-> **Bugs**:
+> [Augmentation + Balanced Augmentation]
 
 > [Serialization] serialization refactoring (merge branch)
 
@@ -17,9 +17,6 @@
 
 > [TransformerMixin] add L-SNV and R-SNV
 
-> [Augmentation + Balanced Augmentation]
-
-> **Enhancement**: Options normalisation in charts (0-1 ou 1-0)
 
 **RELEASE** 0.4
 
@@ -33,15 +30,18 @@
 
 > [Chart controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
+> **Enhancement**: Options normalisation in charts (0-1 ou 1-0)
+
 > [Predictions] refactoring and as a pipeline context and change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
 
-> [Model selection] Tools to select "best" predictions
 
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions
 
+> [Model selection] Tools to select "best" predictions
+
 **RELEASE** 0.6
 
-> [Pipeline as single transformer]: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN.
+> [Pipeline as single transformer]: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline
 
 > [Runner] retrieve raw and pp dataset after run
 
@@ -124,7 +124,7 @@
 > - packaging exe
 
 > [controller]
-> - base_model_controller
+> - base_model_controller + model_buiders + op_model + optuna. Rewrite and modularize all this stuff.
 
 > [dataset]
 > - predictions > clean redondancy, metrics usage, optimize search and metadata building

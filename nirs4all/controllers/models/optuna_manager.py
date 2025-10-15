@@ -215,8 +215,9 @@ class OptunaManager:
                     X_val_prep, y_val_prep = controller._prepare_data(X_val_fold, y_val_fold, context)
                     # print(X_train_prep.shape, y_train_prep.shape, X_val_prep.shape, y_val_prep.shape)
 
-                    # Train and evaluate
-                    trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep)
+                    # Train and evaluate - pass train_params from finetune_params
+                    train_params_for_trial = finetune_params.get('train_params', {})
+                    trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)
                     score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep)
                     # print(f"   Fold score: {score:.4f}", end=' 'if verbose > 1 else '\n')
                     scores.append(score)
@@ -307,8 +308,9 @@ class OptunaManager:
                 X_train_prep, y_train_prep = controller._prepare_data(X_train, y_train, context)
                 X_val_prep, y_val_prep = controller._prepare_data(X_val, y_val, context)
 
-                # Train and evaluate
-                trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep)
+                # Train and evaluate - pass train_params from finetune_params
+                train_params_for_trial = finetune_params.get('train_params', {})
+                trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)
                 score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep)
 
                 return score

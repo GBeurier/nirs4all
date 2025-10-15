@@ -45,13 +45,13 @@ pipeline = [
         "model": PLSRegression(),
         "name": "PLS-Finetuned",
         "finetune_params": {
-            "n_trials": 20,
+            "n_trials": 10,
             "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
             "approach": "single",                                  # "grouped", "individual", or "single"
             "eval_mode": "best",                    # "best" or "avg" (for grouped approach)
             "sample": "grid",                       # "random", "grid", "bayes", "hyperband", "skopt", "tpe", "cmaes"
             "model_params": {
-                'n_components': ('int', 1, 30),
+                'n_components': ('int', 1, 10),
             },
         }
     },
@@ -59,7 +59,7 @@ pipeline = [
         "model": customizable_nicon,
         "name": "PLS-Default",
         "finetune_params": {
-            "n_trials": 30,
+            "n_trials": 10,
             "verbose": 2,
             "sample": "hyperband",
             "approach": "single",
@@ -69,12 +69,12 @@ pipeline = [
                 "filters_3": [8, 16, 32, 64]
             },
             "train_params": {
-                "epochs": 10,
+                "epochs": 5,
                 "verbose": 0
             }
         },
         "train_params": {
-            "epochs": 250,
+            "epochs": 25,
             "verbose": 0
         }
     }
