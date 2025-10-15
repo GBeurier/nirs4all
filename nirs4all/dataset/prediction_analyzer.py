@@ -162,8 +162,8 @@ class PredictionAnalyzer:
                             y_true = y_true[:min_len]
                             y_pred = y_pred[:min_len]
 
-                        # Scatter plot with partition-specific color
-                        ax_scatter.scatter(y_true, y_pred, alpha=0.6, s=20,
+                        # Scatter plot with partition-specific color (predicted on X-axis)
+                        ax_scatter.scatter(y_pred, y_true, alpha=0.6, s=20,
                                          color=partition_colors[part_name],
                                          label=part_name.capitalize())
 
@@ -192,8 +192,8 @@ class PredictionAnalyzer:
             min_val = min(all_y_true + all_y_pred)
             max_val = max(all_y_true + all_y_pred)
             ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.8, linewidth=1.5)
-            ax_scatter.set_xlabel('True Values')
-            ax_scatter.set_ylabel('Predicted Values')
+            ax_scatter.set_xlabel('Predicted Values')
+            ax_scatter.set_ylabel('Observed Values')
 
             # Add legend if showing multiple partitions
             if show_all_partitions:
@@ -206,14 +206,14 @@ class PredictionAnalyzer:
             ax_scatter.set_title(scatter_title, fontsize=10)
             ax_scatter.grid(True, alpha=0.3)
 
-            # Residuals plot with colors
+            # Residuals plot with colors (predicted on X-axis)
             all_y_true = np.array(all_y_true)
             all_y_pred = np.array(all_y_pred)
             residuals = all_y_true - all_y_pred
 
-            ax_resid.scatter(all_y_true, residuals, alpha=0.6, s=20, c=all_colors)
+            ax_resid.scatter(all_y_pred, residuals, alpha=0.6, s=20, c=all_colors)
             ax_resid.axhline(y=0, color='r', linestyle='--', alpha=0.8, linewidth=1.5)
-            ax_resid.set_xlabel('Observed Values')
+            ax_resid.set_xlabel('Predicted Values')
             ax_resid.set_ylabel('Residuals')
 
             # Residuals title with scores for each displayed partition

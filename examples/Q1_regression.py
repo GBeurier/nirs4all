@@ -76,9 +76,9 @@ top_models[0].save_to_csv("Q1_regression_best_model.csv")
 # # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse')
-fig2 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse', rank_partition='test')
-fig3 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse', rank_partition='train')
+fig1 = analyzer.plot_top_k_comparison(k=3, rank_metric='rmse')
+fig2 = analyzer.plot_top_k_comparison(k=3, rank_metric='rmse', rank_partition='test')
+fig3 = analyzer.plot_top_k_comparison(k=3, rank_metric='rmse', rank_partition='train')
 
 # Plot heatmap of model performance vs preprocessing
 fig2 = analyzer.plot_heatmap_v2(
