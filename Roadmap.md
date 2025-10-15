@@ -5,8 +5,6 @@
 > **Bugs**:
 >   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
->   - Unify task_type usage and detection
-> 	- Repasser sur les transformers
 
 > [Headers] verify and clean header management (none, cm-1, nm, str or num_feature) > ensure tests are okay and raise error on related classes (ie resampler)
 
@@ -24,7 +22,9 @@
 
 > [Chart controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
-> **Enhancement**: Options normalisation in charts (0-1 ou 1-0)
+> **Enhancement**:
+> - Options normalisation in charts (0-1 ou 1-0)
+>   - Unify task_type usage and detection
 
 > [Predictions] refactoring and as a pipeline context and change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
 

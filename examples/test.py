@@ -20,11 +20,11 @@ from nirs4all.dataset.predictions import Predictions
 from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
 from nirs4all.operators.transformations import (
     Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer, Gaussian as Gauss,
-    StandardNormalVariate as StdNorm, SavitzkyGolay as SavGol, Haar, MultiplicativeScatterCorrection as MSC
+    StandardNormalVariate as SNV, SavitzkyGolay as SavGol, Haar, MultiplicativeScatterCorrection as MSC, RobustStandardNormalVariate as RSNV, LocalStandardNormalVariate as LSNV
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter
-from nirs4all.operators.models.cirad_tf import nicon
+from nirs4all.operators.models.cirad_tf import nicon, transformer_VG, transformer
 
 # Disable emojis in output (set to '1' to disable, '0' to enable)
 os.environ['DISABLE_EMOJIS'] = '0'
@@ -33,22 +33,54 @@ os.environ['DISABLE_EMOJIS'] = '0'
 feature_scaler = MinMaxScaler()
 preprocessing_options = [
     Detrend, FstDer, SndDer, Gauss,
-    StdNorm, SavGol, Haar, MSC
+    SNV, SavGol, Haar, MSC
 ]
 split = SPXYSplitter(0.25)
 cross_validation = ShuffleSplit(n_splits=3, test_size=0.25)
-data_path = 'examples/sample_data/regression'
-
+data_path = 'sample_data/regression_2'
+from sklearn.preprocessing import MinMaxScaler
 
 import random
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GroupKFold, KFold
 from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.cross_decomposition import PLSRegression
 
 
 pipeline = [
     {"split": KFold(n_splits=3, shuffle=True, random_state=42)},
     # {"model": nicon},
+    # "2d_chart",
+    {"feature_augmentation": [
+        MSC,
+        SNV,
+        RSNV,
+        # LSNV,
+        # Gauss,
+        # SavGol,
+        Haar,
+        # FstDer,
+        SndDer,
+        # Detrend
+    ]},
+    MinMaxScaler(feature_range=(0.1, 0.8)),
+    # "chart_2d",
+    # {
+    #     "model": PLSRegression(),
+    #     "name": "PLS-Finetuned",
+    #     "finetune_params": {
+    #         "n_trials": 10,
+    #         "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
+    #         "approach": "single",                                  # "grouped", "individual", or "single"
+    #         "eval_mode": "best",                    # "best" or "avg" (for grouped approach)
+    #         "sample": "grid",                       # "random", "grid", "bayes", "hyperband", "skopt", "tpe", "cmaes"
+    #         "model_params": {
+    #             'n_components': ('int', 1, 30),
+    #         },
+    #     }
+    # },
+    # transformer,
+    # "2d_chart",
     nicon,
     # RandomForestClassifier(max_depth=30)
 ]
@@ -57,7 +89,7 @@ pipeline_config = PipelineConfigs(pipeline, "Q1_groupsplit")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=True)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 
