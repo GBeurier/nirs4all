@@ -64,10 +64,53 @@ class Indexer:
 
         return condition
 
-    def x_indices(self, selector: Selector) -> np.ndarray:
-        filtered_df = self._apply_filters(selector) if selector else self.df
-        indices = filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
-        return indices
+    def x_indices(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
+        """
+        Get sample indices with optional augmented sample aggregation.
+
+        This method implements two-phase selection to prevent data leakage:
+        1. Phase 1: Get base samples (origin=null)
+        2. Phase 2: Get augmented versions of those base samples
+
+        Args:
+            selector: Filter criteria (partition, group, branch, etc.)
+            include_augmented: If True, include augmented versions of selected samples.
+                             If False, return only base samples (origin=null).
+                             Default True for backward compatibility.
+
+        Returns:
+            Array of sample indices
+
+        Example:
+            >>> # Get all train samples (base + augmented)
+            >>> all_train = indexer.x_indices({"partition": "train"})
+            >>> # Get only base train samples
+            >>> base_train = indexer.x_indices({"partition": "train"}, include_augmented=False)
+        """
+        if not include_augmented:
+            # Simple case: just add origin=None filter
+            base_selector = selector.copy() if selector else {}
+            if "origin" not in base_selector:
+                base_selector["origin"] = None
+            filtered_df = self._apply_filters(base_selector)
+            return filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
+
+        # Two-phase selection for leak prevention
+        # Phase 1: Get base samples (origin=null)
+        base_selector = selector.copy() if selector else {}
+        if "origin" not in base_selector:
+            base_selector["origin"] = None
+
+        filtered_df = self._apply_filters(base_selector)
+        base_indices = filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
+
+        # Phase 2: Get augmented samples if requested
+        if len(base_indices) > 0:
+            augmented_indices = self.get_augmented_for_origins(base_indices.tolist())
+            if len(augmented_indices) > 0:
+                return np.concatenate([base_indices, augmented_indices])
+
+        return base_indices
 
     def y_indices(self, selector: Selector) -> np.ndarray:
         filtered_df = self._apply_filters(selector) if selector else self.df
@@ -77,6 +120,58 @@ class Indexer:
             .otherwise(pl.col("origin")).cast(pl.Int32).alias("y_index")
         )
         return result["y_index"].to_numpy().astype(np.int32)
+
+    def get_augmented_for_origins(self, origin_samples: List[int]) -> np.ndarray:
+        """
+        Get all augmented samples for given origin sample IDs.
+
+        This method is used to retrieve augmented versions of base samples,
+        enabling two-phase selection that prevents data leakage across CV folds.
+
+        Args:
+            origin_samples: List of origin sample IDs to find augmented versions for
+
+        Returns:
+            Array of augmented sample IDs (samples where origin is in origin_samples)
+
+        Example:
+            >>> # Get base samples
+            >>> base_samples = indexer.x_indices({"partition": "train", "origin": None})
+            >>> # Get their augmented versions
+            >>> augmented = indexer.get_augmented_for_origins(base_samples.tolist())
+            >>> # Combine for full dataset
+            >>> all_samples = np.concatenate([base_samples, augmented])
+        """
+        if not origin_samples:
+            return np.array([], dtype=np.int32)
+
+        filter_condition = pl.col("origin").is_in(origin_samples)
+        augmented_df = self.df.filter(filter_condition)
+        return augmented_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
+
+    def get_origin_for_sample(self, sample_id: int) -> Optional[int]:
+        """
+        Get origin sample ID for a given sample, or None if it's a base sample.
+
+        This method is used to map augmented samples back to their origin for y-value retrieval.
+
+        Args:
+            sample_id: Sample ID to look up
+
+        Returns:
+            Origin sample ID if the sample is augmented, otherwise the sample_id itself
+
+        Example:
+            >>> # For augmented sample
+            >>> indexer.get_origin_for_sample(100)  # Returns 10 (origin)
+            >>> # For base sample
+            >>> indexer.get_origin_for_sample(10)   # Returns 10 (itself)
+        """
+        row = self.df.filter(pl.col("sample") == sample_id)
+        if len(row) == 0:
+            return None
+        origin = row.select(pl.col("origin")).item()
+        return origin if origin is not None else sample_id
 
     def replace_processings(self, source_processings: List[str], new_processings: List[str]) -> None:
         """
