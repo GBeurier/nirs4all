@@ -130,7 +130,7 @@ The sample augmentation feature for nirs4all has been successfully implemented a
    - Comprehensive guide with architecture, usage modes, API reference
    - Best practices and troubleshooting
    - Examples for all major scenarios
-   
+
 2. **`docs/SAMPLE_AUGMENTATION_QUICK_REFERENCE.md`** (200+ lines)
    - Quick syntax reference
    - Parameter tables
@@ -359,12 +359,12 @@ pipeline:
 
 The sample augmentation feature is **production-ready**:
 
-✅ **Fully implemented** across all components  
-✅ **Thoroughly tested** with 124+ passing tests  
-✅ **Well documented** with guides, examples, and API reference  
-✅ **Backward compatible** with existing functionality  
-✅ **Leak-free** CV splitting verified  
-✅ **Performance tested** with real-world examples  
+✅ **Fully implemented** across all components
+✅ **Thoroughly tested** with 124+ passing tests
+✅ **Well documented** with guides, examples, and API reference
+✅ **Backward compatible** with existing functionality
+✅ **Leak-free** CV splitting verified
+✅ **Performance tested** with real-world examples
 
 **Ready for merge to main branch!** 🎉
 

@@ -115,21 +115,21 @@ pipeline:
   - preprocessing:
       - SNV: {}
       - SavitzkyGolay: {window_length: 11}
-  
+
   # 2. Sample Augmentation
   - sample_augmentation:
       transformers:
         - StandardScaler: {}
       count: 2
       random_state: 42
-  
+
   # 3. Cross-Validation (leak-free)
   - split:
       - StratifiedKFold:
           n_splits: 5
           shuffle: true
           random_state: 42
-  
+
   # 4. Model Training
   - model:
       - PLSRegression:

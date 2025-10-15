@@ -92,7 +92,7 @@ sample_augmentation:
 
 **Parameters:**
 - `count` (int): Number of augmentations per sample
-- `selection` (str): 
+- `selection` (str):
   - `"random"`: Randomly assign transformers (default)
   - `"all"`: Cycle through transformers systematically
 - `random_state` (int): Random seed for reproducibility
@@ -145,15 +145,15 @@ Result:  Class 0: 80 samples (unchanged)
 ```yaml
 sample_augmentation:
   transformers: List[transformer_spec]  # Required
-  
+
   # Standard mode
   count: int  # Number of augmentations per sample
-  
+
   # OR Balanced mode
   balance: str  # "y" or metadata column name
   target_size: int  # Target samples per class
   max_factor: float  # Optional, default unlimited
-  
+
   # Common options
   selection: str  # "random" (default) or "all"
   random_state: int  # Optional seed
@@ -290,19 +290,19 @@ sample_augmentation:
 pipeline:
   - preprocessing:
       - SNV: {}
-  
+
   - sample_augmentation:
       transformers:
         - StandardScaler: {}
       count: 2
       selection: "all"
-  
+
   - split:
       - StratifiedKFold:
           n_splits: 5
           shuffle: true
           random_state: 42
-  
+
   - model:
       - PLSRegression:
           n_components: 10
@@ -362,7 +362,7 @@ pipeline:
         - StandardScaler: {}
       count: 1
       selection: "all"
-  
+
   - sample_augmentation:
       transformers:
         - MinMaxScaler: {}
@@ -416,7 +416,7 @@ Sequential augmentation operations always target only base samples:
 # Round 1
 dataset.augment_samples(...)  # Uses include_augmented=False internally
 
-# Round 2  
+# Round 2
 dataset.augment_samples(...)  # Still only augments original base samples
 ```
 
