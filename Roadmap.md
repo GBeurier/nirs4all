@@ -177,3 +177,6 @@ Mean Centering/Autoscaling         |  Adjusts spectral features to centered/scal
 Normalization (e.g., area)         |  Adjusts all spectra to same overall intensity .
 Wavelength Selection               |  Focuses analysis on most relevant regions .
 Haar Wavelet Transform             |  Sometimes usedfor noise reduction and feature extraction; less common than above methods but useful in some advanced pipelines .
+
+
+

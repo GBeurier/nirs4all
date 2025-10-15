@@ -58,7 +58,15 @@ class TransformerMixinController(OperatorController):
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Any] = None
     ):
+        """Execute transformer - handles normal, feature augmentation, and sample augmentation modes."""
 
+        # Check if we're in sample augmentation mode
+        if context.get("augment_sample", False):
+            return self._execute_for_sample_augmentation(
+                operator, dataset, context, runner, mode, loaded_binaries, prediction_store
+            )
+
+        # Normal or feature augmentation execution (existing code)
         operator_name = operator.__class__.__name__
 
         # Get train and all data as lists of 3D arrays (one per source)
@@ -150,4 +158,112 @@ class TransformerMixinController(OperatorController):
         context["add_feature"] = False
 
         # print(dataset)
+        return context, fitted_transformers
+
+    def _execute_for_sample_augmentation(
+        self,
+        operator: Any,
+        dataset: 'SpectroDataset',
+        context: Dict[str, Any],
+        runner: 'PipelineRunner',
+        mode: str,
+        loaded_binaries: Optional[List[Tuple[str, Any]]],
+        prediction_store: Optional[Any]
+    ) -> Tuple[Dict[str, Any], List]:
+        """
+        Apply transformer to origin samples and add augmented samples.
+
+        Context contains:
+            - augment_sample: True flag (like add_feature)
+            - target_samples: list of sample_ids to augment
+            - partition: "train" (filtering context)
+            - augmentation_id: identifier for this augmentation batch
+        """
+        target_sample_ids = context.get("target_samples", [])
+        if not target_sample_ids:
+            return context, []
+
+        operator_name = operator.__class__.__name__
+        augmentation_id = context.get("augmentation_id", f"aug_{operator_name}")
+        fitted_transformers = []
+
+        # Get train data for fitting (if not in predict/explain mode)
+        if mode not in ["predict", "explain"]:
+            train_context = context.copy()
+            train_context["partition"] = "train"
+            train_data = dataset.x(train_context, "3d", concat_source=False, include_augmented=False)
+            if not isinstance(train_data, list):
+                train_data = [train_data]
+
+        # Process each target sample
+        for sample_id in target_sample_ids:
+            # Get origin sample data (all sources, base samples only)
+            origin_selector = {"sample": [sample_id]}
+            origin_data = dataset.x(origin_selector, "3d", concat_source=False, include_augmented=False)
+
+            # Ensure list format for multi-source
+            if not isinstance(origin_data, list):
+                origin_data = [origin_data]
+
+            # Transform each source
+            transformed_sources = []
+
+            for source_idx, source_data in enumerate(origin_data):
+                # source_data shape: (1, n_processings, n_features) for single sample
+                source_2d_list = []
+
+                for proc_idx in range(source_data.shape[1]):
+                    proc_data = source_data[:, proc_idx, :]  # (1, n_features)
+
+                    # Apply transformer
+                    if loaded_binaries and mode in ["predict", "explain"]:
+                        transformer = dict(loaded_binaries).get(f"{operator_name}_{source_idx}_{proc_idx}_{sample_id}")
+                        if transformer is None:
+                            raise ValueError(f"Binary for {operator_name} not found")
+                    else:
+                        transformer = clone(operator)
+                        # Fit on train data for this source/processing
+                        train_proc_data = train_data[source_idx][:, proc_idx, :]
+                        transformer.fit(train_proc_data)
+
+                    transformed_data = transformer.transform(proc_data)
+                    source_2d_list.append(transformed_data)
+
+                    # Save transformer binary
+                    transformer_binary = pickle.dumps(transformer)
+                    fitted_transformers.append(
+                        (f"{operator_name}_{source_idx}_{proc_idx}_{sample_id}.pkl", transformer_binary)
+                    )
+
+                # Stack back to 3D (1, n_processings, n_features)
+                source_3d = np.stack(source_2d_list, axis=1)
+                transformed_sources.append(source_3d)
+
+            # Add augmented sample to dataset using add_samples with proper indexing
+            sample_aug_id = f"{augmentation_id}_{sample_id}"
+
+            # Build index dictionary for the augmented sample
+            index_dict = {
+                "partition": "train",
+                "origin": sample_id,  # Track origin
+                "augmentation": sample_aug_id  # Augmentation identifier
+            }
+
+            # Note: Metadata copying is handled by the indexer, not here
+            # The indexer's add_samples_dict will set origin and augmentation columns
+
+            # Add augmented sample (transformed_sources is list of 3D arrays, one per source)
+            # Need to convert to format expected by add_samples
+            if len(transformed_sources) == 1:
+                # Single source: pass 2D array (squeeze out sample dimension)
+                data_to_add = transformed_sources[0][0, :, :]  # (n_processings, n_features)
+            else:
+                # Multi-source: pass list of 2D arrays
+                data_to_add = [src[0, :, :] for src in transformed_sources]
+
+            dataset.add_samples(
+                data=data_to_add,
+                indexes=index_dict
+            )
+
         return context, fitted_transformers
