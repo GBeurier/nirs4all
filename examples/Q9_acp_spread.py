@@ -42,7 +42,7 @@ dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
 print("🔄 Running preprocessing pipeline...")
-runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=True)
+runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Get datasets (no manual pivot needed - evaluator handles it!)
