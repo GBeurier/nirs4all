@@ -1,8 +1,8 @@
 # Sample Augmentation Design Document
 
-**Version:** 1.0  
-**Date:** October 15, 2025  
-**Author:** Architecture Analysis  
+**Version:** 1.0
+**Date:** October 15, 2025
+**Author:** Architecture Analysis
 **Status:** Awaiting Validation
 
 ---
@@ -35,7 +35,7 @@ Pipeline Step → Controller → Dataset API → Indexer + Features + Targets
 
 #### Indexer (nirs4all/dataset/indexer.py)
 - **Current Fields**: `row`, `sample`, `origin`, `partition`, `group`, `branch`, `processings`, `augmentation`
-- **Selection Methods**: 
+- **Selection Methods**:
   - `x_indices(selector)` → returns `sample` IDs
   - `y_indices(selector)` → returns `origin` if not null, else `sample`
 - **Augmentation Support**: `augment_rows()` method exists but incomplete
@@ -176,16 +176,16 @@ remainder = augmentations_needed % minority_class_count  # 0
 def get_augmented_for_origins(self, origin_samples: List[int]) -> np.ndarray:
     """
     Get all augmented samples for given origin sample IDs.
-    
+
     Args:
         origin_samples: List of origin sample IDs
-        
+
     Returns:
         Array of augmented sample IDs
     """
     if not origin_samples:
         return np.array([], dtype=np.int32)
-        
+
     filter_condition = pl.col("origin").is_in(origin_samples)
     augmented_df = self.df.filter(filter_condition)
     return augmented_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
@@ -197,11 +197,11 @@ def get_augmented_for_origins(self, origin_samples: List[int]) -> np.ndarray:
 def x_indices(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
     """
     Get sample indices with optional augmented sample aggregation.
-    
+
     Args:
         selector: Filter criteria
         include_augmented: If True, include augmented versions of selected samples
-        
+
     Returns:
         Array of sample indices
     """
@@ -209,15 +209,15 @@ def x_indices(self, selector: Selector, include_augmented: bool = True) -> np.nd
     base_selector = selector.copy() if selector else {}
     if include_augmented and "origin" not in base_selector:
         base_selector["origin"] = None  # Force origin filter
-        
+
     filtered_df = self._apply_filters(base_selector) if base_selector else self.df.filter(pl.col("origin").is_null())
     base_indices = filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
-    
+
     # Phase 2: Get augmented samples if requested
     if include_augmented and len(base_indices) > 0:
         augmented_indices = self.get_augmented_for_origins(base_indices.tolist())
         return np.concatenate([base_indices, augmented_indices])
-    
+
     return base_indices
 ```
 
@@ -254,7 +254,7 @@ def y(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
         y_indices = np.array(y_indices, dtype=np.int32)
     else:
         y_indices = self._indexer.y_indices(selector)
-        
+
     processing = selector.get("y") if selector and "y" in selector else "numeric"
     return self._targets.y(y_indices, processing)
 ```
@@ -282,7 +282,7 @@ from collections import Counter
 
 class BalancingCalculator:
     """Calculate augmentation counts for balanced datasets."""
-    
+
     @staticmethod
     def calculate_balanced_counts(
         labels: np.ndarray,
@@ -291,12 +291,12 @@ class BalancingCalculator:
     ) -> Dict[int, int]:
         """
         Calculate how many augmentations needed per sample for balancing.
-        
+
         Args:
             labels: Class labels or group IDs (1D array)
             sample_indices: Corresponding sample IDs
             max_factor: Target fraction of majority class (0.0-1.0)
-            
+
         Returns:
             Dictionary mapping sample_id → augmentation_count
         """
@@ -304,18 +304,18 @@ class BalancingCalculator:
         label_to_samples = {}
         for sample_id, label in zip(sample_indices, labels):
             label_to_samples.setdefault(label, []).append(sample_id)
-        
+
         # Find majority class size
         class_sizes = {label: len(samples) for label, samples in label_to_samples.items()}
         majority_size = max(class_sizes.values())
-        
+
         # Calculate augmentations per class
         augmentation_map = {}
-        
+
         for label, samples in label_to_samples.items():
             current_size = len(samples)
             target_size = int(majority_size * max_factor)
-            
+
             if current_size >= target_size:
                 # Already balanced or majority class
                 for sample_id in samples:
@@ -325,13 +325,13 @@ class BalancingCalculator:
                 total_needed = target_size - current_size
                 base_count = total_needed // current_size
                 remainder = total_needed % current_size
-                
+
                 for i, sample_id in enumerate(samples):
                     # Distribute remainder to first samples
                     augmentation_map[sample_id] = base_count + (1 if i < remainder else 0)
-        
+
         return augmentation_map
-    
+
     @staticmethod
     def apply_random_transformer_selection(
         transformers: List,
@@ -340,18 +340,18 @@ class BalancingCalculator:
     ) -> Dict[int, List[int]]:
         """
         Randomly select transformers for each augmentation.
-        
+
         Args:
             transformers: List of transformer instances
             augmentation_counts: sample_id → number of augmentations
             random_state: Random seed
-            
+
         Returns:
             Dictionary mapping sample_id → list of transformer indices
         """
         rng = np.random.default_rng(random_state)
         transformer_selection = {}
-        
+
         for sample_id, count in augmentation_counts.items():
             if count > 0:
                 # Randomly select transformer indices
@@ -359,7 +359,7 @@ class BalancingCalculator:
                 transformer_selection[sample_id] = selected
             else:
                 transformer_selection[sample_id] = []
-        
+
         return transformer_selection
 ```
 
@@ -412,7 +412,7 @@ class SampleAugmentationController(OperatorController):
     ) -> Tuple[Dict[str, Any], List]:
         """
         Execute sample augmentation with standard or balanced mode.
-        
+
         Step format:
             {
                 "sample_augmentation": {
@@ -428,18 +428,18 @@ class SampleAugmentationController(OperatorController):
         """
         config = step["sample_augmentation"]
         transformers = config.get("transformers", [])
-        
+
         if not transformers:
             raise ValueError("sample_augmentation requires at least one transformer")
-        
+
         # Determine mode
         is_balanced = "balance" in config
-        
+
         if is_balanced:
             return self._execute_balanced(config, transformers, dataset, context, runner)
         else:
             return self._execute_standard(config, transformers, dataset, context, runner)
-    
+
     def _execute_standard(
         self,
         config: Dict,
@@ -452,20 +452,20 @@ class SampleAugmentationController(OperatorController):
         count = config.get("count", 1)
         selection = config.get("selection", "random")
         random_state = config.get("random_state", None)
-        
+
         # Get train samples (origin=null implied)
         train_context = copy.deepcopy(context)
         train_context["partition"] = "train"
-        
+
         # Get base samples only (no augmented)
         base_samples = dataset._indexer.x_indices(train_context, include_augmented=False).tolist()
-        
+
         if not base_samples:
             return context, []
-        
+
         # Create augmentation plan
         augmentation_counts = {sample_id: count for sample_id in base_samples}
-        
+
         # Select transformers
         if selection == "random":
             transformer_map = BalancingCalculator.apply_random_transformer_selection(
@@ -473,14 +473,14 @@ class SampleAugmentationController(OperatorController):
             )
         else:  # "all"
             transformer_map = self._apply_all_transformers(transformers, base_samples, count)
-        
+
         # Apply transformations
         self._apply_augmentations(
             dataset, transformer_map, transformers, context, runner
         )
-        
+
         return context, []
-    
+
     def _execute_balanced(
         self,
         config: Dict,
@@ -494,28 +494,28 @@ class SampleAugmentationController(OperatorController):
         max_factor = config.get("max_factor", 1.0)
         selection = config.get("selection", "random")
         random_state = config.get("random_state", None)
-        
+
         # Get train samples
         train_context = copy.deepcopy(context)
         train_context["partition"] = "train"
-        
+
         base_samples = dataset._indexer.x_indices(train_context, include_augmented=False)
-        
+
         if len(base_samples) == 0:
             return context, []
-        
+
         # Get labels for balancing
         if balance_source == "y":
             labels = dataset.y(train_context, include_augmented=False)
         else:
             # Metadata column
             labels = dataset.metadata_column(balance_source, train_context)
-        
+
         # Calculate augmentation counts
         augmentation_counts = BalancingCalculator.calculate_balanced_counts(
             labels, base_samples, max_factor
         )
-        
+
         # Select transformers
         if selection == "random":
             transformer_map = BalancingCalculator.apply_random_transformer_selection(
@@ -525,14 +525,14 @@ class SampleAugmentationController(OperatorController):
             transformer_map = self._apply_all_transformers_balanced(
                 transformers, augmentation_counts
             )
-        
+
         # Apply transformations
         self._apply_augmentations(
             dataset, transformer_map, transformers, context, runner
         )
-        
+
         return context, []
-    
+
     def _apply_augmentations(
         self,
         dataset: 'SpectroDataset',
@@ -543,7 +543,7 @@ class SampleAugmentationController(OperatorController):
     ):
         """
         Apply transformations to generate augmented samples.
-        
+
         Args:
             transformer_map: sample_id → list of transformer indices to apply
             transformers: List of transformer instances
@@ -554,26 +554,26 @@ class SampleAugmentationController(OperatorController):
         for sample_id, transformer_indices in transformer_map.items():
             for trans_idx in transformer_indices:
                 transformer_to_samples.setdefault(trans_idx, []).append(sample_id)
-        
+
         # Apply each transformer to its samples
         for trans_idx, sample_ids in transformer_to_samples.items():
             transformer = transformers[trans_idx]
             augmentation_id = f"aug_{trans_idx}_{transformer.__class__.__name__}"
-            
+
             # Get original data for these samples
             sample_selector = {"sample": sample_ids}
             X_original = dataset.x(sample_selector, include_augmented=False)
-            
+
             # Transform data
             X_augmented = transformer.fit_transform(X_original)
-            
+
             # Add augmented samples to dataset
             count_per_sample = [transformer_map[sid].count(trans_idx) for sid in sample_ids]
-            
+
             # Replicate data if count > 1 per sample
             if sum(count_per_sample) > len(sample_ids):
                 X_augmented = np.repeat(X_augmented, count_per_sample, axis=0)
-            
+
             # Add to dataset
             dataset.augment_samples(
                 data=X_augmented,
@@ -582,7 +582,7 @@ class SampleAugmentationController(OperatorController):
                 selector={"sample": sample_ids},
                 count=count_per_sample
             )
-    
+
     def _apply_all_transformers(self, transformers, samples, count):
         """Cycle through all transformers for 'all' selection mode."""
         transformer_map = {}
@@ -590,7 +590,7 @@ class SampleAugmentationController(OperatorController):
             # Cycle through transformers
             transformer_map[sample_id] = [i % len(transformers) for i in range(count)]
         return transformer_map
-    
+
     def _apply_all_transformers_balanced(self, transformers, augmentation_counts):
         """Apply all transformers in balanced mode."""
         transformer_map = {}
@@ -922,12 +922,12 @@ dataset.x({"partition": "train"}, include_augmented=False)
 
 This design provides a **comprehensive, maintainable, and extensible** solution for sample augmentation in nirs4all. Key strengths:
 
-✅ **Leak Prevention**: Robust two-phase selection ensures augmented samples follow origins  
-✅ **Flexibility**: Supports both standard and balanced modes  
-✅ **Backward Compatible**: Existing pipelines work unchanged  
-✅ **Clean Architecture**: Minimal changes to core components  
-✅ **Extensible**: Easy to add new augmentation strategies  
-✅ **Well-Tested**: Comprehensive test coverage planned  
+✅ **Leak Prevention**: Robust two-phase selection ensures augmented samples follow origins
+✅ **Flexibility**: Supports both standard and balanced modes
+✅ **Backward Compatible**: Existing pipelines work unchanged
+✅ **Clean Architecture**: Minimal changes to core components
+✅ **Extensible**: Easy to add new augmentation strategies
+✅ **Well-Tested**: Comprehensive test coverage planned
 
 **Next Steps:**
 1. Review this design document
@@ -937,6 +937,6 @@ This design provides a **comprehensive, maintainable, and extensible** solution 
 
 ---
 
-**Document Prepared By:** AI Architecture Analysis  
-**Review Requested From:** @GBeurier  
+**Document Prepared By:** AI Architecture Analysis
+**Review Requested From:** @GBeurier
 **Status:** ⏳ Awaiting Validation
