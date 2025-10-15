@@ -736,12 +736,19 @@ class PipelineRunner:
                         else:
                             operator = deserialize_component(step[key])
                         controller = self._select_controller(step, keyword=key, operator=operator)
+                    elif isinstance(step[key], dict) and 'function' in step[key]:
+                        # Function-based operator (e.g., TensorFlow model factory)
+                        if '_runtime_instance' in step[key]:
+                            operator = step[key]['_runtime_instance']
+                        else:
+                            operator = deserialize_component(step[key])
+                        controller = self._select_controller(step, keyword=key, operator=operator)
                     elif isinstance(step[key], dict):
-                        # Dict without 'class' key - try to deserialize
+                        # Dict without 'class' or 'function' key - try to deserialize
                         operator = deserialize_component(step[key])
                         controller = self._select_controller(step, keyword=key, operator=operator)
                     else:
-                        # Direct operator instance (e.g., GroupKFold())
+                        # Direct operator instance (e.g., GroupKFold(), nicon)
                         operator = step[key]
                         controller = self._select_controller(step, keyword=key, operator=operator)
                 elif key := next((k for k in step if k in self.SERIALIZATION_OPERATORS), None):
