@@ -1,5 +1,5 @@
 from sklearn.pipeline import Pipeline
-import nirs4all.transformations as pp
+import nirs4all.operators.transformations as pp
 
 
 def id_preprocessing():
@@ -15,125 +15,109 @@ def haar_only():
 
 
 def nicon_set():
-    return {
-        "parallel": [
-            pp.IdentityTransformer(),
-            pp.SavitzkyGolay(window_length=17, polyorder=2, deriv=2),
-            pp.SavitzkyGolay(window_length=5, polyorder=2),
-            pp.Gaussian(order=1, sigma=2),
-            pp.Gaussian(order=2, sigma=1),
-            pp.Gaussian(order=0, sigma=2),
-            pp.StandardNormalVariate(),
-            pp.MultiplicativeScatterCorrection(scale=False),
-            pp.Detrend(),
-            pp.Derivate(2, 1),
-            pp.Derivate(2, 1),
-            pp.Wavelet("haar"),
-        ]
-    }
+    return [
+        pp.IdentityTransformer(),
+        pp.SavitzkyGolay(window_length=17, polyorder=2, deriv=2),
+        pp.SavitzkyGolay(window_length=5, polyorder=2),
+        pp.Gaussian(order=1, sigma=2),
+        pp.Gaussian(order=2, sigma=1),
+        pp.Gaussian(order=0, sigma=2),
+        pp.StandardNormalVariate(),
+        pp.MultiplicativeScatterCorrection(scale=False),
+        pp.Detrend(),
+        pp.Derivate(2, 1),
+        pp.Derivate(2, 1),
+        pp.Wavelet("haar"),
+    ]
 
 
 def decon_set():
-    return {
-        "parallel": [
-            pp.IdentityTransformer(),
-            pp.Detrend(),
-            pp.MultiplicativeScatterCorrection(scale=False),
-            pp.Derivate(1, 1),
-            pp.Derivate(2, 1),
-            pp.Derivate(2, 2),
-            pp.StandardNormalVariate(),
-            [pp.StandardNormalVariate(), pp.SavitzkyGolay()],
-            [pp.StandardNormalVariate(), pp.Gaussian(order=1, sigma=2)],
-            [pp.StandardNormalVariate(), pp.Gaussian(order=2, sigma=1)],
-            [pp.StandardNormalVariate(), pp.Wavelet("haar")],
-            pp.SavitzkyGolay(),
-            [pp.SavitzkyGolay(), pp.Gaussian(order=1, sigma=2)],
-            [pp.SavitzkyGolay(), pp.Gaussian(order=2, sigma=1)],
-            [pp.SavitzkyGolay(), pp.Derivate(2, 1)],
-            [pp.SavitzkyGolay(), pp.Derivate(1, 2)],
-            pp.Gaussian(order=1, sigma=2),
-            [pp.Gaussian(order=1, sigma=2), pp.SavitzkyGolay()],
-            pp.Gaussian(order=2, sigma=1),
-            pp.Wavelet("haar"),
-            [pp.Wavelet("haar"), pp.Gaussian(order=2, sigma=1)],
-            pp.Wavelet("coif3"),
-        ]
-    }
+    return [
+        pp.IdentityTransformer(),
+        pp.Detrend(),
+        pp.MultiplicativeScatterCorrection(scale=False),
+        pp.Derivate(1, 1),
+        pp.Derivate(2, 1),
+        pp.Derivate(2, 2),
+        pp.StandardNormalVariate(),
+        [pp.StandardNormalVariate(), pp.SavitzkyGolay()],
+        [pp.StandardNormalVariate(), pp.Gaussian(order=1, sigma=2)],
+        [pp.StandardNormalVariate(), pp.Gaussian(order=2, sigma=1)],
+        [pp.StandardNormalVariate(), pp.Wavelet("haar")],
+        pp.SavitzkyGolay(),
+        [pp.SavitzkyGolay(), pp.Gaussian(order=1, sigma=2)],
+        [pp.SavitzkyGolay(), pp.Gaussian(order=2, sigma=1)],
+        [pp.SavitzkyGolay(), pp.Derivate(2, 1)],
+        [pp.SavitzkyGolay(), pp.Derivate(1, 2)],
+        pp.Gaussian(order=1, sigma=2),
+        [pp.Gaussian(order=1, sigma=2), pp.SavitzkyGolay()],
+        pp.Gaussian(order=2, sigma=1),
+        pp.Wavelet("haar"),
+        [pp.Wavelet("haar"), pp.Gaussian(order=2, sigma=1)],
+        pp.Wavelet("coif3"),
+    ]
 
 
 def senseen_set():
-    return {
-        "parallel": [
-            pp.IdentityTransformer(),
-            pp.StandardNormalVariate(),
-            pp.MultiplicativeScatterCorrection(scale=False),
-            pp.SavitzkyGolay(),
-            pp.Gaussian(order=1, sigma=2),
-            pp.Gaussian(order=2, sigma=1),
-            pp.Wavelet("haar"),
-            [pp.StandardNormalVariate(), pp.SavitzkyGolay()],
-            [pp.StandardNormalVariate(), pp.Gaussian(order=1, sigma=2)],
-            [pp.StandardNormalVariate(), pp.Gaussian(order=2, sigma=1)],
-            [pp.StandardNormalVariate(), pp.Wavelet("haar")],
-            [pp.SavitzkyGolay(), pp.SavitzkyGolay()],
-            [pp.Gaussian(order=1, sigma=2), pp.SavitzkyGolay()],
-            [pp.Gaussian(order=1, sigma=2), pp.SavitzkyGolay()],
-            [pp.Wavelet("haar"), pp.SavitzkyGolay()],
-            [pp.Wavelet("haar"), pp.Gaussian(order=1, sigma=2)],
-            [pp.Wavelet("haar"), pp.Gaussian(order=2, sigma=1)],
-        ]
-    }
+    return [
+        pp.StandardNormalVariate(),
+        pp.MultiplicativeScatterCorrection(scale=False),
+        pp.SavitzkyGolay(),
+        pp.Gaussian(order=1, sigma=2),
+        pp.Gaussian(order=2, sigma=1),
+        pp.Wavelet("haar"),
+        [pp.StandardNormalVariate(), pp.SavitzkyGolay()],
+        [pp.StandardNormalVariate(), pp.Gaussian(order=1, sigma=2)],
+        [pp.StandardNormalVariate(), pp.Gaussian(order=2, sigma=1)],
+        [pp.StandardNormalVariate(), pp.Wavelet("haar")],
+        [pp.SavitzkyGolay(), pp.SavitzkyGolay()],
+        [pp.Gaussian(order=1, sigma=2), pp.SavitzkyGolay()],
+        [pp.Gaussian(order=1, sigma=2), pp.SavitzkyGolay()],
+        [pp.Wavelet("haar"), pp.SavitzkyGolay()],
+        [pp.Wavelet("haar"), pp.Gaussian(order=1, sigma=2)],
+        [pp.Wavelet("haar"), pp.Gaussian(order=2, sigma=1)],
+    ]
 
 
 def transf_set():
-    return {
-        "parallel": [
-            pp.IdentityTransformer(),
-            pp.StandardNormalVariate(),
-            pp.SavitzkyGolay(),
-            pp.Gaussian(order=1, sigma=2),
-            pp.Gaussian(order=2, sigma=1),
-            pp.Wavelet("haar"),
-            pp.Wavelet("coif3"),
-            pp.Detrend(),
-            pp.MultiplicativeScatterCorrection(scale=False),
-            pp.Derivate(1, 1),
-            pp.Derivate(2, 1),
-            pp.Derivate(2, 2),
-        ]
-    }
+    return [
+        pp.StandardNormalVariate(),
+        pp.SavitzkyGolay(),
+        pp.Gaussian(order=1, sigma=2),
+        pp.Gaussian(order=2, sigma=1),
+        pp.Wavelet("haar"),
+        pp.Wavelet("coif3"),
+        pp.Detrend(),
+        pp.MultiplicativeScatterCorrection(scale=False),
+        pp.Derivate(1, 1),
+        pp.Derivate(2, 1),
+        pp.Derivate(2, 2),
+    ]
 
 
 def special_set():
-    return {
-        "parallel": [
-            pp.SavitzkyGolay(),
-            pp.MultiplicativeScatterCorrection(scale=False),
-            pp.StandardNormalVariate(),
-            pp.IdentityTransformer(),
-            pp.Detrend(),
-            pp.Gaussian(order=1, sigma=2),
-            pp.Wavelet("haar"),
-        ]
-    }
+    return [
+        pp.SavitzkyGolay(),
+        pp.MultiplicativeScatterCorrection(scale=False),
+        pp.StandardNormalVariate(),
+        pp.IdentityTransformer(),
+        pp.Detrend(),
+        pp.Gaussian(order=1, sigma=2),
+        pp.Wavelet("haar"),
+    ]
 
 
 def small_set():
-    return {
-        "parallel": [
-            pp.IdentityTransformer(),
-            pp.StandardNormalVariate(),
-            pp.SavitzkyGolay(),
-            pp.Wavelet("haar"),
-            pp.Detrend(),
-        ]
-    }
+    return [
+        pp.StandardNormalVariate(),
+        pp.SavitzkyGolay(),
+        pp.Wavelet("haar"),
+        pp.Detrend(),
+    ]
 
 
 def dumb_set():
     pp_list = [
-        ("id", pp.IdentityTransformer()),
         ("baseline", pp.StandardNormalVariate()),
         ("savgol", pp.SavitzkyGolay()),
         ("gaussian1", pp.Gaussian(order=1, sigma=2)),
@@ -159,7 +143,6 @@ def dumb_set():
 
 def dumb_and_dumber_set():
     pp_list = [
-        ("id", pp.IdentityTransformer()),
         ("baseline", pp.StandardNormalVariate()),
         ("savgol", pp.SavitzkyGolay()),
         ("gaussian1", pp.Gaussian(order=1, sigma=2)),
@@ -187,7 +170,6 @@ def dumb_and_dumber_set():
 
 def dumb_set_2D():
     pp_list = [
-        ("id", pp.IdentityTransformer()),
         ("baseline", pp.StandardNormalVariate()),
         ("savgol", pp.SavitzkyGolay()),
         ("gaussian1", pp.Gaussian(order=1, sigma=2)),
@@ -249,7 +231,7 @@ def optimal_set_2D():
         if it[0] in optimal:
             optimal_set.append(it[1])
 
-    return {"parallel": optimal_set}
+    return optimal_set
 
 
 def preprocessing_list():
@@ -419,4 +401,4 @@ def fat_set():
     for it in src_set:
         if it[0] in fat_list:
             optimal_set.append(it[1])
-    return {'parallel': optimal_set}
+    return optimal_set
