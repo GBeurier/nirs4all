@@ -211,9 +211,9 @@ class PredictionAnalyzer:
             all_y_pred = np.array(all_y_pred)
             residuals = all_y_true - all_y_pred
 
-            ax_resid.scatter(all_y_pred, residuals, alpha=0.6, s=20, c=all_colors)
+            ax_resid.scatter(all_y_true, residuals, alpha=0.6, s=20, c=all_colors)
             ax_resid.axhline(y=0, color='r', linestyle='--', alpha=0.8, linewidth=1.5)
-            ax_resid.set_xlabel('Predicted Values')
+            ax_resid.set_xlabel('Observed Values')
             ax_resid.set_ylabel('Residuals')
 
             # Residuals title with scores for each displayed partition

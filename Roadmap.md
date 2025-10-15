@@ -1,7 +1,6 @@
 ## ROADMAP ##
 
 > **Bugs**:
->   - train == val when using groupKFold
 
 > [Serialization] serialization refactoring (merge branch)
 
@@ -20,11 +19,11 @@
 
 > [Augmentation + Balanced Augmentation]
 
-> [SEED] review
-
 > **Enhancement**: Options normalisation in charts (0-1 ou 1-0)
 
 **RELEASE** 0.4
+
+> [SEED] review
 
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
