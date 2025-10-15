@@ -592,6 +592,13 @@ class TensorFlowModelController(BaseModelController):
 
     def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
         """Extract model configuration from step, handling TensorFlow-specific cases."""
+        # If operator is provided and it's a TensorFlow model/function, use it directly
+        if operator is not None:
+            if callable(operator) and hasattr(operator, 'framework') and operator.framework == 'tensorflow':
+                return {'model_instance': operator}
+            elif self._is_tensorflow_model(operator):
+                return {'model_instance': operator}
+
         if isinstance(step, dict):
             model_config = {}
 
@@ -599,15 +606,19 @@ class TensorFlowModelController(BaseModelController):
                 model = step['model']
                 # Handle serialized model functions
                 if isinstance(model, dict) and 'function' in model:
-                    # Import the function from the serialized form
-                    function_path = model['function']
-                    try:
-                        mod_name, _, func_name = function_path.rpartition(".")
-                        mod = __import__(mod_name, fromlist=[func_name])
-                        func = getattr(mod, func_name)
-                        model_config['model_instance'] = func
-                    except (ImportError, AttributeError) as e:
-                        raise ValueError(f"Could not import function {function_path}: {e}")
+                    # Check for runtime instance first
+                    if '_runtime_instance' in model:
+                        model_config['model_instance'] = model['_runtime_instance']
+                    else:
+                        # Import the function from the serialized form
+                        function_path = model['function']
+                        try:
+                            mod_name, _, func_name = function_path.rpartition(".")
+                            mod = __import__(mod_name, fromlist=[func_name])
+                            func = getattr(mod, func_name)
+                            model_config['model_instance'] = func
+                        except (ImportError, AttributeError) as e:
+                            raise ValueError(f"Could not import function {function_path}: {e}")
                 # Handle runtime instance
                 elif isinstance(model, dict) and '_runtime_instance' in model:
                     model_config['model_instance'] = model['_runtime_instance']
@@ -616,6 +627,20 @@ class TensorFlowModelController(BaseModelController):
                     model_config['model_instance'] = model
                 else:
                     model_config['model_instance'] = model
+
+            # Handle bare function step with _runtime_instance (when step itself is the serialized function)
+            elif 'function' in step and '_runtime_instance' in step:
+                model_config['model_instance'] = step['_runtime_instance']
+            elif 'function' in step:
+                # Import the function from the serialized form
+                function_path = step['function']
+                try:
+                    mod_name, _, func_name = function_path.rpartition(".")
+                    mod = __import__(mod_name, fromlist=[func_name])
+                    func = getattr(mod, func_name)
+                    model_config['model_instance'] = func
+                except (ImportError, AttributeError) as e:
+                    raise ValueError(f"Could not import function {function_path}: {e}")
 
             # Extract other parameters
             for key in ['train_params', 'finetune_params']:
