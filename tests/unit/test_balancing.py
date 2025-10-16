@@ -23,7 +23,7 @@ class TestCalculateBalancedCounts:
         labels = np.array([0, 0, 0, 0, 1, 1])
         indices = np.array([10, 11, 12, 13, 14, 15])
 
-        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=1.0)
+        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=1.0)
 
         # Class 0 (majority): no augmentation
         assert counts[10] == 0
@@ -42,7 +42,7 @@ class TestCalculateBalancedCounts:
         labels = np.array([0] * 100 + [1] * 20)
         indices = np.arange(120)
 
-        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=0.8)
+        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=0.8)
 
         # Majority class (100 samples): no augmentation
         for i in range(100):
@@ -60,7 +60,7 @@ class TestCalculateBalancedCounts:
         labels = np.array([0] * 50 + [1] * 30 + [2] * 20)
         indices = np.arange(100)
 
-        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=1.0)
+        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=1.0)
 
         # Class 0 (majority): no augmentation
         for i in range(50):
@@ -87,7 +87,7 @@ class TestCalculateBalancedCounts:
         labels = np.array([0] * 100 + [1] * 40 + [2] * 20)
         indices = np.arange(160)
 
-        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=0.5)
+        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=0.5)
 
         # Majority class (100): no augmentation
         for i in range(100):
@@ -112,7 +112,7 @@ class TestCalculateBalancedCounts:
         labels = np.array([0] * 50 + [1] * 50 + [2] * 50)
         indices = np.arange(150)
 
-        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=1.0)
+        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=1.0)
 
         # All classes equal size - no augmentation needed
         for i in range(150):
@@ -124,7 +124,7 @@ class TestCalculateBalancedCounts:
         labels = np.array([0] * 100 + [1] * 90)
         indices = np.arange(190)
 
-        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=0.8)
+        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=0.8)
 
         # Both classes >= target, no augmentation
         for i in range(190):
@@ -135,7 +135,7 @@ class TestCalculateBalancedCounts:
         labels = np.array(['cat', 'cat', 'cat', 'dog', 'dog'])
         indices = np.array([0, 1, 2, 3, 4])
 
-        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=1.0)
+        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=1.0)
 
         # 'cat' is majority (3), 'dog' is minority (2)
         assert counts[0] == 0
@@ -151,7 +151,7 @@ class TestCalculateBalancedCounts:
         labels = np.array([])
         indices = np.array([])
 
-        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=1.0)
+        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=1.0)
         assert counts == {}
 
     def test_single_class(self):
@@ -159,7 +159,7 @@ class TestCalculateBalancedCounts:
         labels = np.array([0, 0, 0, 0])
         indices = np.array([10, 11, 12, 13])
 
-        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=1.0)
+        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=1.0)
 
         # All same class - no augmentation
         assert all(counts[i] == 0 for i in [10, 11, 12, 13])
@@ -170,7 +170,7 @@ class TestCalculateBalancedCounts:
         indices = np.array([0, 1])
 
         with pytest.raises(ValueError, match="max_factor must be between 0.0 and 1.0"):
-            BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=1.5)
+            BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=1.5)
 
     def test_invalid_max_factor_below_0(self):
         """Test that max_factor < 0.0 raises ValueError."""
@@ -178,15 +178,15 @@ class TestCalculateBalancedCounts:
         indices = np.array([0, 1])
 
         with pytest.raises(ValueError, match="max_factor must be between 0.0 and 1.0"):
-            BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=-0.1)
+            BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=-0.1)
 
     def test_mismatched_lengths(self):
         """Test that mismatched labels and indices raise ValueError."""
         labels = np.array([0, 1, 2])
         indices = np.array([10, 11])  # Different length
 
-        with pytest.raises(ValueError, match="labels and sample_indices must have same length"):
-            BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=1.0)
+        with pytest.raises(ValueError, match="base_labels and base_sample_indices must have same length"):
+            BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=1.0)
 
     def test_large_dataset(self):
         """Test performance with larger dataset."""
@@ -194,7 +194,7 @@ class TestCalculateBalancedCounts:
         labels = np.array([0] * 10000 + [1] * 1000)
         indices = np.arange(11000)
 
-        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=0.9)
+        counts = BalancingCalculator.calculate_balanced_counts(labels, indices, labels, indices, max_factor=0.9)
 
         # Target for class 1: 10000 * 0.9 = 9000
         # Need 8000 more (9000 - 1000)
@@ -370,7 +370,7 @@ class TestIntegration:
 
         # Step 1: Calculate balanced counts
         counts = BalancingCalculator.calculate_balanced_counts(
-            labels, indices, max_factor=0.9
+            labels, indices, labels, indices, max_factor=0.9
         )
 
         # Verify: minority class gets augmentations
@@ -398,7 +398,7 @@ class TestIntegration:
 
         # Calculate and select
         counts = BalancingCalculator.calculate_balanced_counts(
-            labels, indices, max_factor=0.8
+            labels, indices, labels, indices, max_factor=0.8
         )
         selection = BalancingCalculator.apply_random_transformer_selection(
             transformers, counts, random_state=99

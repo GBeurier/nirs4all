@@ -12,76 +12,72 @@ class BalancingCalculator:
     """Calculate augmentation counts for balanced datasets."""
 
     @staticmethod
-    def calculate_balanced_counts(labels: np.ndarray, sample_indices: np.ndarray, max_factor: float = 1.0) -> Dict[int, int]:
+    def calculate_balanced_counts(
+        base_labels: np.ndarray,
+        base_sample_indices: np.ndarray,
+        all_labels: np.ndarray,
+        all_sample_indices: np.ndarray,
+        max_factor: float = 1.0
+    ) -> Dict[int, int]:
         """
-        Calculate how many augmentations needed per sample for balancing.
-
-        This method analyzes class distribution and computes how many synthetic samples
-        need to be created for each original sample to achieve a balanced dataset.
+        Calculate augmentations per BASE sample considering ALL samples for target.
 
         Args:
-            labels: Class labels or group IDs (1D array). Can be numeric or string.
-            sample_indices: Corresponding sample IDs (same length as labels)
-            max_factor: Target fraction of majority class (0.0-1.0). Default 1.0 means
-                       minority classes will be balanced to match majority class size.
-                       0.8 means minority classes target 80% of majority size.
+            base_labels: Class labels for BASE samples only
+            base_sample_indices: BASE sample IDs (these have data to augment)
+            all_labels: Class labels for ALL samples (base + augmented)
+            all_sample_indices: ALL sample IDs (for calculating target size)
+            max_factor: Target fraction of majority class (0.0-1.0).
 
         Returns:
-            Dictionary mapping sample_id → augmentation_count
-            For each sample, returns the number of augmented versions to create.
-
-        Examples:
-            >>> labels = np.array([0, 0, 0, 0, 1, 1])  # 4 class-0, 2 class-1
-            >>> indices = np.array([10, 11, 12, 13, 14, 15])
-            >>> counts = BalancingCalculator.calculate_balanced_counts(labels, indices, max_factor=1.0)
-            >>> # Class 1 needs augmentation: target=4, current=2, need=2 total
-            >>> # Each class-1 sample gets: 2 // 2 = 1 augmentation
-            >>> counts[14]  # 1
-            >>> counts[15]  # 1
-            >>> counts[10]  # 0 (majority class, no augmentation)
+            Dict mapping base_sample_id → augmentation_count
         """
-        if len(labels) != len(sample_indices):
-            raise ValueError(f"labels and sample_indices must have same length, got {len(labels)} and {len(sample_indices)}")
+        if len(base_labels) != len(base_sample_indices):
+            raise ValueError(f"base_labels and base_sample_indices must have same length")
+        if len(all_labels) != len(all_sample_indices):
+            raise ValueError(f"all_labels and all_sample_indices must have same length")
 
         if not 0.0 <= max_factor <= 1.0:
             raise ValueError(f"max_factor must be between 0.0 and 1.0, got {max_factor}")
 
-        if len(labels) == 0:
+        if len(base_labels) == 0:
             return {}
 
-        # Build mapping: label → list of sample_ids
-        label_to_samples = {}
-        for sample_id, label in zip(sample_indices, labels):
-            # Convert to hashable type (handle numpy types and strings)
+        # Count ALL samples per class (to get target size)
+        all_class_counts = {}
+        for label in all_labels:
             label_key = label.item() if hasattr(label, 'item') else label
-            label_to_samples.setdefault(label_key, []).append(int(sample_id))
+            all_class_counts[label_key] = all_class_counts.get(label_key, 0) + 1
 
-        # Find majority class size
-        class_sizes = {label: len(samples) for label, samples in label_to_samples.items()}
-        majority_size = max(class_sizes.values())
-
-        # Calculate target size based on max_factor
+        # Find target size from ALL samples
+        majority_size = max(all_class_counts.values())
         target_size = int(majority_size * max_factor)
 
-        # Calculate augmentations per sample for each class
+        # Build mapping: label → list of BASE sample_ids
+        label_to_base_samples = {}
+        for sample_id, label in zip(base_sample_indices, base_labels):
+            label_key = label.item() if hasattr(label, 'item') else label
+            label_to_base_samples.setdefault(label_key, []).append(int(sample_id))
+
+        # Calculate augmentations per BASE sample
         augmentation_map = {}
 
-        for label, samples in label_to_samples.items():
-            current_size = len(samples)
+        for label, base_samples in label_to_base_samples.items():
+            current_total = all_class_counts.get(label, 0)
+            base_count = len(base_samples)
 
-            if current_size >= target_size:
-                # Already balanced or majority class - no augmentation needed
-                for sample_id in samples:
+            if current_total >= target_size:
+                # Already balanced - no augmentation needed
+                for sample_id in base_samples:
                     augmentation_map[sample_id] = 0
             else:
-                # Needs augmentation to reach target
-                total_needed = target_size - current_size
-                base_count = total_needed // current_size  # Base augmentation count per sample
-                remainder = total_needed % current_size  # Extra augmentations to distribute
+                # Need augmentation to reach target
+                total_needed = target_size - current_total
+                aug_per_base = total_needed // base_count
+                remainder = total_needed % base_count
 
-                # Distribute augmentations: first 'remainder' samples get +1 extra
-                for i, sample_id in enumerate(samples):
-                    augmentation_map[sample_id] = base_count + (1 if i < remainder else 0)
+                for i, sample_id in enumerate(base_samples):
+                    augmentation_map[sample_id] = aug_per_base + (1 if i < remainder else 0)
 
         return augmentation_map
 
