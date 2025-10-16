@@ -28,10 +28,11 @@
 
 > [Predictions] refactoring and as a pipeline context and change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
 
-
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions
 
 > [Model selection] Tools to select "best" predictions
+
+> [Folds] Operator load fold (csv)
 
 **RELEASE** 0.6
 
