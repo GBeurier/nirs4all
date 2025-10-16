@@ -17,47 +17,99 @@ class BalancingCalculator:
         base_sample_indices: np.ndarray,
         all_labels: np.ndarray,
         all_sample_indices: np.ndarray,
-        max_factor: float = 1.0
+        target_size: Optional[int] = None,
+        max_factor: Optional[float] = None,
+        ref_percentage: Optional[float] = None
     ) -> Dict[int, int]:
         """
         Calculate augmentations per BASE sample considering ALL samples for target.
+
+        Three balancing modes are supported (use exactly one):
+
+        1. target_size mode: Augment each class to a fixed target sample count.
+           - target_size: int - desired number of samples per class
+           - Example: target_size=100 means each class will have 100 samples
+           - No cap: classes can exceed majority class size if target_size > majority
+
+        2. max_factor mode: Augment each class by a multiplier, capped at majority class size.
+           - max_factor: float - multiplier applied to each class's current size
+           - Target is capped at majority class size (majority class is never augmented)
+           - Example: max_factor=3 with majority=100, class=20 → target=min(60, 100)=60
+           - Example: max_factor=2 with majority=100, class=100 → target=100 (no augmentation)
+
+        3. ref_percentage mode: Augment each class to a percentage of the majority class.
+           - ref_percentage: float - can be any positive value (0.5-2.0, etc)
+           - If < 1.0: targets below majority (e.g., 0.8 with majority=100 → target=80)
+           - If > 1.0: targets above majority, like a multiplier of majority class
+           - Example: ref_percentage=1.5 with majority=100 → target=150
 
         Args:
             base_labels: Class labels for BASE samples only
             base_sample_indices: BASE sample IDs (these have data to augment)
             all_labels: Class labels for ALL samples (base + augmented)
             all_sample_indices: ALL sample IDs (for calculating target size)
-            max_factor: Target fraction of majority class (0.0-1.0).
+            target_size: Fixed target samples per class (mode 1)
+            max_factor: Multiplier for augmentation, capped at majority (mode 2)
+            ref_percentage: Target as multiple of reference class (mode 3, can be > 1.0)
 
         Returns:
             Dict mapping base_sample_id → augmentation_count
+
+        Raises:
+            ValueError: If zero or multiple modes are specified, or invalid parameter values
         """
         if len(base_labels) != len(base_sample_indices):
-            raise ValueError(f"base_labels and base_sample_indices must have same length")
+            raise ValueError("base_labels and base_sample_indices must have same length")
         if len(all_labels) != len(all_sample_indices):
-            raise ValueError(f"all_labels and all_sample_indices must have same length")
-
-        if not 0.0 <= max_factor <= 1.0:
-            raise ValueError(f"max_factor must be between 0.0 and 1.0, got {max_factor}")
+            raise ValueError("all_labels and all_sample_indices must have same length")
 
         if len(base_labels) == 0:
             return {}
 
-        # Count ALL samples per class (to get target size)
+        # Validate that exactly one mode is specified
+        modes_specified = sum([target_size is not None, max_factor is not None, ref_percentage is not None])
+        if modes_specified == 0:
+            # Default to max_factor=1.0 if nothing specified
+            max_factor = 1.0
+        elif modes_specified > 1:
+            raise ValueError("Specify exactly one of: target_size, max_factor, or ref_percentage")
+
+        # Count ALL samples per class (to get current distribution)
         all_class_counts = {}
         for label in all_labels:
             label_key = label.item() if hasattr(label, 'item') else label
             all_class_counts[label_key] = all_class_counts.get(label_key, 0) + 1
-
-        # Find target size from ALL samples
-        majority_size = max(all_class_counts.values())
-        target_size = int(majority_size * max_factor)
 
         # Build mapping: label → list of BASE sample_ids
         label_to_base_samples = {}
         for sample_id, label in zip(base_sample_indices, base_labels):
             label_key = label.item() if hasattr(label, 'item') else label
             label_to_base_samples.setdefault(label_key, []).append(int(sample_id))
+
+        # Calculate target size per class based on mode
+        if target_size is not None:
+            # Mode 1: Fixed target size per class
+            if target_size <= 0:
+                raise ValueError(f"target_size must be positive, got {target_size}")
+            target_size_per_class = target_size
+        elif max_factor is not None:
+            # Mode 2: Multiplier - each class augmented by factor (applied to current size)
+            if max_factor <= 0:
+                raise ValueError(f"max_factor must be positive, got {max_factor}")
+            # This mode calculates per-class target differently
+            target_size_per_class = None  # Will be calculated per-class
+        elif ref_percentage is not None:
+            # Mode 3: Percentage of reference (majority) class
+            if ref_percentage <= 0:
+                raise ValueError(f"ref_percentage must be positive, got {ref_percentage}")
+            majority_size = max(all_class_counts.values())
+            target_size_per_class = int(majority_size * ref_percentage)
+        else:
+            # Default: use max_factor=1.0
+            target_size_per_class = None
+
+        # Get majority size for max_factor capping
+        majority_size = max(all_class_counts.values()) if all_class_counts else 0
 
         # Calculate augmentations per BASE sample
         augmentation_map = {}
@@ -66,13 +118,22 @@ class BalancingCalculator:
             current_total = all_class_counts.get(label, 0)
             base_count = len(base_samples)
 
-            if current_total >= target_size:
+            # Calculate target for this class
+            if max_factor is not None and target_size_per_class is None:
+                # Mode 2: target = current * max_factor, capped at majority class size
+                class_target = int(current_total * max_factor)
+                class_target = min(class_target, majority_size)
+            else:
+                # Modes 1, 3, or default
+                class_target = target_size_per_class
+
+            if current_total >= class_target:
                 # Already balanced - no augmentation needed
                 for sample_id in base_samples:
                     augmentation_map[sample_id] = 0
             else:
                 # Need augmentation to reach target
-                total_needed = target_size - current_total
+                total_needed = class_target - current_total
                 aug_per_base = total_needed // base_count
                 remainder = total_needed % base_count
 

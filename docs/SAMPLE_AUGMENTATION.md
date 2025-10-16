@@ -154,7 +154,7 @@ sample_augmentation:
 
 ### Balanced Mode (Class-Aware)
 
-Balances class distribution by augmenting minority classes.
+Balances class distribution by augmenting minority classes. Three balancing strategies are available:
 
 ```json
 {
@@ -162,7 +162,6 @@ Balances class distribution by augmenting minority classes.
     "transformers": [ { "StandardScaler": {} } ],
     "balance": "y",
     "target_size": 100,
-    "max_factor": 3.0,
     "selection": "random",
     "random_state": 42
   }
@@ -174,25 +173,84 @@ sample_augmentation:
   transformers:
     - StandardScaler: {}
   balance: "y"  # Balance on target variable
-  target_size: 100  # Target samples per class
-  max_factor: 3.0  # Max augmentation factor (optional)
+  target_size: 100  # Target samples per class (Strategy 1)
   selection: "random"
   random_state: 42
 ```
 
 **Parameters:**
 - `balance` (str): Column to balance on (`"y"` for targets or metadata column name)
-- `target_size` (int): Desired number of samples per class
-- `max_factor` (float): Maximum augmentation multiplier (default: unlimited)
+- **Choose ONE balancing strategy:**
+  - `target_size` (int): Fixed number of samples per class - each class augmented to exactly this size (no cap)
+  - `max_factor` (float): Multiplier factor - each class augmented to `current_size * max_factor`, capped at majority class size
+  - `ref_percentage` (float): Target as multiple of majority class (any positive value: 0.5, 0.8, 1.0, 1.5, etc.)
 - `selection` (str): Same as standard mode
 - `random_state` (int): Random seed
 
-**Example:**
+**Strategy 1 - Fixed Target Size:**
+```json
+{
+  "sample_augmentation": {
+    "transformers": [ { "StandardScaler": {} } ],
+    "balance": "y",
+    "target_size": 100
+  }
+}
 ```
-Initial: Class 0: 80 samples, Class 1: 20 samples
-target_size: 80
-Result:  Class 0: 80 samples (unchanged)
-         Class 1: 80 samples (60 augmented)
+
+Each class is augmented to exactly 100 samples (no cap at majority):
+```
+Initial: Class 0: 150 samples, Class 1: 30 samples, Class 2: 50 samples
+Result:  Class 0: 150 samples (no change - already >= 100)
+         Class 1: 100 samples (70 augmented)
+         Class 2: 100 samples (50 augmented)
+```
+
+**Strategy 2 - Multiplier Factor (capped at majority):**
+```json
+{
+  "sample_augmentation": {
+    "transformers": [ { "StandardScaler": {} } ],
+    "balance": "y",
+    "max_factor": 3.0
+  }
+}
+```
+
+Each class is multiplied by the factor, but capped at majority class size:
+```
+Initial: Class 0: 100 samples (majority), Class 1: 20 samples, Class 2: 50 samples
+Result:  Class 0: 100 samples (no augmentation - it's majority)
+         Class 1: 60 samples (40 augmented, min(20 × 3, 100) = 60)
+         Class 2: 100 samples (50 augmented, min(50 × 3, 100) = 100, capped)
+```
+
+**Strategy 3 - Reference Percentage:**
+```json
+{
+  "sample_augmentation": {
+    "transformers": [ { "StandardScaler": {} } ],
+    "balance": "y",
+    "ref_percentage": 0.8
+  }
+}
+```
+
+Target each class to be a multiple of the majority class:
+```
+Initial: Class 0: 100 samples (majority), Class 1: 30 samples, Class 2: 20 samples
+Result:  Class 0: 100 samples (no change - it's the majority)
+         Class 1: 80 samples (50 augmented, targeting 0.8 × 100)
+         Class 2: 80 samples (60 augmented, targeting 0.8 × 100)
+```
+
+Reference percentage > 1.0 example:
+```
+Initial: Class 0: 100 samples (majority), Class 1: 30 samples, Class 2: 20 samples
+ref_percentage: 1.5
+Result:  Class 0: 150 samples (50 augmented, targeting 1.5 × 100)
+         Class 1: 150 samples (120 augmented, targeting 1.5 × 100)
+         Class 2: 150 samples (130 augmented, targeting 1.5 × 100)
 ```
 
 ## API Reference
@@ -209,6 +267,7 @@ Result:  Class 0: 80 samples (unchanged)
     "balance": "y",
     "target_size": 100,
     "max_factor": 3.0,
+    "ref_percentage": 0.8,
     "selection": "random",
     "random_state": 42
   }
@@ -222,10 +281,11 @@ sample_augmentation:
   # Standard mode
   count: int  # Number of augmentations per sample
 
-  # OR Balanced mode
+  # OR Balanced mode (choose ONE strategy)
   balance: str  # "y" or metadata column name
-  target_size: int  # Target samples per class
-  max_factor: float  # Optional, default unlimited
+  target_size: int  # Strategy 1: Fixed target samples per class
+  max_factor: float  # Strategy 2: Multiplier factor (e.g., 3 means 3x size)
+  ref_percentage: float  # Strategy 3: % of majority class (0.0-1.0)
 
   # Common options
   selection: str  # "random" (default) or "all"
@@ -332,32 +392,69 @@ Good choices for spectroscopy data:
 
 ### 4. Balanced Mode Settings
 
+Three balancing strategies are available. Choose the one that best fits your use case:
+
+**Strategy 1 - Fixed Target Size:**
 ```json
-[
-  {
-    "balance": "y",
-    "target_size": "majority_class_size",
-    "max_factor": 2.0
-  },
-  {
-    "balance": "y",
-    "target_size": "majority_class_size",
-    "max_factor": 5.0
-  }
-]
+{
+  "balance": "y",
+  "target_size": 100
+}
+```
+Use when you want each class to have exactly a specific number of samples. Best for:
+- Setting a fixed validation set size
+- Ensuring consistent class sizes across experiments
+- Specific domain requirements
+
+**Strategy 2 - Multiplier Factor:**
+```json
+{
+  "balance": "y",
+  "max_factor": 3.0
+}
+```
+Use when you want each class multiplied by a consistent factor. Best for:
+- Conservative augmentation (e.g., 2x to 3x)
+- Proportional growth (maintains relative class size differences)
+- Aggressive augmentation with control
+
+**Strategy 3 - Percentage of Majority:**
+```json
+{
+  "balance": "y",
+  "ref_percentage": 0.8
+}
+```
+Use when you want minority classes to approach majority size. Best for:
+- Balancing imbalanced datasets toward majority class
+- Progressive augmentation strategies
+- Legacy or familiar approaches
+
+**Comparison Example:**
+
+```
+Initial distribution: Class A: 1000, Class B: 100, Class C: 50
 ```
 
-```yaml
-# Conservative balancing
-balance: "y"
-target_size: majority_class_size
-max_factor: 2.0  # Limit to 2x augmentation
+Strategy 1 (`target_size: 500`):
+- Class A: 1000 → 1000 (no augmentation needed)
+- Class B: 100 → 500 (400 augmented)
+- Class C: 50 → 500 (450 augmented)
 
-# Aggressive balancing (use with caution)
-balance: "y"
-target_size: majority_class_size
-max_factor: 5.0  # Allow up to 5x augmentation
-```
+Strategy 2 (`max_factor: 2.0`, capped at majority 1000):
+- Class A: 1000 → 1000 (no augmentation - it's majority)
+- Class B: 100 → min(200, 1000) = 200 (100 augmented)
+- Class C: 50 → min(100, 1000) = 100 (50 augmented)
+
+Strategy 3 (`ref_percentage: 0.5`, with majority 1000):
+- Class A: 1000 → 1000 (no change - reference class)
+- Class B: 100 → 500 (400 augmented, targeting 0.5 × 1000)
+- Class C: 50 → 500 (450 augmented, targeting 0.5 × 1000)
+
+Strategy 3 with value > 1.0 (`ref_percentage: 1.2`, with majority 1000):
+- Class A: 1000 → 1200 (200 augmented, targeting 1.2 × 1000)
+- Class B: 100 → 1200 (1100 augmented, targeting 1.2 × 1000)
+- Class C: 50 → 1200 (1150 augmented, targeting 1.2 × 1000)
 
 ### 5. Random State for Reproducibility
 
@@ -431,7 +528,7 @@ pipeline:
 - Transformers randomly selected for each augmentation
 - Different runs produce different augmentations (deterministic with same seed)
 
-### Example 3: Balanced Augmentation for Imbalanced Data
+### Example 3: Balanced Augmentation with Fixed Target Size
 
 ```yaml
 pipeline:
@@ -440,18 +537,55 @@ pipeline:
         - StandardScaler: {}
         - MinMaxScaler: {}
       balance: "y"
-      target_size: 100
-      max_factor: 3.0
+      target_size: 100  # Each class will have 100 samples
       selection: "random"
       random_state: 42
 ```
 
 **Scenario:**
-- Class 0: 100 samples → 100 samples (no change)
-- Class 1: 30 samples → 100 samples (70 augmented, ~2.3x factor)
-- Class 2: 20 samples → 60 samples (40 augmented, 3x factor limit reached)
+- Class 0: 100 samples → 100 samples (unchanged, already at target)
+- Class 1: 30 samples → 100 samples (70 augmented)
+- Class 2: 20 samples → 100 samples (80 augmented)
 
-### Example 4: Sequential Augmentation Rounds
+### Example 4: Balanced Augmentation with Multiplier Factor
+
+```yaml
+pipeline:
+  - sample_augmentation:
+      transformers:
+        - StandardScaler: {}
+        - MinMaxScaler: {}
+      balance: "y"
+      max_factor: 3.0  # Each class multiplied by 3, capped at majority size
+      selection: "random"
+      random_state: 42
+```
+
+**Scenario (majority class = 100):**
+- Class 0: 100 samples (majority) → 100 samples (no augmentation)
+- Class 1: 30 samples → min(90, 100) = 90 samples (60 augmented)
+- Class 2: 20 samples → min(60, 100) = 60 samples (40 augmented)
+
+### Example 5: Balanced Augmentation with Reference Percentage
+
+```yaml
+pipeline:
+  - sample_augmentation:
+      transformers:
+        - StandardScaler: {}
+        - MinMaxScaler: {}
+      balance: "y"
+      ref_percentage: 0.8  # Target 80% of majority class
+      selection: "random"
+      random_state: 42
+```
+
+**Scenario:**
+- Class 0: 100 samples (majority) → 100 samples (unchanged)
+- Class 1: 30 samples → 80 samples (50 augmented, targeting 0.8 × 100)
+- Class 2: 20 samples → 80 samples (60 augmented, targeting 0.8 × 100)
+
+### Example 6: Sequential Augmentation Rounds
 
 ```yaml
 pipeline:
@@ -473,7 +607,7 @@ pipeline:
 - Second round: Augments same 100 base → 300 total (100 base + 200 augmented)
 - Each augmentation round only targets original base samples
 
-### Example 5: Augmentation with Metadata Filtering
+### Example 7: Augmentation with Metadata Filtering
 
 ```yaml
 pipeline:

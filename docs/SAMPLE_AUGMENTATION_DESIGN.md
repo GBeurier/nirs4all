@@ -127,40 +127,87 @@ final_samples = np.concatenate([base_samples, augmented_samples])
 
 #### Mode 2: Balanced Augmentation (Class-Aware)
 
-**Configuration:**
+**Configuration - Three Strategies Available:**
+
+**Strategy 1: Fixed Target Size**
 ```python
 {
     "sample_augmentation": {
         "transformers": [SavGol(), Gaussian(), SNV()],
         "balance": "y",  # or metadata column name like "group_id"
-        "max_factor": 0.8,  # Target 80% of majority class size
+        "target_size": 100,  # Each class will have exactly 100 samples
         "selection": "random"
     }
 }
 ```
 
-**Balancing Algorithm:**
+**Strategy 2: Multiplier Factor (Capped at Majority)**
 ```python
-# Example: Class distribution
-majority_class_count = 100
-minority_class_count = 20
-max_factor = 0.8
-
-# Target count for minority class
-target_count = int(majority_class_count * max_factor)  # 80
-
-# Augmentations needed
-augmentations_needed = max(0, target_count - minority_class_count)  # 60
-
-# Per-sample augmentation count (distributed evenly)
-aug_per_sample = augmentations_needed // minority_class_count  # 3
-remainder = augmentations_needed % minority_class_count  # 0
+{
+    "sample_augmentation": {
+        "transformers": [SavGol(), Gaussian(), SNV()],
+        "balance": "y",
+        "max_factor": 3.0,  # Each class multiplied by 3, capped at majority size
+        "selection": "random"
+    }
+}
 ```
 
-**Handling Multiple Underrepresented Classes:**
-- Calculate target for each class relative to majority
-- Generate augmentations independently per class
-- Support both classification (y) and regression (metadata groups)
+**Strategy 3: Reference Percentage**
+```python
+{
+    "sample_augmentation": {
+        "transformers": [SavGol(), Gaussian(), SNV()],
+        "balance": "y",
+        "ref_percentage": 1.5,  # Target 150% of majority class (or any positive value)
+        "selection": "random"
+    }
+}
+```
+
+**Balancing Algorithm Examples:**
+
+Strategy 1 (Fixed Target):
+```python
+# Initial: Class A: 50, Class B: 200, Class C: 100
+# target_size = 100
+
+# Class A: 50 → 100 (need 50 augmented)
+# Class B: 200 → 200 (no change, already > target)
+# Class C: 100 → 100 (no change, exactly at target)
+```
+
+Strategy 2 (Multiplier, capped at majority 200):
+```python
+# Initial: Class A: 50, Class B: 200, Class C: 100
+# max_factor = 3.0
+# Majority = 200
+
+# Class A: 50 → min(150, 200) = 150 (need 100 augmented)
+# Class B: 200 → min(600, 200) = 200 (no augmentation, it's majority)
+# Class C: 100 → min(300, 200) = 200 (need 100 augmented, capped)
+```
+
+Strategy 3 (Reference Percentage, majority = 100):
+```python
+# Initial: Class A: 100 (majority), Class B: 20, Class C: 10
+# ref_percentage = 1.5
+
+# Class A: 100 → int(100 * 1.5) = 150 (need 50 augmented)
+# Class B: 20 → int(100 * 1.5) = 150 (need 130 augmented)
+# Class C: 10 → int(100 * 1.5) = 150 (need 140 augmented)
+```
+
+**Key Difference - max_factor vs ref_percentage:**
+- **max_factor**: Each class's target = min(current × factor, majority_size)
+  - Majority class is never augmented
+  - Target cannot exceed majority size
+  - Use when you want controlled, proportional growth
+
+- **ref_percentage**: Each class's target = int(majority × ref_percentage)
+  - User controls exact target, can be above majority (if > 1.0)
+  - Majority can be augmented if ref_percentage > 1.0
+  - Use when you want explicit target size control
 
 ### 2.4 Delegation Pattern (Like Feature Augmentation)
 
@@ -303,59 +350,105 @@ def get_origin_for_sample(self, sample_id: int) -> Optional[int]:
 **New File:** `nirs4all/utils/balancing.py`
 
 ```python
-from typing import List, Dict, Union, Tuple
+from typing import List, Dict, Optional
 import numpy as np
-from collections import Counter
 
 class BalancingCalculator:
     """Calculate augmentation counts for balanced datasets."""
 
     @staticmethod
     def calculate_balanced_counts(
-        labels: np.ndarray,
-        sample_indices: np.ndarray,
-        max_factor: float = 1.0
+        base_labels: np.ndarray,
+        base_sample_indices: np.ndarray,
+        all_labels: np.ndarray,
+        all_sample_indices: np.ndarray,
+        target_size: Optional[int] = None,
+        max_factor: Optional[float] = None,
+        ref_percentage: Optional[float] = None
     ) -> Dict[int, int]:
         """
-        Calculate how many augmentations needed per sample for balancing.
+        Calculate augmentations per BASE sample using one of three strategies.
+
+        Strategy 1 - Fixed Target Size:
+            target_size: int
+            Each class augmented to exactly this size (no cap)
+            Example: target_size=100 means each class will have 100 samples
+
+        Strategy 2 - Multiplier Factor (Capped at Majority):
+            max_factor: float
+            Each class multiplied by this factor, capped at majority class size
+            Example: max_factor=3 with majority=100
+                     Class 20 → min(60, 100) = 60
+
+        Strategy 3 - Reference Percentage:
+            ref_percentage: float (any positive value)
+            Each class targets (majority × ref_percentage)
+            Example: ref_percentage=0.8 with majority=100 → target=80
+            Example: ref_percentage=1.5 with majority=100 → target=150
 
         Args:
-            labels: Class labels or group IDs (1D array)
-            sample_indices: Corresponding sample IDs
-            max_factor: Target fraction of majority class (0.0-1.0)
+            base_labels: Class labels for BASE samples only
+            base_sample_indices: BASE sample IDs
+            all_labels: Class labels for ALL samples (base + augmented)
+            all_sample_indices: ALL sample IDs
+            target_size: Strategy 1 parameter
+            max_factor: Strategy 2 parameter (capped at majority)
+            ref_percentage: Strategy 3 parameter (can be > 1.0)
 
         Returns:
-            Dictionary mapping sample_id → augmentation_count
+            Dictionary mapping base_sample_id → augmentation_count
         """
+        # Validate exactly one strategy specified
+        modes = sum([target_size is not None, max_factor is not None, ref_percentage is not None])
+        if modes == 0:
+            max_factor = 1.0  # Default strategy
+        elif modes > 1:
+            raise ValueError("Specify exactly one of: target_size, max_factor, or ref_percentage")
+
         # Count samples per class
-        label_to_samples = {}
-        for sample_id, label in zip(sample_indices, labels):
-            label_to_samples.setdefault(label, []).append(sample_id)
+        all_class_counts = {}
+        for label in all_labels:
+            label_key = label.item() if hasattr(label, 'item') else label
+            all_class_counts[label_key] = all_class_counts.get(label_key, 0) + 1
 
-        # Find majority class size
-        class_sizes = {label: len(samples) for label, samples in label_to_samples.items()}
-        majority_size = max(class_sizes.values())
+        # Build mapping: label → list of BASE sample_ids
+        label_to_base_samples = {}
+        for sample_id, label in zip(base_sample_indices, base_labels):
+            label_key = label.item() if hasattr(label, 'item') else label
+            label_to_base_samples.setdefault(label_key, []).append(int(sample_id))
 
-        # Calculate augmentations per class
+        # Get majority size for max_factor capping
+        majority_size = max(all_class_counts.values()) if all_class_counts else 0
+
         augmentation_map = {}
 
-        for label, samples in label_to_samples.items():
-            current_size = len(samples)
-            target_size = int(majority_size * max_factor)
+        for label, base_samples in label_to_base_samples.items():
+            current_total = all_class_counts.get(label, 0)
+            base_count = len(base_samples)
 
-            if current_size >= target_size:
-                # Already balanced or majority class
-                for sample_id in samples:
+            # Calculate target based on strategy
+            if target_size is not None:
+                class_target = target_size
+            elif max_factor is not None:
+                # Mode 2: target = current * max_factor, capped at majority
+                class_target = int(current_total * max_factor)
+                class_target = min(class_target, majority_size)
+            else:  # ref_percentage
+                # Mode 3: target = majority * ref_percentage (can be above majority)
+                class_target = int(majority_size * ref_percentage)
+
+            if current_total >= class_target:
+                # Already balanced
+                for sample_id in base_samples:
                     augmentation_map[sample_id] = 0
             else:
-                # Needs augmentation
-                total_needed = target_size - current_size
-                base_count = total_needed // current_size
-                remainder = total_needed % current_size
+                # Need augmentation
+                total_needed = class_target - current_total
+                aug_per_base = total_needed // base_count
+                remainder = total_needed % base_count
 
-                for i, sample_id in enumerate(samples):
-                    # Distribute remainder to first samples
-                    augmentation_map[sample_id] = base_count + (1 if i < remainder else 0)
+                for i, sample_id in enumerate(base_samples):
+                    augmentation_map[sample_id] = aug_per_base + (1 if i < remainder else 0)
 
         return augmentation_map
 
@@ -993,17 +1086,49 @@ dataset.x({"partition": "train"}, include_augmented=False)
     }
 }
 
-# Balanced Mode
+# Balanced Mode - Choose ONE strategy:
+
+# Strategy 1: Fixed Target Size
 {
     "sample_augmentation": {
         "transformers": [transformer1, transformer2],
         "balance": "y" | "metadata_column",
-        "max_factor": float,  # optional, default 1.0
+        "target_size": int,  # Each class augmented to this size
+        "selection": "random" | "all",  # optional
+        "random_state": int  # optional
+    }
+}
+
+# Strategy 2: Multiplier Factor
+{
+    "sample_augmentation": {
+        "transformers": [transformer1, transformer2],
+        "balance": "y" | "metadata_column",
+        "max_factor": float,  # Each class multiplied by this factor
+        "selection": "random" | "all",  # optional
+        "random_state": int  # optional
+    }
+}
+
+# Strategy 3: Reference Percentage (Legacy)
+{
+    "sample_augmentation": {
+        "transformers": [transformer1, transformer2],
+        "balance": "y" | "metadata_column",
+        "ref_percentage": float,  # Target as % of majority class (0.0-1.0)
         "selection": "random" | "all",  # optional
         "random_state": int  # optional
     }
 }
 ```
+
+**Strategy Selection Guide:**
+
+| Strategy | Use When | Example |
+|----------|----------|---------|
+| `target_size` | Want fixed class size | `target_size: 100` (each class has 100) |
+| `max_factor` | Want proportional growth | `max_factor: 3.0` (each class × 3) |
+| `ref_percentage` | Want % of majority | `ref_percentage: 0.8` (each class = 80% of max) |
 
 ---
 
@@ -1018,10 +1143,12 @@ dataset.x({"partition": "train"}, include_augmented=False)
 - `test_get_origin_for_sample()`: Origin lookup
 
 **Balancing Tests** (`tests/unit/test_balancing.py`)
-- `test_calculate_balanced_counts_binary()`: 2-class balancing
-- `test_calculate_balanced_counts_multiclass()`: 3+ classes
-- `test_max_factor_behavior()`: Different max_factor values
+- `test_calculate_balanced_counts_target_size()`: Strategy 1 - fixed target
+- `test_calculate_balanced_counts_max_factor()`: Strategy 2 - multiplier
+- `test_calculate_balanced_counts_ref_percentage()`: Strategy 3 - reference %
+- `test_calculate_balanced_counts_multiclass()`: All strategies with 3+ classes
 - `test_already_balanced()`: No augmentation needed
+- `test_invalid_strategy_combination()`: Error on multiple strategies
 - `test_random_transformer_selection()`: Randomness and seed
 
 **Controller Tests** (`tests/unit/test_sample_augmentation_controller.py`)
