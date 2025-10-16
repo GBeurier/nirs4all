@@ -1,9 +1,11 @@
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import copy
+import numpy as np  # noqa: F401
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.balancing import BalancingCalculator
+from nirs4all.utils.binning import BinningCalculator  # noqa: F401 - used in _execute_balanced
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -96,6 +98,19 @@ class SampleAugmentationController(OperatorController):
                     "random_state": int
                 }
             }
+
+        Binning for regression (automatic when balance="y" and task is regression):
+            {
+                "sample_augmentation": {
+                    "transformers": [...],
+                    "balance": "y",
+                    "bins": int,  # Number of virtual classes (default: 10)
+                    "binning_strategy": "equal_width" or "quantile",  # Default: "equal_width"
+                    "max_factor": float,  # Choose one balancing mode
+                    "selection": "random" or "all",
+                    "random_state": int
+                }
+            }
         """
         config = step["sample_augmentation"]
         transformers = config.get("transformers", [])
@@ -176,6 +191,7 @@ class SampleAugmentationController(OperatorController):
 
         selection = config.get("selection", "random")
         random_state = config.get("random_state", None)
+        bin_balancing = config.get("bin_balancing", "sample")  # NEW: "sample" or "value"
 
         # Get train samples ONLY (ensure we're in train partition)
         train_context = copy.deepcopy(context)
@@ -196,6 +212,17 @@ class SampleAugmentationController(OperatorController):
             labels_all_train = dataset.y(train_context, include_augmented=True)
             # Flatten if necessary
             labels_all_train = labels_all_train.flatten() if labels_all_train.ndim > 1 else labels_all_train
+
+            # Store original values before binning (needed for value-aware balancing)
+            original_values_all = labels_all_train.copy()
+
+            # Apply binning for regression tasks
+            if dataset.is_regression():
+                bins = config.get("bins", 10)
+                strategy = config.get("binning_strategy", "equal_width")
+                labels_all_train, _ = BinningCalculator.bin_continuous_targets(
+                    labels_all_train, bins=bins, strategy=strategy
+                )
         else:
             # Metadata column - map augmented samples to origins using y_indices
             if not isinstance(balance_source, str):
@@ -205,20 +232,41 @@ class SampleAugmentationController(OperatorController):
             # Get base metadata and index into it using origin indices
             base_metadata = dataset._metadata.get_column(balance_source)  # noqa: SLF001
             labels_all_train = base_metadata[origin_indices]
+            original_values_all = None
 
         # Get labels for BASE TRAIN samples only (for calculating augmentation per base sample)
         labels_base_train = labels_all_train[:len(base_train_samples)]
+        if original_values_all is not None:
+            original_values_base = original_values_all[:len(base_train_samples)]
+        else:
+            original_values_base = None
 
         # Calculate augmentation counts per BASE TRAIN sample using specified mode
-        augmentation_counts = BalancingCalculator.calculate_balanced_counts(
-            labels_base_train,
-            base_train_samples,
-            labels_all_train,
-            all_train_samples,
-            target_size=target_size,
-            max_factor=max_factor,
-            ref_percentage=ref_percentage
-        )
+        if bin_balancing == "value" and dataset.is_regression() and original_values_base is not None:
+            # Use value-aware balancing for regression with binning
+            augmentation_counts = BalancingCalculator.calculate_balanced_counts_value_aware(
+                labels_base_train,
+                base_train_samples,
+                original_values_base,
+                labels_all_train,
+                all_train_samples,
+                target_size=target_size,
+                max_factor=max_factor,
+                ref_percentage=ref_percentage,
+                random_state=random_state
+            )
+        else:
+            # Use standard sample-aware balancing
+            augmentation_counts = BalancingCalculator.calculate_balanced_counts(
+                labels_base_train,
+                base_train_samples,
+                labels_all_train,
+                all_train_samples,
+                target_size=target_size,
+                max_factor=max_factor,
+                ref_percentage=ref_percentage,
+                random_state=random_state
+            )
 
         # Check if any augmentation is needed
         if sum(augmentation_counts.values()) == 0:
