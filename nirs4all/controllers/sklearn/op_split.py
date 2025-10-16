@@ -108,7 +108,26 @@ class CrossValidatorController(OperatorController):
         * Maps local indices back to the global index space.
         * Stores the list of folds into the dataset for subsequent steps.
         """
-        # Extract group column specification from step dict
+        # In predict/explain mode, skip fold splitting entirely
+        if mode == "predict" or mode == "explain":
+            local_context = copy.deepcopy(context)
+            local_context["partition"] = "train"
+            needs_y, needs_g = _needs(operator)
+            X = dataset.x(local_context, layout="2d", concat_source=True)
+            n_samples = X.shape[0]
+
+            # Build minimal kwargs for get_n_splits
+            kwargs: Dict[str, Any] = {}
+            if needs_y:
+                y = dataset.y(local_context)
+                if y is not None:
+                    kwargs["y"] = y
+
+            n_folds = operator.get_n_splits(**kwargs) if hasattr(operator, "get_n_splits") else 1
+            dataset.set_folds([(list(range(n_samples)), [])] * n_folds)
+            return context, []
+
+        # Extract group column specification from step dict (train mode only)
         group_column = None
         if isinstance(step, dict) and "group" in step:
             group_column = step["group"]
@@ -187,46 +206,42 @@ class CrossValidatorController(OperatorController):
             # (non-group splitters like KFold, ShuffleSplit ignore groups anyway)
             kwargs["groups"] = groups
 
-        if mode != "predict" and mode != "explain":
-            folds = list(operator.split(X, **kwargs))  # Convert to list to avoid iterator consumption
+        # Train mode: perform actual fold splitting
+        folds = list(operator.split(X, **kwargs))  # Convert to list to avoid iterator consumption
 
-            # Store the folds in the dataset
-            dataset.set_folds(folds)
+        # Store the folds in the dataset
+        dataset.set_folds(folds)
 
-            # If no test partition exists, use first fold as test
-            if dataset.x({"partition": "test"}).shape[0] == 0:
-                print("⚠️ No test partition found; using first fold as test set.")
-                fold_1 = folds[0]
-                dataset._indexer.update_by_indices(
-                    fold_1[1], {"partition": "test"}
-                )
+        # If no test partition exists, use first fold as test
+        if dataset.x({"partition": "test"}).shape[0] == 0:
+            print("⚠️ No test partition found; using first fold as test set.")
+            fold_1 = folds[0]
+            dataset._indexer.update_by_indices(
+                fold_1[1], {"partition": "test"}
+            )
 
-            # Generate binary output with fold information
-            headers = [f"fold_{i}" for i in range(len(folds))]
-            binary = ",".join(headers).encode("utf-8") + b"\n"
-            max_train_samples = max(len(train_idx) for train_idx, _ in folds)
+        # Generate binary output with fold information
+        headers = [f"fold_{i}" for i in range(len(folds))]
+        binary = ",".join(headers).encode("utf-8") + b"\n"
+        max_train_samples = max(len(train_idx) for train_idx, _ in folds)
 
-            for row_idx in range(max_train_samples):
-                row_values = []
-                for fold_idx, (train_idx, val_idx) in enumerate(folds):
-                    if row_idx < len(train_idx):
-                        row_values.append(str(train_idx[row_idx]))
-                    else:
-                        row_values.append("")  # Empty cell if this fold has fewer samples
-                binary += ",".join(row_values).encode("utf-8") + b"\n"
+        for row_idx in range(max_train_samples):
+            row_values = []
+            for fold_idx, (train_idx, val_idx) in enumerate(folds):
+                if row_idx < len(train_idx):
+                    row_values.append(str(train_idx[row_idx]))
+                else:
+                    row_values.append("")  # Empty cell if this fold has fewer samples
+            binary += ",".join(row_values).encode("utf-8") + b"\n"
 
-            # Filename includes group column if used
-            folds_name = f"folds_{operator.__class__.__name__}"
-            if group_column:
-                folds_name += f"_group-{group_column}"
-            if hasattr(operator, "random_state"):
-                seed = getattr(operator, "random_state")
-                if seed is not None:
-                    folds_name += f"_seed{seed}"
-            folds_name += ".csv"
+        # Filename includes group column if used
+        folds_name = f"folds_{operator.__class__.__name__}"
+        if group_column:
+            folds_name += f"_group-{group_column}"
+        if hasattr(operator, "random_state"):
+            seed = getattr(operator, "random_state")
+            if seed is not None:
+                folds_name += f"_seed{seed}"
+        folds_name += ".csv"
 
-            return context, [(folds_name, binary)]
-        else:
-            n_folds = operator.get_n_splits(**kwargs) if hasattr(operator, "get_n_splits") else 1
-            dataset.set_folds([(list(range(n_samples)), [])] * n_folds)
-            return context, []
+        return context, [(folds_name, binary)]
