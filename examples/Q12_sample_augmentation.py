@@ -76,7 +76,7 @@ pipeline = [
             "transformers": [
                 Rotate_Translate
             ],
-            # "balance": "Sample_ID",
+            "balance": "y",
             # "target_size": 100,
             # "max_factor": 0.8,
         }
