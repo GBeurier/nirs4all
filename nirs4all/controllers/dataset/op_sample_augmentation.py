@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import copy
+import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
@@ -141,30 +142,47 @@ class SampleAugmentationController(OperatorController):
         selection = config.get("selection", "random")
         random_state = config.get("random_state", None)
 
-        # Get train samples (base only)
+        # Get train samples ONLY (ensure we're in train partition)
         train_context = copy.deepcopy(context)
         train_context["partition"] = "train"
+        train_context.pop("train_indices", None)  # Remove any existing indices
+        train_context.pop("test_indices", None)
 
-        base_samples = dataset._indexer.x_indices(train_context, include_augmented=False)  # noqa: SLF001
+        # Get ALL TRAIN samples (base + augmented)
+        all_train_samples = dataset._indexer.x_indices(train_context, include_augmented=True)  # noqa: SLF001
+        # Get only BASE TRAIN samples (these have actual data to augment)
+        base_train_samples = dataset._indexer.x_indices(train_context, include_augmented=False)  # noqa: SLF001
 
-        if len(base_samples) == 0:
+        if len(base_train_samples) == 0:
             return context, []
 
-        # Get labels for balancing
+        # Get labels for ALL TRAIN samples (to calculate target size)
         if balance_source == "y":
-            labels = dataset.y(train_context, include_augmented=False)
+            labels_all_train = dataset.y(train_context, include_augmented=True)
             # Flatten if necessary
-            labels = labels.flatten() if labels.ndim > 1 else labels
+            labels_all_train = labels_all_train.flatten() if labels_all_train.ndim > 1 else labels_all_train
         else:
-            # Metadata column
+            # Metadata column - map augmented samples to origins using y_indices
             if not isinstance(balance_source, str):
                 raise ValueError(f"balance source must be 'y' or a metadata column name, got {balance_source}")
-            labels = dataset.metadata_column(balance_source, train_context, include_augmented=False)
+            # Get origin indices for all train samples (including augmented mapped to origins)
+            origin_indices = dataset._indexer.y_indices(train_context, include_augmented=True)  # noqa: SLF001
+            # Get base metadata and index into it using origin indices
+            base_metadata = dataset._metadata.get_column(balance_source)  # noqa: SLF001
+            labels_all_train = base_metadata[origin_indices]
 
-        # Calculate augmentation counts per sample
+        # Get labels for BASE TRAIN samples only (for calculating augmentation per base sample)
+        labels_base_train = labels_all_train[:len(base_train_samples)]
+
+        # Calculate augmentation counts per BASE TRAIN sample using target from ALL TRAIN samples
         augmentation_counts = BalancingCalculator.calculate_balanced_counts(
-            labels, base_samples, max_factor
+            labels_base_train, base_train_samples, labels_all_train, all_train_samples, max_factor
         )
+
+        # Check if any augmentation is needed
+        if sum(augmentation_counts.values()) == 0:
+            # All classes already balanced, no augmentation needed
+            return context, []
 
         # Build transformer distribution
         if selection == "random":
@@ -227,17 +245,18 @@ class SampleAugmentationController(OperatorController):
            - Call dataset.add_samples() (or augment_samples with count=1)
         """
         for trans_idx, sample_ids in transformer_to_samples.items():
-            if not sample_ids:
+            if not sample_ids or len(sample_ids) == 0:
                 continue
 
             transformer = transformers[trans_idx]
+
+            # print(f"Applying transformer {transformer} to {sample_ids} samples")
 
             # Create context for this transformer's augmentation
             local_context = copy.deepcopy(context)
             local_context["augment_sample"] = True  # Signal action (like add_feature)
             local_context["target_samples"] = sample_ids  # Indices to augment
             local_context["partition"] = "train"
-            local_context["augmentation_id"] = f"aug_{transformer.__class__.__name__}_{trans_idx}"
 
             # ONE run_step per transformer - it handles all target samples
             runner.run_step(

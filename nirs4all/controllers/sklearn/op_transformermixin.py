@@ -59,6 +59,9 @@ class TransformerMixinController(OperatorController):
         prediction_store: Optional[Any] = None
     ):
         """Execute transformer - handles normal, feature augmentation, and sample augmentation modes."""
+        if mode in ["predict", "explain"]:
+            return context, []
+
 
         # Check if we're in sample augmentation mode
         if context.get("augment_sample", False):
@@ -177,14 +180,12 @@ class TransformerMixinController(OperatorController):
             - augment_sample: True flag (like add_feature)
             - target_samples: list of sample_ids to augment
             - partition: "train" (filtering context)
-            - augmentation_id: identifier for this augmentation batch
         """
         target_sample_ids = context.get("target_samples", [])
         if not target_sample_ids:
             return context, []
 
         operator_name = operator.__class__.__name__
-        augmentation_id = context.get("augmentation_id", f"aug_{operator_name}")
         fitted_transformers = []
 
         # Get train data for fitting (if not in predict/explain mode)
@@ -240,13 +241,13 @@ class TransformerMixinController(OperatorController):
                 transformed_sources.append(source_3d)
 
             # Add augmented sample to dataset using add_samples with proper indexing
-            sample_aug_id = f"{augmentation_id}_{sample_id}"
+            # Use only the transformer name for augmentation column (like processings)
 
             # Build index dictionary for the augmented sample
             index_dict = {
                 "partition": "train",
                 "origin": sample_id,  # Track origin
-                "augmentation": sample_aug_id  # Augmentation identifier
+                "augmentation": operator_name  # Transformer name only
             }
 
             # Note: Metadata copying is handled by the indexer, not here

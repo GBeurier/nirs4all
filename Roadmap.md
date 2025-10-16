@@ -1,3 +1,6 @@
+> best model and earlystopping verification in tf op_model
+> residuals x_axis different from pred/obs
+
 ## ROADMAP ##
 
 > [Augmentation + Balanced Augmentation]

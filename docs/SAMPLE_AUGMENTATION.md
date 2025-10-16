@@ -25,6 +25,21 @@ The sample augmentation feature in nirs4all allows you to create synthetic varia
 
 ### Basic Augmentation
 
+```json
+{
+  "steps": [
+    {
+      "sample_augmentation": {
+        "transformers": [
+          { "StandardScaler": {} }
+        ],
+        "count": 2
+      }
+    }
+  ]
+}
+```
+
 ```yaml
 steps:
   - sample_augmentation:
@@ -34,6 +49,23 @@ steps:
 ```
 
 ### Balanced Augmentation
+
+```json
+{
+  "steps": [
+    {
+      "sample_augmentation": {
+        "transformers": [
+          { "StandardScaler": {} },
+          { "MinMaxScaler": {} }
+        ],
+        "balance": "y",
+        "target_size": 100
+      }
+    }
+  ]
+}
+```
 
 ```yaml
 steps:
@@ -80,6 +112,20 @@ Validation Folds (only base samples, leak-free)
 
 Creates a fixed number of augmented samples per base sample.
 
+```json
+{
+  "sample_augmentation": {
+    "transformers": [
+      { "StandardScaler": {} },
+      { "MinMaxScaler": {} }
+    ],
+    "count": 3,
+    "selection": "random",
+    "random_state": 42
+  }
+}
+```
+
 ```yaml
 sample_augmentation:
   transformers:
@@ -100,15 +146,28 @@ sample_augmentation:
 **Behavior:**
 - With `count=3` and 2 transformers + `selection="random"`:
   - Each sample gets 3 random transformer applications
-  - Example: Sample 1 → [T1, T2, T1], Sample 2 → [T2, T1, T2]
+  - Example: Sample 1 → `[T1, T2, T1]`, Sample 2 → `[T2, T1, T2]`
 
 - With `count=3` and 2 transformers + `selection="all"`:
   - Transformers cycle through augmentations
-  - Example: Sample 1 → [T1, T2, T1], Sample 2 → [T2, T1, T2]
+  - Example: Sample 1 → `[T1, T2, T1]`, Sample 2 → `[T2, T1, T2]`
 
 ### Balanced Mode (Class-Aware)
 
 Balances class distribution by augmenting minority classes.
+
+```json
+{
+  "sample_augmentation": {
+    "transformers": [ { "StandardScaler": {} } ],
+    "balance": "y",
+    "target_size": 100,
+    "max_factor": 3.0,
+    "selection": "random",
+    "random_state": 42
+  }
+}
+```
 
 ```yaml
 sample_augmentation:
@@ -141,6 +200,20 @@ Result:  Class 0: 80 samples (unchanged)
 ### Pipeline Syntax
 
 #### sample_augmentation Step
+
+```json
+{
+  "sample_augmentation": {
+    "transformers": [ { "StandardScaler": {} } ],
+    "count": 1,
+    "balance": "y",
+    "target_size": 100,
+    "max_factor": 3.0,
+    "selection": "random",
+    "random_state": 42
+  }
+}
+```
 
 ```yaml
 sample_augmentation:
@@ -237,7 +310,7 @@ all_indices = indexer.x_indices({}, include_augmented=True)
 
 Good choices for spectroscopy data:
 - `StandardScaler`: Z-score normalization
-- `MinMaxScaler`: Scale to [0, 1] range
+- `MinMaxScaler`: Scale to `[0, 1]` range
 - `RobustScaler`: Robust to outliers
 - `MaxAbsScaler`: Scale by maximum absolute value
 
@@ -259,6 +332,21 @@ Good choices for spectroscopy data:
 
 ### 4. Balanced Mode Settings
 
+```json
+[
+  {
+    "balance": "y",
+    "target_size": "majority_class_size",
+    "max_factor": 2.0
+  },
+  {
+    "balance": "y",
+    "target_size": "majority_class_size",
+    "max_factor": 5.0
+  }
+]
+```
+
 ```yaml
 # Conservative balancing
 balance: "y"
@@ -274,6 +362,16 @@ max_factor: 5.0  # Allow up to 5x augmentation
 ### 5. Random State for Reproducibility
 
 Always set `random_state` for reproducible experiments:
+
+```json
+{
+  "sample_augmentation": {
+    "transformers": [ "..." ],
+    "count": 2,
+    "random_state": 42
+  }
+}
+```
 
 ```yaml
 sample_augmentation:
@@ -487,6 +585,21 @@ for fold in cv_splits:
 ```
 
 **After:**
+```json
+{
+  "pipeline": [
+    {
+      "sample_augmentation": {
+        "transformers": [ { "StandardScaler": {} } ],
+        "count": 1
+      }
+    },
+    { "split": [ "..." ] },
+    { "model": [ "..." ] }
+  ]
+}
+```
+
 ```yaml
 # Automatic with leak prevention
 pipeline:

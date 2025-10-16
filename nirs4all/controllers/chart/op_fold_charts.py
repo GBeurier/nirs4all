@@ -84,62 +84,74 @@ class FoldChartController(OperatorController):
         if not folds:
             print("ℹ️ No CV folds found. Creating visualization from train/test partition.")
 
-            # Try to get train and test data
+            # Try to get train and test data - INCLUDE AUGMENTED SAMPLES
             train_context = copy.deepcopy(context)
             train_context["partition"] = "train"
             test_context = copy.deepcopy(context)
             test_context["partition"] = "test"
 
-            train_indices = dataset._indexer.x_indices(train_context)
-            test_indices = dataset._indexer.x_indices(test_context)
+            train_indices = dataset._indexer.x_indices(train_context, include_augmented=True)  # noqa: SLF001
+            test_indices = dataset._indexer.x_indices(test_context, include_augmented=True)  # noqa: SLF001
 
             if len(test_indices) > 0:
                 # We have both train and test data - create a single "fold" with absolute indices
-                # Use absolute indices: train is [0..177], test is [178..207]
+                # Use absolute indices from the concatenated array: train is [0..N], test is [N..N+M]
                 train_abs = list(range(len(train_indices)))
                 test_abs = list(range(len(train_indices), len(train_indices) + len(test_indices)))
                 folds = [(train_abs, test_abs)]
-                print(f"  Using train ({len(train_indices)} samples) and test ({len(test_indices)} samples) partitions.")
+                print(f"  Using train ({len(train_indices)} samples including augmented) and test ({len(test_indices)} samples) partitions.")
             elif len(train_indices) > 0:
                 # Only train data exists - show it as a single bar
                 folds = [(list(range(len(train_indices))), [])]
-                print(f"  Only train partition available ({len(train_indices)} samples).")
+                print(f"  Only train partition available ({len(train_indices)} samples including augmented).")
             else:
                 print("⚠️ No data available for visualization.")
                 return context, []
 
         # Get values for color coding (either y or metadata column)
         # For CV folds: get all data for proper indexing
-        # For fallback (train/test): get data for the specific partition
+        # For fallback (train/test): need to handle both base and augmented samples
         if metadata_column:
             # Use metadata column for colors
             if dataset.folds:
-                # CV folds mode: need all data since indices refer to full dataset
+                # CV folds mode: need all data including augmented since indices refer to full dataset
                 all_context = copy.deepcopy(context)
                 all_context["partition"] = "all"
-                color_values = dataset.metadata_column(metadata_column, all_context)
+                color_values = dataset.metadata_column(metadata_column, all_context, include_augmented=True)
+
             else:
-                # Fallback mode: get train and test separately and concatenate
+                # Fallback mode: Use y indices directly to get augmented mappings
+                # This is more reliable than metadata_column for augmented samples
                 train_ctx = copy.deepcopy(context)
                 train_ctx["partition"] = "train"
                 test_ctx = copy.deepcopy(context)
                 test_ctx["partition"] = "test"
 
-                meta_train = dataset.metadata_column(metadata_column, train_ctx)
-                meta_test = dataset.metadata_column(metadata_column, test_ctx)
+                # Get metadata using origin mapping (like y() does)
+                train_x_idx = dataset._indexer.x_indices(train_ctx, include_augmented=True)  # noqa: SLF001
+                test_x_idx = dataset._indexer.x_indices(test_ctx, include_augmented=True)  # noqa: SLF001
+
+                # Map to origins and get metadata
+                base_meta = dataset._metadata.get_column(metadata_column)  # noqa: SLF001
+                train_origin_indices = np.array([dataset._indexer.get_origin_for_sample(int(idx)) for idx in train_x_idx])  # noqa: SLF001
+                test_origin_indices = np.array([dataset._indexer.get_origin_for_sample(int(idx)) for idx in test_x_idx])  # noqa: SLF001
+
+                meta_train = base_meta[train_origin_indices]
+                meta_test = base_meta[test_origin_indices]
 
                 # Concatenate train and test for visualization
                 if len(meta_test) > 0:
                     color_values = np.concatenate([meta_train, meta_test])
                 else:
                     color_values = meta_train
+
         else:
             # Use y values for colors (default behavior)
             if dataset.folds:
-                # CV folds mode: need all data since indices refer to full dataset
+                # CV folds mode: need all data including augmented since indices refer to full dataset
                 all_context = copy.deepcopy(context)
                 all_context["partition"] = "all"
-                color_values = dataset.y(all_context)
+                color_values = dataset.y(all_context, include_augmented=True)
             else:
                 # Fallback mode: get train and test separately and concatenate
                 train_ctx = copy.deepcopy(context)
@@ -147,8 +159,8 @@ class FoldChartController(OperatorController):
                 test_ctx = copy.deepcopy(context)
                 test_ctx["partition"] = "test"
 
-                y_train = dataset.y(train_ctx)
-                y_test = dataset.y(test_ctx)
+                y_train = dataset.y(train_ctx, include_augmented=True)
+                y_test = dataset.y(test_ctx, include_augmented=True)
 
                 # Concatenate train and test for visualization
                 if len(y_test) > 0:
@@ -268,21 +280,69 @@ class FoldChartController(OperatorController):
             n_unique_values = len(unique_values)
             value_to_index_map = {val: idx for idx, val in enumerate(unique_values)}
 
+        # Get train y-indices including augmented samples (mapped to their origins)
+        y_indices = dataset._indexer.y_indices({"partition": "train"}, include_augmented=True)  # noqa: SLF001
+
+        # For fallback mode, y_values contains augmented samples, so we need to handle the mapping differently
+        # Get the label from y_values for train partition only (not test)
+        if not is_cv_folds and len(y_values) != len(y_indices):
+            # Fallback mode with augmented samples: y_values may include augmented samples
+            # Get the label from y_values for train partition only (not test)
+            train_len = len(folds[0][0]) if folds else len(y_indices)
+            y_meta = y_values[:train_len]
+        else:
+            # CV folds or no augmentation: use direct indexing with y_indices
+            y_meta = y_values[y_indices]
+
+        unique_meta, counts = np.unique(y_meta, return_counts=True)
+        for val, count in zip(unique_meta, counts):
+            print(f"{val}: {count}")
+        print('-' * 20)
+
         for fold_idx, (train_idx, test_idx) in enumerate(folds):
             # Position des barres pour ce fold
             base_pos = fold_idx * (2 + gap_between_folds)
             train_pos = base_pos
             test_pos = base_pos + 1
 
-            # Traiter les données d'entraînement
-            train_y = y_values[train_idx]
+            # Get y-values for train and test
+            # In CV mode: expand fold indices to include augmented samples, then map to origins
+            # In fallback mode: direct indexing (indices already into concatenated array)
+            if is_cv_folds:
+                # CV folds mode: folds contain base sample indices. Expand to include augmented samples.
+                train_idx_arr = np.array(train_idx) if isinstance(train_idx, list) else train_idx
+                test_idx_arr = np.array(test_idx) if isinstance(test_idx, list) else test_idx
+                train_idx_list = train_idx_arr.tolist() if hasattr(train_idx_arr, 'tolist') else list(train_idx_arr)
+                test_idx_list = test_idx_arr.tolist() if hasattr(test_idx_arr, 'tolist') else list(test_idx_arr)
+
+                # Expand to include augmented samples for each base sample in the fold
+                train_augmented = dataset._indexer.get_augmented_for_origins(train_idx_list)  # noqa: SLF001
+                test_augmented = dataset._indexer.get_augmented_for_origins(test_idx_list)  # noqa: SLF001
+
+                # Combine base and augmented samples
+                train_all_idx = train_idx_list + train_augmented.tolist()
+                test_all_idx = test_idx_list + test_augmented.tolist()
+
+                # Get origins for all (base + augmented) samples
+                train_y_idx = dataset._indexer.y_indices({"sample": train_all_idx}, include_augmented=True)  # noqa: SLF001
+                test_y_idx = dataset._indexer.y_indices({"sample": test_all_idx}, include_augmented=True)  # noqa: SLF001
+                train_y = y_values[train_y_idx]
+                test_y = y_values[test_y_idx]
+            else:
+                # Fallback mode: use direct indexing (fold indices are indices into concatenated array)
+                train_y = y_values[train_idx]
+                test_y = y_values[test_idx] if len(test_idx) > 0 else np.array([])
+
+            # Sort for visualization
             train_sorted_indices = np.argsort(train_y)
             train_y_sorted = train_y[train_sorted_indices]
 
             # Traiter les données de test
-            test_y = y_values[test_idx]
-            test_sorted_indices = np.argsort(test_y)
-            test_y_sorted = test_y[test_sorted_indices]
+            if len(test_y) > 0:
+                test_sorted_indices = np.argsort(test_y)
+                test_y_sorted = test_y[test_sorted_indices]
+            else:
+                test_y_sorted = np.array([])
 
             # Créer les barres empilées pour TRAIN
             self._create_stacked_bar(ax, train_pos, train_y_sorted, colormap,
