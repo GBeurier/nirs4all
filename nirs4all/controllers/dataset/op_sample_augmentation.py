@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import copy
-import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
@@ -54,16 +53,47 @@ class SampleAugmentationController(OperatorController):
         """
         Execute sample augmentation with standard or balanced mode.
 
-        Step format:
+        Step format for standard mode:
             {
                 "sample_augmentation": {
                     "transformers": [transformer1, transformer2, ...],
-                    "count": int  # Standard mode
-                    # OR
-                    "balance": "y" or "metadata_column",  # Balanced mode
-                    "max_factor": float,  # Optional, default 1.0
+                    "count": int,
                     "selection": "random" or "all",  # Default "random"
                     "random_state": int  # Optional
+                }
+            }
+
+        Step format for balanced mode (choose one balancing strategy):
+            Mode 1 - Fixed target size per class:
+            {
+                "sample_augmentation": {
+                    "transformers": [...],
+                    "balance": "y" or "metadata_column",
+                    "target_size": int,  # Fixed target samples per class
+                    "selection": "random" or "all",
+                    "random_state": int
+                }
+            }
+
+            Mode 2 - Multiplier for augmentation:
+            {
+                "sample_augmentation": {
+                    "transformers": [...],
+                    "balance": "y" or "metadata_column",
+                    "max_factor": float,  # Multiplier (e.g., 3 means class grows 3x)
+                    "selection": "random" or "all",
+                    "random_state": int
+                }
+            }
+
+            Mode 3 - Percentage of majority class:
+            {
+                "sample_augmentation": {
+                    "transformers": [...],
+                    "balance": "y" or "metadata_column",
+                    "ref_percentage": float,  # Target as % of majority (0.0-1.0)
+                    "selection": "random" or "all",
+                    "random_state": int
                 }
             }
         """
@@ -138,7 +168,12 @@ class SampleAugmentationController(OperatorController):
     ) -> Tuple[Dict[str, Any], List]:
         """Execute balanced class-aware augmentation."""
         balance_source = config.get("balance")
-        max_factor = config.get("max_factor", 1.0)
+        target_size = config.get("target_size", None)
+        max_factor = config.get("max_factor", None)
+        ref_percentage = config.get("ref_percentage", None)
+        if target_size is None and ref_percentage is None and max_factor is None:
+            ref_percentage = 1.0  # Default to ref_percentage=1.0 if none specified
+
         selection = config.get("selection", "random")
         random_state = config.get("random_state", None)
 
@@ -174,9 +209,15 @@ class SampleAugmentationController(OperatorController):
         # Get labels for BASE TRAIN samples only (for calculating augmentation per base sample)
         labels_base_train = labels_all_train[:len(base_train_samples)]
 
-        # Calculate augmentation counts per BASE TRAIN sample using target from ALL TRAIN samples
+        # Calculate augmentation counts per BASE TRAIN sample using specified mode
         augmentation_counts = BalancingCalculator.calculate_balanced_counts(
-            labels_base_train, base_train_samples, labels_all_train, all_train_samples, max_factor
+            labels_base_train,
+            base_train_samples,
+            labels_all_train,
+            all_train_samples,
+            target_size=target_size,
+            max_factor=max_factor,
+            ref_percentage=ref_percentage
         )
 
         # Check if any augmentation is needed
@@ -195,7 +236,7 @@ class SampleAugmentationController(OperatorController):
         # Invert map: transformer_idx → list of sample_ids
         transformer_to_samples = self._invert_transformer_map(transformer_map, len(transformers))
 
-        # Emit ONE run_step per transformer
+        # Emit ONE run_step per transformer-
         self._emit_augmentation_steps(
             transformer_to_samples, transformers, context, dataset, runner, loaded_binaries
         )

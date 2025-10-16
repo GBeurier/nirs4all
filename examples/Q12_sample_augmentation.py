@@ -57,8 +57,9 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 
 focus = "y"
+focus = "Sample_ID"
 
-chart = "fold_chart" if focus == "y" else "fold_Sample_ID"
+chart = "fold_chart" if focus == "y" else "fold_" + focus
 
 pipeline = [
     chart,
@@ -76,9 +77,10 @@ pipeline = [
             "transformers": [
                 Rotate_Translate
             ],
-            "balance": "y",
+            "balance": focus,
             # "target_size": 100,
-            # "max_factor": 0.8,
+            # "max_factor": 4,
+            "ref_percentage": 0.5,
         }
     },
     chart,
