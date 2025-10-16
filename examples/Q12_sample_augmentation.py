@@ -56,9 +56,12 @@ from sklearn.model_selection import GroupKFold
 from sklearn.model_selection import StratifiedGroupKFold
 
 
+focus = "y"
+
+chart = "fold_chart" if focus == "y" else "fold_Sample_ID"
+
 pipeline = [
-    # "fold_Sample_ID",
-    "fold_chart",
+    chart,
     # {
     #     "sample_augmentation": {
     #         "transformers": [
@@ -67,7 +70,7 @@ pipeline = [
     #         "count": 2
     #     }
     # },
-    # "fold_Sample_ID",
+    # chart,
     {
         "sample_augmentation": {
             "transformers": [
@@ -78,11 +81,9 @@ pipeline = [
             # "max_factor": 0.8,
         }
     },
-    "fold_chart",
-    # "fold_Sample_ID",
+    chart,
     {"split": GroupKFold(n_splits=5), "group": "Sample_ID"},
-    # "fold_Sample_ID",
-    "fold_chart",
+    chart,
     # RandomForestClassifier(max_depth=30)
 ]
 # Create configuration objects
