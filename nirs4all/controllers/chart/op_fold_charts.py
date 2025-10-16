@@ -232,10 +232,14 @@ class FoldChartController(OperatorController):
         # Create figure
         fig, ax = plt.subplots(1, 1, figsize=(fig_width, 8))
 
-        # Create colormap - use discrete contrastive colors for metadata, continuous for y values
+        # Create colormap - use discrete contrastive colors for metadata and classification, continuous for regression
 
-        if metadata_column:
-            # For metadata: use discrete, highly contrastive colors
+        # Check if we should use discrete colormap (metadata column or classification task)
+        is_classification_task = dataset is not None and dataset.is_classification()
+        use_discrete_colormap = metadata_column is not None or is_classification_task
+
+        if use_discrete_colormap:
+            # For metadata or classification: use discrete, highly contrastive colors
             # Get unique values and create a discrete colormap
             unique_values = np.unique(y_values)
             n_unique = len(unique_values)
@@ -255,10 +259,10 @@ class FoldChartController(OperatorController):
             # Normalize to discrete indices [0, 1, 2, ...] / n_unique
             y_normalized = np.array([value_to_index[val] / max(n_unique - 1, 1) for val in y_values])
 
-            # For metadata, y_min and y_max are index boundaries (not used for string values)
+            # For discrete values, y_min and y_max are index boundaries
             y_min, y_max = 0, n_unique - 1
         else:
-            # For y values: use continuous colormap
+            # For continuous y values (regression): use continuous colormap
             y_min, y_max = y_values.min(), y_values.max()
             colormap = cm.get_cmap('viridis')
             # Normalize y values to [0, 1] for colormap
@@ -270,12 +274,12 @@ class FoldChartController(OperatorController):
         bar_width = 0.8
         gap_between_folds = 0.4
 
-        # Prepare metadata-specific parameters
-        is_metadata = metadata_column is not None
+        # Prepare discrete-value-specific parameters (metadata or classification)
+        is_discrete_values = use_discrete_colormap  # Reuse the flag we already computed
         value_to_index_map = None
         n_unique_values = 1
 
-        if is_metadata:
+        if is_discrete_values:
             unique_values = np.unique(y_values)
             n_unique_values = len(unique_values)
             value_to_index_map = {val: idx for idx, val in enumerate(unique_values)}
@@ -347,13 +351,13 @@ class FoldChartController(OperatorController):
             # Créer les barres empilées pour TRAIN
             self._create_stacked_bar(ax, train_pos, train_y_sorted, colormap,
                                    y_min, y_max, bar_width, f'Train F{fold_idx}',
-                                   is_metadata, value_to_index_map, n_unique_values)
+                                   is_discrete_values, value_to_index_map, n_unique_values)
 
             # Créer les barres empilées pour TEST (only if test data exists)
             if len(test_idx) > 0:
                 self._create_stacked_bar(ax, test_pos, test_y_sorted, colormap,
                                        y_min, y_max, bar_width, f'Test F{fold_idx}',
-                                       is_metadata, value_to_index_map, n_unique_values)
+                                       is_discrete_values, value_to_index_map, n_unique_values)
 
             # Ajouter les labels au-dessus des barres
             train_label = 'Train' if not is_cv_folds else f'T{fold_idx}'
@@ -378,7 +382,7 @@ class FoldChartController(OperatorController):
             # Create stacked bar for test partition
             self._create_stacked_bar(ax, test_partition_pos, test_y_sorted, colormap,
                                    y_min, y_max, bar_width, 'Test Partition',
-                                   is_metadata, value_to_index_map, n_unique_values)
+                                   is_discrete_values, value_to_index_map, n_unique_values)
 
             # Add label
             ax.text(test_partition_pos, len(test_y_sorted) + 1, f'Test\n({len(test_y_sorted)})',
@@ -399,7 +403,7 @@ class FoldChartController(OperatorController):
         else:
             title = f'Distribution - Train/Test Split (Partition: {partition.upper()})\n'
 
-        # Adjust title based on whether using metadata or y values
+        # Adjust title based on whether using metadata, classification, or regression
         if metadata_column:
             color_label = f'metadata "{metadata_column}"'
             # For metadata, show range or unique count based on data type
@@ -418,6 +422,13 @@ class FoldChartController(OperatorController):
                 title_suffix = f'{int(y_min)} - {int(y_max)}, {len(unique_values)} unique'
             else:
                 title_suffix = f'{len(unique_values)} unique string values'
+        elif is_classification_task:
+            color_label = 'class labels'
+            unique_values = np.unique(y_values)
+            if len(unique_values) <= 20:
+                title_suffix = f'{len(unique_values)} unique classes'
+            else:
+                title_suffix = f'{len(unique_values)} unique classes'
         else:
             color_label = 'target values (y)'
             title_suffix = f'{y_min:.2f} - {y_max:.2f}'
@@ -457,8 +468,8 @@ class FoldChartController(OperatorController):
             ax.axvline(x=separator_pos, color='gray', linestyle=':', alpha=0.3, linewidth=1)
 
         # Ajouter colorbar
-        if metadata_column:
-            # For metadata: discrete colorbar with distinct boundaries
+        if metadata_column or is_classification_task:
+            # For metadata or classification: discrete colorbar with distinct boundaries
             unique_values = np.unique(y_values)
             n_unique = len(unique_values)
 
@@ -478,7 +489,8 @@ class FoldChartController(OperatorController):
             mappable.set_array(np.arange(n_unique))
 
             cbar = plt.colorbar(mappable, ax=ax, shrink=0.8, aspect=30,
-                              boundaries=boundaries, ticks=np.arange(n_unique))            # Set tick labels to actual metadata values
+                              boundaries=boundaries, ticks=np.arange(n_unique))
+            # Set tick labels to actual metadata values or class labels
             if n_unique <= 20:
                 # Show all labels if not too many
                 cbar.ax.set_yticklabels([str(val) for val in unique_values])
@@ -488,9 +500,12 @@ class FoldChartController(OperatorController):
                 cbar.set_ticks(np.arange(0, n_unique, step).tolist())
                 cbar.ax.set_yticklabels([str(unique_values[i]) for i in range(0, n_unique, step)])
 
-            cbar.set_label(f'Metadata: {metadata_column}', fontsize=12)
+            if metadata_column:
+                cbar.set_label(f'Metadata: {metadata_column}', fontsize=12)
+            else:
+                cbar.set_label('Y Labels', fontsize=12)
         else:
-            # For y values: continuous colorbar
+            # For continuous y values (regression): continuous colorbar
             mappable = cm.ScalarMappable(cmap=colormap)
             mappable.set_array(y_values)
             mappable.set_clim(y_min, y_max)
@@ -510,7 +525,7 @@ class FoldChartController(OperatorController):
         return fig, plot_info
 
     def _create_stacked_bar(self, ax, position, y_values_sorted, colormap,
-                           y_min, y_max, bar_width, label, is_metadata=False, value_to_index=None, n_unique=1):
+                           y_min, y_max, bar_width, label, is_discrete_values=False, value_to_index=None, n_unique=1):
         """
         Create a single stacked bar where each segment represents one sample.
 
@@ -522,13 +537,13 @@ class FoldChartController(OperatorController):
             y_min, y_max: Min and max y values for normalization
             bar_width: Width of the bar
             label: Label for the bar
-            is_metadata: Whether values are metadata (discrete) or continuous y values
-            value_to_index: Dictionary mapping values to discrete indices (for metadata)
-            n_unique: Number of unique values (for metadata)
+            is_discrete_values: Whether values are discrete (metadata or classification) or continuous (regression)
+            value_to_index: Dictionary mapping values to discrete indices (for discrete values)
+            n_unique: Number of unique values (for discrete values)
         """
         # Normaliser les valeurs pour le colormap
-        if is_metadata and value_to_index is not None:
-            # For metadata: use discrete indices
+        if is_discrete_values and value_to_index is not None:
+            # For discrete values: use discrete indices
             y_normalized = np.array([value_to_index[val] / max(n_unique - 1, 1) for val in y_values_sorted])
         else:
             # For continuous y values
