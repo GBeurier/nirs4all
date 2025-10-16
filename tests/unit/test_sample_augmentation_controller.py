@@ -70,6 +70,21 @@ def imbalanced_dataset():
     return dataset
 
 
+@pytest.fixture
+def regression_dataset():
+    """Create regression dataset with continuous targets."""
+    dataset = SpectroDataset("test")
+
+    # Add 6 base samples with continuous targets
+    x_data = np.random.rand(6, 10)
+    y_data = np.array([10.5, 15.2, 20.1, 50.3, 75.2, 95.8])
+
+    dataset.add_samples(x_data, {"partition": "train"})
+    dataset.add_targets(y_data)
+
+    return dataset
+
+
 class TestControllerMatching:
     """Test controller registration and matching."""
 
@@ -194,7 +209,7 @@ class TestBalancedMode:
             "sample_augmentation": {
                 "transformers": transformers,
                 "balance": "y",
-                "max_factor": 1.0,
+                "max_factor": 2.0,
                 "selection": "random",
                 "random_state": 42
             }
@@ -206,13 +221,13 @@ class TestBalancedMode:
             step, None, imbalanced_dataset, context, mock_runner, loaded_binaries=None
         )
 
-        # Should emit run_step calls
+        # Should emit run_step calls (minority class needs augmentation)
         assert mock_runner.run_step.call_count >= 1
 
         # Minority class (1) should get more augmentations
         call_context = mock_runner.run_step.call_args[0][2]
         assert "target_samples" in call_context
-        # With max_factor=1.0, minority class should be balanced to majority
+        # With max_factor=2.0, minority class (2 samples) targets 4
 
     def test_balanced_mode_with_metadata_column(self, simple_dataset, mock_runner):
         """Balanced mode using metadata column."""
@@ -262,6 +277,32 @@ class TestBalancedMode:
 
         # Should emit fewer augmentations due to max_factor
         assert mock_runner.run_step.call_count >= 0
+
+    def test_balanced_mode_with_binning_for_regression(self, regression_dataset, mock_runner):
+        """Binning is automatically applied for regression tasks."""
+        controller = SampleAugmentationController()
+        transformers = [DummyTransformer("T1")]
+
+        step = {
+            "sample_augmentation": {
+                "transformers": transformers,
+                "balance": "y",
+                "bins": 3,  # Create 3 virtual classes
+                "binning_strategy": "equal_width",
+                "max_factor": 2.0,
+                "selection": "random",
+                "random_state": 42
+            }
+        }
+
+        context = {"partition": "train"}
+
+        controller.execute(
+            step, None, regression_dataset, context, mock_runner, loaded_binaries=None
+        )
+
+        # Should emit run_step calls for binned augmentation
+        assert mock_runner.run_step.call_count >= 1
 
 
 class TestTransformerDistribution:

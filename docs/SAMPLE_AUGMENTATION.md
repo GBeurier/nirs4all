@@ -253,6 +253,87 @@ Result:  Class 0: 150 samples (50 augmented, targeting 1.5 × 100)
          Class 2: 150 samples (130 augmented, targeting 1.5 × 100)
 ```
 
+### Binning for Regression (Automatic)
+
+When balancing regression targets (`balance: "y"` with continuous target values), the system automatically converts continuous values into discrete bins to enable balanced augmentation. This is useful for regression datasets where you want to ensure augmentation is distributed across the full target range.
+
+**Automatic Activation:**
+- Triggers when `balance: "y"` AND dataset is detected as regression
+- Bins are created only if `bins` or `binning_strategy` parameter is provided
+- For classification tasks, binning is automatically skipped
+
+```json
+{
+  "sample_augmentation": {
+    "transformers": [ { "StandardScaler": {} } ],
+    "balance": "y",
+    "bins": 10,
+    "binning_strategy": "equal_width",
+    "max_factor": 2.0
+  }
+}
+```
+
+```yaml
+sample_augmentation:
+  transformers:
+    - StandardScaler: {}
+  balance: "y"  # Regression targets
+  bins: 10  # Create 10 virtual classes from continuous y
+  binning_strategy: "equal_width"  # or "quantile" (default: "equal_width")
+  max_factor: 2.0  # Balance strategy applies to bins
+```
+
+**Binning Strategies:**
+
+1. **Equal Width (default)** - Uniform spacing
+   ```
+   Target range: [0, 100], bins=4
+   Bin edges: [0, 25, 50, 75, 100]
+   Bin 0: [0-25)
+   Bin 1: [25-50)
+   Bin 2: [50-75)
+   Bin 3: [75-100]
+
+   Best for: Uniform distributions
+   ```
+
+2. **Quantile** - Equal probability per bin
+   ```
+   Target values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 100], bins=3
+   Bin edges: [1, 4, 8, 100]
+   Bin 0: [1-4) - contains ~3 samples
+   Bin 1: [4-8) - contains ~3 samples
+   Bin 2: [8-100] - contains ~3 samples
+
+   Best for: Skewed distributions
+   ```
+
+**Example:**
+```yaml
+# Regression dataset: continuous y values
+# Initial distribution: 20 samples spread across range [0, 100]
+sample_augmentation:
+  transformers:
+    - StandardScaler: {}
+  balance: "y"
+  bins: 5  # Create 5 virtual classes
+  binning_strategy: "equal_width"
+  max_factor: 1.0  # Equal samples per bin
+
+# Result:
+# - y binned into 5 ranges: [0-20), [20-40), [40-60), [60-80), [80-100]
+# - Each bin augmented to have equal samples
+# - Ensures augmentation covers full target range
+```
+
+**Parameters:**
+- `bins` (int): Number of virtual classes (default: 10, range: 1-1000)
+- `binning_strategy` (str):
+  - `"equal_width"`: Uniform width bins (default)
+  - `"quantile"`: Equal probability bins
+- Other balancing parameters (`max_factor`, `target_size`, `ref_percentage`) apply normally after binning
+
 ## API Reference
 
 ### Pipeline Syntax
@@ -268,6 +349,8 @@ Result:  Class 0: 150 samples (50 augmented, targeting 1.5 × 100)
     "target_size": 100,
     "max_factor": 3.0,
     "ref_percentage": 0.8,
+    "bins": 10,
+    "binning_strategy": "equal_width",
     "selection": "random",
     "random_state": 42
   }
@@ -287,10 +370,14 @@ sample_augmentation:
   max_factor: float  # Strategy 2: Multiplier factor (e.g., 3 means 3x size)
   ref_percentage: float  # Strategy 3: % of majority class (0.0-1.0)
 
+  # Binning for regression (automatic when balance="y" and task is regression)
+  bins: int  # Number of virtual classes (default: 10)
+  binning_strategy: str  # "equal_width" (default) or "quantile"
+
   # Common options
   selection: str  # "random" (default) or "all"
   random_state: int  # Optional seed
-```
+````
 
 ### Dataset API
 
@@ -745,17 +832,193 @@ pipeline:
   - model: [...]
 ```
 
+## Implementation Details
+
+### Architecture Overview (Developer Reference)
+
+The sample augmentation feature uses a **delegation pattern** where the SampleAugmentationController orchestrates the distribution strategy, and TransformerMixinController executes the actual transformations.
+
+**Data Flow:**
+```
+Pipeline → SampleAugmentationController
+  ├─ Calculates augmentation plan (standard or balanced)
+  ├─ Builds transformer→sample_indices distribution map
+  └─ Emits ONE run_step per transformer with target_samples list
+       ↓
+     TransformerMixinController
+       ├─ Detects augment_sample action in context
+       ├─ For each sample in target_samples:
+       │  ├─ Retrieves origin sample data (all sources)
+       │  ├─ Applies transformer to all processings
+       │  └─ Calls dataset.augment_samples() to store result
+       └─ Returns fitted transformers for serialization
+            ↓
+          Dataset with augmented samples + origin tracking
+            ↓
+          CrossValidator uses include_augmented=False
+            ├─ Creates folds from base samples only
+            └─ Training accesses base + augmented (leak-free!)
+```
+
+### Components
+
+**BalancingCalculator** (`nirs4all/utils/balancing.py`)
+- `calculate_balanced_counts()`: Computes augmentation needs per sample
+  - Strategies: target_size, max_factor, ref_percentage
+  - Multi-class support
+  - Edge case handling (already balanced, impossible targets)
+
+- `calculate_balanced_counts_value_aware()`: Two-level balancing for binned regression
+  - Level 1: Fair distribution across unique y-values within a bin
+  - Level 2: Fair distribution within each value group across samples
+  - Prevents value imbalance when multiple samples share same y-value
+
+**Indexer Enhancements** (`nirs4all/dataset/indexer.py`)
+- `get_augmented_for_origins()`: Find augmented samples by origin
+- `get_origin_for_sample()`: Find origin of augmented sample
+- `x_indices()`: Two-phase selection with `include_augmented` parameter
+  - Phase 1: Filter base samples (origin=null)
+  - Phase 2: Aggregate augmented versions if requested
+
+**Dataset API** (`nirs4all/dataset/dataset.py`)
+- All methods support `include_augmented` parameter (default=True)
+- `augment_samples()`: Add augmented samples with origin tracking
+- Automatic metadata inheritance from origin samples
+
+**SampleAugmentationController** (`nirs4all/controllers/dataset/op_sample_augmentation.py`)
+- Detects standard vs. balanced mode
+- Orchestrates distribution calculation
+- Delegates to TransformerMixinController via run_step
+
+**TransformerMixinController** Enhancement (`nirs4all/controllers/sklearn/op_transformermixin.py`)
+- Detects `augment_sample=True` in context (like add_feature)
+- Applies transformers to origin samples
+- Calls dataset.augment_samples() to persist results
+
+**Split Controller** (`nirs4all/controllers/sklearn/op_split.py`)
+- Uses `include_augmented=False` for all data retrieval
+- Creates folds from base samples only
+- Prevents data leakage
+
+### Advanced Features
+
+#### Value-Aware Bin Balancing
+
+When balancing regression data with binning, multiple samples can share the same y-value. Standard sample-aware balancing may create imbalance:
+
+**Example:**
+```
+Bin 5: 3 samples
+  Sample A: y=18.3999 (value 1)
+  Sample B: y=18.5    (value 2)
+  Sample C: y=18.5    (value 2)
+
+Target: 10 total samples (need 7 augmentations)
+
+Sample-aware result (imbalanced):
+  Sample A: 6 total
+  Sample B: 14 total  ← y=18.5 overrepresented
+  Sample C: 0 total
+
+Value-aware result (fair):
+  Sample A: 5 total
+  Sample B: 3 total
+  Sample C: 2 total   ← y=18.5 more balanced
+```
+
+**Enable with:**
+```json
+{
+  "sample_augmentation": {
+    "transformers": [{"Rotate_Translate": {}}],
+    "balance": "y",
+    "bins": 5,
+    "bin_balancing": "value"
+  }
+}
+```
+
+#### Random Remainder Selection
+
+When augmentation counts don't divide evenly, remainders are randomly distributed instead of always going to first samples:
+
+**Example:**
+```
+5 samples need 12 augmentations total
+12 ÷ 5 = 2 base + 2 remainder
+
+Random selection (reproducible with seed):
+  Seed 42: Samples [100, 101] get 3 augmentations (bonus)
+  Seed 99: Samples [102, 104] get 3 augmentations (bonus)
+
+Benefits:
+  - Fair selection across all samples
+  - No systematic bias toward first samples
+  - Reproducible with random_state
+```
+
+### Testing
+
+**Test Coverage:**
+- BalancingCalculator: 27+ tests covering all strategies
+- Indexer: 23+ tests for augmented sample management
+- Dataset API: 18+ tests for include_augmented behavior
+- SampleAugmentationController: 19+ tests for distribution logic
+- TransformerMixinController: 12+ tests for augmentation execution
+- Split Controllers: 11+ tests for leak prevention
+- Integration: 7+ end-to-end tests
+- **Total: 120+ tests, all passing**
+
+**Leak Prevention Validation:**
+- Augmented samples never appear in opposite CV fold
+- Validation fold isolation verified
+- Multi-round augmentation safety
+
+### Performance
+
+**Memory Usage Formula:**
+```
+Memory ≈ base_samples_size + (augmentation_count × features_size)
+```
+
+**Computational Complexity:**
+- Standard mode: O(n × count × transformers)
+- Balanced mode: O(minority_samples × factor × transformers)
+- Splitting: O(n_base) - augmented samples excluded
+
+**Recommendations:**
+- **Small datasets (<100 samples)**: count=2-5
+- **Medium datasets (100-1000 samples)**: count=1-3
+- **Large datasets (>1000 samples)**: count=1-2 or balanced mode only
+- Start with 1-2 transformers to assess computational cost
+
+### Common Pitfalls
+
+1. **Over-augmentation**: count > 5 usually unnecessary and increases training time
+2. **Wrong transformer**: Some transformers drastically change signal, test on validation set
+3. **Missing random_state**: Always set for reproducible experiments
+4. **Leakage**: Verify CV splits use `include_augmented=False` (automatic in framework)
+5. **Memory overflow**: Large augmentation counts consume significant memory
+
+### Serialization
+
+Augmented samples persist across save/load cycles:
+- Indexer DataFrame stores origin/augmentation metadata
+- Features stored separately (efficient)
+- Metadata inherited automatically
+- Transformers serialized as pickles
+
 ## References
 
-- Design Document: `SAMPLE_AUGMENTATION_DESIGN.md`
-- API Documentation: `API.md`
-- Examples: `examples/sample_augmentation/`
-- Tests: `tests/unit/test_sample_augmentation_controller.py`
+- Full Guide: This document
+- Quick Reference: `docs/SAMPLE_AUGMENTATION_QUICK_REFERENCE.md`
+- Examples: `examples/Q12_sample_augmentation.py`
+- Tests: `tests/unit/test_balancing.py`, `tests/unit/test_sample_augmentation_controller.py`
 
 ## Support
 
 For questions or issues:
 1. Check examples in `examples/` directory
 2. Review test cases for usage patterns
-3. Open an issue on GitHub
-4. Consult the community forum
+3. Check implementation files for detailed docstrings
+4. Open an issue on GitHub

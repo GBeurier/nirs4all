@@ -19,7 +19,8 @@ class BalancingCalculator:
         all_sample_indices: np.ndarray,
         target_size: Optional[int] = None,
         max_factor: Optional[float] = None,
-        ref_percentage: Optional[float] = None
+        ref_percentage: Optional[float] = None,
+        random_state: Optional[int] = None
     ) -> Dict[int, int]:
         """
         Calculate augmentations per BASE sample considering ALL samples for target.
@@ -51,6 +52,7 @@ class BalancingCalculator:
             target_size: Fixed target samples per class (mode 1)
             max_factor: Multiplier for augmentation, capped at majority (mode 2)
             ref_percentage: Target as multiple of reference class (mode 3, can be > 1.0)
+            random_state: Random seed for reproducible remainder distribution
 
         Returns:
             Dict mapping base_sample_id → augmentation_count
@@ -111,6 +113,9 @@ class BalancingCalculator:
         # Get majority size for max_factor capping
         majority_size = max(all_class_counts.values()) if all_class_counts else 0
 
+        # Setup random number generator for remainder distribution
+        rng = np.random.default_rng(random_state)
+
         # Calculate augmentations per BASE sample
         augmentation_map = {}
 
@@ -120,9 +125,11 @@ class BalancingCalculator:
 
             # Calculate target for this class
             if max_factor is not None and target_size_per_class is None:
-                # Mode 2: target = current * max_factor, capped at majority class size
-                class_target = int(current_total * max_factor)
-                class_target = min(class_target, majority_size)
+                # Mode 2: target = majority * max_factor
+                # This interprets max_factor as a multiplier of the majority class size
+                # e.g., max_factor=1.0 → all classes reach majority size
+                #       max_factor=0.5 → all classes reach 50% of majority size
+                class_target = int(majority_size * max_factor)
             else:
                 # Modes 1, 3, or default
                 class_target = target_size_per_class
@@ -137,8 +144,161 @@ class BalancingCalculator:
                 aug_per_base = total_needed // base_count
                 remainder = total_needed % base_count
 
-                for i, sample_id in enumerate(base_samples):
-                    augmentation_map[sample_id] = aug_per_base + (1 if i < remainder else 0)
+                # Initialize all samples with base augmentation count
+                for sample_id in base_samples:
+                    augmentation_map[sample_id] = aug_per_base
+
+                # Randomly select which samples get the remainder augmentations
+                if remainder > 0:
+                    remainder_indices = rng.choice(base_count, size=remainder, replace=False)
+                    for idx in remainder_indices:
+                        augmentation_map[base_samples[idx]] += 1
+
+        return augmentation_map
+
+    @staticmethod
+    def calculate_balanced_counts_value_aware(
+        base_labels: np.ndarray,
+        base_sample_indices: np.ndarray,
+        base_values: np.ndarray,
+        all_labels: np.ndarray,
+        all_sample_indices: np.ndarray,
+        target_size: Optional[int] = None,
+        max_factor: Optional[float] = None,
+        ref_percentage: Optional[float] = None,
+        random_state: Optional[int] = None
+    ) -> Dict[int, int]:
+        """
+        Calculate augmentations per BASE sample with value-aware distribution.
+
+        This method first distributes augmentations fairly across unique values,
+        then distributes within each value group across its samples.
+
+        Useful for binned regression where samples with the same bin value
+        should be treated fairly together, not competing individually.
+
+        Args:
+            base_labels: Class labels for BASE samples only
+            base_sample_indices: BASE sample IDs
+            base_values: Actual values (y or bin values) for BASE samples
+                         Used to group samples with same value
+            all_labels: Class labels for ALL samples (base + augmented)
+            all_sample_indices: ALL sample IDs
+            target_size: Fixed target samples per class (mode 1)
+            max_factor: Multiplier for augmentation (mode 2)
+            ref_percentage: Target as multiple of reference class (mode 3)
+            random_state: Random seed for reproducibility
+
+        Returns:
+            Dict mapping base_sample_id → augmentation_count
+        """
+        if len(base_labels) != len(base_sample_indices):
+            raise ValueError("base_labels and base_sample_indices must have same length")
+        if len(base_labels) != len(base_values):
+            raise ValueError("base_values must have same length as base_labels")
+        if len(all_labels) != len(all_sample_indices):
+            raise ValueError("all_labels and all_sample_indices must have same length")
+
+        if len(base_labels) == 0:
+            return {}
+
+        # Validate that exactly one mode is specified
+        modes_specified = sum([target_size is not None, max_factor is not None, ref_percentage is not None])
+        if modes_specified == 0:
+            max_factor = 1.0
+        elif modes_specified > 1:
+            raise ValueError("Specify exactly one of: target_size, max_factor, or ref_percentage")
+
+        # Count ALL samples per class
+        all_class_counts = {}
+        for label in all_labels:
+            label_key = label.item() if hasattr(label, 'item') else label
+            all_class_counts[label_key] = all_class_counts.get(label_key, 0) + 1
+
+        # Build mapping: label → list of (sample_id, value) pairs
+        label_to_samples_with_values = {}
+        for sample_id, label, value in zip(base_sample_indices, base_labels, base_values):
+            label_key = label.item() if hasattr(label, 'item') else label
+            value_key = value.item() if hasattr(value, 'item') else value
+            label_to_samples_with_values.setdefault(label_key, []).append((int(sample_id), value_key))
+
+        # Calculate target size per class
+        if target_size is not None:
+            if target_size <= 0:
+                raise ValueError(f"target_size must be positive, got {target_size}")
+            target_size_per_class = target_size
+        elif max_factor is not None:
+            if max_factor <= 0:
+                raise ValueError(f"max_factor must be positive, got {max_factor}")
+            target_size_per_class = None
+        elif ref_percentage is not None:
+            if ref_percentage <= 0:
+                raise ValueError(f"ref_percentage must be positive, got {ref_percentage}")
+            majority_size = max(all_class_counts.values())
+            target_size_per_class = int(majority_size * ref_percentage)
+        else:
+            target_size_per_class = None
+
+        majority_size = max(all_class_counts.values()) if all_class_counts else 0
+        rng = np.random.default_rng(random_state)
+
+        augmentation_map = {}
+
+        for label, samples_with_values in label_to_samples_with_values.items():
+            current_total = all_class_counts.get(label, 0)
+
+            # Calculate target for this class
+            if max_factor is not None and target_size_per_class is None:
+                class_target = int(majority_size * max_factor)
+            else:
+                class_target = target_size_per_class
+
+            if current_total >= class_target:
+                # Already balanced
+                for sample_id, _ in samples_with_values:
+                    augmentation_map[sample_id] = 0
+            else:
+                # Need augmentation
+                total_needed = class_target - current_total
+
+                # Step 1: Group samples by value
+                value_to_samples = {}
+                for sample_id, value in samples_with_values:
+                    value_to_samples.setdefault(value, []).append(sample_id)
+
+                num_unique_values = len(value_to_samples)
+
+                # Step 2: Distribute augmentations across unique values
+                aug_per_value = total_needed // num_unique_values
+                remainder_values = total_needed % num_unique_values
+
+                # Randomly select which values get the remainder
+                value_list = list(value_to_samples.keys())
+                if remainder_values > 0:
+                    remainder_value_indices = rng.choice(num_unique_values, size=remainder_values, replace=False)
+                    remainder_value_set = {value_list[i] for i in remainder_value_indices}
+                else:
+                    remainder_value_set = set()
+
+                # Step 3: Distribute within each value group
+                for value, samples_in_value in value_to_samples.items():
+                    # Determine augmentations for this value group
+                    value_augmentations = aug_per_value + (1 if value in remainder_value_set else 0)
+                    num_samples_in_value = len(samples_in_value)
+
+                    # Distribute within the value group
+                    aug_per_sample = value_augmentations // num_samples_in_value
+                    remainder_samples = value_augmentations % num_samples_in_value
+
+                    # Initialize all samples with base
+                    for sample_id in samples_in_value:
+                        augmentation_map[sample_id] = aug_per_sample
+
+                    # Randomly select which samples in this value get remainder
+                    if remainder_samples > 0:
+                        remainder_sample_indices = rng.choice(num_samples_in_value, size=remainder_samples, replace=False)
+                        for idx in remainder_sample_indices:
+                            augmentation_map[samples_in_value[idx]] += 1
 
         return augmentation_map
 
