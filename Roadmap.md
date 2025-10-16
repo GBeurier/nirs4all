@@ -1,11 +1,8 @@
-> best model and earlystopping verification in tf op_model
-> residuals x_axis different from pred/obs
-
 ## ROADMAP ##
 
-> [Augmentation + Balanced Augmentation]
+> [Augmentation] merge branch
 
-> **Bugs**:
+**Bugs**:
 >   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
 
