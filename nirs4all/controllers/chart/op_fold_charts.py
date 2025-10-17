@@ -298,10 +298,10 @@ class FoldChartController(OperatorController):
             # CV folds or no augmentation: use direct indexing with y_indices
             y_meta = y_values[y_indices]
 
-        unique_meta, counts = np.unique(y_meta, return_counts=True)
-        for val, count in zip(unique_meta, counts):
-            print(f"{val}: {count}")
-        print('-' * 20)
+        # unique_meta, counts = np.unique(y_meta, return_counts=True)
+        # for val, count in zip(unique_meta, counts):
+        #     print(f"{val}: {count}")
+        # print('-' * 20)
 
         for fold_idx, (train_idx, test_idx) in enumerate(folds):
             # Position des barres pour ce fold

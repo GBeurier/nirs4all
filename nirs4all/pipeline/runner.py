@@ -518,7 +518,8 @@ class PipelineRunner:
         dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
         dataset_name: str = "explain_dataset",
         shap_params: Optional[Dict[str, Any]] = None,
-        verbose: int = 0
+        verbose: int = 0,
+        plots_visible: bool = True
     ) -> Tuple[Dict[str, Any], str]:
         """
         Generate SHAP explanations for a saved model.
@@ -610,7 +611,8 @@ class PipelineRunner:
                 visualizations=shap_params['visualizations'],
                 bin_size=shap_params['bin_size'],
                 bin_stride=shap_params['bin_stride'],
-                bin_aggregation=shap_params['bin_aggregation']
+                bin_aggregation=shap_params['bin_aggregation'],
+                plots_visible=plots_visible
             )
 
             # Add metadata

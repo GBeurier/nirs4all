@@ -68,4 +68,4 @@ shap_params = {
     }
 }
 
-shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params)
+shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params, plots_visible=False)
