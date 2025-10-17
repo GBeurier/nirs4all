@@ -400,16 +400,27 @@ class TensorFlowModelController(BaseModelController):
             base_lr = train_params.get('base_lr', 1e-4)
             max_lr = train_params.get('max_lr', 1e-2)
             step_size = train_params.get('step_size', 2000)
+            clr_mode = train_params.get('cyclic_lr_mode', 'triangular2')  # 'triangular' or 'triangular2'
 
-            def cyclic_lr_schedule(epoch, lr):
+            def triangular_cyclic_lr_schedule(epoch, lr):
                 cycle = np.floor(1 + epoch / (2 * step_size))
                 x = np.abs(epoch / step_size - 2 * cycle + 1)
                 new_lr = base_lr + (max_lr - base_lr) * max(0, (1 - x))
                 return float(new_lr)
 
+            def triangular2_cyclic_lr_schedule(epoch, lr):
+                cycle = np.floor(1 + epoch / (2 * step_size))
+                x = np.abs(epoch / step_size - 2 * cycle + 1)
+                scale = 1 / (2 ** (cycle - 1))  # atténuation à chaque cycle
+                new_lr = base_lr + (max_lr - base_lr) * max(0, (1 - x)) * scale
+                return float(new_lr)
+
             # Only show learning rate messages if verbose > 2 (detailed mode)
             callback_verbose = 1 if verbose > 2 else 0
-            cyclic_lr_callback = keras.callbacks.LearningRateScheduler(cyclic_lr_schedule, verbose=callback_verbose)
+            if clr_mode == 'triangular':
+                cyclic_lr_callback = keras.callbacks.LearningRateScheduler(triangular_cyclic_lr_schedule, verbose=callback_verbose)
+            elif clr_mode == 'triangular2':
+                cyclic_lr_callback = keras.callbacks.LearningRateScheduler(triangular2_cyclic_lr_schedule, verbose=callback_verbose)
             callbacks.append(cyclic_lr_callback)
             # print(f"🔄 Added CyclicLR: base_lr={base_lr}, max_lr={max_lr}, step_size={step_size}")
 
