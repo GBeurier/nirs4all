@@ -36,3 +36,4 @@ test_experiment_manager/
 examples/.hypothesis/
 log.txt
 .travis.yml
+examples/sample_data/Hiba23

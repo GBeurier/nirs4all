@@ -106,6 +106,7 @@
 > [feature_augmentation] with first item replacement
 
 #### EXCITERS ####
+- add NorrisWilliams, Whittaker, BandEnergies, FiniteDiffCentral
 - Clean user interface on datasetConfig/dataset, pipelineConfig/pipeline, predictions
 - Enhanced file savings: better logic, options, enhanced data_types, dynamic loading, caching
 - Charts in 'raw' y for categorical
