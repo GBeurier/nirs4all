@@ -202,7 +202,7 @@ class PredictionAnalyzer:
             # Scatter plot title with calculated partition score (not database rank_score)
             display_score = partition_scores.get(rank_partition, rank_score)
             score_str = f'{display_score:.4f}' if isinstance(display_score, (int, float)) else str(display_score)
-            scatter_title = f'{model_display}\nBest {rank_partition} {rank_metric.upper()}: {score_str}'
+            scatter_title = f'{model_display}\nBest {rank_partition} {rank_metric.upper()}: {score_str} - [{pred["id"]}]'
             ax_scatter.set_title(scatter_title, fontsize=10)
             ax_scatter.grid(True, alpha=0.3)
 
