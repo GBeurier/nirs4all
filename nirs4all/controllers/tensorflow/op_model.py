@@ -399,7 +399,7 @@ class TensorFlowModelController(BaseModelController):
         if train_params.get('cyclic_lr', False):
             base_lr = train_params.get('base_lr', 1e-4)
             max_lr = train_params.get('max_lr', 1e-2)
-            step_size = train_params.get('step_size', 2000)
+            step_size = train_params.get('step_size', 200)
             clr_mode = train_params.get('cyclic_lr_mode', 'triangular2')  # 'triangular' or 'triangular2'
 
             def triangular_cyclic_lr_schedule(epoch, lr):
