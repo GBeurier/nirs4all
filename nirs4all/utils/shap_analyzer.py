@@ -61,7 +61,8 @@ class ShapAnalyzer:
         visualizations: Optional[List[str]] = None,
         bin_size = 20,
         bin_stride = 10,
-        bin_aggregation = 'sum'
+        bin_aggregation = 'sum',
+        plots_visible = True
     ) -> Dict[str, Any]:
         """
         Explain model predictions using SHAP values.
@@ -179,14 +180,16 @@ class ShapAnalyzer:
 
                 self.plot_spectral_importance(
                     feature_names=feature_names,
-                    output_path=str(output_path / "spectral_importance.png")
+                    output_path=str(output_path / "spectral_importance.png"),
+                    plots_visible=plots_visible
                 )
                 print("   ✓ Spectral importance")
 
             if 'summary' in visualizations:
                 self.plot_summary(
                     feature_names=feature_names,
-                    output_path=str(output_path / "summary.png")
+                    output_path=str(output_path / "summary.png"),
+                    plots_visible=plots_visible
                 )
                 print("   ✓ Summary plot")
 
@@ -198,7 +201,8 @@ class ShapAnalyzer:
 
                 self.plot_waterfall_binned(
                     sample_idx=0,
-                    output_path=str(output_path / "waterfall_binned.png")
+                    output_path=str(output_path / "waterfall_binned.png"),
+                    plots_visible=plots_visible
                 )
                 print("   ✓ Waterfall plot (binned)")
 
@@ -206,7 +210,8 @@ class ShapAnalyzer:
                 self.plot_force(
                     sample_idx=0,
                     feature_names=feature_names,
-                    output_path=str(output_path / "force.html")
+                    output_path=str(output_path / "force.html"),
+                    plots_visible=plots_visible
                 )
                 print("   ✓ Force plot")
 
@@ -217,7 +222,8 @@ class ShapAnalyzer:
                 self.bin_aggregation = self.bin_aggregation_dict.get('beeswarm', 'sum')
 
                 self.plot_beeswarm_binned(
-                    output_path=str(output_path / "beeswarm_binned.png")
+                    output_path=str(output_path / "beeswarm_binned.png"),
+                    plots_visible=plots_visible
                 )
                 print("   ✓ Beeswarm plot (binned)")
 
@@ -361,7 +367,8 @@ class ShapAnalyzer:
         self,
         feature_names: Optional[List[str]] = None,
         output_path: Optional[str] = None,
-        figsize: Tuple[int, int] = (16, 10)
+        figsize: Tuple[int, int] = (16, 10),
+        plots_visible: bool = True
     ):
         """
         Create NIRS-specific spectral importance visualization with binned regions.
@@ -511,13 +518,17 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             print(f"   💾 Saved: {output_path}")
 
-        plt.show()  # Blocking
+        if not plots_visible:
+            plt.close(fig)
+        else:
+            plt.show()  # Blocking
 
     def plot_summary(
         self,
         feature_names: Optional[List[str]] = None,
         output_path: Optional[str] = None,
-        max_display: int = 20
+        max_display: int = 20,
+        plots_visible: bool = True
     ):
         """Create SHAP summary plot showing feature importance."""
         if self.shap_values is None:
@@ -538,13 +549,17 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             print(f"   💾 Saved: {output_path}")
 
-        plt.show()  # Blocking
+        if not plots_visible:
+            plt.close()
+        else:
+            plt.show()  # Blocking
 
     def plot_beeswarm(
         self,
         feature_names: Optional[List[str]] = None,
         output_path: Optional[str] = None,
-        max_display: int = 20
+        max_display: int = 20,
+        plots_visible: bool = True
     ):
         """Create SHAP beeswarm plot."""
         if self.shap_values is None:
@@ -567,14 +582,18 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             print(f"   💾 Saved: {output_path}")
 
-        plt.show()  # Blocking
+        if not plots_visible:
+            plt.close()
+        else:
+            plt.show()  # Blocking
 
     def plot_waterfall(
         self,
         sample_idx: int = 0,
         feature_names: Optional[List[str]] = None,
         output_path: Optional[str] = None,
-        max_display: int = 20
+        max_display: int = 20,
+        plots_visible: bool = True
     ):
         """Create SHAP waterfall plot for a single sample."""
         if self.shap_values is None:
@@ -599,13 +618,17 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             print(f"   💾 Saved: {output_path}")
 
-        plt.show()  # Blocking
+        if not plots_visible:
+            plt.close()
+        else:
+            plt.show()  # Blocking
 
     def plot_force(
         self,
         sample_idx: int = 0,
         feature_names: Optional[List[str]] = None,
-        output_path: Optional[str] = None
+        output_path: Optional[str] = None,
+        plots_visible: bool = True
     ):
         """Create SHAP force plot for a single sample."""
         if self.shap_values is None:
@@ -629,13 +652,20 @@ class ShapAnalyzer:
                 self.data[sample_idx],
                 feature_names=feature_names
             )
+        if output_path:
+            print(f"   💾 Saved: {output_path}"
+                  if plots_visible and output_path is None else "")
+        if plots_visible and output_path is None:
+            plt.show()  # Blocking
+            plt.close()
 
     def plot_dependence(
         self,
         feature_idx: int,
         feature_names: Optional[List[str]] = None,
         output_path: Optional[str] = None,
-        interaction_index: Optional[int] = None
+        interaction_index: Optional[int] = None,
+        plots_visible: bool = True
     ):
         """Create SHAP dependence plot for a specific feature."""
         if self.shap_values is None:
@@ -655,7 +685,12 @@ class ShapAnalyzer:
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
 
-        plt.show()  # Blocking
+
+        if not plots_visible:
+            plt.close()
+        else:
+            plt.show()  # Blocking
+
 
     def _aggregate_shap_bins(self, shap_values: np.ndarray) -> Tuple[np.ndarray, List[str]]:
         """
@@ -718,7 +753,8 @@ class ShapAnalyzer:
     def plot_beeswarm_binned(
         self,
         output_path: Optional[str] = None,
-        max_display: int = 20
+        max_display: int = 20,
+        plots_visible: bool = True
     ):
         """
         Create SHAP beeswarm plot with binned features.
@@ -767,13 +803,17 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             print(f"   💾 Saved: {output_path}")
 
-        plt.show()  # Blocking
+        if plots_visible:
+            plt.show()  # Blocking
+        else:
+            plt.close()
 
     def plot_waterfall_binned(
         self,
         sample_idx: int = 0,
         output_path: Optional[str] = None,
-        max_display: int = 20
+        max_display: int = 20,
+        plots_visible: bool = True
     ):
         """
         Create SHAP waterfall plot with binned features for a single sample.
@@ -822,7 +862,10 @@ class ShapAnalyzer:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
             print(f"   💾 Saved: {output_path}")
 
-        plt.show()  # Blocking
+        if not plots_visible:
+            plt.close()
+        else:
+            plt.show()  # Blocking
 
     def get_feature_importance(self, top_n: Optional[int] = None) -> Dict[str, float]:
         """

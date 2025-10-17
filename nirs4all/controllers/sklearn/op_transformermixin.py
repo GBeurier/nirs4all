@@ -59,12 +59,8 @@ class TransformerMixinController(OperatorController):
         prediction_store: Optional[Any] = None
     ):
         """Execute transformer - handles normal, feature augmentation, and sample augmentation modes."""
-        if mode in ["predict", "explain"]:
-            return context, []
-
-
         # Check if we're in sample augmentation mode
-        if context.get("augment_sample", False):
+        if context.get("augment_sample", False) and mode not in ["predict", "explain"]:
             return self._execute_for_sample_augmentation(
                 operator, dataset, context, runner, mode, loaded_binaries, prediction_store
             )
