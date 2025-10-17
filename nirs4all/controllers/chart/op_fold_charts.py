@@ -84,62 +84,74 @@ class FoldChartController(OperatorController):
         if not folds:
             print("ℹ️ No CV folds found. Creating visualization from train/test partition.")
 
-            # Try to get train and test data
+            # Try to get train and test data - INCLUDE AUGMENTED SAMPLES
             train_context = copy.deepcopy(context)
             train_context["partition"] = "train"
             test_context = copy.deepcopy(context)
             test_context["partition"] = "test"
 
-            train_indices = dataset._indexer.x_indices(train_context)
-            test_indices = dataset._indexer.x_indices(test_context)
+            train_indices = dataset._indexer.x_indices(train_context, include_augmented=True)  # noqa: SLF001
+            test_indices = dataset._indexer.x_indices(test_context, include_augmented=True)  # noqa: SLF001
 
             if len(test_indices) > 0:
                 # We have both train and test data - create a single "fold" with absolute indices
-                # Use absolute indices: train is [0..177], test is [178..207]
+                # Use absolute indices from the concatenated array: train is [0..N], test is [N..N+M]
                 train_abs = list(range(len(train_indices)))
                 test_abs = list(range(len(train_indices), len(train_indices) + len(test_indices)))
                 folds = [(train_abs, test_abs)]
-                print(f"  Using train ({len(train_indices)} samples) and test ({len(test_indices)} samples) partitions.")
+                print(f"  Using train ({len(train_indices)} samples including augmented) and test ({len(test_indices)} samples) partitions.")
             elif len(train_indices) > 0:
                 # Only train data exists - show it as a single bar
                 folds = [(list(range(len(train_indices))), [])]
-                print(f"  Only train partition available ({len(train_indices)} samples).")
+                print(f"  Only train partition available ({len(train_indices)} samples including augmented).")
             else:
                 print("⚠️ No data available for visualization.")
                 return context, []
 
         # Get values for color coding (either y or metadata column)
         # For CV folds: get all data for proper indexing
-        # For fallback (train/test): get data for the specific partition
+        # For fallback (train/test): need to handle both base and augmented samples
         if metadata_column:
             # Use metadata column for colors
             if dataset.folds:
-                # CV folds mode: need all data since indices refer to full dataset
+                # CV folds mode: need all data including augmented since indices refer to full dataset
                 all_context = copy.deepcopy(context)
                 all_context["partition"] = "all"
-                color_values = dataset.metadata_column(metadata_column, all_context)
+                color_values = dataset.metadata_column(metadata_column, all_context, include_augmented=True)
+
             else:
-                # Fallback mode: get train and test separately and concatenate
+                # Fallback mode: Use y indices directly to get augmented mappings
+                # This is more reliable than metadata_column for augmented samples
                 train_ctx = copy.deepcopy(context)
                 train_ctx["partition"] = "train"
                 test_ctx = copy.deepcopy(context)
                 test_ctx["partition"] = "test"
 
-                meta_train = dataset.metadata_column(metadata_column, train_ctx)
-                meta_test = dataset.metadata_column(metadata_column, test_ctx)
+                # Get metadata using origin mapping (like y() does)
+                train_x_idx = dataset._indexer.x_indices(train_ctx, include_augmented=True)  # noqa: SLF001
+                test_x_idx = dataset._indexer.x_indices(test_ctx, include_augmented=True)  # noqa: SLF001
+
+                # Map to origins and get metadata
+                base_meta = dataset._metadata.get_column(metadata_column)  # noqa: SLF001
+                train_origin_indices = np.array([dataset._indexer.get_origin_for_sample(int(idx)) for idx in train_x_idx])  # noqa: SLF001
+                test_origin_indices = np.array([dataset._indexer.get_origin_for_sample(int(idx)) for idx in test_x_idx])  # noqa: SLF001
+
+                meta_train = base_meta[train_origin_indices]
+                meta_test = base_meta[test_origin_indices]
 
                 # Concatenate train and test for visualization
                 if len(meta_test) > 0:
                     color_values = np.concatenate([meta_train, meta_test])
                 else:
                     color_values = meta_train
+
         else:
             # Use y values for colors (default behavior)
             if dataset.folds:
-                # CV folds mode: need all data since indices refer to full dataset
+                # CV folds mode: need all data including augmented since indices refer to full dataset
                 all_context = copy.deepcopy(context)
                 all_context["partition"] = "all"
-                color_values = dataset.y(all_context)
+                color_values = dataset.y(all_context, include_augmented=True)
             else:
                 # Fallback mode: get train and test separately and concatenate
                 train_ctx = copy.deepcopy(context)
@@ -147,8 +159,8 @@ class FoldChartController(OperatorController):
                 test_ctx = copy.deepcopy(context)
                 test_ctx["partition"] = "test"
 
-                y_train = dataset.y(train_ctx)
-                y_test = dataset.y(test_ctx)
+                y_train = dataset.y(train_ctx, include_augmented=True)
+                y_test = dataset.y(test_ctx, include_augmented=True)
 
                 # Concatenate train and test for visualization
                 if len(y_test) > 0:
@@ -220,10 +232,14 @@ class FoldChartController(OperatorController):
         # Create figure
         fig, ax = plt.subplots(1, 1, figsize=(fig_width, 8))
 
-        # Create colormap - use discrete contrastive colors for metadata, continuous for y values
+        # Create colormap - use discrete contrastive colors for metadata and classification, continuous for regression
 
-        if metadata_column:
-            # For metadata: use discrete, highly contrastive colors
+        # Check if we should use discrete colormap (metadata column or classification task)
+        is_classification_task = dataset is not None and dataset.is_classification()
+        use_discrete_colormap = metadata_column is not None or is_classification_task
+
+        if use_discrete_colormap:
+            # For metadata or classification: use discrete, highly contrastive colors
             # Get unique values and create a discrete colormap
             unique_values = np.unique(y_values)
             n_unique = len(unique_values)
@@ -243,10 +259,10 @@ class FoldChartController(OperatorController):
             # Normalize to discrete indices [0, 1, 2, ...] / n_unique
             y_normalized = np.array([value_to_index[val] / max(n_unique - 1, 1) for val in y_values])
 
-            # For metadata, y_min and y_max are index boundaries (not used for string values)
+            # For discrete values, y_min and y_max are index boundaries
             y_min, y_max = 0, n_unique - 1
         else:
-            # For y values: use continuous colormap
+            # For continuous y values (regression): use continuous colormap
             y_min, y_max = y_values.min(), y_values.max()
             colormap = cm.get_cmap('viridis')
             # Normalize y values to [0, 1] for colormap
@@ -258,15 +274,34 @@ class FoldChartController(OperatorController):
         bar_width = 0.8
         gap_between_folds = 0.4
 
-        # Prepare metadata-specific parameters
-        is_metadata = metadata_column is not None
+        # Prepare discrete-value-specific parameters (metadata or classification)
+        is_discrete_values = use_discrete_colormap  # Reuse the flag we already computed
         value_to_index_map = None
         n_unique_values = 1
 
-        if is_metadata:
+        if is_discrete_values:
             unique_values = np.unique(y_values)
             n_unique_values = len(unique_values)
             value_to_index_map = {val: idx for idx, val in enumerate(unique_values)}
+
+        # Get train y-indices including augmented samples (mapped to their origins)
+        y_indices = dataset._indexer.y_indices({"partition": "train"}, include_augmented=True)  # noqa: SLF001
+
+        # For fallback mode, y_values contains augmented samples, so we need to handle the mapping differently
+        # Get the label from y_values for train partition only (not test)
+        if not is_cv_folds and len(y_values) != len(y_indices):
+            # Fallback mode with augmented samples: y_values may include augmented samples
+            # Get the label from y_values for train partition only (not test)
+            train_len = len(folds[0][0]) if folds else len(y_indices)
+            y_meta = y_values[:train_len]
+        else:
+            # CV folds or no augmentation: use direct indexing with y_indices
+            y_meta = y_values[y_indices]
+
+        unique_meta, counts = np.unique(y_meta, return_counts=True)
+        for val, count in zip(unique_meta, counts):
+            print(f"{val}: {count}")
+        print('-' * 20)
 
         for fold_idx, (train_idx, test_idx) in enumerate(folds):
             # Position des barres pour ce fold
@@ -274,26 +309,55 @@ class FoldChartController(OperatorController):
             train_pos = base_pos
             test_pos = base_pos + 1
 
-            # Traiter les données d'entraînement
-            train_y = y_values[train_idx]
+            # Get y-values for train and test
+            # In CV mode: expand fold indices to include augmented samples, then map to origins
+            # In fallback mode: direct indexing (indices already into concatenated array)
+            if is_cv_folds:
+                # CV folds mode: folds contain base sample indices. Expand to include augmented samples.
+                train_idx_arr = np.array(train_idx) if isinstance(train_idx, list) else train_idx
+                test_idx_arr = np.array(test_idx) if isinstance(test_idx, list) else test_idx
+                train_idx_list = train_idx_arr.tolist() if hasattr(train_idx_arr, 'tolist') else list(train_idx_arr)
+                test_idx_list = test_idx_arr.tolist() if hasattr(test_idx_arr, 'tolist') else list(test_idx_arr)
+
+                # Expand to include augmented samples for each base sample in the fold
+                train_augmented = dataset._indexer.get_augmented_for_origins(train_idx_list)  # noqa: SLF001
+                test_augmented = dataset._indexer.get_augmented_for_origins(test_idx_list)  # noqa: SLF001
+
+                # Combine base and augmented samples
+                train_all_idx = train_idx_list + train_augmented.tolist()
+                test_all_idx = test_idx_list + test_augmented.tolist()
+
+                # Get origins for all (base + augmented) samples
+                train_y_idx = dataset._indexer.y_indices({"sample": train_all_idx}, include_augmented=True)  # noqa: SLF001
+                test_y_idx = dataset._indexer.y_indices({"sample": test_all_idx}, include_augmented=True)  # noqa: SLF001
+                train_y = y_values[train_y_idx]
+                test_y = y_values[test_y_idx]
+            else:
+                # Fallback mode: use direct indexing (fold indices are indices into concatenated array)
+                train_y = y_values[train_idx]
+                test_y = y_values[test_idx] if len(test_idx) > 0 else np.array([])
+
+            # Sort for visualization
             train_sorted_indices = np.argsort(train_y)
             train_y_sorted = train_y[train_sorted_indices]
 
             # Traiter les données de test
-            test_y = y_values[test_idx]
-            test_sorted_indices = np.argsort(test_y)
-            test_y_sorted = test_y[test_sorted_indices]
+            if len(test_y) > 0:
+                test_sorted_indices = np.argsort(test_y)
+                test_y_sorted = test_y[test_sorted_indices]
+            else:
+                test_y_sorted = np.array([])
 
             # Créer les barres empilées pour TRAIN
             self._create_stacked_bar(ax, train_pos, train_y_sorted, colormap,
                                    y_min, y_max, bar_width, f'Train F{fold_idx}',
-                                   is_metadata, value_to_index_map, n_unique_values)
+                                   is_discrete_values, value_to_index_map, n_unique_values)
 
             # Créer les barres empilées pour TEST (only if test data exists)
             if len(test_idx) > 0:
                 self._create_stacked_bar(ax, test_pos, test_y_sorted, colormap,
                                        y_min, y_max, bar_width, f'Test F{fold_idx}',
-                                       is_metadata, value_to_index_map, n_unique_values)
+                                       is_discrete_values, value_to_index_map, n_unique_values)
 
             # Ajouter les labels au-dessus des barres
             train_label = 'Train' if not is_cv_folds else f'T{fold_idx}'
@@ -318,7 +382,7 @@ class FoldChartController(OperatorController):
             # Create stacked bar for test partition
             self._create_stacked_bar(ax, test_partition_pos, test_y_sorted, colormap,
                                    y_min, y_max, bar_width, 'Test Partition',
-                                   is_metadata, value_to_index_map, n_unique_values)
+                                   is_discrete_values, value_to_index_map, n_unique_values)
 
             # Add label
             ax.text(test_partition_pos, len(test_y_sorted) + 1, f'Test\n({len(test_y_sorted)})',
@@ -339,7 +403,7 @@ class FoldChartController(OperatorController):
         else:
             title = f'Distribution - Train/Test Split (Partition: {partition.upper()})\n'
 
-        # Adjust title based on whether using metadata or y values
+        # Adjust title based on whether using metadata, classification, or regression
         if metadata_column:
             color_label = f'metadata "{metadata_column}"'
             # For metadata, show range or unique count based on data type
@@ -358,6 +422,13 @@ class FoldChartController(OperatorController):
                 title_suffix = f'{int(y_min)} - {int(y_max)}, {len(unique_values)} unique'
             else:
                 title_suffix = f'{len(unique_values)} unique string values'
+        elif is_classification_task:
+            color_label = 'class labels'
+            unique_values = np.unique(y_values)
+            if len(unique_values) <= 20:
+                title_suffix = f'{len(unique_values)} unique classes'
+            else:
+                title_suffix = f'{len(unique_values)} unique classes'
         else:
             color_label = 'target values (y)'
             title_suffix = f'{y_min:.2f} - {y_max:.2f}'
@@ -397,8 +468,8 @@ class FoldChartController(OperatorController):
             ax.axvline(x=separator_pos, color='gray', linestyle=':', alpha=0.3, linewidth=1)
 
         # Ajouter colorbar
-        if metadata_column:
-            # For metadata: discrete colorbar with distinct boundaries
+        if metadata_column or is_classification_task:
+            # For metadata or classification: discrete colorbar with distinct boundaries
             unique_values = np.unique(y_values)
             n_unique = len(unique_values)
 
@@ -418,7 +489,8 @@ class FoldChartController(OperatorController):
             mappable.set_array(np.arange(n_unique))
 
             cbar = plt.colorbar(mappable, ax=ax, shrink=0.8, aspect=30,
-                              boundaries=boundaries, ticks=np.arange(n_unique))            # Set tick labels to actual metadata values
+                              boundaries=boundaries, ticks=np.arange(n_unique))
+            # Set tick labels to actual metadata values or class labels
             if n_unique <= 20:
                 # Show all labels if not too many
                 cbar.ax.set_yticklabels([str(val) for val in unique_values])
@@ -428,9 +500,12 @@ class FoldChartController(OperatorController):
                 cbar.set_ticks(np.arange(0, n_unique, step).tolist())
                 cbar.ax.set_yticklabels([str(unique_values[i]) for i in range(0, n_unique, step)])
 
-            cbar.set_label(f'Metadata: {metadata_column}', fontsize=12)
+            if metadata_column:
+                cbar.set_label(f'Metadata: {metadata_column}', fontsize=12)
+            else:
+                cbar.set_label('Y Labels', fontsize=12)
         else:
-            # For y values: continuous colorbar
+            # For continuous y values (regression): continuous colorbar
             mappable = cm.ScalarMappable(cmap=colormap)
             mappable.set_array(y_values)
             mappable.set_clim(y_min, y_max)
@@ -450,7 +525,7 @@ class FoldChartController(OperatorController):
         return fig, plot_info
 
     def _create_stacked_bar(self, ax, position, y_values_sorted, colormap,
-                           y_min, y_max, bar_width, label, is_metadata=False, value_to_index=None, n_unique=1):
+                           y_min, y_max, bar_width, label, is_discrete_values=False, value_to_index=None, n_unique=1):
         """
         Create a single stacked bar where each segment represents one sample.
 
@@ -462,13 +537,13 @@ class FoldChartController(OperatorController):
             y_min, y_max: Min and max y values for normalization
             bar_width: Width of the bar
             label: Label for the bar
-            is_metadata: Whether values are metadata (discrete) or continuous y values
-            value_to_index: Dictionary mapping values to discrete indices (for metadata)
-            n_unique: Number of unique values (for metadata)
+            is_discrete_values: Whether values are discrete (metadata or classification) or continuous (regression)
+            value_to_index: Dictionary mapping values to discrete indices (for discrete values)
+            n_unique: Number of unique values (for discrete values)
         """
         # Normaliser les valeurs pour le colormap
-        if is_metadata and value_to_index is not None:
-            # For metadata: use discrete indices
+        if is_discrete_values and value_to_index is not None:
+            # For discrete values: use discrete indices
             y_normalized = np.array([value_to_index[val] / max(n_unique - 1, 1) for val in y_values_sorted])
         else:
             # For continuous y values

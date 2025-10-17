@@ -139,8 +139,9 @@ class CrossValidatorController(OperatorController):
         local_context = copy.deepcopy(context)
         local_context["partition"] = "train"
         needs_y, needs_g = _needs(operator)
-        X = dataset.x(local_context, layout="2d", concat_source=True)
-        y = dataset.y(local_context) if needs_y else None
+        # IMPORTANT: Only split on base samples (exclude augmented) to prevent data leakage
+        X = dataset.x(local_context, layout="2d", concat_source=True, include_augmented=False)
+        y = dataset.y(local_context, include_augmented=False) if needs_y else None
 
         # Get groups from metadata if available
         groups = None
@@ -159,9 +160,9 @@ class CrossValidatorController(OperatorController):
                         f"Group column '{group_column}' not found in metadata.\n"
                         f"Available columns: {dataset.metadata_columns}"
                     )
-                # Extract groups from specified column
+                # Extract groups from specified column (base samples only)
                 try:
-                    groups = dataset.metadata_column(group_column, local_context)
+                    groups = dataset.metadata_column(group_column, local_context, include_augmented=False)
                     if len(groups) != X.shape[0]:
                         raise ValueError(
                             f"Group array length ({len(groups)}) doesn't match X rows ({X.shape[0]})"
@@ -178,7 +179,7 @@ class CrossValidatorController(OperatorController):
                     f"Using default: '{group_column}'"
                 )
                 try:
-                    groups = dataset.metadata_column(group_column, local_context)
+                    groups = dataset.metadata_column(group_column, local_context, include_augmented=False)
                     if len(groups) != X.shape[0]:
                         raise ValueError(
                             f"Group array length ({len(groups)}) doesn't match X rows ({X.shape[0]})"
