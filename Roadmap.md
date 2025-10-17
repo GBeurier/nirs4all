@@ -1,8 +1,8 @@
 ## ROADMAP ##
 
-> [Augmentation + Balanced Augmentation]
+> [Augmentation] merge branch
 
-> **Bugs**:
+**Bugs**:
 >   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
 
@@ -178,3 +178,6 @@ Mean Centering/Autoscaling         |  Adjusts spectral features to centered/scal
 Normalization (e.g., area)         |  Adjusts all spectra to same overall intensity .
 Wavelength Selection               |  Focuses analysis on most relevant regions .
 Haar Wavelet Transform             |  Sometimes usedfor noise reduction and feature extraction; less common than above methods but useful in some advanced pipelines .
+
+
+

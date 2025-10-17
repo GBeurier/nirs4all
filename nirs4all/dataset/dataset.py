@@ -34,8 +34,28 @@ class SpectroDataset:
         self.name = name
         self._task_type: Optional[str] = None  # "regression", "binary_classification", "multiclass_classification"
 
-    def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
-        indices = self._indexer.x_indices(selector)
+    def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True, include_augmented: bool = True) -> OutputData:
+        """
+        Get feature data with automatic augmented sample aggregation.
+
+        Args:
+            selector: Filter criteria (partition, group, branch, etc.)
+            layout: Output layout ("2d" or "3d")
+            concat_source: If True, concatenate multiple sources along feature axis
+            include_augmented: If True, include augmented versions of selected samples.
+                             If False, return only base samples (origin=null).
+                             Default True for backward compatibility.
+
+        Returns:
+            Feature data array(s)
+
+        Example:
+            >>> # Get all train samples (base + augmented)
+            >>> X_train = dataset.x({"partition": "train"})
+            >>> # Get only base train samples (for splitting)
+            >>> X_base = dataset.x({"partition": "train"}, include_augmented=False)
+        """
+        indices = self._indexer.x_indices(selector, include_augmented=include_augmented)
         return self._features.x(indices, layout, concat_source)
 
     # def x_train(self, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
@@ -46,14 +66,45 @@ class SpectroDataset:
     #     selector = {"partition": "test"}
     #     return self.x(selector, layout, concat_source)
 
-    def y(self, selector: Selector) -> np.ndarray:
-        indices = self._indexer.y_indices(selector)
+    def y(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
+        """
+        Get target data - automatically maps augmented samples to their origin for y values.
+
+        Args:
+            selector: Filter criteria (partition, group, branch, etc.)
+            include_augmented: If True, include augmented versions of selected samples.
+                             Augmented samples are automatically mapped to their origin's y value.
+                             If False, return only base samples.
+                             Default True for backward compatibility.
+
+        Returns:
+            Target values array
+
+        Example:
+            >>> # Get all train targets (base + augmented, with mapping)
+            >>> y_train = dataset.y({"partition": "train"})
+            >>> # Get only base train targets (for splitting)
+            >>> y_base = dataset.y({"partition": "train"}, include_augmented=False)
+        """
+        if include_augmented:
+            # Get all sample indices (base + augmented)
+            x_indices = self._indexer.x_indices(selector, include_augmented=True)
+
+            # Map each sample to its y index (augmented → origin)
+            y_indices = np.array([
+                self._indexer.get_origin_for_sample(int(sample_id))
+                for sample_id in x_indices
+            ], dtype=np.int32)
+        else:
+            # Get only base samples using x_indices with include_augmented=False
+            y_indices = self._indexer.x_indices(selector, include_augmented=False)
+
         if selector and "y" in selector:
             processing = selector["y"]
         else:
             processing = "numeric"
 
-        return self._targets.y(indices, processing)
+        return self._targets.y(y_indices, processing)
 
     # FEATURES
     def add_samples(self,
@@ -96,11 +147,12 @@ class SpectroDataset:
                         selector: Optional[Selector] = None,
                         count: Union[int, List[int]] = 1) -> List[int]:
         # Get indices of samples to augment using selector
+        # IMPORTANT: Always use include_augmented=False to only augment base samples
         if selector is None:
-            # Augment all existing samples
-            sample_indices = list(range(self._features.num_samples))
+            # Augment all base samples (exclude already augmented ones)
+            sample_indices = self._indexer.x_indices({}, include_augmented=False).tolist()
         else:
-            sample_indices = self._indexer.x_indices(selector).tolist()
+            sample_indices = self._indexer.x_indices(selector, include_augmented=False).tolist()
 
         if not sample_indices:
             return []
@@ -256,40 +308,47 @@ class SpectroDataset:
 
     def metadata(self,
                  selector: Optional[Selector] = None,
-                 columns: Optional[List[str]] = None):
+                 columns: Optional[List[str]] = None,
+                 include_augmented: bool = True):
         """
         Get metadata as DataFrame.
 
         Args:
             selector: Filter selector (e.g., {"partition": "train"})
             columns: Specific columns to return (None = all)
+            include_augmented: If True, include augmented versions of selected samples.
+                             Default True for backward compatibility.
 
         Returns:
             Polars DataFrame with metadata
         """
-        indices = self._indexer.x_indices(selector) if selector else None
+        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else None
         return self._metadata.get(indices, columns)
 
     def metadata_column(self,
                         column: str,
-                        selector: Optional[Selector] = None) -> np.ndarray:
+                        selector: Optional[Selector] = None,
+                        include_augmented: bool = True) -> np.ndarray:
         """
         Get single metadata column as array.
 
         Args:
             column: Column name
             selector: Filter selector (e.g., {"partition": "train"})
+            include_augmented: If True, include augmented versions of selected samples.
+                             Default True for backward compatibility.
 
         Returns:
             Numpy array of column values
         """
-        indices = self._indexer.x_indices(selector) if selector else None
+        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else None
         return self._metadata.get_column(column, indices)
 
     def metadata_numeric(self,
                          column: str,
                          selector: Optional[Selector] = None,
-                         method: Literal["label", "onehot"] = "label") -> Tuple[np.ndarray, Dict]:
+                         method: Literal["label", "onehot"] = "label",
+                         include_augmented: bool = True) -> Tuple[np.ndarray, Dict]:
         """
         Get numeric encoding of metadata column.
 
@@ -297,17 +356,20 @@ class SpectroDataset:
             column: Column name
             selector: Filter selector (e.g., {"partition": "train"})
             method: "label" for label encoding or "onehot" for one-hot encoding
+            include_augmented: If True, include augmented versions of selected samples.
+                             Default True for backward compatibility.
 
         Returns:
             Tuple of (numeric_array, encoding_info)
         """
-        indices = self._indexer.x_indices(selector) if selector else None
+        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else None
         return self._metadata.to_numeric(column, indices, method)
 
     def update_metadata(self,
                         column: str,
                         values: Union[List, np.ndarray],
-                        selector: Optional[Selector] = None) -> None:
+                        selector: Optional[Selector] = None,
+                        include_augmented: bool = True) -> None:
         """
         Update metadata values for selected samples.
 
@@ -315,8 +377,10 @@ class SpectroDataset:
             column: Column name
             values: New values
             selector: Filter selector (None = all samples)
+            include_augmented: If True, include augmented versions of selected samples.
+                             Default True for backward compatibility.
         """
-        indices = self._indexer.x_indices(selector) if selector else list(range(self._metadata.num_rows))
+        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else list(range(self._metadata.num_rows))
         self._metadata.update_metadata(indices, column, values)
 
     def add_metadata_column(self,
