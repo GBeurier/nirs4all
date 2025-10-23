@@ -2,7 +2,7 @@
 
 > [Headers] verify and clean header management (none, cm-1, nm, str or num_feature) > ensure tests are okay and raise error on related classes (ie resampler)
 
-> [Serialization] serialization refactoring (merge branch)
+> [Serialization] (in serialization branch) REDO the whole workspace architecture (cf below) and merge branch
 
 **RELEASE** 0.4
 
@@ -35,7 +35,9 @@
 
 **RELEASE** 0.6
 
-> [Pipeline as single transformer]: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline
+> [TEST] Improve integration tests before pipeline refactoring
+
+> [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
 
 > [Runner] retrieve raw and pp dataset after run
 
@@ -53,7 +55,7 @@
 
 > [GLOBAL REVIEW] v1.0 signatures freeze
 
-> [TEST] Prod coverage (transformations, controllers, predictions, datasets, runner)
+> [TEST] Complete tests > Prod coverage (transformations, controllers, predictions, datasets, runner)
 
 **RELEASE**  0.9 apha
 
@@ -129,7 +131,7 @@
 > Splitter illustration and tutorial
 > Transformer mixin illustration and tutorial
 
-### TMP
+## TARGETED DIRECTORIES STRUCTURE (serialization_refactoring branch) ##
 
 workspace/
 	export/
@@ -142,28 +144,39 @@ workspace/
 
 	runs/
 		yyyy-mm-dd_run-N-datasetName/ ### OR Custom session _ datasetname
-			metadata.json
-			report.json
+			metadata.json # generation config for this dataset
+			report.json # detailed report and executions
+			log.txt # log
 
-			binaries/
-				#indexed cache
+			binaries/   #indexed cache
+				...
 
 			predictions/
-				predictions_N.csv
-				report_N.csv
+				predictions_1_model.csv
+				report_1_model.csv
+				...
+				predictions_N_model.csv
+				report_N_model.csv
 
 			outputs/
-				XXX.png
-				YYY.csv
+				XXX_1.png
+				YYY_1.csv
+				...
+				XXX_N.png
+				YYY_N.csv
 
 			pipelines/
-				manifest_pipeline_N.json
+				manifest_pipeline_1.json
+				manifest_pipeline_2.json
+				...
 				metadata_pipeline_N.json
 
 	predictions/
 		dataset1_name.predictions # parquet + json
-		dataset1_name.predictions
+		dataset2_name.predictions
+		...
 
+## TEMPORARY NOTES ON TRANSFORMATIONS ##
 
 Technique                          |  Main Usage/Effect
 -----------------------------------+----------------------------------------------------------------------------------------------------------------------------------
