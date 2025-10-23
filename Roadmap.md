@@ -1,16 +1,13 @@
 ## ROADMAP ##
 
-> [Augmentation] merge branch
-
-**Bugs**:
->   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
->   - Review R2 computation / Q2 value - GOF (goodness of fit)
-
 > [Headers] verify and clean header management (none, cm-1, nm, str or num_feature) > ensure tests are okay and raise error on related classes (ie resampler)
 
 > [Serialization] serialization refactoring (merge branch)
 
 **RELEASE** 0.4
+
+**Bugs**:
+>   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
 
 > [SEED] review
 
@@ -29,6 +26,8 @@
 > [Predictions] refactoring and as a pipeline context and change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
 
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions
+**Bugs**:
+>   - Review R2 computation / Q2 value - GOF (goodness of fit)
 
 > [Model selection] Tools to select "best" predictions
 
