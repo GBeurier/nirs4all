@@ -110,10 +110,11 @@ class SpectroDataset:
     def add_samples(self,
                     data: InputData,
                     indexes: Optional[IndexDict] = None,
-                    headers: Optional[Union[List[str], List[List[str]]]] = None) -> None:
+                    headers: Optional[Union[List[str], List[List[str]]]] = None,
+                    header_unit: Optional[Union[str, List[str]]] = None) -> None:
         num_samples = get_num_samples(data)
         self._indexer.add_samples_dict(num_samples, indexes)
-        self._features.add_samples(data, headers=headers)
+        self._features.add_samples(data, headers=headers, header_unit=header_unit)
 
     def add_features(self,
                      features: InputFeatures,
@@ -175,11 +176,102 @@ class SpectroDataset:
     def headers(self, src: int) -> List[str]:
         return self._features.headers(src)
 
+    def header_unit(self, src: int) -> str:
+        """
+        Get the unit type of headers for a data source.
+
+        Args:
+            src: Source index
+
+        Returns:
+            Unit string: "cm-1", "nm", "none", "text", "index"
+        """
+        return self._features.sources[src].header_unit
+
     def float_headers(self, src: int) -> np.ndarray:
+        """
+        Get headers as float array (legacy method).
+
+        WARNING: This method assumes headers are numeric and doesn't handle unit conversion.
+        Use wavelengths_cm1() or wavelengths_nm() for wavelength data.
+
+        Args:
+            src: Source index
+
+        Returns:
+            Headers converted to float array
+
+        Raises:
+            ValueError: If headers cannot be converted to float
+        """
         try:
             return np.array([float(header) for header in self._features.headers(src)])
         except ValueError as e:
             raise ValueError(f"Cannot convert headers to float: {e}")
+
+    def wavelengths_cm1(self, src: int) -> np.ndarray:
+        """
+        Get wavelengths in cm⁻¹ (wavenumber), converting from nm if needed.
+
+        Args:
+            src: Source index
+
+        Returns:
+            Wavelengths in cm⁻¹ as float array
+
+        Raises:
+            ValueError: If headers cannot be converted to wavelengths
+        """
+        headers = self.headers(src)
+        unit = self.header_unit(src)
+
+        if unit == "cm-1":
+            # Already in cm⁻¹
+            return np.array([float(h) for h in headers])
+        elif unit == "nm":
+            # Convert nm to cm⁻¹: wavenumber = 10,000,000 / wavelength_nm
+            nm_values = np.array([float(h) for h in headers])
+            return 10_000_000.0 / nm_values
+        elif unit in ["none", "index"]:
+            # No real wavelengths, return feature indices
+            return np.arange(len(headers), dtype=float)
+        else:
+            raise ValueError(
+                f"Cannot convert unit '{unit}' to wavelengths (cm⁻¹). "
+                f"Expected 'cm-1', 'nm', 'none', or 'index'."
+            )
+
+    def wavelengths_nm(self, src: int) -> np.ndarray:
+        """
+        Get wavelengths in nm, converting from cm⁻¹ if needed.
+
+        Args:
+            src: Source index
+
+        Returns:
+            Wavelengths in nm as float array
+
+        Raises:
+            ValueError: If headers cannot be converted to wavelengths
+        """
+        headers = self.headers(src)
+        unit = self.header_unit(src)
+
+        if unit == "nm":
+            # Already in nm
+            return np.array([float(h) for h in headers])
+        elif unit == "cm-1":
+            # Convert cm⁻¹ to nm: wavelength = 10,000,000 / wavenumber_cm1
+            cm1_values = np.array([float(h) for h in headers])
+            return 10_000_000.0 / cm1_values
+        elif unit in ["none", "index"]:
+            # No real wavelengths, return feature indices
+            return np.arange(len(headers), dtype=float)
+        else:
+            raise ValueError(
+                f"Cannot convert unit '{unit}' to wavelengths (nm). "
+                f"Expected 'cm-1', 'nm', 'none', or 'index'."
+            )
 
     def short_preprocessings_str(self) -> str:
         processings_list = self._features.sources[0].processing_ids

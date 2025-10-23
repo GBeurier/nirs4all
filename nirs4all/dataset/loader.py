@@ -103,7 +103,10 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
     - m_params (dict): Parameters for loading metadata.
 
     Returns:
-    - tuple: (x, y, m, x_headers, m_headers) where x, y, m are numpy arrays/DataFrames and headers are lists of column names.
+    - tuple: (x, y, m, x_headers, m_headers, x_header_unit) where:
+        - x, y, m are numpy arrays/DataFrames
+        - x_headers, m_headers are lists of column names
+        - x_header_unit is the unit string for X headers ("cm-1", "nm", "none", "text", "index")
 
     Raises:
     - ValueError: If data is invalid or if there are inconsistencies.
@@ -117,9 +120,12 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
     if 'data_type' not in x_params:
         x_params['data_type'] = 'x'
 
+    # Extract header_unit from params (default to cm-1)
+    x_header_unit = x_params.pop('header_unit', 'cm-1')
+
     # Load X data
     try:
-        x_df, x_report, x_na_mask, x_headers = load_csv(x_path, **x_params)
+        x_df, x_report, x_na_mask, x_headers, x_unit = load_csv(x_path, header_unit=x_header_unit, **x_params)
         if x_report.get("error") is not None or x_df is None:
             raise ValueError(f"Failed to load X data from {x_path}: {x_report.get('error', 'Unknown error')}")
     except Exception as e:
@@ -152,7 +158,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
             if 'data_type' not in y_params_copy:
                 y_params_copy['data_type'] = 'y'
 
-            y_df, y_report, y_na_mask, _ = load_csv(y_path, **y_params_copy)
+            y_df, y_report, y_na_mask, _, _ = load_csv(y_path, **y_params_copy)
             if y_report.get("error") is not None or y_df is None:
                 raise ValueError(f"Failed to load Y data from {y_path}: {y_report.get('error', 'Unknown error')}")
         except Exception as e:
@@ -186,7 +192,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
             if 'na_policy' not in m_params_copy:
                 m_params_copy['na_policy'] = 'remove'
 
-            m_df_temp, m_report, m_na_mask, m_headers = load_csv(m_path, **m_params_copy)
+            m_df_temp, m_report, m_na_mask, m_headers, _ = load_csv(m_path, **m_params_copy)
 
             # For metadata, we want to keep ALL rows including those with NAs
             # So we reload the data without NA row removal if rows were removed
@@ -233,7 +239,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
     except Exception as e:
         raise ValueError(f"Error converting data to numpy arrays: {str(e)}")
 
-    return x, y, m, x_headers, m_headers
+    return x, y, m, x_headers, m_headers, x_unit
 
 
 def handle_data(config, t_set):
@@ -246,12 +252,13 @@ def handle_data(config, t_set):
     - t_set (str): The dataset type ('train', 'test').
 
     Returns:
-    - tuple: (x, y, m, x_headers, m_headers) where:
+    - tuple: (x, y, m, x_headers, m_headers, x_header_unit) where:
         - x is numpy array or list of arrays
         - y is numpy array
         - m is DataFrame or None (metadata)
         - x_headers is list of column names or list of lists for multi-source
         - m_headers is list of metadata column names
+        - x_header_unit is string or list of strings for multi-source ("cm-1", "nm", "none", "text", "index")
     """
     if config is None:
         raise ValueError(f"Configuration for {t_set} dataset is None")
@@ -283,48 +290,78 @@ def handle_data(config, t_set):
         elif isinstance(m_data, np.ndarray) and m_data.ndim > 1:
             m_headers = [f"meta_{i}" for i in range(m_data.shape[1])]
 
-        return x_array, y_array, m_data, x_headers, m_headers
+        # For pre-loaded arrays, default to cm-1 unit
+        x_header_unit = "cm-1"
+
+        return x_array, y_array, m_data, x_headers, m_headers, x_header_unit
 
     x_filter = config.get(f'{t_set}_x_filter')
     y_filter = config.get(f'{t_set}_y_filter')
     m_filter = config.get(f'{t_set}_group_filter')
 
-    # Merge parameters
-    x_params = _merge_params(config.get(f'{t_set}_x_params'), config.get(f'{t_set}_params'), config.get('global_params'))
-    y_params = _merge_params(config.get(f'{t_set}_y_params'), config.get(f'{t_set}_params'), config.get('global_params'))
-    m_params = _merge_params(config.get(f'{t_set}_group_params'), config.get(f'{t_set}_params'), config.get('global_params'))
-
     # Handle multi-source X data
     if isinstance(x_path, list):
         x_arrays = []
         headers_arrays = []
+        header_units = []
         y_array = None
         m_data = None
         m_headers = []
 
+        # Check if we have per-source params
+        x_params_config = config.get(f'{t_set}_x_params')
+
         for i, single_x_path in enumerate(x_path):
+            # Determine params for this source
+            if isinstance(x_params_config, list) and i < len(x_params_config):
+                # Per-source params provided
+                source_x_params = _merge_params(x_params_config[i], config.get(f'{t_set}_params'), config.get('global_params'))
+            elif isinstance(x_params_config, dict):
+                # Check if dict contains list of units for multi-source
+                if 'header_unit' in x_params_config and isinstance(x_params_config['header_unit'], list):
+                    # Extract unit for this source
+                    source_params = x_params_config.copy()
+                    if i < len(x_params_config['header_unit']):
+                        source_params['header_unit'] = x_params_config['header_unit'][i]
+                    else:
+                        source_params['header_unit'] = "cm-1"
+                    source_x_params = _merge_params(source_params, config.get(f'{t_set}_params'), config.get('global_params'))
+                else:
+                    # Single dict for all sources
+                    source_x_params = _merge_params(x_params_config, config.get(f'{t_set}_params'), config.get('global_params'))
+            else:
+                # No params or unsupported format
+                source_x_params = _merge_params(None, config.get(f'{t_set}_params'), config.get('global_params'))
+
+            y_params = _merge_params(config.get(f'{t_set}_y_params'), config.get(f'{t_set}_params'), config.get('global_params'))
+            m_params = _merge_params(config.get(f'{t_set}_group_params'), config.get(f'{t_set}_params'), config.get('global_params'))
+
             try:
                 # For multi-source, only the first source should handle Y and metadata extraction
                 if i == 0:
-                    x_single, y_array, m_data, x_headers, m_headers = load_XY(
-                        single_x_path, x_filter, x_params,
+                    x_single, y_array, m_data, x_headers, m_headers, x_unit = load_XY(
+                        single_x_path, x_filter, source_x_params,
                         y_path, y_filter, y_params,
                         m_path, m_filter, m_params
                     )
                 else:
                     # For additional sources, don't extract Y or metadata
-                    x_single, _, _, x_headers, _ = load_XY(
-                        single_x_path, x_filter, x_params,
+                    x_single, _, _, x_headers, _, x_unit = load_XY(
+                        single_x_path, x_filter, source_x_params,
                         None, None, y_params,
                         None, None, None
                     )
 
                 x_arrays.append(x_single)
                 headers_arrays.append(x_headers)
+                header_units.append(x_unit)
             except Exception as e:
                 raise ValueError(f"Error loading X source {i} from {single_x_path}: {str(e)}")
 
-        return x_arrays, y_array, m_data, headers_arrays, m_headers
+        return x_arrays, y_array, m_data, headers_arrays, m_headers, header_units
     else:
         # Single source
+        x_params = _merge_params(config.get(f'{t_set}_x_params'), config.get(f'{t_set}_params'), config.get('global_params'))
+        y_params = _merge_params(config.get(f'{t_set}_y_params'), config.get(f'{t_set}_params'), config.get('global_params'))
+        m_params = _merge_params(config.get(f'{t_set}_group_params'), config.get(f'{t_set}_params'), config.get('global_params'))
         return load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path, m_filter, m_params)

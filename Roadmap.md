@@ -1,7 +1,5 @@
 ## ROADMAP ##
 
-> [Headers] verify and clean header management (none, cm-1, nm, str or num_feature) > ensure tests are okay and raise error on related classes (ie resampler)
-
 > [Serialization] (in serialization branch) REDO the whole workspace architecture (cf below) and merge branch
 
 **RELEASE** 0.4
