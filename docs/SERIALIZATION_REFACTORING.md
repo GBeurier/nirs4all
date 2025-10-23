@@ -8,6 +8,26 @@
 
 ---
 
+## ⚠️ IMPORTANT: New Workspace Architecture (v3.0)
+
+This serialization refactoring is being implemented as part of a **larger workspace architecture redesign**. The new architecture provides:
+
+✨ **Session-Based Workspace Organization** (v3.0):
+- **runs/** - Experimental sessions organized by date
+- **library/** - Reusable pipeline templates and trained models
+- **catalog/** - Global prediction index for cross-session comparison
+- Per-session artifact caching with symlink deduplication
+- Human-readable structure: `runs/2024-10-23_wheat-quality-study/datasets/wheat/pipelines/baseline_pls_a1b2c3/`
+
+**Read the complete workspace architecture**: [WORKSPACE_ARCHITECTURE.md](WORKSPACE_ARCHITECTURE.md)
+**Implementation roadmap**: [WORKSPACE_ARCHITECTURE_ROADMAP.md](WORKSPACE_ARCHITECTURE_ROADMAP.md)
+
+This serialization work is **Phase 2** of the workspace roadmap (Storage Integration).
+
+---
+
+## Serialization Components (Current Focus)
+
 ## Quick Overview
 
 ### Current Problems

@@ -1,49 +1,45 @@
 ## ROADMAP ##
 
-> [Serialization] serialization refactoring
+> [Serialization] (in serialization branch) REDO the whole workspace architecture (cf below) and merge branch
 
-> [METADATA] Reup load / stratification
-
-> [Split] test avec stratification
-
-
-> **Bugs**:
->   - NA in pred charts
->   - Pred charts missing in multi datasets
->   - Finetuning not working in Q finetuning or multimodel
->   - Fix train_params in finetuning for Tensorflow
->   - Review R2 computation / Q2 value - GOF (goodness of fit)
-
-**RELEASE** 0.3
-
-
-> [Headers] verify and clean header management (none, cm-1, nm, str or num_feature)
-
-> [PipelineConfig] enhance folder browsing and autodetection
-
-> [Augmentation + Balanced Augmentation]
-
-> [SEED] review
-
-> **Enhancement**: Options normalisation in charts (0-1 ou 1-0)
+> [Predictions] change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
 
 **RELEASE** 0.4
 
+**Bugs**:
+>   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
+
+> [SEED] review
+
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
-> [ReadsTheDoc] minimal subset of signatures + export MD
+> [ReadsTheDoc] minimal subset of signatures + update and export MD
 
 **RELEASE** 0.5
 
 > [Chart controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
-> [Predictions] refactoring and as a pipeline context and change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
+> **Enhancement**:
+> - Options normalisation in charts (0-1 ou 1-0)
+>   - Unify task_type usage and detection
+
+> [Predictions] refactoring and as a pipeline context
 
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions
+**Bugs**:
+>   - Review R2 computation / Q2 value - GOF (goodness of fit)
+
+> [Model selection] Tools to select "best" predictions
+
+> [Folds] Operator load fold (csv)
 
 **RELEASE** 0.6
 
-> [Pipeline as single transformer]: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN.
+> [TEST] Improve integration tests before pipeline refactoring
+
+> [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
+
+> [Runner] retrieve raw and pp dataset after run
 
 **RELEASE** 0.7
 
@@ -59,13 +55,13 @@
 
 > [GLOBAL REVIEW] v1.0 signatures freeze
 
-> [TEST] Prod coverage (transformations, controllers, predictions, datasets, runner)
+> [TEST] Complete tests > Prod coverage (transformations, controllers, predictions, datasets, runner)
 
 **RELEASE**  0.9 apha
 
 > [Stacking]
 
-> [Workflows: branch, merge, split_src, scope]
+> [Workflow Operators] branch, merge, split_src, scope
 
 > [Transformations] Asymetric processings (PCA in pipelines) > auto/optional padding and cropping
 
@@ -103,12 +99,15 @@
 
 > [Generator] add in-place/internal generation
 
+> [Analysis] t-sne, umap
+
 
 ## MINORS ##
 
 > [feature_augmentation] with first item replacement
 
 #### EXCITERS ####
+- add NorrisWilliams, Whittaker, BandEnergies, FiniteDiffCentral
 - Clean user interface on datasetConfig/dataset, pipelineConfig/pipeline, predictions
 - Enhanced file savings: better logic, options, enhanced data_types, dynamic loading, caching
 - Charts in 'raw' y for categorical
@@ -122,7 +121,7 @@
 > - packaging exe
 
 > [controller]
-> - base_model_controller
+> - base_model_controller + model_buiders + op_model + optuna. Rewrite and modularize all this stuff.
 
 > [dataset]
 > - predictions > clean redondancy, metrics usage, optimize search and metadata building
@@ -132,7 +131,52 @@
 > Splitter illustration and tutorial
 > Transformer mixin illustration and tutorial
 
-### TMP
+## TARGETED DIRECTORIES STRUCTURE (serialization_refactoring branch) ##
+
+workspace/
+	export/
+		predictions_XXX.csv
+		report_XXX.csv
+
+	favorites_pipelines/
+		my_pipeline_N.zip # with binaries and/or source data
+		my_pipeline_3.json # only pipeline definition for retraining
+
+	runs/
+		yyyy-mm-dd_run-N-datasetName/ ### OR Custom session _ datasetname
+			metadata.json # generation config for this dataset
+			report.json # detailed report and executions
+			log.txt # log
+
+			binaries/   #indexed cache
+				...
+
+			predictions/
+				predictions_1_model.csv
+				report_1_model.csv
+				...
+				predictions_N_model.csv
+				report_N_model.csv
+
+			outputs/
+				XXX_1.png
+				YYY_1.csv
+				...
+				XXX_N.png
+				YYY_N.csv
+
+			pipelines/
+				manifest_pipeline_1.json
+				manifest_pipeline_2.json
+				...
+				metadata_pipeline_N.json
+
+	predictions/
+		dataset1_name.predictions # parquet + json
+		dataset2_name.predictions
+		...
+
+## TEMPORARY NOTES ON TRANSFORMATIONS ##
 
 Technique                          |  Main Usage/Effect
 -----------------------------------+----------------------------------------------------------------------------------------------------------------------------------
@@ -147,3 +191,6 @@ Mean Centering/Autoscaling         |  Adjusts spectral features to centered/scal
 Normalization (e.g., area)         |  Adjusts all spectra to same overall intensity .
 Wavelength Selection               |  Focuses analysis on most relevant regions .
 Haar Wavelet Transform             |  Sometimes usedfor noise reduction and feature extraction; less common than above methods but useful in some advanced pipelines .
+
+
+
