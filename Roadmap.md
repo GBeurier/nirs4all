@@ -2,7 +2,7 @@
 
 > [Serialization] (in serialization branch) REDO the whole workspace architecture (cf below) and merge branch
 
-> [Predictions] change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
+> [Predictions] change storage mode (index (Polars/Parquet) + optionnally blobs (Zarr/HDF5))
 
 **RELEASE** 0.4
 

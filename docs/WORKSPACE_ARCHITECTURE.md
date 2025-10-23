@@ -16,9 +16,20 @@ This architecture prioritizes **user-friendliness** and **practical daily use** 
 ✅ **Sequential numbering** - Easy browsing, clear execution order
 ✅ **Fast access** - Best results in dedicated `best_predictions/` folders
 ✅ **No broken links** - Catalog stores copies, not references
-✅ **Parquet database** - Single file for all predictions, fast queries
+✅ **Split Parquet storage** - Metadata separate from arrays for fast filtering
 ✅ **Content-addressed binaries** - Deduplication within runs (hidden in `_binaries/`)
 ✅ **Library flexibility** - Three types: filtered, full pipeline, full run
+
+### Integration with Existing Code
+
+This architecture **extends** existing nirs4all components:
+
+- **ManifestManager** (`pipeline/manifest_manager.py`) - Extended for sequential numbering per run
+- **SimulationSaver** (`pipeline/io.py`) - Updated to `runs/date_dataset/NNNN_hash/` structure with export methods
+- **Predictions** (`dataset/predictions.py`) - Extended with split Parquet storage and catalog/query methods
+- **PipelineRunner** (`pipeline/runner.py`) - Minimal changes, uses new workspace coordination
+
+**No backward compatibility** - clean implementation for new workflows.
 
 ---
 
@@ -29,18 +40,18 @@ workspace/
 │
 ├── runs/                                          # Experimental runs
 │   │
-│   ├── 2024-10-23_wheat_sample1/                 # Date + dataset name
+│   ├── 2024-10-23_wheat_sample1_baseline/        # Date + dataset + custom run name
 │   │   │
 │   │   ├── run_config.json                       # Session metadata
 │   │   ├── run_summary.json                      # Aggregated results
 │   │   ├── run.log                               # Execution log
 │   │   │
 │   │   ├── _binaries/                            # Shared artifacts (underscore = hidden)
-│   │   │   ├── StandardScaler_abc123.pkl
-│   │   │   ├── PLSRegression_def456.pkl
-│   │   │   └── SVC_ghi789.pkl
+│   │   │   ├── scaler_abc123.pkl                 # Custom name if provided
+│   │   │   ├── PLSRegression_def456.pkl          # No custom name provided
+│   │   │   └── svm_classifier_ghi789.pkl
 │   │   │
-│   │   ├── 0001_a1b2c3/                          # Pipeline: number + hash
+│   │   ├── 0001_pls_baseline_a1b2c3/             # Pipeline: number + custom name + hash
 │   │   │   ├── pipeline.json
 │   │   │   ├── metrics.json
 │   │   │   ├── predictions.csv
@@ -48,21 +59,21 @@ workspace/
 │   │   │   ├── chart_residuals.png
 │   │   │   └── chart_feature_importance.png
 │   │   │
-│   │   ├── 0002_b2c3d4/
+│   │   ├── 0002_b2c3d4/                          # No custom name
 │   │   ├── 0003_c3d4e5/
 │   │   └── ...                                   # Up to 150+ pipelines
 │   │
-│   ├── 2024-10-23_corn_samples/                  # Another dataset same day
+│   ├── 2024-10-23_corn_samples_exploratory/      # Another dataset same day (custom run name)
 │   │   ├── _binaries/
-│   │   ├── 0001_x1y2z3/
+│   │   ├── 0001_svm_opt_x1y2z3/
 │   │   └── ...
 │   │
-│   └── 2024-10-25_wheat_sample1/                 # Same dataset, different day
+│   └── 2024-10-25_wheat_sample1_production/      # Same dataset, different day (custom run name)
 │       └── ...
 │
 ├── exports/                                       # Best results (fast access)
 │   │
-│   ├── wheat_sample1_2024-10-23_0042_x9y8z7/    # Dataset + date + pipeline
+│   ├── wheat_sample1_2024-10-23_best_pls_x9y8z7/  # Dataset + date + custom name + hash
 │   │   ├── pipeline.json                         # Winning pipeline config
 │   │   ├── metrics.json                          # Best scores
 │   │   ├── predictions.csv                       # Best predictions
@@ -70,13 +81,13 @@ workspace/
 │   │   ├── chart_residuals.png
 │   │   └── chart_feature_importance.png
 │   │
-│   ├── wheat_sample1_2024-10-25_0015_a3b4c5/    # New best from later run
+│   ├── wheat_sample1_2024-10-25_0015_a3b4c5/    # New best from later run with no custom name
 │   ├── corn_samples_2024-10-23_0088_m5n6o7/
 │   │
 │   ├── best_predictions/                         # Quick access to just predictions
-│   │   ├── wheat_sample1_2024-10-23_0042_x9y8z7.csv
-│   │   ├── wheat_sample1_2024-10-25_0015_a3b4c5.csv
-│   │   └── corn_samples_2024-10-23_0088_m5n6o7.csv
+│   │   ├── wheat_sample1_2024-10-23_best_pls_x9y8z7.csv
+│   │   ├── wheat_sample1_2024-10-25_nn_v2_a3b4c5.csv
+│   │   └── corn_samples_2024-10-23_ensemble_m5n6o7.csv
 │   │
 │   └── session_reports/                          # HTML summaries
 │       ├── 2024-10-23_wheat_sample1.html
@@ -106,11 +117,19 @@ workspace/
 │
 └── catalog/                                       # Permanent storage (survives deletions)
     │
-    ├── predictions.parquet                        # All predictions database
-    │   # Columns: dataset, session, pipeline, date, rmse, r2, mae, ...
+    ├── predictions_meta.parquet                   # Metadata: dataset, config, metrics (fast queries)
+    ├── predictions_data.parquet                   # Arrays: y_true, y_pred, indices (loaded on-demand)
+    │
+    ├── predictions_meta.parquet                   # Metadata for fast filtering
+    │   # Columns: prediction_id, dataset, run_date, pipeline_id, test_score, train_score, etc.
     │   # Example:
-    │   # | dataset       | session              | pipeline   | date       | rmse | r2   |
-    │   # | wheat_sample1 | 2024-10-23_wheat...  | 0042_x9... | 2024-10-23 | 0.45 | 0.89 |
+    │   # | prediction_id | dataset       | run_date   | pipeline_id | test_score | train_score |
+    │   # | uuid-1234...  | wheat_sample1 | 2024-10-23 | 0042_x9...  | 0.45       | 0.32        |
+    │
+    ├── predictions_data.parquet                   # Arrays (loaded when needed)
+    │   # Columns: prediction_id, y_true, y_pred, sample_indices, partition_y_true, partition_y_pred
+    │   # Linked to metadata via prediction_id
+    │   # Arrays stored as List[float] or List[int]
     │
     ├── reports/                                   # Generated reports
     │   ├── global_performance.html                # Cross-dataset comparison
@@ -282,6 +301,51 @@ workspace/
         └── corn_samples/
             └── ...
 ```
+
+---
+
+## File Formats
+
+### Split Parquet Storage (Catalog)
+
+Predictions are stored in **two separate Parquet files** for optimal performance:
+
+#### `predictions_meta.parquet` (Metadata - Fast Queries)
+```
+Columns:
+- prediction_id (UUID from ManifestManager)
+- dataset_name
+- run_date
+- pipeline_id
+- config_name
+- config_hash
+- model_name
+- task_type
+- metrics (train_score, val_score, test_score)
+- n_samples, n_features
+- created_at
+```
+
+**Usage**: Fast filtering, finding best models, comparing configurations (no arrays loaded)
+
+#### `predictions_data.parquet` (Arrays - On-Demand Loading)
+```
+Columns:
+- prediction_id (links to metadata)
+- y_true (array)
+- y_pred (array)
+- sample_indices (array)
+- partition (array or single value)
+- weights (optional array)
+```
+
+**Usage**: Plotting, detailed analysis, residuals calculation (explicit load)
+
+**Why Split Storage?**
+- ✅ 10-100x faster metadata queries (200 KB vs 20 MB)
+- ✅ Arrays loaded only when needed
+- ✅ Most workflows query metadata first, load data second
+- ✅ Better memory efficiency for large result sets
 
 ---
 
