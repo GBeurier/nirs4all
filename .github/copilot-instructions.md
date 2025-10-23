@@ -14,3 +14,8 @@
 
 # avoid overengineering, keep it simple and pragmatic, I want clean, neat, maintenable and readable code
 # prefer using existing libraries and tools rather than reinventing the wheel
+
+# When writing code, follow best practices for Python, React, and FastAPI development.
+# Write modular, reusable, and testable code.
+
+# Use the .venv in nirs4all when launching scripts or commands.
