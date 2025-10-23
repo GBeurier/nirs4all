@@ -2,7 +2,7 @@
 
 **Document**: Implementation Plan for User-Friendly Workspace Architecture
 **Version**: 3.2 (Updated for Final Design)
-**Timeline**: 6 weeks (6 phases × 1 week each)
+**Timeline**: 5 weeks (5 phases × 1 week each)
 **Target Branch**: `serialization_refactoring`
 
 ---
@@ -36,7 +36,27 @@ This roadmap outlines the step-by-step implementation of the **user-friendly wor
 ❌ Deep hierarchical structures (v3.0 design)
 ❌ Hash-only pipeline naming
 ❌ Link-based catalog (must be copies)
-❌ SQL database (parquet only)
+❌ SQL database (use Parquet only)
+
+### Integration with Existing Code
+
+This roadmap **extends existing nirs4all code** to minimize refactoring:
+
+**Existing Classes to Extend:**
+- `ManifestManager` (`pipeline/manifest_manager.py`) → Add sequential numbering per run
+- `SimulationSaver` (`pipeline/io.py`) → Update to `runs/date_dataset/NNNN_hash/` structure, add export methods
+- `Predictions` (`dataset/predictions.py`) → Add split Parquet storage (metadata + arrays), catalog/query methods
+
+**New Coordination Layer:**
+- `WorkspaceManager` → Initialize workspace structure
+- `RunManager` → Coordinate run creation using existing classes
+- `LibraryManager` → Manage filtered/pipeline/fullrun saves
+
+**No Redundant Managers:**
+- ❌ No separate ArtifactManager (use `ManifestManager`)
+- ❌ No separate ExportManager (extend `SimulationSaver`)
+- ❌ No separate CatalogManager (extend `Predictions`)
+- ❌ No separate WorkspaceQuery (extend `Predictions`)
 
 ---
 
@@ -81,10 +101,18 @@ class WorkspaceManager:
         (self.exports_dir / "best_predictions").mkdir(parents=True, exist_ok=True)
         (self.exports_dir / "session_reports").mkdir(parents=True, exist_ok=True)
 
-    def create_run(self, dataset_name: str) -> 'RunManager':
-        """Create a new run for a dataset."""
+    def create_run(self, dataset_name: str, run_name: str = None) -> 'RunManager':
+        """Create a new run for a dataset with optional custom name.
+
+        Creates run directory:
+        - Without custom name: YYYY-MM-DD_dataset/
+        - With custom name: YYYY-MM-DD_dataset_runname/
+        """
         date_str = datetime.now().strftime("%Y-%m-%d")
-        run_dir = self.runs_dir / f"{date_str}_{dataset_name}"
+        if run_name:
+            run_dir = self.runs_dir / f"{date_str}_{dataset_name}_{run_name}"
+        else:
+            run_dir = self.runs_dir / f"{date_str}_{dataset_name}"
         return RunManager(run_dir, dataset_name)
 
     def list_runs(self) -> List[Dict]:
@@ -92,97 +120,85 @@ class WorkspaceManager:
         # Implementation
 ```
 
-#### 1.2 Create Run Manager (`nirs4all/workspace/run_manager.py`)
+#### 1.2 Extend SimulationSaver for Workspace Structure (`nirs4all/pipeline/io.py`)
 
-**Note**: Simplified from Session/Dataset/Pipeline hierarchy to Run/Pipeline.
+**Rationale**: `SimulationSaver` already handles file I/O with `persist_artifact()`, `save_output()`, and directory management. Extend it with `register()` method to support workspace structure.
 
 ```python
-class RunManager:
-    """Manages a single run (date + dataset)."""
+# Extension to existing SimulationSaver class
+class SimulationSaver:
+    """Handles pipeline execution I/O (EXISTING CODE - extend with new methods)."""
 
-    def __init__(self, run_dir: Path, dataset_name: str):
-        self.run_dir = run_dir
-        self.dataset_name = dataset_name
-        self.binaries_dir = run_dir / "_binaries"       # Underscore prefix!
-        self.pipelines_dir = run_dir                     # Pipelines at run level
-        self.config_file = run_dir / "run_config.json"
-        self.summary_file = run_dir / "run_summary.json"
-        self.log_file = run_dir / "run.log"
+    # ... existing __init__, persist_artifact, save_output, etc. ...
 
-    def initialize(self, config: Dict) -> None:
-        """Initialize run structure."""
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        self.binaries_dir.mkdir(exist_ok=True)
-        self._write_config(config)
-        self._init_logger()
+    # NEW: Workspace registration method
+    def register(self, workspace_root: Path, dataset_name: str, pipeline_hash: str,
+                 run_name: str = None, pipeline_name: str = None) -> Path:
+        """Register pipeline in workspace structure with optional custom names.
 
+        Creates:
+        - Without custom names: workspace_root/runs/{date}_{dataset}/NNNN_{hash}/
+        - With run_name: workspace_root/runs/{date}_{dataset}_{runname}/NNNN_{hash}/
+        - With pipeline_name: workspace_root/runs/{date}_{dataset}/NNNN_{pipelinename}_{hash}/
+        - With both: workspace_root/runs/{date}_{dataset}_{runname}/NNNN_{pipelinename}_{hash}/
+
+        Returns: Full path to pipeline directory
+        """
+        from datetime import datetime
+        from nirs4all.pipeline.manifest_manager import ManifestManager
+
+        run_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Build run_id with optional custom name
+        if run_name:
+            run_id = f"{run_date}_{dataset_name}_{run_name}"
+        else:
+            run_id = f"{run_date}_{dataset_name}"
+        run_dir = workspace_root / "runs" / run_id
+
+        # Use ManifestManager for sequential numbering
+        manifest = ManifestManager(str(run_dir))
+        pipeline_num = manifest.get_next_pipeline_number()
+
+        # Build pipeline_id with optional custom name
+        if pipeline_name:
+            pipeline_id = f"{pipeline_num:04d}_{pipeline_name}_{pipeline_hash}"
+        else:
+            pipeline_id = f"{pipeline_num:04d}_{pipeline_hash}"
+        pipeline_dir = run_dir / pipeline_id
+
+        # Create structure
+        pipeline_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "_binaries").mkdir(exist_ok=True)
+
+        return pipeline_dir
+```
+
+#### 1.3 Extend ManifestManager for Sequential Numbering (`nirs4all/pipeline/manifest_manager.py`)
+
+**Rationale**: `ManifestManager` already generates UIDs and manages manifests. Add simple counter for sequential numbering.
+
+```python
+# Extension to existing ManifestManager class
+class ManifestManager:
+    """Manages pipeline manifests, UIDs, and datasets (EXISTING CODE - extend with new method)."""
+
+    # ... existing methods: generate_uid, create_manifest, etc. ...
+
+    # NEW: Sequential numbering for pipelines
     def get_next_pipeline_number(self) -> int:
-        """Get next pipeline number (simple counter)."""
-        existing = [d for d in self.run_dir.iterdir()
+        """Get next sequential pipeline number in run directory.
+
+        Counts existing pipeline directories (excludes _binaries).
+        Returns: Next number (e.g., 1, 2, 3...)
+        """
+        run_dir = Path(self.manifest_dir).parent  # manifest_dir points to run
+        existing = [d for d in run_dir.iterdir()
                     if d.is_dir() and not d.name.startswith("_")]
         return len(existing) + 1
-
-    def create_pipeline(self, pipeline_hash: str) -> 'PipelineWorkspace':
-        """Create pipeline with sequential numbering."""
-        pipeline_num = self.get_next_pipeline_number()
-        pipeline_id = f"{pipeline_num:04d}_{pipeline_hash}"  # 0001_a1b2c3
-        pipeline_dir = self.run_dir / pipeline_id
-        return PipelineWorkspace(pipeline_dir, self.binaries_dir)
-
-    def finalize(self) -> None:
-        """Generate run summary and close."""
-        summary = self._compute_summary()
-        self._write_summary(summary)
-        self.logger.info(f"Run finalized: {self.run_dir.name}")
 ```
 
-#### 1.3 Create Pipeline Workspace (`nirs4all/workspace/pipeline_workspace.py`)
-
-```python
-class PipelineWorkspace:
-    """Manages a single pipeline (0001_hash/)."""
-
-    def __init__(self, pipeline_dir: Path, shared_binaries_dir: Path):
-        self.pipeline_dir = pipeline_dir
-        self.shared_binaries_dir = shared_binaries_dir
-        self.pipeline_file = pipeline_dir / "pipeline.json"
-        self.metrics_file = pipeline_dir / "metrics.json"
-        self.predictions_file = pipeline_dir / "predictions.csv"
-        # Charts directly in pipeline folder (no outputs/ subfolder)
-
-    def initialize(self, pipeline_config: Dict) -> None:
-        """Initialize pipeline workspace."""
-        self.pipeline_dir.mkdir(parents=True, exist_ok=True)
-        self._write_pipeline_config(pipeline_config)
-
-    def save_artifact(self, operator_name: str, artifact: Any) -> str:
-        """Save artifact to shared binaries with content-addressed naming."""
-        artifact_hash = self._compute_hash(artifact)
-        filename = f"{operator_name}_{artifact_hash[:6]}.pkl"
-        filepath = self.shared_binaries_dir / filename
-
-        if not filepath.exists():  # Only save if not already present
-            joblib.dump(artifact, filepath)
-
-        # Return relative path for pipeline.json
-        return f"../_binaries/{filename}"  # Note: _binaries with underscore!
-
-    def save_metrics(self, metrics: Dict) -> None:
-        """Save metrics to metrics.json."""
-        with open(self.metrics_file, 'w') as f:
-            json.dump(metrics, f, indent=2)
-
-    def save_predictions(self, predictions: pd.DataFrame) -> None:
-        """Save predictions to predictions.csv."""
-        predictions.to_csv(self.predictions_file, index=False)
-
-    def save_chart(self, chart_name: str, figure: Any) -> None:
-        """Save chart directly in pipeline folder."""
-        chart_path = self.pipeline_dir / f"{chart_name}.png"
-        figure.savefig(chart_path, dpi=150, bbox_inches='tight')
-```
-
-#### 1.5 Create Configuration Schema (`nirs4all/workspace/schemas.py`)
+#### 1.4 Create Configuration Schema (`nirs4all/workspace/schemas.py`)
 
 ```python
 from pydantic import BaseModel, Field
@@ -226,35 +242,37 @@ class RunSummary(BaseModel):
 
 ### Deliverables
 
-- [ ] `nirs4all/workspace/` package created
-- [ ] `WorkspaceManager` class implemented (with library/catalog structure)
-- [ ] `RunManager` class implemented (simplified from SessionManager)
-- [ ] `PipelineWorkspace` class implemented
-- [ ] Configuration schemas defined (Pydantic models)
+- [ ] `SimulationSaver.register()` method implemented (workspace structure support)
+- [ ] `ManifestManager.get_next_pipeline_number()` method implemented (sequential numbering)
+- [ ] `WorkspaceManager` class implemented (top-level workspace coordination)
+- [ ] Configuration schemas defined (Pydantic models for RunConfig/RunSummary)
 - [ ] Sequential numbering logic (0001, 0002, ...)
 - [ ] `_binaries/` support (underscore prefix)
-- [ ] Unit tests for all managers (50+ tests)
+- [ ] Unit tests for extensions (30+ tests for new methods)
+- [ ] Integration tests for workspace structure
 
 ### Testing
 
 ```bash
-# Unit tests
+# Unit tests for new methods
+pytest tests/pipeline/test_simulation_saver_workspace.py
+pytest tests/pipeline/test_manifest_manager_numbering.py
 pytest tests/workspace/test_workspace_manager.py
-pytest tests/workspace/test_run_manager.py
-pytest tests/workspace/test_pipeline_workspace.py
 
-# Integration test - Create full run
+# Integration test - Create full run using extended classes
 pytest tests/workspace/test_workspace_integration.py
 
-# Test sequential numbering
+# Test sequential numbering with ManifestManager
 pytest tests/workspace/test_sequential_numbering.py
 ```
 
 ### Success Criteria
 
-✅ Can create workspace structure programmatically
-✅ Can initialize runs with proper metadata
+✅ Can create workspace structure using `SimulationSaver.register()`
+✅ `ManifestManager` provides sequential numbering
 ✅ Sequential numbering works (0001, 0002, ...)
+✅ `_binaries/` folder created with underscore
+✅ Extends existing classes without duplication
 ✅ `_binaries/` folder created with underscore
 ✅ Can save artifacts with content-addressed naming
 ✅ All unit tests pass (50+)
@@ -264,230 +282,216 @@ pytest tests/workspace/test_sequential_numbering.py
 
 ---
 
-## Phase 2: Storage Integration (Week 2)
+## Phase 2: Catalog & Export (Week 2)
 
 ### Goal
-Integrate workspace managers with existing pipeline execution logic. Update to shallow structure.
+Extend `Predictions` class with Parquet storage (split metadata/arrays) and extend `SimulationSaver` with export capabilities. No redundant managers.
 
 ### Tasks
 
-#### 2.1 Update Pipeline Runner (`nirs4all/pipeline_runner.py`)
+#### 2.1 Extend Predictions for Split Parquet Storage (`nirs4all/dataset/predictions.py`)
+
+**Rationale**: `Predictions` already uses Polars DataFrames. Extend with split Parquet save/load (metadata separate from arrays).
 
 ```python
-class PipelineRunner:
-    """Execute pipelines with new workspace structure."""
+# Extension to existing Predictions class
+class Predictions:
+    """Prediction storage with Polars backend (EXISTING CODE - extend with Parquet methods)."""
 
-    def __init__(self, workspace_root: Path = None):
-        self.workspace_root = workspace_root or Path("workspace")
-        self.workspace_manager = WorkspaceManager(self.workspace_root)
-        # Legacy support
-        self.results_root = Path("results")
-        self.use_legacy = False  # Flag for backward compatibility
+    # ... existing __init__, from_csv, to_csv, filter methods ...
 
-    def run_batch(
-        self,
-        dataset: Dataset,
-        pipelines: List[Pipeline],
-        **kwargs
-    ) -> RunResults:
-        """Run multiple pipelines for a single dataset."""
+    # NEW: Split Parquet storage methods
+    def save_to_parquet(self, catalog_dir: Path, prediction_id: str = None) -> tuple[Path, Path]:
+        """Save predictions as split Parquet (metadata + arrays separate).
 
-        # Create run (date_dataset)
-        run_mgr = self.workspace_manager.create_run(dataset.name)
-        run_mgr.initialize({
-            "dataset_name": dataset.name,
-            "dataset_source": dataset.source,
-            "task_type": dataset.task_type,
-            "total_pipelines": len(pipelines),
-            ...
-        })
+        Creates:
+        - predictions_meta.parquet: lightweight metadata (prediction_id, dataset, metrics)
+        - predictions_data.parquet: heavy arrays (prediction_id, y_true, y_pred, indices)
 
-        # Run all pipelines with sequential numbering
-        results = []
-        for pipeline in pipelines:
-            pipeline_hash = self._compute_hash(pipeline)
-            pipeline_ws = run_mgr.create_pipeline(pipeline_hash[:6])
+        Returns: (meta_path, data_path)
+        """
+        import polars as pl
+        from uuid import uuid4
 
-            result = self._run_pipeline(pipeline, dataset, pipeline_ws)
-            results.append(result)
+        pred_id = prediction_id or str(uuid4())
 
-        # Finalize
-        run_mgr.finalize()
-        return RunResults(run_mgr.run_dir, results)
+        # Split dataframe into metadata and arrays
+        meta_cols = ["prediction_id", "dataset_name", "config_name", "test_score",
+                     "train_score", "model_type", "created_at", "pipeline_hash"]
+        array_cols = ["prediction_id", "y_true", "y_pred", "sample_indices",
+                      "fold_id", "train_indices", "test_indices"]
 
-    def _run_pipeline(
-        self,
-        pipeline: Pipeline,
-        dataset: Dataset,
-        pipeline_ws: PipelineWorkspace
-    ) -> PipelineResult:
-        """Execute single pipeline and save to workspace."""
+        # Create metadata dataframe
+        meta_df = self.data.select(meta_cols).unique(subset=["prediction_id"])
 
-        # Initialize workspace
-        pipeline_ws.initialize({
-            "id": pipeline_ws.pipeline_dir.name,  # e.g., "0001_a1b2c3"
-            "config": pipeline.to_dict(),
-            "created_at": datetime.now().isoformat(),
-            "dataset": dataset.name,
-            ...
-        })
+        # Create arrays dataframe
+        data_df = self.data.select(array_cols)
 
-        # Train pipeline
-        trained_pipeline = pipeline.fit(dataset.X_train, dataset.y_train)
+        # Save to Parquet
+        meta_path = catalog_dir / "predictions_meta.parquet"
+        data_path = catalog_dir / "predictions_data.parquet"
 
-        # Save artifacts (content-addressed to _binaries/)
-        artifact_refs = []
-        for step_idx, step in enumerate(trained_pipeline.steps):
-            operator_name = step.__class__.__name__
-            artifact_path = pipeline_ws.save_artifact(operator_name, step)
-            artifact_refs.append({
-                "step": step_idx,
-                "name": operator_name,
-                "path": artifact_path  # e.g., "../_binaries/scaler_a1b2c3.pkl"
-            })
+        # Append mode - accumulate predictions over time
+        if meta_path.exists():
+            existing_meta = pl.read_parquet(meta_path)
+            meta_df = pl.concat([existing_meta, meta_df])
 
-        # Update pipeline.json with artifact references
-        pipeline_config = pipeline_ws.read_pipeline_config()
-        pipeline_config["artifacts"] = artifact_refs
-        pipeline_ws.write_pipeline_config(pipeline_config)
+        if data_path.exists():
+            existing_data = pl.read_parquet(data_path)
+            data_df = pl.concat([existing_data, data_df])
 
-        # Evaluate
-        metrics = self._compute_metrics(trained_pipeline, dataset)
-        pipeline_ws.save_metrics(metrics)
+        meta_df.write_parquet(meta_path)
+        data_df.write_parquet(data_path)
 
-        # Predictions
-        predictions_df = self._create_predictions_df(
-            trained_pipeline, dataset
-        )
-        )
-        pipeline_ws.save_predictions(predictions_df)
+        return (meta_path, data_path)
 
-        # Save charts
-        figures = self._generate_charts(trained_pipeline, dataset, metrics)
-        for chart_name, fig in figures.items():
-            pipeline_ws.save_chart(chart_name, fig)
-
-        # Update catalog
-        self._update_catalog(dataset.name, pipeline_ws, metrics)
-
-        return PipelineResult(pipeline_ws.pipeline_dir, metrics)
-
-    def _compute_hash(self, pipeline: Pipeline) -> str:
-        """Compute hash of pipeline configuration."""
-        config_hash = hashlib.sha256(
-            json.dumps(pipeline.to_dict(), sort_keys=True).encode()
-        ).hexdigest()
-        return config_hash
-```
-
-#### 2.2 Update Artifact Manager (`nirs4all/storage/artifact_manager.py`)
-
-**No changes needed** - Already handles content-addressing. Works with `_binaries/` folder.
-
-#### 2.3 Add Export Manager (`nirs4all/workspace/export_manager.py`)
-
-```python
-class ExportManager:
-    """Manage exports of best results."""
-
-    def __init__(self, exports_dir: Path):
-        self.exports_dir = exports_dir
-        self.best_predictions_dir = exports_dir / "best_predictions"
-        self.best_predictions_dir.mkdir(parents=True, exist_ok=True)
-
-    def export_pipeline_full(
-        self,
-        run_dir: Path,
-        pipeline_dir: Path,
-        dataset_name: str
-    ) -> Path:
-        """Export full pipeline results to flat structure.
+    @classmethod
+    def load_from_parquet(cls, catalog_dir: Path, prediction_ids: list[str] = None) -> 'Predictions':
+        """Load predictions from split Parquet storage.
 
         Args:
-            run_dir: Path to run (YYYY-MM-DD_dataset/)
-            pipeline_dir: Path to pipeline (NNNN_hash/)
-            dataset_name: Name of dataset
+            catalog_dir: Path to catalog directory
+            prediction_ids: Optional list of prediction IDs to load (None = all)
 
-        Returns:
-            Path to export directory
+        Returns: Predictions object with joined metadata + arrays
         """
-        # Create export name: dataset_date_pipeline
-        run_date = run_dir.name.split("_")[0]  # Extract YYYY-MM-DD
-        pipeline_id = pipeline_dir.name  # e.g., "0001_a1b2c3"
+        import polars as pl
 
-        export_name = f"{dataset_name}_{run_date}_{pipeline_id}"
-        export_path = self.exports_dir / export_name
+        meta_path = catalog_dir / "predictions_meta.parquet"
+        data_path = catalog_dir / "predictions_data.parquet"
+
+        # Load metadata (always fast)
+        meta_df = pl.read_parquet(meta_path)
+
+        # Filter if needed
+        if prediction_ids:
+            meta_df = meta_df.filter(pl.col("prediction_id").is_in(prediction_ids))
+            data_df = pl.read_parquet(data_path).filter(
+                pl.col("prediction_id").is_in(prediction_ids)
+            )
+        else:
+            data_df = pl.read_parquet(data_path)
+
+        # Join metadata + arrays on prediction_id
+        full_df = meta_df.join(data_df, on="prediction_id", how="inner")
+
+        return cls(full_df)
+
+    def archive_to_catalog(self, catalog_dir: Path, pipeline_dir: Path, metrics: dict) -> str:
+        """Archive pipeline results to catalog with split Parquet.
+
+        Reads predictions.csv from pipeline_dir, adds metadata, saves to catalog.
+        Returns: prediction_id (UUID)
+        """
+        from uuid import uuid4
+        import polars as pl
+
+        # Generate prediction ID
+        pred_id = str(uuid4())
+
+        # Load predictions from pipeline
+        pred_df = pl.read_csv(pipeline_dir / "predictions.csv")
+
+        # Add metadata columns
+        pred_df = pred_df.with_columns([
+            pl.lit(pred_id).alias("prediction_id"),
+            pl.lit(metrics.get("dataset_name")).alias("dataset_name"),
+            pl.lit(metrics.get("config_name")).alias("config_name"),
+            pl.lit(metrics.get("test_score")).alias("test_score"),
+            pl.lit(metrics.get("train_score")).alias("train_score"),
+            pl.lit(metrics.get("model_type")).alias("model_type"),
+            pl.lit(pipeline_dir.name).alias("pipeline_hash"),
+        ])
+
+        # Update internal dataframe
+        self.data = pred_df
+
+        # Save to split Parquet
+        self.save_to_parquet(catalog_dir, pred_id)
+
+        return pred_id
+```
+
+#### 2.2 Extend SimulationSaver with Export Methods (`nirs4all/pipeline/io.py`)
+
+#### 2.2 Extend SimulationSaver with Export Methods (`nirs4all/pipeline/io.py`)
+
+**Rationale**: `SimulationSaver` already handles file I/O. Add export methods for best pipelines.
+
+```python
+# Extension to existing SimulationSaver class
+class SimulationSaver:
+    """Handles pipeline execution I/O (EXISTING CODE - extend with export methods)."""
+
+    # ... existing methods: persist_artifact, save_output, register ...
+
+    # NEW: Export methods
+    def export_pipeline_full(self, pipeline_dir: Path, exports_dir: Path,
+                            dataset_name: str, run_date: str, custom_name: str = None) -> Path:
+        """Export full pipeline results to flat structure with optional custom name.
+
+        Args:
+            pipeline_dir: Path to pipeline (NNNN_hash/ or NNNN_pipelinename_hash/)
+            exports_dir: Workspace exports directory
+            dataset_name: Dataset name
+            run_date: Run date (YYYYMMDD)
+            custom_name: Optional custom name for export
+
+        Creates export directory:
+        - Without custom_name: dataset_run_pipelineid/
+        - With custom_name: customname_pipelineid/
+
+        Returns: Path to exported directory
+        """
+        import shutil
+
+        pipeline_id = pipeline_dir.name  # e.g., "0001_a1b2c3" or "0001_baseline_a1b2c3"
+
+        if custom_name:
+            export_name = f"{custom_name}_{pipeline_id}"
+        else:
+            export_name = f"{dataset_name}_{run_date}_{pipeline_id}"
+        export_path = exports_dir / export_name
 
         # Copy entire pipeline folder
         shutil.copytree(pipeline_dir, export_path, dirs_exist_ok=True)
 
         return export_path
 
-    def export_best_prediction(
-        self,
-        predictions_file: Path,
-        dataset_name: str,
-        run_date: str,
-        pipeline_id: str
-    ) -> Path:
-        """Export predictions CSV to best_predictions/ folder.
+    def export_best_prediction(self, predictions_file: Path, exports_dir: Path,
+                              dataset_name: str, run_date: str, pipeline_id: str,
+                              custom_name: str = None) -> Path:
+        """Export predictions CSV to best_predictions/ folder with optional custom name.
 
         Args:
             predictions_file: Path to predictions.csv
-            dataset_name: Name of dataset
-            run_date: Date string (YYYY-MM-DD)
-            pipeline_id: Pipeline ID (NNNN_hash)
+            exports_dir: Workspace exports directory
+            dataset_name, run_date, pipeline_id: Metadata for naming
+            custom_name: Optional custom name for export
 
-        Returns:
-            Path to exported CSV
+        Creates CSV filename:
+        - Without custom_name: dataset_run_pipelineid.csv
+        - With custom_name: customname_pipelineid.csv
+
+        Returns: Path to exported CSV
         """
-        # Create unique name for CSV
-        csv_name = f"{dataset_name}_{run_date}_{pipeline_id}.csv"
-        dest_path = self.best_predictions_dir / csv_name
+        import shutil
 
-        # Copy CSV
+        best_dir = exports_dir / "best_predictions"
+        best_dir.mkdir(parents=True, exist_ok=True)
+
+        if custom_name:
+            csv_name = f"{custom_name}_{pipeline_id}.csv"
+        else:
+            csv_name = f"{dataset_name}_{run_date}_{pipeline_id}.csv"
+        dest_path = best_dir / csv_name
+
         shutil.copy2(predictions_file, dest_path)
 
         return dest_path
 ```
 
-#### 2.4 Update Catalog Manager (`nirs4all/workspace/catalog_manager.py`)
-
-```python
-class CatalogManager:
-    """Manage global prediction catalog with Parquet database."""
-
-    def __init__(self, catalog_dir: Path):
-        self.catalog_dir = catalog_dir
-        self.catalog_dir.mkdir(parents=True, exist_ok=True)
-        self.parquet_file = catalog_dir / "predictions.parquet"
-        self.reports_dir = catalog_dir / "reports"
-        self.reports_dir.mkdir(exist_ok=True)
-
-        # Archives structure
-        self.archives_dir = catalog_dir / "archives"
-        (self.archives_dir / "filtered").mkdir(parents=True, exist_ok=True)
-        (self.archives_dir / "pipeline").mkdir(parents=True, exist_ok=True)
-        (self.archives_dir / "best_predictions").mkdir(parents=True, exist_ok=True)
-
-    def add_prediction(
-        self,
-        dataset_name: str,
-        run_date: str,
-        pipeline_id: str,
-        pipeline_config: Dict,
-        metrics: Dict
-    ) -> None:
-        """Add prediction entry to Parquet database."""
-
-        # Create row
-        row = {
-            "dataset": dataset_name,
-            "run_date": run_date,
-            "pipeline_id": pipeline_id,
-            "timestamp": datetime.now().isoformat(),
-            **metrics,  # Flatten metrics
-            "config_hash": self._hash_config(pipeline_config)
+#### 2.3 Update PipelineRunner Integration (`nirs4all/pipeline/runner.py`)
         }
 
         # Append to parquet
@@ -549,33 +553,36 @@ class CatalogManager:
 
 ### Deliverables
 
-- [ ] `PipelineRunner` updated to use `RunManager` (not Session/Dataset hierarchy)
-- [ ] Sequential numbering implemented (0001, 0002, ...)
-- [ ] `ExportManager` created with `best_predictions/` support
-- [ ] `CatalogManager` updated with Parquet database and archives structure
-- [ ] Artifact manager works with `_binaries/` folder
-- [ ] Integration tests (run 10 pipelines, verify structure)
+- [ ] `Predictions.save_to_parquet()` implemented (split metadata/arrays)
+- [ ] `Predictions.load_from_parquet()` implemented
+- [ ] `Predictions.archive_to_catalog()` implemented
+- [ ] `SimulationSaver.export_pipeline_full()` implemented
+- [ ] `SimulationSaver.export_best_prediction()` implemented
+- [ ] `PipelineRunner` updated to use extended classes
+- [ ] Unit tests for Predictions Parquet methods (20+ tests)
+- [ ] Unit tests for SimulationSaver export methods (10+ tests)
+- [ ] Integration test (run pipeline, verify catalog)
 
 ### Testing
 
 ```bash
-# Unit tests
-pytest tests/workspace/test_pipeline_runner.py
-pytest tests/workspace/test_export_manager.py
-pytest tests/workspace/test_catalog_manager.py
+# Unit tests for Predictions extensions
+pytest tests/dataset/test_predictions_parquet.py
 
-# Integration test - Run 10 pipelines
-pytest tests/workspace/test_full_batch_run.py
+# Unit tests for SimulationSaver extensions
+pytest tests/pipeline/test_simulation_saver_export.py
+
+# Integration test - Full pipeline with catalog
+pytest tests/workspace/test_catalog_integration.py
 ```
 
 ### Success Criteria
 
-✅ Can run batch of pipelines with sequential numbering
-✅ Artifacts saved to `_binaries/` with deduplication
-✅ Predictions exported to `exports/best_predictions/`
-✅ Catalog updated with Parquet entries
-✅ Charts saved directly in pipeline folders
-✅ All integration tests pass
+✅ Can save predictions as split Parquet (metadata + arrays separate)
+✅ Can load predictions from Parquet efficiently (metadata-only queries fast)
+✅ Can archive pipeline results to catalog automatically
+✅ Can export best pipelines to exports/
+✅ Extends existing classes without redundancy
 
 
 ---
@@ -784,89 +791,123 @@ pytest tests/workspace/test_library_save_load.py
 ## Phase 4: Query and Reporting (Week 4)
 
 ### Goal
-Implement Parquet-based querying and reporting tools.
+Extend `Predictions` class with query methods for Parquet catalog. No new WorkspaceQuery class.
 
 ### Tasks
 
-#### 4.1 Create Query Interface (`nirs4all/workspace/query.py`)
+#### 4.1 Extend Predictions with Query Methods (`nirs4all/dataset/predictions.py`)
+
+**Rationale**: `Predictions` already has Polars backend and Parquet storage. Add query methods for catalog analysis.
 
 ```python
-class WorkspaceQuery:
-    """Query workspace using Parquet database."""
+# Extension to existing Predictions class
+class Predictions:
+    """Prediction storage with Polars backend (EXISTING CODE - extend with query methods)."""
 
-    def __init__(self, workspace_root: Path):
-        self.workspace_root = workspace_root
-        self.catalog_dir = workspace_root / "catalog"
-        self.parquet_file = self.catalog_dir / "predictions.parquet"
+    # ... existing methods: save_to_parquet, load_from_parquet, archive_to_catalog ...
 
-    def best_by_metric(
-        self,
-        dataset: str = None,
-        metric: str = "test_rmse",
-        n: int = 10,
-        ascending: bool = True
-    ) -> pd.DataFrame:
-        """Find best pipelines by metric."""
-        df = pd.read_parquet(self.parquet_file)
+    # NEW: Query methods for catalog
+    def query_best(self, dataset_name: str = None, metric: str = "test_score",
+                   n: int = 10, ascending: bool = False) -> pl.DataFrame:
+        """Find best pipelines by metric.
 
-        if dataset:
-            df = df[df["dataset"] == dataset]
+        Args:
+            dataset_name: Optional filter by dataset
+            metric: Metric column to sort by
+            n: Number of results
+            ascending: Sort order (False = higher is better)
 
-        df_sorted = df.sort_values(metric, ascending=ascending).head(n)
+        Returns: Top N predictions by metric
+        """
+        import polars as pl
 
-        return df_sorted[["dataset", "run_date", "pipeline_id", metric, "config_hash"]]
+        df = self.data  # Use existing Polars DataFrame
 
-    def filter_pipelines(
-        self,
-        dataset: str = None,
-        date_range: Tuple[str, str] = None,
-        metric_threshold: Dict[str, float] = None
-    ) -> pd.DataFrame:
-        """Filter pipelines by criteria."""
-        df = pd.read_parquet(self.parquet_file)
+        if dataset_name:
+            df = df.filter(pl.col("dataset_name") == dataset_name)
 
-        if dataset:
-            df = df[df["dataset"] == dataset]
+        df_sorted = df.sort(metric, descending=not ascending).head(n)
+
+        return df_sorted.select([
+            "prediction_id", "dataset_name", "config_name",
+            metric, "pipeline_hash", "created_at"
+        ])
+
+    def filter_by_criteria(self, dataset_name: str = None,
+                           date_range: tuple[str, str] = None,
+                           metric_thresholds: dict[str, float] = None) -> pl.DataFrame:
+        """Filter predictions by multiple criteria.
+
+        Args:
+            dataset_name: Optional dataset filter
+            date_range: Optional (start_date, end_date) tuple
+            metric_thresholds: Optional dict of {metric: min_value}
+
+        Returns: Filtered predictions
+        """
+        import polars as pl
+
+        df = self.data
+
+        if dataset_name:
+            df = df.filter(pl.col("dataset_name") == dataset_name)
 
         if date_range:
             start, end = date_range
-            df = df[(df["run_date"] >= start) & (df["run_date"] <= end)]
+            df = df.filter(
+                (pl.col("created_at") >= start) & (pl.col("created_at") <= end)
+            )
 
-        if metric_threshold:
-            for metric, threshold in metric_threshold.items():
-                df = df[df[metric] <= threshold]
+        if metric_thresholds:
+            for metric, threshold in metric_thresholds.items():
+                df = df.filter(pl.col(metric) >= threshold)
 
         return df
 
-    def compare_datasets(
-        self,
-        pipeline_config_hash: str,
-        metric: str = "test_rmse"
-    ) -> pd.DataFrame:
-        """Compare same pipeline across datasets."""
-        df = pd.read_parquet(self.parquet_file)
-        df_filtered = df[df["config_hash"] == pipeline_config_hash]
+    def compare_across_datasets(self, pipeline_hash: str,
+                                metric: str = "test_score") -> pl.DataFrame:
+        """Compare same pipeline configuration across datasets.
 
-        return df_filtered.pivot_table(
-            index="dataset",
-            values=metric,
-            aggfunc=["min", "max", "mean"]
-        )
+        Args:
+            pipeline_hash: Pipeline configuration hash
+            metric: Metric to compare
 
-    def list_runs(self, dataset: str = None) -> pd.DataFrame:
-        """List all runs."""
-        df = pd.read_parquet(self.parquet_file)
+        Returns: Comparison table with aggregated stats
+        """
+        import polars as pl
 
-        if dataset:
-            df = df[df["dataset"] == dataset]
+        df = self.data.filter(pl.col("pipeline_hash") == pipeline_hash)
 
-        # Group by run
-        runs = df.groupby(["run_date", "dataset"]).agg({
-            "pipeline_id": "count",
-            "test_rmse": "min"
-        }).rename(columns={"pipeline_id": "num_pipelines", "test_rmse": "best_rmse"})
+        comparison = df.group_by("dataset_name").agg([
+            pl.col(metric).min().alias(f"{metric}_min"),
+            pl.col(metric).max().alias(f"{metric}_max"),
+            pl.col(metric).mean().alias(f"{metric}_mean"),
+            pl.count().alias("num_predictions")
+        ])
 
-        return runs.reset_index()
+        return comparison
+
+    def list_runs(self, dataset_name: str = None) -> pl.DataFrame:
+        """List all runs with summary statistics.
+
+        Args:
+            dataset_name: Optional dataset filter
+
+        Returns: Run summary with count and best score
+        """
+        import polars as pl
+
+        df = self.data
+
+        if dataset_name:
+            df = df.filter(pl.col("dataset_name") == dataset_name)
+
+        runs = df.group_by(["dataset_name", "created_at"]).agg([
+            pl.count().alias("num_pipelines"),
+            pl.col("test_score").max().alias("best_score")
+        ])
+
+        return runs.sort("created_at", descending=True)
 ```
 
 #### 4.2 Create Report Generator (`nirs4all/workspace/reporter.py`)
@@ -880,7 +921,10 @@ class ReportGenerator:
         self.catalog_dir = workspace_root / "catalog"
         self.reports_dir = self.catalog_dir / "reports"
         self.reports_dir.mkdir(parents=True, exist_ok=True)
-        self.query = WorkspaceQuery(workspace_root)
+
+        # Use Predictions class for catalog queries
+        from nirs4all.dataset.predictions import Predictions
+        self.predictions = Predictions.load_from_parquet(self.catalog_dir)
 
     def generate_run_summary(
         self,
@@ -953,180 +997,52 @@ class ReportGenerator:
 
 ### Deliverables
 
-- [ ] `WorkspaceQuery` for Parquet-based queries
+- [ ] `Predictions.query_best()` implemented (top N by metric)
+- [ ] `Predictions.filter_by_criteria()` implemented (dataset/date/threshold filters)
+- [ ] `Predictions.compare_across_datasets()` implemented (cross-dataset analysis)
+- [ ] `Predictions.list_runs()` implemented (run summaries)
 - [ ] `ReportGenerator` for markdown reports
-- [ ] Support for cross-dataset comparisons
 - [ ] CLI commands for querying (`nirs4all query best --dataset X`)
+- [ ] Unit tests for query methods (25+ tests)
 
 ### Testing
 
 ```bash
-# Unit tests
-pytest tests/workspace/test_query.py
+# Unit tests for Predictions query extensions
+pytest tests/dataset/test_predictions_query.py
+
+# Unit tests for report generator
 pytest tests/workspace/test_reporter.py
 
-# Integration tests (requires existing runs)
+# Integration tests (requires existing catalog)
 pytest tests/workspace/test_query_integration.py
 ```
 
 ### Success Criteria
 
-✅ Can query best pipelines by metric
-✅ Can filter pipelines by dataset/date/threshold
-✅ Can compare pipelines across datasets
-✅ Can generate run summaries
-✅ Can generate dataset reports
-✅ All tests pass
+✅ Can query best pipelines by metric using `Predictions.query_best()`
+✅ Can filter predictions by multiple criteria
+✅ Can compare same pipeline across datasets
+✅ Can list runs with summary statistics
+✅ Can generate markdown reports from catalog
+✅ Extends existing Predictions class without redundancy
 
 ---
 
-## Phase 5: Migration Tools (Week 5)
+## Phase 5: UI Integration (Week 5)
 
 ### Goal
-Provide tools to migrate from old `results/` structure to new workspace.
+Update CLI and UI to use workspace structure with extended classes.
 
 ### Tasks
 
-#### 5.1 Create Migration Tool (`nirs4all/workspace/migration.py`)
-
-```python
-class WorkspaceMigration:
-    """Migrate data from old structure to new workspace."""
-
-    def __init__(
-        self,
-        old_results_dir: Path,
-        workspace_root: Path
-    ):
-        self.old_results_dir = old_results_dir
-        self.workspace_root = workspace_root
-        self.workspace_manager = WorkspaceManager(workspace_root)
-
-    def migrate_all(self) -> Dict:
-        """Migrate all results to workspace."""
-
-        stats = {
-            "sessions_migrated": 0,
-            "pipelines_migrated": 0,
-            "errors": []
-        }
-
-        # Find all result folders
-        for result_folder in self.old_results_dir.glob("*"):
-            if not result_folder.is_dir():
-                continue
-
-            try:
-                self._migrate_result_folder(result_folder)
-                stats["sessions_migrated"] += 1
-            except Exception as e:
-                stats["errors"].append({
-                    "folder": str(result_folder),
-                    "error": str(e)
-                })
-
-        return stats
-
-    def _migrate_result_folder(self, result_folder: Path) -> None:
-        """Migrate a single result folder."""
-
-        # Parse old structure
-        # Example: results/2024-01-15_experiment1/
-        folder_name = result_folder.name
-        parts = folder_name.split("_", 1)
-        date_str = parts[0] if len(parts) > 0 else "unknown"
-        session_name = parts[1] if len(parts) > 1 else folder_name
-
-        # Create run in new structure
-        # Assumes single dataset per old result folder
-        dataset_name = self._extract_dataset_name(result_folder)
-        run_mgr = self.workspace_manager.create_run(dataset_name)
-
-        # Initialize
-        run_mgr.initialize({
-            "dataset_name": dataset_name,
-            "created_at": datetime.now().isoformat(),
-            "migration_source": str(result_folder)
-        })
-
-        # Migrate pipelines
-        for pipeline_folder in result_folder.glob("*"):
-            if pipeline_folder.is_dir():
-                self._migrate_pipeline(pipeline_folder, run_mgr)
-
-        run_mgr.finalize()
-
-    def _migrate_pipeline(
-        self,
-        old_pipeline_dir: Path,
-        run_mgr: 'RunManager'
-    ) -> None:
-        """Migrate a single pipeline."""
-
-        # Generate hash from config
-        pipeline_hash = self._compute_hash(old_pipeline_dir)
-
-        # Create new pipeline workspace
-        pipeline_ws = run_mgr.create_pipeline(pipeline_hash[:6])
-        pipeline_ws.initialize({})
-
-        # Copy files
-        for file in old_pipeline_dir.glob("*"):
-            if file.is_file():
-                shutil.copy2(file, pipeline_ws.pipeline_dir)
-
-    def _extract_dataset_name(self, result_folder: Path) -> str:
-        """Extract dataset name from old structure."""
-        # Implementation depends on old structure
-        # Try to find dataset info in config files
-        pass
-
-    def _compute_hash(self, pipeline_dir: Path) -> str:
-        """Compute hash of pipeline."""
-        # Implementation
-        pass
-```
-
-### Deliverables
-
-- [ ] Migration tool for old `results/` structure
-- [ ] CLI command (`nirs4all migrate results/`)
-- [ ] Validation of migrated data
-- [ ] Migration report with stats
-
-### Testing
-
-```bash
-# Unit tests
-pytest tests/workspace/test_migration.py
-
-# Integration tests (with sample old data)
-pytest tests/workspace/test_migration_integration.py
-```
-
-### Success Criteria
-
-✅ Can migrate old results to new workspace
-✅ Preserves all files and metadata
-✅ Generates migration report
-✅ All tests pass
-
-
----
-
-## Phase 6: CLI and API (Week 6)
-
-### Goal
-Update CLI and API to use new workspace structure.
-
-### Tasks
-
-#### 6.1 Update CLI Commands (`nirs4all/cli/workspace_commands.py`)
+#### 5.1 Update CLI Commands (`nirs4all/cli/workspace_commands.py`)
 
 ```python
 import click
 from pathlib import Path
-from nirs4all.workspace import WorkspaceManager, WorkspaceQuery, LibraryManager
+from nirs4all.workspace import WorkspaceManager
+from nirs4all.dataset.predictions import Predictions
 
 @click.group()
 def workspace():
@@ -1142,234 +1058,127 @@ def init(path):
     click.echo(f"✓ Workspace initialized at {path}")
 
 @workspace.command()
-@click.option("--dataset", "-d", required=True, help="Dataset name")
-@click.option("--pipelines", "-p", multiple=True, help="Pipeline config files")
-def run(dataset, pipelines):
-    """Run batch of pipelines on a dataset."""
-    from nirs4all.pipeline_runner import PipelineRunner
+@click.option("--workspace", default="workspace", help="Workspace root")
+def list_runs(workspace):
+    """List all runs in workspace."""
+    ws_path = Path(workspace)
+    runs_dir = ws_path / "runs"
 
-    runner = PipelineRunner()
-    # Load dataset
-    # Load pipelines
-    # Execute batch
-    click.echo(f"✓ Running {len(pipelines)} pipelines on {dataset}")
+    if not runs_dir.exists():
+        click.echo("No runs found")
+        return
 
-@workspace.command()
-@click.option("--dataset", "-d", help="Filter by dataset")
-@click.option("--metric", "-m", default="test_rmse", help="Metric to sort by")
-@click.option("--top", "-n", default=10, type=int, help="Number of results")
-def query(dataset, metric, top):
-    """Query best pipelines."""
-    query_engine = WorkspaceQuery(Path("workspace"))
-    results = query_engine.best_by_metric(dataset=dataset, metric=metric, n=top)
-
-    click.echo(results.to_string(index=False))
+    for run in runs_dir.iterdir():
+        if run.is_dir() and not run.name.startswith("_"):
+            click.echo(f"  {run.name}")
 
 @workspace.command()
-@click.argument("run_dir", type=click.Path(exists=True))
-@click.argument("pipeline_id")
-@click.option("--name", "-n", required=True, help="Library name")
-@click.option("--type", "-t",
-              type=click.Choice(["filtered", "pipeline", "fullrun"]),
-              default="pipeline",
-              help="Save type")
-def save(run_dir, pipeline_id, name, type):
-    """Save pipeline to library."""
-    lib = LibraryManager(Path("workspace/library"))
-    run_path = Path(run_dir)
-    pipeline_path = run_path / pipeline_id
+@click.option("--workspace", default="workspace", help="Workspace root")
+@click.option("--dataset", help="Filter by dataset")
+@click.option("--metric", default="test_score", help="Metric to sort by")
+@click.option("-n", default=10, help="Number of results")
+def query_best(workspace, dataset, metric, n):
+    """Query best pipelines from catalog."""
+    catalog_dir = Path(workspace) / "catalog"
 
-    if type == "filtered":
-        dest = lib.save_filtered(pipeline_path, name)
-    elif type == "pipeline":
-        dest = lib.save_pipeline_full(run_path, pipeline_path, name)
-    elif type == "fullrun":
-        dest = lib.save_fullrun(run_path, name)
+    # Load predictions from catalog
+    preds = Predictions.load_from_parquet(catalog_dir)
 
-    click.echo(f"✓ Saved to library: {dest}")
+    # Query best
+    best = preds.query_best(dataset_name=dataset, metric=metric, n=n)
 
-@workspace.command()
-@click.option("--type", "-t",
-              type=click.Choice(["templates", "filtered", "pipeline", "fullrun"]),
-              default="templates",
-              help="Library type to list")
-def list_library(type):
-    """List library contents."""
-    lib = LibraryManager(Path("workspace/library"))
-
-    if type == "templates":
-        templates = lib.list_templates()
-        for t in templates:
-            click.echo(f"- {t['name']}: {t.get('description', 'N/A')}")
-
-@workspace.command()
-@click.argument("run_dir", type=click.Path(exists=True))
-def report(run_dir):
-    """Generate report for a run."""
-    from nirs4all.workspace.reporter import ReportGenerator
-
-    reporter = ReportGenerator(Path("workspace"))
-    report_path = reporter.generate_run_summary(Path(run_dir))
-
-    click.echo(f"✓ Report generated: {report_path}")
-
-@workspace.command()
-@click.argument("old_results_dir", type=click.Path(exists=True))
-def migrate(old_results_dir):
-    """Migrate old results to new workspace."""
-    from nirs4all.workspace.migration import WorkspaceMigration
-
-    migration = WorkspaceMigration(
-        Path(old_results_dir),
-        Path("workspace")
-    )
-    stats = migration.migrate_all()
-
-    click.echo(f"✓ Migrated {stats['sessions_migrated']} runs")
-    if stats["errors"]:
-        click.echo(f"⚠ {len(stats['errors'])} errors")
-```
-
-#### 6.2 Update API Endpoints (for UI integration)
-
-```python
-# In nirs4all_ui/api/workspace.py
-
-from fastapi import APIRouter
-from nirs4all.workspace import WorkspaceManager, WorkspaceQuery
-
-router = APIRouter(prefix="/workspace")
-
-@router.get("/runs")
-def list_runs(dataset: str = None):
-    """List all runs."""
-    query = WorkspaceQuery(Path("workspace"))
-    runs_df = query.list_runs(dataset=dataset)
-    return runs_df.to_dict(orient="records")
-
-@router.get("/best")
-def get_best_pipelines(
-    dataset: str = None,
-    metric: str = "test_rmse",
-    top: int = 10
-):
-    """Get best pipelines."""
-    query = WorkspaceQuery(Path("workspace"))
-    results = query.best_by_metric(dataset=dataset, metric=metric, n=top)
-    return results.to_dict(orient="records")
-
-@router.get("/library/templates")
-def list_templates():
-    """List library templates."""
-    lib = LibraryManager(Path("workspace/library"))
-    return lib.list_templates()
-
-@router.post("/export")
-def export_pipeline(
-    run_dir: str,
-    pipeline_id: str
-):
-    """Export pipeline to exports/ folder."""
-    from nirs4all.workspace.export_manager import ExportManager
-
-    export_mgr = ExportManager(Path("workspace/exports"))
-    export_path = export_mgr.export_pipeline_full(
-        Path(run_dir),
-        Path(run_dir) / pipeline_id,
-        dataset_name="..."  # Extract from run_dir
-    )
-    return {"export_path": str(export_path)}
+    # Display results
+    click.echo(best.to_pandas().to_string(index=False))
 ```
 
 ### Deliverables
 
-- [ ] CLI commands: `init`, `run`, `query`, `save`, `list-library`, `report`, `migrate`
-- [ ] API endpoints for UI integration
-- [ ] Documentation for all commands
-- [ ] Examples and usage guides
+- [ ] CLI commands updated to use `WorkspaceManager`, `Predictions`
+- [ ] Commands: `init`, `list-runs`, `query-best`, `export`
+- [ ] UI integration with workspace structure
+- [ ] Documentation for CLI commands
 
 ### Testing
 
 ```bash
-# CLI tests
+# Unit tests for CLI
 pytest tests/cli/test_workspace_commands.py
 
-# API tests
-pytest tests/api/test_workspace_endpoints.py
-
 # Manual testing
-nirs4all workspace init ./workspace
-nirs4all workspace query --dataset corn --metric test_rmse --top 5
-nirs4all workspace save runs/2024-01-15_corn/0001_a1b2c3 -n "best_corn_model" -t pipeline
+nirs4all workspace init ./my_workspace
+nirs4all workspace query-best --dataset corn --metric test_rmse -n 5
 ```
 
 ### Success Criteria
 
-✅ All CLI commands work
-✅ API endpoints functional
-✅ Documentation complete
-✅ Examples tested
-✅ All tests pass
+✅ CLI commands work with workspace structure
+✅ Can initialize, query, and export via CLI
+✅ UI correctly displays workspace data
+✅ Extends existing classes without redundancy
 
 ---
 
 ## Summary
 
-### Timeline Overview
+This roadmap implements a clean, modern workspace architecture by **extending existing classes** instead of creating redundant managers.
+
+### Key Design Decisions
+
+**Extend Existing Code**
+- `SimulationSaver` → add `register()` and `export_*()` methods
+- `ManifestManager` → add `get_next_pipeline_number()` method
+- `Predictions` → add Parquet storage (`save_to_parquet()`, `load_from_parquet()`, query methods)
+- No redundant `PipelineWorkspace`, `ExportManager`, `CatalogManager`, `WorkspaceQuery`
+
+**Split Parquet Storage**
+- `predictions_meta.parquet` - Lightweight metadata (fast filtering)
+- `predictions_data.parquet` - Heavy arrays (loaded only when needed)
+- Linked via `prediction_id` UUID
+- Optimized for common use case: metadata queries (90%) vs array loading (10%)
+
+### Architecture Principles
+
+1. **Shallow structure** (max 3 levels)
+2. **Sequential numbering** (0001_hash, 0002_hash...)
+3. **Content-addressed artifacts** (shared `_binaries/` with deduplication)
+4. **Split storage** (metadata separate from arrays)
+5. **Extend, don't replace** (use existing SimulationSaver, Predictions, ManifestManager)
+
+### Phase Summary
 
 | Phase | Week | Focus | Key Deliverables |
 |-------|------|-------|------------------|
-| 1 | Week 1 | Foundation | WorkspaceManager, RunManager, PipelineWorkspace |
-| 2 | Week 2 | Storage | PipelineRunner, ExportManager, CatalogManager with Parquet |
-| 3 | Week 3 | Library | LibraryManager with 3 types (filtered/pipeline/fullrun) |
-| 4 | Week 4 | Query & Reports | WorkspaceQuery, ReportGenerator |
-| 5 | Week 5 | Migration | Migration tools for old structure |
-| 6 | Week 6 | CLI & API | Commands, endpoints, documentation |
-
-### Key Architectural Changes from v3.0
-
-✅ **Removed DatasetWorkspace** - Pipelines directly in run folder (shallow structure)
-✅ **Sequential numbering** - 0001_hash, 0002_hash... (user-friendly)
-✅ **Hidden binaries** - `_binaries/` with underscore prefix
-✅ **Fast access** - `best_predictions/` folder for quick CSV access
-✅ **Library types** - Three subdirectories: filtered/, pipeline/, fullrun/
-✅ **Parquet database** - Single file for all predictions (fast queries)
-✅ **Permanent archives** - Catalog stores copies (not links)
+| 1 | Week 1 | Foundation | `SimulationSaver.register()`, `ManifestManager.get_next_pipeline_number()` |
+| 2 | Week 2 | Catalog & Export | `Predictions` Parquet methods, `SimulationSaver.export_*()` |
+| 3 | Week 3 | Library | Library management for reusable artifacts |
+| 4 | Week 4 | Query | `Predictions.query_best()`, `filter_by_criteria()`, reporting |
+| 5 | Week 5 | UI/CLI | CLI commands, UI integration |
 
 ### Testing Strategy
 
-- Unit tests for each class (50+ tests per phase)
-- Integration tests for full workflows
-- Manual testing of CLI commands
-- Backward compatibility tests
-- Performance tests for Parquet queries
+**Unit Testing**
+- Test each extension method individually (30-50 tests per phase)
+- Mock dependencies for isolated testing
+- Test edge cases and error handling
 
-### Documentation Requirements
+**Integration Testing**
+- Full pipeline execution with workspace registration
+- Catalog save/load round-trips
+- Cross-dataset query scenarios
 
-- API documentation (docstrings)
-- User guide for workspace structure
-- CLI command reference
-- Migration guide
-- Examples and tutorials
+**Performance Testing**
+- Metadata-only queries (<100ms for 10k predictions)
+- Array loading (acceptable for 90th percentile)
+- Parquet file size growth
 
 ### Success Metrics
 
-✅ All tests pass (300+ tests total)
-✅ Documentation complete
-✅ CLI commands functional
-✅ API endpoints working
-✅ Migration successful
-✅ Performance acceptable (query <1s)
-✅ User-friendly structure (max 3 levels deep)
-        return template_file
-
-    def save_trained_pipeline(
-        self,
-        pipeline_workspace: PipelineWorkspace,
-        library_name: str,
-        description: str = None
-    ) -> Path:
-        """Package trained pipeline (config + binaries) into library."""
+✅ All extension methods tested (150+ tests total)
+✅ Split Parquet storage working (metadata fast, arrays on-demand)
+✅ No redundant managers (extend existing classes only)
+✅ Sequential numbering functional (0001, 0002...)
+✅ Documentation complete for all extensions
+✅ CLI commands working with extended classes
 
         zip_file = self.trained_dir / f"{library_name}.zip"
 
@@ -1448,100 +1257,108 @@ nirs4all workspace save runs/2024-01-15_corn/0001_a1b2c3 -n "best_corn_model" -t
         return trained
 ```
 
-#### 4.2 Enhance Catalog with Search (`nirs4all/workspace/catalog_manager.py`)
+#### 4.2 Extend Predictions with Search Methods (`nirs4all/dataset/predictions.py`)
+
+**Rationale**: `Predictions` already stores catalog data in Parquet. Extend with search/query methods instead of creating separate CatalogManager.
 
 ```python
-class CatalogManager:
-    # ... existing methods ...
+# Extension to existing Predictions class
+class Predictions:
+    # ... existing __init__, save_to_parquet, load_from_parquet methods ...
 
     def search_predictions(
         self,
         dataset_name: str = None,
         pipeline_name: str = None,
         metric_filter: Dict = None,
-        session_filter: str = None
-    ) -> List[Dict]:
-        """Search predictions with filters.
+        created_after: str = None
+    ) -> 'Predictions':
+        """Search predictions with filters using Polars queries.
 
         Args:
             dataset_name: Filter by dataset (None = all)
             pipeline_name: Filter by pipeline name (None = all)
-            metric_filter: e.g., {"test_rmse": {"max": 0.5}}
-            session_filter: Filter by session name pattern
+            metric_filter: e.g., {"test_rmse_max": 0.5, "train_score_min": 0.8}
+            created_after: ISO date string (e.g., "2024-10-01")
 
         Returns:
-            List of matching predictions
+            New Predictions object with filtered results
         """
-        results = []
+        import polars as pl
 
-        # Iterate over all datasets
-        dataset_dirs = (self.catalog_dir / "datasets").glob("*")
-        for dataset_dir in dataset_dirs:
-            if dataset_name and dataset_dir.name != dataset_name:
-                continue
+        df = self.data
 
-            index_file = dataset_dir / "index.json"
-            if not index_file.exists():
-                continue
+        # Apply filters using Polars expressions
+        if dataset_name:
+            df = df.filter(pl.col("dataset_name") == dataset_name)
 
-            with open(index_file, 'r') as f:
-                catalog = json.load(f)
+        if pipeline_name:
+            df = df.filter(pl.col("config_name").str.contains(pipeline_name))
 
-            for pred in catalog["predictions"]:
-                # Apply filters
-                if pipeline_name and pred["pipeline_name"] != pipeline_name:
-                    continue
+        if created_after:
+            df = df.filter(pl.col("created_at") >= created_after)
 
-                if session_filter and session_filter not in pred["session"]:
-                    continue
+        if metric_filter:
+            for metric_spec, threshold in metric_filter.items():
+                # Parse metric_spec like "test_rmse_max" or "train_score_min"
+                if "_max" in metric_spec:
+                    metric_col = metric_spec.replace("_max", "")
+                    df = df.filter(pl.col(metric_col) <= threshold)
+                elif "_min" in metric_spec:
+                    metric_col = metric_spec.replace("_min", "")
+                    df = df.filter(pl.col(metric_col) >= threshold)
 
-                if metric_filter:
-                    if not self._matches_metric_filter(pred["metrics"], metric_filter):
-                        continue
+        return Predictions(df)
 
-                results.append(pred)
+    def get_global_best(self, metric: str = "test_score", mode: str = "max") -> Dict:
+        """Get best model across ALL predictions in catalog.
 
-        return results
+        Args:
+            metric: Metric column name (e.g., "test_score", "test_rmse")
+            mode: "max" (higher is better) or "min" (lower is better)
 
-    def _matches_metric_filter(self, metrics: Dict, filter_spec: Dict) -> bool:
-        """Check if metrics match filter specification."""
-        for metric_name, constraints in filter_spec.items():
-            if metric_name not in metrics:
-                return False
+        Returns: Dictionary with best prediction metadata
+        """
+        import polars as pl
 
-            value = metrics[metric_name]
-
-            if "min" in constraints and value < constraints["min"]:
-                return False
-            if "max" in constraints and value > constraints["max"]:
-                return False
-
-        return True
-
-    def get_global_best(self, metric: str = "test_rmse") -> Dict:
-        """Get best model across ALL datasets."""
-        all_predictions = self.search_predictions()
-
-        if not all_predictions:
+        if self.data.height == 0:
             raise ValueError("No predictions in catalog")
 
-        if metric.endswith("rmse") or metric.endswith("mae"):
-            # Lower is better
-            best = min(all_predictions, key=lambda p: p["metrics"].get(metric, float('inf')))
+        # Sort and get best
+        if mode == "min":
+            best_row = self.data.sort(metric).head(1)
         else:
-            # Higher is better
-            best = max(all_predictions, key=lambda p: p["metrics"].get(metric, float('-inf')))
+            best_row = self.data.sort(metric, descending=True).head(1)
 
-        return best
+        # Convert to dict
+        return best_row.to_dicts()[0]
+
+    def get_summary_stats(self, group_by: str = "dataset_name") -> pl.DataFrame:
+        """Get summary statistics grouped by column.
+
+        Args:
+            group_by: Column to group by ("dataset_name", "config_name", "model_type")
+
+        Returns: Polars DataFrame with aggregated statistics
+        """
+        import polars as pl
+
+        return self.data.group_by(group_by).agg([
+            pl.col("test_score").mean().alias("avg_test_score"),
+            pl.col("test_score").max().alias("best_test_score"),
+            pl.col("test_score").min().alias("worst_test_score"),
+            pl.col("prediction_id").count().alias("num_predictions")
+        ])
 ```
 
 ### Deliverables
 
 - [ ] `LibraryManager` for template and trained pipeline management
-- [ ] Enhanced `CatalogManager` with search functionality
+- [ ] `Predictions.search_predictions()` method with Polars filtering
+- [ ] `Predictions.get_global_best()` method for best model tracking
+- [ ] `Predictions.get_summary_stats()` method for catalog analytics
 - [ ] Pipeline packaging (zip with config + binaries)
 - [ ] Pipeline loading from library
-- [ ] Global best model tracking
 
 ### Testing
 
@@ -1550,237 +1367,24 @@ class CatalogManager:
 pytest tests/workspace/test_library_manager.py
 pytest tests/workspace/test_pipeline_packaging.py
 
-# Catalog search tests
-pytest tests/workspace/test_catalog_search.py
-pytest tests/workspace/test_global_best.py
+# Predictions search tests
+pytest tests/dataset/test_predictions_search.py
+pytest tests/dataset/test_predictions_global_best.py
+pytest tests/dataset/test_predictions_summary.py
 ```
 
 ### Success Criteria
 
 ✅ Can save pipelines to library (with and without binaries)
 ✅ Can load pipelines from library
-✅ Can search catalog with complex filters
-✅ Can find global best model across all datasets
-✅ Library and catalog tests pass
+✅ Can search predictions with complex Polars filters
+✅ Can find global best model across all predictions
+✅ Can generate summary statistics by dataset/pipeline/model
+✅ Library and predictions tests pass
 
 ---
 
-## Phase 5: Migration Tools (Week 5)
-
-### Goal
-Create tools to migrate existing `results/` data to new `workspace/` structure.
-
-### Tasks
-
-#### 5.1 Create Migration Manager (`nirs4all/migration/migration_manager.py`)
-
-```python
-class MigrationManager:
-    """Migrate from old results/ structure to new workspace/ structure."""
-
-    def __init__(self, results_dir: Path, workspace_dir: Path):
-        self.results_dir = results_dir
-        self.workspace_dir = workspace_dir
-        self.workspace_manager = WorkspaceManager(workspace_dir)
-
-    def migrate_all(self, session_name: str = "migrated_results") -> Dict:
-        """Migrate all existing results to new structure.
-
-        Args:
-            session_name: Name for migrated session
-
-        Returns:
-            Migration report (success/failure counts)
-        """
-        logger.info("Starting migration from results/ to workspace/")
-
-        # Analyze existing structure
-        analysis = self._analyze_results_structure()
-        logger.info(f"Found {analysis['pipeline_count']} pipelines")
-
-        # Create migration session
-        session_mgr = self.workspace_manager.create_session(session_name)
-        session_mgr.initialize({
-            "session_name": session_name,
-            "description": "Migrated from legacy results/ structure",
-            "migration_date": datetime.now().isoformat()
-        })
-
-        # Migrate pipelines
-        report = {
-            "total_pipelines": analysis["pipeline_count"],
-            "migrated": 0,
-            "failed": 0,
-            "errors": []
-        }
-
-        for pipeline_dir in analysis["pipeline_dirs"]:
-            try:
-                self._migrate_pipeline(pipeline_dir, session_mgr)
-                report["migrated"] += 1
-            except Exception as e:
-                logger.error(f"Failed to migrate {pipeline_dir}: {e}")
-                report["failed"] += 1
-                report["errors"].append({"pipeline": str(pipeline_dir), "error": str(e)})
-
-        # Finalize
-        session_mgr.finalize()
-        logger.info(f"Migration complete: {report['migrated']} migrated, {report['failed']} failed")
-
-        return report
-
-    def _analyze_results_structure(self) -> Dict:
-        """Analyze existing results/ structure."""
-        pipeline_dirs = list((self.results_dir / "pipelines").glob("*"))
-
-        return {
-            "pipeline_count": len(pipeline_dirs),
-            "pipeline_dirs": pipeline_dirs,
-            "has_artifacts": (self.results_dir / "artifacts").exists(),
-            "has_datasets": (self.results_dir / "datasets").exists()
-        }
-
-    def _migrate_pipeline(self, old_pipeline_dir: Path, session_mgr: SessionManager):
-        """Migrate single pipeline."""
-
-        # Load old manifest
-        manifest_file = old_pipeline_dir / "manifest.yaml"
-        with open(manifest_file, 'r') as f:
-            manifest = yaml.safe_load(f)
-
-        # Determine dataset name (from manifest or directory name)
-        dataset_name = manifest.get("dataset", "unknown_dataset")
-
-        # Create dataset workspace
-        dataset_ws = session_mgr.create_dataset_workspace(dataset_name)
-        if not dataset_ws.dataset_info_file.exists():
-            dataset_ws.initialize({
-                "name": dataset_name,
-                "migrated": True,
-                "original_path": str(old_pipeline_dir)
-            })
-
-        # Create pipeline workspace
-        pipeline_id = old_pipeline_dir.name  # Use old UID as pipeline ID
-        pipeline_ws = dataset_ws.create_pipeline_workspace(pipeline_id)
-
-        # Migrate pipeline config
-        pipeline_config = self._convert_manifest_to_config(manifest)
-        pipeline_ws.initialize(pipeline_config)
-
-        # Migrate artifacts
-        artifact_refs = []
-        for artifact_info in manifest.get("artifacts", []):
-            old_artifact_path = self.results_dir / artifact_info["path"]
-            if old_artifact_path.exists():
-                # Load artifact
-                artifact = joblib.load(old_artifact_path)
-
-                # Save to new location (content-addressed)
-                new_path = pipeline_ws.save_artifact(
-                    artifact_info["operator"],
-                    artifact
-                )
-                artifact_refs.append({
-                    "step": artifact_info["step"],
-                    "name": artifact_info["operator"],
-                    "path": new_path
-                })
-
-        # Update pipeline config with artifact references
-        pipeline_config["artifacts"] = artifact_refs
-        with open(pipeline_ws.pipeline_file, 'w') as f:
-            json.dump(pipeline_config, f, indent=2)
-
-        # Migrate predictions (if exist)
-        old_predictions = old_pipeline_dir / "predictions.csv"
-        if old_predictions.exists():
-            shutil.copy(old_predictions, pipeline_ws.predictions_file)
-
-        # Migrate metrics (if exist)
-        old_metrics = old_pipeline_dir / "metrics.json"
-        if old_metrics.exists():
-            shutil.copy(old_metrics, pipeline_ws.metrics_file)
-
-        logger.info(f"✓ Migrated {old_pipeline_dir.name} → {pipeline_ws.pipeline_dir}")
-
-    def _convert_manifest_to_config(self, manifest: Dict) -> Dict:
-        """Convert old manifest.yaml to new pipeline.json format."""
-        return {
-            "id": manifest["pipeline_uid"],
-            "name": manifest.get("pipeline_name", "unknown"),
-            "created_at": manifest.get("created_at", datetime.now().isoformat()),
-            "status": "migrated",
-            "steps": manifest.get("steps", []),
-            "dataset": manifest.get("dataset", "unknown"),
-            "migrated_from": "results/"
-        }
-```
-
-#### 5.2 Create Migration CLI (`nirs4all/cli/migrate_command.py`)
-
-```bash
-# CLI command
-nirs4all migrate \
-  --from results/ \
-  --to workspace/ \
-  --session migrated_results \
-  --dry-run  # Preview what will be migrated
-
-# Output:
-# Analyzing results/ structure...
-# Found 42 pipelines across 5 datasets
-#
-# Migration plan:
-#   - 42 pipelines → workspace/runs/2024-10-23_migrated_results/
-#   - 5 datasets will be created
-#   - 157 artifacts will be migrated (3.2 GB)
-#
-# Proceed with migration? [y/N]: y
-#
-# Migrating...
-# ✓ Pipeline abc123 → wheat_sample1
-# ✓ Pipeline def456 → wheat_sample2
-# ...
-#
-# Migration complete:
-#   - 40 pipelines migrated successfully
-#   - 2 pipelines failed (see migration_errors.log)
-#   - Total duration: 2m 15s
-```
-
-### Deliverables
-
-- [ ] `MigrationManager` for automatic migration
-- [ ] CLI command: `nirs4all migrate`
-- [ ] Dry-run mode for preview
-- [ ] Error handling and reporting
-- [ ] Migration validation
-
-### Testing
-
-```bash
-# Migration tests
-pytest tests/migration/test_migration_manager.py
-pytest tests/migration/test_manifest_conversion.py
-pytest tests/migration/test_artifact_migration.py
-
-# End-to-end migration test
-pytest tests/migration/test_full_migration.py
-```
-
-### Success Criteria
-
-✅ Can migrate all existing pipelines from `results/`
-✅ Artifacts correctly migrated and deduplicated
-✅ Metrics and predictions preserved
-✅ Migration report generated
-✅ Failed migrations logged for manual review
-✅ Migration tests pass
-
----
-
-## Phase 6: CLI & Documentation (Week 6)
+## Phase 5: CLI & Documentation (Week 5)
 
 ### Goal
 Update CLI, create comprehensive documentation, and finalize user-facing interfaces.
@@ -1790,22 +1394,35 @@ Update CLI, create comprehensive documentation, and finalize user-facing interfa
 #### 6.1 Update CLI Commands (`nirs4all/cli/`)
 
 ```bash
-# New CLI structure
+# New CLI structure with custom naming support
 
-# Session management
+# Run management with custom names
 nirs4all run \
-  --session wheat-quality-study \
-  --datasets data/wheat_sample1.csv data/wheat_sample2.csv \
+  --dataset wheat_sample1 \
   --pipelines configs/baseline_pls.json configs/optimized_svm.json \
+  --run-name "wheat-quality-study" \
+  --pipeline-names "baseline" "optimized" \
   --description "Testing quality prediction models"
 
+# Creates: runs/2024-10-23_wheat_sample1_wheat-quality-study/
+# With pipelines: 0001_baseline_a1b2c3/, 0002_optimized_d4e5f6/
+
+# Without custom names (default sequential naming)
+nirs4all run \
+  --dataset wheat_sample1 \
+  --pipelines configs/baseline_pls.json \
+  --description "Quick test"
+
+# Creates: runs/2024-10-23_wheat_sample1/
+# With pipeline: 0001_a1b2c3/
+
 nirs4all sessions list
-nirs4all sessions show 2024-10-23_wheat-quality-study
+nirs4all sessions show 2024-10-23_wheat_sample1_wheat-quality-study
 nirs4all sessions delete 2024-09-15_old-experiments
 
 # Library management
 nirs4all library save \
-  --from runs/2024-10-23_wheat-quality-study/datasets/wheat_sample1/pipelines/baseline_pls_a1b2c3 \
+  --from runs/2024-10-23_wheat_sample1_wheat-quality-study/0001_baseline_a1b2c3 \
   --name wheat_quality_baseline \
   --include-binaries
 
@@ -1817,12 +1434,13 @@ nirs4all catalog list wheat_sample1
 nirs4all catalog best wheat_sample1 --metric test_rmse
 nirs4all catalog search --pipeline baseline_pls --rmse-max 0.5
 
-# Export
+# Export with custom names
 nirs4all export \
-  --session 2024-10-23_wheat-quality-study \
-  --dataset wheat_sample1 \
-  --pipeline baseline_pls_a1b2c3 \
-  --output best_model.zip
+  --pipeline runs/2024-10-23_wheat_sample1_wheat-quality-study/0001_baseline_a1b2c3 \
+  --custom-name "production_model_v1" \
+  --output exports/
+
+# Creates: exports/production_model_v1_0001_baseline_a1b2c3/
 ```
 
 #### 6.2 Create User Documentation
@@ -1919,12 +1537,11 @@ library.save_trained_pipeline(
 
 ### Deliverables
 
-- [ ] Complete CLI implementation for workspace operations
-- [ ] User guide (`WORKSPACE_GUIDE.md`)
+- [ ] Complete CLI implementation for workspace operations with custom naming
+- [ ] User guide (`WORKSPACE_GUIDE.md`) with custom naming examples
 - [ ] Developer guide (`WORKSPACE_ARCHITECTURE_DEV.md`)
-- [ ] Updated examples (Q14, Q15, etc.)
-- [ ] API reference documentation
-- [ ] Migration guide
+- [ ] Updated examples (Q14, Q15, etc.) using new workspace structure
+- [ ] API reference documentation for extended classes
 
 ### Testing
 
@@ -1959,40 +1576,36 @@ tests/
 │   ├── test_session_manager.py           # 12 tests
 │   ├── test_dataset_workspace.py         # 10 tests
 │   ├── test_pipeline_workspace.py        # 15 tests
-│   ├── test_artifact_manager.py          # 12 tests
-│   ├── test_catalog_manager.py           # 18 tests
+│   ├── test_workspace_manager.py         # 12 tests (workspace structure)
+│   ├── test_predictions_parquet.py       # 18 tests (split Parquet storage)
 │   └── test_library_manager.py           # 15 tests
 ├── execution/
-│   ├── test_session_executor.py          # 10 tests
+│   ├── test_pipeline_execution.py        # 10 tests
 │   ├── test_progress_tracker.py          # 8 tests
 │   └── test_error_handler.py             # 10 tests
-├── migration/
-│   ├── test_migration_manager.py         # 12 tests
-│   ├── test_manifest_conversion.py       # 8 tests
-│   └── test_artifact_migration.py        # 10 tests
 ├── integration/
 │   ├── test_workspace_execution.py       # 5 tests
 │   ├── test_multi_dataset.py             # 5 tests
 │   ├── test_library_workflow.py          # 5 tests
-│   └── test_catalog_workflow.py          # 5 tests
+│   ├── test_catalog_workflow.py          # 5 tests
+│   └── test_custom_naming.py             # 5 tests
 └── cli/
     ├── test_workspace_commands.py        # 15 tests
     ├── test_library_commands.py          # 10 tests
     └── test_catalog_commands.py          # 10 tests
 
-Total: ~200 tests
+Total: ~150 tests
 ```
 
 ### Integration Tests (End of Each Phase)
 
 Phase-specific integration tests ensure components work together:
 
-- **Phase 1**: Create full workspace structure programmatically
-- **Phase 2**: Execute pipeline end-to-end with new structure
-- **Phase 3**: Run multi-dataset session
-- **Phase 4**: Library save/load workflow
-- **Phase 5**: Migrate and validate existing data
-- **Phase 6**: CLI commands produce expected results
+- **Phase 1**: Create full workspace structure with custom naming
+- **Phase 2**: Execute pipeline end-to-end with split Parquet catalog
+- **Phase 3**: Library save/load workflow
+- **Phase 4**: Catalog search and global best queries
+- **Phase 5**: CLI commands produce expected results with custom naming
 
 ### Manual Testing Checklist
 
@@ -2000,10 +1613,12 @@ After each phase:
 
 - [ ] Create workspace structure manually (verify file paths)
 - [ ] Run example pipelines (verify results)
-- [ ] Check generated JSON files (verify format)
+- [ ] Test custom naming (runs, pipelines, exports)
+- [ ] Check generated JSON/Parquet files (verify format)
 - [ ] Test error conditions (verify error handling)
 - [ ] Review logs (verify logging quality)
 - [ ] Test cleanup (verify safe deletion)
+- [ ] Verify no redundant managers created
 
 ---
 
@@ -2038,91 +1653,46 @@ After each phase:
 
 ---
 
-## Backward Compatibility
-
-### Phase 1-2: Parallel Systems
-
-Both `results/` and `workspace/` coexist:
-
-```python
-# Legacy mode (default for now)
-runner = PipelineRunner(use_legacy=True)
-results = runner.run(...)  # Uses results/ structure
-
-# New mode (opt-in)
-runner = PipelineRunner(use_legacy=False)
-results = runner.run(...)  # Uses workspace/ structure
-```
-
-### Phase 3-5: Transition Period
-
-- New runs use `workspace/` by default
-- `results/` still supported but deprecated warning
-- Migration tool available
-
-### Phase 6+: Full Migration
-
-- `workspace/` is the only structure
-- `results/` support removed (breaking change in v0.7.0)
-- Clear migration guide provided
-
----
-
 ## Rollout Strategy
 
-### Week 1-2: Internal Development
+### Week 1-2: Foundation & Catalog
 
 - Phases 1-2 completed
-- Internal testing only
-- No public release
+- Internal testing
+- Extension methods validated
 
-### Week 3-4: Alpha Release
+### Week 3: Library & Query
 
 - Phases 3-4 completed
-- Release as `0.6.0-alpha`
-- Invite early adopters
-- Gather feedback
+- Integration testing
+- Performance benchmarking
 
-### Week 5: Beta Release
+### Week 4-5: CLI & Documentation
 
 - Phase 5 completed
-- Release as `0.6.0-beta`
-- Migration tool available
-- Broader testing
-
-### Week 6: Stable Release
-
-- Phase 6 completed
-- Release as `0.6.0`
-- Full documentation
-- Announcement
+- User documentation complete
+- Examples updated
+- Ready for release
 
 ---
 
 ## Risk Assessment
 
-### High Risk
+### High Priority Risks
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Migration data loss | HIGH | Thorough testing, dry-run mode, backups |
-| Breaking API changes | HIGH | Deprecation warnings, parallel systems |
-| Performance regression | MEDIUM | Benchmarking, profiling |
+| Breaking API changes | HIGH | Careful extension design, thorough testing |
+| Performance regression | MEDIUM | Benchmarking, profiling, Parquet optimization |
+| Catalog scaling | MEDIUM | Split Parquet design, indexed queries |
 
-### Medium Risk
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| User confusion | MEDIUM | Clear documentation, examples, migration guide |
-| Incomplete migration | MEDIUM | Validation checks, detailed error messages |
-| Catalog scaling | MEDIUM | SQLite backend option for large deployments |
-
-### Low Risk
+### Medium Priority Risks
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| CLI command conflicts | LOW | Careful command design, user feedback |
-| Library format changes | LOW | Version metadata in zip files |
+| User confusion | MEDIUM | Clear documentation, examples, CLI help |
+| Integration complexity | MEDIUM | Extend existing classes, minimal new code |
+| File format changes | LOW | Version metadata in manifests |
 
 ---
 
@@ -2130,24 +1700,27 @@ results = runner.run(...)  # Uses workspace/ structure
 
 ### Technical Metrics
 
-- [ ] All 200+ tests passing
-- [ ] Storage reduction: 30-50% (grid search experiments)
+- [ ] All tests passing (150+ tests across 5 phases)
+- [ ] Storage deduplication working (`_binaries/` shared across pipelines)
 - [ ] No performance regression (<5% overhead)
-- [ ] Migration success rate: >95%
+- [ ] Split Parquet queries <100ms for metadata (10k predictions)
+- [ ] Custom naming support functional (runs, pipelines, exports)
 
 ### User Experience Metrics
 
-- [ ] Session creation: <10 seconds for typical setup
+- [ ] Run creation: <10 seconds for typical setup
 - [ ] Catalog queries: <1 second for 1000 predictions
 - [ ] CLI commands: Intuitive, self-documenting
-- [ ] Documentation: Complete, with examples
+- [ ] Documentation: Complete with custom naming examples
+- [ ] Shallow structure: Max 3 levels maintained
 
-### Adoption Metrics
+### Code Quality Metrics
 
-- [ ] 10+ early adopters test alpha
-- [ ] No critical bugs in beta
-- [ ] Positive user feedback
-- [ ] Migration completed by >80% of users within 1 month
+- [ ] No redundant managers created (use existing SimulationSaver, Predictions, ManifestManager)
+- [ ] Extension pattern successful (minimal new classes)
+- [ ] Split Parquet storage validated
+- [ ] Sequential numbering working (0001, 0002, ...)
+- [ ] Content-addressed artifacts deduplicated
 
 ---
 
