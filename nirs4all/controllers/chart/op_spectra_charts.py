@@ -148,13 +148,20 @@ class SpectraChartController(OperatorController):
                 if runner.verbose > 0 and processing_idx == 0:
                     print(f"   Headers available: {len(spectra_headers) if spectra_headers else 0}, features: {current_n_features}")
 
+                # Get header unit for this source
+                try:
+                    header_unit = dataset.header_unit(sd_idx)
+                except (AttributeError, IndexError):
+                    # Fall back to default if header_unit method not available
+                    header_unit = "cm-1"
+
                 # Create subplot
                 if is_3d:
                     ax = fig.add_subplot(n_rows, n_cols, processing_idx + 1, projection='3d')
-                    self._plot_3d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers)
+                    self._plot_3d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit)
                 else:
                     ax = fig.add_subplot(n_rows, n_cols, processing_idx + 1)
-                    self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers)
+                    self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit)
 
             # Adjust layout to prevent overlap
             plt.tight_layout(rect=[0, 0, 1, 0.96])
@@ -183,7 +190,7 @@ class SpectraChartController(OperatorController):
 
         return context, img_list
 
-    def _plot_2d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None) -> None:
+    def _plot_2d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None, header_unit: str = "cm-1") -> None:
         """Plot 2D spectra on given axis."""
         # Create feature indices (wavelengths)
         n_features = x_sorted.shape[1]
@@ -193,7 +200,13 @@ class SpectraChartController(OperatorController):
             # Try to convert headers to numeric values for wavelengths
             try:
                 x_values = np.array([float(h) for h in headers])
-                x_label = 'Wavelength (cm-1)'
+                # Determine x-axis label based on header unit
+                if header_unit == "cm-1":
+                    x_label = 'Wavenumber (cm⁻¹)'
+                elif header_unit == "nm":
+                    x_label = 'Wavelength (nm)'
+                else:
+                    x_label = 'Features'
             except (ValueError, TypeError):
                 # If headers are not numeric, use them as categorical labels
                 x_values = np.arange(n_features)
@@ -237,7 +250,7 @@ class SpectraChartController(OperatorController):
         cbar.set_label('y', fontsize=8)
         cbar.ax.tick_params(labelsize=7)
 
-    def _plot_3d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None) -> None:
+    def _plot_3d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None, header_unit: str = "cm-1") -> None:
         """Plot 3D spectra on given axis."""
         # Create feature indices (wavelengths)
         n_features = x_sorted.shape[1]
@@ -247,7 +260,13 @@ class SpectraChartController(OperatorController):
             # Try to convert headers to numeric values for wavelengths
             try:
                 x_values = np.array([float(h) for h in headers])
-                x_label = 'Wavelength (cm-1)'
+                # Determine x-axis label based on header unit
+                if header_unit == "cm-1":
+                    x_label = 'Wavenumber (cm⁻¹)'
+                elif header_unit == "nm":
+                    x_label = 'Wavelength (nm)'
+                else:
+                    x_label = 'Features'
             except (ValueError, TypeError):
                 # If headers are not numeric, use them as categorical labels
                 x_values = np.arange(n_features)
