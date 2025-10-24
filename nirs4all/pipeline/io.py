@@ -334,3 +334,133 @@ class SimulationSaver:
 
         return True
 
+    def register_workspace(self, workspace_root: Path, dataset_name: str, pipeline_hash: str,
+                          run_name: str = None, pipeline_name: str = None) -> Path:
+        """
+        Register pipeline in workspace structure with optional custom names.
+
+        Creates:
+        - Without custom names: workspace_root/runs/{date}_{dataset}/NNNN_{hash}/
+        - With run_name: workspace_root/runs/{date}_{dataset}_{runname}/NNNN_{hash}/
+        - With pipeline_name: workspace_root/runs/{date}_{dataset}/NNNN_{pipelinename}_{hash}/
+        - With both: workspace_root/runs/{date}_{dataset}_{runname}/NNNN_{pipelinename}_{hash}/
+
+        Returns:
+            Full path to pipeline directory
+        """
+        from datetime import datetime
+
+        run_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Build run_id with optional custom name
+        if run_name:
+            run_id = f"{run_date}_{dataset_name}_{run_name}"
+        else:
+            run_id = f"{run_date}_{dataset_name}"
+        run_dir = workspace_root / "runs" / run_id
+
+        # Count existing pipelines for sequential numbering
+        # Exclude directories starting with underscore (like _binaries)
+        if run_dir.exists():
+            existing = [d for d in run_dir.iterdir()
+                       if d.is_dir() and not d.name.startswith("_")]
+            pipeline_num = len(existing) + 1
+        else:
+            pipeline_num = 1
+
+        # Build pipeline_id with optional custom name
+        if pipeline_name:
+            pipeline_id = f"{pipeline_num:04d}_{pipeline_name}_{pipeline_hash}"
+        else:
+            pipeline_id = f"{pipeline_num:04d}_{pipeline_hash}"
+        pipeline_dir = run_dir / pipeline_id
+
+        # Create structure
+        pipeline_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "_binaries").mkdir(exist_ok=True)
+
+        # Update internal state to use this directory
+        self.dataset_name = dataset_name
+        self.pipeline_name = pipeline_id
+        self.current_path = pipeline_dir
+        self.dataset_path = run_dir
+
+        # Initialize metadata
+        self._metadata = {
+            "dataset_name": dataset_name,
+            "pipeline_name": pipeline_id,
+            "created_at": datetime.now().isoformat(),
+            "session_id": run_id,
+            "files": {},
+            "binaries": {}
+        }
+
+        return pipeline_dir
+
+    def export_pipeline_full(self, pipeline_dir: Path, exports_dir: Path,
+                            dataset_name: str, run_date: str, custom_name: str = None) -> Path:
+        """Export full pipeline results to flat structure with optional custom name.
+
+        Args:
+            pipeline_dir: Path to pipeline (NNNN_hash/ or NNNN_pipelinename_hash/)
+            exports_dir: Workspace exports directory
+            dataset_name: Dataset name
+            run_date: Run date (YYYYMMDD)
+            custom_name: Optional custom name for export
+
+        Creates export directory:
+        - Without custom_name: dataset_run_pipelineid/
+        - With custom_name: customname_pipelineid/
+
+        Returns: Path to exported directory
+        """
+        pipeline_dir = Path(pipeline_dir)
+        exports_dir = Path(exports_dir)
+        exports_dir.mkdir(parents=True, exist_ok=True)
+
+        pipeline_id = pipeline_dir.name  # e.g., "0001_a1b2c3" or "0001_baseline_a1b2c3"
+
+        if custom_name:
+            export_name = f"{custom_name}_{pipeline_id}"
+        else:
+            export_name = f"{dataset_name}_{run_date}_{pipeline_id}"
+        export_path = exports_dir / export_name
+
+        # Copy entire pipeline folder
+        shutil.copytree(pipeline_dir, export_path, dirs_exist_ok=True)
+
+        return export_path
+
+    def export_best_prediction(self, predictions_file: Path, exports_dir: Path,
+                              dataset_name: str, run_date: str, pipeline_id: str,
+                              custom_name: str = None) -> Path:
+        """Export predictions CSV to best_predictions/ folder with optional custom name.
+
+        Args:
+            predictions_file: Path to predictions.csv
+            exports_dir: Workspace exports directory
+            dataset_name, run_date, pipeline_id: Metadata for naming
+            custom_name: Optional custom name for export
+
+        Creates CSV filename:
+        - Without custom_name: dataset_run_pipelineid.csv
+        - With custom_name: customname_pipelineid.csv
+
+        Returns: Path to exported CSV
+        """
+        predictions_file = Path(predictions_file)
+        exports_dir = Path(exports_dir)
+
+        best_dir = exports_dir / "best_predictions"
+        best_dir.mkdir(parents=True, exist_ok=True)
+
+        if custom_name:
+            csv_name = f"{custom_name}_{pipeline_id}.csv"
+        else:
+            csv_name = f"{dataset_name}_{run_date}_{pipeline_id}.csv"
+        dest_path = best_dir / csv_name
+
+        shutil.copy2(predictions_file, dest_path)
+
+        return dest_path
+

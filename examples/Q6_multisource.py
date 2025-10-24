@@ -103,7 +103,7 @@ fig2 = analyzer.plot_heatmap_v2(
     aggregation='best'  # Options: 'best', 'mean', 'median'
 )
 
-plt.show()
+# plt.show()
 
 # Model reuse demonstration
 best_prediction = predictions.top_k(1, partition="test")[0]
@@ -165,4 +165,4 @@ fig4 = analyzer.plot_variable_candlestick(
 
 fig5 = analyzer.plot_score_histogram(partition="test")
 
-plt.show()
+# plt.show()

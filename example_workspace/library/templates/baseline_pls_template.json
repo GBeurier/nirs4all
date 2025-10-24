@@ -1,0 +1,20 @@
+{
+  "name": "baseline_pls_template",
+  "description": "Baseline PLS configuration for wheat",
+  "created_at": "2025-10-24T19:45:52.675066",
+  "config": {
+    "preprocessing": [
+      {
+        "name": "StandardScaler"
+      },
+      {
+        "name": "SNV"
+      }
+    ],
+    "model": {
+      "name": "PLSRegression",
+      "n_components": 5
+    }
+  },
+  "type": "template"
+}

@@ -841,6 +841,76 @@ class Predictions:
             # Add the individual prediction
             self.add_prediction(**prediction_params)
 
+    # Internal Helper Methods for Filtering and Deserialization
+
+    def _apply_dataframe_filters(
+        self,
+        df: pl.DataFrame,
+        dataset_name: Optional[str] = None,
+        partition: Optional[str] = None,
+        config_name: Optional[str] = None,
+        model_name: Optional[str] = None,
+        fold_id: Optional[str] = None,
+        step_idx: Optional[int] = None,
+        **kwargs
+    ) -> pl.DataFrame:
+        """Apply common filters to DataFrame (internal helper).
+
+        Args:
+            df: DataFrame to filter
+            dataset_name: Filter by dataset name
+            partition: Filter by partition
+            config_name: Filter by config name
+            model_name: Filter by model name
+            fold_id: Filter by fold ID
+            step_idx: Filter by step index
+            **kwargs: Additional filter criteria
+
+        Returns:
+            Filtered DataFrame
+        """
+        # Apply standard filters
+        if dataset_name is not None:
+            df = df.filter(pl.col("dataset_name") == dataset_name)
+        if partition is not None:
+            df = df.filter(pl.col("partition") == partition)
+        if config_name is not None:
+            df = df.filter(pl.col("config_name") == config_name)
+        if model_name is not None:
+            df = df.filter(pl.col("model_name") == model_name)
+        if fold_id is not None:
+            df = df.filter(pl.col("fold_id") == fold_id)
+        if step_idx is not None:
+            df = df.filter(pl.col("step_idx") == step_idx)
+
+        # Apply additional filters from kwargs
+        for key, value in kwargs.items():
+            if key in df.columns:
+                df = df.filter(pl.col(key) == value)
+
+        return df
+
+    def _deserialize_rows(self, df: pl.DataFrame) -> List[Dict[str, Any]]:
+        """Deserialize JSON fields in DataFrame rows (internal helper).
+
+        Args:
+            df: DataFrame with JSON-serialized columns
+
+        Returns:
+            List of dictionaries with deserialized fields
+        """
+        results = []
+        for row in df.to_dicts():
+            # Deserialize JSON fields
+            row["sample_indices"] = json.loads(row["sample_indices"])
+            row["weights"] = json.loads(row["weights"])
+            row["metadata"] = json.loads(row["metadata"])
+            row["best_params"] = json.loads(row["best_params"]) if row["best_params"] else {}
+            row["y_true"] = np.array(json.loads(row["y_true"]))
+            row["y_pred"] = np.array(json.loads(row["y_pred"]))
+            results.append(row)
+        return results
+
     def filter_predictions(
         self,
         dataset_name: Optional[str] = None,
@@ -854,6 +924,9 @@ class Predictions:
         """
         Filter predictions and return as list of dictionaries.
 
+        Use this method when you need full prediction data with deserialized arrays
+        for analysis or visualization. For simple catalog queries, use filter_by_criteria().
+
         Args:
             dataset_name: Filter by dataset name
             partition: Filter by partition
@@ -864,42 +937,22 @@ class Predictions:
             **kwargs: Additional filter criteria
 
         Returns:
-            List of prediction dictionaries
+            List of prediction dictionaries with deserialized arrays
         """
-        df_filtered = self._df
+        # Use internal helper for filtering
+        df_filtered = self._apply_dataframe_filters(
+            self._df,
+            dataset_name=dataset_name,
+            partition=partition,
+            config_name=config_name,
+            model_name=model_name,
+            fold_id=fold_id,
+            step_idx=step_idx,
+            **kwargs
+        )
 
-        # Apply filters
-        if dataset_name is not None:
-            df_filtered = df_filtered.filter(pl.col("dataset_name") == dataset_name)
-        if partition is not None:
-            df_filtered = df_filtered.filter(pl.col("partition") == partition)
-        if config_name is not None:
-            df_filtered = df_filtered.filter(pl.col("config_name") == config_name)
-        if model_name is not None:
-            df_filtered = df_filtered.filter(pl.col("model_name") == model_name)
-        if fold_id is not None:
-            df_filtered = df_filtered.filter(pl.col("fold_id") == fold_id)
-        if step_idx is not None:
-            df_filtered = df_filtered.filter(pl.col("step_idx") == step_idx)
-
-        # Apply additional filters from kwargs
-        for key, value in kwargs.items():
-            if key in self._df.columns:
-                df_filtered = df_filtered.filter(pl.col(key) == value)
-
-        # Convert to list of dictionaries with JSON deserialization
-        results = []
-        for row in df_filtered.to_dicts():
-            # Deserialize JSON fields
-            row["sample_indices"] = json.loads(row["sample_indices"])
-            row["weights"] = json.loads(row["weights"])
-            row["metadata"] = json.loads(row["metadata"])
-            row["best_params"] = json.loads(row["best_params"]) if row["best_params"] else {}
-            row["y_true"] = np.array(json.loads(row["y_true"]))
-            row["y_pred"] = np.array(json.loads(row["y_pred"]))
-            results.append(row)
-
-        return results
+        # Use internal helper for deserialization
+        return self._deserialize_rows(df_filtered)
 
     def get_similar(self, **filter_kwargs) -> Optional[Dict[str, Any]]:
         """
@@ -1512,6 +1565,8 @@ class Predictions:
 
     def top_k(self, k: int = 5, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> List[Union[Dict[str, Any], 'PredictionResult']]:
         """
+        DEPRECATED:
+
         Get top K predictions ranked by metric, val_score, or test_score.
         By default filters to test partition unless otherwise specified.
 
@@ -1943,4 +1998,351 @@ class Predictions:
             Pandas DataFrame of all predictions
         """
         return self._df.to_pandas()
+
+    # NEW: Split Parquet storage methods for workspace catalog
+    def save_to_parquet(self, catalog_dir: Path, prediction_id: str = None) -> tuple:
+        """Save predictions as split Parquet (metadata + arrays separate).
+
+        Creates:
+        - predictions_meta.parquet: lightweight metadata (prediction_id, dataset, metrics)
+        - predictions_data.parquet: heavy arrays (prediction_id, y_true, y_pred, indices)
+
+        Returns: (meta_path, data_path)
+        """
+        from pathlib import Path
+        from uuid import uuid4
+        from datetime import datetime
+
+        catalog_dir = Path(catalog_dir)
+        catalog_dir.mkdir(parents=True, exist_ok=True)
+
+        pred_id = prediction_id or str(uuid4())
+
+        # Prepare dataframe with prediction_id
+        if "prediction_id" not in self._df.columns:
+            df_with_id = self._df.with_columns(pl.lit(pred_id).alias("prediction_id"))
+        else:
+            df_with_id = self._df
+
+        # Ensure created_at column exists
+        if "created_at" not in df_with_id.columns:
+            df_with_id = df_with_id.with_columns(
+                pl.lit(datetime.now().isoformat()).alias("created_at")
+            )
+
+        # Define metadata and array columns
+        meta_cols = ["prediction_id", "dataset_name", "config_name", "test_score",
+                     "train_score", "val_score", "model_name", "model_classname",
+                     "created_at", "pipeline_uid", "config_path", "task_type",
+                     "metric", "n_samples", "n_features"]
+
+        # Only select columns that exist
+        available_meta_cols = [col for col in meta_cols if col in df_with_id.columns]
+
+        array_cols = ["prediction_id", "y_true", "y_pred", "sample_indices",
+                      "fold_id", "weights", "partition"]
+
+        # Only select columns that exist
+        available_array_cols = [col for col in array_cols if col in df_with_id.columns]
+
+        # Create metadata dataframe
+        meta_df = df_with_id.select(available_meta_cols).unique(subset=["prediction_id"])
+
+        # Create arrays dataframe
+        data_df = df_with_id.select(available_array_cols)
+
+        # Save to Parquet files
+        meta_path = catalog_dir / "predictions_meta.parquet"
+        data_path = catalog_dir / "predictions_data.parquet"
+
+        # Append mode - accumulate predictions over time
+        if meta_path.exists():
+            existing_meta = pl.read_parquet(meta_path)
+            # Align schemas
+            for col in available_meta_cols:
+                if col not in existing_meta.columns:
+                    existing_meta = existing_meta.with_columns(pl.lit(None).alias(col))
+            for col in existing_meta.columns:
+                if col not in meta_df.columns:
+                    meta_df = meta_df.with_columns(pl.lit(None).alias(col))
+            meta_df = pl.concat([existing_meta, meta_df], how="diagonal")
+
+        if data_path.exists():
+            existing_data = pl.read_parquet(data_path)
+            # Align schemas
+            for col in available_array_cols:
+                if col not in existing_data.columns:
+                    existing_data = existing_data.with_columns(pl.lit(None).alias(col))
+            for col in existing_data.columns:
+                if col not in data_df.columns:
+                    data_df = data_df.with_columns(pl.lit(None).alias(col))
+            data_df = pl.concat([existing_data, data_df], how="diagonal")
+
+        meta_df.write_parquet(meta_path)
+        data_df.write_parquet(data_path)
+
+        return (meta_path, data_path)
+
+    @classmethod
+    def load_from_parquet(cls, catalog_dir: Path, prediction_ids: list = None) -> 'Predictions':
+        """Load predictions from split Parquet storage.
+
+        Args:
+            catalog_dir: Path to catalog directory
+            prediction_ids: Optional list of prediction IDs to load (None = all)
+
+        Returns: Predictions object with joined metadata + arrays
+        """
+        from pathlib import Path
+
+        catalog_dir = Path(catalog_dir)
+        meta_path = catalog_dir / "predictions_meta.parquet"
+        data_path = catalog_dir / "predictions_data.parquet"
+
+        if not meta_path.exists() or not data_path.exists():
+            # Return empty Predictions object
+            return cls()
+
+        # Load metadata (always fast)
+        meta_df = pl.read_parquet(meta_path)
+
+        # Filter if needed
+        if prediction_ids:
+            meta_df = meta_df.filter(pl.col("prediction_id").is_in(prediction_ids))
+            data_df = pl.read_parquet(data_path).filter(
+                pl.col("prediction_id").is_in(prediction_ids)
+            )
+        else:
+            data_df = pl.read_parquet(data_path)
+
+        # Join metadata + arrays on prediction_id
+        if "prediction_id" in meta_df.columns and "prediction_id" in data_df.columns:
+            full_df = meta_df.join(data_df, on="prediction_id", how="inner")
+        else:
+            # Fallback: just use metadata
+            full_df = meta_df
+
+        # Create Predictions object
+        pred = cls()
+        pred._df = full_df
+        return pred
+
+    def archive_to_catalog(self, catalog_dir: Path, pipeline_dir: Path, metrics: dict) -> str:
+        """Archive pipeline results to catalog with split Parquet.
+
+        Reads predictions.csv from pipeline_dir, adds metadata, saves to catalog.
+        Returns: prediction_id (UUID)
+        """
+        from pathlib import Path
+        from uuid import uuid4
+
+        catalog_dir = Path(catalog_dir)
+        pipeline_dir = Path(pipeline_dir)
+
+        # Generate prediction ID
+        pred_id = str(uuid4())
+
+        # Load predictions from pipeline CSV
+        pred_csv = pipeline_dir / "predictions.csv"
+        if pred_csv.exists():
+            pred_df = pl.read_csv(str(pred_csv))
+
+            # Add metadata columns
+            pred_df = pred_df.with_columns([
+                pl.lit(pred_id).alias("prediction_id"),
+                pl.lit(metrics.get("dataset_name", "unknown")).alias("dataset_name"),
+                pl.lit(metrics.get("config_name", "unknown")).alias("config_name"),
+                pl.lit(metrics.get("test_score")).cast(pl.Float64).alias("test_score"),
+                pl.lit(metrics.get("train_score")).cast(pl.Float64).alias("train_score"),
+                pl.lit(metrics.get("val_score")).cast(pl.Float64).alias("val_score"),
+                pl.lit(metrics.get("model_type", "unknown")).alias("model_name"),
+                pl.lit(pipeline_dir.name).alias("pipeline_uid"),
+            ])
+
+            # Update internal dataframe
+            self._df = pred_df
+
+        # Save to split Parquet
+        self.save_to_parquet(catalog_dir, pred_id)
+
+        return pred_id
+
+    # Query Methods for Catalog (Phase 4)
+
+    def query_best(
+        self,
+        dataset_name: Optional[str] = None,
+        metric: str = "test_score",
+        n: int = 10,
+        ascending: bool = False
+    ) -> pl.DataFrame:
+        """Find best pipelines by metric (simple catalog sort).
+
+        This is a lightweight method for quickly sorting catalog metadata.
+        For complex ranking with cross-partition analysis and metric computation,
+        use the top() method instead.
+
+        When to use:
+        - query_best(): Simple sort of existing metric columns (fast, no computation)
+        - top(): Complex ranking, cross-partition metrics, on-the-fly computation
+
+        Args:
+            dataset_name: Optional filter by dataset
+            metric: Metric column to sort by (must exist in DataFrame)
+            n: Number of results
+            ascending: Sort order (False = higher is better)
+
+        Returns:
+            Top N predictions by metric (lightweight DataFrame, no deserialization)
+
+        Example:
+            >>> # Quick query of catalog for best test scores
+            >>> best = pred.query_best(metric="test_score", n=5)
+            >>> # For complex ranking with val/test analysis, use top() instead
+        """
+        df = self._df
+
+        if dataset_name:
+            df = df.filter(pl.col("dataset_name") == dataset_name)
+
+        df_sorted = df.sort(metric, descending=not ascending).head(n)
+
+        # Select relevant columns
+        cols = ["prediction_id", "dataset_name", "config_name", metric]
+        if "pipeline_hash" in df.columns:
+            cols.append("pipeline_hash")
+        if "created_at" in df.columns:
+            cols.append("created_at")
+
+        return df_sorted.select([c for c in cols if c in df.columns])
+
+    def filter_by_criteria(
+        self,
+        dataset_name: Optional[str] = None,
+        date_range: Optional[Tuple[str, str]] = None,
+        metric_thresholds: Optional[Dict[str, float]] = None
+    ) -> pl.DataFrame:
+        """Filter predictions by multiple criteria (optimized for catalog queries).
+
+        Use this method for lightweight catalog queries without deserialization.
+        For full prediction data with arrays, use filter_predictions().
+
+        Args:
+            dataset_name: Optional dataset filter
+            date_range: Optional (start_date, end_date) tuple
+            metric_thresholds: Optional dict of {metric: min_value}
+
+        Returns:
+            Filtered DataFrame (no deserialization)
+
+        Example:
+            >>> # Find all wheat predictions with good scores
+            >>> df = pred.filter_by_criteria(
+            ...     dataset_name="wheat",
+            ...     metric_thresholds={"test_score": 0.50, "val_score": 0.45}
+            ... )
+        """
+        # Use internal helper for basic filtering
+        df = self._apply_dataframe_filters(self._df, dataset_name=dataset_name)
+
+        # Apply date range filter
+        if date_range and "created_at" in df.columns:
+            start, end = date_range
+            df = df.filter(
+                (pl.col("created_at") >= start) & (pl.col("created_at") <= end)
+            )
+
+        # Apply metric thresholds
+        if metric_thresholds:
+            for metric, threshold in metric_thresholds.items():
+                if metric in df.columns:
+                    df = df.filter(pl.col(metric) >= threshold)
+
+        return df
+
+    def compare_across_datasets(
+        self,
+        pipeline_hash: str,
+        metric: str = "test_score"
+    ) -> pl.DataFrame:
+        """Compare same pipeline configuration across datasets.
+
+        Args:
+            pipeline_hash: Pipeline configuration hash
+            metric: Metric to compare
+
+        Returns:
+            Comparison table with aggregated stats
+        """
+        df = self._df
+
+        if "pipeline_hash" in df.columns:
+            df = df.filter(pl.col("pipeline_hash") == pipeline_hash)
+
+        if metric in df.columns:
+            comparison = df.group_by("dataset_name").agg([
+                pl.col(metric).min().alias(f"{metric}_min"),
+                pl.col(metric).max().alias(f"{metric}_max"),
+                pl.col(metric).mean().alias(f"{metric}_mean"),
+                pl.len().alias("num_predictions")
+            ])
+        else:
+            comparison = df.group_by("dataset_name").agg([
+                pl.len().alias("num_predictions")
+            ])
+
+        return comparison
+
+    def list_runs(self, dataset_name: Optional[str] = None) -> pl.DataFrame:
+        """List all runs with summary statistics.
+
+        Args:
+            dataset_name: Optional dataset filter
+
+        Returns:
+            Run summary with count and best score
+        """
+        df = self._df
+
+        if dataset_name:
+            df = df.filter(pl.col("dataset_name") == dataset_name)
+
+        # Group by dataset and date if available
+        group_cols = ["dataset_name"]
+        if "created_at" in df.columns:
+            group_cols.append("created_at")
+
+        agg_exprs = [pl.len().alias("num_pipelines")]
+        if "test_score" in df.columns:
+            agg_exprs.append(pl.col("test_score").max().alias("best_score"))
+
+        runs = df.group_by(group_cols).agg(agg_exprs)
+
+        if "created_at" in runs.columns:
+            runs = runs.sort("created_at", descending=True)
+
+        return runs
+
+    def get_summary_stats(self, metric: str = "test_score") -> Dict[str, float]:
+        """Get summary statistics for a metric.
+
+        Args:
+            metric: Metric column name
+
+        Returns:
+            Dictionary with min, max, mean, median, std
+        """
+        if metric not in self._df.columns:
+            return {}
+
+        stats = {
+            "min": float(self._df[metric].min()),
+            "max": float(self._df[metric].max()),
+            "mean": float(self._df[metric].mean()),
+            "median": float(self._df[metric].median()),
+            "std": float(self._df[metric].std()) if self._df[metric].std() is not None else 0.0,
+            "count": int(self._df.height)
+        }
+
+        return stats
 
