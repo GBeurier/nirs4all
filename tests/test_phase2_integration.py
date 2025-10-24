@@ -1,7 +1,8 @@
 """
 Integration tests for Phase 2: Pipeline Core with Manifest Manager.
 
-Tests the integration between SimulationSaver, ManifestManager, and PipelineRunner.
+Tests the integration between SimulationSaver, ManifestManager, and PipelineRunner
+using the new flat sequential structure (0001_hash, 0002_hash, etc.).
 """
 
 import pytest
@@ -41,7 +42,8 @@ class TestSimulationSaverPersist:
 
     def test_persist_artifact_creates_content_addressed_storage(self, saver):
         """Test that persist_artifact uses content-addressed storage."""
-        saver.register("test_dataset", "test_pipeline", "train")
+        # Register with pipeline_id
+        saver.register("0001_test_abc123")
 
         # Create and persist object
         scaler = StandardScaler()
@@ -67,7 +69,7 @@ class TestSimulationSaverPersist:
 
     def test_persist_artifact_deduplication(self, saver):
         """Test that identical objects share same storage."""
-        saver.register("test_dataset", "test_pipeline", "train")
+        saver.register("0001_test_abc123")
 
         # Create identical scalers
         scaler1 = StandardScaler()
@@ -83,9 +85,9 @@ class TestSimulationSaverPersist:
         assert artifact1["hash"] == artifact2["hash"]
         assert artifact1["path"] == artifact2["path"]
 
-    def test_persist_artifact_updates_metadata(self, saver):
-        """Test that persist_artifact saves files correctly (manifest system handles metadata)."""
-        saver.register("test_dataset", "test_pipeline", "train")
+    def test_persist_artifact_saves_file(self, saver):
+        """Test that persist_artifact saves files correctly."""
+        saver.register("0001_test_abc123")
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1]]))
@@ -98,12 +100,8 @@ class TestSimulationSaverPersist:
         assert "path" in artifact
 
         # Verify the file was actually saved
-        # Artifacts are saved to base_path/artifacts/objects, not current_path
         artifact_path = saver.base_path / "artifacts" / artifact["path"]
         assert artifact_path.exists()
-
-        # Note: Metadata tracking has been replaced by the manifest system
-        # The manifest system handles artifact tracking at the pipeline level
 
 
 class TestManifestManagerIntegration:
@@ -111,9 +109,15 @@ class TestManifestManagerIntegration:
 
     def test_create_pipeline_with_artifacts(self, manifest_manager, results_dir):
         """Test complete workflow: create pipeline, add artifacts."""
-        # Create pipeline
+        # Create pipeline with hash
         config = {"steps": [{"class": "sklearn.preprocessing.StandardScaler"}]}
-        uid = manifest_manager.create_pipeline("test_pipeline", "test_dataset", config)
+        pipeline_id, pipeline_dir = manifest_manager.create_pipeline(
+            "test_pipeline", "test_dataset", config, "abc123"
+        )
+
+        # Verify pipeline was created
+        assert pipeline_id.startswith("0001_")
+        assert pipeline_dir.exists()
 
         # Persist artifacts
         artifacts_dir = results_dir / "artifacts" / "objects"
@@ -124,10 +128,10 @@ class TestManifestManagerIntegration:
         artifact["step"] = 0
 
         # Add to manifest
-        manifest_manager.append_artifacts(uid, [artifact])
+        manifest_manager.append_artifacts(pipeline_id, [artifact])
 
         # Load manifest and verify
-        manifest = manifest_manager.load_manifest(uid)
+        manifest = manifest_manager.load_manifest(pipeline_id)
         assert len(manifest["artifacts"]) == 1
         assert manifest["artifacts"][0]["name"] == "scaler_0"
         assert manifest["artifacts"][0]["step"] == 0
@@ -136,7 +140,9 @@ class TestManifestManagerIntegration:
         """Test loading artifacts via manifest."""
         # Create pipeline
         config = {"steps": []}
-        uid = manifest_manager.create_pipeline("test_pipeline", "test_dataset", config)
+        pipeline_id, _ = manifest_manager.create_pipeline(
+            "test_pipeline", "test_dataset", config, "abc123"
+        )
 
         # Persist artifacts
         artifacts_dir = results_dir / "artifacts" / "objects"
@@ -147,10 +153,10 @@ class TestManifestManagerIntegration:
         artifact = persist(scaler, artifacts_dir, "scaler_0")
         artifact["step"] = 0
 
-        manifest_manager.append_artifacts(uid, [artifact])
+        manifest_manager.append_artifacts(pipeline_id, [artifact])
 
         # Load manifest and artifact
-        manifest = manifest_manager.load_manifest(uid)
+        manifest = manifest_manager.load_manifest(pipeline_id)
         loaded_scaler = load(manifest["artifacts"][0], results_dir)
 
         # Verify loaded scaler works
@@ -159,21 +165,28 @@ class TestManifestManagerIntegration:
 
 
 class TestPipelineWorkflow:
-    """Test complete pipeline workflow with new architecture."""
+    """Test complete pipeline workflow with new flat architecture."""
 
     def test_complete_workflow(self, saver, manifest_manager):
-        """Test: register → persist artifacts → create manifest → load."""
-        # 1. Register pipeline
-        saver.register("corn_m5", "svm_baseline", "train")
-
-        # 2. Create manifest
+        """Test: create manifest → register saver → persist artifacts → load."""
+        # 1. Create manifest with sequential numbering
         config = {
             "steps": [
                 {"class": "sklearn.preprocessing.StandardScaler"},
                 {"class": "sklearn.svm.SVC", "params": {"kernel": "rbf"}}
             ]
         }
-        uid = manifest_manager.create_pipeline("svm_baseline", "corn_m5", config)
+        pipeline_id, pipeline_dir = manifest_manager.create_pipeline(
+            "svm_baseline", "corn_m5", config, "def456"
+        )
+
+        # Verify sequential numbering
+        assert pipeline_id.startswith("0001_")
+        assert "svm_baseline" in pipeline_id
+        assert "def456" in pipeline_id
+
+        # 2. Register saver with pipeline_id
+        saver.register(pipeline_id)
 
         # 3. Persist artifacts during "training"
         scaler = StandardScaler()
@@ -188,13 +201,13 @@ class TestPipelineWorkflow:
         artifact2 = saver.persist_artifact(1, "SVC_1_model", model)
 
         # 4. Add artifacts to manifest
-        manifest_manager.append_artifacts(uid, [artifact1, artifact2])
+        manifest_manager.append_artifacts(pipeline_id, [artifact1, artifact2])
 
         # 5. Load manifest
-        manifest = manifest_manager.load_manifest(uid)
+        manifest = manifest_manager.load_manifest(pipeline_id)
 
         # Verify manifest structure
-        assert manifest["uid"] == uid
+        assert manifest["pipeline_id"] == pipeline_id
         assert manifest["name"] == "svm_baseline"
         assert manifest["dataset"] == "corn_m5"
         assert len(manifest["artifacts"]) == 2
@@ -209,20 +222,43 @@ class TestPipelineWorkflow:
         assert hasattr(loaded_scaler, 'mean_')
         assert hasattr(loaded_model, 'support_vectors_')
 
-    def test_dataset_index_lookup(self, manifest_manager):
-        """Test looking up pipeline by dataset and name."""
-        # Create pipeline
+    def test_multiple_pipelines_sequential_numbering(self, manifest_manager, saver):
+        """Test that multiple pipelines get sequential numbers."""
         config = {"steps": []}
-        uid = manifest_manager.create_pipeline("pipeline1", "dataset1", config)
 
-        # Lookup via dataset index
-        found_uid = manifest_manager.get_pipeline_uid("dataset1", "pipeline1")
-        assert found_uid == uid
+        # Create three pipelines
+        id1, _ = manifest_manager.create_pipeline("pipeline1", "dataset1", config, "hash1")
+        id2, _ = manifest_manager.create_pipeline("pipeline2", "dataset2", config, "hash2")
+        id3, _ = manifest_manager.create_pipeline("pipeline3", "dataset1", config, "hash3")
 
-        # Load manifest via found UID
-        manifest = manifest_manager.load_manifest(found_uid)
-        assert manifest["name"] == "pipeline1"
-        assert manifest["dataset"] == "dataset1"
+        # Verify sequential numbering
+        assert id1.startswith("0001_")
+        assert id2.startswith("0002_")
+        assert id3.startswith("0003_")
+
+        # Register savers and persist artifacts
+        for pipeline_id in [id1, id2, id3]:
+            saver_instance = SimulationSaver(manifest_manager.results_dir)
+            saver_instance.register(pipeline_id)
+
+            scaler = StandardScaler()
+            scaler.fit(np.array([[0], [1]]))
+            artifact = saver_instance.persist_artifact(0, "scaler", scaler)
+
+            manifest_manager.append_artifacts(pipeline_id, [artifact])
+
+        # Verify all manifests exist and are correct
+        manifest1 = manifest_manager.load_manifest(id1)
+        manifest2 = manifest_manager.load_manifest(id2)
+        manifest3 = manifest_manager.load_manifest(id3)
+
+        assert manifest1["name"] == "pipeline1"
+        assert manifest2["name"] == "pipeline2"
+        assert manifest3["name"] == "pipeline3"
+
+        assert len(manifest1["artifacts"]) == 1
+        assert len(manifest2["artifacts"]) == 1
+        assert len(manifest3["artifacts"]) == 1
 
 
 if __name__ == "__main__":

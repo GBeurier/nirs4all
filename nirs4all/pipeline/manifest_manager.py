@@ -1,13 +1,18 @@
 """
 Manifest Manager - Pipeline manifest and dataset index management
 
-Manages UID-based pipeline manifests and dataset indexes using YAML files.
+Manages pipeline manifests with sequential numbering and content-addressed artifacts.
 Provides centralized pipeline registration, lookup, and lifecycle management.
 
 Architecture:
-    results/
-    ├── pipelines/<uid>/manifest.yaml    # Single file per pipeline
-    └── datasets/<name>/index.yaml       # Name → UID mapping
+    workspace/runs/YYYY-MM-DD_dataset/
+    ├── artifacts/objects/           # Content-addressed binaries
+    ├── 0001_abc123/                 # Sequential pipelines
+    │   ├── manifest.yaml
+    │   ├── metrics.json
+    │   └── predictions.csv
+    ├── 0002_def456/
+    └── predictions.json             # Global predictions
 """
 
 import uuid
@@ -41,14 +46,12 @@ def _sanitize_for_yaml(obj: Any) -> Any:
 
 class ManifestManager:
     """
-    Manage pipeline manifests and dataset indexes using YAML.
+    Manage pipeline manifests with sequential numbering.
 
     This class handles:
-    - Creating new pipelines with unique UIDs
+    - Creating new pipelines with sequential numbering (0001_hash, 0002_hash)
     - Saving/loading pipeline manifests
-    - Registering pipelines in dataset indexes
-    - Looking up pipeline UIDs by name
-    - Deleting pipelines and cleaning up references
+    - Content-addressed artifact storage
     """
 
     def __init__(self, results_dir: Union[str, Path]):
@@ -56,43 +59,54 @@ class ManifestManager:
         Initialize manifest manager.
 
         Args:
-            results_dir: Path to results directory (contains pipelines/, datasets/, artifacts/)
+            results_dir: Path to run directory (workspace/runs/YYYY-MM-DD_dataset/)
         """
         self.results_dir = Path(results_dir)
         self.artifacts_dir = self.results_dir / "artifacts" / "objects"
-        self.pipelines_dir = self.results_dir / "pipelines"
-        self.datasets_dir = self.results_dir / "datasets"
 
         # Ensure directories exist
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
-        self.pipelines_dir.mkdir(parents=True, exist_ok=True)
-        self.datasets_dir.mkdir(parents=True, exist_ok=True)
 
     def create_pipeline(
         self,
         name: str,
         dataset: str,
         pipeline_config: dict,
+        pipeline_hash: str,
         metadata: Optional[dict] = None
-    ) -> str:
+    ) -> tuple[str, Path]:
         """
-        Create new pipeline with UID and initial manifest.
+        Create new pipeline with sequential numbering.
 
         Args:
             name: Pipeline name (for human reference)
             dataset: Dataset name
             pipeline_config: Pipeline configuration dict
+            pipeline_hash: Hash of pipeline config (first 6 chars)
             metadata: Optional initial metadata
 
         Returns:
-            Pipeline UID (UUID string)
+            Tuple of (pipeline_id, pipeline_dir)
+            pipeline_id format: "0001_abc123" or "0001_name_abc123"
         """
-        uid = str(uuid.uuid4())
-        pipeline_dir = self.pipelines_dir / uid
+        # Get sequential number
+        pipeline_num = self.get_next_pipeline_number()
+
+        # Build pipeline_id with optional custom name
+        if name and name != "pipeline":  # Don't include generic "pipeline" name
+            pipeline_id = f"{pipeline_num:04d}_{name}_{pipeline_hash}"
+        else:
+            pipeline_id = f"{pipeline_num:04d}_{pipeline_hash}"
+
+        # Create directory
+        pipeline_dir = self.results_dir / pipeline_id
         pipeline_dir.mkdir(parents=True, exist_ok=True)
 
+        # Create manifest
+        uid = str(uuid.uuid4())
         manifest = {
             "uid": uid,
+            "pipeline_id": pipeline_id,
             "name": name,
             "dataset": dataset,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -103,20 +117,19 @@ class ManifestManager:
             "predictions": []
         }
 
-        self.save_manifest(uid, manifest)
-        self.register_in_dataset(dataset, name, uid)
+        self.save_manifest(pipeline_id, manifest)
 
-        return uid
+        return pipeline_id, pipeline_dir
 
-    def save_manifest(self, uid: str, manifest: dict) -> None:
+    def save_manifest(self, pipeline_id: str, manifest: dict) -> None:
         """
         Save manifest YAML file.
 
         Args:
-            uid: Pipeline UID
+            pipeline_id: Pipeline ID (e.g., "0001_abc123")
             manifest: Complete manifest dictionary
         """
-        manifest_path = self.pipelines_dir / uid / "manifest.yaml"
+        manifest_path = self.results_dir / pipeline_id / "manifest.yaml"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Sanitize manifest to convert tuples to lists for YAML compatibility
@@ -125,12 +138,12 @@ class ManifestManager:
         with open(manifest_path, "w", encoding="utf-8") as f:
             yaml.dump(sanitized_manifest, f, default_flow_style=False, sort_keys=False)
 
-    def load_manifest(self, uid: str) -> dict:
+    def load_manifest(self, pipeline_id: str) -> dict:
         """
         Load manifest YAML file.
 
         Args:
-            uid: Pipeline UID
+            pipeline_id: Pipeline ID (e.g., "0001_abc123")
 
         Returns:
             Manifest dictionary
@@ -138,7 +151,7 @@ class ManifestManager:
         Raises:
             FileNotFoundError: If manifest doesn't exist
         """
-        manifest_path = self.pipelines_dir / uid / "manifest.yaml"
+        manifest_path = self.results_dir / pipeline_id / "manifest.yaml"
 
         if not manifest_path.exists():
             raise FileNotFoundError(f"Manifest not found: {manifest_path}")
@@ -146,209 +159,145 @@ class ManifestManager:
         with open(manifest_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
 
-    def update_manifest(self, uid: str, updates: dict) -> None:
+    def update_manifest(self, pipeline_id: str, updates: dict) -> None:
         """
         Update specific fields in a manifest.
 
         Args:
-            uid: Pipeline UID
-            updates: Dictionary of fields to update (shallow merge)
+            pipeline_id: Pipeline ID
+            updates: Dictionary of fields to update
         """
-        manifest = self.load_manifest(uid)
+        manifest = self.load_manifest(pipeline_id)
         manifest.update(updates)
-        self.save_manifest(uid, manifest)
+        self.save_manifest(pipeline_id, manifest)
 
-    def append_artifacts(self, uid: str, artifacts: List[dict]) -> None:
+    def append_artifacts(self, pipeline_id: str, artifacts: List[dict]) -> None:
         """
         Append artifacts to a pipeline manifest.
 
         Args:
-            uid: Pipeline UID
+            pipeline_id: Pipeline ID
             artifacts: List of artifact metadata dictionaries
         """
-        manifest = self.load_manifest(uid)
+        manifest = self.load_manifest(pipeline_id)
         manifest["artifacts"].extend(artifacts)
-        self.save_manifest(uid, manifest)
+        self.save_manifest(pipeline_id, manifest)
 
-    def append_prediction(self, uid: str, prediction: dict) -> None:
+    def append_prediction(self, pipeline_id: str, prediction: dict) -> None:
         """
         Append a prediction record to pipeline manifest.
 
         Args:
-            uid: Pipeline UID
+            pipeline_id: Pipeline ID
             prediction: Prediction metadata dictionary
         """
-        manifest = self.load_manifest(uid)
+        manifest = self.load_manifest(pipeline_id)
         manifest["predictions"].append(prediction)
-        self.save_manifest(uid, manifest)
+        self.save_manifest(pipeline_id, manifest)
 
-    def get_pipeline_uid(self, dataset: str, pipeline_name: str) -> Optional[str]:
+    def list_pipelines(self) -> List[str]:
         """
-        Get pipeline UID from dataset index.
-
-        Args:
-            dataset: Dataset name
-            pipeline_name: Pipeline name
+        List all pipeline IDs in this run.
 
         Returns:
-            Pipeline UID or None if not found
+            List of pipeline IDs (e.g., ["0001_abc123", "0002_def456"])
         """
-        index_path = self.datasets_dir / dataset / "index.yaml"
+        if not self.results_dir.exists():
+            return []
 
-        if not index_path.exists():
-            return None
+        return sorted([d.name for d in self.results_dir.iterdir()
+                      if d.is_dir() and not d.name.startswith("artifacts")
+                      and d.name[0].isdigit()])
 
-        with open(index_path, "r", encoding="utf-8") as f:
-            index = yaml.safe_load(f)
-
-        return index.get("pipelines", {}).get(pipeline_name)
-
-    def list_pipelines(self, dataset: str) -> Dict[str, str]:
+    def delete_pipeline(self, pipeline_id: str) -> None:
         """
-        List all pipelines for a dataset.
+        Delete pipeline directory and manifest.
 
         Args:
-            dataset: Dataset name
-
-        Returns:
-            Dictionary mapping pipeline names to UIDs
+            pipeline_id: Pipeline ID to delete
         """
-        index_path = self.datasets_dir / dataset / "index.yaml"
+        pipeline_dir = self.results_dir / pipeline_id
 
-        if not index_path.exists():
-            return {}
-
-        with open(index_path, "r", encoding="utf-8") as f:
-            index = yaml.safe_load(f)
-
-        return index.get("pipelines", {})
-
-    def register_in_dataset(self, dataset: str, pipeline_name: str, uid: str) -> None:
-        """
-        Register pipeline in dataset index.
-
-        Args:
-            dataset: Dataset name
-            pipeline_name: Pipeline name
-            uid: Pipeline UID
-        """
-        dataset_dir = self.datasets_dir / dataset
-        dataset_dir.mkdir(parents=True, exist_ok=True)
-
-        index_path = dataset_dir / "index.yaml"
-
-        if index_path.exists():
-            with open(index_path, "r", encoding="utf-8") as f:
-                index = yaml.safe_load(f) or {}
-        else:
-            index = {
-                "dataset": dataset,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "pipelines": {}
-            }
-
-        if "pipelines" not in index:
-            index["pipelines"] = {}
-
-        index["pipelines"][pipeline_name] = uid
-
-        with open(index_path, "w", encoding="utf-8") as f:
-            yaml.dump(index, f, default_flow_style=False)
-
-    def unregister_from_dataset(self, dataset: str, pipeline_name: str) -> None:
-        """
-        Remove pipeline from dataset index.
-
-        Args:
-            dataset: Dataset name
-            pipeline_name: Pipeline name
-        """
-        index_path = self.datasets_dir / dataset / "index.yaml"
-
-        if not index_path.exists():
-            return
-
-        with open(index_path, "r", encoding="utf-8") as f:
-            index = yaml.safe_load(f)
-
-        if "pipelines" in index and pipeline_name in index["pipelines"]:
-            del index["pipelines"][pipeline_name]
-
-        with open(index_path, "w", encoding="utf-8") as f:
-            yaml.dump(index, f, default_flow_style=False)
-
-    def delete_pipeline(self, uid: str) -> None:
-        """
-        Delete pipeline manifest (artifacts remain for garbage collection).
-
-        Args:
-            uid: Pipeline UID
-        """
-        # Load manifest to get dataset and name
-        try:
-            manifest = self.load_manifest(uid)
-            dataset = manifest.get("dataset")
-            name = manifest.get("name")
-
-            # Remove from dataset index
-            if dataset and name:
-                self.unregister_from_dataset(dataset, name)
-        except FileNotFoundError:
-            pass  # Manifest already gone
-
-        # Delete pipeline directory
-        pipeline_dir = self.pipelines_dir / uid
         if pipeline_dir.exists():
             shutil.rmtree(pipeline_dir)
 
-    def pipeline_exists(self, uid: str) -> bool:
+    def get_artifact_path(self, content_hash: str) -> Path:
+        """
+        Get path for content-addressed artifact.
+
+        Args:
+            content_hash: Content hash of artifact
+
+        Returns:
+            Path to artifact in artifacts/objects/<hash[:2]>/<hash>
+        """
+        return self.artifacts_dir / content_hash[:2] / content_hash
+
+    def artifact_exists(self, content_hash: str) -> bool:
+        """
+        Check if artifact exists in storage.
+
+        Args:
+            content_hash: Content hash to check
+
+        Returns:
+            True if artifact exists
+        """
+        # Check all possible extensions
+        artifact_dir = self.artifacts_dir / content_hash[:2] / content_hash
+        if artifact_dir.exists():
+            return True
+
+        # Check for files with this hash as base name
+        parent = self.artifacts_dir / content_hash[:2]
+        if parent.exists():
+            return any(f.stem == content_hash for f in parent.iterdir())
+
+        return False
+
+    def pipeline_exists(self, pipeline_id: str) -> bool:
         """
         Check if a pipeline exists.
 
         Args:
-            uid: Pipeline UID
+            pipeline_id: Pipeline ID
 
         Returns:
             True if manifest exists
         """
-        manifest_path = self.pipelines_dir / uid / "manifest.yaml"
+        manifest_path = self.results_dir / pipeline_id / "manifest.yaml"
         return manifest_path.exists()
 
-    def get_pipeline_path(self, uid: str) -> Path:
+    def get_pipeline_path(self, pipeline_id: str) -> Path:
         """
         Get the directory path for a pipeline.
 
         Args:
-            uid: Pipeline UID
+            pipeline_id: Pipeline ID
 
         Returns:
             Path to pipeline directory
         """
-        return self.pipelines_dir / uid
+        return self.results_dir / pipeline_id
 
     def list_all_pipelines(self) -> List[Dict[str, Any]]:
         """
-        List all pipelines across all datasets.
+        List all pipelines in this run.
 
         Returns:
-            List of pipeline info dictionaries (uid, name, dataset, created_at)
+            List of pipeline info dictionaries
         """
         pipelines = []
 
-        if not self.pipelines_dir.exists():
-            return pipelines
-
-        for pipeline_dir in self.pipelines_dir.iterdir():
-            if not pipeline_dir.is_dir():
-                continue
-
-            manifest_path = pipeline_dir / "manifest.yaml"
+        for pipeline_id in self.list_pipelines():
+            manifest_path = self.results_dir / pipeline_id / "manifest.yaml"
             if manifest_path.exists():
                 try:
                     with open(manifest_path, "r", encoding="utf-8") as f:
                         manifest = yaml.safe_load(f)
 
                     pipelines.append({
+                        "pipeline_id": pipeline_id,
                         "uid": manifest.get("uid"),
                         "name": manifest.get("name"),
                         "dataset": manifest.get("dataset"),
@@ -378,6 +327,7 @@ class ManifestManager:
         if not target_dir.exists():
             return 1
 
+        # Count only numbered pipeline directories (exclude artifacts, etc.)
         existing = [d for d in target_dir.iterdir()
-                    if d.is_dir() and not d.name.startswith("_")]
+                    if d.is_dir() and d.name[0:4].isdigit()]
         return len(existing) + 1

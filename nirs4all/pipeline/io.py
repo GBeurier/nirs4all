@@ -18,69 +18,52 @@ from nirs4all.dataset.predictions import Predictions
 
 class SimulationSaver:
     """
-    Manages saving simulation results with organized folder structure.
+    Manages saving simulation results with flat pipeline structure.
 
-    Creates and manages directory structure: base_path/dataset_name/pipeline_name/
-    Provides methods to save files, binaries, and metadata with overwrite protection.
+    Works with ManifestManager to create: base_path/NNNN_hash/files
     """
 
-    def __init__(self, base_path: Optional[Union[str, Path]] = "simulations", save_files: bool = True):
+    def __init__(self, base_path: Optional[Union[str, Path]] = None, save_files: bool = True):
         """
         Initialize the simulation saver.
 
         Args:
-            base_path: Base directory for all simulation outputs
+            base_path: Base directory (run directory: workspace/runs/YYYY-MM-DD_dataset/)
             save_files: Whether to actually save files (can disable for dry runs)
         """
-        self.base_path = Path(base_path) if base_path is not None else Path("results")
-        self.dataset_name: Optional[str] = None
-        self.pipeline_name: Optional[str] = None
-        self.current_path: Optional[Path] = None
+        self.base_path = Path(base_path) if base_path is not None else None
+        self.pipeline_id: Optional[str] = None  # e.g., "0001_abc123"
+        self.pipeline_dir: Optional[Path] = None
         self._metadata: Dict[str, Any] = {}
-        self.dataset_path: Optional[Path] = None
         self.save_files = save_files
 
-    def register(self, dataset_name: str, pipeline_name: str, mode: str) -> Path:
+    def register(self, pipeline_id: str) -> Path:
         """
-        Register a dataset and pipeline name, creating the directory structure.
+        Register a pipeline ID and set current directory.
 
         Args:
-            dataset_name: Name of the dataset
-            pipeline_name: Name of the pipeline
+            pipeline_id: Pipeline ID from ManifestManager (e.g., "0001_abc123")
 
         Returns:
-            Path to the created simulation directory
-
-        Raises:
-            ValueError: If names contain invalid characters
+            Path to the pipeline directory
         """
-        # Validate names
-        if not self._is_valid_name(dataset_name):
-            raise ValueError(f"Invalid dataset name: {dataset_name}")
-        if not self._is_valid_name(pipeline_name):
-            raise ValueError(f"Invalid pipeline name: {pipeline_name}")
+        self.pipeline_id = pipeline_id
+        self.pipeline_dir = self.base_path / pipeline_id
 
-        self.dataset_name = dataset_name
-        self.pipeline_name = pipeline_name
-
-        # Create directory structure
-        self.dataset_path = self.base_path / dataset_name
-        self.dataset_path.mkdir(parents=True, exist_ok=True)
-        self.current_path = self.base_path / dataset_name / pipeline_name
-        if mode != "predict" and mode != "explain":
-            self.current_path.mkdir(parents=True, exist_ok=True)
+        # Directory should already exist from ManifestManager.create_pipeline()
+        if not self.pipeline_dir.exists():
+            self.pipeline_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize metadata
         self._metadata = {
-            "dataset_name": dataset_name,
-            "pipeline_name": pipeline_name,
+            "pipeline_id": pipeline_id,
             "created_at": datetime.now().isoformat(),
             "session_id": str(uuid.uuid4()),
             "files": {},
             "binaries": {}
         }
 
-        return self.current_path
+        return self.pipeline_dir
 
     def _find_prediction_by_id(self, prediction_id: str) -> Optional[Dict[str, Any]]:
         """Search for a prediction by ID in all predictions.json files (recursively)."""
@@ -133,14 +116,11 @@ class SimulationSaver:
                   content: str,
                   overwrite: bool = True,
                   encoding: str = 'utf-8',
-                  warn_on_overwrite: bool = True,
-                  into_dataset: bool = False) -> Path:
+                  warn_on_overwrite: bool = True) -> Path:
 
         self._check_registered()
 
-        filepath = self.current_path / filename
-        if into_dataset and self.dataset_path is not None:
-            filepath = self.dataset_path / filename
+        filepath = self.pipeline_dir / filename
 
         if filepath.exists() and not overwrite:
             raise FileExistsError(f"File {filename} already exists. Use overwrite=True to replace.")
@@ -151,8 +131,6 @@ class SimulationSaver:
         # Save content
         with open(filepath, 'w', encoding=encoding) as f:
             f.write(content)
-
-        # Note: metadata tracking removed - using manifest system now
 
         return filepath
 
@@ -241,9 +219,9 @@ class SimulationSaver:
 
         self._check_registered()
 
-        # Create outputs directory structure
-        output_dir = self.base_path / "outputs" / f"{self.dataset_name}_{self.pipeline_name}"
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # Create outputs subdirectory in pipeline folder
+        output_dir = self.pipeline_dir / "outputs"
+        output_dir.mkdir(exist_ok=True)
 
         # Create filename
         if not name.endswith(extension):
@@ -261,29 +239,26 @@ class SimulationSaver:
         else:
             raise TypeError(f"Data must be bytes or str, got {type(data)}")
 
-        # Update metadata (optional tracking)
-        # Note: metadata tracking removed - using manifest system now
-
         return filepath
 
     def get_path(self) -> Path:
-        """Get the current simulation path."""
+        """Get the current pipeline path."""
         self._check_registered()
-        return self.current_path
+        return self.pipeline_dir
 
     def list_files(self) -> Dict[str, List[str]]:
         """
-        List all saved files in the current simulation.
+        List all saved files in the current pipeline.
 
         Returns:
-            Dictionary with 'files' and 'binaries' keys containing file lists
+            Dictionary with file lists
         """
         self._check_registered()
 
         return {
             "files": list(self._metadata["files"].keys()),
             "binaries": list(self._metadata["binaries"].keys()),
-            "all_files": [f.name for f in self.current_path.glob("*") if f.is_file()]
+            "all_files": [f.name for f in self.pipeline_dir.glob("*") if f.is_file()]
         }
 
     def get_metadata(self) -> Dict[str, Any]:
@@ -305,13 +280,13 @@ class SimulationSaver:
         if not confirm:
             raise RuntimeError("cleanup() requires confirm=True to prevent accidental deletion")
 
-        if self.current_path.exists():
-            shutil.rmtree(self.current_path)
-            warnings.warn(f"Deleted simulation directory: {self.current_path}")
+        if self.pipeline_dir.exists():
+            shutil.rmtree(self.pipeline_dir)
+            warnings.warn(f"Deleted simulation directory: {self.pipeline_dir}")
 
     def _check_registered(self) -> None:
-        """Check if dataset and pipeline are registered."""
-        if self.current_path is None:
+        """Check if pipeline is registered."""
+        if self.pipeline_dir is None:
             raise RuntimeError("Must call register() before saving files")
 
     def _is_valid_name(self, name: str) -> bool:

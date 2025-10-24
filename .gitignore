@@ -37,3 +37,9 @@ test_experiment_manager/
 examples/.hypothesis/
 log.txt
 .travis.yml
+workspace_quick_test/
+test_cli_workspace/
+/workspace/
+/workspace_integration_test/
+/workspace_test/
+test_output*

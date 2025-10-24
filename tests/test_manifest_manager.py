@@ -1,15 +1,14 @@
 """
 Unit tests for the ManifestManager.
 
-Tests UID-based pipeline management, dataset indexing,
-and manifest YAML persistence.
+Tests sequential pipeline numbering (0001_hash, 0002_hash, etc.)
+and manifest YAML persistence in flat structure.
 """
 
 import pytest
 import tempfile
 import shutil
 from pathlib import Path
-import yaml
 
 from nirs4all.pipeline.manifest_manager import ManifestManager
 
@@ -31,48 +30,139 @@ def manager(results_dir):
 class TestManifestManagerInit:
     """Test ManifestManager initialization."""
 
-    def test_creates_directories(self, results_dir):
-        """Test that initialization creates required directories."""
+    def test_creates_artifacts_directory(self, results_dir):
+        """Test that initialization creates artifacts directory."""
         manager = ManifestManager(results_dir)
 
         assert manager.artifacts_dir.exists()
-        assert manager.pipelines_dir.exists()
-        assert manager.datasets_dir.exists()
-
         assert (results_dir / "artifacts" / "objects").exists()
-        assert (results_dir / "pipelines").exists()
-        assert (results_dir / "datasets").exists()
+
+
+class TestGetNextPipelineNumber:
+    """Test sequential pipeline numbering."""
+
+    def test_first_pipeline_is_0001(self, manager):
+        """Test that first pipeline gets number 0001."""
+        num = manager.get_next_pipeline_number()
+        assert num == 1
+
+    def test_increments_with_existing_pipelines(self, manager):
+        """Test that numbering increments correctly."""
+        # Create some pipeline directories
+        (manager.results_dir / "0001_abc123").mkdir()
+        (manager.results_dir / "0002_def456").mkdir()
+
+        num = manager.get_next_pipeline_number()
+        assert num == 3
+
+    def test_ignores_artifacts_directory(self, manager):
+        """Test that artifacts directory doesn't affect numbering."""
+        # artifacts directory is created in __init__
+        num = manager.get_next_pipeline_number()
+        assert num == 1
+
+    def test_ignores_non_numbered_directories(self, manager):
+        """Test that non-numbered directories are ignored."""
+        (manager.results_dir / "0001_abc123").mkdir()
+        (manager.results_dir / "some_other_dir").mkdir()
+
+        num = manager.get_next_pipeline_number()
+        assert num == 2
 
 
 class TestCreatePipeline:
-    """Test pipeline creation."""
+    """Test pipeline creation with sequential numbering."""
 
-    def test_create_pipeline_returns_uid(self, manager):
-        """Test that create_pipeline returns a valid UID."""
+    def test_create_pipeline_returns_pipeline_id_and_dir(self, manager):
+        """Test that create_pipeline returns (pipeline_id, pipeline_dir) tuple."""
         config = {"steps": [{"class": "sklearn.preprocessing.StandardScaler"}]}
-        uid = manager.create_pipeline("test_pipeline", "test_dataset", config)
+        pipeline_hash = "abc123"
 
-        assert isinstance(uid, str)
-        assert len(uid) == 36  # UUID format
-        assert "-" in uid
+        result = manager.create_pipeline("test_pipeline", "test_dataset", config, pipeline_hash)
 
-    def test_create_pipeline_creates_manifest(self, manager):
-        """Test that create_pipeline creates manifest file."""
-        config = {"steps": [{"class": "sklearn.preprocessing.StandardScaler"}]}
-        uid = manager.create_pipeline("test_pipeline", "test_dataset", config)
+        assert isinstance(result, tuple)
+        assert len(result) == 2
 
-        manifest_path = manager.pipelines_dir / uid / "manifest.yaml"
+        pipeline_id, pipeline_dir = result
+        assert isinstance(pipeline_id, str)
+        assert isinstance(pipeline_dir, Path)
+
+    def test_first_pipeline_gets_0001(self, manager):
+        """Test that first pipeline gets 0001 prefix."""
+        config = {"steps": []}
+        pipeline_hash = "abc123"
+
+        pipeline_id, pipeline_dir = manager.create_pipeline("test_pipeline", "test_dataset", config, pipeline_hash)
+
+        assert pipeline_id.startswith("0001_")
+        assert "abc123" in pipeline_id
+
+    def test_sequential_numbering(self, manager):
+        """Test that pipelines get sequential numbers."""
+        config = {"steps": []}
+
+        id1, _ = manager.create_pipeline("pipeline1", "dataset", config, "hash1")
+        id2, _ = manager.create_pipeline("pipeline2", "dataset", config, "hash2")
+        id3, _ = manager.create_pipeline("pipeline3", "dataset", config, "hash3")
+
+        assert id1.startswith("0001_")
+        assert id2.startswith("0002_")
+        assert id3.startswith("0003_")
+
+    def test_custom_name_in_pipeline_id(self, manager):
+        """Test that custom name is included in pipeline_id."""
+        config = {"steps": []}
+        pipeline_hash = "abc123"
+
+        pipeline_id, _ = manager.create_pipeline("my_custom_pipeline", "dataset", config, pipeline_hash)
+
+        assert "my_custom_pipeline" in pipeline_id
+        assert pipeline_id == "0001_my_custom_pipeline_abc123"
+
+    def test_generic_name_excluded_from_id(self, manager):
+        """Test that generic 'pipeline' name is not included."""
+        config = {"steps": []}
+        pipeline_hash = "abc123"
+
+        pipeline_id, _ = manager.create_pipeline("pipeline", "dataset", config, pipeline_hash)
+
+        # Should be "0001_abc123" not "0001_pipeline_abc123"
+        parts = pipeline_id.split("_")
+        assert len(parts) == 2  # number and hash only
+        assert pipeline_id == "0001_abc123"
+
+    def test_creates_pipeline_directory(self, manager):
+        """Test that pipeline directory is created."""
+        config = {"steps": []}
+        pipeline_hash = "abc123"
+
+        pipeline_id, pipeline_dir = manager.create_pipeline("test", "dataset", config, pipeline_hash)
+
+        assert pipeline_dir.exists()
+        assert pipeline_dir.is_dir()
+        assert pipeline_dir == manager.results_dir / pipeline_id
+
+    def test_creates_manifest_file(self, manager):
+        """Test that manifest.yaml is created."""
+        config = {"steps": []}
+        pipeline_hash = "abc123"
+
+        pipeline_id, pipeline_dir = manager.create_pipeline("test", "dataset", config, pipeline_hash)
+
+        manifest_path = pipeline_dir / "manifest.yaml"
         assert manifest_path.exists()
 
-    def test_create_pipeline_manifest_structure(self, manager):
-        """Test manifest has correct structure."""
+    def test_manifest_structure(self, manager):
+        """Test that manifest has correct structure."""
         config = {"steps": [{"class": "sklearn.preprocessing.StandardScaler"}]}
         metadata = {"n_samples": 100, "n_features": 50}
+        pipeline_hash = "abc123"
 
-        uid = manager.create_pipeline("test_pipeline", "test_dataset", config, metadata)
-        manifest = manager.load_manifest(uid)
+        pipeline_id, _ = manager.create_pipeline("test_pipeline", "test_dataset", config, pipeline_hash, metadata)
+        manifest = manager.load_manifest(pipeline_id)
 
-        assert manifest["uid"] == uid
+        assert "uid" in manifest  # Internal UID for backwards compatibility
+        assert manifest["pipeline_id"] == pipeline_id
         assert manifest["name"] == "test_pipeline"
         assert manifest["dataset"] == "test_dataset"
         assert "created_at" in manifest
@@ -82,60 +172,33 @@ class TestCreatePipeline:
         assert manifest["artifacts"] == []
         assert manifest["predictions"] == []
 
-    def test_create_pipeline_registers_in_dataset(self, manager):
-        """Test that pipeline is registered in dataset index."""
-        config = {"steps": []}
-        uid = manager.create_pipeline("test_pipeline", "test_dataset", config)
-
-        index_path = manager.datasets_dir / "test_dataset" / "index.yaml"
-        assert index_path.exists()
-
-        with open(index_path, "r", encoding="utf-8") as f:
-            index = yaml.safe_load(f)
-
-        assert "pipelines" in index
-        assert "test_pipeline" in index["pipelines"]
-        assert index["pipelines"]["test_pipeline"] == uid
-
 
 class TestSaveLoadManifest:
     """Test manifest save/load operations."""
 
     def test_save_and_load_manifest(self, manager):
         """Test saving and loading manifest."""
-        uid = "test-uid-123"
-        manifest = {
-            "uid": uid,
-            "name": "test",
-            "dataset": "dataset1",
-            "created_at": "2025-01-01T00:00:00Z",
-            "version": "1.0",
-            "pipeline": {},
-            "metadata": {},
-            "artifacts": [],
-            "predictions": []
-        }
+        config = {"steps": []}
+        pipeline_id, _ = manager.create_pipeline("test", "dataset", config, "hash1")
 
-        manager.save_manifest(uid, manifest)
-        loaded = manager.load_manifest(uid)
-
-        assert loaded == manifest
-
-    def test_load_nonexistent_manifest(self, manager):
-        """Test loading nonexistent manifest raises error."""
-        with pytest.raises(FileNotFoundError):
-            manager.load_manifest("nonexistent-uid")
+        # Load and verify
+        manifest = manager.load_manifest(pipeline_id)
+        assert manifest["pipeline_id"] == pipeline_id
+        assert manifest["name"] == "test"
 
     def test_update_manifest(self, manager):
-        """Test updating manifest fields."""
+        """Test updating manifest."""
         config = {"steps": []}
-        uid = manager.create_pipeline("test", "dataset1", config)
+        pipeline_id, _ = manager.create_pipeline("test", "dataset", config, "hash1")
 
-        # Update metadata
-        manager.update_manifest(uid, {"metadata": {"accuracy": 0.95}})
+        # Load, modify, save
+        manifest = manager.load_manifest(pipeline_id)
+        manifest["metadata"]["updated"] = True
+        manager.save_manifest(pipeline_id, manifest)
 
-        manifest = manager.load_manifest(uid)
-        assert manifest["metadata"] == {"accuracy": 0.95}
+        # Load again and verify
+        updated_manifest = manager.load_manifest(pipeline_id)
+        assert updated_manifest["metadata"]["updated"] is True
 
 
 class TestArtifactManagement:
@@ -144,160 +207,41 @@ class TestArtifactManagement:
     def test_append_artifacts(self, manager):
         """Test appending artifacts to manifest."""
         config = {"steps": []}
-        uid = manager.create_pipeline("test", "dataset1", config)
+        pipeline_id, _ = manager.create_pipeline("test", "dataset", config, "hash1")
 
-        artifacts = [
-            {
-                "hash": "sha256:abc123",
-                "name": "scaler_0",
-                "path": "objects/ab/abc123.pkl",
-                "format": "sklearn_pickle",
-                "size": 1024,
-                "step": 0
-            },
-            {
-                "hash": "sha256:def456",
-                "name": "model_1",
-                "path": "objects/de/def456.pkl",
-                "format": "sklearn_pickle",
-                "size": 2048,
-                "step": 1
-            }
-        ]
+        artifacts = ["abc123", "def456"]
+        manager.append_artifacts(pipeline_id, artifacts)
 
-        manager.append_artifacts(uid, artifacts)
-
-        manifest = manager.load_manifest(uid)
-        assert len(manifest["artifacts"]) == 2
-        assert manifest["artifacts"][0]["name"] == "scaler_0"
-        assert manifest["artifacts"][1]["name"] == "model_1"
+        manifest = manager.load_manifest(pipeline_id)
+        assert manifest["artifacts"] == artifacts
 
     def test_append_artifacts_multiple_times(self, manager):
-        """Test appending artifacts in multiple calls."""
+        """Test appending artifacts multiple times accumulates."""
         config = {"steps": []}
-        uid = manager.create_pipeline("test", "dataset1", config)
+        pipeline_id, _ = manager.create_pipeline("test", "dataset", config, "hash1")
 
-        artifact1 = [{"hash": "sha256:abc", "name": "a1", "path": "p1", "format": "pkl", "size": 10, "step": 0}]
-        artifact2 = [{"hash": "sha256:def", "name": "a2", "path": "p2", "format": "pkl", "size": 20, "step": 1}]
+        manager.append_artifacts(pipeline_id, ["abc123"])
+        manager.append_artifacts(pipeline_id, ["def456"])
 
-        manager.append_artifacts(uid, artifact1)
-        manager.append_artifacts(uid, artifact2)
-
-        manifest = manager.load_manifest(uid)
-        assert len(manifest["artifacts"]) == 2
+        manifest = manager.load_manifest(pipeline_id)
+        assert "abc123" in manifest["artifacts"]
+        assert "def456" in manifest["artifacts"]
 
 
 class TestPredictionManagement:
-    """Test prediction history management."""
+    """Test prediction management in manifests."""
 
     def test_append_prediction(self, manager):
         """Test appending prediction to manifest."""
         config = {"steps": []}
-        uid = manager.create_pipeline("test", "dataset1", config)
+        pipeline_id, _ = manager.create_pipeline("test", "dataset", config, "hash1")
 
-        prediction = {
-            "id": "pred_001",
-            "timestamp": "2025-01-01T12:00:00Z",
-            "input_hash": "sha256:input123",
-            "output_hash": "sha256:output456"
-        }
+        prediction = {"model": "PLS", "score": 0.95}
+        manager.append_prediction(pipeline_id, prediction)
 
-        manager.append_prediction(uid, prediction)
-
-        manifest = manager.load_manifest(uid)
+        manifest = manager.load_manifest(pipeline_id)
         assert len(manifest["predictions"]) == 1
-        assert manifest["predictions"][0]["id"] == "pred_001"
-
-
-class TestDatasetIndex:
-    """Test dataset index operations."""
-
-    def test_get_pipeline_uid(self, manager):
-        """Test getting pipeline UID from dataset index."""
-        config = {"steps": []}
-        uid = manager.create_pipeline("pipeline1", "dataset1", config)
-
-        found_uid = manager.get_pipeline_uid("dataset1", "pipeline1")
-        assert found_uid == uid
-
-    def test_get_pipeline_uid_nonexistent(self, manager):
-        """Test getting nonexistent pipeline returns None."""
-        uid = manager.get_pipeline_uid("nonexistent", "pipeline1")
-        assert uid is None
-
-    def test_list_pipelines(self, manager):
-        """Test listing all pipelines for a dataset."""
-        config = {"steps": []}
-        uid1 = manager.create_pipeline("pipeline1", "dataset1", config)
-        uid2 = manager.create_pipeline("pipeline2", "dataset1", config)
-        uid3 = manager.create_pipeline("pipeline3", "dataset2", config)
-
-        pipelines = manager.list_pipelines("dataset1")
-        assert len(pipelines) == 2
-        assert "pipeline1" in pipelines
-        assert "pipeline2" in pipelines
-        assert pipelines["pipeline1"] == uid1
-        assert pipelines["pipeline2"] == uid2
-
-        # Dataset2 should only have one pipeline
-        pipelines2 = manager.list_pipelines("dataset2")
-        assert len(pipelines2) == 1
-
-    def test_list_pipelines_empty_dataset(self, manager):
-        """Test listing pipelines for empty dataset."""
-        pipelines = manager.list_pipelines("empty_dataset")
-        assert pipelines == {}
-
-    def test_register_in_dataset(self, manager):
-        """Test manually registering pipeline in dataset."""
-        manager.register_in_dataset("dataset1", "manual_pipeline", "uid-123")
-
-        uid = manager.get_pipeline_uid("dataset1", "manual_pipeline")
-        assert uid == "uid-123"
-
-    def test_unregister_from_dataset(self, manager):
-        """Test removing pipeline from dataset index."""
-        config = {"steps": []}
-        uid = manager.create_pipeline("pipeline1", "dataset1", config)
-
-        manager.unregister_from_dataset("dataset1", "pipeline1")
-
-        found_uid = manager.get_pipeline_uid("dataset1", "pipeline1")
-        assert found_uid is None
-
-
-class TestDeletePipeline:
-    """Test pipeline deletion."""
-
-    def test_delete_pipeline(self, manager):
-        """Test deleting a pipeline."""
-        config = {"steps": []}
-        uid = manager.create_pipeline("pipeline1", "dataset1", config)
-
-        # Verify it exists
-        assert manager.pipeline_exists(uid)
-
-        # Delete it
-        manager.delete_pipeline(uid)
-
-        # Verify it's gone
-        assert not manager.pipeline_exists(uid)
-        assert not (manager.pipelines_dir / uid).exists()
-
-    def test_delete_pipeline_removes_from_index(self, manager):
-        """Test that deletion removes pipeline from dataset index."""
-        config = {"steps": []}
-        uid = manager.create_pipeline("pipeline1", "dataset1", config)
-
-        manager.delete_pipeline(uid)
-
-        found_uid = manager.get_pipeline_uid("dataset1", "pipeline1")
-        assert found_uid is None
-
-    def test_delete_nonexistent_pipeline(self, manager):
-        """Test deleting nonexistent pipeline doesn't crash."""
-        # Should not raise error
-        manager.delete_pipeline("nonexistent-uid")
+        assert manifest["predictions"][0] == prediction
 
 
 class TestPipelineExists:
@@ -306,90 +250,108 @@ class TestPipelineExists:
     def test_pipeline_exists(self, manager):
         """Test checking if pipeline exists."""
         config = {"steps": []}
-        uid = manager.create_pipeline("pipeline1", "dataset1", config)
+        pipeline_id, _ = manager.create_pipeline("test", "dataset", config, "hash1")
 
-        assert manager.pipeline_exists(uid)
+        assert manager.pipeline_exists(pipeline_id)
 
     def test_pipeline_not_exists(self, manager):
-        """Test checking nonexistent pipeline."""
-        assert not manager.pipeline_exists("nonexistent-uid")
+        """Test checking non-existent pipeline."""
+        assert not manager.pipeline_exists("0001_nonexistent")
 
 
 class TestGetPipelinePath:
     """Test getting pipeline paths."""
 
     def test_get_pipeline_path(self, manager):
-        """Test getting pipeline directory path."""
+        """Test getting pipeline path."""
         config = {"steps": []}
-        uid = manager.create_pipeline("pipeline1", "dataset1", config)
+        pipeline_id, pipeline_dir = manager.create_pipeline("test", "dataset", config, "hash1")
 
-        path = manager.get_pipeline_path(uid)
-        assert path == manager.pipelines_dir / uid
-        assert path.exists()
+        path = manager.get_pipeline_path(pipeline_id)
+        assert path == pipeline_dir
+        assert path == manager.results_dir / pipeline_id
+
+
+class TestDeletePipeline:
+    """Test pipeline deletion."""
+
+    def test_delete_pipeline(self, manager):
+        """Test deleting a pipeline."""
+        config = {"steps": []}
+        pipeline_id, pipeline_dir = manager.create_pipeline("test", "dataset", config, "hash1")
+
+        assert pipeline_dir.exists()
+
+        manager.delete_pipeline(pipeline_id)
+
+        assert not pipeline_dir.exists()
+        assert not manager.pipeline_exists(pipeline_id)
 
 
 class TestListAllPipelines:
     """Test listing all pipelines."""
 
+    def test_list_all_pipelines_empty(self, manager):
+        """Test listing pipelines when none exist."""
+        pipelines = manager.list_all_pipelines()
+        assert pipelines == []
+
     def test_list_all_pipelines(self, manager):
-        """Test listing all pipelines across datasets."""
+        """Test listing all pipelines."""
         config = {"steps": []}
-        uid1 = manager.create_pipeline("p1", "dataset1", config)
-        uid2 = manager.create_pipeline("p2", "dataset1", config)
-        uid3 = manager.create_pipeline("p3", "dataset2", config)
 
-        all_pipelines = manager.list_all_pipelines()
+        id1, _ = manager.create_pipeline("pipeline1", "dataset", config, "hash1")
+        id2, _ = manager.create_pipeline("pipeline2", "dataset", config, "hash2")
 
-        assert len(all_pipelines) == 3
-        uids = [p["uid"] for p in all_pipelines]
-        assert uid1 in uids
-        assert uid2 in uids
-        assert uid3 in uids
+        pipelines = manager.list_all_pipelines()
+
+        assert len(pipelines) == 2
+        pipeline_ids = [p["pipeline_id"] for p in pipelines]
+        assert id1 in pipeline_ids
+        assert id2 in pipeline_ids
 
     def test_list_all_pipelines_contains_info(self, manager):
-        """Test that list_all_pipelines returns complete info."""
-        config = {"steps": []}
-        uid = manager.create_pipeline("pipeline1", "dataset1", config)
+        """Test that listed pipelines contain useful information."""
+        config = {"steps": [{"class": "StandardScaler"}]}
+        metadata = {"n_samples": 100}
 
-        # Add some artifacts
-        artifacts = [{"hash": "sha256:abc", "name": "a1", "path": "p1", "format": "pkl", "size": 10, "step": 0}]
-        manager.append_artifacts(uid, artifacts)
+        pipeline_id, _ = manager.create_pipeline("test", "dataset", config, "hash1", metadata)
 
-        all_pipelines = manager.list_all_pipelines()
-        pipeline_info = next(p for p in all_pipelines if p["uid"] == uid)
+        pipelines = manager.list_all_pipelines()
 
-        assert pipeline_info["name"] == "pipeline1"
-        assert pipeline_info["dataset"] == "dataset1"
-        assert "created_at" in pipeline_info
-        assert pipeline_info["num_artifacts"] == 1
-        assert pipeline_info["num_predictions"] == 0
+        assert len(pipelines) == 1
+        p = pipelines[0]
 
-    def test_list_all_pipelines_empty(self, manager):
-        """Test listing when no pipelines exist."""
-        all_pipelines = manager.list_all_pipelines()
-        assert all_pipelines == []
+        assert p["pipeline_id"] == pipeline_id
+        assert p["name"] == "test"
+        assert p["dataset"] == "dataset"
+        assert "created_at" in p
 
 
 class TestMultipleDatasets:
-    """Test operations with multiple datasets."""
+    """Test handling multiple datasets in same results_dir."""
 
-    def test_multiple_datasets_separate_indexes(self, manager):
-        """Test that different datasets have separate indexes."""
+    def test_multiple_datasets_in_flat_structure(self, manager):
+        """Test that multiple datasets can coexist in flat structure."""
         config = {"steps": []}
 
-        uid1 = manager.create_pipeline("pipeline1", "dataset1", config)
-        uid2 = manager.create_pipeline("pipeline1", "dataset2", config)  # Same name, different dataset
+        # Create pipelines for different datasets
+        id1, _ = manager.create_pipeline("pipeline1", "dataset_A", config, "hash1")
+        id2, _ = manager.create_pipeline("pipeline2", "dataset_B", config, "hash2")
+        id3, _ = manager.create_pipeline("pipeline3", "dataset_A", config, "hash3")
 
-        # Should have different UIDs
-        assert uid1 != uid2
+        # All should have sequential numbers
+        assert id1.startswith("0001_")
+        assert id2.startswith("0002_")
+        assert id3.startswith("0003_")
 
-        # Each dataset should have its own index
-        found_uid1 = manager.get_pipeline_uid("dataset1", "pipeline1")
-        found_uid2 = manager.get_pipeline_uid("dataset2", "pipeline1")
+        # All should exist
+        assert manager.pipeline_exists(id1)
+        assert manager.pipeline_exists(id2)
+        assert manager.pipeline_exists(id3)
 
-        assert found_uid1 == uid1
-        assert found_uid2 == uid2
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        # Can differentiate by dataset in manifest
+        manifest1 = manager.load_manifest(id1)
+        manifest2 = manager.load_manifest(id2)
+        assert manifest1["dataset"] == "dataset_A"
+        assert manifest2["dataset"] == "dataset_B"
