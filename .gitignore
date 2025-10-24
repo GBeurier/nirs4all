@@ -43,3 +43,6 @@ test_cli_workspace/
 /workspace_integration_test/
 /workspace_test/
 test_output*
+examples/workspace/
+example_workspace/
+workspace_export_example/

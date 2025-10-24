@@ -97,13 +97,17 @@ class LibraryManager:
         if (pipeline_dir / "metrics.json").exists():
             shutil.copy2(pipeline_dir / "metrics.json", dest_dir)
 
+        # Extract n_features from manifest if available
+        n_features = self._extract_n_features(pipeline_dir)
+
         # Add metadata
         metadata = {
             "name": name,
             "description": description,
             "saved_at": datetime.now().isoformat(),
             "type": "filtered",
-            "source": str(pipeline_dir)
+            "source": str(pipeline_dir),
+            "n_features": n_features
         }
         with open(dest_dir / "library_metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
@@ -156,13 +160,17 @@ class LibraryManager:
                     if src_file.exists():
                         shutil.copy2(src_file, binaries_dest)
 
+        # Extract n_features from manifest
+        n_features = self._extract_n_features(pipeline_dir)
+
         # Add metadata
         metadata = {
             "name": name,
             "description": description,
             "saved_at": datetime.now().isoformat(),
             "type": "pipeline",
-            "source": str(pipeline_dir)
+            "source": str(pipeline_dir),
+            "n_features": n_features
         }
         with open(dest_dir / "library_metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
@@ -267,3 +275,56 @@ class LibraryManager:
             with open(metadata_file) as f:
                 fullruns.append(json.load(f))
         return fullruns
+
+    def _extract_n_features(self, pipeline_dir: Path) -> Optional[int]:
+        """Extract number of features from pipeline directory.
+
+        Checks pipeline.json or manifest files for n_features information.
+
+        Args:
+            pipeline_dir: Pipeline directory path
+
+        Returns:
+            Number of features, or None if not found
+        """
+        pipeline_dir = Path(pipeline_dir)
+
+        # Try to get from pipeline.json
+        pipeline_json = pipeline_dir / "pipeline.json"
+        if pipeline_json.exists():
+            try:
+                with open(pipeline_json, 'r') as f:
+                    data = json.load(f)
+                    if 'n_features' in data:
+                        return data['n_features']
+            except:
+                pass
+
+        # Try to get from manifest.yaml
+        manifest_file = pipeline_dir / "manifest.yaml"
+        if manifest_file.exists():
+            try:
+                import yaml
+                with open(manifest_file, 'r') as f:
+                    manifest = yaml.safe_load(f)
+                    if 'n_features' in manifest:
+                        return manifest['n_features']
+                    if 'dataset' in manifest and 'n_features' in manifest['dataset']:
+                        return manifest['dataset']['n_features']
+            except:
+                pass
+
+        # Try to extract from folds CSV if it exists
+        for csv_file in pipeline_dir.glob("fold*.csv"):
+            try:
+                import pandas as pd
+                df = pd.read_csv(csv_file, nrows=1)
+                # Exclude target and metadata columns
+                exclude_cols = ['target', 'y', 'fold', 'split', 'partition']
+                feature_cols = [col for col in df.columns if col not in exclude_cols]
+                if feature_cols:
+                    return len(feature_cols)
+            except:
+                pass
+
+        return None

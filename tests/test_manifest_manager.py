@@ -31,13 +31,11 @@ class TestManifestManagerInit:
     """Test ManifestManager initialization."""
 
     def test_creates_artifacts_directory(self, results_dir):
-        """Test that initialization creates artifacts directory."""
+        """Test that initialization creates _binaries directory."""
         manager = ManifestManager(results_dir)
 
         assert manager.artifacts_dir.exists()
-        assert (results_dir / "artifacts" / "objects").exists()
-
-
+        assert (results_dir / "_binaries").exists()
 class TestGetNextPipelineNumber:
     """Test sequential pipeline numbering."""
 
@@ -56,8 +54,8 @@ class TestGetNextPipelineNumber:
         assert num == 3
 
     def test_ignores_artifacts_directory(self, manager):
-        """Test that artifacts directory doesn't affect numbering."""
-        # artifacts directory is created in __init__
+        """Test that _binaries directory doesn't affect numbering."""
+        # _binaries directory is created in __init__
         num = manager.get_next_pipeline_number()
         assert num == 1
 

@@ -113,9 +113,9 @@ class TensorFlowModelController(BaseModelController):
         # # DEBUG: Print what we received
         # print(f"DEBUG _get_model_instance received model_config: {model_config}")
         # print(f"DEBUG model_config type: {type(model_config)}")
-        if isinstance(model_config, dict):
-            for k, v in model_config.items():
-                print(f"  {k}: {type(v)} = {v if not callable(v) else f'<function {v.__name__}>'}")
+        # if isinstance(model_config, dict):
+        #     for k, v in model_config.items():
+        #         print(f"  {k}: {type(v)} = {v if not callable(v) else f'<function {v.__name__}>'}")
 
         # Use ModelBuilderFactory to handle all model configuration formats
         # This supports: functions, classes, instances, file paths, dicts with 'function' key, etc.

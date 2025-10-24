@@ -14,7 +14,8 @@ $examples = @(
     "Q7_discretization.py",
     "Q8_shap.py",
     "Q9_acp_spread.py",
-    "Q10_resampler.py"
+    "Q10_resampler.py",
+    "Q14_workspace.py"
 )
 
 # ## PARALLEL

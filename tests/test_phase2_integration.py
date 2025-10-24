@@ -63,8 +63,8 @@ class TestSimulationSaverPersist:
         assert "path" in artifact
         assert artifact["format"] in ['sklearn_pickle', 'joblib']
 
-        # Check file exists in content-addressed location
-        artifact_path = saver.base_path / "artifacts" / artifact["path"]
+        # Check file exists in _binaries location
+        artifact_path = saver.base_path / "_binaries" / artifact["path"]
         assert artifact_path.exists()
 
     def test_persist_artifact_deduplication(self, saver):
@@ -100,7 +100,7 @@ class TestSimulationSaverPersist:
         assert "path" in artifact
 
         # Verify the file was actually saved
-        artifact_path = saver.base_path / "artifacts" / artifact["path"]
+        artifact_path = saver.base_path / "_binaries" / artifact["path"]
         assert artifact_path.exists()
 
 
@@ -120,7 +120,7 @@ class TestManifestManagerIntegration:
         assert pipeline_dir.exists()
 
         # Persist artifacts
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1], [2]]))
 
@@ -145,7 +145,7 @@ class TestManifestManagerIntegration:
         )
 
         # Persist artifacts
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
         scaler = StandardScaler()
         X_train = np.array([[0], [1], [2], [3]])
         scaler.fit(X_train)

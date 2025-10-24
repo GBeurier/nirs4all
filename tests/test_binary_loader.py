@@ -53,7 +53,8 @@ class TestBinaryLoaderWithManifests:
 
     def test_get_step_binaries_loads_artifacts(self, results_dir):
         """Test loading artifacts for a specific step."""
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         # Create and persist artifacts
         scaler = StandardScaler()
@@ -76,7 +77,8 @@ class TestBinaryLoaderWithManifests:
 
     def test_get_step_binaries_handles_step_formats(self, results_dir):
         """Test that get_step_binaries handles different step_id formats."""
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1]]))
@@ -96,7 +98,8 @@ class TestBinaryLoaderWithManifests:
 
     def test_get_step_binaries_caching(self, results_dir):
         """Test that loaded binaries are cached."""
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1]]))
@@ -123,7 +126,8 @@ class TestBinaryLoaderWithManifests:
 
     def test_get_step_binaries_multiple_artifacts(self, results_dir):
         """Test loading multiple artifacts for same step."""
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         # Create multiple artifacts for step 0
         scaler1 = StandardScaler()
@@ -146,7 +150,8 @@ class TestBinaryLoaderWithManifests:
 
     def test_has_binaries_for_step(self, results_dir):
         """Test checking if binaries exist for a step."""
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1]]))
@@ -160,7 +165,8 @@ class TestBinaryLoaderWithManifests:
 
     def test_clear_cache(self, results_dir):
         """Test clearing the cache."""
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1]]))
@@ -179,7 +185,8 @@ class TestBinaryLoaderWithManifests:
 
     def test_get_cache_info(self, results_dir):
         """Test getting cache information."""
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1]]))
@@ -201,7 +208,8 @@ class TestBinaryLoaderWithManifests:
 
     def test_from_manifest_classmethod(self, results_dir):
         """Test creating BinaryLoader from manifest."""
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1]]))
@@ -228,7 +236,7 @@ class TestBinaryLoaderWithManifests:
         artifact = {
             "hash": "sha256:nonexistent",
             "name": "missing_scaler",
-            "path": "objects/no/nonexistent.pkl",
+            "path": "StandardScaler_abc123.pkl",  # Flat format
             "format": "sklearn_pickle",
             "size": 100,
             "step": 0,
