@@ -134,4 +134,4 @@ fig4 = analyzer.plot_variable_candlestick(
     variable="model_name",
 )
 
-plt.show()
+# plt.show()

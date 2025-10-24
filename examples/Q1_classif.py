@@ -113,4 +113,4 @@ analyzer = PredictionAnalyzer(predictions)
 confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
 
 # Keep all charts open (blocking)
-plt.show()
+# plt.show()

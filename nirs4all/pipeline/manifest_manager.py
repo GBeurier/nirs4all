@@ -360,3 +360,24 @@ class ManifestManager:
                     continue
 
         return pipelines
+
+    def get_next_pipeline_number(self, run_dir: Optional[Path] = None) -> int:
+        """
+        Get next sequential pipeline number for workspace runs.
+
+        Counts existing pipeline directories (excludes _binaries).
+
+        Args:
+            run_dir: Run directory to count pipelines in. If None, uses results_dir.
+
+        Returns:
+            Next number (e.g., 1, 2, 3...)
+        """
+        target_dir = Path(run_dir) if run_dir else self.results_dir
+
+        if not target_dir.exists():
+            return 1
+
+        existing = [d for d in target_dir.iterdir()
+                    if d.is_dir() and not d.name.startswith("_")]
+        return len(existing) + 1

@@ -47,6 +47,8 @@
 
 > [Y_pipeline in models]
 
+> [PLS] implements all PLS (cf. doc.md)
+
 > [Logs]
 
 **RELEASE** 0.8
