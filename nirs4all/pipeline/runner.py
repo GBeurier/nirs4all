@@ -10,8 +10,7 @@ import io
 # Fix UTF-8 encoding for Windows terminals to handle emoji characters
 # if sys.platform == 'win32':
 #     try:
-#         sys.stdout.reconfigure(encoding='utf-8')
-#         sys.stderr.reconfigure(encoding='utf-8')
+#         sys.stdout.reconfigure(encoding='utf-8')\n#         sys.stderr.reconfigure(encoding='utf-8')
 #     except (AttributeError, io.UnsupportedOperation):
 #         # Fallback for older Python or non-reconfigurable streams
 #         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -70,7 +69,7 @@ class PipelineRunner:
                  backend: str = 'threading',
                  verbose: int = 0,
                  parallel: bool = False,
-                 results_path: Optional[str] = None,
+                 workspace_path: Optional[Union[str, Path]] = None,
                  save_files: bool = True,
                  mode: str = "train",
                  load_existing_predictions: bool = True,
@@ -94,9 +93,24 @@ class PipelineRunner:
         self.parallel = parallel
         self.step_number = 0  # Initialize step number for tracking
         self.substep_number = -1  # Initialize sub-step number for tracking
-        self.saver = SimulationSaver(results_path, save_files=save_files)
-        self.manifest_manager = ManifestManager(self.saver.base_path)  # NEW: Manifest manager
-        self.pipeline_uid: Optional[str] = None  # NEW: Current pipeline UID
+
+        # Workspace configuration
+        if workspace_path is None:
+            workspace_path = Path.cwd() / "workspace"
+        self.workspace_path = Path(workspace_path)
+        self.runs_dir = self.workspace_path / "runs"
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create other workspace directories
+        (self.workspace_path / "exports").mkdir(exist_ok=True)
+        (self.workspace_path / "library").mkdir(exist_ok=True)
+        (self.workspace_path / "catalog").mkdir(exist_ok=True)
+
+        # Will be set per-run
+        self.current_run_dir = None
+        self.saver = None
+        self.manifest_manager = None
+        self.pipeline_uid: Optional[str] = None
         self.operation_count = 0
         self.save_files = save_files
         self.mode = mode
@@ -138,9 +152,16 @@ class PipelineRunner:
 
         # Get datasets from DatasetConfigs
         for config, name in dataset_configs.configs:
-            # print("=" * 120)
+            # Create run directory: workspace/runs/YYYY-MM-DD_dataset/
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            self.current_run_dir = self.runs_dir / f"{date_str}_{name}"
+            self.current_run_dir.mkdir(parents=True, exist_ok=True)
 
-            dataset_prediction_path = self.saver.base_path / name / "predictions.json"
+            # Initialize saver and manifest manager with run directory
+            self.saver = SimulationSaver(self.current_run_dir, save_files=self.save_files)
+            self.manifest_manager = ManifestManager(self.current_run_dir)
+
+            dataset_prediction_path = self.current_run_dir / "predictions.json"
             global_dataset_predictions = Predictions.load_from_file_cls(dataset_prediction_path)
             run_dataset_predictions = Predictions()
 
@@ -201,7 +222,7 @@ class PipelineRunner:
                 print(tab_report)
                 if tab_report_csv_file:
                     filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
-                    self.saver.save_file(filename, tab_report_csv_file, into_dataset=True)
+                    self.saver.save_file(filename, tab_report_csv_file)
             if self.save_files:
                 prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Best_prediction_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
                 prediction_path = self.saver.base_path / name / prediction_name
@@ -446,7 +467,6 @@ class PipelineRunner:
     def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset, config_predictions: 'Predictions') -> SpectroDataset:
         """Run a single pipeline configuration on a single dataset with external prediction store."""
         # Reset runner state for each run
-        # self.history = PipelineHistory()
         self.step_number = 0
         self.substep_number = -1
         self.operation_count = 0
@@ -455,16 +475,29 @@ class PipelineRunner:
         print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
         print("-" * 120)
 
-        self.saver.register(dataset.name, config_name, self.mode)
+        # Compute pipeline hash
+        import hashlib
+        import json
+        pipeline_json = json.dumps(steps, sort_keys=True, default=str).encode('utf-8')
+        pipeline_hash = hashlib.md5(pipeline_json).hexdigest()[:6]
 
-        # NEW: Create manifest for training mode
+        # Create pipeline with sequential numbering
         if self.mode == "train":
             pipeline_config = {"steps": steps}
-            self.pipeline_uid = self.manifest_manager.create_pipeline(
+            pipeline_id, pipeline_dir = self.manifest_manager.create_pipeline(
                 name=config_name,
                 dataset=dataset.name,
-                pipeline_config=pipeline_config
+                pipeline_config=pipeline_config,
+                pipeline_hash=pipeline_hash
             )
+            self.pipeline_uid = pipeline_id
+
+            # Register with SimulationSaver
+            self.saver.register(pipeline_id)
+        else:
+            # For predict/explain modes, use a temporary ID
+            pipeline_id = f"temp_{pipeline_hash}"
+            self.saver.register(pipeline_id)
 
         if self.mode != "predict" and self.mode != "explain":
             self.saver.save_json("pipeline.json", steps)

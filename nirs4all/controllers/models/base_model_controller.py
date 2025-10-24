@@ -333,7 +333,7 @@ class BaseModelController(OperatorController, ABC):
 
         # Generate identifiers
         step_id = context['step_id']
-        pipeline_name = runner.saver.pipeline_name
+        pipeline_name = runner.saver.pipeline_id
         dataset_name = dataset.name
         model_name = model_config.get('name', model_classname)
         operation_counter = runner.next_op()
@@ -722,8 +722,8 @@ class BaseModelController(OperatorController, ABC):
         avg_predictions = {
             'dataset_name': dataset.name,
             'dataset_path': dataset.name,
-            'config_name': runner.saver.pipeline_name,
-            'config_path': f"{dataset.name}/{runner.saver.pipeline_name}",
+            'config_name': runner.saver.pipeline_id,
+            'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
             'pipeline_uid': getattr(runner, 'pipeline_uid', None),
             'step_idx': context['step_id'],
             'op_counter': avg_counter,
@@ -784,8 +784,8 @@ class BaseModelController(OperatorController, ABC):
         w_avg_predictions = {
             'dataset_name': dataset.name,
             'dataset_path': dataset.name,
-            'config_name': runner.saver.pipeline_name,
-            'config_path': f"{dataset.name}/{runner.saver.pipeline_name}",
+            'config_name': runner.saver.pipeline_id,
+            'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
             'pipeline_uid': getattr(runner, 'pipeline_uid', None),
             'step_idx': context['step_id'],
             'op_counter': w_avg_counter,
