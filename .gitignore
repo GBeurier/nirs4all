@@ -26,6 +26,7 @@ trash/
 deprec/
 .github/instructions/Claude instructions.instructions.md
 examples/generated/
+example_workspace/
 
 # Testing
 .pytest_cache/
