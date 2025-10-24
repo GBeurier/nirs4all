@@ -155,15 +155,19 @@ class CrossValidatorController(OperatorController):
 
             # print(f"Generated {len(folds)} folds.")
 
-            # Persist the folds CSV using the new serializer
-            artifact = runner.saver.persist_artifact(
+            # Save folds CSV as output in the pipeline directory (not as binary artifact)
+            output_path = runner.saver.save_output(
                 step_number=runner.step_number,
-                name=folds_name,
-                obj=binary,
-                format_hint='bytes'
+                name=folds_name.replace('.csv', ''),  # Name without extension
+                data=binary,
+                extension='.csv'
             )
 
-            return context, [artifact]
+            # Return output info instead of artifact
+            if output_path:
+                return context, [{"name": folds_name, "path": str(output_path), "type": "folds_csv"}]
+            else:
+                return context, []
         else:
             n_folds = operator.get_n_splits(**kwargs) if hasattr(operator, "get_n_splits") else 1
             dataset.set_folds([(list(range(n_samples)), [])] * n_folds)

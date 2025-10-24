@@ -62,7 +62,7 @@ class ManifestManager:
             results_dir: Path to run directory (workspace/runs/YYYY-MM-DD_dataset/)
         """
         self.results_dir = Path(results_dir)
-        self.artifacts_dir = self.results_dir / "artifacts" / "objects"
+        self.artifacts_dir = self.results_dir / "_binaries"
 
         # Ensure directories exist
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -94,7 +94,11 @@ class ManifestManager:
 
         # Build pipeline_id with optional custom name
         if name and name != "pipeline":  # Don't include generic "pipeline" name
-            pipeline_id = f"{pipeline_num:04d}_{name}_{pipeline_hash}"
+            # Check if name already ends with the hash (avoid duplication like "0004_pls_9b4be0_9b4be0")
+            if name.endswith(f"_{pipeline_hash}"):
+                pipeline_id = f"{pipeline_num:04d}_{name}"
+            else:
+                pipeline_id = f"{pipeline_num:04d}_{name}_{pipeline_hash}"
         else:
             pipeline_id = f"{pipeline_num:04d}_{pipeline_hash}"
 

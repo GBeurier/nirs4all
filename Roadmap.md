@@ -1,8 +1,6 @@
 ## ROADMAP ##
 
-> [Serialization] (in serialization branch) REDO the whole workspace architecture (cf below) and merge branch
-
-> [Predictions] change storage mode (index (Polars/Parquet) + optionnally blobs (Zarr/HDF5))
+> [Git] merge branch
 
 **RELEASE** 0.4
 

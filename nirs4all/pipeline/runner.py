@@ -104,7 +104,6 @@ class PipelineRunner:
         # Create other workspace directories
         (self.workspace_path / "exports").mkdir(exist_ok=True)
         (self.workspace_path / "library").mkdir(exist_ok=True)
-        (self.workspace_path / "catalog").mkdir(exist_ok=True)
 
         # Will be set per-run
         self.current_run_dir = None
@@ -161,7 +160,8 @@ class PipelineRunner:
             self.saver = SimulationSaver(self.current_run_dir, save_files=self.save_files)
             self.manifest_manager = ManifestManager(self.current_run_dir)
 
-            dataset_prediction_path = self.current_run_dir / "predictions.json"
+            # Load global predictions from workspace root (dataset_name.json)
+            dataset_prediction_path = self.workspace_path / f"{name}.json"
             global_dataset_predictions = Predictions.load_from_file_cls(dataset_prediction_path)
             run_dataset_predictions = Predictions()
 
@@ -221,11 +221,13 @@ class PipelineRunner:
                 tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
                 print(tab_report)
                 if tab_report_csv_file:
-                    filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
+                    # Filename: Report_best_{pipeline_id}_{model_name}_{pred_id}.csv
+                    filename = f"Report_best_{best['config_name']}_{best['model_name']}_{best['id']}.csv"
                     self.saver.save_file(filename, tab_report_csv_file)
             if self.save_files:
-                prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Best_prediction_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
-                prediction_path = self.saver.base_path / name / prediction_name
+                # Filename: Best_prediction_{pipeline_id}_{model_name}_{pred_id}.csv
+                prediction_name = f"Best_prediction_{best['config_name']}_{best['model_name']}_{best['id']}.csv"
+                prediction_path = self.saver.base_path / prediction_name
                 Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
 
         if global_dataset_predictions.num_predictions > 0:
@@ -245,6 +247,25 @@ class PipelineRunner:
         #         Predictions.save_predictions_to_csv(best_overall["y_true"], best_overall["y_pred"], prediction_path)
         print("=" * 120)
 
+    def export_best_for_dataset(self, dataset_name: str, mode: str = "predictions") -> Optional[Path]:
+        """Export best results for a dataset to exports/ folder.
+
+        Delegates to SimulationSaver for file operations.
+
+        Args:
+            dataset_name: Dataset name (matches global prediction JSON filename)
+            mode: Export mode - "predictions", "template", "trained", or "full"
+
+        Returns:
+            Path to export directory, or None if no predictions found
+        """
+        return self.saver.export_best_for_dataset(
+            dataset_name,
+            self.workspace_path,
+            self.runs_dir,
+            mode
+        )
+
 
     def prepare_replay(self, selection_obj: Union[Dict[str, Any], str], dataset_config: DatasetConfigs, verbose: int = 0):
         config_path, target_model = self.saver.get_predict_targets(selection_obj)
@@ -261,7 +282,10 @@ class PipelineRunner:
             #   if target_model else "")
 
         # 2. Load pipeline configuration
-        config_dir = Path(f"{self.saver.base_path}/{config_path}")
+        # config_path format: "dataset_name/0001_pipeline_hash"
+        # Extract just the pipeline directory (0001_pipeline_hash)
+        pipeline_dir_name = Path(config_path).parts[-1] if '/' in config_path or '\\' in config_path else config_path
+        config_dir = self.saver.base_path / pipeline_dir_name
         pipeline_json = config_dir / "pipeline.json"
 
         if verbose > 0:
@@ -287,14 +311,11 @@ class PipelineRunner:
             )
 
         # Load from manifest
-        pipelines_dir = self.saver.base_path / "pipelines"
-        if not pipelines_dir.exists():
-            raise FileNotFoundError(f"Pipelines directory not found: {pipelines_dir}")
-
+        # In the new architecture, pipelines are directly in the run directory
         from nirs4all.pipeline.manifest_manager import ManifestManager
         manifest_manager = ManifestManager(self.saver.base_path)
 
-        manifest_path = pipelines_dir / pipeline_uid / "manifest.yaml"
+        manifest_path = self.saver.base_path / pipeline_uid / "manifest.yaml"
         if not manifest_path.exists():
             raise FileNotFoundError(
                 f"Manifest not found: {manifest_path}\n"
@@ -321,6 +342,42 @@ class PipelineRunner:
 
         self.mode = "predict"
         self.verbose = verbose
+
+        # Initialize saver for prediction mode
+        # Extract run directory from prediction_obj
+        if isinstance(prediction_obj, dict):
+            if 'run_dir' in prediction_obj:
+                run_dir = Path(prediction_obj['run_dir'])
+            elif 'config_path' in prediction_obj:
+                # config_path format: "dataset_name/0001_pipeline_hash"
+                # We need to find the actual run dir: "YYYY-MM-DD_dataset_name"
+                config_path = prediction_obj['config_path']
+                dataset_name = Path(config_path).parts[0]  # Extract dataset name
+
+                # Find the most recent run directory matching this dataset
+                matching_dirs = sorted(
+                    self.runs_dir.glob(f"*_{dataset_name}"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )
+                if matching_dirs:
+                    run_dir = matching_dirs[0]
+                else:
+                    raise ValueError(f"No run directory found for dataset: {dataset_name}")
+            else:
+                # Fallback: use most recent run directory
+                run_dirs = sorted(self.runs_dir.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+                run_dir = run_dirs[0] if run_dirs else self.runs_dir
+        else:
+            # For string prediction_obj, use most recent run directory
+            run_dirs = sorted(self.runs_dir.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+            run_dir = run_dirs[0] if run_dirs else self.runs_dir
+
+        # Initialize saver and manifest manager
+        self.current_run_dir = run_dir
+        self.saver = SimulationSaver(run_dir, save_files=self.save_files)
+        self.manifest_manager = ManifestManager(run_dir)
+
         steps = self.prepare_replay(prediction_obj, dataset_config, verbose=verbose)
 
         run_predictions = Predictions()
@@ -355,7 +412,7 @@ class PipelineRunner:
         print(f"✅ Predicted with: {single_pred['model_name']} [{single_pred['id']}]")
         filename = f"Predict_[{single_pred['id']}].csv"
         y_pred = single_pred["y_pred"]
-        prediction_path = self.saver.base_path / dataset.name / filename
+        prediction_path = self.saver.base_path / filename
         Predictions.save_predictions_to_csv(y_pred=y_pred, filepath=prediction_path)
 
         return single_pred["y_pred"], run_predictions
@@ -495,9 +552,9 @@ class PipelineRunner:
             # Register with SimulationSaver
             self.saver.register(pipeline_id)
         else:
-            # For predict/explain modes, use a temporary ID
+            # For predict/explain modes, don't create new pipeline directories
             pipeline_id = f"temp_{pipeline_hash}"
-            self.saver.register(pipeline_id)
+            # Don't register in predict/explain mode - we're reusing existing pipelines
 
         if self.mode != "predict" and self.mode != "explain":
             self.saver.save_json("pipeline.json", steps)

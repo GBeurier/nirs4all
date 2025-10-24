@@ -66,12 +66,14 @@ class SimulationSaver:
         return self.pipeline_dir
 
     def _find_prediction_by_id(self, prediction_id: str) -> Optional[Dict[str, Any]]:
-        """Search for a prediction by ID in all predictions.json files (recursively)."""
-        results_dir = Path(self.base_path)
-        if not results_dir.exists():
+        """Search for a prediction by ID in global predictions databases at workspace root."""
+        # Navigate to workspace root (base_path is runs/YYYY-MM-DD_dataset/)
+        workspace_root = Path(self.base_path).parent.parent
+        if not workspace_root.exists():
             return None
 
-        for predictions_file in results_dir.rglob("predictions.json"):
+        # Search in global prediction databases (dataset_name.json files at workspace root)
+        for predictions_file in workspace_root.glob("*.json"):
             if not predictions_file.is_file():
                 continue
 
@@ -180,8 +182,8 @@ class SimulationSaver:
 
         self._check_registered()
 
-        # Create artifacts directory structure
-        artifacts_dir = self.base_path / "artifacts" / "objects"
+        # Use _binaries directory (managed by ManifestManager)
+        artifacts_dir = self.base_path / "_binaries"
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         # Persist using new serializer
@@ -200,9 +202,7 @@ class SimulationSaver:
         extension: str = ".png"
     ) -> Optional[Path]:
         """
-        Save a human-readable output file (chart, report, etc.) to the outputs directory.
-
-        Outputs are organized as: base_path/outputs/<dataset>_<pipeline>/<name>
+        Save a human-readable output file (chart, report, etc.) directly to the pipeline directory.
 
         Args:
             step_number: Pipeline step number
@@ -219,9 +219,8 @@ class SimulationSaver:
 
         self._check_registered()
 
-        # Create outputs subdirectory in pipeline folder
-        output_dir = self.pipeline_dir / "outputs"
-        output_dir.mkdir(exist_ok=True)
+        # Save directly in pipeline folder (no outputs/ subdirectory)
+        output_dir = self.pipeline_dir
 
         # Create filename
         if not name.endswith(extension):
@@ -438,4 +437,130 @@ class SimulationSaver:
         shutil.copy2(predictions_file, dest_path)
 
         return dest_path
+
+    def export_best_for_dataset(self, dataset_name: str, workspace_path: Path,
+                                runs_dir: Path, mode: str = "predictions") -> Optional[Path]:
+        """Export best results for a dataset to exports/ folder.
+
+        Creates exports/{dataset_name}/ with best predictions, pipeline config, and charts.
+        Files are renamed to include run date for tracking.
+
+        Args:
+            dataset_name: Dataset name (matches global prediction JSON filename)
+            workspace_path: Workspace root path
+            runs_dir: Runs directory path
+            mode: Export mode - "predictions", "template", "trained", or "full"
+                - predictions: Only predictions CSV and summary
+                - template: Pipeline config only (no binaries)
+                - trained: Pipeline + binaries (for deployment)
+                - full: Pipeline + binaries + source dataset
+
+        Returns:
+            Path to export directory, or None if no predictions found
+        """
+        workspace_path = Path(workspace_path)
+        runs_dir = Path(runs_dir)
+
+        # Load global predictions for this dataset
+        predictions_file = workspace_path / f"{dataset_name}.json"
+        if not predictions_file.exists():
+            print(f"⚠️  No predictions found for dataset '{dataset_name}'")
+            return None
+
+        from nirs4all.dataset.predictions import Predictions
+        predictions = Predictions.load_from_file_cls(str(predictions_file))
+        if predictions.num_predictions == 0:
+            print(f"⚠️  No predictions in database for '{dataset_name}'")
+            return None
+
+        # Get best prediction
+        best = predictions.get_best(ascending=True)  # Adjust based on task type if needed
+
+        # Create export directory structure
+        exports_dir = workspace_path / "exports" / dataset_name
+        exports_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get run date from run directory name
+        run_dirs = list(runs_dir.glob(f"*_{dataset_name}"))
+        if not run_dirs:
+            print(f"⚠️  No run directory found for dataset '{dataset_name}'")
+            return None
+
+        run_dir = run_dirs[-1]  # Get most recent run
+        run_date = run_dir.name.split('_')[0]  # Extract date from directory name
+
+        # Find the pipeline directory
+        config_name = best['config_name']
+        pipeline_dir = None
+        for pd in run_dir.iterdir():
+            if pd.is_dir() and config_name in pd.name and not pd.name.startswith('_'):
+                pipeline_dir = pd
+                break
+
+        if not pipeline_dir:
+            print(f"⚠️  Pipeline directory not found for config '{config_name}'")
+            return None
+
+        # Export predictions
+        pred_filename = f"{run_date}_{best['model_name']}_predictions.csv"
+        pred_path = exports_dir / pred_filename
+        Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], pred_path)
+        print(f"✅ Exported predictions: {pred_path}")
+
+        # Export pipeline config
+        pipeline_json = pipeline_dir / "pipeline.json"
+        if pipeline_json.exists():
+            config_filename = f"{run_date}_{best['model_name']}_pipeline.json"
+            config_path = exports_dir / config_filename
+            shutil.copy(pipeline_json, config_path)
+            print(f"✅ Exported pipeline config: {config_path}")
+
+        # Export charts if they exist
+        for chart_file in pipeline_dir.glob("*.png"):
+            chart_filename = f"{run_date}_{best['model_name']}_{chart_file.name}"
+            chart_path = exports_dir / chart_filename
+            shutil.copy(chart_file, chart_path)
+            print(f"✅ Exported chart: {chart_path}")
+
+        # Handle different export modes for binaries
+        if mode in ["trained", "full"]:
+            binaries_dir = run_dir / "_binaries"
+            if binaries_dir.exists():
+                export_binaries_dir = exports_dir / "_binaries"
+                export_binaries_dir.mkdir(exist_ok=True)
+
+                # Copy referenced binaries from manifest
+                manifest_file = pipeline_dir / "manifest.yaml"
+                if manifest_file.exists():
+                    import yaml
+                    with open(manifest_file, 'r') as f:
+                        manifest = yaml.safe_load(f)
+
+                    for artifact in manifest.get('artifacts', []):
+                        binary_name = Path(artifact['path']).name
+                        src = binaries_dir / binary_name
+                        if src.exists():
+                            shutil.copy(src, export_binaries_dir / binary_name)
+
+                    print(f"✅ Exported {len(list(export_binaries_dir.iterdir()))} binaries")
+
+        # Create summary metadata
+        from datetime import datetime
+        summary = {
+            "dataset": dataset_name,
+            "model_name": best['model_name'],
+            "pipeline_id": config_name,
+            "prediction_id": best['id'],
+            "test_score": best.get('test_score'),
+            "val_score": best.get('val_score'),
+            "export_date": datetime.now().isoformat(),
+            "export_mode": mode,
+            "run_date": run_date
+        }
+        summary_path = exports_dir / f"{run_date}_{best['model_name']}_summary.json"
+        with open(summary_path, 'w') as f:
+            json.dump(summary, f, indent=2)
+        print(f"✅ Exported summary: {summary_path}")
+
+        return exports_dir
 
