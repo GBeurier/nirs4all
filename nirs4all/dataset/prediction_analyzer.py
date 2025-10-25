@@ -68,7 +68,7 @@ class PredictionAnalyzer:
                     task_type = self.model_utils.detect_task_type(y_true)
                     metrics = self.model_utils.calculate_scores(y_true, y_pred, task_type)
                 except Exception as e:
-                    print(f"⚠️ Error calculating metrics: {e}")
+                    print(f"{WARNING}Error calculating metrics: {e}")
                     metrics = {}
             else:
                 metrics = {}
@@ -124,7 +124,7 @@ class PredictionAnalyzer:
             )
             return top_predictions
         except Exception as e:
-            print(f"⚠️ Error getting top k predictions: {e}")
+            print(f"{WARNING}Error getting top k predictions: {e}")
             # Fallback to manual calculation
             enhanced_preds = self._get_enhanced_predictions(**filters)
             if not enhanced_preds:
@@ -304,7 +304,7 @@ class PredictionAnalyzer:
 
                 # Check if arrays have the same size for scatter plot
                 if len(y_true) != len(y_pred):
-                    print(f"⚠️ Warning: Array size mismatch for {pred['model_name']}: "
+                    print(f"{WARNING}Warning: Array size mismatch for {pred['model_name']}: "
                           f"y_true({len(y_true)}) vs y_pred({len(y_pred)})")
                     min_len = min(len(y_true), len(y_pred))
                     y_true = y_true[:min_len]
@@ -416,7 +416,7 @@ class PredictionAnalyzer:
             y_pred_labels = y_pred_labels.flatten()
 
             if len(y_true_labels) != len(y_pred_labels):
-                print(f"⚠️ Warning: Array length mismatch for confusion matrix in {pred['model_name']}: "
+                print(f"{WARNING}Warning: Array length mismatch for confusion matrix in {pred['model_name']}: "
                       f"y_true({len(y_true_labels)}) vs y_pred({len(y_pred_labels)})")
                 min_len = min(len(y_true_labels), len(y_pred_labels))
                 y_true_labels = y_true_labels[:min_len]
@@ -1092,7 +1092,7 @@ class PredictionAnalyzer:
 
             predictions = self.predictions.top_k(k=-1, metric=metric, aggregate_partitions=[score_partition], **filters)  # True only if score_partition and partition are different
         except Exception as e:
-            print(f"⚠️ Error getting predictions: {e}")
+            print(f"{WARNING}Error getting predictions: {e}")
             # Fallback to filter_predictions
             predictions = self.predictions.filter_predictions(**filters)
 
@@ -1160,7 +1160,7 @@ class PredictionAnalyzer:
                 score = eval(np.array(y_true), np.array(y_pred), metric)
                 return float(score)
             except Exception as e:
-                print(f"⚠️ Error calculating {metric}: {e}")
+                print(f"{WARNING}Error calculating {metric}: {e}")
         return None
 
     def _plot_heatmap_matrix(self, var_scores: Dict, x_var: str, y_var: str, metric: str,
@@ -1660,7 +1660,7 @@ class PredictionAnalyzer:
             # Use top_k with k=-1 to get all predictions matching filters
             predictions = self.predictions.top_k(k=-1, metric=metric, **filters)
         except Exception as e:
-            print(f"⚠️ Error getting predictions: {e}")
+            print(f"{WARNING}Error getting predictions: {e}")
             # Fallback to filter_predictions
             predictions = self.predictions.filter_predictions(**filters)
 
@@ -1790,3 +1790,4 @@ class PredictionAnalyzer:
 
         plt.tight_layout()
         return fig
+

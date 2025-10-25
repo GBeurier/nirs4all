@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Dict, Any
+from nirs4all.utils.emoji import CHART, CROSS
 
 def normalize_config_keys(config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -69,7 +70,7 @@ def browse_folder(folder_path, global_params=None):
 
     dataset_dir = Path(folder_path)
     if not dataset_dir.exists():
-        print(f"\033[91m❌ Folder does not exist: {folder_path}\033[0m")
+        print(f"\033[91m{CROSS} Folder does not exist: {folder_path}\033[0m")
         return config
 
     for key, patterns in files_re.items():
@@ -81,7 +82,7 @@ def browse_folder(folder_path, global_params=None):
                     matched_files.append(str(file))
 
         if len(matched_files) == 0:
-            # print(f"⚠️ Dataset does not have data for {key}.")
+            # print(f"{WARNING}Dataset does not have data for {key}.")
             # logging.warning("No %s file found for %s.", key, dataset_name)
             continue
         elif len(matched_files) == 1:
@@ -89,7 +90,7 @@ def browse_folder(folder_path, global_params=None):
             config[key] = _s_(matched_files[0])
         else:
             # Multi-source - store as array of paths
-            print(f"📊 Multiple {key} files found for {folder_path}: {len(matched_files)} sources detected.")
+            print(f"{CHART}Multiple {key} files found for {folder_path}: {len(matched_files)} sources detected.")
             config[key] = _s_(matched_files)
 
     return config
@@ -140,7 +141,9 @@ def parse_config(data_config):
                 dataset_name = f"{test_file.parent.name}_{test_file.stem}"
                 return normalized_config, dataset_name
 
-    print(f"❌ Error in config: unsupported dataset config >> {type(data_config)}: {data_config}")
+    print(f"{CROSS} Error in config: unsupported dataset config >> {type(data_config)}: {data_config}")
     return None, 'Unknown_dataset'
+
+
 
 

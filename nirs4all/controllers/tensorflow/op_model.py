@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN, CHART, TROPHY
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 from nirs4all.utils.model_builder import ModelBuilderFactory
 
@@ -198,12 +199,12 @@ class TensorFlowModelController(BaseModelController):
             default_loss = ModelUtils.get_default_loss(task_type, 'tensorflow')
             train_params['loss'] = default_loss
             if verbose > 1:
-                print(f"📊 Auto-detected {task_type.value} task, using loss: {default_loss}")
+                print(f"{CHART} Auto-detected {task_type.value} task, using loss: {default_loss}")
         elif 'loss' in train_params:
             # Validate provided loss
             provided_loss = train_params['loss']
             if not ModelUtils.validate_loss_compatibility(provided_loss, task_type, 'tensorflow'):
-                print(f"⚠️ Warning: Loss '{provided_loss}' may not be compatible with {task_type.value} task")
+                print(f"{WARNING}Warning: Loss '{provided_loss}' may not be compatible with {task_type.value} task")
 
         if 'metrics' not in train_params and 'compile' not in train_params:
             default_metrics = ModelUtils.get_default_metrics(task_type, 'tensorflow')
@@ -223,7 +224,7 @@ class TensorFlowModelController(BaseModelController):
         compile_config = self._prepare_compilation_config(train_params)
         trained_model.compile(**compile_config)
         if verbose > 2:
-            print(f"🏗️ Model compiled with: {compile_config}")
+            print(f" Model compiled with: {compile_config}")
 
         # === TRAINING CONFIGURATION ===
         fit_config = self._prepare_fit_config(train_params, X_val, y_val, verbose)
@@ -258,7 +259,7 @@ class TensorFlowModelController(BaseModelController):
                 best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                 best_score = train_scores.get(best_metric)
                 if best_score is not None:
-                    direction = "↑" if higher_is_better else "↓"
+                    direction = ARROW_UP if higher_is_better else ARROW_DOWN
                     all_scores_str = ModelUtils.format_scores(train_scores)
                     # print(f"✅ {trained_model.__class__.__name__} - train: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
@@ -274,7 +275,7 @@ class TensorFlowModelController(BaseModelController):
                 #     best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                 #     best_score = val_scores.get(best_metric)
                 #     if best_score is not None:
-                #         direction = "↑" if higher_is_better else "↓"
+                #         direction = ARROW_UP if higher_is_better else ARROW_DOWN
                 #         all_scores_str = ModelUtils.format_scores(val_scores)
                         # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
             elif validation_data is not None:
@@ -290,7 +291,7 @@ class TensorFlowModelController(BaseModelController):
                     best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                     best_score = val_scores.get(best_metric)
                     if best_score is not None:
-                        direction = "↑" if higher_is_better else "↓"
+                        direction = ARROW_UP if higher_is_better else ARROW_DOWN
                         all_scores_str = ModelUtils.format_scores(val_scores)
                         # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
@@ -341,7 +342,7 @@ class TensorFlowModelController(BaseModelController):
             elif optimizer.lower() == 'adagrad':
                 compile_config['optimizer'] = keras.optimizers.Adagrad(learning_rate=learning_rate)
             else:
-                print(f"⚠️ Unknown optimizer {optimizer}, using default with learning_rate={learning_rate}")
+                print(f"{WARNING}Unknown optimizer {optimizer}, using default with learning_rate={learning_rate}")
                 compile_config['optimizer'] = keras.optimizers.Adam(learning_rate=learning_rate)
 
             # print(f"🔧 Created {compile_config['optimizer'].__class__.__name__} optimizer with lr={learning_rate}")
@@ -439,7 +440,7 @@ class TensorFlowModelController(BaseModelController):
         if train_params.get('best_model_memory', True):  # Default enabled
             best_model_callback = self._create_best_model_memory_callback(verbose > 1)
             callbacks.append(best_model_callback)
-            # print("🏆 Added BestModelMemory callback")
+            # print("{TROPHY} Added BestModelMemory callback")
 
         # === CUSTOM CALLBACKS ===
         if 'custom_callbacks' in train_params:
@@ -471,13 +472,13 @@ class TensorFlowModelController(BaseModelController):
                 if self.best_weights is not None:
                     self.model.set_weights(self.best_weights)
                     if self.verbose:
-                        print(f"🏆 Restored best weights with val_loss={self.best_val_loss:.4f}")
+                        print(f"{TROPHY} Restored best weights with val_loss={self.best_val_loss:.4f}")
 
         return BestModelMemory(verbose)
 
     def _log_training_config(self, fit_config: Dict[str, Any], train_params: Dict[str, Any], validation_data: Any) -> None:
         """Log comprehensive training configuration."""
-        print("🏋️ Training configuration:")
+        print(" Training configuration:")
         print(f"   - Epochs: {fit_config.get('epochs', 100)}")
         print(f"   - Batch size: {fit_config.get('batch_size', 32)}")
 
@@ -545,13 +546,13 @@ class TensorFlowModelController(BaseModelController):
         if X.ndim == 2:
             # For 1D CNNs like the NIRS models, we typically want (batch, time_steps, 1)
             # where time_steps is the number of spectral bands
-            # print(f"📊 Reshaping 2D input {X.shape} to 3D for TensorFlow CNN")
+            # print(f"{CHART} Reshaping 2D input {X.shape} to 3D for TensorFlow CNN")
             X = X.reshape(X.shape[0], X.shape[1], 1)  # Add channel dimension
         elif X.ndim == 3:
             # Check if we have (batch, channels, features) format where channels < features
             # This indicates we need to transpose to (batch, features, channels) for Conv1D
             if X.shape[1] < X.shape[2]:
-                # print(f"📊 Transposing 3D input from {X.shape} (batch, channels, features) to (batch, features, channels)")
+                # print(f"{CHART} Transposing 3D input from {X.shape} (batch, channels, features) to (batch, features, channels)")
                 X = np.transpose(X, (0, 2, 1))  # (batch, channels, features) -> (batch, features, channels)
         elif X.ndim == 1:
             # Single sample case
@@ -561,7 +562,7 @@ class TensorFlowModelController(BaseModelController):
         if y is not None and y.ndim > 1 and y.shape[1] == 1:
             y = y.flatten()
 
-        # print(f"📊 TensorFlow data prepared: X.shape={X.shape}, y.shape={y.shape}")
+        # print(f"{CHART} TensorFlow data prepared: X.shape={X.shape}, y.shape={y.shape}")
         return X, y
 
     def _evaluate_model(self, model: Any, X_val: np.ndarray, y_val: np.ndarray) -> float:
@@ -577,7 +578,7 @@ class TensorFlowModelController(BaseModelController):
                 return loss
 
         except (ValueError, TypeError, AttributeError) as e:
-            print(f"⚠️ Error in TensorFlow model evaluation: {e}")
+            print(f"{WARNING}Error in TensorFlow model evaluation: {e}")
             try:
                 # Fallback: use predictions and calculate MSE
                 y_pred = model.predict(X_val, verbose=0)
@@ -701,3 +702,9 @@ class TensorFlowModelController(BaseModelController):
 
         # Call parent execute method
         return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
+
+
+
+
+
+

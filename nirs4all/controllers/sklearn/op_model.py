@@ -19,6 +19,7 @@ from sklearn.base import is_classifier, is_regressor
 
 from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN
 from nirs4all.utils.model_utils import ModelUtils
 from nirs4all.utils.model_builder import ModelBuilderFactory
 
@@ -127,7 +128,7 @@ class SklearnModelController(BaseModelController):
                 if key in model_params:
                     valid_params[key] = value
                 # else:
-                    # print(f"⚠️ Parameter {key} not found in model {model.__class__.__name__}")
+                    # print(f"{WARNING}Parameter {key} not found in model {model.__class__.__name__}")
 
             if valid_params:
                 trained_model.set_params(**valid_params)
@@ -151,7 +152,7 @@ class SklearnModelController(BaseModelController):
                 best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                 best_score = train_scores.get(best_metric)
                 if best_score is not None:
-                    direction = "↑" if higher_is_better else "↓"
+                    direction = ARROW_UP if higher_is_better else ARROW_DOWN
                     all_scores_str = ModelUtils.format_scores(train_scores)
                     # print(f"✅ {trained_model.__class__.__name__} - train: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
@@ -167,7 +168,7 @@ class SklearnModelController(BaseModelController):
                     best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                     best_score = val_scores.get(best_metric)
                     if best_score is not None:
-                        direction = "↑" if higher_is_better else "↓"
+                        direction = ARROW_UP if higher_is_better else ARROW_DOWN
                         all_scores_str = ModelUtils.format_scores(val_scores)
                         # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
@@ -236,7 +237,7 @@ class SklearnModelController(BaseModelController):
                     return mean_squared_error(y_val_1d, y_pred)
 
         except Exception as e:
-            print(f"⚠️ Error in model evaluation: {e}")
+            print(f"{WARNING}Error in model evaluation: {e}")
             # Fallback evaluation
             try:
                 y_pred = model.predict(X_val)
@@ -276,3 +277,5 @@ class SklearnModelController(BaseModelController):
 
         # Call parent execute method
         return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
+
+

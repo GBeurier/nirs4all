@@ -15,6 +15,7 @@ from nirs4all.dataset.targets import Targets
 from nirs4all.dataset.indexer import Indexer
 from nirs4all.dataset.metadata import Metadata
 from nirs4all.dataset.predictions import Predictions
+from nirs4all.utils.emoji import CHART, REFRESH, TARGET
 from sklearn.base import TransformerMixin
 from typing import Optional, Union, List, Tuple, Dict, Any
 
@@ -219,7 +220,7 @@ class SpectroDataset:
                               transformer: Optional[TransformerMixin] = None) -> None:
         new_task_type = self._detect_task_type(targets)
         if self._task_type != new_task_type:
-            print(f"🔄 Task type updated from {self._task_type} to {new_task_type}")
+            print(f"{REFRESH} Task type updated from {self._task_type} to {new_task_type}")
             self._task_type = new_task_type
 
         self._targets.add_processed_targets(processing_name, targets, ancestor_processing, transformer)
@@ -297,7 +298,7 @@ class SpectroDataset:
     #     return txt
 
     def __str__(self):
-        txt = f"📊 Dataset: {self.name}"
+        txt = f"{CHART}Dataset: {self.name}"
         if self._task_type:
             txt += f" ({self._task_type})"
         txt += "\n" + str(self._features)
@@ -319,22 +320,22 @@ class SpectroDataset:
 
         # Task type
         if self._task_type:
-            print(f"🎯 Task Type: {self._task_type}")
+            print(f"{TARGET} Task Type: {self._task_type}")
         else:
-            print("🎯 Task Type: Not detected (no targets added yet)")
+            print("{TARGET} Task Type: Not detected (no targets added yet)")
         print()
 
         # Features summary
         if self._features.sources:
             total_samples = self._features.num_samples
             n_sources = len(self._features.sources)
-            print(f"📊 Features: {total_samples} samples, {n_sources} source(s)")
+            print(f"{CHART}Features: {total_samples} samples, {n_sources} source(s)")
             print(f"Features: {self._features.num_features}, processings: {self._features.num_processings}")
             print(f"Processing IDs: {self._features.preprocessing_str}")
             # print(self._features)
             # print(self._targets)
         else:
-            print("📊 Features: No data")
+            print(f"{CHART}Features: No data")
         print()
 
     # IO methods (commented out)
@@ -362,4 +363,6 @@ class SpectroDataset:
     #     return io.load(path)
 
     # FOLDS
+
+
 

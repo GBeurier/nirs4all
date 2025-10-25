@@ -124,7 +124,7 @@ class CrossValidatorController(OperatorController):
             folds = list(operator.split(X, **kwargs))  # Convert to list to avoid iterator consumption
 
             if dataset.x({"partition": "test"}).shape[0] == 0:
-                print("⚠️ No test partition found; using first fold as test set.")
+                print("{WARNING}No test partition found; using first fold as test set.")
                 fold_1 = folds[0]
                 dataset._indexer.update_by_indices(
                     fold_1[1], {"partition": "test"}
@@ -172,3 +172,4 @@ class CrossValidatorController(OperatorController):
             n_folds = operator.get_n_splits(**kwargs) if hasattr(operator, "get_n_splits") else 1
             dataset.set_folds([(list(range(n_samples)), [])] * n_folds)
             return context, []
+

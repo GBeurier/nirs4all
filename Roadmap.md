@@ -4,6 +4,10 @@
 
 **RELEASE** 0.4
 
+> [Pytorch] controller
+
+> [Imports] import tf and pytorch only when needed, reup backend_utils.
+
 **Bugs**:
 >   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
 
@@ -12,6 +16,7 @@
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
 > [ReadsTheDoc] minimal subset of signatures + update and export MD
+
 
 **RELEASE** 0.5
 

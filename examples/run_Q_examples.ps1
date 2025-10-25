@@ -1,6 +1,7 @@
 param(
     [int]$Index = 0,    # 1-based index to run a single example
-    [int]$Start = 0     # 1-based start index to run all examples from
+    [int]$Start = 0,    # 1-based start index to run all examples from
+    [switch]$Log        # Enable logging to log.txt
 )
 
 $examples = @(
@@ -17,6 +18,18 @@ $examples = @(
     "Q10_resampler.py",
     "Q14_workspace.py"
 )
+
+# Setup logging if requested
+$logFile = $null
+if ($Log) {
+    $logFile = Join-Path (Get-Location) "log.txt"
+    Write-Host "Logging enabled: $logFile" -ForegroundColor Green
+    # Initialize log file with header
+    "=================================================" | Out-File -FilePath $logFile -Encoding UTF8
+    "Log started at: $(Get-Date)" | Out-File -FilePath $logFile -Append -Encoding UTF8
+    "=================================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
+    "" | Out-File -FilePath $logFile -Append -Encoding UTF8
+}
 
 # ## PARALLEL
 # foreach ($example in $examples) {
@@ -54,13 +67,41 @@ elseif ($Start -gt 0) {
     Write-Host ("Running all examples starting from #{0} (count: {1})" -f $Start, $selectedExamples.Count)
 }
 
+# Disable emojis only when logging to avoid encoding issues with file output
+if ($Log) {
+    $env:DISABLE_EMOJI = "1"
+    Write-Host "Emojis disabled for logging" -ForegroundColor Yellow
+}
+else {
+    Remove-Item Env:\DISABLE_EMOJI -ErrorAction SilentlyContinue
+}
+
 # SEQUENTIAL
 foreach ($example in $selectedExamples) {
     if (Test-Path "$example") {
-        Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow -Wait
+        $startTime = Get-Date
         Write-Host "Launch: $example"
         Write-Host "########################################"
-        Write-Host "Finished running: $example"
+
+        if ($logFile) {
+            # Log the header
+            "===============================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            "Starting: $example at $startTime" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            "===============================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
+
+            # Run and capture output using Tee-Object to show AND log
+            & python $example 2>&1 | Tee-Object -FilePath $logFile -Append
+
+            # Log the footer
+            "Finished: $example at $(Get-Date)" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            "" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        }
+        else {
+            & python $example
+        }
+
+        $endTime = Get-Date
+        Write-Host "Finished running: $example (Duration: $(($endTime - $startTime).ToString('hh\:mm\:ss')))"
         Write-Host "########################################"
     }
 }

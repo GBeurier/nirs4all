@@ -24,6 +24,7 @@ from nirs4all.dataset.predictions import Predictions
 from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
 from nirs4all.operators.models.cirad_tf import nicon
 from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
+from nirs4all.utils.emoji import CHECK, CROSS
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # Disable emojis in output
@@ -127,7 +128,7 @@ reuse_predictions, _ = predictor.predict(model_id, test_dataset_config, verbose=
 reuse_array = reuse_predictions[:5].flatten()
 print("Reuse predictions:", reuse_array)
 is_identical = np.allclose(reuse_array, reference_predictions)
-print(f"Model reuse identical to training: {'✅ YES' if is_identical else '❌ NO'}")
+print(f"Model reuse identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")
 
 # # Create visualizations
 analyzer = PredictionAnalyzer(predictions)

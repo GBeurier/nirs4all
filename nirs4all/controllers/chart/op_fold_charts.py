@@ -7,6 +7,7 @@ import numpy as np
 import copy
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.emoji import INFO
 import io
 
 if TYPE_CHECKING:
@@ -60,7 +61,7 @@ class FoldChartController(OperatorController):
         # Determine which partition to use (default to train if not specified)
         partition = context.get("partition", "train")
         if partition not in ["train", "test"]:
-            print(f"⚠️ Invalid partition '{partition}'. Using 'train' instead.")
+            print(f"{WARNING}Invalid partition '{partition}'. Using 'train' instead.")
             partition = "train"
 
         # Get data for visualization
@@ -73,7 +74,7 @@ class FoldChartController(OperatorController):
 
         # Fallback logic: If no folds, create a simple train/test split visualization
         if not folds:
-            print("ℹ️ No CV folds found. Creating visualization from train/test partition.")
+            print("{INFO}No CV folds found. Creating visualization from train/test partition.")
 
             # Try to get train and test data
             train_context = copy.deepcopy(context)
@@ -93,7 +94,7 @@ class FoldChartController(OperatorController):
                 folds = [(list(range(len(train_indices))), [])]
                 print(f"  Only train partition available ({len(train_indices)} samples).")
             else:
-                print("⚠️ No data available for visualization.")
+                print("{WARNING}No data available for visualization.")
                 return context, []
 
         # Get y values for color coding
@@ -358,3 +359,5 @@ class FoldChartController(OperatorController):
             color = colormap(y_norm)
             ax.bar(position, 1, bottom=i, width=bar_width,
                   color=color, edgecolor='white', linewidth=0.5)
+
+

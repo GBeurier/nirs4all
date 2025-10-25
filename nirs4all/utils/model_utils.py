@@ -299,7 +299,7 @@ class ModelUtils:
 
                 except (ValueError, TypeError) as class_error:
                     # If classification metrics fail, try to redetect task type
-                    print(f"⚠️ Classification metrics failed ({class_error}), retrying with auto-detection")
+                    print(f"{WARNING}Classification metrics failed ({class_error}), retrying with auto-detection")
 
                     # Re-detect task type more conservatively
                     actual_task_type = ModelUtils.detect_task_type(y_true, threshold=0.01)  # More strict threshold
@@ -315,7 +315,7 @@ class ModelUtils:
                             scores["rmse"] = np.sqrt(mean_squared_error(y_true, y_pred))
                     else:
                         # Still classification but data is problematic, skip metrics
-                        print("⚠️ Unable to calculate classification metrics for problematic data")
+                        print("{WARNING}Unable to calculate classification metrics for problematic data")
                         scores["accuracy"] = 0.0
                         scores["f1"] = 0.0
                         scores["precision"] = 0.0
@@ -329,7 +329,7 @@ class ModelUtils:
                         pass
 
         except Exception as e:
-            print(f"⚠️ Error calculating scores: {e}")
+            print(f"{WARNING}Error calculating scores: {e}")
 
         return scores
 
@@ -413,7 +413,7 @@ class ModelUtils:
                 scores['recall'] = recall_score(y_true, y_pred, average='weighted')
 
         except Exception as e:
-            print(f"⚠️ Error calculating scores: {e}")
+            print(f"{WARNING}Error calculating scores: {e}")
 
         return scores
 
@@ -679,3 +679,4 @@ class ModelUtils:
                 result[key] = first_pred[key]
 
         return result
+

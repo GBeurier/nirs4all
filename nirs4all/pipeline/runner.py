@@ -6,11 +6,13 @@ import json
 import numpy as np
 import sys
 import io
+import os
 
 # Fix UTF-8 encoding for Windows terminals to handle emoji characters
 # if sys.platform == 'win32':
 #     try:
-#         sys.stdout.reconfigure(encoding='utf-8')\n#         sys.stderr.reconfigure(encoding='utf-8')
+#         sys.stdout.reconfigure(encoding='utf-8')
+#         sys.stderr.reconfigure(encoding='utf-8')
 #     except (AttributeError, io.UnsupportedOperation):
 #         # Fallback for older Python or non-reconfigurable streams
 #         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -18,6 +20,7 @@ import io
 
 from joblib import Parallel, delayed, parallel_backend
 from nirs4all.dataset.predictions import Predictions
+from nirs4all.utils.emoji import ROCKET, TROPHY, MEDAL_GOLD, FLAG, CHECK, CROSS, DIAMOND, SEARCH, REFRESH, WARNING, PLAY, SMALL_DIAMOND
 
 from nirs4all.pipeline.serialization import deserialize_component
 from nirs4all.pipeline.history import PipelineHistory
@@ -143,7 +146,7 @@ class PipelineRunner:
 
         nb_combinations = len(pipeline_configs.steps) * len(dataset_configs.configs)
         print("=" * 120)
-        print(f"\033[94m🚀 Starting Nirs4all run(s) with {len(pipeline_configs.steps)} pipeline on {len(dataset_configs.configs)} dataset ({nb_combinations} total runs).\033[0m")
+        print(f"\033[94m{ROCKET}Starting Nirs4all run(s) with {len(pipeline_configs.steps)} pipeline on {len(dataset_configs.configs)} dataset ({nb_combinations} total runs).\033[0m")
         print("=" * 120)
 
         datasets_predictions = {}
@@ -215,7 +218,7 @@ class PipelineRunner:
                                dataset: SpectroDataset, name: str, dataset_prediction_path: str):
         if run_dataset_predictions.num_predictions > 0:
             best = run_dataset_predictions.get_best(ascending=True if dataset.is_regression() else False)
-            print(f"🏆 Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
+            print(f"{TROPHY}Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
             if self.enable_tab_reports:
                 best_by_partition = run_dataset_predictions.get_entry_partitions(best)
                 tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
@@ -289,7 +292,7 @@ class PipelineRunner:
         pipeline_json = config_dir / "pipeline.json"
 
         if verbose > 0:
-            print(f"🔍 Loading {pipeline_json}, {config_dir / 'metadata.json'}")
+            print(f"{SEARCH}Loading {pipeline_json}, {config_dir / 'metadata.json'}")
 
         if not pipeline_json.exists():
             raise FileNotFoundError(f"Pipeline not found: {pipeline_json}")
@@ -323,7 +326,7 @@ class PipelineRunner:
                 f"The model artifacts may have been deleted or moved."
             )
 
-        print(f"🔍 Loading from manifest: {pipeline_uid}")
+        print(f"{SEARCH}Loading from manifest: {pipeline_uid}")
         manifest = manifest_manager.load_manifest(pipeline_uid)
         self.binary_loader = BinaryLoader.from_manifest(manifest, self.saver.base_path)
 
@@ -337,7 +340,7 @@ class PipelineRunner:
                 verbose: int = 0
                 ) :
         print("=" * 120)
-        print(f"\033[94m🚀 Starting Nirs4all prediction(s)\033[0m")
+        print(f"\033[94m{ROCKET}Starting Nirs4all prediction(s)\033[0m")
         print("=" * 120)
 
         self.mode = "predict"
@@ -409,7 +412,7 @@ class PipelineRunner:
         if single_pred is None:
             raise ValueError("No matching prediction found for the specified model criteria. Predict failed.")
 
-        print(f"✅ Predicted with: {single_pred['model_name']} [{single_pred['id']}]")
+        print(f"{CHECK}Predicted with: {single_pred['model_name']} [{single_pred['id']}]")
         filename = f"Predict_[{single_pred['id']}].csv"
         y_pred = single_pred["y_pred"]
         prediction_path = self.saver.base_path / filename
@@ -426,7 +429,7 @@ class PipelineRunner:
     ) -> Tuple[Dict[str, Any], str]:
 
         print("=" * 120)
-        print(f"\033[94m🔍 Starting SHAP Explanation Analysis\033[0m")
+        print(f"\033[94m{SEARCH}Starting SHAP Explanation Analysis\033[0m")
         print("=" * 120)
 
         self.mode = "explain"
@@ -508,7 +511,7 @@ class PipelineRunner:
             shap_results['dataset_name'] = dataset.name
 
             if verbose > 0:
-                print(f"\n✅ SHAP explanation completed!")
+                print(f"\n{CHECK}SHAP explanation completed!")
                 print(f"📁 Visualizations saved to: {output_dir}")
                 for viz in shap_params['visualizations']:
                     print(f"   • {viz}.png")
@@ -529,7 +532,7 @@ class PipelineRunner:
         self.operation_count = 0
         self.step_binaries = {}
 
-        print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
+        print(f"\033[94m{ROCKET}Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
         print("-" * 120)
 
         # Compute pipeline hash
@@ -569,13 +572,13 @@ class PipelineRunner:
 
                 if config_predictions.num_predictions > 0:
                     pipeline_best = config_predictions.get_best(ascending=True if dataset.is_regression() else False)
-                    print(f"🥇 Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
+                    print(f"{MEDAL_GOLD}Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
                     if self.verbose > 0:
-                        print(f"\033[94m🏁 Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
+                        print(f"\033[94m{FLAG}Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
                     print("=" * 120)
 
         except Exception as e:
-            print(f"\033[91m❌ Pipeline {config_name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
+            print(f"\033[91m{CROSS}Pipeline {config_name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
             import traceback
             traceback.print_exc()
             raise
@@ -621,19 +624,19 @@ class PipelineRunner:
         if is_substep:
             self.substep_number += 1
             if self.verbose > 0:
-                print(f"\033[96m   ▶ Sub-step {self.step_number}.{self.substep_number}: {step_description}\033[0m")
+                print(f"\033[96m   {PLAY}Sub-step {self.step_number}.{self.substep_number}: {step_description}\033[0m")
         else:
             self.step_number += 1
             self.substep_number = 0  # Reset substep counter for new main step
             self.operation_count = 0
             if self.verbose > 0:
-                print(f"\033[92m🔷 Step {self.step_number}: {step_description}\033[0m")
+                print(f"\033[92m{DIAMOND}Step {self.step_number}: {step_description}\033[0m")
         # print(f"🔹 Current context: {context}")
         # print(f"🔹 Step config: {step}")
 
         if step is None:
             if self.verbose > 0:
-                print("🔷 No operation defined for this step, skipping.")
+                print(f"{DIAMOND}No operation defined for this step, skipping.")
             return context
 
         try:
@@ -671,7 +674,7 @@ class PipelineRunner:
                     controller = self._select_controller(step, operator=operator, keyword=step)
 
             else:
-                print(f"🔍 Unknown step type: {type(step).__name__}, executing as operation")
+                print(f"{SEARCH}Unknown step type: {type(step).__name__}, executing as operation")
                 controller = self._select_controller(step)
 
             if controller is not None:
@@ -680,7 +683,7 @@ class PipelineRunner:
                 # Check if controller supports prediction mode
                 if (self.mode == "predict" or self.mode == "explain") and not controller.supports_prediction_mode():
                     if self.verbose > 0:
-                        print(f"⚠️ Controller {controller.__class__.__name__} does not support prediction mode, skipping step {self.step_number}")
+                        print(f"{WARNING}Controller {controller.__class__.__name__} does not support prediction mode, skipping step {self.step_number}")
                     return context
 
                 # Load binaries if in prediction mode
@@ -688,7 +691,7 @@ class PipelineRunner:
                 if (self.mode == "predict" or self.mode == "explain") and self.binary_loader is not None and loaded_binaries is None:
                     loaded_binaries = self.binary_loader.get_step_binaries(self.step_number)
                     if self.verbose > 1 and loaded_binaries:
-                        print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
+                        print(f"{SEARCH}Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
 
                 context["step_id"] = self.step_number
                 return self._execute_controller(
@@ -705,7 +708,7 @@ class PipelineRunner:
             import traceback
             traceback.print_exc()
             if self.continue_on_error:
-                print(f"⚠️ Step failed but continuing: {str(e)}")
+                print(f"{WARNING}Step failed but continuing: {str(e)}")
             else:
                 raise RuntimeError(f"Pipeline step failed: {str(e)}") from e
 
@@ -742,9 +745,9 @@ class PipelineRunner:
 
         if self.verbose > 0:
             if operator is not None:
-                print(f"🔹 Executing controller {controller_name} with operator {operator_name}")
+                print(f"{SMALL_DIAMOND}Executing controller {controller_name} with operator {operator_name}")
             else:
-                print(f"🔹 Executing controller {controller_name} without operator")
+                print(f"{SMALL_DIAMOND}Executing controller {controller_name} without operator")
 
         # Prediction counting is now handled by config_predictions externally
         # prev_prediction_count = len(config_predictions) if config_predictions else 0
@@ -758,7 +761,7 @@ class PipelineRunner:
         if needs_spinner and self.show_spinner and self.verbose == 0:  # Only show spinner when not verbose
             # Create and print the initial message
             controller_display_name = controller_name.replace('Controller', '')
-            initial_message = f"🔄 {controller_name} executes {controller_display_name}"
+            initial_message = f"{REFRESH}{controller_name} executes {controller_display_name}"
 
             # Only show test data shape for model controllers
             if is_model_controller:
@@ -834,4 +837,5 @@ class PipelineRunner:
         """Get the next operation ID."""
         self.operation_count += 1
         return self.operation_count
+
 

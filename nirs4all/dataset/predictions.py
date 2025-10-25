@@ -13,6 +13,7 @@ from pathlib import Path
 import json
 import hashlib
 import nirs4all.dataset.evaluator as Evaluator
+from nirs4all.utils.emoji import DISK, CHECK, SEARCH
 import csv
 import io
 
@@ -134,9 +135,9 @@ class PredictionResult(dict):
 
             df_csv = pl.DataFrame(clean_csv_data)
             df_csv.write_csv(str(filepath))
-            print(f"💾 Saved prediction result to {filepath}")
+            print(f"{DISK}Saved prediction result to {filepath}")
         else:
-            print(f"⚠️ No prediction data found to save for {filepath}")
+            print(f"{WARNING}No prediction data found to save for {filepath}")
 
     def eval_score(self, metrics: Optional[List[str]] = None) -> Dict[str, Any]:
         """
@@ -217,7 +218,7 @@ class PredictionResult(dict):
         try:
             from nirs4all.utils.tab_report_manager import TabReportManager
         except ImportError:
-            return "⚠️ TabReportManager not available"
+            return "{WARNING}TabReportManager not available"
 
         # Check if this is an aggregated result (has train/val/test keys)
         has_partitions = all(k in self for k in ["train", "val", "test"])
@@ -283,7 +284,7 @@ class PredictionResultsList(list):
             filename: Optional filename (if None, auto-generated from first prediction)
         """
         if not self:
-            print("⚠️ No predictions to save")
+            print("{WARNING}No predictions to save")
             return
 
         # Generate filename if not provided
@@ -412,7 +413,7 @@ class PredictionResultsList(list):
             f.write(output.getvalue())
 
         output.close()
-        print(f"💾 Saved {len(self)} predictions to {filepath}")
+        print(f"{DISK}Saved {len(self)} predictions to {filepath}")
 
     def get(self, prediction_id: str) -> Optional[PredictionResult]:
         """
@@ -588,7 +589,7 @@ class Predictions:
 
         # Save to CSV
         df_csv.write_csv(filepath)
-        print(f"💾 Saved predictions to {filepath}")
+        print(f"{DISK}Saved predictions to {filepath}")
 
     @staticmethod
     def save_all_to_csv(predictions: 'Predictions', path: str = "results", aggregate_partitions: bool = False, **filters) -> None:
@@ -618,9 +619,9 @@ class Predictions:
                     result.save_to_csv(path=path)
                 except Exception as e:
                     model_id = result.get('id', 'unknown')
-                    print(f"⚠️ Failed to save prediction {model_id}: {e}")
+                    print(f"{WARNING}Failed to save prediction {model_id}: {e}")
 
-            print(f"✅ Saved {len(all_results)} aggregated model files to {path}")
+            print(f"{CHECK}Saved {len(all_results)} aggregated model files to {path}")
         else:
             # Save one file per individual prediction (each partition/fold separately)
             all_results = predictions.top(
@@ -635,9 +636,9 @@ class Predictions:
                     result.save_to_csv(path=path)
                 except Exception as e:
                     model_id = result.get('id', 'unknown')
-                    print(f"⚠️ Failed to save prediction {model_id}: {e}")
+                    print(f"{WARNING}Failed to save prediction {model_id}: {e}")
 
-            print(f"✅ Saved {len(all_results)} individual prediction files to {path}")
+            print(f"{CHECK}Saved {len(all_results)} individual prediction files to {path}")
 
     def add_prediction(
         self,
@@ -1071,7 +1072,7 @@ class Predictions:
             # print(f"💾 Saved {len(self._df)} predictions to {filepath}")
 
         except Exception as e:
-            print(f"⚠️ Error saving predictions to {filepath}: {e}")
+            print(f"{WARNING}Error saving predictions to {filepath}: {e}")
 
     def load_from_file(self, filepath: str) -> None:
         """Load predictions from JSON file."""
@@ -1085,7 +1086,7 @@ class Predictions:
 
         except Exception as e:
             pass
-            # print(f"⚠️ Error loading predictions from {filepath}: {e}")
+            # print(f"{WARNING}Error loading predictions from {filepath}: {e}")
 
     @classmethod
     def load_from_file_cls(cls, filepath: str) -> 'Predictions':
@@ -1151,7 +1152,7 @@ class Predictions:
                     instance.merge_predictions(temp_instance)
                     print(f"📥 Loaded {len(temp_instance._df)} predictions from {dataset_name}")
                 else:
-                    print(f"⚠️ No predictions.json found for dataset '{dataset_name}' at {dataset_path}")
+                    print(f"{WARNING}No predictions.json found for dataset '{dataset_name}' at {dataset_path}")
 
             # If dataset_name is None, browse all datasets in path
             else:
@@ -1159,7 +1160,7 @@ class Predictions:
                 predictions_files = list(base_path.glob("*/predictions.json"))
 
                 if not predictions_files:
-                    print(f"⚠️ No predictions.json files found in {base_path}")
+                    print(f"{WARNING}No predictions.json files found in {base_path}")
                 else:
                     for pred_file in predictions_files:
                         dataset_name_from_path = pred_file.parent.name
@@ -1168,10 +1169,10 @@ class Predictions:
                         instance.merge_predictions(temp_instance)
                         print(f"📥 Loaded {len(temp_instance._df)} predictions from dataset '{dataset_name_from_path}'")
 
-                    print(f"✅ Total loaded: {len(instance._df)} predictions from {len(predictions_files)} datasets")
+                    print(f"{CHECK}Total loaded: {len(instance._df)} predictions from {len(predictions_files)} datasets")
 
         else:
-            print(f"⚠️ Path '{base_path}' does not exist or is not accessible")
+            print(f"{WARNING}Path '{base_path}' does not exist or is not accessible")
             return instance
 
         # Apply filters if provided using existing filter on DataFrame
@@ -1184,7 +1185,7 @@ class Predictions:
 
             if filter_exprs:
                 instance._df = instance._df.filter(filter_exprs)
-                print(f"🔍 Filtered to {len(instance._df)} predictions matching criteria: {filters}")
+                print(f"{SEARCH} Filtered to {len(instance._df)} predictions matching criteria: {filters}")
 
         # Apply partition aggregation if requested using existing _add_partition_data
         if aggregate_partitions and len(instance._df) > 0:
@@ -1237,14 +1238,14 @@ class Predictions:
 
                 df_csv = pl.DataFrame(csv_data)
                 df_csv.write_csv(filepath)
-                print(f"💾 Saved prediction {index} to {filepath}")
+                print(f"{DISK}Saved prediction {index} to {filepath}")
             else:
                 # Save all predictions in expanded format
                 self._df.write_csv(filepath)
-                print(f"💾 Saved all {len(self._df)} predictions to {filepath}")
+                print(f"{DISK}Saved all {len(self._df)} predictions to {filepath}")
 
         except Exception as e:
-            print(f"⚠️ Error saving prediction to CSV {filepath}: {e}")
+            print(f"{WARNING}Error saving prediction to CSV {filepath}: {e}")
 
     def calculate_scores(self, metrics: Optional[List[str]] = None) -> pl.DataFrame:
         """
@@ -1264,7 +1265,7 @@ class Predictions:
             from ..utils.model_utils import ModelUtils, TaskType
             model_utils = ModelUtils()
         except ImportError:
-            print("⚠️ Cannot import ModelUtils for score calculation")
+            print("{WARNING}Cannot import ModelUtils for score calculation")
             return pl.DataFrame()
 
         scores_data = []
@@ -1592,7 +1593,7 @@ class Predictions:
             if key in df_filtered.columns:
                 df_filtered = df_filtered.filter(pl.col(key) == value)
 
-        # print( f"🔍 Found {len(df_filtered)} predictions after filtering with criteria: {filters}")
+        # print( f"{SEARCH} Found {len(df_filtered)} predictions after filtering with criteria: {filters}")
 
         if df_filtered.is_empty():
             return PredictionResultsList([])
@@ -1640,7 +1641,7 @@ class Predictions:
                 from ..utils.model_utils import ModelUtils, TaskType
                 model_utils = ModelUtils()
             except ImportError:
-                print("⚠️ Cannot import ModelUtils for score calculation")
+                print("{WARNING}Cannot import ModelUtils for score calculation")
                 return PredictionResultsList([])
 
             for i, row in enumerate(df_filtered.to_dicts()):
@@ -1764,7 +1765,7 @@ class Predictions:
             raise TypeError("Can only merge with another Predictions instance")
 
         if len(other._df) == 0:
-            print("⚠️ No predictions to merge (source is empty)")
+            print("{WARNING}No predictions to merge (source is empty)")
             return
 
         # Ensure schemas are compatible before concatenating
@@ -1788,7 +1789,7 @@ class Predictions:
                 self._df = pl.concat([self._df, other._df], how="vertical")
             else:
                 # Schemas don't match, need to align them
-                # print(f"⚠️ Schema mismatch detected, aligning schemas before merge")
+                # print(f"{WARNING}Schema mismatch detected, aligning schemas before merge")
 
                 # Use the predefined schema order from __init__ to ensure consistency
                 predefined_order = [
@@ -1879,7 +1880,7 @@ class Predictions:
             raise TypeError("Can only merge with another Predictions instance")
 
         if len(other._df) == 0:
-            print("⚠️ No predictions to merge (source is empty)")
+            print("{WARNING}No predictions to merge (source is empty)")
             return
 
         original_count = len(self._df)
@@ -1940,7 +1941,7 @@ class Predictions:
             filter['partition'] = partition
             predictions = self.filter_predictions(**filter)
             if not predictions or len(predictions) == 0:
-                print(f"⚠️ No predictions found for {filter}")
+                print(f"{WARNING}No predictions found for {filter}")
                 res[partition] = None
             else:
                 res[partition] = predictions[0]
@@ -2345,4 +2346,6 @@ class Predictions:
         }
 
         return stats
+
+
 
