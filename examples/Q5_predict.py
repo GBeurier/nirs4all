@@ -20,6 +20,7 @@ from nirs4all.dataset import DatasetConfigs
 from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.models.cirad_tf import nicon
+from nirs4all.utils.emoji import CHECK, CROSS
 
 # Build the pipeline with feature augmentation and model persistence
 pipeline = [
@@ -75,7 +76,7 @@ method1_predictions, _ = predictor.predict(best_prediction, prediction_dataset, 
 method1_array = method1_predictions[:5].flatten()
 print("Method 1 predictions:", method1_array)
 is_identical = np.allclose(method1_array, reference_predictions)
-print(f"Method 1 identical to training: {'✅ YES' if is_identical else '❌ NO'}")
+print(f"Method 1 identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")
 
 print("=" * 80)
 
@@ -91,7 +92,7 @@ method2_predictions, _ = predictor2.predict(model_id, prediction_dataset2, verbo
 method2_array = method2_predictions[:5].flatten()
 print("Method 2 predictions:", method2_array)
 is_identical = np.allclose(method2_array, reference_predictions)
-print(f"Method 2 identical to training: {'✅ YES' if is_identical else '❌ NO'}")
+print(f"Method 2 identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")
 
 # Method 3: Predict using a model ID (same as Method 2, but showing the Predictions object return)
 print("--- Method 3: Predict with a model ID and access full prediction metadata ---")
@@ -115,4 +116,4 @@ for pred in method3_preds_obj.to_dicts():
         method3_array = pred_float[:5].flatten()
         print("Method 3 predictions:", method3_array)
         is_identical = np.allclose(method3_array, reference_predictions)
-        print(f"Method 3 identical to training: {'✅ YES' if is_identical else '❌ NO'}")
+        print(f"Method 3 identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")

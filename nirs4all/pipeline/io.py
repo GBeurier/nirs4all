@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, BinaryIO, Tuple
 import uuid
 import shutil
+
+from nirs4all.utils.emoji import CHECK, WARNING
 from nirs4all.dataset.predictions import Predictions
 
 
@@ -464,13 +466,13 @@ class SimulationSaver:
         # Load global predictions for this dataset
         predictions_file = workspace_path / f"{dataset_name}.json"
         if not predictions_file.exists():
-            print(f"⚠️  No predictions found for dataset '{dataset_name}'")
+            print(f"{WARNING} No predictions found for dataset '{dataset_name}'")
             return None
 
         from nirs4all.dataset.predictions import Predictions
         predictions = Predictions.load_from_file_cls(str(predictions_file))
         if predictions.num_predictions == 0:
-            print(f"⚠️  No predictions in database for '{dataset_name}'")
+            print(f"{WARNING} No predictions in database for '{dataset_name}'")
             return None
 
         # Get best prediction
@@ -483,7 +485,7 @@ class SimulationSaver:
         # Get run date from run directory name
         run_dirs = list(runs_dir.glob(f"*_{dataset_name}"))
         if not run_dirs:
-            print(f"⚠️  No run directory found for dataset '{dataset_name}'")
+            print(f"{WARNING} No run directory found for dataset '{dataset_name}'")
             return None
 
         run_dir = run_dirs[-1]  # Get most recent run
@@ -498,14 +500,14 @@ class SimulationSaver:
                 break
 
         if not pipeline_dir:
-            print(f"⚠️  Pipeline directory not found for config '{config_name}'")
+            print(f"{WARNING} Pipeline directory not found for config '{config_name}'")
             return None
 
         # Export predictions
         pred_filename = f"{run_date}_{best['model_name']}_predictions.csv"
         pred_path = exports_dir / pred_filename
         Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], pred_path)
-        print(f"✅ Exported predictions: {pred_path}")
+        print(f"{CHECK} Exported predictions: {pred_path}")
 
         # Export pipeline config
         pipeline_json = pipeline_dir / "pipeline.json"
@@ -513,14 +515,14 @@ class SimulationSaver:
             config_filename = f"{run_date}_{best['model_name']}_pipeline.json"
             config_path = exports_dir / config_filename
             shutil.copy(pipeline_json, config_path)
-            print(f"✅ Exported pipeline config: {config_path}")
+            print(f"{CHECK} Exported pipeline config: {config_path}")
 
         # Export charts if they exist
         for chart_file in pipeline_dir.glob("*.png"):
             chart_filename = f"{run_date}_{best['model_name']}_{chart_file.name}"
             chart_path = exports_dir / chart_filename
             shutil.copy(chart_file, chart_path)
-            print(f"✅ Exported chart: {chart_path}")
+            print(f"{CHECK} Exported chart: {chart_path}")
 
         # Handle different export modes for binaries
         if mode in ["trained", "full"]:
@@ -542,7 +544,7 @@ class SimulationSaver:
                         if src.exists():
                             shutil.copy(src, export_binaries_dir / binary_name)
 
-                    print(f"✅ Exported {len(list(export_binaries_dir.iterdir()))} binaries")
+                    print(f"{CHECK} Exported {len(list(export_binaries_dir.iterdir()))} binaries")
 
         # Create summary metadata
         from datetime import datetime
@@ -560,7 +562,9 @@ class SimulationSaver:
         summary_path = exports_dir / f"{run_date}_{best['model_name']}_summary.json"
         with open(summary_path, 'w') as f:
             json.dump(summary, f, indent=2)
-        print(f"✅ Exported summary: {summary_path}")
+        print(f"{CHECK} Exported summary: {summary_path}")
 
         return exports_dir
+
+
 

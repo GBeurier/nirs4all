@@ -423,7 +423,7 @@ def eval_list(y_true: np.ndarray, y_pred: np.ndarray, metrics: list) -> list:
             scores.append(score)
         except Exception as e:
             # Handle individual metric failures gracefully
-            print(f"⚠️ Failed to calculate {metric}: {str(e)}")
+            print(f"{WARNING}Failed to calculate {metric}: {str(e)}")
             scores.append(None)
 
     return scores
@@ -514,3 +514,4 @@ def get_default_metrics(task_type: str) -> list:
 
     else:
         raise ValueError(f"Unsupported task_type: {task_type}")
+

@@ -18,6 +18,7 @@ from nirs4all.operators.transformations import (
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.utils.emoji import REFRESH, TROPHY, TARGET, CHART, MICROSCOPE
 from nirs4all.utils.PCA_analyzer import PreprocPCAEvaluator
 
 # Configuration variables
@@ -41,7 +42,7 @@ data_path = ['sample_data/regression', 'sample_data/classification', 'sample_dat
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-print("🔄 Running preprocessing pipeline...")
+print(f"{REFRESH}Running preprocessing pipeline...")
 runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
@@ -50,7 +51,7 @@ datasets_raw = runner.raw_data  # {dataset_name: np_array(n_samples, n_features)
 datasets_pp = runner.pp_data  # {dataset_name: {preproc_name: np_array(n_samples, n_features)}}
 
 # Create evaluator and fit
-print("\n📊 Analyzing PCA geometry preservation...")
+print(f"\n{CHART}Analyzing PCA geometry preservation...")
 
 
 evaluator = PreprocPCAEvaluator(r_components=12, knn=10)
@@ -77,13 +78,13 @@ print("="*120)
 print("\n" + "="*120)
 print("CROSS-DATASET ANALYSIS - Evaluating Multi-Machine Compatibility")
 print("="*120)
-print("\n🔬 Analyzing how preprocessing affects inter-dataset distances...")
+print(f"\n{MICROSCOPE}Analyzing how preprocessing affects inter-dataset distances...")
 print("   (Goal: Find preprocessing that brings different datasets closer together)")
 
 if not evaluator.cross_dataset_df_.empty:
     # Display cross-dataset summary
     summary = evaluator.get_cross_dataset_summary(metric='centroid_improvement')
-    print("\n📊 Cross-Dataset Distance Summary:")
+    print(f"\n{CHART}Cross-Dataset Distance Summary:")
     print("   (Sorted by centroid improvement - higher is better)")
     print("-" * 120)
     print(summary.to_string(index=False))
@@ -98,7 +99,7 @@ if not evaluator.cross_dataset_df_.empty:
     print("="*120)
 
     # Print top 3 preprocessing methods for cross-dataset compatibility
-    print("\n🏆 TOP 3 PREPROCESSING FOR CROSS-DATASET COMPATIBILITY:")
+    print(f"\n{TROPHY}TOP 3 PREPROCESSING FOR CROSS-DATASET COMPATIBILITY:")
     top3 = summary.head(3)
     for idx, row in top3.iterrows():
         pp_name = row['preproc'].split('|')[-1].replace('MinMax>', '').replace('>', ' → ')
@@ -121,7 +122,7 @@ if not evaluator.cross_dataset_df_.empty:
     quality_convergence['avg_convergence'] = avg_convergence
     quality_convergence_sorted = quality_convergence.sort_values('avg_convergence', ascending=False)
 
-    print("\n📊 Quality Metric Convergence Summary:")
+    print(f"\n{CHART}Quality Metric Convergence Summary:")
     print("   (Sorted by average convergence - higher is better)")
     print("-" * 120)
     display_cols = ['preproc'] + [f'{m}_convergence' for m in quality_metrics] + ['avg_convergence']
@@ -137,7 +138,7 @@ if not evaluator.cross_dataset_df_.empty:
     print("  → Look for HIGH convergence values for robust cross-dataset models!")
     print("="*120)
 
-    print("\n🏆 TOP 3 PREPROCESSING FOR QUALITY HOMOGENEITY:")
+    print(f"\n{TROPHY}TOP 3 PREPROCESSING FOR QUALITY HOMOGENEITY:")
     top3_quality = quality_convergence_sorted.head(3)
     for idx, row in top3_quality.iterrows():
         pp_name = row['preproc'].split('|')[-1].replace('MinMax>', '').replace('>', ' → ')
@@ -153,24 +154,24 @@ print("\n🎨 Generating visualizations...")
 
 # NEW: Key visualizations for transfer learning
 if not evaluator.cross_dataset_df_.empty:
-    print("\n   🎯 KEY VISUALIZATIONS FOR TRANSFER LEARNING:")
+    print(f"\n   {TARGET}KEY VISUALIZATIONS FOR TRANSFER LEARNING:")
 
-    print("   📊 1. All datasets in same PCA space (raw + all preprocessings)...")
+    print(f"   {CHART}1. All datasets in same PCA space (raw + all preprocessings)...")
     evaluator.plot_all_datasets_pca()
 
-    print("   📏 2. Centroid distance matrices (raw vs all preprocessings)...")
+    print("   2. Centroid distance matrices (raw vs all preprocessings)...")
     evaluator.plot_distance_matrices(metric='centroid')
 
-    print("   🏆 3. Preprocessing ranking for transfer learning (centroid distance)...")
+    print(f"   {TROPHY}3. Preprocessing ranking for transfer learning (centroid distance)...")
     evaluator.plot_distance_reduction_ranking(metric='centroid', log_scale=True)
 
-    print("   📐 4. Spread distance matrices (raw vs all preprocessings)...")
+    print("   4. Spread distance matrices (raw vs all preprocessings)...")
     evaluator.plot_distance_matrices(metric='spread')
 
-    print("   🎖️  5. Preprocessing ranking for transfer learning (spread distance)...")
+    print("   5. Preprocessing ranking for transfer learning (spread distance)...")
     evaluator.plot_distance_reduction_ranking(metric='spread', log_scale=True)
 
-    print("   📊 6. Quality metric convergence across datasets...")
+    print(f"   {CHART}6. Quality metric convergence across datasets...")
     evaluator.plot_quality_metric_convergence()
 else:
     print("\n⚠️  Not enough datasets for cross-dataset analysis (need at least 2)")

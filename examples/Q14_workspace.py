@@ -24,6 +24,7 @@ from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.dataset.predictions import Predictions
+from nirs4all.utils.emoji import DISK, TROPHY, SEARCH, ROCKET
 from nirs4all.workspace.library_manager import LibraryManager
 
 
@@ -106,7 +107,7 @@ def main():
             # Show _binaries
             binaries_dir = run_dir / "_binaries"
             if binaries_dir.exists():
-                print(f"      💾 _binaries/")
+                print(f"      {DISK}_binaries/")
                 binary_files = list(binaries_dir.iterdir())
                 for bf in sorted(binary_files)[:3]:  # Show first 3
                     print(f"          📦 {bf.name}")
@@ -114,7 +115,7 @@ def main():
             # Show best predictions in run root
             best_preds = list(run_dir.glob("*Best_prediction*.csv"))
             if best_preds:
-                print(f"      🏆 Best predictions (run root):")
+                print(f"      {TROPHY}Best predictions (run root):")
                 for bp in sorted(best_preds):
                     print(f"          📊 {bp.name}")
 
@@ -137,7 +138,7 @@ def main():
         # Show best prediction
         if global_preds.num_predictions > 0:
             best = global_preds.get_best(ascending=True)  # Regression: lower is better
-            print(f"\n🏆 Best prediction overall:")
+            print(f"\n{TROPHY}Best prediction overall:")
             print(f"    Model: {best['model_name']}")
             print(f"    Config: {best['config_name']}")
             print(f"    Val Score: {best.get('val_score', 'N/A')}")
@@ -244,14 +245,14 @@ def main():
         print(f"  • {template['name']}: {template.get('description', 'No description')}")
 
     filtered = library.list_filtered()
-    print(f"\n🔍 Filtered pipelines ({len(filtered)}):")
+    print(f"\n{SEARCH}Filtered pipelines ({len(filtered)}):")
     for filt in filtered:
         n_features = filt.get('n_features', 'N/A')
         print(f"  • {filt['name']}: {filt.get('description', 'No description')}")
         print(f"      n_features: {n_features}")
 
     pipelines = library.list_pipelines()
-    print(f"\n🚀 Full pipelines ({len(pipelines)}):")
+    print(f"\n{ROCKET}Full pipelines ({len(pipelines)}):")
     for pipeline in pipelines:
         n_features = pipeline.get('n_features', 'N/A')
         print(f"  • {pipeline['name']}: {pipeline.get('description', 'No description')}")
@@ -290,7 +291,7 @@ def main():
             print(f"      Val: {val_str} | Test: {test_str} | ID: {pred_dict['id']}")
 
         # Filter by model
-        print(f"\n🔍 Filtering predictions by model name:")
+        print(f"\n{SEARCH}Filtering predictions by model name:")
         for pred_dict in global_preds.to_dicts():
             if "PLS" in pred_dict['model_name']:
                 val = pred_dict.get('val_score', 'N/A')
