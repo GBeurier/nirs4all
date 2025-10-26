@@ -19,11 +19,21 @@ from sklearn.exceptions import UndefinedMetricWarning
 import warnings
 
 
-class TaskType(Enum):
+class TaskType(str, Enum):
     """Enumeration of machine learning task types."""
     REGRESSION = "regression"
     BINARY_CLASSIFICATION = "binary_classification"
     MULTICLASS_CLASSIFICATION = "multiclass_classification"
+
+    @property
+    def is_classification(self) -> bool:
+        """Check if this is a classification task."""
+        return self in (TaskType.BINARY_CLASSIFICATION, TaskType.MULTICLASS_CLASSIFICATION)
+
+    @property
+    def is_regression(self) -> bool:
+        """Check if this is a regression task."""
+        return self == TaskType.REGRESSION
 
 
 class ModelUtils:
@@ -369,98 +379,6 @@ class ModelUtils:
             formatted_items.append(f"{metric}: {score:.{precision}f}")
 
         return ", ".join(formatted_items)
-
-    # Deprecated methods from controllers (for backward compatibility)
-    @staticmethod
-    def deprec_calculate_scores(
-        y_true: np.ndarray,
-        y_pred: np.ndarray,
-        task_type: str = "auto"
-    ) -> Dict[str, float]:
-        """
-        DEPRECATED: Calculate scores for the predictions (simplified version).
-        Use calculate_scores() instead for better functionality.
-        """
-        try:
-            from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-            from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
-        except ImportError:
-            return {}
-
-        # Ensure arrays are numpy and flatten
-        y_true = np.asarray(y_true).flatten()
-        y_pred = np.asarray(y_pred).flatten()
-
-        # Auto-detect task type if needed
-        if task_type == "auto":
-            task_type = ModelUtils.deprec_detect_task_type(y_true)
-
-        scores = {}
-
-        try:
-            if task_type == "regression":
-                # Regression metrics
-                scores['mse'] = mean_squared_error(y_true, y_pred)
-                scores['rmse'] = np.sqrt(scores['mse'])
-                scores['mae'] = mean_absolute_error(y_true, y_pred)
-                scores['r2'] = r2_score(y_true, y_pred)
-
-            elif task_type == "classification":
-                # Classification metrics
-                scores['accuracy'] = accuracy_score(y_true, y_pred)
-                scores['f1'] = f1_score(y_true, y_pred, average='weighted')
-                scores['precision'] = precision_score(y_true, y_pred, average='weighted')
-                scores['recall'] = recall_score(y_true, y_pred, average='weighted')
-
-        except Exception as e:
-            print(f"{WARNING}Error calculating scores: {e}")
-
-        return scores
-
-    @staticmethod
-    def deprec_detect_task_type(y: np.ndarray) -> str:
-        """
-        DEPRECATED: Detect if this is a regression or classification task (simplified).
-        Use detect_task_type() instead for better functionality.
-        """
-        y = np.asarray(y).flatten()
-
-        # Check if all values are integers and within a reasonable range for classification
-        if np.all(y == y.astype(int)) and len(np.unique(y)) < 50:
-            return "classification"
-        else:
-            return "regression"
-
-    @staticmethod
-    def deprec_get_best_metric_for_task(task_type: str) -> tuple[str, bool]:
-        """
-        DEPRECATED: Get the best metric for a given task type (simplified).
-        Use get_best_score_metric() instead.
-        """
-        if task_type == "regression":
-            return "rmse", False  # Lower RMSE is better
-        elif task_type == "classification":
-            return "accuracy", True  # Higher accuracy is better
-        else:
-            return "rmse", False  # Default
-
-    @staticmethod
-    def deprec_format_scores(scores: Dict[str, float]) -> str:
-        """
-        DEPRECATED: Format scores dictionary into a readable string (simplified).
-        Use format_scores() instead.
-        """
-        if not scores:
-            return "no scores"
-
-        formatted = []
-        for metric, value in scores.items():
-            if isinstance(value, (int, float)):
-                formatted.append(f"{metric}={value:.4f}")
-            else:
-                formatted.append(f"{metric}={value}")
-
-        return ", ".join(formatted)
 
     # Weighted averaging functionality (moved from controllers)
     @staticmethod

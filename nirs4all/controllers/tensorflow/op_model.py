@@ -186,25 +186,7 @@ class TensorFlowModelController(BaseModelController):
         verbose = train_params.get('verbose', 0)
 
         # Detect task type and auto-configure loss/metrics
-        task_type_str = self._detect_task_type(y_train)
-
-        # Convert string to TaskType enum
-        if task_type_str == "regression":
-            task_type = TaskType.REGRESSION
-        elif task_type_str == "binary_classification":
-            task_type = TaskType.BINARY_CLASSIFICATION
-        elif task_type_str == "multiclass_classification":
-            task_type = TaskType.MULTICLASS_CLASSIFICATION
-        elif task_type_str == "classification":
-            # Determine if binary or multiclass from unique values
-            y_flat = y_train.flatten()
-            n_unique = len(np.unique(y_flat[~np.isnan(y_flat)]))
-            if n_unique == 2:
-                task_type = TaskType.BINARY_CLASSIFICATION
-            else:
-                task_type = TaskType.MULTICLASS_CLASSIFICATION
-        else:
-            task_type = TaskType.REGRESSION  # Default fallback
+        task_type = self._detect_task_type(y_train)
 
         # Labels should already be encoded by targets layer for classification
         # No additional encoding needed here

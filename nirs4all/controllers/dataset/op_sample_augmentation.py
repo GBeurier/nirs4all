@@ -217,7 +217,7 @@ class SampleAugmentationController(OperatorController):
             original_values_all = labels_all_train.copy()
 
             # Apply binning for regression tasks
-            if dataset.is_regression():
+            if dataset.is_regression:
                 bins = config.get("bins", 10)
                 strategy = config.get("binning_strategy", "equal_width")
                 labels_all_train, _ = BinningCalculator.bin_continuous_targets(
@@ -242,7 +242,7 @@ class SampleAugmentationController(OperatorController):
             original_values_base = None
 
         # Calculate augmentation counts per BASE TRAIN sample using specified mode
-        if bin_balancing == "value" and dataset.is_regression() and original_values_base is not None:
+        if bin_balancing == "value" and dataset.is_regression and original_values_base is not None:
             # Use value-aware balancing for regression with binning
             augmentation_counts = BalancingCalculator.calculate_balanced_counts_value_aware(
                 labels_base_train,

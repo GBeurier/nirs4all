@@ -407,7 +407,7 @@ class PipelineRunner:
     def print_best_predictions(self, run_dataset_predictions: Predictions, global_dataset_predictions: Predictions,
                                dataset: SpectroDataset, name: str, dataset_prediction_path: str):
         if run_dataset_predictions.num_predictions > 0:
-            best = run_dataset_predictions.get_best(ascending=True if dataset.is_regression() else False)
+            best = run_dataset_predictions.get_best(ascending=True if dataset.is_regression else False)
             print(f"{TROPHY}Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
             if self.enable_tab_reports:
                 best_by_partition = run_dataset_predictions.get_entry_partitions(best)
@@ -701,7 +701,7 @@ class PipelineRunner:
                 feature_names = [f"λ{w:.1f}" for w in dataset.wavelengths]
 
             # Detect task type
-            task_type = 'classification' if dataset.task_type and 'classification' in dataset.task_type else 'regression'
+            task_type = 'classification' if dataset.task_type and dataset.task_type.is_classification else 'regression'
 
             # Create output directory
             model_id = self.target_model.get('id', 'unknown')
@@ -797,7 +797,7 @@ class PipelineRunner:
                 self.saver.save_json("pipeline.json", steps)
 
                 if config_predictions.num_predictions > 0:
-                    pipeline_best = config_predictions.get_best(ascending=True if dataset.is_regression() else False)
+                    pipeline_best = config_predictions.get_best(ascending=True if dataset.is_regression else False)
                     print(f"{MEDAL_GOLD}Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
                     if self.verbose > 0:
                         print(f"\033[94m{FLAG}Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")

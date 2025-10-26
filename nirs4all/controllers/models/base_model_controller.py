@@ -22,7 +22,7 @@ from nirs4all.controllers.controller import OperatorController
 from .model_controller_helper import ModelControllerHelper
 from .optuna_manager import OptunaManager
 from nirs4all.dataset.predictions import Predictions
-from nirs4all.utils.model_utils import ModelUtils
+from nirs4all.utils.model_utils import ModelUtils, TaskType
 from nirs4all.utils.model_builder import ModelBuilderFactory
 from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, TARGET, CHART, WEIGHT_LIFT, WARNING
 import nirs4all.dataset.evaluator as Evaluator
@@ -101,7 +101,7 @@ class BaseModelController(OperatorController, ABC):
 
         # For classification tasks, use the transformed targets for evaluation
         # For regression tasks, use the original "numeric" targets
-        if dataset.task_type and 'classification' in dataset.task_type:
+        if dataset.task_type and dataset.task_type.is_classification:
             # Use the same y context as the model training (transformed targets)
             y_train_unscaled = dataset.y(train_context)
             y_test_unscaled = dataset.y(test_context)
@@ -275,11 +275,11 @@ class BaseModelController(OperatorController, ABC):
                 model_classname = model.__class__.__name__
 
             # Compute weights based on scores
-            higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)[1]
+            metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
             weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
 
             # Create fold averages and get average predictions data
-            if dataset._task_type == 'regression':
+            if dataset.task_type and dataset.task_type.is_regression:
                 avg_predictions, w_avg_predictions = self._create_fold_averages(
                     base_model_name, dataset, model_config, context, runner, prediction_store, model_classname,
                     folds_models, fold_val_indices, scores,
@@ -437,8 +437,8 @@ class BaseModelController(OperatorController, ABC):
         # print("Predicted fold:", fold_idx, "Shapes:", y_test_pred_unscaled.shape, "Tests", y_test_pred_unscaled[:5])
         # print("UNSCALED PRED:", y_train_pred_unscaled.shape, y_val_pred_unscaled.shape, y_test_pred_unscaled.shape)
 
-        metric, higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)
-        direction = ARROW_UP if higher_is_better else ARROW_DOWN
+        metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
+        _direction = ARROW_UP if higher_is_better else ARROW_DOWN
         score_train = Evaluator.eval(y_train_unscaled, y_train_pred_unscaled, metric)
         score_val = Evaluator.eval(y_val_unscaled, y_val_pred_unscaled, metric)
         score_test = Evaluator.eval(y_test_unscaled, y_test_pred_unscaled, metric)
@@ -493,23 +493,23 @@ class BaseModelController(OperatorController, ABC):
 
 
 
-    def _detect_task_type(self, y: Any) -> str:
+    def _detect_task_type(self, y: Any) -> TaskType:
         """Detect task type from target values."""
-        return ModelUtils.deprec_detect_task_type(y)
+        return ModelUtils.detect_task_type(y)
 
     def _calculate_and_print_scores(
         self,
         y_true: Any,
         y_pred: Any,
-        task_type: str,
+        task_type: TaskType,
         partition: str = "test",
         model_name: str = "model",
         show_detailed_scores: bool = True
     ) -> Dict[str, float]:
         """Calculate scores and print them."""
-        scores = ModelUtils.deprec_calculate_scores(y_true, y_pred, task_type)
+        scores = ModelUtils.calculate_scores(y_true, y_pred, task_type)
         if scores and show_detailed_scores:
-            score_str = ModelUtils.deprec_format_scores(scores)
+            score_str = ModelUtils.format_scores(scores)
             print(f"{CHART} {model_name} {partition} scores: {score_str}")
         return scores
 
@@ -703,9 +703,9 @@ class BaseModelController(OperatorController, ABC):
         score_val = 0.0
         score_test = 0.0
         score_train = 0.0
-        metric, higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)
+        metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
         if mode != "predict" and mode != "explain":
-            direction = ARROW_UP if higher_is_better else ARROW_DOWN
+            _direction = ARROW_UP if higher_is_better else ARROW_DOWN
             # Evaluate average predictions
             score_train = Evaluator.eval(y_train_unscaled, all_train_avg_preds, metric)
             score_val = Evaluator.eval(y_val_unscaled, all_val_avg_preds, metric)

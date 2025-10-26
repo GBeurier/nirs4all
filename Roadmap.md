@@ -27,10 +27,10 @@
 > **Enhancement**:
 > - Options normalisation in charts (0-1 ou 1-0)
 
-
-> [Predictions] refactoring and as a pipeline context and change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
+> [Predictions] refactoring and as a pipeline context / modularize class.
 
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions
+
 **Bugs**:
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
 
@@ -40,7 +40,7 @@
 
 **RELEASE** 0.6
 
-> [TEST] Improve integration tests before pipeline refactoring
+> [TEST] Improve integration tests before pipeline refactoring and reorganize tests (naming / responsibilities / coverage / assertions)
 
 > [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
 
