@@ -45,7 +45,7 @@ pipeline = [
 ]
 
 # Add PLS models with different numbers of components
-for n_components in range(1, 30, 2):
+for n_components in range(1, 30, 5):
     model_config = {
         "name": f"PLS-{n_components}_components",
         "model": PLSRegression(n_components=n_components)

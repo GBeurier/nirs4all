@@ -612,7 +612,6 @@ class PipelineRunner:
         single_pred = run_predictions.get_similar(
             model_name=self.target_model.get('model_name', None),
             step_idx=self.target_model.get('step_idx', None),
-            op_counter=self.target_model.get('op_counter', None),
             fold_id=self.target_model.get('fold_id', None),
             partition='test'  # Always return test partition for predict
         )
