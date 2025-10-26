@@ -101,25 +101,25 @@ class Targets:
     def num_classes(self) -> int:
         """
         Get the number of unique classes from numeric targets.
-        
+
         Returns:
             int: Number of unique classes
-            
+
         Raises:
             ValueError: If no target data available
         """
         if self.num_samples == 0:
             raise ValueError("Cannot compute num_classes: no target data available")
-        
+
         # Get numeric targets (all samples)
         y_numeric = self._data.get("numeric")
         if y_numeric is None:
             raise ValueError("Cannot compute num_classes: numeric targets not available")
-        
+
         # For multi-target, use first column (typical for classification)
         if y_numeric.ndim > 1:
             y_numeric = y_numeric[:, 0]
-        
+
         # Count unique classes
         unique_classes = np.unique(y_numeric[~np.isnan(y_numeric)])
         return len(unique_classes)
@@ -438,11 +438,11 @@ class Targets:
             # (integer labels that are not consecutive starting from 0)
             y_flat = y_raw.flatten()
             unique_vals = np.unique(y_flat[~np.isnan(y_flat)])
-            
+
             # Check if these are integer-like classification labels
             is_integer_like = np.allclose(unique_vals, np.round(unique_vals), atol=1e-10)
             expected_consecutive = np.arange(len(unique_vals))
-            
+
             if is_integer_like and len(unique_vals) <= 50 and not np.array_equal(unique_vals, expected_consecutive):
                 # These are classification labels that need encoding to [0, n_classes-1]
                 label_encoder = LabelEncoder()
