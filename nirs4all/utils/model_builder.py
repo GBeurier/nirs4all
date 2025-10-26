@@ -22,7 +22,7 @@ from nirs4all.utils.backend_utils import TF_AVAILABLE, TORCH_AVAILABLE
 
 class ModelBuilderFactory:
 
-
+#
     @staticmethod
     @staticmethod
     def build_single_model(model_config, dataset, force_params={}):
@@ -33,9 +33,9 @@ class ModelBuilderFactory:
         #     print(f"DEBUG dict keys: {list(model_config.keys())}")
 
         # print("Building model with config:", model_config, "dataset:", dataset, "task:", task, "force_params:", force_params)
-        if dataset._task_type == "classification" or dataset._task_type == "binary_classification" or dataset._task_type == "multiclass_classification":
-            force_params['num_classes'] = dataset.num_classes  # TODO get loss to applied num_classes (sparse_categorical_crossentropy = 1, categorical_crossentropy = num_classe)
-            # force_params['num_classes'] = 1
+        if hasattr(dataset, 'is_classification') and dataset.is_classification():
+            if hasattr(dataset, 'num_classes'):
+                force_params['num_classes'] = dataset.num_classes
 
         if isinstance(model_config, str):  # 1
             # print("Building from string")
@@ -135,15 +135,11 @@ class ModelBuilderFactory:
             input_dim = ModelBuilderFactory._get_input_dim(framework, dataset)
             params['input_dim'] = input_dim
             params['input_shape'] = input_dim
-            # Set num_classes and loss for tensorflow classification
-            if framework == 'tensorflow' and hasattr(dataset, 'num_classes'):
-                num_classes = dataset.num_classes
-                params['num_classes'] = num_classes
-                # Always override loss for tensorflow classification
-                if num_classes == 2:
-                    params['loss'] = 'binary_crossentropy'
-                else:
-                    params['loss'] = 'sparse_categorical_crossentropy'
+            # Set num_classes for tensorflow classification models
+            if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification():
+                if hasattr(dataset, 'num_classes'):
+                    num_classes = dataset.num_classes
+                    params['num_classes'] = num_classes
             model = ModelBuilderFactory.prepare_and_call(callable_model, params, force_params)
             return model
         else:
@@ -165,20 +161,13 @@ class ModelBuilderFactory:
             params['input_shape'] = input_dim
         if 'input_dim' in sig.parameters:
             params['input_dim'] = input_dim
-        # Only set num_classes and loss for tensorflow classification
-        task = getattr(dataset, 'task', None)
-        if framework == 'tensorflow' and hasattr(dataset, 'num_classes'):
-            # Try to infer task from dataset or force_params
-            if (task is None and force_params is not None and 'task' in force_params):
-                task = force_params['task']
-            if task == 'classification':
+        # Only set num_classes for tensorflow classification models
+        if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification():
+            if hasattr(dataset, 'num_classes'):
                 num_classes = dataset.num_classes
-                params['num_classes'] = num_classes
-                # Always override loss for tensorflow classification
-                if num_classes == 2:
-                    params['loss'] = 'binary_crossentropy'
-                else:
-                    params['loss'] = 'sparse_categorical_crossentropy'
+                # Only set num_classes if the function signature has it (for classification models)
+                if 'num_classes' in sig.parameters:
+                    params['num_classes'] = num_classes
         model = ModelBuilderFactory.prepare_and_call(model_callable, params, force_params)
         return model
 

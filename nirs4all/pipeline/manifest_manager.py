@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Union
 def _sanitize_for_yaml(obj: Any) -> Any:
     """
     Recursively sanitize data structures for safe YAML serialization.
-    Converts tuples to lists to avoid Python-specific YAML tags.
+    Converts tuples to lists and removes runtime-only keys to avoid Python-specific YAML tags.
 
     Args:
         obj: Object to sanitize
@@ -39,7 +39,14 @@ def _sanitize_for_yaml(obj: Any) -> Any:
     elif isinstance(obj, list):
         return [_sanitize_for_yaml(item) for item in obj]
     elif isinstance(obj, dict):
-        return {key: _sanitize_for_yaml(value) for key, value in obj.items()}
+        # Remove runtime-only keys that cannot be safely serialized to YAML
+        sanitized = {}
+        for key, value in obj.items():
+            if key == '_runtime_instance':
+                # Skip runtime instances - they're Python objects that can't be serialized safely
+                continue
+            sanitized[key] = _sanitize_for_yaml(value)
+        return sanitized
     else:
         return obj
 

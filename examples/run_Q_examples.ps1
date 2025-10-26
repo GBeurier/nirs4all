@@ -5,9 +5,10 @@ param(
 )
 
 $examples = @(
-    "Q1_groupsplit.py",
     "Q1_regression.py",
     "Q1_classif.py",
+    "Q1_classif_tf.py",
+    "Q1_groupsplit.py",
     "Q2_multimodel.py",
     "Q3_finetune.py",
     "Q4_multidatasets.py",
@@ -19,7 +20,8 @@ $examples = @(
     "Q9_acp_spread.py",
     "Q10_resampler.py",
     "Q11_flexible_inputs.py",
-    "Q12_sample_augmentation.py"
+    "Q12_sample_augmentation.py",
+    "Q13_nm_headers.py",
     "Q14_workspace.py"
 )
 
