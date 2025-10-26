@@ -17,7 +17,7 @@ from nirs4all.dataset.metadata import Metadata
 from nirs4all.dataset.predictions import Predictions
 from nirs4all.utils.emoji import CHART, REFRESH, TARGET
 from sklearn.base import TransformerMixin
-from typing import Optional, Union, List, Tuple, Dict, Any
+from typing import Optional, Union, List, Tuple, Dict, Any, Literal
 
 
 class SpectroDataset:
@@ -35,8 +35,28 @@ class SpectroDataset:
         self.name = name
         self._task_type: Optional[str] = None  # "regression", "binary_classification", "multiclass_classification"
 
-    def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
-        indices = self._indexer.x_indices(selector)
+    def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True, include_augmented: bool = True) -> OutputData:
+        """
+        Get feature data with automatic augmented sample aggregation.
+
+        Args:
+            selector: Filter criteria (partition, group, branch, etc.)
+            layout: Output layout ("2d" or "3d")
+            concat_source: If True, concatenate multiple sources along feature axis
+            include_augmented: If True, include augmented versions of selected samples.
+                             If False, return only base samples (origin=null).
+                             Default True for backward compatibility.
+
+        Returns:
+            Feature data array(s)
+
+        Example:
+            >>> # Get all train samples (base + augmented)
+            >>> X_train = dataset.x({"partition": "train"})
+            >>> # Get only base train samples (for splitting)
+            >>> X_base = dataset.x({"partition": "train"}, include_augmented=False)
+        """
+        indices = self._indexer.x_indices(selector, include_augmented=include_augmented)
         return self._features.x(indices, layout, concat_source)
 
     # def x_train(self, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
@@ -47,23 +67,55 @@ class SpectroDataset:
     #     selector = {"partition": "test"}
     #     return self.x(selector, layout, concat_source)
 
-    def y(self, selector: Selector) -> np.ndarray:
-        indices = self._indexer.y_indices(selector)
+    def y(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
+        """
+        Get target data - automatically maps augmented samples to their origin for y values.
+
+        Args:
+            selector: Filter criteria (partition, group, branch, etc.)
+            include_augmented: If True, include augmented versions of selected samples.
+                             Augmented samples are automatically mapped to their origin's y value.
+                             If False, return only base samples.
+                             Default True for backward compatibility.
+
+        Returns:
+            Target values array
+
+        Example:
+            >>> # Get all train targets (base + augmented, with mapping)
+            >>> y_train = dataset.y({"partition": "train"})
+            >>> # Get only base train targets (for splitting)
+            >>> y_base = dataset.y({"partition": "train"}, include_augmented=False)
+        """
+        if include_augmented:
+            # Get all sample indices (base + augmented)
+            x_indices = self._indexer.x_indices(selector, include_augmented=True)
+
+            # Map each sample to its y index (augmented → origin)
+            y_indices = np.array([
+                self._indexer.get_origin_for_sample(int(sample_id))
+                for sample_id in x_indices
+            ], dtype=np.int32)
+        else:
+            # Get only base samples using x_indices with include_augmented=False
+            y_indices = self._indexer.x_indices(selector, include_augmented=False)
+
         if selector and "y" in selector:
             processing = selector["y"]
         else:
             processing = "numeric"
 
-        return self._targets.y(indices, processing)
+        return self._targets.y(y_indices, processing)
 
     # FEATURES
     def add_samples(self,
                     data: InputData,
                     indexes: Optional[IndexDict] = None,
-                    headers: Optional[Union[List[str], List[List[str]]]] = None) -> None:
+                    headers: Optional[Union[List[str], List[List[str]]]] = None,
+                    header_unit: Optional[Union[str, List[str]]] = None) -> None:
         num_samples = get_num_samples(data)
         self._indexer.add_samples_dict(num_samples, indexes)
-        self._features.add_samples(data, headers=headers)
+        self._features.add_samples(data, headers=headers, header_unit=header_unit)
 
     def add_features(self,
                      features: InputFeatures,
@@ -97,11 +149,12 @@ class SpectroDataset:
                         selector: Optional[Selector] = None,
                         count: Union[int, List[int]] = 1) -> List[int]:
         # Get indices of samples to augment using selector
+        # IMPORTANT: Always use include_augmented=False to only augment base samples
         if selector is None:
-            # Augment all existing samples
-            sample_indices = list(range(self._features.num_samples))
+            # Augment all base samples (exclude already augmented ones)
+            sample_indices = self._indexer.x_indices({}, include_augmented=False).tolist()
         else:
-            sample_indices = self._indexer.x_indices(selector).tolist()
+            sample_indices = self._indexer.x_indices(selector, include_augmented=False).tolist()
 
         if not sample_indices:
             return []
@@ -124,11 +177,102 @@ class SpectroDataset:
     def headers(self, src: int) -> List[str]:
         return self._features.headers(src)
 
+    def header_unit(self, src: int) -> str:
+        """
+        Get the unit type of headers for a data source.
+
+        Args:
+            src: Source index
+
+        Returns:
+            Unit string: "cm-1", "nm", "none", "text", "index"
+        """
+        return self._features.sources[src].header_unit
+
     def float_headers(self, src: int) -> np.ndarray:
+        """
+        Get headers as float array (legacy method).
+
+        WARNING: This method assumes headers are numeric and doesn't handle unit conversion.
+        Use wavelengths_cm1() or wavelengths_nm() for wavelength data.
+
+        Args:
+            src: Source index
+
+        Returns:
+            Headers converted to float array
+
+        Raises:
+            ValueError: If headers cannot be converted to float
+        """
         try:
             return np.array([float(header) for header in self._features.headers(src)])
         except ValueError as e:
             raise ValueError(f"Cannot convert headers to float: {e}")
+
+    def wavelengths_cm1(self, src: int) -> np.ndarray:
+        """
+        Get wavelengths in cm⁻¹ (wavenumber), converting from nm if needed.
+
+        Args:
+            src: Source index
+
+        Returns:
+            Wavelengths in cm⁻¹ as float array
+
+        Raises:
+            ValueError: If headers cannot be converted to wavelengths
+        """
+        headers = self.headers(src)
+        unit = self.header_unit(src)
+
+        if unit == "cm-1":
+            # Already in cm⁻¹
+            return np.array([float(h) for h in headers])
+        elif unit == "nm":
+            # Convert nm to cm⁻¹: wavenumber = 10,000,000 / wavelength_nm
+            nm_values = np.array([float(h) for h in headers])
+            return 10_000_000.0 / nm_values
+        elif unit in ["none", "index"]:
+            # No real wavelengths, return feature indices
+            return np.arange(len(headers), dtype=float)
+        else:
+            raise ValueError(
+                f"Cannot convert unit '{unit}' to wavelengths (cm⁻¹). "
+                f"Expected 'cm-1', 'nm', 'none', or 'index'."
+            )
+
+    def wavelengths_nm(self, src: int) -> np.ndarray:
+        """
+        Get wavelengths in nm, converting from cm⁻¹ if needed.
+
+        Args:
+            src: Source index
+
+        Returns:
+            Wavelengths in nm as float array
+
+        Raises:
+            ValueError: If headers cannot be converted to wavelengths
+        """
+        headers = self.headers(src)
+        unit = self.header_unit(src)
+
+        if unit == "nm":
+            # Already in nm
+            return np.array([float(h) for h in headers])
+        elif unit == "cm-1":
+            # Convert cm⁻¹ to nm: wavelength = 10,000,000 / wavenumber_cm1
+            cm1_values = np.array([float(h) for h in headers])
+            return 10_000_000.0 / cm1_values
+        elif unit in ["none", "index"]:
+            # No real wavelengths, return feature indices
+            return np.arange(len(headers), dtype=float)
+        else:
+            raise ValueError(
+                f"Cannot convert unit '{unit}' to wavelengths (nm). "
+                f"Expected 'cm-1', 'nm', 'none', or 'index'."
+            )
 
     def short_preprocessings_str(self) -> str:
         processings_list = self._features.sources[0].processing_ids
@@ -235,12 +379,119 @@ class SpectroDataset:
         Manually set the task type.
 
         Args:
-            task_type: "regression", "binary_classification", or "multiclass_classification"
+            task_type: One of "regression", "binary_classification", "multiclass_classification"
         """
-        valid_types = ["regression", "binary_classification", "multiclass_classification"]
+        valid_types = ["regression", "binary_classification", "multiclass_classification", "classification"]
         if task_type not in valid_types:
-            raise ValueError(f"Invalid task type. Must be one of: {valid_types}")
+            raise ValueError(f"Invalid task_type. Must be one of {valid_types}")
         self._task_type = task_type
+
+    # METADATA
+    def add_metadata(self,
+                     data: Union[np.ndarray, Any],
+                     headers: Optional[List[str]] = None) -> None:
+        """
+        Add metadata rows (aligns with add_samples call order).
+
+        Args:
+            data: Metadata as 2D array (n_samples, n_cols) or DataFrame
+            headers: Column names (required if data is ndarray)
+        """
+        self._metadata.add_metadata(data, headers)
+
+    def metadata(self,
+                 selector: Optional[Selector] = None,
+                 columns: Optional[List[str]] = None,
+                 include_augmented: bool = True):
+        """
+        Get metadata as DataFrame.
+
+        Args:
+            selector: Filter selector (e.g., {"partition": "train"})
+            columns: Specific columns to return (None = all)
+            include_augmented: If True, include augmented versions of selected samples.
+                             Default True for backward compatibility.
+
+        Returns:
+            Polars DataFrame with metadata
+        """
+        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else None
+        return self._metadata.get(indices, columns)
+
+    def metadata_column(self,
+                        column: str,
+                        selector: Optional[Selector] = None,
+                        include_augmented: bool = True) -> np.ndarray:
+        """
+        Get single metadata column as array.
+
+        Args:
+            column: Column name
+            selector: Filter selector (e.g., {"partition": "train"})
+            include_augmented: If True, include augmented versions of selected samples.
+                             Default True for backward compatibility.
+
+        Returns:
+            Numpy array of column values
+        """
+        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else None
+        return self._metadata.get_column(column, indices)
+
+    def metadata_numeric(self,
+                         column: str,
+                         selector: Optional[Selector] = None,
+                         method: Literal["label", "onehot"] = "label",
+                         include_augmented: bool = True) -> Tuple[np.ndarray, Dict]:
+        """
+        Get numeric encoding of metadata column.
+
+        Args:
+            column: Column name
+            selector: Filter selector (e.g., {"partition": "train"})
+            method: "label" for label encoding or "onehot" for one-hot encoding
+            include_augmented: If True, include augmented versions of selected samples.
+                             Default True for backward compatibility.
+
+        Returns:
+            Tuple of (numeric_array, encoding_info)
+        """
+        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else None
+        return self._metadata.to_numeric(column, indices, method)
+
+    def update_metadata(self,
+                        column: str,
+                        values: Union[List, np.ndarray],
+                        selector: Optional[Selector] = None,
+                        include_augmented: bool = True) -> None:
+        """
+        Update metadata values for selected samples.
+
+        Args:
+            column: Column name
+            values: New values
+            selector: Filter selector (None = all samples)
+            include_augmented: If True, include augmented versions of selected samples.
+                             Default True for backward compatibility.
+        """
+        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else list(range(self._metadata.num_rows))
+        self._metadata.update_metadata(indices, column, values)
+
+    def add_metadata_column(self,
+                            column: str,
+                            values: Union[List, np.ndarray]) -> None:
+        """
+        Add new metadata column.
+
+        Args:
+            column: Column name
+            values: Column values (must match number of samples)
+        """
+        self._metadata.add_column(column, values)
+
+    @property
+    def metadata_columns(self) -> List[str]:
+        """Get list of metadata column names."""
+        return self._metadata.columns
 
     # def set_targets(self, filter: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
     #     self._targets.set_y(filter, y, transformer, new_processing)
@@ -304,6 +555,8 @@ class SpectroDataset:
         txt += "\n" + str(self._features)
         txt += "\n" + str(self._targets)
         txt += "\n" + str(self._indexer)
+        if self._metadata.num_rows > 0:
+            txt += f"\n{str(self._metadata)}"
         if self._folds:
             txt += f"\nFolds: {self._fold_str()}"
         return txt
@@ -337,6 +590,15 @@ class SpectroDataset:
         else:
             print(f"{CHART}Features: No data")
         print()
+
+        # Metadata summary
+        if self._metadata.num_rows > 0:
+            print(f"📋 Metadata: {self._metadata.num_rows} rows, {len(self._metadata.columns)} columns")
+            print(f"Columns: {self._metadata.columns}")
+            print()
+        else:
+            print("📋 Metadata: None")
+            print()
 
     # IO methods (commented out)
     # def save(self, path: str) -> None:

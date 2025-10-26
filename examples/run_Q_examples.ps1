@@ -5,17 +5,21 @@ param(
 )
 
 $examples = @(
+    "Q1_groupsplit.py",
     "Q1_regression.py",
     "Q1_classif.py",
     "Q2_multimodel.py",
     "Q3_finetune.py",
     "Q4_multidatasets.py",
     "Q5_predict.py",
+    "Q5_predict_NN.py",
     "Q6_multisource.py",
     "Q7_discretization.py",
     "Q8_shap.py",
     "Q9_acp_spread.py",
     "Q10_resampler.py",
+    "Q11_flexible_inputs.py",
+    "Q12_sample_augmentation.py"
     "Q14_workspace.py"
 )
 
@@ -35,10 +39,10 @@ if ($Log) {
 # foreach ($example in $examples) {
 #     if (Test-Path "$example") {
 #         Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow
-#         Write-Host "Launch: $example"
-#         Write-Host "########################################"
-#         Write-Host "Finished running: $example"
-#         Write-Host "########################################"
+#         Write-Output-Dual "Launch: $example"
+#         Write-Output-Dual "########################################"
+#         Write-Output-Dual "Finished running: $example"
+#         Write-Output-Dual "########################################"
 #     }
 # }
 

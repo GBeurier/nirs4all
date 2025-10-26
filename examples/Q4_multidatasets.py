@@ -98,7 +98,7 @@ for dataset_name, dataset_prediction in predictions_per_dataset.items():
 
     # Plot comparison for this dataset
     analyzer = PredictionAnalyzer(dataset_predictions)
-    fig = analyzer.plot_top_k_comparison(k=5, metric='rmse')
+    fig = analyzer.plot_top_k_comparison(k=5, rank_metric='rmse')
 
 # Overall analysis across all datasets
 analyzer = PredictionAnalyzer(predictions)

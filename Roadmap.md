@@ -26,7 +26,7 @@
 > - Options normalisation in charts (0-1 ou 1-0)
 >   - Unify task_type usage and detection
 
-> [Predictions] refactoring and as a pipeline context
+> [Predictions] refactoring and as a pipeline context and change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
 
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions
 **Bugs**:

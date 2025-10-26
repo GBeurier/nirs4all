@@ -350,6 +350,151 @@ def msc(spectra, scaled=True):
 
     return spectra
 
+
+class ExtendedMultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
+    """
+    Extended Multiplicative Scatter Correction (EMSC).
+
+    EMSC extends MSC by including polynomial terms to model chemical
+    and physical light scattering effects.
+
+    Parameters
+    ----------
+    degree : int, default=2
+        Degree of polynomial for modeling interference.
+    scale : bool, default=True
+        Whether to scale the data before correction.
+    copy : bool, default=True
+        Whether to copy input data.
+    """
+
+    def __init__(self, degree: int = 2, scale: bool = True, *, copy: bool = True):
+        self.copy = copy
+        self.scale = scale
+        self.degree = degree
+
+    def _reset(self):
+        if hasattr(self, "scaler_"):
+            del self.scaler_
+            del self.reference_
+            del self.wavelengths_
+
+    def fit(self, X, y=None):
+        self._reset()
+        return self.partial_fit(X, y)
+
+    def partial_fit(self, X, y=None):
+        if scipy.sparse.issparse(X):
+            raise TypeError("EMSC does not support scipy.sparse input")
+
+        first_pass = not hasattr(self, "reference_")
+
+        tmp_x = X.copy() if self.copy else X
+
+        if self.scale:
+            scaler = StandardScaler(with_std=False)
+            scaler.fit(X)
+            self.scaler_ = scaler
+            tmp_x = scaler.transform(tmp_x)
+
+        # Compute mean reference spectrum
+        self.reference_ = np.mean(tmp_x, axis=0)
+
+        # Create wavelength indices for polynomial terms
+        self.wavelengths_ = np.arange(X.shape[1])
+
+        return self
+
+    def transform(self, X):
+        check_is_fitted(self)
+
+        X_transformed = X.copy() if self.copy else X
+
+        if self.scale:
+            X_transformed = self.scaler_.transform(X_transformed)
+
+        # Build design matrix with polynomial terms
+        n_features = X.shape[1]
+
+        for i in range(X_transformed.shape[0]):
+            # Create polynomial basis
+            design_matrix = np.column_stack([
+                self.reference_,
+                *[self.wavelengths_ ** d for d in range(1, self.degree + 1)]
+            ])
+
+            # Fit coefficients
+            coeffs, _, _, _ = np.linalg.lstsq(design_matrix, X_transformed[i], rcond=None)
+
+            # Subtract polynomial interference and scale by reference coefficient
+            polynomial_part = sum(coeffs[d] * (self.wavelengths_ ** d) for d in range(1, self.degree + 1))
+            X_transformed[i] = (X_transformed[i] - polynomial_part) / coeffs[0]
+
+        return X_transformed
+
+    def _more_tags(self):
+        return {"allow_nan": False}
+
+
+class AreaNormalization(TransformerMixin, BaseEstimator):
+    """
+    Area normalization of spectra.
+
+    Normalizes each spectrum by dividing by its total area (sum of absolute values).
+    This removes intensity variations while preserving spectral shape.
+
+    Parameters
+    ----------
+    method : str, default='sum'
+        Method for computing area: 'sum' (sum of values), 'abs_sum' (sum of absolute values),
+        or 'trapz' (trapezoidal integration).
+    copy : bool, default=True
+        Whether to copy input data.
+    """
+
+    def __init__(self, method: str = 'sum', *, copy: bool = True):
+        self.copy = copy
+        self.method = method
+
+    def _reset(self):
+        pass
+
+    def fit(self, X, y=None):
+        if scipy.sparse.issparse(X):
+            raise ValueError("AreaNormalization does not support scipy.sparse input")
+
+        if self.method not in ['sum', 'abs_sum', 'trapz']:
+            raise ValueError(f"method must be 'sum', 'abs_sum', or 'trapz', got {self.method}")
+
+        return self
+
+    def transform(self, X, copy=None):
+        if scipy.sparse.issparse(X):
+            raise ValueError('Sparse matrices not supported!')
+
+        X_transformed = X.copy() if self.copy else X
+
+        for i in range(X_transformed.shape[0]):
+            if self.method == 'sum':
+                area = np.sum(X_transformed[i])
+            elif self.method == 'abs_sum':
+                area = np.sum(np.abs(X_transformed[i]))
+            elif self.method == 'trapz':
+                # Use scipy.integrate.trapezoid for compatibility
+                from scipy.integrate import trapezoid
+                area = trapezoid(X_transformed[i])
+
+            # Avoid division by zero
+            if np.abs(area) < 1e-10:
+                area = 1.0
+
+            X_transformed[i] = X_transformed[i] / area
+
+        return X_transformed
+
+    def _more_tags(self):
+        return {"allow_nan": False}
+
 def log_transform(
     spectra: np.ndarray,
     base: float = np.e,

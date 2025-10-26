@@ -69,24 +69,35 @@ class ResamplerController(OperatorController):
             source_idx: Index of the data source
 
         Returns:
-            Array of wavelengths as floats
+            Array of wavelengths in cm-1 units
 
         Raises:
-            ValueError: If headers cannot be converted to float
+            ValueError: If headers cannot be converted to wavelengths
         """
-        headers = dataset.headers(source_idx)
+        # Check the header unit
+        header_unit = dataset.header_unit(source_idx)
 
-        try:
-            wavelengths = np.array([float(h) for h in headers])
-        except (ValueError, TypeError) as e:
+        # Resampler requires actual wavelength data (not text, indices, or none)
+        if header_unit in ["text", "none", "index"]:
+            headers = dataset.headers(source_idx)
             raise ValueError(
-                f"Cannot convert headers to wavelengths for source {source_idx}. "
-                f"Headers must be numeric values (wavelengths in cm-1). "
-                f"Got headers: {headers[:5]}... "
-                f"Error: {str(e)}"
+                f"Cannot resample data with header_unit='{header_unit}' for source {source_idx}. "
+                f"Resampler requires numeric wavelength headers (cm-1 or nm). "
+                f"Got headers: {headers[:5]}..."
             )
 
-        return wavelengths
+        # Use the dataset's wavelength conversion methods
+        try:
+            wavelengths = dataset.wavelengths_cm1(source_idx)
+            return wavelengths
+        except (ValueError, TypeError) as e:
+            # Provide helpful error message
+            headers = dataset.headers(source_idx)
+            raise ValueError(
+                f"Failed to extract wavelengths from headers for source {source_idx}. "
+                f"Header unit: {header_unit}. Headers: {headers[:5]}... "
+                f"Error: {str(e)}"
+            )
 
     def _get_target_wavelengths_for_source(
         self,
@@ -288,7 +299,8 @@ class ResamplerController(OperatorController):
             context["processing"][sd_idx] = src_new_processing_names
 
             # Update headers AFTER replacing features (so they don't get reset)
-            dataset._features.sources[sd_idx].set_headers(new_headers)
+            # Resampler always outputs wavelengths in cm-1
+            dataset._features.sources[sd_idx].set_headers(new_headers, unit="cm-1")
 
             if runner.save_files:
                 print(f"Exporting resampled features for dataset '{dataset.name}', source {sd_idx} to CSV...")
