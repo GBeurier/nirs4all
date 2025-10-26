@@ -18,6 +18,7 @@ class FeatureSource:
         self._processing_ids: List[str] = ["raw"]  # Default processing ID
         self._processing_id_to_index: Dict[str, int] = {"raw": 0}  # Maps processing ID to index
         self._headers: Optional[List[str]] = None  # Optional feature headers
+        self._header_unit: str = "cm-1"  # Header unit type: "cm-1", "nm", "none", "text", "index"
 
     def __repr__(self):
         return f"FeatureSource(shape={self._array.shape}, dtype={self._array.dtype}, processing_ids={self._processing_ids})"
@@ -32,6 +33,11 @@ class FeatureSource:
     @property
     def headers(self) -> Optional[List[str]]:
         return self._headers
+
+    @property
+    def header_unit(self) -> str:
+        """Get the unit type of the headers."""
+        return self._header_unit
 
     @property
     def num_samples(self) -> int:
@@ -72,9 +78,16 @@ class FeatureSource:
 
         self._headers = headers
 
-    def set_headers(self, headers: List[str]) -> None:
-        """Set feature headers (wavelengths)."""
+    def set_headers(self, headers: Optional[List[str]], unit: str = "cm-1") -> None:
+        """
+        Set feature headers with unit metadata.
+
+        Args:
+            headers: List of header strings (wavelengths, feature names, etc.)
+            unit: Unit type - "cm-1" (wavenumber), "nm" (wavelength), "none", "text", "index"
+        """
         self._headers = headers
+        self._header_unit = unit
 
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList) -> None:
         """

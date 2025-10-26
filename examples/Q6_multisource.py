@@ -15,6 +15,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import ElasticNet
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
@@ -22,10 +23,11 @@ from sklearn.preprocessing import MinMaxScaler
 from nirs4all.dataset import DatasetConfigs
 from nirs4all.dataset.predictions import Predictions
 from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
-from nirs4all.operators.models.cirad_tf import nicon
+# from nirs4all.operators.models.cirad_tf import nicon
 from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.utils.emoji import CHECK, CROSS
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from sklearn.linear_model import ElasticNet
 
 # Disable emojis in output
 os.environ['DISABLE_EMOJIS'] = '1'
@@ -53,7 +55,8 @@ pipeline = [
     # Machine learning models
     MinMaxScaler(feature_range=(0.1, 0.8)),
     {"model": PLSRegression(10), "name": "Q6_PLS_3"},
-    {"model": RandomForestRegressor(n_estimators=2)},
+    # {"model": RandomForestRegressor(n_estimators=2)},
+    ElasticNet(alpha=0.1, l1_ratio=0.5),
     {"model": PLSRegression(10), "name": "Q6_PLS_2"},
 
     # # Neural network model
@@ -90,7 +93,7 @@ for idx, prediction in enumerate(top_models):
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot comparison of top models
-# fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
+# fig1 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse')
 
 # Plot heatmap: models vs preprocessing using NEW v2 method
 # This properly ranks on val and displays test scores
@@ -133,7 +136,7 @@ print(f"Model reuse identical to training: {f'{CHECK}YES' if is_identical else f
 # # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
+fig1 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse')
 
 # Plot heatmap of model performance vs preprocessing
 fig2 = analyzer.plot_heatmap_v2(

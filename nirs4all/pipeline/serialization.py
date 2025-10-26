@@ -61,7 +61,13 @@ def serialize_component(obj: Any) -> Any:
             "function": f"{obj.__module__}.{obj.__name__}"
         }
         if params:
-            func_serialized["params"] = serialize_component(params)
+            func_serialized["params"] = serialize_component(params, False)
+
+        # Keep runtime instance for model factory functions that need dataset-dependent parameters
+        # (e.g., TensorFlow models with @framework decorator that require input_shape)
+        if hasattr(obj, 'framework'):
+            func_serialized["_runtime_instance"] = obj
+
         return func_serialized
 
     def_serialized = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
@@ -175,16 +181,17 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
                     params[k] = deserialize_component(v, _resolve_type(cls_or_func, k))
 
             try:
-                # Functions are NOT instantiated during deserialization
-                # They're returned as references for ModelBuilder to call later with input_shape
-                if key == "function":
-                    if params:
-                        # Return dict format that ModelBuilder._from_dict expects
-                        return {"function": cls_or_func, "params": params}
-                    return cls_or_func
+                # Special handling for model factory functions with @framework decorator
+                # These need dataset-dependent parameters (like input_shape) so we return
+                # them as-is without instantiation for controllers to handle
+                if key == "function" and hasattr(cls_or_func, 'framework'):
+                    # This is a model factory function - return dict with function and runtime instance
+                    return {
+                        "function": blob[key],
+                        "_runtime_instance": cls_or_func
+                    }
 
-                # Classes and instances ARE instantiated (no runtime context needed)
-                elif key == "class" or key == "instance":
+                if key == "class" or key == "instance" or key == "function":
                     return cls_or_func(**params)
 
                 # Fallback for other cases
@@ -201,6 +208,14 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
                 sig = inspect.signature(cls_or_func)
                 allowed = {n for n in sig.parameters if n != "self"}
                 filtered = {k: v for k, v in params.items() if k in allowed}
+
+                # Check again if this is a model factory function
+                if hasattr(cls_or_func, 'framework'):
+                    return {
+                        "function": blob[key],
+                        "_runtime_instance": cls_or_func
+                    }
+
                 return cls_or_func(**filtered)
 
         return {k: deserialize_component(v) for k, v in blob.items()}

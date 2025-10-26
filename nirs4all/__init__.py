@@ -4,9 +4,10 @@ NIRS4All - A comprehensive package for Near-Infrared Spectroscopy data processin
 This package provides tools for spectroscopy data handling, preprocessing, model building,
 and pipeline management with support for multiple ML backends.
 """
-__version__ = "0.2.1"
+__version__ = "0.3.1"
 
 import os
+os.environ['DISABLE_EMOJIS'] = '1'
 if os.environ.get('DISABLE_EMOJIS') == '1':  # Set to True to always disable
     import re
     original_print = __builtins__['print']

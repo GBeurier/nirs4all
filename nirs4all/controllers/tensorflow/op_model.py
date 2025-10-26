@@ -172,11 +172,15 @@ class TensorFlowModelController(BaseModelController):
         if train_params is None:
             train_params = {}
 
+        # Extract model_params if provided (should be at same level as train_params in step dict)
+        model_params = train_params.pop('model_params', {})
+
+        verbose = train_params.get('verbose', 0)
+
         # Handle model factory functions
         if callable(model) and not self._is_tensorflow_model(model):
             # This is a model factory function, we need to create the actual model
             input_shape = X_train.shape[1:]  # Get input shape from training data
-            model_params = train_params.get('model_params', {})
             model = self._create_model_from_function(model, input_shape, model_params)
 
         verbose = train_params.get('verbose', 0)
@@ -277,7 +281,7 @@ class TensorFlowModelController(BaseModelController):
                 #     if best_score is not None:
                 #         direction = ARROW_UP if higher_is_better else ARROW_DOWN
                 #         all_scores_str = ModelUtils.format_scores(val_scores)
-                        # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
+                #         print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
             elif validation_data is not None:
                 # Use validation data from training
                 X_val_data, y_val_data = validation_data
@@ -406,17 +410,28 @@ class TensorFlowModelController(BaseModelController):
         if train_params.get('cyclic_lr', False):
             base_lr = train_params.get('base_lr', 1e-4)
             max_lr = train_params.get('max_lr', 1e-2)
-            step_size = train_params.get('step_size', 2000)
+            step_size = train_params.get('step_size', 200)
+            clr_mode = train_params.get('cyclic_lr_mode', 'triangular2')  # 'triangular' or 'triangular2'
 
-            def cyclic_lr_schedule(epoch, lr):
+            def triangular_cyclic_lr_schedule(epoch, lr):
                 cycle = np.floor(1 + epoch / (2 * step_size))
                 x = np.abs(epoch / step_size - 2 * cycle + 1)
                 new_lr = base_lr + (max_lr - base_lr) * max(0, (1 - x))
                 return float(new_lr)
 
+            def triangular2_cyclic_lr_schedule(epoch, lr):
+                cycle = np.floor(1 + epoch / (2 * step_size))
+                x = np.abs(epoch / step_size - 2 * cycle + 1)
+                scale = 1 / (2 ** (cycle - 1))  # atténuation à chaque cycle
+                new_lr = base_lr + (max_lr - base_lr) * max(0, (1 - x)) * scale
+                return float(new_lr)
+
             # Only show learning rate messages if verbose > 2 (detailed mode)
             callback_verbose = 1 if verbose > 2 else 0
-            cyclic_lr_callback = keras.callbacks.LearningRateScheduler(cyclic_lr_schedule, verbose=callback_verbose)
+            if clr_mode == 'triangular':
+                cyclic_lr_callback = keras.callbacks.LearningRateScheduler(triangular_cyclic_lr_schedule, verbose=callback_verbose)
+            elif clr_mode == 'triangular2':
+                cyclic_lr_callback = keras.callbacks.LearningRateScheduler(triangular2_cyclic_lr_schedule, verbose=callback_verbose)
             callbacks.append(cyclic_lr_callback)
             # print(f"🔄 Added CyclicLR: base_lr={base_lr}, max_lr={max_lr}, step_size={step_size}")
 
@@ -610,6 +625,17 @@ class TensorFlowModelController(BaseModelController):
 
     def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
         """Extract model configuration from step, handling TensorFlow-specific cases."""
+        # Start with empty config
+        model_config = {}
+
+        # If operator is provided and it's a TensorFlow model/function, use it as model_instance
+        if operator is not None:
+            if callable(operator) and hasattr(operator, 'framework') and operator.framework == 'tensorflow':
+                model_config['model_instance'] = operator
+            elif self._is_tensorflow_model(operator):
+                model_config['model_instance'] = operator
+
+        # Extract additional parameters from step dict (train_params, model_params, etc.)
         if isinstance(step, dict):
             # Handle direct function serialization (step itself is {'function': '...', 'params': {...}})
             if 'function' in step:
@@ -625,33 +651,56 @@ class TensorFlowModelController(BaseModelController):
                 model = step['model']
                 # Handle serialized model functions
                 if isinstance(model, dict) and 'function' in model:
-                    # Import the function from the serialized form
-                    function_path = model['function']
-                    try:
-                        mod_name, _, func_name = function_path.rpartition(".")
-                        mod = __import__(mod_name, fromlist=[func_name])
-                        func = getattr(mod, func_name)
-                        model_config['model_instance'] = func
-                    except (ImportError, AttributeError) as e:
-                        raise ValueError(f"Could not import function {function_path}: {e}")
+                    # Check for runtime instance first
+                    if '_runtime_instance' in model:
+                        model_config['model_instance'] = model['_runtime_instance']
+                    else:
+                        # Import the function from the serialized form
+                        function_path = model['function']
+                        try:
+                            mod_name, _, func_name = function_path.rpartition(".")
+                            mod = __import__(mod_name, fromlist=[func_name])
+                            func = getattr(mod, func_name)
+                            model_config['model_instance'] = func
+                        except (ImportError, AttributeError) as e:
+                            raise ValueError(f"Could not import function {function_path}: {e}")
+                # Handle runtime instance
+                elif isinstance(model, dict) and '_runtime_instance' in model:
+                    model_config['model_instance'] = model['_runtime_instance']
                 # Handle model factory functions or direct models
                 elif callable(model) and hasattr(model, 'framework') and model.framework == 'tensorflow':
                     model_config['model_instance'] = model
                 else:
                     model_config['model_instance'] = model
 
-            # Extract other parameters
-            for key in ['train_params', 'finetune_params']:
+            # Handle bare function step with _runtime_instance (when step itself is the serialized function)
+            elif 'model_instance' not in model_config and 'function' in step and '_runtime_instance' in step:
+                model_config['model_instance'] = step['_runtime_instance']
+            elif 'model_instance' not in model_config and 'function' in step:
+                # Import the function from the serialized form
+                function_path = step['function']
+                try:
+                    mod_name, _, func_name = function_path.rpartition(".")
+                    mod = __import__(mod_name, fromlist=[func_name])
+                    func = getattr(mod, func_name)
+                    model_config['model_instance'] = func
+                except (ImportError, AttributeError) as e:
+                    raise ValueError(f"Could not import function {function_path}: {e}")
+
+            # ALWAYS extract other parameters from step dict
+            for key in ['model_params', 'train_params', 'finetune_params', 'name']:
                 if key in step:
                     model_config[key] = step[key]
 
             return model_config
         else:
-            # Handle direct model or function
-            if callable(step) and hasattr(step, 'framework') and step.framework == 'tensorflow':
-                return {'model_instance': step}
-            else:
-                return {'model_instance': step}
+            # Handle direct model or function (non-dict step)
+            if 'model_instance' not in model_config:
+                if callable(step) and hasattr(step, 'framework') and step.framework == 'tensorflow':
+                    model_config['model_instance'] = step
+                else:
+                    model_config['model_instance'] = step
+            return model_config
 
     def _sample_hyperparameters(self, trial, finetune_params: Dict[str, Any]) -> Dict[str, Any]:
         """Sample hyperparameters specific to TensorFlow models."""

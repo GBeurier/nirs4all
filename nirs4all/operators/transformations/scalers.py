@@ -4,13 +4,10 @@ import numpy as np
 import scipy
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import FunctionTransformer
-from sklearn.preprocessing import RobustScaler
-from sklearn.preprocessing import StandardScaler
 from sklearn.utils.validation import check_array, check_is_fitted, FLOAT_DTYPES
 
 
 IdentityTransformer = FunctionTransformer
-RobustNormalVariate = RobustScaler
 
 
 class StandardNormalVariate(TransformerMixin, BaseEstimator):
@@ -139,6 +136,165 @@ class StandardNormalVariate(TransformerMixin, BaseEstimator):
 
     def _more_tags(self):
         return {"allow_nan": False, "stateless": True}
+
+
+class LocalStandardNormalVariate(TransformerMixin, BaseEstimator):
+    """Local Standard Normal Variate (LSNV).
+
+    Per-sample local normalization with a sliding window along features.
+    For each sample and feature j:
+        mean_w = mean(X[..., j-w//2 : j+w//2+1])
+        std_w  = std (X[..., j-w//2 : j+w//2+1])
+        X'[j]  = (X[j] - mean_w) / std_w
+
+    Parameters
+    ----------
+    window : int, default=11
+        Odd positive window size along features.
+    pad_mode : {'reflect','edge','constant'}, default='reflect'
+        Padding mode at boundaries.
+    constant_values : float, default=0.0
+        Used only if pad_mode='constant'.
+    copy : bool, default=True
+        If False, try in-place.
+
+    Notes
+    -----
+    - Operates row-wise (axis=1). Input must be (n_samples, n_features).
+    - std_w==0 → divide by 1 to avoid NaN.
+    """
+
+    def __init__(self, window=11, pad_mode="reflect", constant_values=0.0, copy=True):
+        self.window = window
+        self.pad_mode = pad_mode
+        self.constant_values = constant_values
+        self.copy = copy
+
+    def fit(self, X, y=None):
+        if scipy.sparse.issparse(X):
+            raise TypeError("LSNV does not support scipy.sparse input")
+        X = check_array(X, dtype=FLOAT_DTYPES, copy=False)
+        if X.ndim != 2:
+            raise ValueError("LSNV expects 2D array (n_samples, n_features)")
+        if not isinstance(self.window, int) or self.window <= 1 or self.window % 2 == 0:
+            raise ValueError("window must be an odd integer > 1")
+        if self.pad_mode not in {"reflect", "edge", "constant"}:
+            raise ValueError("pad_mode must be 'reflect', 'edge', or 'constant'")
+        return self
+
+    def transform(self, X):
+        if scipy.sparse.issparse(X):
+            raise TypeError("LSNV does not support scipy.sparse input")
+        X = check_array(X, dtype=FLOAT_DTYPES, copy=self.copy)
+        n, m = X.shape
+        w = self.window
+        half = w // 2
+
+        if self.pad_mode == "constant":
+            pad_kwargs = dict(mode="constant", constant_values=self.constant_values)
+        else:
+            pad_kwargs = dict(mode=self.pad_mode)
+
+        # pad along feature axis
+        Xp = np.pad(X, ((0, 0), (half, half)), **pad_kwargs)
+
+        # moving mean via cumsum
+        csum = np.cumsum(Xp, axis=1, dtype=float)
+        csum = np.pad(csum, ((0, 0), (1, 0)), mode="constant")  # align for window subtraction
+        mov_mean = (csum[:, w:] - csum[:, :-w]) / w
+
+        # moving variance via mean of squares
+        Xp2 = Xp * Xp
+        csum2 = np.cumsum(Xp2, axis=1, dtype=float)
+        csum2 = np.pad(csum2, ((0, 0), (1, 0)), mode="constant")
+        mov_mean2 = (csum2[:, w:] - csum2[:, :-w]) / w
+        mov_var = np.maximum(mov_mean2 - mov_mean * mov_mean, 0.0)
+        mov_std = np.sqrt(mov_var, dtype=float)
+        mov_std[mov_std == 0] = 1.0
+
+        # normalize relative to local stats
+        X_norm = (X - mov_mean) / mov_std
+        return X_norm
+
+    def fit_transform(self, X, y=None):
+        return self.fit(X, y).transform(X)
+
+    def _more_tags(self):
+        return {"allow_nan": False, "stateless": True}
+
+
+class RobustStandardNormalVariate(TransformerMixin, BaseEstimator):
+    """Robust Standard Normal Variate (RSNV).
+
+    Per-sample robust centering and scaling using median and MAD:
+        med = median(X, axis=1, keepdims=True)
+        mad = median(|X - med|, axis=1, keepdims=True)
+        X'  = (X - med) / (k * mad)
+
+    Parameters
+    ----------
+    axis : int, default=1
+        1 for row-wise (spectroscopy default). 0 for column-wise.
+    with_center : bool, default=True
+        If True, subtract median.
+    with_scale : bool, default=True
+        If True, divide by k * MAD.
+    k : float, default=1.4826
+        Consistency constant to make MAD a robust estimator of std
+        for Gaussian data.
+    copy : bool, default=True
+        If False, try in-place.
+
+    Notes
+    -----
+    - MAD==0 → divide by 1 to avoid NaN.
+    """
+
+    def __init__(self, axis=1, with_center=True, with_scale=True, k=1.4826, copy=True):
+        self.axis = axis
+        self.with_center = with_center
+        self.with_scale = with_scale
+        self.k = k
+        self.copy = copy
+
+    def fit(self, X, y=None):
+        if scipy.sparse.issparse(X):
+            raise TypeError("RSNV does not support scipy.sparse input")
+
+        X = check_array(X, dtype=FLOAT_DTYPES, copy=False)
+        if self.axis not in (0, 1):
+            raise ValueError("axis must be 0 or 1")
+        return self
+
+    def transform(self, X):
+        if scipy.sparse.issparse(X):
+            raise TypeError("RSNV does not support scipy.sparse input")
+
+        X = check_array(X, dtype=FLOAT_DTYPES, copy=self.copy)
+
+        # choose axis and keepdims for broadcasting
+        keep = dict(axis=self.axis, keepdims=True)
+
+        if self.with_center:
+            med = np.median(X, **keep)
+            X = X - med
+
+        if self.with_scale:
+            mad = np.median(np.abs(X), **keep)
+            scale = self.k * mad
+            scale[scale == 0] = 1.0
+            X = X / scale
+
+        return X
+
+    def fit_transform(self, X, y=None):
+        return self.fit(X, y).transform(X)
+
+    def _more_tags(self):
+        return {"allow_nan": False, "stateless": True}
+
+
+
 
 
 class Normalize(TransformerMixin, BaseEstimator):

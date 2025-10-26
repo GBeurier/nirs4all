@@ -44,7 +44,8 @@ from .transformations import (
     # Sklearn aliases
     IdentityTransformer,
     StandardNormalVariate,
-    RobustNormalVariate
+    RobustStandardNormalVariate,
+    LocalStandardNormalVariate
 )
 
 __all__ = [
@@ -91,5 +92,6 @@ __all__ = [
     # Sklearn aliases
     "IdentityTransformer",
     "StandardNormalVariate",
-    "RobustNormalVariate"
+    "RobustStandardNormalVariate",
+    "LocalStandardNormalVariate"
 ]
