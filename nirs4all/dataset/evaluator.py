@@ -429,37 +429,6 @@ def eval_list(y_true: np.ndarray, y_pred: np.ndarray, metrics: list) -> list:
     return scores
 
 
-def detect_task_type(y_true: np.ndarray) -> str:
-    """
-    Automatically detect the task type from target values.
-
-    Args:
-        y_true: True target values
-
-    Returns:
-        str: Detected task type ('regression', 'binary_classification', 'multiclass_classification')
-    """
-    y_true = np.asarray(y_true).flatten()
-    y_clean = y_true[~np.isnan(y_true)]  # Remove NaN values
-
-    if len(y_clean) == 0:
-        return "regression"  # Default
-
-    unique_values = np.unique(y_clean)
-    n_unique = len(unique_values)
-
-    # Check if values are integer-like (classification)
-    is_integer_like = np.allclose(y_clean, np.round(y_clean), atol=1e-10)
-
-    if is_integer_like and n_unique <= 50:  # Reasonable threshold for classification
-        if n_unique == 2:
-            return "binary_classification"
-        elif n_unique > 2:
-            return "multiclass_classification"
-
-    return "regression"
-
-
 def get_available_metrics(task_type: str) -> list:
     """
     Get list of available metrics for a given task type.

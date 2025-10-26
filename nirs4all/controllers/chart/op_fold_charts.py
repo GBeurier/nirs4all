@@ -268,7 +268,7 @@ class FoldChartController(OperatorController):
         # Create colormap - use discrete contrastive colors for metadata and classification, continuous for regression
 
         # Check if we should use discrete colormap (metadata column or classification task)
-        is_classification_task = dataset is not None and dataset.is_classification()
+        is_classification_task = dataset is not None and dataset.is_classification
         use_discrete_colormap = metadata_column is not None or is_classification_task
 
         if use_discrete_colormap:

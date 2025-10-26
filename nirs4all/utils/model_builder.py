@@ -33,7 +33,7 @@ class ModelBuilderFactory:
         #     print(f"DEBUG dict keys: {list(model_config.keys())}")
 
         # print("Building model with config:", model_config, "dataset:", dataset, "task:", task, "force_params:", force_params)
-        if hasattr(dataset, 'is_classification') and dataset.is_classification():
+        if hasattr(dataset, 'is_classification') and dataset.is_classification:
             if hasattr(dataset, 'num_classes'):
                 force_params['num_classes'] = dataset.num_classes
 
@@ -136,7 +136,7 @@ class ModelBuilderFactory:
             params['input_dim'] = input_dim
             params['input_shape'] = input_dim
             # Set num_classes for tensorflow classification models
-            if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification():
+            if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification:
                 if hasattr(dataset, 'num_classes'):
                     num_classes = dataset.num_classes
                     params['num_classes'] = num_classes
@@ -162,7 +162,7 @@ class ModelBuilderFactory:
         if 'input_dim' in sig.parameters:
             params['input_dim'] = input_dim
         # Only set num_classes for tensorflow classification models
-        if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification():
+        if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification:
             if hasattr(dataset, 'num_classes'):
                 num_classes = dataset.num_classes
                 # Only set num_classes if the function signature has it (for classification models)
