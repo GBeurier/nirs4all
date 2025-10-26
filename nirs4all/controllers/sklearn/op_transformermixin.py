@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 from sklearn.base import clone
+import pickle
 ## TODO add parrallel support for multi-source datasets and multi-processing datasets
 
 @register_controller
