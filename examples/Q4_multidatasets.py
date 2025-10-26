@@ -26,6 +26,8 @@ from nirs4all.operators.transformations import (
     Gaussian, SavitzkyGolay, StandardNormalVariate, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.utils.constants import REFRESH
+
 
 # Build the pipeline with feature augmentation
 pipeline = [

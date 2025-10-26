@@ -139,6 +139,12 @@ class BaseModelController(OperatorController, ABC):
         # if mode == "predict":
             # return self._execute_prediction_mode( model_config, dataset, context, runner, loaded_binaries)
 
+        # In predict/explain mode, restore task_type from target_model if not set
+        if mode in ("predict", "explain") and dataset.task_type is None:
+            if hasattr(runner, 'target_model') and runner.target_model:
+                task_type_str = runner.target_model.get('task_type', 'regression')
+                dataset.set_task_type(task_type_str)
+
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
         folds = dataset.folds
 

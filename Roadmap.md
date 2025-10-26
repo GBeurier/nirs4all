@@ -2,8 +2,6 @@
 
 > [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
 
-> [task_type] Unify usage and detection
-
 **RELEASE** 0.4
 
 > [Pytorch] controller

@@ -7,6 +7,55 @@ from sklearn.preprocessing import FunctionTransformer, LabelEncoder
 from nirs4all.dataset.helpers import SampleIndices
 
 
+class FlexibleLabelEncoder(TransformerMixin):
+    """
+    Label encoder that can handle unseen labels during transform.
+
+    Unseen labels are mapped to the next available integer beyond the known classes.
+    This is useful for group-based splits where test groups may not appear in training.
+    """
+
+    def __init__(self):
+        self.classes_ = None
+        self.class_to_idx = {}
+
+    def fit(self, y):
+        """Fit the encoder to the training labels."""
+        y = np.asarray(y).ravel()
+        self.classes_ = np.unique(y[~np.isnan(y)])
+        self.class_to_idx = {cls: idx for idx, cls in enumerate(self.classes_)}
+        return self
+
+    def transform(self, y):
+        """Transform labels, handling unseen labels by assigning new indices."""
+        y_input = np.asarray(y)
+        original_shape = y_input.shape
+        y_flat = y_input.ravel()
+        result = np.empty_like(y_flat, dtype=np.float32)
+
+        next_idx = len(self.classes_)
+        unseen_map = {}
+
+        for i, label in enumerate(y_flat):
+            if np.isnan(label):
+                result[i] = label
+            elif label in self.class_to_idx:
+                result[i] = self.class_to_idx[label]
+            else:
+                # Handle unseen label
+                if label not in unseen_map:
+                    unseen_map[label] = next_idx
+                    next_idx += 1
+                result[i] = unseen_map[label]
+
+        # Restore original shape
+        return result.reshape(original_shape)
+
+    def fit_transform(self, y):
+        """Fit and transform in one step."""
+        return self.fit(y).transform(y)
+
+
 class Targets:
     """
     Target manager that stores target arrays with processing chains.
@@ -445,7 +494,7 @@ class Targets:
 
             if is_integer_like and len(unique_vals) <= 50 and not np.array_equal(unique_vals, expected_consecutive):
                 # These are classification labels that need encoding to [0, n_classes-1]
-                label_encoder = LabelEncoder()
+                label_encoder = FlexibleLabelEncoder()
                 y_encoded = label_encoder.fit_transform(y_flat.astype(np.int32))
                 y_numeric = y_encoded.reshape(y_raw.shape).astype(np.float32)
                 return y_numeric, label_encoder
@@ -463,7 +512,7 @@ class Targets:
             col_data = y_raw[:, col]
 
             if col_data.dtype.kind in {"U", "S", "O"}:  # strings / objects
-                le = LabelEncoder()
+                le = FlexibleLabelEncoder()
                 y_numeric[:, col] = le.fit_transform(col_data)
                 column_transformers[col] = le
             else:
@@ -472,8 +521,8 @@ class Targets:
                     y_numeric[:, col] = col_data.astype(np.float32)
                     column_transformers[col] = None  # No transformation needed
                 except (ValueError, TypeError):
-                    # Fallback to LabelEncoder
-                    le = LabelEncoder()
+                    # Fallback to FlexibleLabelEncoder
+                    le = FlexibleLabelEncoder()
                     y_numeric[:, col] = le.fit_transform(col_data.astype(str))
                     column_transformers[col] = le
 
