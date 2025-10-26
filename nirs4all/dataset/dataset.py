@@ -374,6 +374,11 @@ class SpectroDataset:
         """Get the detected task type."""
         return self._task_type
 
+    @property
+    def num_classes(self) -> int:
+        """Get the number of unique classes for classification tasks (wrapper to targets.num_classes)."""
+        return self._targets.num_classes
+
     def set_task_type(self, task_type: str) -> None:
         """
         Manually set the task type.

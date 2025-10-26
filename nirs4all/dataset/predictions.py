@@ -14,6 +14,7 @@ import json
 import hashlib
 import nirs4all.dataset.evaluator as Evaluator
 from nirs4all.utils.emoji import DISK, CHECK, SEARCH
+from nirs4all.utils.model_utils import ModelUtils
 import csv
 import io
 
@@ -1367,6 +1368,9 @@ class Predictions:
         # Default rank_metric from data if not provided
         if rank_metric == "":
             rank_metric = base[0, "metric"]
+
+        if ModelUtils._is_higher_better(rank_metric):
+            ascending = not ascending  # Reverse for higher is better
 
         # Model identity key
         KEY = ["config_name", "step_idx", "model_name"]

@@ -195,14 +195,25 @@ class TensorFlowModelController(BaseModelController):
             task_type = TaskType.BINARY_CLASSIFICATION
         elif task_type_str == "multiclass_classification":
             task_type = TaskType.MULTICLASS_CLASSIFICATION
+        elif task_type_str == "classification":
+            # Determine if binary or multiclass from unique values
+            y_flat = y_train.flatten()
+            n_unique = len(np.unique(y_flat[~np.isnan(y_flat)]))
+            if n_unique == 2:
+                task_type = TaskType.BINARY_CLASSIFICATION
+            else:
+                task_type = TaskType.MULTICLASS_CLASSIFICATION
         else:
             task_type = TaskType.REGRESSION  # Default fallback
+
+        # Labels should already be encoded by targets layer for classification
+        # No additional encoding needed here
 
         # Auto-configure loss and metrics based on task type
         if 'loss' not in train_params and 'compile' not in train_params:
             default_loss = ModelUtils.get_default_loss(task_type, 'tensorflow')
             train_params['loss'] = default_loss
-            if verbose > 1:
+            if verbose > 0:  # Changed from verbose > 1 to always show
                 print(f"{CHART} Auto-detected {task_type.value} task, using loss: {default_loss}")
         elif 'loss' in train_params:
             # Validate provided loss
@@ -538,8 +549,13 @@ class TensorFlowModelController(BaseModelController):
 
         predictions = model.predict(X_prepared, verbose=0)
 
-        # Ensure predictions are in the correct shape
-        if predictions.ndim == 1:
+        # For multiclass classification, convert probabilities to class indices
+        if predictions.ndim == 2 and predictions.shape[1] > 1:
+            # Multi-output: likely multiclass classification with softmax
+            # Convert probabilities to class predictions (encoded labels 0-N)
+            predictions = np.argmax(predictions, axis=1).reshape(-1, 1).astype(np.float32)
+        elif predictions.ndim == 1:
+            # Single output: reshape to column vector
             predictions = predictions.reshape(-1, 1)
 
         return predictions

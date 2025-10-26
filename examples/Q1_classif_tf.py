@@ -24,6 +24,7 @@ from nirs4all.operators.transformations import (
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter
+from nirs4all.operators.models.cirad_tf import nicon_classification
 
 
 # Configuration variables
@@ -54,7 +55,7 @@ pipeline = [
     "fold_chart",
     ShuffleSplit(n_splits=3, test_size=0.25),
     "fold_chart",
-    RandomForestClassifier(max_depth=40)
+    nicon_classification
 ]
 
 

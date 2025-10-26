@@ -138,8 +138,9 @@ class PredictionAnalyzer:
             )
             return enhanced_preds[:k]
 
-    def plot_top_k_comparison(self, k: int = 5, metric: str = 'rmse',
-                              partition: str = '', dataset_name: Optional[str] = None,
+    def plot_top_k_comparison(self, k: int = 5, rank_metric: str = 'rmse',
+                              rank_partition: str = 'val', display_partition: str = 'all',
+                              dataset_name: Optional[str] = None,
                               figsize: Tuple[int, int] = (16, 10)) -> Figure:
         """
         Plot top K models with predicted vs true and residuals.

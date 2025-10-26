@@ -33,7 +33,7 @@ class ModelUtils:
     DEFAULT_LOSSES = {
         TaskType.REGRESSION: "mse",
         TaskType.BINARY_CLASSIFICATION: "binary_crossentropy",
-        TaskType.MULTICLASS_CLASSIFICATION: "categorical_crossentropy"
+        TaskType.MULTICLASS_CLASSIFICATION: "sparse_categorical_crossentropy"  # Use sparse for integer labels
     }
 
     # Default metrics by task type

@@ -1,8 +1,8 @@
 ## ROADMAP ##
 
-> [Git] merge branch
-
 > [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
+
+> [task_type] Unify usage and detection
 
 **RELEASE** 0.4
 
@@ -26,7 +26,7 @@
 
 > **Enhancement**:
 > - Options normalisation in charts (0-1 ou 1-0)
->   - Unify task_type usage and detection
+
 
 > [Predictions] refactoring and as a pipeline context and change storage mode (index (Polars/Parquet) + blobs (Zarr/HDF5))
 

@@ -887,6 +887,10 @@ class PipelineRunner:
                         # Dict without 'class' or 'function' key - try to deserialize
                         operator = deserialize_component(step[key])
                         controller = self._select_controller(step, keyword=key, operator=operator)
+                    elif isinstance(step[key], str):
+                        # String reference to a class/function - deserialize it
+                        operator = deserialize_component(step[key])
+                        controller = self._select_controller(step, keyword=key, operator=operator)
                     else:
                         # Direct operator instance (e.g., GroupKFold(), nicon)
                         operator = step[key]
