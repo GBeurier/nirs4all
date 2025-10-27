@@ -14,6 +14,7 @@ from .backend_utils import (
 )
 
 from .PCA_analyzer import PreprocPCAEvaluator
+from .balancing import BalancingCalculator
 
 __all__ = [
     'TF_AVAILABLE',
@@ -24,5 +25,6 @@ __all__ = [
     'is_keras_available',
     'is_jax_available',
     'is_gpu_available',
-    'PreprocPCAEvaluator'
+    'PreprocPCAEvaluator',
+    'BalancingCalculator'
 ]

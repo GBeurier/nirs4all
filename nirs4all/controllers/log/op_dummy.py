@@ -6,6 +6,7 @@ import inspect
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.emoji import FOLDER, TARGET, ALERT, PIN, CLIPBOARD, WRENCH, BULB, KEY
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -158,23 +159,23 @@ class DummyController(OperatorController):
         """
 
         print("\n" + "="*80)
-        print("🚨 DUMMY CONTROLLER ACTIVATED - UNHANDLED OPERATOR DETECTED")
+        print(f"{ALERT}DUMMY CONTROLLER ACTIVATED - UNHANDLED OPERATOR DETECTED")
         print("="*80)
 
         # Basic execution info
-        print(f"📍 Execution Context:")
+        print(f"{PIN}Execution Context:")
         print(f"   Mode: {mode}")
         print(f"   Source: {source}")
         print(f"   Dataset: {dataset.name if hasattr(dataset, 'name') else 'unknown'}")
 
         # Step analysis
-        print(f"\n📋 Step Analysis:")
+        print(f"\n{CLIPBOARD}Step Analysis:")
         step_analysis = self._analyze_step_structure(step)
         for key, value in step_analysis.items():
             print(f"   {key}: {value}")
 
         # Operator analysis
-        print(f"\n🔧 Operator Analysis:")
+        print(f"\n{WRENCH}Operator Analysis:")
         if operator is not None:
             operator_analysis = self._analyze_step_structure(operator)
             for key, value in operator_analysis.items():
@@ -183,17 +184,17 @@ class DummyController(OperatorController):
             print("   operator: None")
 
         # Context analysis
-        print(f"\n🗂️ Context Analysis:")
+        print(f"\n{FOLDER}Context Analysis:")
         context_info = self._get_context_info(context)
         for key, value in context_info.items():
             print(f"   {key}: {value}")
 
         # Keyword analysis
         keyword = context.get('keyword', 'unknown')
-        print(f"\n� Keyword: '{keyword}'")
+        print(f"\n{KEY}Keyword: '{keyword}'")
 
         # Suggestions
-        print(f"\n💡 Possible Issues:")
+        print(f"\n{BULB}Possible Issues:")
         suggestions = []
 
         if isinstance(step, dict):
@@ -225,7 +226,7 @@ class DummyController(OperatorController):
             print(f"   {suggestion}")
 
         # Controller registry info
-        print(f"\n🎯 Debugging Info:")
+        print(f"\n{TARGET} Debugging Info:")
         print(f"   - Check controller priorities and matches() methods")
         print(f"   - Verify step format matches expected controller patterns")
         print(f"   - Consider adding specific controller for this operator type")
@@ -236,4 +237,5 @@ class DummyController(OperatorController):
 
         # Return unchanged context - this is just for debugging
         return context, []
+
 

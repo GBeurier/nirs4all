@@ -78,4 +78,4 @@ predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_confi
 analyzer = PredictionAnalyzer(predictions)
 confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=3, metric='accuracy', partition='val')
 
-plt.show()
+# plt.show()

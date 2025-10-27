@@ -398,12 +398,12 @@ def persist(
     format_hint: Optional[str] = None
 ) -> ArtifactMeta:
     """
-    Persist object to content-addressed storage.
+    Persist object to _binaries storage with meaningful names.
 
     Args:
         obj: Object to persist
-        artifacts_dir: Path to results/artifacts/objects/ directory
-        name: Original name (for metadata only)
+        artifacts_dir: Path to run _binaries/ directory
+        name: Artifact name (e.g., "scaler", "model")
         format_hint: Optional format hint ('sklearn', 'tensorflow', etc.)
 
     Returns:
@@ -417,23 +417,36 @@ def persist(
     # 1. Serialize to bytes
     data, format = to_bytes(obj, format_hint)
 
-    # 2. Compute SHA256 hash
+    # 2. Compute SHA256 hash (short version for filename)
     hash_value = compute_hash(data)
+    short_hash = hash_value[:6]  # Use first 6 chars for filename
 
     # 3. Determine extension
     ext = _format_to_extension(format)
 
-    # 4. Create sharded path: artifacts/objects/<hash[:2]>/<hash>.<ext>
-    shard_dir = artifacts_dir / hash_value[:2]
-    shard_dir.mkdir(parents=True, exist_ok=True)
-    artifact_path = shard_dir / f"{hash_value}.{ext}"
+    # 4. Get class name for meaningful filename
+    class_name = obj.__class__.__name__
 
-    # 5. Write file (if not exists - deduplication)
+    # 5. Handle special cases for better naming
+    if class_name == "bytes":
+        # For raw bytes objects, use the custom name or fallback to "data"
+        if name and name != "artifact":
+            # Use custom name without extension (e.g., "folds_ShuffleSplit_seed42" -> "folds_ShuffleSplit_seed42")
+            class_name = name.replace('.csv', '').replace('.', '_')
+        else:
+            class_name = "data"
+
+    # 6. Create filename for deduplication: <ClassName>_<short_hash>.<ext>
+    # Always use class name for deduplication (ignore custom names)
+    dedup_filename = f"{class_name}_{short_hash}.{ext}"
+    artifact_path = artifacts_dir / dedup_filename
+
+    # 7. Write file (if not exists - deduplication works)
     if not artifact_path.exists():
         artifact_path.write_bytes(data)
 
-    # 6. Return metadata (relative path for portability)
-    relative_path = f"objects/{hash_value[:2]}/{hash_value}.{ext}"
+    # 8. Return metadata (relative path for portability)
+    relative_path = dedup_filename  # Just the filename, no subdirectories
 
     return {
         "hash": f"sha256:{hash_value}",
@@ -455,7 +468,7 @@ def load(
 
     Args:
         artifact_meta: Artifact metadata dictionary
-        results_dir: Path to results directory (contains artifacts/ subdirectory)
+        results_dir: Path to run directory (contains _binaries/ subdirectory)
 
     Returns:
         Deserialized object
@@ -467,13 +480,15 @@ def load(
     results_dir = Path(results_dir)
 
     # Handle legacy artifacts (backward compatibility)
-    # Legacy paths don't start with "objects/" and point to old binary files
     if artifact_meta["format"] == "legacy_pickle":
-        # Old pipeline: path is relative to results_dir without artifacts/ prefix
+        # Old pipeline: path is relative to results_dir without _binaries/ prefix
         artifact_path = results_dir / artifact_meta["path"]
-    else:
-        # New pipeline: path is relative to results_dir/artifacts/
+    elif "/" in artifact_meta["path"]:
+        # Old content-addressed format: artifacts/objects/<hash[:2]>/<hash>.<ext>
         artifact_path = results_dir / "artifacts" / artifact_meta["path"]
+    else:
+        # New format: _binaries/<ClassName>_<hash>.<ext>
+        artifact_path = results_dir / "_binaries" / artifact_meta["path"]
 
     if not artifact_path.exists():
         raise FileNotFoundError(f"Artifact not found: {artifact_path}")

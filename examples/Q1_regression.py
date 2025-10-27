@@ -38,14 +38,14 @@ data_path = 'sample_data/regression'
 pipeline = [
     feature_scaler,
     {"y_processing": target_scaler},
-    {"feature_augmentation": {"_or_": [Detrend, FirstDerivative, Gaussian, SavitzkyGolay, Haar], "size": 2}},  # Generate combinations of preprocessing techniques
+    {"feature_augmentation": {"_or_": [Detrend, FirstDerivative, Gaussian, SavitzkyGolay, Haar], "size": 2, "count": 2}},  # Generate combinations of preprocessing techniques
     "chart_2d",
     cross_validation,
 
 ]
 
 # Add PLS models with different numbers of components
-for n_components in range(1, 30, 2):
+for n_components in range(1, 30, 5):
     model_config = {
         "name": f"PLS-{n_components}_components",
         "model": PLSRegression(n_components=n_components)
@@ -76,7 +76,9 @@ top_models[0].save_to_csv("Q1_regression_best_model.csv")
 # # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
+fig1 = analyzer.plot_top_k_comparison(k=3, rank_metric='rmse')
+fig2 = analyzer.plot_top_k_comparison(k=3, rank_metric='rmse', rank_partition='test')
+fig3 = analyzer.plot_top_k_comparison(k=3, rank_metric='rmse', rank_partition='train')
 
 # Plot heatmap of model performance vs preprocessing
 fig2 = analyzer.plot_heatmap_v2(
@@ -109,4 +111,4 @@ fig4 = analyzer.plot_variable_candlestick(
 
 fig5 = analyzer.plot_score_histogram(partition="test")
 
-plt.show()
+# plt.show()

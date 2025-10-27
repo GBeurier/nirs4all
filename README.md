@@ -31,6 +31,11 @@ Near-Infrared Spectroscopy (NIRS) is a rapid and non-destructive analytical tech
 - Medical: tissue monitoring, brain imaging
 - Environmental: pollutant detection, water quality monitoring
 
+### Notes:
+
+NIRS4All is in active development; APIs and docs are subject to change.
+Pre-1.0 notice: interfaces and documentation may change without notice.
+
 ## Features
 
 NIRS4ALL offers a wide range of functionalities:
@@ -290,7 +295,7 @@ import matplotlib.pyplot as plt
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot top performing models
-fig1 = analyzer.plot_top_k_comparison(k=5, metric='rmse')
+fig1 = analyzer.plot_top_k_comparison(k=5, rank_metric='rmse')
 plt.title('Top 5 Models Comparison')
 
 # Create heatmap of model performance across preprocessing methods
@@ -353,6 +358,7 @@ Ready-to-run example scripts demonstrating common NIRS workflows:
 - **[Q8_shap.py](examples/Q8_shap.py)** - SHAP analysis for model interpretability
 - **[Q9_acp_spread.py](examples/Q9_acp_spread.py)** - PCA-based dataset analysis and visualization
 - **[Q10_resampler.py](examples/Q10_resampler.py)** - Wavelength resampling and interpolation techniques
+- **[Q13_nm_headers.py](examples/Q13_nm_headers.py)** - Working with nanometer (nm) wavelength headers instead of wavenumbers (cm⁻¹)
 
 Run any example with: `python examples/<example_name>.py`
 

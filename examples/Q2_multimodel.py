@@ -83,7 +83,7 @@ for idx, model in enumerate(top_models):
 # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
+fig1 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse')
 
 # Plot heatmap: models vs partitions
 fig2 = analyzer.plot_heatmap_v2(
@@ -115,4 +115,4 @@ fig5 = analyzer.plot_heatmap_v2(
     y_var="fold_id",
 )
 
-plt.show()
+# plt.show()

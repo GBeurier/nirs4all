@@ -112,7 +112,7 @@ def cleanup_orphaned_artifacts(
     orphans = find_orphaned_artifacts(results_dir)
 
     if not orphans:
-        print("\n✅ No orphaned artifacts found!")
+        print(f"\n{CHECK}No orphaned artifacts found!")
         return {"count": 0, "size": 0, "files": []}
 
     print(f"\n🗑️  Found {len(orphans)} orphaned artifacts")
@@ -133,16 +133,16 @@ def cleanup_orphaned_artifacts(
                     artifact_file.unlink()
                     deleted_files.append(str(artifact_file.relative_to(results_dir)))
                     if verbose:
-                        print(f"   ✅ Deleted: {artifact_file.relative_to(results_dir)} ({_format_size(size)})")
+                        print(f"   {CHECK}Deleted: {artifact_file.relative_to(results_dir)} ({_format_size(size)})")
             except Exception as e:
-                print(f"   ❌ Error processing {artifact_file}: {e}")
+                print(f"   {CROSS}Error processing {artifact_file}: {e}")
 
-    print(f"\n📊 Total space: {_format_size(total_size)}")
+    print(f"\n{CHART}Total space: {_format_size(total_size)}")
 
     if dry_run:
         print("\n💡 This was a dry run. Run with --force to actually delete files.")
     else:
-        print(f"\n✅ Deleted {len(deleted_files)} artifact files")
+        print(f"\n{CHECK}Deleted {len(deleted_files)} artifact files")
 
     return {
         "count": len(deleted_files) if not dry_run else len(orphans),
@@ -186,7 +186,7 @@ def list_artifacts_stats(results_dir: Path):
     if pipelines_dir.exists():
         pipeline_count = sum(1 for p in pipelines_dir.iterdir() if p.is_dir() and (p / "manifest.yaml").exists())
 
-    print("\n📊 Artifact Statistics")
+    print(f"\n{CHART}Artifact Statistics")
     print("=" * 60)
     print(f"Total artifacts:     {total_artifacts}")
     print(f"Total size:          {_format_size(total_size)}")
@@ -254,10 +254,10 @@ Examples:
     results_dir = args.results_dir.resolve()
 
     if not results_dir.exists():
-        print(f"❌ Results directory not found: {results_dir}")
+        print(f"{CROSS}Results directory not found: {results_dir}")
         return 1
 
-    print(f"🔍 Using results directory: {results_dir}\n")
+    print(f"{SEARCH}Using results directory: {results_dir}\n")
 
     # Show stats if requested
     if args.stats:
@@ -272,7 +272,7 @@ Examples:
         stats = cleanup_orphaned_artifacts(results_dir, dry_run=dry_run, verbose=verbose)
         return 0
     except Exception as e:
-        print(f"\n❌ Error during cleanup: {e}")
+        print(f"\n{CROSS}Error during cleanup: {e}")
         return 1
 
 

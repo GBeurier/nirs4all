@@ -13,6 +13,8 @@ from pathlib import Path
 import json
 import hashlib
 import nirs4all.dataset.evaluator as Evaluator
+from nirs4all.utils.emoji import DISK, CHECK, SEARCH
+from nirs4all.utils.model_utils import ModelUtils
 import csv
 import io
 
@@ -134,9 +136,9 @@ class PredictionResult(dict):
 
             df_csv = pl.DataFrame(clean_csv_data)
             df_csv.write_csv(str(filepath))
-            print(f"💾 Saved prediction result to {filepath}")
+            print(f"{DISK}Saved prediction result to {filepath}")
         else:
-            print(f"⚠️ No prediction data found to save for {filepath}")
+            print(f"{WARNING}No prediction data found to save for {filepath}")
 
     def eval_score(self, metrics: Optional[List[str]] = None) -> Dict[str, Any]:
         """
@@ -217,7 +219,7 @@ class PredictionResult(dict):
         try:
             from nirs4all.utils.tab_report_manager import TabReportManager
         except ImportError:
-            return "⚠️ TabReportManager not available"
+            return "{WARNING}TabReportManager not available"
 
         # Check if this is an aggregated result (has train/val/test keys)
         has_partitions = all(k in self for k in ["train", "val", "test"])
@@ -283,7 +285,7 @@ class PredictionResultsList(list):
             filename: Optional filename (if None, auto-generated from first prediction)
         """
         if not self:
-            print("⚠️ No predictions to save")
+            print("{WARNING}No predictions to save")
             return
 
         # Generate filename if not provided
@@ -412,7 +414,7 @@ class PredictionResultsList(list):
             f.write(output.getvalue())
 
         output.close()
-        print(f"💾 Saved {len(self)} predictions to {filepath}")
+        print(f"{DISK}Saved {len(self)} predictions to {filepath}")
 
     def get(self, prediction_id: str) -> Optional[PredictionResult]:
         """
@@ -588,7 +590,7 @@ class Predictions:
 
         # Save to CSV
         df_csv.write_csv(filepath)
-        print(f"💾 Saved predictions to {filepath}")
+        print(f"{DISK}Saved predictions to {filepath}")
 
     @staticmethod
     def save_all_to_csv(predictions: 'Predictions', path: str = "results", aggregate_partitions: bool = False, **filters) -> None:
@@ -618,9 +620,9 @@ class Predictions:
                     result.save_to_csv(path=path)
                 except Exception as e:
                     model_id = result.get('id', 'unknown')
-                    print(f"⚠️ Failed to save prediction {model_id}: {e}")
+                    print(f"{WARNING}Failed to save prediction {model_id}: {e}")
 
-            print(f"✅ Saved {len(all_results)} aggregated model files to {path}")
+            print(f"{CHECK}Saved {len(all_results)} aggregated model files to {path}")
         else:
             # Save one file per individual prediction (each partition/fold separately)
             all_results = predictions.top(
@@ -635,9 +637,9 @@ class Predictions:
                     result.save_to_csv(path=path)
                 except Exception as e:
                     model_id = result.get('id', 'unknown')
-                    print(f"⚠️ Failed to save prediction {model_id}: {e}")
+                    print(f"{WARNING}Failed to save prediction {model_id}: {e}")
 
-            print(f"✅ Saved {len(all_results)} individual prediction files to {path}")
+            print(f"{CHECK}Saved {len(all_results)} individual prediction files to {path}")
 
     def add_prediction(
         self,
@@ -841,6 +843,76 @@ class Predictions:
             # Add the individual prediction
             self.add_prediction(**prediction_params)
 
+    # Internal Helper Methods for Filtering and Deserialization
+
+    def _apply_dataframe_filters(
+        self,
+        df: pl.DataFrame,
+        dataset_name: Optional[str] = None,
+        partition: Optional[str] = None,
+        config_name: Optional[str] = None,
+        model_name: Optional[str] = None,
+        fold_id: Optional[str] = None,
+        step_idx: Optional[int] = None,
+        **kwargs
+    ) -> pl.DataFrame:
+        """Apply common filters to DataFrame (internal helper).
+
+        Args:
+            df: DataFrame to filter
+            dataset_name: Filter by dataset name
+            partition: Filter by partition
+            config_name: Filter by config name
+            model_name: Filter by model name
+            fold_id: Filter by fold ID
+            step_idx: Filter by step index
+            **kwargs: Additional filter criteria
+
+        Returns:
+            Filtered DataFrame
+        """
+        # Apply standard filters
+        if dataset_name is not None:
+            df = df.filter(pl.col("dataset_name") == dataset_name)
+        if partition is not None:
+            df = df.filter(pl.col("partition") == partition)
+        if config_name is not None:
+            df = df.filter(pl.col("config_name") == config_name)
+        if model_name is not None:
+            df = df.filter(pl.col("model_name") == model_name)
+        if fold_id is not None:
+            df = df.filter(pl.col("fold_id") == fold_id)
+        if step_idx is not None:
+            df = df.filter(pl.col("step_idx") == step_idx)
+
+        # Apply additional filters from kwargs
+        for key, value in kwargs.items():
+            if key in df.columns:
+                df = df.filter(pl.col(key) == value)
+
+        return df
+
+    def _deserialize_rows(self, df: pl.DataFrame) -> List[Dict[str, Any]]:
+        """Deserialize JSON fields in DataFrame rows (internal helper).
+
+        Args:
+            df: DataFrame with JSON-serialized columns
+
+        Returns:
+            List of dictionaries with deserialized fields
+        """
+        results = []
+        for row in df.to_dicts():
+            # Deserialize JSON fields
+            row["sample_indices"] = json.loads(row["sample_indices"])
+            row["weights"] = json.loads(row["weights"])
+            row["metadata"] = json.loads(row["metadata"])
+            row["best_params"] = json.loads(row["best_params"]) if row["best_params"] else {}
+            row["y_true"] = np.array(json.loads(row["y_true"]))
+            row["y_pred"] = np.array(json.loads(row["y_pred"]))
+            results.append(row)
+        return results
+
     def filter_predictions(
         self,
         dataset_name: Optional[str] = None,
@@ -854,6 +926,9 @@ class Predictions:
         """
         Filter predictions and return as list of dictionaries.
 
+        Use this method when you need full prediction data with deserialized arrays
+        for analysis or visualization. For simple catalog queries, use filter_by_criteria().
+
         Args:
             dataset_name: Filter by dataset name
             partition: Filter by partition
@@ -864,42 +939,22 @@ class Predictions:
             **kwargs: Additional filter criteria
 
         Returns:
-            List of prediction dictionaries
+            List of prediction dictionaries with deserialized arrays
         """
-        df_filtered = self._df
+        # Use internal helper for filtering
+        df_filtered = self._apply_dataframe_filters(
+            self._df,
+            dataset_name=dataset_name,
+            partition=partition,
+            config_name=config_name,
+            model_name=model_name,
+            fold_id=fold_id,
+            step_idx=step_idx,
+            **kwargs
+        )
 
-        # Apply filters
-        if dataset_name is not None:
-            df_filtered = df_filtered.filter(pl.col("dataset_name") == dataset_name)
-        if partition is not None:
-            df_filtered = df_filtered.filter(pl.col("partition") == partition)
-        if config_name is not None:
-            df_filtered = df_filtered.filter(pl.col("config_name") == config_name)
-        if model_name is not None:
-            df_filtered = df_filtered.filter(pl.col("model_name") == model_name)
-        if fold_id is not None:
-            df_filtered = df_filtered.filter(pl.col("fold_id") == fold_id)
-        if step_idx is not None:
-            df_filtered = df_filtered.filter(pl.col("step_idx") == step_idx)
-
-        # Apply additional filters from kwargs
-        for key, value in kwargs.items():
-            if key in self._df.columns:
-                df_filtered = df_filtered.filter(pl.col(key) == value)
-
-        # Convert to list of dictionaries with JSON deserialization
-        results = []
-        for row in df_filtered.to_dicts():
-            # Deserialize JSON fields
-            row["sample_indices"] = json.loads(row["sample_indices"])
-            row["weights"] = json.loads(row["weights"])
-            row["metadata"] = json.loads(row["metadata"])
-            row["best_params"] = json.loads(row["best_params"]) if row["best_params"] else {}
-            row["y_true"] = np.array(json.loads(row["y_true"]))
-            row["y_pred"] = np.array(json.loads(row["y_pred"]))
-            results.append(row)
-
-        return results
+        # Use internal helper for deserialization
+        return self._deserialize_rows(df_filtered)
 
     def get_similar(self, **filter_kwargs) -> Optional[Dict[str, Any]]:
         """
@@ -1018,7 +1073,7 @@ class Predictions:
             # print(f"💾 Saved {len(self._df)} predictions to {filepath}")
 
         except Exception as e:
-            print(f"⚠️ Error saving predictions to {filepath}: {e}")
+            print(f"{WARNING}Error saving predictions to {filepath}: {e}")
 
     def load_from_file(self, filepath: str) -> None:
         """Load predictions from JSON file."""
@@ -1032,7 +1087,7 @@ class Predictions:
 
         except Exception as e:
             pass
-            # print(f"⚠️ Error loading predictions from {filepath}: {e}")
+            # print(f"{WARNING}Error loading predictions from {filepath}: {e}")
 
     @classmethod
     def load_from_file_cls(cls, filepath: str) -> 'Predictions':
@@ -1098,7 +1153,7 @@ class Predictions:
                     instance.merge_predictions(temp_instance)
                     print(f"📥 Loaded {len(temp_instance._df)} predictions from {dataset_name}")
                 else:
-                    print(f"⚠️ No predictions.json found for dataset '{dataset_name}' at {dataset_path}")
+                    print(f"{WARNING}No predictions.json found for dataset '{dataset_name}' at {dataset_path}")
 
             # If dataset_name is None, browse all datasets in path
             else:
@@ -1106,7 +1161,7 @@ class Predictions:
                 predictions_files = list(base_path.glob("*/predictions.json"))
 
                 if not predictions_files:
-                    print(f"⚠️ No predictions.json files found in {base_path}")
+                    print(f"{WARNING}No predictions.json files found in {base_path}")
                 else:
                     for pred_file in predictions_files:
                         dataset_name_from_path = pred_file.parent.name
@@ -1115,10 +1170,10 @@ class Predictions:
                         instance.merge_predictions(temp_instance)
                         print(f"📥 Loaded {len(temp_instance._df)} predictions from dataset '{dataset_name_from_path}'")
 
-                    print(f"✅ Total loaded: {len(instance._df)} predictions from {len(predictions_files)} datasets")
+                    print(f"{CHECK}Total loaded: {len(instance._df)} predictions from {len(predictions_files)} datasets")
 
         else:
-            print(f"⚠️ Path '{base_path}' does not exist or is not accessible")
+            print(f"{WARNING}Path '{base_path}' does not exist or is not accessible")
             return instance
 
         # Apply filters if provided using existing filter on DataFrame
@@ -1131,7 +1186,7 @@ class Predictions:
 
             if filter_exprs:
                 instance._df = instance._df.filter(filter_exprs)
-                print(f"🔍 Filtered to {len(instance._df)} predictions matching criteria: {filters}")
+                print(f"{SEARCH} Filtered to {len(instance._df)} predictions matching criteria: {filters}")
 
         # Apply partition aggregation if requested using existing _add_partition_data
         if aggregate_partitions and len(instance._df) > 0:
@@ -1184,14 +1239,14 @@ class Predictions:
 
                 df_csv = pl.DataFrame(csv_data)
                 df_csv.write_csv(filepath)
-                print(f"💾 Saved prediction {index} to {filepath}")
+                print(f"{DISK}Saved prediction {index} to {filepath}")
             else:
                 # Save all predictions in expanded format
                 self._df.write_csv(filepath)
-                print(f"💾 Saved all {len(self._df)} predictions to {filepath}")
+                print(f"{DISK}Saved all {len(self._df)} predictions to {filepath}")
 
         except Exception as e:
-            print(f"⚠️ Error saving prediction to CSV {filepath}: {e}")
+            print(f"{WARNING}Error saving prediction to CSV {filepath}: {e}")
 
     def calculate_scores(self, metrics: Optional[List[str]] = None) -> pl.DataFrame:
         """
@@ -1211,7 +1266,7 @@ class Predictions:
             from ..utils.model_utils import ModelUtils, TaskType
             model_utils = ModelUtils()
         except ImportError:
-            print("⚠️ Cannot import ModelUtils for score calculation")
+            print("{WARNING}Cannot import ModelUtils for score calculation")
             return pl.DataFrame()
 
         scores_data = []
@@ -1314,6 +1369,9 @@ class Predictions:
         if rank_metric == "":
             rank_metric = base[0, "metric"]
 
+        if ModelUtils._is_higher_better(rank_metric):
+            ascending = not ascending  # Reverse for higher is better
+
         # Model identity key
         KEY = ["config_name", "step_idx", "model_name"]
         if group_by_fold:
@@ -1324,19 +1382,20 @@ class Predictions:
         if rank_data.height == 0:
             return PredictionResultsList([])
 
-        # Compute rank score: use val_score if rank_metric matches record's metric, else compute
+        # Compute rank score: use stored score if rank_metric matches record's metric, else compute
         rank_scores = []
         for row in rank_data.to_dicts():
             if rank_metric == row["metric"]:
-                # Use precomputed val_score
-                score = row.get("val_score")
+                # Use precomputed score for the rank_partition
+                score_field = f"{rank_partition}_score"
+                score = row.get(score_field)
             else:
                 # Compute metric from y_true/y_pred
                 try:
                     y_true = self._parse_vec_json(row["y_true"])
                     y_pred = self._parse_vec_json(row["y_pred"])
                     score = Evaluator.eval(y_true, y_pred, rank_metric)
-                except:
+                except Exception as e:
                     score = None
 
             rank_scores.append({
@@ -1512,6 +1571,8 @@ class Predictions:
 
     def top_k(self, k: int = 5, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> List[Union[Dict[str, Any], 'PredictionResult']]:
         """
+        DEPRECATED:
+
         Get top K predictions ranked by metric, val_score, or test_score.
         By default filters to test partition unless otherwise specified.
 
@@ -1537,7 +1598,7 @@ class Predictions:
             if key in df_filtered.columns:
                 df_filtered = df_filtered.filter(pl.col(key) == value)
 
-        # print( f"🔍 Found {len(df_filtered)} predictions after filtering with criteria: {filters}")
+        # print( f"{SEARCH} Found {len(df_filtered)} predictions after filtering with criteria: {filters}")
 
         if df_filtered.is_empty():
             return PredictionResultsList([])
@@ -1585,7 +1646,7 @@ class Predictions:
                 from ..utils.model_utils import ModelUtils, TaskType
                 model_utils = ModelUtils()
             except ImportError:
-                print("⚠️ Cannot import ModelUtils for score calculation")
+                print("{WARNING}Cannot import ModelUtils for score calculation")
                 return PredictionResultsList([])
 
             for i, row in enumerate(df_filtered.to_dicts()):
@@ -1709,7 +1770,7 @@ class Predictions:
             raise TypeError("Can only merge with another Predictions instance")
 
         if len(other._df) == 0:
-            print("⚠️ No predictions to merge (source is empty)")
+            print("{WARNING}No predictions to merge (source is empty)")
             return
 
         # Ensure schemas are compatible before concatenating
@@ -1733,7 +1794,7 @@ class Predictions:
                 self._df = pl.concat([self._df, other._df], how="vertical")
             else:
                 # Schemas don't match, need to align them
-                # print(f"⚠️ Schema mismatch detected, aligning schemas before merge")
+                # print(f"{WARNING}Schema mismatch detected, aligning schemas before merge")
 
                 # Use the predefined schema order from __init__ to ensure consistency
                 predefined_order = [
@@ -1824,7 +1885,7 @@ class Predictions:
             raise TypeError("Can only merge with another Predictions instance")
 
         if len(other._df) == 0:
-            print("⚠️ No predictions to merge (source is empty)")
+            print("{WARNING}No predictions to merge (source is empty)")
             return
 
         original_count = len(self._df)
@@ -1885,7 +1946,7 @@ class Predictions:
             filter['partition'] = partition
             predictions = self.filter_predictions(**filter)
             if not predictions or len(predictions) == 0:
-                print(f"⚠️ No predictions found for {filter}")
+                print(f"{WARNING}No predictions found for {filter}")
                 res[partition] = None
             else:
                 res[partition] = predictions[0]
@@ -1943,4 +2004,353 @@ class Predictions:
             Pandas DataFrame of all predictions
         """
         return self._df.to_pandas()
+
+    # NEW: Split Parquet storage methods for workspace catalog
+    def save_to_parquet(self, catalog_dir: Path, prediction_id: str = None) -> tuple:
+        """Save predictions as split Parquet (metadata + arrays separate).
+
+        Creates:
+        - predictions_meta.parquet: lightweight metadata (prediction_id, dataset, metrics)
+        - predictions_data.parquet: heavy arrays (prediction_id, y_true, y_pred, indices)
+
+        Returns: (meta_path, data_path)
+        """
+        from pathlib import Path
+        from uuid import uuid4
+        from datetime import datetime
+
+        catalog_dir = Path(catalog_dir)
+        catalog_dir.mkdir(parents=True, exist_ok=True)
+
+        pred_id = prediction_id or str(uuid4())
+
+        # Prepare dataframe with prediction_id
+        if "prediction_id" not in self._df.columns:
+            df_with_id = self._df.with_columns(pl.lit(pred_id).alias("prediction_id"))
+        else:
+            df_with_id = self._df
+
+        # Ensure created_at column exists
+        if "created_at" not in df_with_id.columns:
+            df_with_id = df_with_id.with_columns(
+                pl.lit(datetime.now().isoformat()).alias("created_at")
+            )
+
+        # Define metadata and array columns
+        meta_cols = ["prediction_id", "dataset_name", "config_name", "test_score",
+                     "train_score", "val_score", "model_name", "model_classname",
+                     "created_at", "pipeline_uid", "config_path", "task_type",
+                     "metric", "n_samples", "n_features"]
+
+        # Only select columns that exist
+        available_meta_cols = [col for col in meta_cols if col in df_with_id.columns]
+
+        array_cols = ["prediction_id", "y_true", "y_pred", "sample_indices",
+                      "fold_id", "weights", "partition"]
+
+        # Only select columns that exist
+        available_array_cols = [col for col in array_cols if col in df_with_id.columns]
+
+        # Create metadata dataframe
+        meta_df = df_with_id.select(available_meta_cols).unique(subset=["prediction_id"])
+
+        # Create arrays dataframe
+        data_df = df_with_id.select(available_array_cols)
+
+        # Save to Parquet files
+        meta_path = catalog_dir / "predictions_meta.parquet"
+        data_path = catalog_dir / "predictions_data.parquet"
+
+        # Append mode - accumulate predictions over time
+        if meta_path.exists():
+            existing_meta = pl.read_parquet(meta_path)
+            # Align schemas
+            for col in available_meta_cols:
+                if col not in existing_meta.columns:
+                    existing_meta = existing_meta.with_columns(pl.lit(None).alias(col))
+            for col in existing_meta.columns:
+                if col not in meta_df.columns:
+                    meta_df = meta_df.with_columns(pl.lit(None).alias(col))
+            meta_df = pl.concat([existing_meta, meta_df], how="diagonal")
+
+        if data_path.exists():
+            existing_data = pl.read_parquet(data_path)
+            # Align schemas
+            for col in available_array_cols:
+                if col not in existing_data.columns:
+                    existing_data = existing_data.with_columns(pl.lit(None).alias(col))
+            for col in existing_data.columns:
+                if col not in data_df.columns:
+                    data_df = data_df.with_columns(pl.lit(None).alias(col))
+            data_df = pl.concat([existing_data, data_df], how="diagonal")
+
+        meta_df.write_parquet(meta_path)
+        data_df.write_parquet(data_path)
+
+        return (meta_path, data_path)
+
+    @classmethod
+    def load_from_parquet(cls, catalog_dir: Path, prediction_ids: list = None) -> 'Predictions':
+        """Load predictions from split Parquet storage.
+
+        Args:
+            catalog_dir: Path to catalog directory
+            prediction_ids: Optional list of prediction IDs to load (None = all)
+
+        Returns: Predictions object with joined metadata + arrays
+        """
+        from pathlib import Path
+
+        catalog_dir = Path(catalog_dir)
+        meta_path = catalog_dir / "predictions_meta.parquet"
+        data_path = catalog_dir / "predictions_data.parquet"
+
+        if not meta_path.exists() or not data_path.exists():
+            # Return empty Predictions object
+            return cls()
+
+        # Load metadata (always fast)
+        meta_df = pl.read_parquet(meta_path)
+
+        # Filter if needed
+        if prediction_ids:
+            meta_df = meta_df.filter(pl.col("prediction_id").is_in(prediction_ids))
+            data_df = pl.read_parquet(data_path).filter(
+                pl.col("prediction_id").is_in(prediction_ids)
+            )
+        else:
+            data_df = pl.read_parquet(data_path)
+
+        # Join metadata + arrays on prediction_id
+        if "prediction_id" in meta_df.columns and "prediction_id" in data_df.columns:
+            full_df = meta_df.join(data_df, on="prediction_id", how="inner")
+        else:
+            # Fallback: just use metadata
+            full_df = meta_df
+
+        # Create Predictions object
+        pred = cls()
+        pred._df = full_df
+        return pred
+
+    def archive_to_catalog(self, catalog_dir: Path, pipeline_dir: Path, metrics: dict) -> str:
+        """Archive pipeline results to catalog with split Parquet.
+
+        Reads predictions.csv from pipeline_dir, adds metadata, saves to catalog.
+        Returns: prediction_id (UUID)
+        """
+        from pathlib import Path
+        from uuid import uuid4
+
+        catalog_dir = Path(catalog_dir)
+        pipeline_dir = Path(pipeline_dir)
+
+        # Generate prediction ID
+        pred_id = str(uuid4())
+
+        # Load predictions from pipeline CSV
+        pred_csv = pipeline_dir / "predictions.csv"
+        if pred_csv.exists():
+            pred_df = pl.read_csv(str(pred_csv))
+
+            # Add metadata columns
+            pred_df = pred_df.with_columns([
+                pl.lit(pred_id).alias("prediction_id"),
+                pl.lit(metrics.get("dataset_name", "unknown")).alias("dataset_name"),
+                pl.lit(metrics.get("config_name", "unknown")).alias("config_name"),
+                pl.lit(metrics.get("test_score")).cast(pl.Float64).alias("test_score"),
+                pl.lit(metrics.get("train_score")).cast(pl.Float64).alias("train_score"),
+                pl.lit(metrics.get("val_score")).cast(pl.Float64).alias("val_score"),
+                pl.lit(metrics.get("model_type", "unknown")).alias("model_name"),
+                pl.lit(pipeline_dir.name).alias("pipeline_uid"),
+            ])
+
+            # Update internal dataframe
+            self._df = pred_df
+
+        # Save to split Parquet
+        self.save_to_parquet(catalog_dir, pred_id)
+
+        return pred_id
+
+    # Query Methods for Catalog (Phase 4)
+
+    def query_best(
+        self,
+        dataset_name: Optional[str] = None,
+        metric: str = "test_score",
+        n: int = 10,
+        ascending: bool = False
+    ) -> pl.DataFrame:
+        """Find best pipelines by metric (simple catalog sort).
+
+        This is a lightweight method for quickly sorting catalog metadata.
+        For complex ranking with cross-partition analysis and metric computation,
+        use the top() method instead.
+
+        When to use:
+        - query_best(): Simple sort of existing metric columns (fast, no computation)
+        - top(): Complex ranking, cross-partition metrics, on-the-fly computation
+
+        Args:
+            dataset_name: Optional filter by dataset
+            metric: Metric column to sort by (must exist in DataFrame)
+            n: Number of results
+            ascending: Sort order (False = higher is better)
+
+        Returns:
+            Top N predictions by metric (lightweight DataFrame, no deserialization)
+
+        Example:
+            >>> # Quick query of catalog for best test scores
+            >>> best = pred.query_best(metric="test_score", n=5)
+            >>> # For complex ranking with val/test analysis, use top() instead
+        """
+        df = self._df
+
+        if dataset_name:
+            df = df.filter(pl.col("dataset_name") == dataset_name)
+
+        df_sorted = df.sort(metric, descending=not ascending).head(n)
+
+        # Select relevant columns
+        cols = ["prediction_id", "dataset_name", "config_name", metric]
+        if "pipeline_hash" in df.columns:
+            cols.append("pipeline_hash")
+        if "created_at" in df.columns:
+            cols.append("created_at")
+
+        return df_sorted.select([c for c in cols if c in df.columns])
+
+    def filter_by_criteria(
+        self,
+        dataset_name: Optional[str] = None,
+        date_range: Optional[Tuple[str, str]] = None,
+        metric_thresholds: Optional[Dict[str, float]] = None
+    ) -> pl.DataFrame:
+        """Filter predictions by multiple criteria (optimized for catalog queries).
+
+        Use this method for lightweight catalog queries without deserialization.
+        For full prediction data with arrays, use filter_predictions().
+
+        Args:
+            dataset_name: Optional dataset filter
+            date_range: Optional (start_date, end_date) tuple
+            metric_thresholds: Optional dict of {metric: min_value}
+
+        Returns:
+            Filtered DataFrame (no deserialization)
+
+        Example:
+            >>> # Find all wheat predictions with good scores
+            >>> df = pred.filter_by_criteria(
+            ...     dataset_name="wheat",
+            ...     metric_thresholds={"test_score": 0.50, "val_score": 0.45}
+            ... )
+        """
+        # Use internal helper for basic filtering
+        df = self._apply_dataframe_filters(self._df, dataset_name=dataset_name)
+
+        # Apply date range filter
+        if date_range and "created_at" in df.columns:
+            start, end = date_range
+            df = df.filter(
+                (pl.col("created_at") >= start) & (pl.col("created_at") <= end)
+            )
+
+        # Apply metric thresholds
+        if metric_thresholds:
+            for metric, threshold in metric_thresholds.items():
+                if metric in df.columns:
+                    df = df.filter(pl.col(metric) >= threshold)
+
+        return df
+
+    def compare_across_datasets(
+        self,
+        pipeline_hash: str,
+        metric: str = "test_score"
+    ) -> pl.DataFrame:
+        """Compare same pipeline configuration across datasets.
+
+        Args:
+            pipeline_hash: Pipeline configuration hash
+            metric: Metric to compare
+
+        Returns:
+            Comparison table with aggregated stats
+        """
+        df = self._df
+
+        if "pipeline_hash" in df.columns:
+            df = df.filter(pl.col("pipeline_hash") == pipeline_hash)
+
+        if metric in df.columns:
+            comparison = df.group_by("dataset_name").agg([
+                pl.col(metric).min().alias(f"{metric}_min"),
+                pl.col(metric).max().alias(f"{metric}_max"),
+                pl.col(metric).mean().alias(f"{metric}_mean"),
+                pl.len().alias("num_predictions")
+            ])
+        else:
+            comparison = df.group_by("dataset_name").agg([
+                pl.len().alias("num_predictions")
+            ])
+
+        return comparison
+
+    def list_runs(self, dataset_name: Optional[str] = None) -> pl.DataFrame:
+        """List all runs with summary statistics.
+
+        Args:
+            dataset_name: Optional dataset filter
+
+        Returns:
+            Run summary with count and best score
+        """
+        df = self._df
+
+        if dataset_name:
+            df = df.filter(pl.col("dataset_name") == dataset_name)
+
+        # Group by dataset and date if available
+        group_cols = ["dataset_name"]
+        if "created_at" in df.columns:
+            group_cols.append("created_at")
+
+        agg_exprs = [pl.len().alias("num_pipelines")]
+        if "test_score" in df.columns:
+            agg_exprs.append(pl.col("test_score").max().alias("best_score"))
+
+        runs = df.group_by(group_cols).agg(agg_exprs)
+
+        if "created_at" in runs.columns:
+            runs = runs.sort("created_at", descending=True)
+
+        return runs
+
+    def get_summary_stats(self, metric: str = "test_score") -> Dict[str, float]:
+        """Get summary statistics for a metric.
+
+        Args:
+            metric: Metric column name
+
+        Returns:
+            Dictionary with min, max, mean, median, std
+        """
+        if metric not in self._df.columns:
+            return {}
+
+        stats = {
+            "min": float(self._df[metric].min()),
+            "max": float(self._df[metric].max()),
+            "mean": float(self._df[metric].mean()),
+            "median": float(self._df[metric].median()),
+            "std": float(self._df[metric].std()) if self._df[metric].std() is not None else 0.0,
+            "count": int(self._df.height)
+        }
+
+        return stats
+
+
 

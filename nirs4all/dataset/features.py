@@ -14,7 +14,8 @@ class Features:
         self.sources: List[FeatureSource] = []
         self.cache = cache
 
-    def add_samples(self, data: InputData, headers: Optional[Union[List[str], List[List[str]]]] = None) -> None:
+    def add_samples(self, data: InputData, headers: Optional[Union[List[str], List[List[str]]]] = None,
+                    header_unit: Optional[Union[str, List[str]]] = None) -> None:
         if isinstance(data, np.ndarray):
             data = [data]
 
@@ -24,17 +25,33 @@ class Features:
         elif len(self.sources) != n_sources:
             raise ValueError(f"Expected {len(self.sources)} sources, got {n_sources}")
 
-        # verify headers
+        # Prepare headers list
         if headers is not None:
             if isinstance(headers[0], str):
-                headers = [headers] * n_sources
-            if len(headers) != n_sources:
-                raise ValueError(f"Expected {n_sources} headers lists, got {len(headers)}")
+                headers_list = [headers] * n_sources
+            else:
+                headers_list = headers
+            if len(headers_list) != n_sources:
+                raise ValueError(f"Expected {n_sources} headers lists, got {len(headers_list)}")
         else:
-            headers = [None] * n_sources
+            headers_list = [None] * n_sources
 
-        for src, arr, hdr in zip(self.sources, data, headers):
+        # Prepare header_unit list
+        if header_unit is not None:
+            if isinstance(header_unit, str):
+                units_list = [header_unit] * n_sources
+            else:
+                units_list = header_unit
+            if len(units_list) != n_sources:
+                raise ValueError(f"Expected {n_sources} header units, got {len(units_list)}")
+        else:
+            units_list = [None] * n_sources
+
+        # Add samples and set headers with units
+        for src, arr, hdr, unit in zip(self.sources, data, headers_list, units_list):
             src.add_samples(arr, hdr)
+            if hdr is not None and unit is not None:
+                src.set_headers(hdr, unit=unit)
 
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList, source: int = -1) -> None:
         # Handle empty features list

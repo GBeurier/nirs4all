@@ -24,7 +24,7 @@ class YTransformerMixinController(OperatorController):
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
         """Match if keyword is 'y_processing' and operator is a TransformerMixin."""
-        # print(">>>> Checking YTransformerMixinController match...")
+        # print(f">>>> Checking YTransformerMixinController match...")
         # print(f"Keyword: {keyword}, Operator: {operator}, Is TransformerMixin: {isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)}")
         return (keyword == "y_processing" and
                 (isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)))
@@ -141,3 +141,4 @@ class YTransformerMixinController(OperatorController):
         # print(f"   All shape: {all_targets.shape} → {transformed_targets.shape}")
 
         return updated_context, []
+

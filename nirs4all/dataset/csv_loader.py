@@ -237,7 +237,7 @@ def _determine_csv_parameters(csv_content: str,  # csv_content is not used anymo
 # =============================================================================
 # Main function: load_csv
 # =============================================================================
-def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', **user_params):
+def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', header_unit='cm-1', **user_params):
     """
     Loads a CSV file using specified or default parameters, cleans data,
     handles NA values, and performs type conversions.
@@ -251,14 +251,19 @@ def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', **u
             - 'auto': Convert string columns to numerical categories.
             - 'preserve': Keep string columns (will become NaN if not convertible by final astype).
             - 'none': Treat all columns as potentially numeric.
+        header_unit (str): Unit type of headers - "cm-1" (wavenumber), "nm" (wavelength),
+            "none" (no headers), "text" (string headers), "index" (feature indices).
+            Default: "cm-1"
         **user_params: CSV parsing parameters (delimiter, decimal_separator, has_header)
             and other pandas.read_csv arguments.
 
     Returns:
-        (Union[pandas.DataFrame, None], dict, Union[pandas.Series, None]):
+        (Union[pandas.DataFrame, None], dict, Union[pandas.Series, None], Union[List[str], None], str):
             - DataFrame with processed data (before NA row removal).
             - Report dictionary.
             - Boolean Series indicating rows with NAs (aligned with the returned DataFrame).
+            - List of column headers (or None if no headers).
+            - Header unit string.
             None if an error occurs before this stage.
     """
     if na_policy == 'auto':
@@ -485,16 +490,16 @@ def load_csv(path, na_policy='auto', data_type='x', categorical_mode='auto', **u
         # Extract headers (column names)
         headers = data.columns.tolist() if not data.empty else []
 
-        return data, report, na_mask_after_conversions, headers
+        return data, report, na_mask_after_conversions, headers, header_unit
 
     except FileNotFoundError as e:
         report['error'] = str(e)
-        return None, report, None, None
+        return None, report, None, None, header_unit
     except ValueError as e:
         report['error'] = f"ValueError during processing: {e}"
-        return None, report, None, None
+        return None, report, None, None, header_unit
     except Exception as e:
         # Catch any other unexpected error during loading/processing
         import traceback
         report['error'] = f"Unexpected error in load_csv: {e}\n{traceback.format_exc()}"
-        return None, report, None, None
+        return None, report, None, None, header_unit

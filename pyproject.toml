@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nirs4all"
-version = "0.2.1"
+version = "0.3.1"
 description = "NIRS Analyses made easy."
 authors = [
     { name="Gregory Beurier", email="beurier@cirad.fr" },
@@ -40,7 +40,6 @@ dependencies = [
     "pyarrow>=10.0.0",
     "pyyaml>=5.4.0",
     "seaborn>=0.11.0",
-    "tensorflow>=2.10.0",
     "h5py>=3.0.0",
     "packaging>=20.0",
     "shap>=0.41.0",
