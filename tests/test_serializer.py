@@ -172,23 +172,21 @@ class TestPersistLoad:
         assert "format" in artifact
         assert artifact["size"] > 0
 
-        # Check file exists
-        full_path = artifacts_dir.parent / artifact["path"]
+        # Check file exists - new flat structure in _binaries
+        full_path = artifacts_dir / artifact["path"]
         assert full_path.exists()
+        # Path should be in format: ClassName_hash.ext
+        assert "StandardScaler_" in artifact["path"]
 
-    def test_persist_uses_sharding(self, artifacts_dir):
-        """Test that artifacts are stored in sharded directories."""
+    def test_persist_uses_flat_structure(self, artifacts_dir):
+        """Test that artifacts are stored in flat structure with meaningful names."""
         obj = {"test": "data"}
         artifact = persist(obj, artifacts_dir, "test_obj")
 
-        # Path should be: objects/<hash[:2]>/<hash>.pkl
-        assert "objects/" in artifact["path"]
-        path_parts = artifact["path"].split("/")
-        assert len(path_parts) == 3  # objects, shard, file
-
-        # Shard dir should be 2 chars
-        shard_dir = path_parts[1]
-        assert len(shard_dir) == 2
+        # Path should be flat: ClassName_hash.ext (no subdirectories)
+        assert "/" not in artifact["path"]  # No subdirectories
+        assert "dict_" in artifact["path"]  # Should have class name
+        assert artifact["path"].endswith(".pkl")  # Should have extension
 
     def test_persist_deduplication(self, artifacts_dir):
         """Test that identical objects produce same artifact."""
@@ -207,7 +205,8 @@ class TestPersistLoad:
 
     def test_load_artifact(self, results_dir):
         """Test loading artifact from metadata."""
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         # Create and persist
         scaler = StandardScaler()
@@ -228,7 +227,7 @@ class TestPersistLoad:
         artifact: ArtifactMeta = {
             "hash": "sha256:nonexistent",
             "name": "missing",
-            "path": "objects/no/nonexistent.pkl",
+            "path": "NonExistent_abc123.pkl",  # Flat path format
             "format": "pickle",
             "size": 100,
             "saved_at": "2025-01-01T00:00:00Z",
@@ -240,7 +239,8 @@ class TestPersistLoad:
 
     def test_persist_load_multiple_objects(self, results_dir):
         """Test persisting and loading multiple different objects."""
-        artifacts_dir = results_dir / "artifacts" / "objects"
+        artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         # Create different objects
         scaler = StandardScaler()
@@ -334,7 +334,7 @@ class TestContentAddressedStorage:
 
         # Persist first time
         artifact1 = persist(obj, artifacts_dir, "obj1")
-        path1 = artifacts_dir.parent / artifact1["path"]
+        path1 = artifacts_dir / artifact1["path"]
         mtime1 = path1.stat().st_mtime
 
         # Wait a moment
@@ -342,7 +342,7 @@ class TestContentAddressedStorage:
 
         # Persist same object again
         artifact2 = persist(obj, artifacts_dir, "obj2")
-        path2 = artifacts_dir.parent / artifact2["path"]
+        path2 = artifacts_dir / artifact2["path"]
         mtime2 = path2.stat().st_mtime
 
         # File should be the same (not overwritten)

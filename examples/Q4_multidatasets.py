@@ -26,6 +26,8 @@ from nirs4all.operators.transformations import (
     Gaussian, SavitzkyGolay, StandardNormalVariate, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.utils.emoji import REFRESH
+
 
 # Build the pipeline with feature augmentation
 pipeline = [
@@ -82,7 +84,7 @@ dataset_config = DatasetConfigs(data_paths)
 
 # Run the pipeline across multiple datasets
 runner = PipelineRunner(save_files=True, verbose=0)
-print("🔄 Running pipeline with spinner enabled - watch for loading animations during model training!")
+print(f"{REFRESH}Running pipeline with spinner enabled - watch for loading animations during model training!")
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analyze results per dataset
@@ -98,7 +100,7 @@ for dataset_name, dataset_prediction in predictions_per_dataset.items():
 
     # Plot comparison for this dataset
     analyzer = PredictionAnalyzer(dataset_predictions)
-    fig = analyzer.plot_top_k_comparison(k=5, metric='rmse')
+    fig = analyzer.plot_top_k_comparison(k=5, rank_metric='rmse')
 
 # Overall analysis across all datasets
 analyzer = PredictionAnalyzer(predictions)
@@ -115,4 +117,4 @@ fig3 = analyzer.plot_variable_candlestick(
     variable="model_name",
 )
 
-plt.show()
+# plt.show()

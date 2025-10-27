@@ -114,7 +114,7 @@ class ModelControllerHelper:
         try:
             return copy.deepcopy(model)
         except Exception as e:
-            print(f"⚠️ Could not clone model: {e}")
+            print(f"{WARNING}Could not clone model: {e}")
             return model  # Return original if cloning fails
 
     def get_model_class_name(self, model: Any) -> str:

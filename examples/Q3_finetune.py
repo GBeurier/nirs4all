@@ -45,39 +45,39 @@ pipeline = [
         "model": PLSRegression(),
         "name": "PLS-Finetuned",
         "finetune_params": {
-            "n_trials": 20,
+            "n_trials": 10,
             "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
             "approach": "single",                                  # "grouped", "individual", or "single"
             "eval_mode": "best",                    # "best" or "avg" (for grouped approach)
             "sample": "grid",                       # "random", "grid", "bayes", "hyperband", "skopt", "tpe", "cmaes"
             "model_params": {
-                'n_components': ('int', 1, 30),
+                'n_components': ('int', 1, 10),
             },
         }
     },
-    # {
-    #     "model": customizable_nicon,
-    #     "name": "PLS-Default",
-    #     "finetune_params": {
-    #         "n_trials": 30,
-    #         "verbose": 2,
-    #         "sample": "hyperband",
-    #         "approach": "single",
-    #         "model_params": {
-    #             "filters_1": [8, 16, 32, 64],
-    #             "filters_2": [8, 16, 32, 64],
-    #             "filters_3": [8, 16, 32, 64]
-    #         },
-    #         "train_params": {
-    #             "epochs": 10,
-    #             "verbose":0
-    #         }
-    #     },
-    #     "train_params": {
-    #         "epochs": 250,
-    #         "verbose":0
-    #     }
-    # }
+    {
+        "model": customizable_nicon,
+        "name": "PLS-Default",
+        "finetune_params": {
+            "n_trials": 10,
+            "verbose": 2,
+            "sample": "hyperband",
+            "approach": "single",
+            "model_params": {
+                "filters_1": [8, 16, 32, 64],
+                "filters_2": [8, 16, 32, 64],
+                "filters_3": [8, 16, 32, 64]
+            },
+            "train_params": {
+                "epochs": 5,
+                "verbose": 0
+            }
+        },
+        "train_params": {
+            "epochs": 25,
+            "verbose": 0
+        }
+    }
 ]
 
 # Add standard PLS models for comparison
@@ -110,7 +110,7 @@ for idx, prediction in enumerate(top_models):
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=best_model_count, metric='rmse')
+fig1 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse')
 
 # Plot heatmap of model performance vs preprocessing
 fig2 = analyzer.plot_variable_heatmap(
@@ -134,4 +134,4 @@ fig4 = analyzer.plot_variable_candlestick(
     variable="model_name",
 )
 
-plt.show()
+# plt.show()

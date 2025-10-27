@@ -242,11 +242,8 @@ Analysis and plotting utilities for predictions.
 class PredictionAnalyzer:
     def __init__(self, predictions_obj: Predictions, dataset_name_override: str = None)
 
-    # Ranking
-    def get_top_k(self, k: int = 5, metric: str = 'rmse', partition: str = '', dataset_name: Optional[str] = None, model_name: Optional[str] = None) -> List[Dict[str, Any]]
-
     # Plotting methods
-    def plot_top_k_comparison(self, k: int = 5, metric: str = 'rmse', partition: str = 'test', **filters) -> matplotlib.figure.Figure
+    def plot_top_k_comparison(self, k: int = 5, rank_metric: str = 'rmse', rank_partition: str = 'val', display_partition: str = 'all', **filters) -> matplotlib.figure.Figure
     def plot_heatmap_v2(self, x_var: str = "model_name", y_var: str = "preprocessings", aggregation: str = 'best', rank_metric: str = "rmse", rank_partition: str = "val", display_metric: str = "rmse", display_partition: str = "test", show_counts: bool = True, **filters) -> matplotlib.figure.Figure
     def plot_variable_candlestick(self, variable: str = "model_name", metric: str = "rmse", partition: str = "test", **filters) -> matplotlib.figure.Figure
     def plot_score_histogram(self, partition: str = "test", metric: str = "rmse", **filters) -> matplotlib.figure.Figure
@@ -257,7 +254,7 @@ class PredictionAnalyzer:
 analyzer = PredictionAnalyzer(predictions)
 
 # Generate plots
-fig1 = analyzer.plot_top_k_comparison(k=5, metric='rmse')
+fig1 = analyzer.plot_top_k_comparison(k=5, rank_metric='rmse')
 fig2 = analyzer.plot_heatmap_v2(x_var="model_name", y_var="preprocessings")
 fig3 = analyzer.plot_variable_candlestick(variable="model_name")
 fig4 = analyzer.plot_score_histogram()
@@ -417,7 +414,7 @@ from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
 analyzer = PredictionAnalyzer(predictions)
 
 # Generate comparison plots
-fig1 = analyzer.plot_top_k_comparison(k=5, metric='rmse')
+fig1 = analyzer.plot_top_k_comparison(k=5, rank_metric='rmse')
 fig2 = analyzer.plot_heatmap_v2(
     x_var="model_name",
     y_var="preprocessings",

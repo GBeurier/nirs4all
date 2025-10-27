@@ -13,6 +13,7 @@ import io
 
 # Import evaluator functions
 import nirs4all.dataset.evaluator as evaluator
+from nirs4all.utils.model_utils import ModelUtils, TaskType
 
 
 class TabReportManager:
@@ -59,40 +60,32 @@ class TabReportManager:
         )
 
         # Generate CSV string content
-        csv_string = TabReportManager._generate_csv_string(
+        csv_string = TabReportManager._format_as_csv_string(
             partitions_data, n_features, task_type
         )
 
         return formatted_string, csv_string
 
     @staticmethod
-    def _detect_task_type_from_entry(entry: Dict[str, Any]) -> str:
+    def _detect_task_type_from_entry(entry: Dict[str, Any]) -> TaskType:
         """Detect task type from a prediction entry."""
         y_true = np.array(entry.get('y_true', []))
         if len(y_true) == 0:
-            return "regression"
-
-        # Simple heuristic: if all values are integers and < 50 unique values, it's classification
-        unique_vals = np.unique(y_true)
-        if len(unique_vals) <= 2 and np.allclose(y_true, np.round(y_true)):
-            return "binary_classification"
-        elif len(unique_vals) <= 50 and np.allclose(y_true, np.round(y_true)):
-            return "multiclass_classification"
-        else:
-            return "regression"
+            return TaskType.REGRESSION
+        return ModelUtils.detect_task_type(y_true)
 
     @staticmethod
     def _format_as_table_string(
         partitions_data: Dict[str, Dict[str, Any]],
         n_features: int,
-        task_type: str
+        task_type: TaskType
     ) -> str:
         """Format the report data as a table string (matching PredictionHelpers format)."""
         if not partitions_data:
             return "No partition data available"
 
         # Prepare headers based on task type
-        if task_type == 'regression':
+        if task_type == TaskType.REGRESSION:
             headers = ['', 'Nsample', 'Nfeature', 'Mean', 'Median', 'Min', 'Max', 'SD', 'CV',
                        'R²', 'RMSE', 'MSE', 'SEP', 'MAE', 'RPD', 'Bias', 'Consistency']
         else:  # Classification
@@ -113,7 +106,7 @@ class TabReportManager:
             data = partitions_data[partition_name]
             display_name = "Cros Val" if partition_name == 'val' else partition_name.capitalize()
 
-            if task_type == 'regression':
+            if task_type == TaskType.REGRESSION:
                 row = [
                     display_name,
                     str(data.get('nsample', '')),
@@ -178,14 +171,14 @@ class TabReportManager:
         return '\n'.join(lines)
 
     @staticmethod
-    def _generate_csv_string(
+    def _format_as_csv_string(
         partitions_data: Dict[str, Dict[str, Any]],
         n_features: int,
-        task_type: str
+        task_type: TaskType
     ) -> str:
         """Generate CSV string content."""
         # Prepare headers based on task type
-        if task_type == 'regression':
+        if task_type == TaskType.REGRESSION:
             headers = ['', 'Nsample', 'Nfeature', 'Mean', 'Median', 'Min', 'Max', 'SD', 'CV',
                        'R²', 'RMSE', 'MSE', 'SEP', 'MAE', 'RPD', 'Bias', 'Consistency (%)']
         else:  # Classification
@@ -206,7 +199,7 @@ class TabReportManager:
             data = partitions_data[partition_name]
             display_name = "Cros Val" if partition_name == 'val' else partition_name.capitalize()
 
-            if task_type == 'regression':
+            if task_type == TaskType.REGRESSION:
                 row = [
                     display_name,
                     data.get('nsample', ''),

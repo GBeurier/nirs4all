@@ -253,7 +253,7 @@
 #                 return loss.item()
 
 #         except Exception as e:
-#             print(f"⚠️ Error in PyTorch model evaluation: {e}")
+#             print(f"{WARNING}Error in PyTorch model evaluation: {e}")
 #             return float('inf')
 
 #     def _sample_hyperparameters(self, trial, finetune_params: Dict[str, Any]) -> Dict[str, Any]:

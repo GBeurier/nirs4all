@@ -11,6 +11,7 @@ os.environ['DISABLE_EMOJIS'] = '1'  # Set to '1' to disable emojis in print stat
 
 from typing import Any, Dict, List, Optional, Callable, Union, TYPE_CHECKING
 import numpy as np
+from nirs4all.utils.emoji import TARGET, ROCKET, TROPHY, CHART
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -43,7 +44,7 @@ class OptunaManager:
         """Initialize the Optuna manager."""
         self.is_available = OPTUNA_AVAILABLE
         if not self.is_available:
-            print("⚠️ Optuna not available - finetuning will be skipped")
+            print("{WARNING}Optuna not available - finetuning will be skipped")
 
     def finetune(
         self,
@@ -76,7 +77,7 @@ class OptunaManager:
             Best parameters (dict) or list of best parameters per fold
         """
         if not self.is_available:
-            print("⚠️ Optuna not available, skipping finetuning")
+            print("{WARNING}Optuna not available, skipping finetuning")
             return {}
 
         # Extract configuration
@@ -86,7 +87,7 @@ class OptunaManager:
         verbose = finetune_params.get('verbose', 0)
 
         if verbose > 1:
-            print("🎯 Starting hyperparameter optimization:")
+            print(f"{TARGET}Starting hyperparameter optimization:")
             print(f"   Strategy: {strategy}")
             print(f"   Eval mode: {eval_mode}")
             print(f"   Trials: {n_trials}")
@@ -141,7 +142,7 @@ class OptunaManager:
 
         for fold_idx, (train_indices, val_indices) in enumerate(folds):
             if verbose > 1:
-                print(f"🎯 Optimizing fold {fold_idx + 1}/{len(folds)}")
+                print(f"{TARGET}Optimizing fold {fold_idx + 1}/{len(folds)}")
 
             # Extract fold data
             X_train_fold = X_train[train_indices]
@@ -215,8 +216,9 @@ class OptunaManager:
                     X_val_prep, y_val_prep = controller._prepare_data(X_val_fold, y_val_fold, context)
                     # print(X_train_prep.shape, y_train_prep.shape, X_val_prep.shape, y_val_prep.shape)
 
-                    # Train and evaluate
-                    trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep)
+                    # Train and evaluate - pass train_params from finetune_params
+                    train_params_for_trial = finetune_params.get('train_params', {})
+                    trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)
                     score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep)
                     # print(f"   Fold score: {score:.4f}", end=' 'if verbose > 1 else '\n')
                     scores.append(score)
@@ -234,13 +236,13 @@ class OptunaManager:
         self._configure_logging(verbose)
 
         if verbose > 1:
-            print(f"🚀 Running grouped optimization ({n_trials} trials)...")
+            print(f"{ROCKET}Running grouped optimization ({n_trials} trials)...")
 
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
 
         if verbose > 1:
-            print(f"🏆 Best score: {study.best_value:.4f}")
-            print(f"📊 Best parameters: {study.best_params}")
+            print(f"{TROPHY}Best score: {study.best_value:.4f}")
+            print(f"{CHART}Best parameters: {study.best_params}")
 
         return study.best_params
 
@@ -307,15 +309,16 @@ class OptunaManager:
                 X_train_prep, y_train_prep = controller._prepare_data(X_train, y_train, context)
                 X_val_prep, y_val_prep = controller._prepare_data(X_val, y_val, context)
 
-                # Train and evaluate
-                trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep)
+                # Train and evaluate - pass train_params from finetune_params
+                train_params_for_trial = finetune_params.get('train_params', {})
+                trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)
                 score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep)
 
                 return score
 
             except Exception as e:
                 if verbose > 2:
-                    print(f"⚠️ Trial failed: {e}")
+                    print(f"{WARNING}Trial failed: {e}")
                 return float('inf')
 
         # Create and run optimization
@@ -323,13 +326,13 @@ class OptunaManager:
         self._configure_logging(verbose)
 
         if verbose > 1:
-            print(f"🚀 Running optimization ({n_trials} trials)...")
+            print(f"{ROCKET}Running optimization ({n_trials} trials)...")
 
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
 
         if verbose > 1:
-            print(f"🏆 Best score: {study.best_value:.4f}")
-            print(f"📊 Best parameters: {study.best_params}")
+            print(f"{TROPHY}Best score: {study.best_value:.4f}")
+            print(f"{CHART}Best parameters: {study.best_params}")
 
         return study.best_params
 
