@@ -8,6 +8,8 @@
 
 > [Imports] import tf and pytorch only when needed, reup backend_utils.
 
+> [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
+
 **Bugs**:
 >   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
 
