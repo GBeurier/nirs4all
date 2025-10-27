@@ -27,7 +27,7 @@
 
 > [Predictions] refactoring and as a pipeline context / modularize class.
 
-> [Metrics] uniformize Model_Utils / Evaluator / Predictions
+> [Metrics] uniformize Model_Utils / Evaluator / Predictions and add custom losses
 
 **Bugs**:
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
