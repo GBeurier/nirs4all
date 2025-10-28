@@ -11,6 +11,11 @@
 **Bugs**:
 >   - [_or_] with one element fallback on dummy controller
 > [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
+- op_fold_charts:
+  lines 140-157 > The op_fold_charts save directly the image with runner saver instead of returning the image to save.
+- op_split:
+  line 250-260 > same problems as op_fold_charts. Save directly instead of returning tuple
+
 
 > [Pytorch] controller
 
