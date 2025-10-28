@@ -1318,6 +1318,7 @@ class PredictionAnalyzer:
                     ax.text(j, i, text, ha='center', va='center', fontsize=8,
                             color='white' if masked_matrix[i, j] < 0.0 else 'black')
 
+
     def plot_heatmap_v2(self, x_var: str, y_var: str, rank_metric: str = 'rmse', rank_partition: str = 'val', display_metric: str = '',
                         display_partition: str = 'test', figsize: Tuple[int, int] = (12, 8), normalize: bool = True,
                         aggregation: str = 'best', show_counts: bool = True, **filters) -> Figure:
@@ -1379,15 +1380,17 @@ class PredictionAnalyzer:
             # Need to get scores from display partition
             # Optimization: Build lookup of what model identities we need
             unique_models = {}  # identity_key -> rank_pred
+            unique_model_keys = set()  # Just track which identity_keys we have
             for pred in rank_predictions:
                 identity_key = (
+                    pred.get('dataset_name', ''),
                     pred.get('config_name', ''),
-                    pred.get('step_idx', 0),
                     pred.get('model_name', ''),
                     pred.get('fold_id', ''),
                     pred.get('op_counter', 0)
                 )
                 unique_models[identity_key] = pred
+                unique_model_keys.add(identity_key)
 
             # Get display predictions using top_k with display partition
             display_filters = {k: v for k, v in filters.items() if k != 'partition'}
@@ -1405,8 +1408,8 @@ class PredictionAnalyzer:
             display_lookup = {}
             for pred in display_predictions:
                 identity_key = (
+                    pred.get('dataset_name', ''),
                     pred.get('config_name', ''),
-                    pred.get('step_idx', 0),
                     pred.get('model_name', ''),
                     pred.get('fold_id', ''),
                     pred.get('op_counter', 0)
