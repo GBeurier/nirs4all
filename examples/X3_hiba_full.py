@@ -23,13 +23,13 @@ from lightgbm import LGBMRegressor
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer, Gaussian as Gauss,
     StandardNormalVariate as SNV, SavitzkyGolay as SavGol, Haar, MultiplicativeScatterCorrection as MSC,
     RobustStandardNormalVariate as RSNV, LocalStandardNormalVariate as LSNV, Wavelet, Derivate
 )
 
-from nirs4all.operators.transformations.nirs import AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
+from nirs4all.operators.transforms.nirs import AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
 
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter

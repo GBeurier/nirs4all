@@ -25,7 +25,7 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, SecondDerivative, Gaussian,
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )

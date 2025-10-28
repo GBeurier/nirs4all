@@ -11,7 +11,7 @@ The `Resampler` operator allows you to resample spectral data to a different wav
 ## Basic Usage
 
 ```python
-from nirs4all.operators.transformations import Resampler
+from nirs4all.operators.transforms import Resampler
 import numpy as np
 
 # Define target wavelength grid
@@ -110,7 +110,7 @@ Whether to copy the input data before transformation.
 ### Example 1: Downsampling for Faster Processing
 
 ```python
-from nirs4all.operators.transformations import Resampler
+from nirs4all.operators.transforms import Resampler
 import numpy as np
 
 # Reduce from 200 to 50 wavelengths

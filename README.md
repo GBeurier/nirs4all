@@ -153,7 +153,7 @@ from sklearn.ensemble import RandomForestRegressor
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     StandardNormalVariate, SavitzkyGolay, MultiplicativeScatterCorrection
 )
 
@@ -185,7 +185,7 @@ for i, model in enumerate(top_models):
 ### Advanced Pipeline with Feature Augmentation
 
 ```python
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, Gaussian, Haar
 )
 

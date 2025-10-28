@@ -11,7 +11,7 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, SecondDerivative, Gaussian,
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )

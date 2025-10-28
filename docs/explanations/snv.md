@@ -13,7 +13,7 @@ The `StandardNormalVariate` class in `nirs4all` provides a flexible implementati
 By default, SNV operates row-wise (axis=1), which is the standard approach in spectroscopy. Each spectrum (row) is centered and scaled independently:
 
 ```python
-from nirs4all.operators.transformations import StandardNormalVariate
+from nirs4all.operators.transforms import StandardNormalVariate
 import numpy as np
 
 # Example spectral data (3 samples, 5 wavelengths)
@@ -76,7 +76,7 @@ X_transformed = snv_colwise.fit_transform(X)
 ### Example 1: Basic SNV for Spectroscopy
 
 ```python
-from nirs4all.operators.transformations import StandardNormalVariate
+from nirs4all.operators.transforms import StandardNormalVariate
 from sklearn.pipeline import Pipeline
 from sklearn.decomposition import PCA
 
@@ -93,7 +93,7 @@ X_processed = pipeline.fit_transform(X_spectra)
 ### Example 2: SNV with Other Preprocessing
 
 ```python
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     StandardNormalVariate,
     SavitzkyGolay,
     MultiplicativeScatterCorrection

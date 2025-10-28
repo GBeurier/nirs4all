@@ -381,7 +381,7 @@ Once installed, verify everything works:
 # Import the new API components
 from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.transformations import StandardNormalVariate
+from nirs4all.operators.transforms import StandardNormalVariate
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit

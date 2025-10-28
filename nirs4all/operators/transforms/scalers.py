@@ -40,7 +40,7 @@ class StandardNormalVariate(TransformerMixin, BaseEstimator):
 
     Examples
     --------
-    >>> from nirs4all.operators.transformations import StandardNormalVariate
+    >>> from nirs4all.operators.transforms import StandardNormalVariate
     >>> import numpy as np
     >>> X = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=float)
     >>> snv = StandardNormalVariate()

@@ -16,7 +16,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import ShuffleSplit
 from sklearn.cross_decomposition import PLSRegression
 
-from nirs4all.operators.transformations import Resampler, StandardNormalVariate
+from nirs4all.operators.transforms import Resampler, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.data import DatasetConfigs
 

@@ -927,9 +927,9 @@ pipeline:
 
   - feature_augmentation:
       _or_:
-        - class: nirs4all.operators.transformations.Detrend
-        - class: nirs4all.operators.transformations.FirstDerivative
-        - class: nirs4all.operators.transformations.Gaussian
+        - class: nirs4all.operators.transforms.Detrend
+        - class: nirs4all.operators.transforms.FirstDerivative
+        - class: nirs4all.operators.transforms.Gaussian
       size: [1, 2]
       count: 5
 
@@ -1324,7 +1324,7 @@ pipeline = [
 ### Example 5: Preprocessing Exploration
 
 ```python
-from nirs4all.operators.transformations import Detrend, FirstDerivative, Gaussian
+from nirs4all.operators.transforms import Detrend, FirstDerivative, Gaussian
 
 pipeline = [
     MinMaxScaler(),
@@ -1361,7 +1361,7 @@ pipeline = [
 ### Example 7: Complex Generator
 
 ```python
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, Gaussian, StandardNormalVariate
 )
 
