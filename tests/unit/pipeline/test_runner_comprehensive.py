@@ -44,7 +44,7 @@ from nirs4all.dataset.predictions import Predictions
 from nirs4all.operators.transformations import (
     Detrend, FirstDerivative, Gaussian, StandardNormalVariate
 )
-from tests.utils.test_data_generator import TestDataManager
+from tests.unit.utils.test_data_generator import TestDataManager
 
 
 # ============================================================================
