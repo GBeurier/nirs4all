@@ -13,7 +13,7 @@ from pathlib import Path
 import json
 import hashlib
 import nirs4all.dataset.evaluator as Evaluator
-from nirs4all.utils.emoji import DISK, CHECK, SEARCH
+from nirs4all.utils.emoji import DISK, CHECK, SEARCH, WARNING
 from nirs4all.utils.model_utils import ModelUtils
 import csv
 import io
