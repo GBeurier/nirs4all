@@ -1,5 +1,5 @@
 <div align="center">
-<img src="docs/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
+<img src="docs/assets/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
 
 [![PyPI version](https://img.shields.io/pypi/v/nirs4all.svg)](https://pypi.org/project/nirs4all/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-311/)
@@ -11,7 +11,7 @@
 
 NIRS4ALL is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
 
-<!-- <img src="docs/pipeline.jpg" width="700" alt="NIRS4ALL Pipeline"> -->
+<!-- <img src="docs/assets/pipeline.jpg" width="700" alt="NIRS4ALL Pipeline"> -->
 
 ## What is Near-Infrared Spectroscopy (NIRS)?
 
@@ -81,8 +81,8 @@ NIRS4ALL offers a wide range of functionalities:
    - Residual analysis
 
 <div align="center">
-<img src="docs/heatmap.png" width="400" alt="Performance Heatmap">
-<img src="docs/candlestick.png" width="400" alt="Performance Distribution">
+<img src="docs/assets/heatmap.png" width="400" alt="Performance Heatmap">
+<img src="docs/assets/candlestick.png" width="400" alt="Performance Distribution">
 <br><em>Advanced visualization capabilities for model performance analysis</em>
 </div>
 
@@ -364,16 +364,43 @@ Run any example with: `python examples/<example_name>.py`
 
 ## Documentation
 
-### Core Documentation
+### User Guide
 
-- **[Preprocessing.md](docs/Preprocessing.md)** - Complete reference of transformers (nirs4all, sklearn, scipy) with usage examples
-- **[CONFIG_FORMAT.md](docs/CONFIG_FORMAT.md)** - Pipeline configuration file format and structure
-- **[NESTED_CROSS_VALIDATION.md](docs/NESTED_CROSS_VALIDATION.md)** - Nested CV for unbiased hyperparameter tuning
-- **[PREDICTION_RESULTS_LIST.md](docs/PREDICTION_RESULTS_LIST.md)** - Understanding prediction results and metrics
-- **[SHAP_EXPLANATION.md](docs/SHAP_EXPLANATION.md)** - Model interpretability with SHAP values
-- **[RESAMPLER.md](docs/RESAMPLER.md)** - Wavelength resampling strategies
-- **[COMBINATION_GENERATOR.md](docs/COMBINATION_GENERATOR.md)** - Feature augmentation and preprocessing combinations
-- **[CROSS_DATASET_METRICS_EXPLANATION.md](docs/CROSS_DATASET_METRICS_EXPLANATION.md)** - Cross-dataset validation metrics
+- **[Preprocessing Guide](docs/user_guide/preprocessing.md)** - Complete reference of transformers (nirs4all, sklearn, scipy) with usage examples
+- **[Preprocessing Cheatsheet](docs/user_guide/preprocessing_cheatsheet.md)** - Quick reference for preprocessing operations
+- **[Sample Augmentation Guide](docs/user_guide/sample_augmentation.md)** - Data augmentation techniques for NIRS
+
+### API Reference
+
+- **[Data Module](docs/api/data.md)** - Dataset handling and data loading APIs
+- **[Pipeline Module](docs/api/pipeline.md)** - Pipeline configuration and execution APIs
+- **[Workspace Module](docs/api/workspace.md)** - Workspace management and organization
+
+### Specifications
+
+- **[Pipeline Syntax](docs/specifications/pipeline_syntax.md)** - Complete pipeline configuration syntax
+- **[Config Format](docs/specifications/config_format.md)** - Pipeline configuration file format and structure
+- **[Metrics](docs/specifications/metrics.md)** - Available metrics and evaluation methods
+- **[Nested Cross-Validation](docs/specifications/nested_cv.md)** - Nested CV for unbiased hyperparameter tuning
+- **[Cross-Dataset Metrics](docs/specifications/cross_dataset_metrics.md)** - Cross-dataset validation metrics
+- **[Group Split](docs/specifications/group_split.md)** - Group-based data splitting strategies
+- **[Serialization](docs/specifications/serialization.md)** - Pipeline serialization and deserialization
+
+### Explanations
+
+- **[SHAP Explanation](docs/explanations/shap.md)** - Model interpretability with SHAP values
+- **[Resampler](docs/explanations/resampler.md)** - Wavelength resampling strategies
+- **[SNV Explanation](docs/explanations/snv.md)** - Standard Normal Variate transformation
+- **[PLS Study](docs/explanations/pls_study.md)** - Partial Least Squares regression analysis
+- **[Metadata Usage](docs/explanations/metadata.md)** - Working with dataset metadata
+
+### Reference
+
+- **[Operator Catalog](docs/reference/operator_catalog.md)** - Complete catalog of available operators
+- **[Combination Generator](docs/reference/combination_generator.md)** - Feature augmentation and preprocessing combinations
+- **[Writing Pipelines](docs/reference/writing_pipelines.md)** - Best practices for pipeline creation
+- **[Outputs vs Artifacts](docs/reference/outputs_vs_artifacts.md)** - Understanding pipeline outputs
+- **[Prediction Results](docs/reference/prediction_results_list.md)** - Understanding prediction results and metrics
 
 Full documentation will be available at [https://nirs4all.readthedocs.io/](https://nirs4all.readthedocs.io/)
 
