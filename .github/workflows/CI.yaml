@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]  # , macos-latest --- macos timeout issues
-        python-version: ['3.9', '3.11', '3.13']
+        python-version: ['3.11', '3.13']
     steps:
       - uses: actions/checkout@v4
 

@@ -26,12 +26,6 @@ class ModelBuilderFactory:
     @staticmethod
     @staticmethod
     def build_single_model(model_config, dataset, force_params={}):
-        # # DEBUG: Print what we received
-        # print(f"DEBUG build_single_model received model_config: {model_config}")
-        # print(f"DEBUG model_config type: {type(model_config)}")
-        # if isinstance(model_config, dict):
-        #     print(f"DEBUG dict keys: {list(model_config.keys())}")
-
         # print("Building model with config:", model_config, "dataset:", dataset, "task:", task, "force_params:", force_params)
         if hasattr(dataset, 'is_classification') and dataset.is_classification:
             if hasattr(dataset, 'num_classes'):
