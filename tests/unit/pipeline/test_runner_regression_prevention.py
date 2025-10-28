@@ -24,7 +24,7 @@ from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.predictions import Predictions
-from tests.utils.test_data_generator import TestDataManager
+from tests.unit.utils.test_data_generator import TestDataManager
 
 
 @pytest.fixture

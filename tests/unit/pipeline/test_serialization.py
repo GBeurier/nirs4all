@@ -226,7 +226,7 @@ class TestFunctionBasedModels:
         # Should serialize as function reference
         assert isinstance(serialized, dict)
         assert "function" in serialized
-        assert "test_pipeline_serialization" in serialized["function"]
+        assert "test_serialization" in serialized["function"]
         assert "mock_model_function" in serialized["function"]
 
         # Deserialize should return function reference, NOT call it

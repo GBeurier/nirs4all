@@ -18,7 +18,7 @@ from nirs4all.operators.transformations import (
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.utils.PCA_analyzer import PreprocPCAEvaluator
 
-from tests.utils.test_data_generator import TestDataManager
+from tests.unit.utils.test_data_generator import TestDataManager
 
 
 class TestPCAAnalysisIntegration:

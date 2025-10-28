@@ -347,12 +347,25 @@ These tutorials demonstrate real-world workflows and best practices for producti
 
 Ready-to-run example scripts demonstrating common NIRS workflows:
 
+### Basic Examples
 - **[Q1_regression.py](examples/Q1_regression.py)** - Basic regression with PLS models and preprocessing combinations
 - **[Q1_classif.py](examples/Q1_classif.py)** - Classification pipeline with Random Forest and preprocessing
+- **[Q1_classif_tf.py](examples/Q1_classif_tf.py)** - Classification with TensorFlow neural networks and confusion matrix visualization
+- **[Q1_groupsplit.py](examples/Q1_groupsplit.py)** - Group-based data splitting for maintaining sample integrity
+
+### Advanced Pipeline Techniques
 - **[Q2_multimodel.py](examples/Q2_multimodel.py)** - Compare multiple model types (PLS, RF, SVM) in one run
 - **[Q3_finetune.py](examples/Q3_finetune.py)** - Hyperparameter optimization with Optuna
 - **[Q4_multidatasets.py](examples/Q4_multidatasets.py)** - Cross-dataset validation and transfer learning
+- **[Q11_flexible_inputs.py](examples/Q11_flexible_inputs.py)** - All possible input formats for PipelineRunner (configs, dicts, arrays, paths)
+- **[Q12_sample_augmentation.py](examples/Q12_sample_augmentation.py)** - Balanced sample augmentation for imbalanced classification datasets
+
+### Model Deployment & Prediction
 - **[Q5_predict.py](examples/Q5_predict.py)** - Load saved models and predict on new data
+- **[Q5_predict_NN.py](examples/Q5_predict_NN.py)** - Prediction methods for neural network models
+- **[Q14_workspace.py](examples/Q14_workspace.py)** - Workspace management, library export, and global predictions database
+
+### Data Processing & Analysis
 - **[Q6_multisource.py](examples/Q6_multisource.py)** - Multi-target regression from single dataset
 - **[Q7_discretization.py](examples/Q7_discretization.py)** - Convert continuous targets to categorical
 - **[Q8_shap.py](examples/Q8_shap.py)** - SHAP analysis for model interpretability
@@ -360,8 +373,12 @@ Ready-to-run example scripts demonstrating common NIRS workflows:
 - **[Q10_resampler.py](examples/Q10_resampler.py)** - Wavelength resampling and interpolation techniques
 - **[Q13_nm_headers.py](examples/Q13_nm_headers.py)** - Working with nanometer (nm) wavelength headers instead of wavenumbers (cm⁻¹)
 
-Run any example with: `python examples/<example_name>.py`
+### Custom Models
+- **[custom_NN.py](examples/custom_NN.py)** - Custom TensorFlow neural network architectures for NIRS
+- **[custom_nicon.py](examples/custom_nicon.py)** - Custom NICON (NIRS Convolutional Network) model implementations
 
+Run any example with: `python examples/<example_name>.py`
+t
 ## Documentation
 
 ### User Guide
