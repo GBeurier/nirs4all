@@ -21,7 +21,7 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.binary_loader import BinaryLoader
-from nirs4all.utils.tab_report_manager import TabReportManager
+from nirs4all.visualization.reports import TabReportManager
 
 def init_global_random_state(seed: Optional[int] = None):
     import numpy as np
@@ -700,7 +700,7 @@ class PipelineRunner:
                 print(f"📁 Output directory: {output_dir}")
 
             # Initialize and run SHAP analyzer
-            from nirs4all.utils.shap_analyzer import ShapAnalyzer
+            from nirs4all.visualization.shap import ShapAnalyzer
             analyzer = ShapAnalyzer()
 
             shap_results = analyzer.explain_model(

@@ -245,7 +245,7 @@ class ModelControllerHelper:
         """
         Check if a model can be serialized using the new serializer infrastructure.
         """
-        from nirs4all.utils.serializer import is_serializable
+        from nirs4all.utils.serialization import is_serializable
         return is_serializable(model)
 
     def get_model_info(self, model: Any) -> Dict[str, Any]:

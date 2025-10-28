@@ -7,7 +7,7 @@ from tensorflow.keras.layers import (
 )
 import tensorflow as tf
 from keras.initializers import lecun_normal, he_normal
-from nirs4all.utils.backend_utils import framework
+from nirs4all.utils.backend import framework
 
 
 @framework('tensorflow')

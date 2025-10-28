@@ -217,7 +217,7 @@ class PredictionResult(dict):
         """
         # Import tab report manager
         try:
-            from nirs4all.utils.tab_report_manager import TabReportManager
+            from nirs4all.visualization.reports import TabReportManager
         except ImportError:
             return "{WARNING}TabReportManager not available"
 

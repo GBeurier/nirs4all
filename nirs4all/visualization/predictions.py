@@ -1137,7 +1137,7 @@ class PredictionAnalyzer:
 
         if len(y_true) > 0 and len(y_pred) > 0:
             try:
-                from .evaluator import eval
+                from ..data.evaluator import eval
                 score = eval(np.array(y_true), np.array(y_pred), metric)
                 return float(score)
             except Exception as e:

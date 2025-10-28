@@ -16,7 +16,7 @@ from nirs4all.operators.transformations import (
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.utils.PCA_analyzer import PreprocPCAEvaluator
+from nirs4all.visualization.pca import PreprocPCAEvaluator
 
 from tests.unit.utils.test_data_generator import TestDataManager
 
