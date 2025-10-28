@@ -355,7 +355,7 @@ print(f"Available controllers: {num_controllers}")
 ### Basic Regression Pipeline
 
 ```python
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
@@ -408,7 +408,7 @@ Predictions.save_predictions_to_csv(y_pred=y_pred, filepath="results/new_predict
 ### Advanced Analysis with Visualization
 
 ```python
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+from nirs4all.data.prediction_analyzer import PredictionAnalyzer
 
 # Create analyzer
 analyzer = PredictionAnalyzer(predictions)

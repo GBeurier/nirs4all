@@ -162,7 +162,7 @@ predictions, _ = runner.run(pipeline_config, dataset_config)
 
 ### Archive Best Predictions to Catalog
 ```python
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 
 # Get top models
 top_models = predictions.top(n=5, rank_metric='rmse')

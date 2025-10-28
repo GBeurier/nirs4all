@@ -10,7 +10,7 @@ Tests cover:
 """
 import numpy as np
 import pytest
-from nirs4all.dataset.indexer import Indexer
+from nirs4all.data.indexer import Indexer
 
 
 class TestGetAugmentedForOrigins:

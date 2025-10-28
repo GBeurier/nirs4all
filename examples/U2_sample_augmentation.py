@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import StratifiedKFold
 
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 
 # Example 1: Basic Augmentation
 # ===============================

@@ -13,7 +13,7 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
 from nirs4all.pipeline import PipelineRunner, PipelineConfigs
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 
 
 class TestFlexibleInputsIntegration:

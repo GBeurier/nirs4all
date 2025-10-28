@@ -18,7 +18,7 @@ from sklearn.cross_decomposition import PLSRegression
 
 from nirs4all.operators.transformations import Resampler, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 
 def main():
     """Run resampler example."""

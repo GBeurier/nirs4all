@@ -9,7 +9,7 @@ Currently, nirs4all pipelines are NOT sklearn-compatible:
 ```python
 # Current (verbose, not sklearn-compatible)
 from nirs4all.pipeline import PipelineRunner, PipelineConfigs
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 
 config = PipelineConfigs([...steps...])
 dataset_config = DatasetConfigs('data/')
@@ -70,7 +70,7 @@ class Nirs4allPipeline(BaseEstimator, RegressorMixin):
     def fit(self, X, y=None):
         """Fit the pipeline using sklearn API."""
         # 1. Convert X, y to internal SpectroDataset
-        from nirs4all.dataset import SpectroDataset
+        from nirs4all.data import SpectroDataset
         self._dataset = SpectroDataset(name="sklearn_data")
         self._dataset.add_samples(X)
         if y is not None:
@@ -82,7 +82,7 @@ class Nirs4allPipeline(BaseEstimator, RegressorMixin):
 
         # 3. Execute with PipelineRunner
         from nirs4all.pipeline import PipelineRunner
-        from nirs4all.dataset import DatasetConfigs
+        from nirs4all.data import DatasetConfigs
 
         runner = PipelineRunner(save_files=False, verbose=self.verbose)
         dataset_config = DatasetConfigs.from_dataset(self._dataset)

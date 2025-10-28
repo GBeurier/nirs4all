@@ -20,7 +20,7 @@ from pathlib import Path
 
 # NIRS4All imports
 from nirs4all.pipeline import PipelineRunner, PipelineConfigs
-from nirs4all.dataset import DatasetConfigs, SpectroDataset
+from nirs4all.data import DatasetConfigs, SpectroDataset
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold

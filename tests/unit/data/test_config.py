@@ -1,7 +1,7 @@
 """Tests for dataset configuration."""
 
 import pytest
-from nirs4all.dataset.dataset_config import DatasetConfigs
+from nirs4all.data.config import DatasetConfigs
 
 
 class TestDatasetConfig:

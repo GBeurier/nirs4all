@@ -7,7 +7,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from nirs4all.dataset.metadata import Metadata
+from nirs4all.data.metadata import Metadata
 
 
 class TestMetadataBasics:

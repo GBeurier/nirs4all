@@ -10,7 +10,7 @@
 ```python
 # Configuration-centric, not sklearn-compatible
 from nirs4all.pipeline import PipelineRunner, PipelineConfigs
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 
 config = PipelineConfigs([MinMaxScaler(), PLSRegression()])
 dataset = DatasetConfigs('data/')
@@ -184,7 +184,7 @@ def score(self, X, y, sample_weight=None):
 ```python
 def _create_dataset_from_arrays(self, X, y):
     """Convert numpy arrays to internal SpectroDataset."""
-    from nirs4all.dataset import SpectroDataset
+    from nirs4all.data import SpectroDataset
 
     dataset = SpectroDataset(name=self.name)
 
@@ -285,7 +285,7 @@ runner = PipelineRunner()
 predictions, _ = runner.run(config, dataset)
 
 # After: examples/Q1_regression.py
-from nirs4all.dataset import load_dataset
+from nirs4all.data import load_dataset
 
 X_train, X_test, y_train, y_test = load_dataset('data/')
 pipe = Pipeline([...])
@@ -532,7 +532,7 @@ class Pipeline(BaseEstimator, RegressorMixin):
         return r2_score(y, y_pred, sample_weight=sample_weight)
 
     def _create_dataset_from_arrays(self, X, y):
-        from nirs4all.dataset import SpectroDataset
+        from nirs4all.data import SpectroDataset
         dataset = SpectroDataset(name=self.name)
         dataset.add_samples(X)
         if y is not None:

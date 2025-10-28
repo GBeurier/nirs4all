@@ -200,10 +200,10 @@ DEFAULT_HEADER_UNIT = HeaderUnit.CM1
 #### **5.2 Optimize Imports**
 ```python
 # Current: Many files import entire modules
-from nirs4all.dataset.helpers import *
+from nirs4all.data.helpers import *
 
 # Better: Explicit imports
-from nirs4all.dataset.helpers import (
+from nirs4all.data.helpers import (
     Selector, SampleIndices, ProcessingList
 )
 ```

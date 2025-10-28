@@ -121,7 +121,7 @@ def test_installation() -> bool:
         from nirs4all.pipeline.runner import PipelineRunner
         print("  ✓ nirs4all.pipeline.runner: OK")
 
-        from nirs4all.dataset.dataset import SpectroDataset
+        from nirs4all.data.dataset import SpectroDataset
         print("  ✓ nirs4all.dataset.dataset: OK")
 
         # Test controller system
@@ -193,7 +193,7 @@ def test_integration() -> bool:
     try:
         # Import required modules based on examples
         from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-        from nirs4all.dataset import DatasetConfigs
+        from nirs4all.data import DatasetConfigs
         from sklearn.preprocessing import MinMaxScaler
         from sklearn.model_selection import ShuffleSplit
         from sklearn.ensemble import RandomForestRegressor

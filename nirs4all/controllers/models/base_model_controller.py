@@ -21,15 +21,14 @@ import copy
 from nirs4all.controllers.controller import OperatorController
 from .model_controller_helper import ModelControllerHelper
 from .optuna_manager import OptunaManager
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 from nirs4all.utils.model_utils import ModelUtils, TaskType
-from nirs4all.utils.model_builder import ModelBuilderFactory
 from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING
-import nirs4all.dataset.evaluator as Evaluator
+import nirs4all.data.evaluator as Evaluator
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
-    from nirs4all.dataset.dataset import SpectroDataset
+    from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.io import ArtifactMeta
 
 

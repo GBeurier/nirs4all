@@ -4,7 +4,7 @@ Test wavelength conversion methods in Dataset - Step 2
 
 import pytest
 import numpy as np
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 
 
 class TestDatasetWavelengthConversion:
@@ -158,7 +158,7 @@ class TestDatasetWavelengthConversion:
         dataset._features.sources[0].set_headers(headers1, unit="cm-1")
 
         # Source 1: nm - manually add second source
-        from nirs4all.dataset.feature_source import FeatureSource
+        from nirs4all.data.feature_source import FeatureSource
         source1 = FeatureSource()
         samples2 = np.random.rand(10, 2)
         headers2 = ["780.0", "1000.0"]

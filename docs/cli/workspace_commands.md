@@ -249,7 +249,7 @@ All CLI commands can also be used programmatically:
 
 ```python
 from nirs4all.workspace import WorkspaceManager
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 
 # Initialize workspace
 workspace = WorkspaceManager("my_workspace")

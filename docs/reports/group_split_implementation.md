@@ -554,7 +554,7 @@ def execute(
 **Testing**:
 ```python
 from sklearn.model_selection import GroupKFold
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 import numpy as np
 import pandas as pd
 
@@ -595,7 +595,7 @@ import pytest
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, KFold
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 from nirs4all.controllers.sklearn.op_split import CrossValidatorController
 from nirs4all.pipeline.runner import PipelineRunner
 
@@ -900,7 +900,7 @@ pipeline = [
 After splitting, verify groups don't overlap:
 
 ```python
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 
 dataset = SpectroDataset(...)
 # ... add data and metadata ...
@@ -1001,8 +1001,8 @@ from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.cross_decomposition import PLSRegression
 
-from nirs4all.dataset.dataset import SpectroDataset
-from nirs4all.dataset.dataset_config import DatasetConfigs
+from nirs4all.data.dataset import SpectroDataset
+from nirs4all.data.dataset_config import DatasetConfigs
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
 

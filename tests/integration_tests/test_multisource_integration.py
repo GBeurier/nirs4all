@@ -13,8 +13,8 @@ from sklearn.linear_model import ElasticNet
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+from nirs4all.data import DatasetConfigs
+from nirs4all.data.analyzers import PredictionAnalyzer
 from nirs4all.operators.transformations import (
     Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 )

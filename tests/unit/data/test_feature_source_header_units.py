@@ -4,7 +4,7 @@ Test header unit metadata in FeatureSource - Step 1
 
 import pytest
 import numpy as np
-from nirs4all.dataset.feature_source import FeatureSource
+from nirs4all.data.feature_source import FeatureSource
 
 
 class TestFeatureSourceHeaderUnits:

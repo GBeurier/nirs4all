@@ -15,7 +15,7 @@ import uuid
 import shutil
 
 from nirs4all.utils.emoji import CHECK, WARNING
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 
 
 class SimulationSaver:
@@ -469,7 +469,7 @@ class SimulationSaver:
             print(f"{WARNING} No predictions found for dataset '{dataset_name}'")
             return None
 
-        from nirs4all.dataset.predictions import Predictions
+        from nirs4all.data.predictions import Predictions
         predictions = Predictions.load_from_file_cls(str(predictions_file))
         if predictions.num_predictions == 0:
             print(f"{WARNING} No predictions in database for '{dataset_name}'")

@@ -14,8 +14,8 @@ from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import ShuffleSplit
 
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.dataset.dataset_config import DatasetConfigs
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.config import DatasetConfigs
+from nirs4all.data.predictions import Predictions
 from tests.unit.utils.test_data_generator import TestDataManager
 
 

@@ -244,7 +244,7 @@ pipeline_dir = saver.register_workspace(
 
 ### Catalog Queries
 ```python
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 
 # Load catalog
 pred = Predictions.load_from_parquet("my_workspace/catalog")

@@ -14,7 +14,7 @@ from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.cross_decomposition import PLSRegression
 
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 from tests.unit.utils.test_data_generator import TestDataManager

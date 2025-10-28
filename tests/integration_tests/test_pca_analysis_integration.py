@@ -10,7 +10,7 @@ import numpy as np
 
 from sklearn.preprocessing import MinMaxScaler
 
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transformations import (
     Detrend, FirstDerivative, SecondDerivative, Gaussian,
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection

@@ -23,7 +23,7 @@ import os
 os.environ['DISABLE_EMOJIS'] = '1'
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transformations import Rotate_Translate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from sklearn.model_selection import GroupKFold

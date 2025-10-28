@@ -18,14 +18,14 @@ from sklearn.linear_model import ElasticNet
 from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
 
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
 from nirs4all.operators.transformations import (
     Detrend, FirstDerivative, SecondDerivative, Gaussian,
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+from nirs4all.data.analyzers import PredictionAnalyzer
 
 from tests.unit.utils.test_data_generator import TestDataManager
 

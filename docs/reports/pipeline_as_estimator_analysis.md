@@ -85,7 +85,7 @@ Dataset (nirs4all/dataset/)
 ```python
 # Current usage (verbose)
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 
 pipeline = [
     MinMaxScaler(),
@@ -338,7 +338,7 @@ class Nirs4allPipeline(BaseEstimator):
                 y = y.reshape(-1, 1)
 
         # Create internal dataset
-        from nirs4all.dataset import SpectroDataset
+        from nirs4all.data import SpectroDataset
         self._dataset = SpectroDataset(name="sklearn_dataset")
         self._dataset.add_samples(X)
         if y is not None:
@@ -367,7 +367,7 @@ class Nirs4allPipeline(BaseEstimator):
         )
 
         # Create temporary dataset config
-        from nirs4all.dataset import DatasetConfigs
+        from nirs4all.data import DatasetConfigs
         # Use in-memory dataset
         dataset_config = DatasetConfigs.from_dataset(self._dataset)
 
