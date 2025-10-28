@@ -45,7 +45,7 @@ from custom_NN import (
     nicon_enhanced, se_resnet, spectratr_transformer
 )
 
-from nicon_custom import (
+from examples.custom_nicon import (
     nicon_improved, nicon_lightweight, nicon_experimental, nicon_auto_norm, nicon_batch_norm
 )
 
@@ -78,7 +78,7 @@ pipeline = [
         # [SNV, SndDer],   # Resolves amide peaks
         # Wavelet('coif3'),
         # Haar,
-        
+
         ## STANDARD PREPROCESSING PIPELINE ##
         EMSC,  # or EMSC if you have it
         # [SNV, SavGol],  # NOT MSC+SNV! Pick one scatter correction
@@ -95,7 +95,7 @@ pipeline = [
         # [EMSC, Wavelet('coif3')],
         # Wavelet('db8'),
         # [AreaNormalization, EMSC],
-        
+
         ## BIG BOY PREPROCESSING PIPELINE ##
         [MSC, SavGol(deriv=3)],
         [MSC, SavGol(deriv=4)],
@@ -117,9 +117,9 @@ pipeline = [
         [Detrend, MSC, SavGol(deriv=3)],
         [AreaNormalization, SavGol, Derivate(order=3)], # si tu as AreaNormalization
         [Haar, SNV], # rupture/franges, parcimonieux
-        
-        
-        
+
+
+
         ## FAT PREPROCESSING PIPELINE ##
         # MSC,  # Important for fat scatter
         # [SNV, SavGol],
@@ -127,7 +127,7 @@ pipeline = [
         # [SNV, SndDer],
         # Wavelet('db8'),  # Smooth wavelets for fat peaks
         # [AreaNormalization, MSC],  # Fat often needs area normalization
-        
+
         ## MOISTURE PREPROCESSING PIPELINE ##
         # [MSC, SavGol],
         # [SNV, FstDer],  # Water peaks show up strongly
@@ -135,7 +135,7 @@ pipeline = [
         # [RSNV, SavGol],  # Local scatter for heterogeneous moisture
         # Wavelet('haar'),  # Sharp edges for water absorption
     ]},
-    
+
     RobustScaler(),
     # MinMaxScaler(clip=True),
     {"y_processing": MinMaxScaler(feature_range=(0.05, 0.95))},
