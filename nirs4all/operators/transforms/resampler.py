@@ -58,7 +58,7 @@ class Resampler(TransformerMixin, BaseEstimator):
 
     Examples
     --------
-    >>> from nirs4all.operators.transformations import Resampler
+    >>> from nirs4all.operators.transforms import Resampler
     >>> import numpy as np
     >>>
     >>> # Original data at 1000-2500 nm with 200 points

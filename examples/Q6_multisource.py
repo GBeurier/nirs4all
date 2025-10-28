@@ -24,7 +24,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
 # from nirs4all.operators.models.cirad_tf import nicon
-from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
+from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.utils.emoji import CHECK, CROSS
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from sklearn.linear_model import ElasticNet

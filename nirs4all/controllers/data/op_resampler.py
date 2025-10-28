@@ -10,7 +10,7 @@ import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.operators.transformations.resampler import Resampler
+from nirs4all.operators.transforms.resampler import Resampler
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -243,7 +243,7 @@ class ResamplerController(OperatorController):
                 is_raw = processing_name.lower() == "raw" or processing_name.startswith("raw")
                 if is_raw and hasattr(resampler, 'crop_mask_') and resampler.crop_mask_ is not None:
                     # Apply the crop mask to remove features outside the target range
-                    from nirs4all.operators.transformations.features import CropTransformer
+                    from nirs4all.operators.transforms.features import CropTransformer
                     crop_indices = np.where(resampler.crop_mask_)[0]
                     if len(crop_indices) > 0:
                         crop_start = crop_indices[0]

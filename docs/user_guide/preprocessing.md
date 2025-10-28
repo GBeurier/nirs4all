@@ -1,7 +1,7 @@
 # Preprocessing and TransformerMixin reference (nirs4all)
 
 This page lists transformer-like components shipped in `nirs4all` under
-`nirs4all.operators.augmentation` and `nirs4all.operators.transformations`,
+`nirs4all.operators.augmentation` and `nirs4all.operators.transforms`,
 and a short list of commonly used scikit-learn and scipy `TransformerMixin` classes that
 are useful for NIRS preprocessing and machine learning pipelines.
 
@@ -84,7 +84,7 @@ instrument drift, temperature effects, slight wavelength shifts, or baseline flu
 3. **Baseline correction** (detrending or derivatives) — removes offset and slope
 4. **Scaling** (StandardScaler or normalization) — standardizes feature magnitudes
 
-- `Normalize` — `nirs4all.operators.transformations.scalers.Normalize`
+- `Normalize` — `nirs4all.operators.transforms.scalers.Normalize`
   - Purpose: normalize spectra either by linear feature range or by linalg norm.
   - Signature: `Normalize(feature_range=(-1,1), *, copy=True)`
   - Usage: choose user-defined min/max OR set `(-1,1)` to use linalg normalization.

@@ -170,7 +170,7 @@ class TestGroupSplitIntegration:
         dataset_folder = str(test_data_with_groups.get_temp_directory() / "classification")
 
         from sklearn.preprocessing import StandardScaler
-        from nirs4all.operators.transformations import Gaussian
+        from nirs4all.operators.transforms import Gaussian
 
         pipeline = [
             StandardScaler(),

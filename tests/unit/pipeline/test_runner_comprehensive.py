@@ -41,7 +41,7 @@ from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, Gaussian, StandardNormalVariate
 )
 from tests.unit.utils.test_data_generator import TestDataManager

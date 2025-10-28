@@ -17,7 +17,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer, Gaussian as Gauss,
     StandardNormalVariate as StdNorm, SavitzkyGolay as SavGol, Haar, MultiplicativeScatterCorrection as MSC
 )

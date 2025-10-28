@@ -17,7 +17,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
 from nirs4all.data import DatasetConfigs
-from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
+from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.models.cirad_tf import nicon
 from nirs4all.utils.emoji import CHECK, CROSS

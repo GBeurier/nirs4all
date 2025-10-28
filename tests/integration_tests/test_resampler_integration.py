@@ -4,8 +4,8 @@ Unit tests for the Resampler operator and ResamplerController.
 
 import pytest
 import numpy as np
-from nirs4all.operators.transformations import Resampler
-from nirs4all.controllers.dataset.op_resampler import ResamplerController
+from nirs4all.operators.transforms import Resampler
+from nirs4all.controllers.data.op_resampler import ResamplerController
 
 
 class TestResampler:

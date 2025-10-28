@@ -930,7 +930,7 @@ __all__ = ['Pipeline']
 from nirs4all.pipeline import Pipeline
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
-from nirs4all.operators.transformations import StandardNormalVariate
+from nirs4all.operators.transforms import StandardNormalVariate
 
 # Create pipeline (nirs4all format still supported)
 pipe = Pipeline([

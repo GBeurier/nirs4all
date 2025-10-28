@@ -129,8 +129,8 @@ def test_installation() -> bool:
         print(f"  ✓ nirs4all.controllers: OK ({len(CONTROLLER_REGISTRY)} controllers registered)")
 
         # Test operators
-        from nirs4all.operators.transformations import StandardNormalVariate, SavitzkyGolay
-        print("  ✓ nirs4all.operators.transformations: OK")
+        from nirs4all.operators.transforms import StandardNormalVariate, SavitzkyGolay
+        print("  ✓ nirs4all.operators.transforms: OK")
 
         # Test backend utils
         from nirs4all.utils.backend import (
@@ -198,7 +198,7 @@ def test_integration() -> bool:
         from sklearn.model_selection import ShuffleSplit
         from sklearn.ensemble import RandomForestRegressor
         from sklearn.cross_decomposition import PLSRegression
-        from nirs4all.operators.transformations import StandardNormalVariate
+        from nirs4all.operators.transforms import StandardNormalVariate
 
         print("✓ Successfully imported NIRS4ALL modules")
 

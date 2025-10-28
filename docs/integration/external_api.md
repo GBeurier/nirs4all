@@ -268,14 +268,14 @@ plt.show()
 
 #### Preprocessing Transformations
 
-Located in `nirs4all.operators.transformations`
+Located in `nirs4all.operators.transforms`
 
 ```python
 # Scaling and normalization
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
 
 # NIRS-specific transformations
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, SecondDerivative, Gaussian,
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection,
     LogTransform, Baseline, ResampleTransformer, CropTransformer

@@ -15,7 +15,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
