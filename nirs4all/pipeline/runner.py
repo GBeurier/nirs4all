@@ -8,15 +8,6 @@ import sys
 import io
 import os
 
-# Fix UTF-8 encoding for Windows terminals to handle emoji characters
-# if sys.platform == 'win32':
-#     try:
-#         sys.stdout.reconfigure(encoding='utf-8')
-#         sys.stderr.reconfigure(encoding='utf-8')
-#     except (AttributeError, io.UnsupportedOperation):
-#         # Fallback for older Python or non-reconfigurable streams
-#         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-#         sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 from joblib import Parallel, delayed, parallel_backend
 from nirs4all.dataset.predictions import Predictions
@@ -1055,26 +1046,6 @@ class PipelineRunner:
                     print(f"📦 Appended {len(binaries)} artifacts to manifest")
 
         return context
-
-        # if controller.use_multi_source():
-        #     if not dataset.is_multi_source():
-        #         source = 0
-        #     else:
-        #         source = [i for i in range(dataset.n_sources)]
-        #         operator = [operator]
-        #         for _ in range(len(source) - len(operator)):
-        #             op = deserialize_component(step)
-        #             print(f"🔄 Adding operator {op} for additional source")
-        #             operator.append(op)
-
-        # if isinstance(operator, list) and self.parallel:
-        #     print(f"🔄 Running operators in parallel with {self.max_workers} workers")
-        #     with parallel_backend(self.backend, n_jobs=self.max_workers):
-        #         Parallel()(delayed(controller.execute)(step, op, dataset, context, self, src) for op, src in zip(operator, source))
-        #     return context
-        # else:
-        #     print(f"🔄 Running single operator {operator} for step: {step}, source: {source}")
-            # return controller.execute(step, operator, dataset, context, self, source)
 
     def next_op(self) -> int:
         """Get the next operation ID."""
