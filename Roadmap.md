@@ -1,7 +1,5 @@
 ## ROADMAP ##
 
-**RELEASE** 0.4
-
 > [Cleaning] Modularize/Clean/Refactor: PipelineRunner, Targets, Predictions, BaseModelController, PredictionAnalyzer, Model_builder, Evaluator
 
 > [Structure] Update file naming and project tree structure
