@@ -491,7 +491,7 @@ Serializes to:
 **Syntax**: Pass a function that returns a model.
 
 ```python
-from nirs4all.operators.models.cirad_tf import nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon
 
 pipeline = [
     nicon  # Function that builds a TensorFlow model
@@ -530,7 +530,7 @@ pipeline = [
 **Syntax**: Dict with `model` and `train_params` keys (for neural networks).
 
 ```python
-from nirs4all.operators.models.cirad_tf import nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon
 
 pipeline = [
     {
@@ -622,7 +622,7 @@ pipeline = [
 **Syntax**: Combine function models with hyperparameter optimization.
 
 ```python
-from nirs4all.operators.models.cirad_tf import customizable_nicon
+from nirs4all.operators.models.tensorflow.nicon import customizable_nicon
 
 pipeline = [
     {
@@ -1075,7 +1075,7 @@ All produce the **same serialization and hash**.
 
 **Input**:
 ```python
-from nirs4all.operators.models.cirad_tf import nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon
 nicon
 ```
 
@@ -1385,7 +1385,7 @@ pipeline = [
 ### Example 8: Neural Network with Training Config
 
 ```python
-from nirs4all.operators.models.cirad_tf import customizable_nicon
+from nirs4all.operators.models.tensorflow.nicon import customizable_nicon
 
 pipeline = [
     MinMaxScaler(),

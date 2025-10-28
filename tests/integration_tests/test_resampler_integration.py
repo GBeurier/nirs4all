@@ -5,7 +5,7 @@ Unit tests for the Resampler operator and ResamplerController.
 import pytest
 import numpy as np
 from nirs4all.operators.transforms import Resampler
-from nirs4all.controllers.data.op_resampler import ResamplerController
+from nirs4all.controllers.data.resampler import ResamplerController
 
 
 class TestResampler:
@@ -213,3 +213,4 @@ class TestResamplerIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

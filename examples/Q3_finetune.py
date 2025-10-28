@@ -22,7 +22,7 @@ from nirs4all.operators.transforms import (
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.models.cirad_tf import nicon, customizable_nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon, customizable_nicon
 
 # Configuration variables
 feature_scaler = MinMaxScaler()

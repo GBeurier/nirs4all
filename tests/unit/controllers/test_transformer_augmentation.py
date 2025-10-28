@@ -14,7 +14,7 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch, call
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
-from nirs4all.controllers.sklearn.op_transformermixin import TransformerMixinController
+from nirs4all.controllers.transforms.transformer import TransformerMixinController
 from nirs4all.data.dataset import SpectroDataset
 
 

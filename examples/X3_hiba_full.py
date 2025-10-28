@@ -33,7 +33,7 @@ from nirs4all.operators.transforms.nirs import AreaNormalization, ExtendedMultip
 
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter
-from nirs4all.operators.models.cirad_tf import nicon, transformer_VG, transformer, decon, customizable_nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon, transformer_VG, transformer, decon, customizable_nicon
 
 from custom_NN import (
     resnet_se, inception_time, tcn_noncausal, conv_transformer,

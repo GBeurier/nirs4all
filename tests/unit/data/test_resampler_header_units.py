@@ -6,8 +6,7 @@ import numpy as np
 import pytest
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.transforms.resampler import Resampler
-from nirs4all.controllers.data.op_resampler import ResamplerController
-from nirs4all.pipeline.runner import PipelineRunner
+from nirs4all.controllers.data.resampler import ResamplerController
 
 
 class TestResamplerHeaderUnit:

@@ -193,7 +193,7 @@ class TestFinetuneIntegration:
         """Test finetuning with TensorFlow neural network."""
         pytest.importorskip("optuna")
         pytest.importorskip("tensorflow")
-        from nirs4all.operators.models.cirad_tf import customizable_nicon
+        from nirs4all.operators.models.tensorflow.nicon import customizable_nicon
 
         dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
 

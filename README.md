@@ -223,7 +223,7 @@ predictions, _ = runner.run(pipeline_config, dataset_config)
 ### Neural Network Integration
 
 ```python
-from nirs4all.operators.models.cirad_tf import nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon
 
 # Pipeline with pre-configured neural network
 pipeline = [

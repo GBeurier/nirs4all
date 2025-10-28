@@ -24,7 +24,7 @@ from nirs4all.operators.transforms import (
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter
-from nirs4all.operators.models.cirad_tf import nicon_classification
+from nirs4all.operators.models.tensorflow.nicon import nicon_classification
 
 
 # Configuration variables
