@@ -38,7 +38,7 @@ if os.environ.get('DISABLE_EMOJIS') == '1':  # Set to True to always disable
 
 
 # Core pipeline components - most commonly used
-from .pipeline import PipelineRunner, PipelineConfigs, PipelineHistory
+from .pipeline import PipelineRunner, PipelineConfigs
 from .controllers import register_controller, CONTROLLER_REGISTRY
 
 # Utility functions for backend detection

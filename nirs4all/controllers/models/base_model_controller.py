@@ -24,7 +24,7 @@ from .optuna_manager import OptunaManager
 from nirs4all.dataset.predictions import Predictions
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 from nirs4all.utils.model_builder import ModelBuilderFactory
-from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, TARGET, CHART, WEIGHT_LIFT, WARNING
+from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING
 import nirs4all.dataset.evaluator as Evaluator
 
 if TYPE_CHECKING:
@@ -246,7 +246,7 @@ class BaseModelController(OperatorController, ABC):
                     # print("data sizes:", X_train.shape, y_train.shape, X_test.shape, y_test.shape)
 
                 if verbose > 0:
-                    print(f"📁 Training fold {fold_idx + 1}/{len(folds)}")
+                    print(f"{FOLDER} Training fold {fold_idx + 1}/{len(folds)}")
                 fold_val_indices.append(val_indices)
                 X_train_fold = X_train[train_indices] if X_train.shape[0] > 0 else np.array([])
                 y_train_fold = y_train[train_indices] if y_train.shape[0] > 0 else np.array([])
@@ -572,6 +572,14 @@ class BaseModelController(OperatorController, ABC):
             if isinstance(step, dict):
                 config = step.copy()
                 config['model_instance'] = operator
+
+                # Preserve function/class keys from nested model structure for name extraction
+                if 'model' in step and isinstance(step['model'], dict):
+                    if 'function' in step['model']:
+                        config['function'] = step['model']['function']
+                    elif 'class' in step['model']:
+                        config['class'] = step['model']['class']
+
                 # print(f"DEBUG returning config (step is dict): {list(config.keys())}")
                 return config
             else:
@@ -751,8 +759,26 @@ class BaseModelController(OperatorController, ABC):
 
         # Weighted average predictions based on fold scores
         scores = np.asarray(scores, dtype=float)
+
         if mode == "predict" or mode == "explain":
-            weights = np.array(runner.target_model["weights"])
+            # Check if weights exist in target_model (they only exist for avg/w_avg predictions)
+            if "weights" in runner.target_model and runner.target_model["weights"] is not None:
+                weights_from_model = runner.target_model["weights"]
+                # Handle different formats: list, string (JSON serialized), or numpy array
+                if isinstance(weights_from_model, str):
+                    # Parse JSON string
+                    import json
+                    weights = np.array(json.loads(weights_from_model), dtype=float)
+                elif isinstance(weights_from_model, list):
+                    weights = np.array(weights_from_model, dtype=float)
+                else:
+                    weights = np.asarray(weights_from_model, dtype=float)
+            else:
+                # Fallback: use equal weights when scores are NaN (prediction mode)
+                if np.all(np.isnan(scores)):
+                    weights = np.ones(len(scores), dtype=float) / len(scores)
+                else:
+                    weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
         else:
             weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
 
@@ -871,14 +897,14 @@ class BaseModelController(OperatorController, ABC):
                     short_desc = f"{CHECK}{model_name}"
                     if mode != "predict" and mode != "explain":
                         short_desc += f" {metric} {direction}"
-                        short_desc += f" [test: {test_score:.4f}], [val: {val_score:.4f}], ("
+                        short_desc += f" [test: {test_score:.4f}], [val: {val_score:.4f}]"
                     else:
                         short_desc += f" from (step: {prediction_data['step_idx']}, "
 
                     if fold_id not in [None, 'None', 'avg', 'w_avg']:
-                        short_desc += f"fold: {fold_id}, id: {op_counter})"
+                        short_desc += f", (fold: {fold_id}, id: {op_counter})"
                     elif fold_id in ['avg', 'w_avg']:
-                        short_desc += f"{fold_id}, id: {op_counter})"
+                        short_desc += f", ({fold_id}, id: {op_counter})"
 
                     short_desc += f" - [{pred_id}]"
                     if mode != "predict" and mode != "explain":

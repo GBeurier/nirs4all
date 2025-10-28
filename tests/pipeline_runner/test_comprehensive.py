@@ -196,7 +196,6 @@ class TestRunnerInitialization:
         """Test that all state variables are properly initialized."""
         runner = PipelineRunner(save_files=False)
 
-        assert runner.history is not None
         assert runner.pipeline_uid is None
         assert runner.current_run_dir is None
         assert runner.saver is None

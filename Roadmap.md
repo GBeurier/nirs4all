@@ -4,6 +4,8 @@
 
 > [Cleaning] Modularize/Clean/Refactor: PipelineRunner, Targets, Predictions, BaseModelController, PredictionAnalyzer, Model_builder, Evaluator
 
+> [Structure] Update file naming and project tree structure
+
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
 > [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
@@ -34,7 +36,7 @@
 **Bugs**:
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
 
-> [Deprec: Model selection] Tools to select "best" predictions
+> [Deprec: Model selection] Tools to select "best" predictions | verify if already exists
 
 > [Folds] Operator load fold (csv)
 
@@ -48,9 +50,11 @@
 
 > [Runner] Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
 
-> [Logs]
+> [Logs] implement feature and update print/log strategy
 
-**RELEASE** 0.7
+> [Examples] update, clean and document examples and tutorial notebooks
+
+**RELEASE** 0.7: Cli framework
 
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 

@@ -178,6 +178,59 @@ class SyntheticNIRSDataGenerator:
 
         return X, y
 
+    def generate_multi_source_data(self, n_samples: int = 100,
+                                   n_sources: int = 3,
+                                   noise_level: float = 0.1) -> Tuple[list, np.ndarray]:
+        """
+        Generate multi-source regression data (multiple X arrays, single y).
+
+        Args:
+            n_samples: Number of samples
+            n_sources: Number of X sources (different instruments/wavelength ranges)
+            noise_level: Standard deviation of added noise
+
+        Returns:
+            X_list: List of spectral data arrays, one per source
+            y: Single target array (n_samples,)
+        """
+        X_list = []
+        y = np.zeros(n_samples)
+
+        # Generate different wavelength ranges for each source
+        wavelength_ranges = [
+            np.linspace(1000, 1500, self.n_wavelengths // 2),  # Source 1: NIR low
+            np.linspace(1400, 2000, self.n_wavelengths // 2),  # Source 2: NIR mid
+            np.linspace(1900, 2500, self.n_wavelengths // 2),  # Source 3: NIR high
+        ][:n_sources]
+
+        for i in range(n_samples):
+            # Target value
+            base_target = 10 + 40 * (i / n_samples)
+            fine_variation = np.random.normal(0, 0.25, 1)[0]
+            y[i] = round(base_target + fine_variation, 3)
+
+            # Generate spectrum for each source with target correlation
+            for source_idx in range(n_sources):
+                n_features = len(wavelength_ranges[source_idx])
+
+                # Different pattern per source
+                if source_idx == 0:
+                    base = self._generate_base_spectrum("gaussian")[:n_features]
+                elif source_idx == 1:
+                    base = self._generate_base_spectrum("sawtooth")[:n_features]
+                else:
+                    base = self._generate_base_spectrum("exponential")[:n_features]
+
+                # Scale by target with source-specific relationship
+                intensity = 0.5 + 0.05 * y[i] + 0.001 * y[i]**2 + 0.1 * source_idx
+                spectrum = intensity * base + noise_level * np.random.randn(n_features)
+
+                if i == 0:  # Initialize on first sample
+                    X_list.append(np.zeros((n_samples, n_features)))
+                X_list[source_idx][i] = spectrum
+
+        return X_list, y
+
 
 class TestDataManager:
     """Manages creation and cleanup of test datasets in temporary directories."""
@@ -255,6 +308,25 @@ class TestDataManager:
         self._save_multi_target_dataset(dataset_path, X_train, y_train, X_val, y_val)
         return dataset_path
 
+    def create_multi_source_dataset(self, name: str = "multi_source",
+                                    n_train: int = 80, n_val: int = 20,
+                                    n_sources: int = 3) -> Path:
+        """Create a multi-source regression dataset in NIRS4ALL format."""
+        dataset_path = self.temp_path / name
+        dataset_path.mkdir(exist_ok=True)
+
+        # Generate training data
+        X_train_list, y_train = self.generator.generate_multi_source_data(n_train, n_sources)
+
+        # Generate validation data
+        np.random.seed(self.generator.random_state + 3)
+        X_val_list, y_val = self.generator.generate_multi_source_data(n_val, n_sources)
+        np.random.seed(self.generator.random_state)  # Reset
+
+        # Save multi-source format
+        self._save_multi_source_dataset(dataset_path, X_train_list, y_train, X_val_list, y_val)
+        return dataset_path
+
     def _save_dataset(self, path: Path, X_train: np.ndarray, y_train: np.ndarray,
                       X_val: np.ndarray, y_val: np.ndarray):
         """Save dataset in standard NIRS4ALL format."""
@@ -285,6 +357,24 @@ class TestDataManager:
         pd.DataFrame(y_val).to_csv(path / "Yval.csv.gz", index=False, header=False,
                                    compression='gzip', sep=';')
 
+    def _save_multi_source_dataset(self, path: Path, X_train_list: list, y_train: np.ndarray,
+                                   X_val_list: list, y_val: np.ndarray):
+        """Save multi-source dataset with multiple X files."""
+        # Save Y data (single file)
+        pd.DataFrame(y_train).to_csv(path / "Ycal.csv.gz", index=False, header=False,
+                                     compression='gzip', sep=';')
+        pd.DataFrame(y_val).to_csv(path / "Yval.csv.gz", index=False, header=False,
+                                   compression='gzip', sep=';')
+
+        # Save X data (one file per source)
+        for source_idx, X_train in enumerate(X_train_list, start=1):
+            pd.DataFrame(X_train).to_csv(path / f"Xcal_{source_idx}.gz", index=False, header=False,
+                                         compression='gzip', sep=';')
+
+        for source_idx, X_val in enumerate(X_val_list, start=1):
+            pd.DataFrame(X_val).to_csv(path / f"Xval_{source_idx}.csv.gz", index=False, header=False,
+                                       compression='gzip', sep=';')
+
     def get_temp_directory(self) -> Path:
         """Get the temporary directory path."""
         return self.temp_path
@@ -311,8 +401,9 @@ def create_test_datasets() -> TestDataManager:
     manager.create_regression_dataset("regression")
     manager.create_classification_dataset("classification")
     manager.create_multi_target_dataset("multi_target")
+    manager.create_multi_source_dataset("multi_source")
 
-    # Create additional datasets for multi-source testing
+    # Create additional datasets for other testing
     manager.create_regression_dataset("regression_2")
     manager.create_regression_dataset("regression_3")
 

@@ -275,6 +275,9 @@ class Targets:
         return data[indices]
 
     def y(self, indices: SampleIndices, processing: str) -> np.ndarray:
+        if len(self._data) == 0:
+            return np.array([])
+
         return self.get_targets(processing, indices)
 
     def get_processing_ancestry(self, processing: str) -> List[str]:

@@ -14,7 +14,6 @@ from nirs4all.dataset.predictions import Predictions
 from nirs4all.utils.emoji import ROCKET, TROPHY, MEDAL_GOLD, FLAG, CHECK, CROSS, DIAMOND, SEARCH, REFRESH, WARNING, PLAY, SMALL_DIAMOND
 
 from nirs4all.pipeline.serialization import deserialize_component
-from nirs4all.pipeline.history import PipelineHistory
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.io import SimulationSaver
 from nirs4all.pipeline.manifest_manager import ManifestManager
@@ -83,7 +82,6 @@ class PipelineRunner:
         self.continue_on_error = continue_on_error
         self.backend = backend
         self.verbose = verbose
-        self.history = PipelineHistory()
         self.parallel = parallel
         self.step_number = 0  # Initialize step number for tracking
         self.substep_number = -1  # Initialize sub-step number for tracking
@@ -453,8 +451,8 @@ class PipelineRunner:
 
     def prepare_replay(self, selection_obj: Union[Dict[str, Any], str], dataset_config: DatasetConfigs, verbose: int = 0):
         config_path, target_model = self.saver.get_predict_targets(selection_obj)
-        del target_model["y_pred"]  # Remove potentially large arrays
-        del target_model["y_true"]
+        target_model.pop("y_pred", None)  # Remove potentially large arrays if present
+        target_model.pop("y_true", None)
         self.config_path = config_path
         self.target_model = target_model
         self.model_weights = target_model['weights'] if target_model else None
@@ -932,13 +930,7 @@ class PipelineRunner:
                     controller, step, operator, dataset, context, prediction_store, -1, loaded_binaries
                 )
 
-
-
-            # self.history.complete_step(step_execution.step_id)
-
         except Exception as e:
-            # Fail step
-            # self.history.fail_step(step_execution.step_id, str(e))
             import traceback
             traceback.print_exc()
             if self.continue_on_error:
