@@ -12,7 +12,7 @@ from nirs4all.pipeline.runner import PipelineRunner, init_global_random_state
 from nirs4all.pipeline.io import SimulationSaver
 from nirs4all.pipeline.manifest_manager import ManifestManager
 from nirs4all.data.predictions import Predictions
-from nirs4all.utils.tab_report_manager import TabReportManager
+from nirs4all.visualization.reports import TabReportManager
 
 
 def _create_runner_with_pipeline(tmp_path: Path, dataset_name: str = "dataset"):

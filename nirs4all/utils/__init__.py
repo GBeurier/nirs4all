@@ -2,7 +2,7 @@
 Utility functions for the nirs4all package.
 """
 
-from .backend_utils import (
+from .backend import (
     TF_AVAILABLE,
     # TORCH_AVAILABLE,
     framework,
@@ -13,7 +13,7 @@ from .backend_utils import (
     is_gpu_available
 )
 
-from .PCA_analyzer import PreprocPCAEvaluator
+from ..visualization.pca import PreprocPCAEvaluator
 from .balancing import BalancingCalculator
 
 __all__ = [

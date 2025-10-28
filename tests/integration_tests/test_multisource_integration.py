@@ -14,7 +14,7 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 from nirs4all.data import DatasetConfigs
-from nirs4all.data.analyzers import PredictionAnalyzer
+from nirs4all.visualization.predictions import PredictionAnalyzer
 from nirs4all.operators.transformations import (
     Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 )

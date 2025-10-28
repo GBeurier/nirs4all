@@ -133,7 +133,7 @@ def test_installation() -> bool:
         print("  ✓ nirs4all.operators.transformations: OK")
 
         # Test backend utils
-        from nirs4all.utils.backend_utils import (
+        from nirs4all.utils.backend import (
             is_tensorflow_available, is_torch_available,
             is_gpu_available
         )

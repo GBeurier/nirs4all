@@ -14,7 +14,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 
-from nirs4all.utils.serializer import (
+from nirs4all.utils.serialization import (
     persist,
     load,
     compute_hash,

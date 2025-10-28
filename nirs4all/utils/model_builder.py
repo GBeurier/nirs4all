@@ -2,7 +2,7 @@ import os
 import importlib
 import inspect
 
-from nirs4all.utils.backend_utils import TF_AVAILABLE, TORCH_AVAILABLE
+from nirs4all.utils.backend import TF_AVAILABLE, TORCH_AVAILABLE
 
 # 1. str
 # "/myexp/cnn.pt"
@@ -436,7 +436,7 @@ class ModelBuilderFactory:
 
         # Sklearn model or pickled model
         elif ext == '.pkl':
-            from nirs4all.utils.serializer import from_bytes
+            from nirs4all.utils.serialization import from_bytes
             with open(model_path, 'rb') as f:
                 data = f.read()
             # Use cloudpickle format for compatibility

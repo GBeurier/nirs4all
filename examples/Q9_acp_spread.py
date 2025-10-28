@@ -19,7 +19,7 @@ from nirs4all.operators.transformations import (
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.utils.emoji import REFRESH, TROPHY, TARGET, CHART, MICROSCOPE
-from nirs4all.utils.PCA_analyzer import PreprocPCAEvaluator
+from nirs4all.visualization.pca import PreprocPCAEvaluator
 
 # Configuration variables
 feature_scaler = MinMaxScaler()
