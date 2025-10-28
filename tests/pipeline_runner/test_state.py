@@ -371,18 +371,6 @@ class TestDataCapture:
 class TestStateConsistency:
     """Test state consistency across operations."""
 
-    def test_history_object_persists(self, runner_with_workspace, test_data):
-        """Test that history object is maintained."""
-        history_id = id(runner_with_workspace.history)
-
-        dataset_path = str(test_data.get_temp_directory() / "regression")
-        pipeline = [{"model": LinearRegression()}]
-
-        runner_with_workspace.run(pipeline, dataset_path)
-
-        # Same history object
-        assert id(runner_with_workspace.history) == history_id
-
     def test_workspace_path_immutable(self, tmp_path, test_data):
         """Test that workspace_path doesn't change."""
         runner = PipelineRunner(

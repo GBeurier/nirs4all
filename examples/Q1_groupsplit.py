@@ -35,7 +35,7 @@ pipeline = [
 
 pipeline_config = PipelineConfigs(pipeline, "Q1_groupsplit")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=True)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 
@@ -48,5 +48,5 @@ pipeline_stratified = [
 
 pipeline_config = PipelineConfigs(pipeline_stratified, "Q1_groupsplit")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=True)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)

@@ -148,7 +148,20 @@ class TensorFlowModelController(BaseModelController):
 
         # Call the model function with input_shape and params
         try:
-            model = model_function(input_shape, params)
+            # Check if function signature includes num_classes parameter (for classification models)
+            import inspect
+            sig = inspect.signature(model_function)
+            param_names = list(sig.parameters.keys())
+
+            # If function has num_classes parameter, pass it explicitly
+            if 'num_classes' in param_names:
+                # Determine num_classes from input_shape or params
+                num_classes = params.pop('num_classes', input_shape[-1] if len(input_shape) > 1 else 2)
+                model = model_function(input_shape, num_classes=num_classes, params=params)
+            else:
+                # Standard call for regression models: function(input_shape, params)
+                model = model_function(input_shape, params)
+
             if not self._is_tensorflow_model(model):
                 raise ValueError(f"Function {model_function.__name__} did not return a TensorFlow model")
             return model
