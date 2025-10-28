@@ -15,6 +15,8 @@ from nirs4all.dataset.targets import Targets
 from nirs4all.dataset.indexer import Indexer
 from nirs4all.dataset.metadata import Metadata
 from nirs4all.dataset.predictions import Predictions
+from nirs4all.utils.emoji import CHART, REFRESH, TARGET
+from nirs4all.utils.model_utils import ModelUtils, TaskType
 from sklearn.base import TransformerMixin
 from typing import Optional, Union, List, Tuple, Dict, Any, Literal
 
@@ -32,7 +34,7 @@ class SpectroDataset:
         self._metadata = Metadata()
         # self._predictions = Predictions()
         self.name = name
-        self._task_type: Optional[str] = None  # "regression", "binary_classification", "multiclass_classification"
+        self._task_type: Optional[TaskType] = None
 
     def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True, include_augmented: bool = True) -> OutputData:
         """
@@ -309,11 +311,15 @@ class SpectroDataset:
     def is_multi_source(self) -> bool:
         return len(self._features.sources) > 1
 
+    @property
     def is_regression(self) -> bool:
-        return self._task_type == "regression"
+        """Check if dataset is for regression task."""
+        return self._task_type == TaskType.REGRESSION if self._task_type else False
 
+    @property
     def is_classification(self) -> bool:
-        return self._task_type in ["binary_classification", "multiclass_classification", "classification"]
+        """Check if dataset is for classification task."""
+        return self._task_type.is_classification if self._task_type else False
 
 
     # def targets(self, filter: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
@@ -326,63 +332,49 @@ class SpectroDataset:
 
     def add_targets(self, y: np.ndarray) -> None:
         self._targets.add_targets(y)
-        # Detect and set task type when targets are added
-        self._task_type = self._detect_task_type(y)
-
-    def _detect_task_type(self, y: np.ndarray) -> str:
-        """
-        Detect task type from target values.
-
-        Returns:
-            str: "regression", "binary_classification", or "multiclass_classification"
-        """
-        y_flat = np.array(y).flatten()
-        y_clean = y_flat[~np.isnan(y_flat)]  # Remove NaN values
-
-        if len(y_clean) == 0:
-            return "regression"  # Default
-
-        unique_values = np.unique(y_clean)
-        n_unique = len(unique_values)
-
-        # Check if values are integer-like (classification)
-        is_integer_like = np.allclose(y_clean, np.round(y_clean), atol=1e-10)
-
-        if is_integer_like and n_unique <= 50:  # Reasonable threshold for classification
-            if n_unique == 2:
-                return "binary_classification"
-            elif n_unique > 2:
-                return "classification"
-
-        return "regression"
+        # Detect and set task type when targets are added (skip if empty)
+        if y.size > 0:
+            self._task_type = ModelUtils.detect_task_type(y)
 
     def add_processed_targets(self,
                               processing_name: str,
                               targets: np.ndarray,
                               ancestor_processing: str = "numeric",
                               transformer: Optional[TransformerMixin] = None) -> None:
-        new_task_type = self._detect_task_type(targets)
+        new_task_type = ModelUtils.detect_task_type(targets)
         if self._task_type != new_task_type:
-            print(f"🔄 Task type updated from {self._task_type} to {new_task_type}")
+            print(f"{REFRESH} Task type updated from {self._task_type.value if self._task_type else None} to {new_task_type.value}")
             self._task_type = new_task_type
 
         self._targets.add_processed_targets(processing_name, targets, ancestor_processing, transformer)
 
     @property
-    def task_type(self) -> Optional[str]:
+    def task_type(self) -> Optional[TaskType]:
         """Get the detected task type."""
         return self._task_type
 
-    def set_task_type(self, task_type: str) -> None:
+    @property
+    def num_classes(self) -> int:
+        """Get the number of unique classes for classification tasks (wrapper to targets.num_classes)."""
+        return self._targets.num_classes
+
+    def set_task_type(self, task_type: Union[str, TaskType]) -> None:
         """
         Manually set the task type.
 
         Args:
-            task_type: One of "regression", "binary_classification", "multiclass_classification"
+            task_type: One of TaskType enum values or string "regression", "binary_classification", "multiclass_classification"
         """
-        valid_types = ["regression", "binary_classification", "multiclass_classification", "classification"]
-        if task_type not in valid_types:
-            raise ValueError(f"Invalid task_type. Must be one of {valid_types}")
+        if isinstance(task_type, str):
+            try:
+                task_type = TaskType(task_type)
+            except ValueError:
+                # Handle legacy "classification" string
+                if task_type == "classification":
+                    task_type = TaskType.MULTICLASS_CLASSIFICATION
+                else:
+                    valid_types = [t.value for t in TaskType]
+                    raise ValueError(f"Invalid task_type. Must be one of {valid_types}")
         self._task_type = task_type
 
     # METADATA
@@ -548,7 +540,7 @@ class SpectroDataset:
     #     return txt
 
     def __str__(self):
-        txt = f"📊 Dataset: {self.name}"
+        txt = f"{CHART}Dataset: {self.name}"
         if self._task_type:
             txt += f" ({self._task_type})"
         txt += "\n" + str(self._features)
@@ -572,22 +564,22 @@ class SpectroDataset:
 
         # Task type
         if self._task_type:
-            print(f"🎯 Task Type: {self._task_type}")
+            print(f"{TARGET} Task Type: {self._task_type}")
         else:
-            print("🎯 Task Type: Not detected (no targets added yet)")
+            print("{TARGET} Task Type: Not detected (no targets added yet)")
         print()
 
         # Features summary
         if self._features.sources:
             total_samples = self._features.num_samples
             n_sources = len(self._features.sources)
-            print(f"📊 Features: {total_samples} samples, {n_sources} source(s)")
+            print(f"{CHART}Features: {total_samples} samples, {n_sources} source(s)")
             print(f"Features: {self._features.num_features}, processings: {self._features.num_processings}")
             print(f"Processing IDs: {self._features.preprocessing_str}")
             # print(self._features)
             # print(self._targets)
         else:
-            print("📊 Features: No data")
+            print(f"{CHART}Features: No data")
         print()
 
         # Metadata summary
@@ -624,4 +616,6 @@ class SpectroDataset:
     #     return io.load(path)
 
     # FOLDS
+
+
 

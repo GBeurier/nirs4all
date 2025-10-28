@@ -11,6 +11,8 @@ import hashlib
 from pathlib import Path
 from tabnanny import verbose
 from typing import List, Union, Dict, Any
+
+from nirs4all.utils.emoji import CROSS
 from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.loader import handle_data
 from nirs4all.dataset.dataset_config_parser import parse_config
@@ -26,7 +28,7 @@ class DatasetConfigs:
             if parsed_config is not None:
                 self.configs.append((parsed_config, dataset_name))
             else:
-                print(f"❌ Skipping invalid dataset config: {config}")
+                print(f"{CROSS} Skipping invalid dataset config: {config}")
 
         self.cache: Dict[str, Any] = {}
         # print(f"✅ {len(self.configs)} dataset configuration(s).")
@@ -97,3 +99,4 @@ class DatasetConfigs:
 
     def get_datasets(self) -> List[SpectroDataset]:
         return list(self.iter_datasets())
+

@@ -53,6 +53,91 @@ class PredictionAnalyzer:
 
         return [convert(c) for c in re.split(r'(\d+)', str(text))]
 
+    def _get_enhanced_predictions(self, **filters) -> List[Dict[str, Any]]:
+        """Get predictions with enhanced metrics calculated on-the-fly."""
+        predictions = self.predictions.filter_predictions(**filters)
+        enhanced_predictions = []
+
+        for pred in predictions:
+            # Calculate metrics using ModelUtils if not already present
+            y_true = np.array(pred.get('y_true', []))
+            y_pred = np.array(pred.get('y_pred', []))
+
+            if len(y_true) > 0 and len(y_pred) > 0:
+                try:
+                    task_type = self.model_utils.detect_task_type(y_true)
+                    metrics = self.model_utils.calculate_scores(y_true, y_pred, task_type)
+                except Exception as e:
+                    print(f"{WARNING}Error calculating metrics: {e}")
+                    metrics = {}
+            else:
+                metrics = {}
+
+            # Enhanced prediction record
+            enhanced_pred = {
+                'dataset_name': self.dataset_name_override or pred.get('dataset_name', 'unknown'),
+                'model_name': pred.get('model_name', 'unknown'),
+                'partition': pred.get('partition', 'unknown'),
+                'fold_id': pred.get('fold_id'),
+                'y_true': y_true,
+                'y_pred': y_pred,
+                'metrics': metrics,
+                'sample_count': len(y_true),
+                'metadata': pred.get('metadata', {})
+            }
+            enhanced_predictions.append(enhanced_pred)
+
+        return enhanced_predictions
+
+    def get_top_k(self, k: int = 5, metric: str = 'rmse',
+                  partition: str = '', dataset_name: Optional[str] = None,
+                  model_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get top K performing predictions using the Predictions API.
+
+        Args:
+            k: Number of top predictions to return
+            metric: Metric to rank by
+            partition: Partition to consider ('test', 'val', 'train')
+            dataset_name: Dataset filter
+            model_name: Model filter
+
+        Returns:
+            List of top K predictions
+        """
+        filters = {'partition': partition}
+        if partition == 'all':
+            filters.pop('partition')  # Remove to include all partitions
+
+        if dataset_name:
+            filters['dataset_name'] = dataset_name
+        if model_name:
+            filters['model_name'] = model_name
+
+        # Use the Predictions API directly
+        try:
+            top_predictions = self.predictions.top_k(
+                k=k,
+                metric=metric,
+                ascending=(metric not in ['r2', 'accuracy', 'f1']),
+                **filters
+            )
+            return top_predictions
+        except Exception as e:
+            print(f"{WARNING}Error getting top k predictions: {e}")
+            # Fallback to manual calculation
+            enhanced_preds = self._get_enhanced_predictions(**filters)
+            if not enhanced_preds:
+                return []
+
+            # Sort by metric
+            higher_better = metric in ['r2', 'accuracy', 'f1', 'precision', 'recall']
+            enhanced_preds.sort(
+                key=lambda x: x['metrics'].get(metric, float('inf') if higher_better else float('-inf')),
+                reverse=higher_better
+            )
+            return enhanced_preds[:k]
+
     def plot_top_k_comparison(self, k: int = 5, rank_metric: str = 'rmse',
                               rank_partition: str = 'val', display_partition: str = 'all',
                               dataset_name: Optional[str] = None,
@@ -312,7 +397,7 @@ class PredictionAnalyzer:
             y_pred_labels = y_pred_labels.flatten()
 
             if len(y_true_labels) != len(y_pred_labels):
-                print(f"⚠️ Warning: Array length mismatch for confusion matrix in {pred['model_name']}: "
+                print(f"{WARNING}Warning: Array length mismatch for confusion matrix in {pred['model_name']}: "
                       f"y_true({len(y_true_labels)}) vs y_pred({len(y_pred_labels)})")
                 min_len = min(len(y_true_labels), len(y_pred_labels))
                 y_true_labels = y_true_labels[:min_len]
@@ -988,7 +1073,7 @@ class PredictionAnalyzer:
 
             predictions = self.predictions.top_k(k=-1, metric=metric, aggregate_partitions=[score_partition], **filters)  # True only if score_partition and partition are different
         except Exception as e:
-            print(f"⚠️ Error getting predictions: {e}")
+            print(f"{WARNING}Error getting predictions: {e}")
             # Fallback to filter_predictions
             predictions = self.predictions.filter_predictions(**filters)
 
@@ -1056,7 +1141,7 @@ class PredictionAnalyzer:
                 score = eval(np.array(y_true), np.array(y_pred), metric)
                 return float(score)
             except Exception as e:
-                print(f"⚠️ Error calculating {metric}: {e}")
+                print(f"{WARNING}Error calculating {metric}: {e}")
         return None
 
     def _plot_heatmap_matrix(self, var_scores: Dict, x_var: str, y_var: str, metric: str,
@@ -1556,7 +1641,7 @@ class PredictionAnalyzer:
             # Use top_k with k=-1 to get all predictions matching filters
             predictions = self.predictions.top_k(k=-1, metric=metric, **filters)
         except Exception as e:
-            print(f"⚠️ Error getting predictions: {e}")
+            print(f"{WARNING}Error getting predictions: {e}")
             # Fallback to filter_predictions
             predictions = self.predictions.filter_predictions(**filters)
 
@@ -1686,3 +1771,4 @@ class PredictionAnalyzer:
 
         plt.tight_layout()
         return fig
+

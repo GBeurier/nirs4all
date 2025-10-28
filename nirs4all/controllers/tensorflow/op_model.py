@@ -19,7 +19,9 @@ if TYPE_CHECKING:
 
 from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN, CHART, TROPHY
 from nirs4all.utils.model_utils import ModelUtils, TaskType
+from nirs4all.utils.model_builder import ModelBuilderFactory
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -49,8 +51,6 @@ class TensorFlowModelController(BaseModelController):
         # Check if step contains a TensorFlow model or function
         if isinstance(step, dict) and 'model' in step:
             model = step['model']
-            if isinstance(model, dict) and '_runtime_instance' in model:
-                model = model['_runtime_instance']
             return cls._is_tensorflow_model_or_function(model)
 
         # Check direct TensorFlow objects or functions
@@ -107,36 +107,61 @@ class TensorFlowModelController(BaseModelController):
         return False
 
     def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
-        """Create TensorFlow model instance from configuration."""
+        """Create TensorFlow model instance from configuration using ModelBuilderFactory."""
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is not available")
 
-        if 'model_instance' in model_config:
-            model = model_config['model_instance']
-            if self._is_tensorflow_model(model):
-                return model
-            elif callable(model):
-                # Assume callable models are TensorFlow model factories
-                return model
+        # # DEBUG: Print what we received
+        # print(f"DEBUG _get_model_instance received model_config: {model_config}")
+        # print(f"DEBUG model_config type: {type(model_config)}")
+        # if isinstance(model_config, dict):
+        #     for k, v in model_config.items():
+        #         print(f"  {k}: {type(v)} = {v if not callable(v) else f'<function {v.__name__}>'}")
 
-        # If we have a model factory function, call it
-        if 'model_factory' in model_config:
-            factory = model_config['model_factory']
-            factory_params = model_config.get('factory_params', {})
-            return factory(**factory_params)
+        # Use ModelBuilderFactory to handle all model configuration formats
+        # This supports: functions, classes, instances, file paths, dicts with 'function' key, etc.
+        try:
+            model = ModelBuilderFactory.build_single_model(model_config, dataset, force_params or {})
+            return model
+        except Exception as e:
+            # Fallback for legacy formats not handled by ModelBuilderFactory
+            if 'model_instance' in model_config:
+                model = model_config['model_instance']
+                if self._is_tensorflow_model(model):
+                    return model
+                elif callable(model):
+                    # Assume callable models are TensorFlow model factories
+                    return model
 
-        raise ValueError("Could not create TensorFlow model instance from configuration")
+            # If we have a model factory function, call it
+            if 'model_factory' in model_config:
+                factory = model_config['model_factory']
+                factory_params = model_config.get('factory_params', {})
+                return factory(**factory_params)
+
+            raise ValueError(f"Could not create TensorFlow model instance from configuration: {str(e)}") from e
 
     def _create_model_from_function(self, model_function: Any, input_shape: Tuple, params: Optional[Dict[str, Any]] = None) -> Any:
         """Create a TensorFlow model by calling a model factory function."""
         if params is None:
             params = {}
 
-        # print(f"🏗️ Creating TensorFlow model from function {model_function.__name__} with input_shape={input_shape}")
-
         # Call the model function with input_shape and params
         try:
-            model = model_function(input_shape, params)
+            # Check if function signature includes num_classes parameter (for classification models)
+            import inspect
+            sig = inspect.signature(model_function)
+            param_names = list(sig.parameters.keys())
+
+            # If function has num_classes parameter, pass it explicitly
+            if 'num_classes' in param_names:
+                # Determine num_classes from input_shape or params
+                num_classes = params.pop('num_classes', input_shape[-1] if len(input_shape) > 1 else 2)
+                model = model_function(input_shape, num_classes=num_classes, params=params)
+            else:
+                # Standard call for regression models: function(input_shape, params)
+                model = model_function(input_shape, params)
+
             if not self._is_tensorflow_model(model):
                 raise ValueError(f"Function {model_function.__name__} did not return a TensorFlow model")
             return model
@@ -166,38 +191,30 @@ class TensorFlowModelController(BaseModelController):
         verbose = train_params.get('verbose', 0)
 
         # Handle model factory functions
-        if callable(model):
+        if callable(model) and not self._is_tensorflow_model(model):
             # This is a model factory function, we need to create the actual model
             input_shape = X_train.shape[1:]  # Get input shape from training data
-            # print(f"🏗️ Creating TensorFlow model from function {model.__name__} with input_shape={input_shape}")
             model = self._create_model_from_function(model, input_shape, model_params)
 
         verbose = train_params.get('verbose', 0)
 
         # Detect task type and auto-configure loss/metrics
-        task_type_str = self._detect_task_type(y_train)
+        task_type = self._detect_task_type(y_train)
 
-        # Convert string to TaskType enum
-        if task_type_str == "regression":
-            task_type = TaskType.REGRESSION
-        elif task_type_str == "binary_classification":
-            task_type = TaskType.BINARY_CLASSIFICATION
-        elif task_type_str == "multiclass_classification":
-            task_type = TaskType.MULTICLASS_CLASSIFICATION
-        else:
-            task_type = TaskType.REGRESSION  # Default fallback
+        # Labels should already be encoded by targets layer for classification
+        # No additional encoding needed here
 
         # Auto-configure loss and metrics based on task type
         if 'loss' not in train_params and 'compile' not in train_params:
             default_loss = ModelUtils.get_default_loss(task_type, 'tensorflow')
             train_params['loss'] = default_loss
-            if verbose > 1:
-                print(f"📊 Auto-detected {task_type.value} task, using loss: {default_loss}")
+            if verbose > 0:  # Changed from verbose > 1 to always show
+                print(f"{CHART} Auto-detected {task_type.value} task, using loss: {default_loss}")
         elif 'loss' in train_params:
             # Validate provided loss
             provided_loss = train_params['loss']
             if not ModelUtils.validate_loss_compatibility(provided_loss, task_type, 'tensorflow'):
-                print(f"⚠️ Warning: Loss '{provided_loss}' may not be compatible with {task_type.value} task")
+                print(f"{WARNING}Warning: Loss '{provided_loss}' may not be compatible with {task_type.value} task")
 
         if 'metrics' not in train_params and 'compile' not in train_params:
             default_metrics = ModelUtils.get_default_metrics(task_type, 'tensorflow')
@@ -217,7 +234,7 @@ class TensorFlowModelController(BaseModelController):
         compile_config = self._prepare_compilation_config(train_params)
         trained_model.compile(**compile_config)
         if verbose > 2:
-            print(f"🏗️ Model compiled with: {compile_config}")
+            print(f" Model compiled with: {compile_config}")
 
         # === TRAINING CONFIGURATION ===
         fit_config = self._prepare_fit_config(train_params, X_val, y_val, verbose)
@@ -252,7 +269,7 @@ class TensorFlowModelController(BaseModelController):
                 best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                 best_score = train_scores.get(best_metric)
                 if best_score is not None:
-                    direction = "↑" if higher_is_better else "↓"
+                    direction = ARROW_UP if higher_is_better else ARROW_DOWN
                     all_scores_str = ModelUtils.format_scores(train_scores)
                     # print(f"✅ {trained_model.__class__.__name__} - train: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
@@ -268,7 +285,7 @@ class TensorFlowModelController(BaseModelController):
                 #     best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                 #     best_score = val_scores.get(best_metric)
                 #     if best_score is not None:
-                #         direction = "↑" if higher_is_better else "↓"
+                #         direction = ARROW_UP if higher_is_better else ARROW_DOWN
                 #         all_scores_str = ModelUtils.format_scores(val_scores)
                 #         print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
             elif validation_data is not None:
@@ -284,7 +301,7 @@ class TensorFlowModelController(BaseModelController):
                     best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                     best_score = val_scores.get(best_metric)
                     if best_score is not None:
-                        direction = "↑" if higher_is_better else "↓"
+                        direction = ARROW_UP if higher_is_better else ARROW_DOWN
                         all_scores_str = ModelUtils.format_scores(val_scores)
                         # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
@@ -335,7 +352,7 @@ class TensorFlowModelController(BaseModelController):
             elif optimizer.lower() == 'adagrad':
                 compile_config['optimizer'] = keras.optimizers.Adagrad(learning_rate=learning_rate)
             else:
-                print(f"⚠️ Unknown optimizer {optimizer}, using default with learning_rate={learning_rate}")
+                print(f"{WARNING}Unknown optimizer {optimizer}, using default with learning_rate={learning_rate}")
                 compile_config['optimizer'] = keras.optimizers.Adam(learning_rate=learning_rate)
 
             # print(f"🔧 Created {compile_config['optimizer'].__class__.__name__} optimizer with lr={learning_rate}")
@@ -444,7 +461,7 @@ class TensorFlowModelController(BaseModelController):
         if train_params.get('best_model_memory', True):  # Default enabled
             best_model_callback = self._create_best_model_memory_callback(verbose > 1)
             callbacks.append(best_model_callback)
-            # print("🏆 Added BestModelMemory callback")
+            # print("{TROPHY} Added BestModelMemory callback")
 
         # === CUSTOM CALLBACKS ===
         if 'custom_callbacks' in train_params:
@@ -476,13 +493,13 @@ class TensorFlowModelController(BaseModelController):
                 if self.best_weights is not None:
                     self.model.set_weights(self.best_weights)
                     if self.verbose:
-                        print(f"🏆 Restored best weights with val_loss={self.best_val_loss:.4f}")
+                        print(f"{TROPHY} Restored best weights with val_loss={self.best_val_loss:.4f}")
 
         return BestModelMemory(verbose)
 
     def _log_training_config(self, fit_config: Dict[str, Any], train_params: Dict[str, Any], validation_data: Any) -> None:
         """Log comprehensive training configuration."""
-        print("🏋️ Training configuration:")
+        print(" Training configuration:")
         print(f"   - Epochs: {fit_config.get('epochs', 100)}")
         print(f"   - Batch size: {fit_config.get('batch_size', 32)}")
 
@@ -527,8 +544,13 @@ class TensorFlowModelController(BaseModelController):
 
         predictions = model.predict(X_prepared, verbose=0)
 
-        # Ensure predictions are in the correct shape
-        if predictions.ndim == 1:
+        # For multiclass classification, convert probabilities to class indices
+        if predictions.ndim == 2 and predictions.shape[1] > 1:
+            # Multi-output: likely multiclass classification with softmax
+            # Convert probabilities to class predictions (encoded labels 0-N)
+            predictions = np.argmax(predictions, axis=1).reshape(-1, 1).astype(np.float32)
+        elif predictions.ndim == 1:
+            # Single output: reshape to column vector
             predictions = predictions.reshape(-1, 1)
 
         return predictions
@@ -550,13 +572,13 @@ class TensorFlowModelController(BaseModelController):
         if X.ndim == 2:
             # For 1D CNNs like the NIRS models, we typically want (batch, time_steps, 1)
             # where time_steps is the number of spectral bands
-            # print(f"📊 Reshaping 2D input {X.shape} to 3D for TensorFlow CNN")
+            # print(f"{CHART} Reshaping 2D input {X.shape} to 3D for TensorFlow CNN")
             X = X.reshape(X.shape[0], X.shape[1], 1)  # Add channel dimension
         elif X.ndim == 3:
             # Check if we have (batch, channels, features) format where channels < features
             # This indicates we need to transpose to (batch, features, channels) for Conv1D
             if X.shape[1] < X.shape[2]:
-                # print(f"📊 Transposing 3D input from {X.shape} (batch, channels, features) to (batch, features, channels)")
+                # print(f"{CHART} Transposing 3D input from {X.shape} (batch, channels, features) to (batch, features, channels)")
                 X = np.transpose(X, (0, 2, 1))  # (batch, channels, features) -> (batch, features, channels)
         elif X.ndim == 1:
             # Single sample case
@@ -566,7 +588,7 @@ class TensorFlowModelController(BaseModelController):
         if y is not None and y.ndim > 1 and y.shape[1] == 1:
             y = y.flatten()
 
-        # print(f"📊 TensorFlow data prepared: X.shape={X.shape}, y.shape={y.shape}")
+        # print(f"{CHART} TensorFlow data prepared: X.shape={X.shape}, y.shape={y.shape}")
         return X, y
 
     def _evaluate_model(self, model: Any, X_val: np.ndarray, y_val: np.ndarray) -> float:
@@ -582,7 +604,7 @@ class TensorFlowModelController(BaseModelController):
                 return loss
 
         except (ValueError, TypeError, AttributeError) as e:
-            print(f"⚠️ Error in TensorFlow model evaluation: {e}")
+            print(f"{WARNING}Error in TensorFlow model evaluation: {e}")
             try:
                 # Fallback: use predictions and calculate MSE
                 y_pred = model.predict(X_val, verbose=0)
@@ -592,8 +614,15 @@ class TensorFlowModelController(BaseModelController):
                 return float('inf')
 
     def get_preferred_layout(self) -> str:
-        """Return the preferred data layout for TensorFlow models."""
-        return "3d"
+        """Return the preferred data layout for TensorFlow models.
+
+        TensorFlow Conv1D expects input shape (features, channels) where:
+        - features = number of wavelengths/spectral points (timesteps for convolution)
+        - channels = number of preprocessing methods
+
+        The '3d_transpose' layout returns (samples, features, processings) which is correct for Conv1D.
+        """
+        return "3d_transpose"
 
     def _clone_model(self, model: Any) -> Any:
         """Clone TensorFlow model, handling model factory functions."""
@@ -619,8 +648,17 @@ class TensorFlowModelController(BaseModelController):
 
         # Extract additional parameters from step dict (train_params, model_params, etc.)
         if isinstance(step, dict):
-            # If we didn't get model_instance from operator, extract it from step
-            if 'model_instance' not in model_config and 'model' in step:
+            # Handle direct function serialization (step itself is {'function': '...', 'params': {...}})
+            if 'function' in step:
+                return step  # Pass through to ModelBuilderFactory as-is
+
+            # Handle 'class' or 'import' serialization
+            if 'class' in step or 'import' in step:
+                return step  # Pass through to ModelBuilderFactory as-is
+
+            model_config = {}
+
+            if 'model' in step:
                 model = step['model']
                 # Handle serialized model functions
                 if isinstance(model, dict) and 'function' in model:
@@ -724,3 +762,9 @@ class TensorFlowModelController(BaseModelController):
 
         # Call parent execute method
         return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
+
+
+
+
+
+

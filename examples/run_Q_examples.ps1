@@ -1,15 +1,14 @@
 param(
-    [switch]$OutputFile,
-    [string]$LogPath = "run_Q_output.log"
+    [int]$Index = 0,    # 1-based index to run a single example
+    [int]$Start = 0,    # 1-based start index to run all examples from
+    [switch]$Log        # Enable logging to log.txt
 )
 
-# Set environment variable to disable emoji
-$env:DISABLE_EMOJI = "1"
-
 $examples = @(
-    "Q1_groupsplit.py",
     "Q1_regression.py",
     "Q1_classif.py",
+    "Q1_classif_tf.py",
+    "Q1_groupsplit.py",
     "Q2_multimodel.py",
     "Q3_finetune.py",
     "Q4_multidatasets.py",
@@ -18,26 +17,24 @@ $examples = @(
     "Q6_multisource.py",
     "Q7_discretization.py",
     "Q8_shap.py",
-    "Q9_data_analysis.py",
+    "Q9_acp_spread.py",
     "Q10_resampler.py",
     "Q11_flexible_inputs.py",
-    "Q12_sample_augmentation.py"
+    "Q12_sample_augmentation.py",
+    "Q13_nm_headers.py",
+    "Q14_workspace.py"
 )
 
-# Function to write output to console and optionally to file
-function Write-Output-Dual {
-    param([string]$Message)
-    Write-Host $Message
-    if ($OutputFile) {
-        Add-Content -Path $LogPath -Value $Message
-    }
-}
-
-# Initialize log file if output to file is enabled
-if ($OutputFile) {
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "=== Q Examples Run Started: $timestamp ===" | Set-Content -Path $LogPath
-    Write-Host "Output will be saved to: $LogPath"
+# Setup logging if requested
+$logFile = $null
+if ($Log) {
+    $logFile = Join-Path (Get-Location) "log.txt"
+    Write-Host "Logging enabled: $logFile" -ForegroundColor Green
+    # Initialize log file with header
+    "=================================================" | Out-File -FilePath $logFile -Encoding UTF8
+    "Log started at: $(Get-Date)" | Out-File -FilePath $logFile -Append -Encoding UTF8
+    "=================================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
+    "" | Out-File -FilePath $logFile -Append -Encoding UTF8
 }
 
 # ## PARALLEL
@@ -51,28 +48,66 @@ if ($OutputFile) {
 #     }
 # }
 
-# SEQUENTIAL
-foreach ($example in $examples) {
-    if (Test-Path "$example") {
-        Write-Output-Dual "Launch: $example"
-        Write-Output-Dual "########################################"
-
-        if ($OutputFile) {
-            # Capture full output including stdout and stderr to file
-            & python "$example" 2>&1 | Tee-Object -FilePath $LogPath -Append | Write-Host
-        } else {
-            # Just run normally without capturing
-            & python "$example"
-        }
-
-        Write-Output-Dual "########################################"
-        Write-Output-Dual "Finished running: $example"
-        Write-Output-Dual "########################################"
-    }
+# Determine which examples to run based on parameters
+if ($Index -gt 0 -and $Start -gt 0) {
+    Write-Host "Error: Specify only -Index OR -Start, not both." -ForegroundColor Red
+    exit 1
 }
 
-# Print completion message
-if ($OutputFile) {
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-Output-Dual "=== Q Examples Run Completed: $timestamp ==="
+$selectedExamples = $examples
+if ($Index -gt 0) {
+    if ($Index -lt 1 -or $Index -gt $examples.Count) {
+        Write-Host ("Error: Index {0} is out of range. Valid range is 1..{1}." -f $Index, $examples.Count) -ForegroundColor Red
+        exit 1
+    }
+    $selectedExamples = @($examples[$Index - 1])
+    Write-Host ("Running single example #{0}: {1}" -f $Index, $selectedExamples[0])
+}
+elseif ($Start -gt 0) {
+    if ($Start -lt 1 -or $Start -gt $examples.Count) {
+        Write-Host ("Error: Start index {0} is out of range. Valid range is 1..{1}." -f $Start, $examples.Count) -ForegroundColor Red
+        exit 1
+    }
+    $startIndex = $Start - 1
+    $selectedExamples = $examples[$startIndex..($examples.Count - 1)]
+    Write-Host ("Running all examples starting from #{0} (count: {1})" -f $Start, $selectedExamples.Count)
+}
+
+# Disable emojis only when logging to avoid encoding issues with file output
+if ($Log) {
+    $env:DISABLE_EMOJI = "1"
+    Write-Host "Emojis disabled for logging" -ForegroundColor Yellow
+}
+else {
+    Remove-Item Env:\DISABLE_EMOJI -ErrorAction SilentlyContinue
+}
+
+# SEQUENTIAL
+foreach ($example in $selectedExamples) {
+    if (Test-Path "$example") {
+        $startTime = Get-Date
+        Write-Host "Launch: $example"
+        Write-Host "########################################"
+
+        if ($logFile) {
+            # Log the header
+            "===============================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            "Starting: $example at $startTime" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            "===============================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
+
+            # Run and capture output using Tee-Object to show AND log
+            & python $example 2>&1 | Tee-Object -FilePath $logFile -Append
+
+            # Log the footer
+            "Finished: $example at $(Get-Date)" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            "" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        }
+        else {
+            & python $example
+        }
+
+        $endTime = Get-Date
+        Write-Host "Finished running: $example (Duration: $(($endTime - $startTime).ToString('hh\:mm\:ss')))"
+        Write-Host "########################################"
+    }
 }

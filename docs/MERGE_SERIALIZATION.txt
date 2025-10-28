@@ -1,0 +1,8 @@
+MERGE SERIALIZATION PROBLEMS!
+
+
+- op_fold_charts:
+  lines 140-157 > The op_fold_charts save directly the image with runner saver instead of returning the image to save.
+  
+- op_split:
+  line 250-260 > same problems as op_fold_charts. Save directly instead of returning tuple

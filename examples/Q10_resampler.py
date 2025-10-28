@@ -71,7 +71,7 @@ def main():
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Example 3: Focus on fingerprint region (descending order)
-    print("\nExample 3: Resample to fingerprint region (9500-7000 cm⁻¹)")
+    print("\nExample 3: Resample to fingerprint region (9500-7000 cm^-1)")
     print("-" * 70)
 
     # Focus on mid-infrared fingerprint region with higher resolution (descending)

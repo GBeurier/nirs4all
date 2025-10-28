@@ -28,7 +28,7 @@ class FeatureSource:
         variance_value = round(float(np.var(self._array)), 3) if self._array.size > 0 else 0.0
         min_value = round(float(np.min(self._array)), 3) if self._array.size > 0 else 0.0
         max_value = round(float(np.max(self._array)), 3) if self._array.size > 0 else 0.0
-        return f"{self._array.shape}, processings={self._processing_ids}, min={min_value}, max={max_value}, mean={mean_value}, var={variance_value})"
+        return f"{self._array.shape}, processings={self._processing_ids}, min={min_value}, max={max_value}, mean={mean_value}, var={variance_value}"
 
     @property
     def headers(self) -> Optional[List[str]]:

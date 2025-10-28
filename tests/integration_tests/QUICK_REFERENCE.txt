@@ -1,0 +1,122 @@
+"""
+Quick Reference: nirs4all Integration Test Suite
+================================================
+
+RUNNING TESTS
+-------------
+
+# All integration tests
+pytest tests/integration_tests/ -v
+
+# Fast mode (skip TensorFlow, SHAP, Optuna)
+pytest tests/integration_tests/ -m "not tensorflow and not shap and not optuna" -v
+
+# Specific test file
+pytest tests/integration_tests/test_classification_integration.py -v
+
+# Specific test
+pytest tests/integration_tests/test_classification_integration.py::TestClassificationIntegration::test_q1_style_classification_pipeline -v
+
+# With coverage
+pytest tests/integration_tests/ --cov=nirs4all --cov-report=html -v
+
+# Using test runner
+cd tests/integration_tests/
+python run_integration_tests.py              # All tests
+python run_integration_tests.py --fast       # Skip slow/optional
+python run_integration_tests.py --core       # Only core (no TF/SHAP/Optuna)
+python run_integration_tests.py --coverage   # With coverage
+
+
+TEST MARKERS
+------------
+-m tensorflow    # Only TensorFlow tests
+-m shap          # Only SHAP tests
+-m optuna        # Only Optuna tests
+-m slow          # Only slow tests
+-m "not slow"    # Skip slow tests
+
+
+TEST FILES & COVERAGE
+---------------------
+test_classification_integration.py      → Q1_classif.py, Q1_classif_tf.py
+test_groupsplit_integration.py          → Q1_groupsplit.py
+test_prediction_reuse_integration.py    → Q5_predict.py, Q5_predict_NN.py
+test_multisource_integration.py         → Q6_multisource.py
+test_shap_integration.py                → Q8_shap.py
+test_flexible_inputs_integration.py     → Q11_flexible_inputs.py
+test_sample_augmentation_integration.py → Q12_sample_augmentation.py
+test_pca_analysis_integration.py        → Q9_acp_spread.py
+test_finetune_integration.py            → Q3_finetune.py
+
+Existing comprehensive tests:
+test_comprehensive_integration.py       → Q1_regression.py, Q2_multimodel.py, Q4_multidatasets.py, Q7_discretization.py
+test_resampler.py                       → Q10_resampler.py, Q13_nm_headers.py
+tests/workspace/test_phase*.py          → Q14_workspace.py
+
+
+TROUBLESHOOTING
+---------------
+
+# TensorFlow tests fail
+pip install tensorflow
+
+# SHAP tests fail
+pip install shap
+
+# Optuna tests fail
+pip install optuna
+
+# All tests fail
+pip install -r requirements-test.txt
+
+# Tests too slow
+pytest tests/integration_tests/ -m "not slow and not tensorflow" -v
+
+
+CONTINUOUS INTEGRATION
+----------------------
+
+# Pre-commit (fast)
+pytest tests/integration_tests/ -m "not slow and not tensorflow and not shap and not optuna" -v
+
+# CI pipeline (full)
+pytest tests/integration_tests/ -v
+
+# Pre-release (extended)
+pytest tests/integration_tests/ -v --cov=nirs4all
+
+
+WHAT THESE TESTS VERIFY
+------------------------
+✓ All pipelines run without errors
+✓ Predictions are finite (not NaN/Inf)
+✓ Metrics are in valid ranges
+✓ Models can be saved and loaded
+✓ Different configurations produce different results
+✓ Error cases are handled gracefully
+✓ All major features work end-to-end
+
+
+TEST STATISTICS
+---------------
+Total: ~75 new test cases
+Files: 9 new test files
+Coverage: 14/14 examples (100%)
+Execution time: ~1-5 minutes (depending on markers)
+
+
+MAINTENANCE
+-----------
+When refactoring:
+1. Run all tests before changes (baseline)
+2. Keep tests passing during refactoring
+3. Update tests if API intentionally changes
+4. Add new tests for new features
+
+When tests fail:
+1. Check error message for specific failure
+2. Run failing test in isolation
+3. Check if it's a regression or expected change
+4. Fix code or update test expectations
+"""

@@ -19,6 +19,7 @@ from sklearn.base import is_classifier, is_regressor
 
 from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN
 from nirs4all.utils.model_utils import ModelUtils
 from nirs4all.utils.model_builder import ModelBuilderFactory
 
@@ -39,9 +40,6 @@ class SklearnModelController(BaseModelController):
         # Check if step contains a model key with sklearn object
         if isinstance(step, dict) and 'model' in step:
             model = step['model']
-            # Handle serialized model format
-            if isinstance(model, dict) and '_runtime_instance' in model:
-                model = model['_runtime_instance']
 
             if isinstance(model, BaseEstimator):
                 # Prioritize supervised models (need both X and y) over transformers
@@ -62,27 +60,40 @@ class SklearnModelController(BaseModelController):
 
     def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> BaseEstimator:
         """Create sklearn model instance from configuration."""
-        # print("Creating sklearn model instance from configuration...")
-        # print(model_config, force_params)
-        # If we have a model class and parameters, instantiate it
-        # ModelBuilder.build_single_model(model_config['model']['class'], mo)
-        if 'model_instance' in model_config and force_params is None:
+        # If we have a model_instance (class or instance) and force_params, we need to rebuild with new params
+        if 'model_instance' in model_config:
             model = model_config['model_instance']
-            if isinstance(model, BaseEstimator):
+
+            # If no force_params and it's already an instance, just return it
+            if force_params is None and isinstance(model, BaseEstimator):
                 return model
 
+            # If we have force_params, we need to get the class and rebuild
+            if force_params:
+                # Get the model class (either from instance or if it's already a class)
+                if isinstance(model, type):
+                    model_class = model
+                else:
+                    model_class = type(model)
+
+                # Rebuild with force_params
+                return ModelBuilderFactory.build_single_model(model_class, dataset, force_params)
+
+        # Handle new serialization formats: {'function': ..., 'params': ...} or {'class': ..., 'params': ...}
+        if any(key in model_config for key in ('function', 'class', 'import')):
+            params = model_config.get('params', {})
+            if force_params:
+                params.update(force_params)
+            return ModelBuilderFactory.build_single_model(model_config, dataset, params)
+
+        # Handle old format: model_config['model']['class']
         if 'model' in model_config and 'class' in model_config['model']:
             model_class = model_config['model']['class']
             model_params = model_config.get('model_params', {})
             if force_params:
                 model_params.update(force_params)
-            # return model_class(**model_params)
             model = ModelBuilderFactory.build_single_model(model_class, dataset, model_params)
-            # print("Created model:", model)
-            # print(model.n_components if hasattr(model, 'n_components') else "No n_components")
             return model
-
-
 
         raise ValueError("Could not create model instance from configuration")
 
@@ -117,7 +128,7 @@ class SklearnModelController(BaseModelController):
                 if key in model_params:
                     valid_params[key] = value
                 # else:
-                    # print(f"⚠️ Parameter {key} not found in model {model.__class__.__name__}")
+                    # print(f"{WARNING}Parameter {key} not found in model {model.__class__.__name__}")
 
             if valid_params:
                 trained_model.set_params(**valid_params)
@@ -141,7 +152,7 @@ class SklearnModelController(BaseModelController):
                 best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                 best_score = train_scores.get(best_metric)
                 if best_score is not None:
-                    direction = "↑" if higher_is_better else "↓"
+                    direction = ARROW_UP if higher_is_better else ARROW_DOWN
                     all_scores_str = ModelUtils.format_scores(train_scores)
                     # print(f"✅ {trained_model.__class__.__name__} - train: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
@@ -157,7 +168,7 @@ class SklearnModelController(BaseModelController):
                     best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                     best_score = val_scores.get(best_metric)
                     if best_score is not None:
-                        direction = "↑" if higher_is_better else "↓"
+                        direction = ARROW_UP if higher_is_better else ARROW_DOWN
                         all_scores_str = ModelUtils.format_scores(val_scores)
                         # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
 
@@ -226,7 +237,7 @@ class SklearnModelController(BaseModelController):
                     return mean_squared_error(y_val_1d, y_pred)
 
         except Exception as e:
-            print(f"⚠️ Error in model evaluation: {e}")
+            print(f"{WARNING}Error in model evaluation: {e}")
             # Fallback evaluation
             try:
                 y_pred = model.predict(X_val)
@@ -266,3 +277,5 @@ class SklearnModelController(BaseModelController):
 
         # Call parent execute method
         return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
+
+

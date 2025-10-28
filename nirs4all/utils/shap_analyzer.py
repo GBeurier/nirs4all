@@ -10,7 +10,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
-import pickle
+
+from nirs4all.utils.emoji import CHART, CHECK, CROSS, DISK, BRAIN, WRENCH, MICROSCOPE, PALETTE, CHECKMARK
 
 # Try to import SHAP
 try:
@@ -92,7 +93,7 @@ class ShapAnalyzer:
             Dictionary with SHAP results
         """
         print("=" * 80)
-        print("🧠 SHAP Analysis Starting")
+        print(f"{BRAIN}SHAP Analysis Starting")
         print("=" * 80)
 
         # Select samples if specified
@@ -101,16 +102,16 @@ class ShapAnalyzer:
         else:
             X_explain = X
 
-        print(f"📊 Analyzing {X_explain.shape[0]} samples with {X_explain.shape[1]} features")
+        print(f"{CHART}Analyzing {X_explain.shape[0]} samples with {X_explain.shape[1]} features")
 
         # Step 1: Select and create explainer
-        print(f"🔧 Creating SHAP explainer (type: {explainer_type})...")
+        print(f"{WRENCH}Creating SHAP explainer (type: {explainer_type})...")
         self.explainer = self._create_explainer(
             model, X, explainer_type, n_background, task_type
         )
 
         # Step 2: Compute SHAP values
-        print("🔬 Computing SHAP values...")
+        print(f"{MICROSCOPE}Computing SHAP values...")
 
         # No need to reshape - the predict function wrapper handles it
         self.shap_values = self.explainer.shap_values(X_explain)
@@ -158,7 +159,7 @@ class ShapAnalyzer:
         self.bin_stride_dict = normalize_param(bin_stride, 10)
         self.bin_aggregation_dict = normalize_param(bin_aggregation, 'sum')
 
-        print(f"✅ SHAP values computed: shape={self.shap_values.shape}")
+        print(f"{CHECK}SHAP values computed: shape={self.shap_values.shape}")
         print(f"   Base value: {self.base_value:.4f}")
         print(f"   Binning config:")
         for viz in ['spectral', 'waterfall', 'beeswarm']:
@@ -170,7 +171,7 @@ class ShapAnalyzer:
             output_path = Path(output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
 
-            print("\n🎨 Generating visualizations...")
+            print(f"\n{PALETTE}Generating visualizations...")
 
             if 'spectral' in visualizations:
                 # Set binning for spectral
@@ -183,7 +184,7 @@ class ShapAnalyzer:
                     output_path=str(output_path / "spectral_importance.png"),
                     plots_visible=plots_visible
                 )
-                print("   ✓ Spectral importance")
+                print(f"   {CHECKMARK}Spectral importance")
 
             if 'summary' in visualizations:
                 self.plot_summary(
@@ -191,7 +192,7 @@ class ShapAnalyzer:
                     output_path=str(output_path / "summary.png"),
                     plots_visible=plots_visible
                 )
-                print("   ✓ Summary plot")
+                print(f"   {CHECKMARK}Summary plot")
 
             if 'waterfall' in visualizations:
                 # Set binning for waterfall
@@ -204,7 +205,7 @@ class ShapAnalyzer:
                     output_path=str(output_path / "waterfall_binned.png"),
                     plots_visible=plots_visible
                 )
-                print("   ✓ Waterfall plot (binned)")
+                print(f"   {CHECKMARK}Waterfall plot (binned)")
 
             if 'force' in visualizations:
                 self.plot_force(
@@ -213,7 +214,7 @@ class ShapAnalyzer:
                     output_path=str(output_path / "force.html"),
                     plots_visible=plots_visible
                 )
-                print("   ✓ Force plot")
+                print(f"   {CHECKMARK}Force plot")
 
             if 'beeswarm' in visualizations:
                 # Set binning for beeswarm
@@ -225,7 +226,7 @@ class ShapAnalyzer:
                     output_path=str(output_path / "beeswarm_binned.png"),
                     plots_visible=plots_visible
                 )
-                print("   ✓ Beeswarm plot (binned)")
+                print(f"   {CHECKMARK}Beeswarm plot (binned)")
 
         # Prepare results dictionary
         results = {
@@ -238,7 +239,7 @@ class ShapAnalyzer:
             'n_features': self.shap_values.shape[1]
         }
 
-        print("\n✅ SHAP analysis completed!")
+        print(f"\n{CHECK}SHAP analysis completed!")
         print("=" * 80)
 
         return results
@@ -280,7 +281,7 @@ class ShapAnalyzer:
                 return shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
             except Exception as e:
                 error_msg = str(e).split('\n')[0]
-                print(f"   ⚠️ TreeExplainer failed: {error_msg}, falling back to Kernel")
+                print(f"   {WARNING}TreeExplainer failed: {error_msg}, falling back to Kernel")
                 explainer_type = "kernel"
 
         if explainer_type == "linear":
@@ -288,7 +289,7 @@ class ShapAnalyzer:
                 return shap.LinearExplainer(model, X)
             except Exception as e:
                 error_msg = str(e).split('\n')[0]
-                print(f"   ⚠️ LinearExplainer failed: {error_msg}, falling back to Kernel")
+                print(f"   {WARNING}LinearExplainer failed: {error_msg}, falling back to Kernel")
                 explainer_type = "kernel"
 
         if explainer_type == "deep":
@@ -313,7 +314,7 @@ class ShapAnalyzer:
             except Exception as e:
                 # Clean error message without stack trace
                 error_msg = str(e).split('\n')[0]  # First line only
-                print(f"   ⚠️ DeepExplainer failed: {error_msg}, falling back to Kernel")
+                print(f"   {WARNING}DeepExplainer failed: {error_msg}, falling back to Kernel")
                 explainer_type = "kernel"
 
         # Fallback to KernelExplainer (works with any model)
@@ -335,7 +336,7 @@ class ShapAnalyzer:
                 # Keras/TensorFlow models with preprocessing are not directly compatible
                 raise ValueError(
                     "\n" + "="*80 +
-                    "\n❌ SHAP Error: Keras/TensorFlow models are not directly supported.\n" +
+                    f"\n{CROSS}SHAP Error: Keras/TensorFlow models are not directly supported.\n" +
                     "\n" +
                     "The issue: Your Keras model was trained on preprocessed data, but SHAP\n" +
                     "needs to explain the raw features. The model expects a different input\n" +
@@ -516,7 +517,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   💾 Saved: {output_path}")
+            print(f"   {DISK}Saved: {output_path}")
 
         if not plots_visible:
             plt.close(fig)
@@ -547,7 +548,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   💾 Saved: {output_path}")
+            print(f"   {DISK}Saved: {output_path}")
 
         if not plots_visible:
             plt.close()
@@ -580,7 +581,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   💾 Saved: {output_path}")
+            print(f"   {DISK}Saved: {output_path}")
 
         if not plots_visible:
             plt.close()
@@ -616,7 +617,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   💾 Saved: {output_path}")
+            print(f"   {DISK}Saved: {output_path}")
 
         if not plots_visible:
             plt.close()
@@ -801,7 +802,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   💾 Saved: {output_path}")
+            print(f"   {DISK}Saved: {output_path}")
 
         if plots_visible:
             plt.show()  # Blocking
@@ -860,7 +861,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   💾 Saved: {output_path}")
+            print(f"   {DISK}Saved: {output_path}")
 
         if not plots_visible:
             plt.close()
@@ -889,13 +890,22 @@ class ShapAnalyzer:
         return {int(idx): float(mean_shap[idx]) for idx in indices}
 
     def save_results(self, results: Dict[str, Any], output_path: str):
-        """Save SHAP results to disk."""
+        """Save SHAP results to disk using the new serializer."""
+        from nirs4all.utils.serializer import to_bytes
+
+        data, _ = to_bytes(results, format_hint=None)
         with open(output_path, 'wb') as f:
-            pickle.dump(results, f)
-        print(f"💾 Results saved to: {output_path}")
+            f.write(data)
+        print(f"{DISK}Results saved to: {output_path}")
 
     @staticmethod
     def load_results(input_path: str) -> Dict[str, Any]:
-        """Load SHAP results from disk."""
+        """Load SHAP results from disk using the new serializer."""
+        from nirs4all.utils.serializer import from_bytes
+
         with open(input_path, 'rb') as f:
-            return pickle.load(f)
+            data = f.read()
+        return from_bytes(data, 'cloudpickle')
+
+
+
