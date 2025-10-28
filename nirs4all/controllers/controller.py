@@ -4,7 +4,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner

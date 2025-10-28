@@ -18,9 +18,9 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.svm import SVR
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.dataset.predictions import Predictions
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
+from nirs4all.data.analyzers import PredictionAnalyzer
 from nirs4all.operators.models.cirad_tf import nicon
 from nirs4all.operators.transformations import MultiplicativeScatterCorrection
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner

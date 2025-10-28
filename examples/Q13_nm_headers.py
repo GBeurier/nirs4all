@@ -30,8 +30,8 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
 from nirs4all.operators.transformations import (
     StandardNormalVariate, SavitzkyGolay, Resampler
 )

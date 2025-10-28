@@ -1,7 +1,7 @@
 """Tests for SpectroDataset class."""
 
 import pytest
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 
 
 class TestSpectroDataset:

@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.base import TransformerMixin
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder
 
-from nirs4all.dataset.helpers import SampleIndices
+from nirs4all.data.helpers import SampleIndices
 
 
 class FlexibleLabelEncoder(TransformerMixin):

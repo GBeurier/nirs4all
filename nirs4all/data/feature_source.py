@@ -6,7 +6,7 @@ as well as to retrieve data in various layouts (2D, 3D).
 
 import numpy as np
 from typing import List, Dict, Optional
-from nirs4all.dataset.helpers import InputData, InputFeatures, ProcessingList, SampleIndices
+from nirs4all.data.helpers import InputData, InputFeatures, ProcessingList, SampleIndices
 
 
 class FeatureSource:

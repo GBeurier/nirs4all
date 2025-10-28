@@ -3,7 +3,7 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import RepeatedKFold
 from sklearn.preprocessing import MinMaxScaler
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.models.cirad_tf import nicon

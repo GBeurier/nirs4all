@@ -9,7 +9,7 @@ import tempfile
 import shutil
 from pathlib import Path
 import polars as pl
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 
 
 class TestPhase4QueryReporting:

@@ -22,8 +22,8 @@ from datetime import datetime
 
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.dataset.dataset_config import DatasetConfigs
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.config import DatasetConfigs
+from nirs4all.data.predictions import Predictions
 from nirs4all.utils.emoji import DISK, TROPHY, SEARCH, ROCKET
 from nirs4all.workspace.library_manager import LibraryManager
 

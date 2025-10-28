@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from pathlib import Path
 
-from nirs4all.dataset.dataset_config import DatasetConfigs
+from nirs4all.data.config import DatasetConfigs
 
 
 class TestMetadataLoading:
@@ -196,7 +196,7 @@ class TestMetadataConfigNormalization:
 
     def test_normalize_metadata_keys(self):
         """Test that various metadata key formats are normalized."""
-        from nirs4all.dataset.dataset_config_parser import normalize_config_keys
+        from nirs4all.data.config_parser import normalize_config_keys
 
         # Test various formats
         configs_to_test = [

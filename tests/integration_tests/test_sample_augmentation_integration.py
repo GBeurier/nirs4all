@@ -13,7 +13,7 @@ from pathlib import Path
 from sklearn.model_selection import GroupKFold
 from sklearn.ensemble import RandomForestClassifier
 
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transformations import Rotate_Translate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 

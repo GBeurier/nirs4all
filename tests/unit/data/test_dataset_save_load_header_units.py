@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 import tempfile
 from pathlib import Path
-from nirs4all.dataset.loader import load_XY, handle_data
+from nirs4all.data.loaders.loader import load_XY, handle_data
 
 
 class TestLoadXYHeaderUnit:

@@ -14,8 +14,8 @@ from pathlib import Path
 
 from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.pipeline.config import PipelineConfigs
-from nirs4all.dataset.dataset_config import DatasetConfigs
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.config import DatasetConfigs
+from nirs4all.data.dataset import SpectroDataset
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 

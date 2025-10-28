@@ -369,7 +369,7 @@ class Pipeline(BaseEstimator, RegressorMixin):
 
     def _create_dataset_from_arrays(self, X, y):
         """Create SpectroDataset from numpy arrays."""
-        from nirs4all.dataset import SpectroDataset
+        from nirs4all.data import SpectroDataset
 
         dataset = SpectroDataset(name=self.name)
 
@@ -832,7 +832,7 @@ class Pipeline(BaseEstimator, RegressorMixin):
 ```python
 # Old code still works
 from nirs4all.pipeline import PipelineRunner, PipelineConfigs
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 
 config = PipelineConfigs([...])
 dataset = DatasetConfigs('data/')
@@ -853,7 +853,7 @@ pipe.fit(X, y)
 ```python
 # Before (examples/Q1_regression.py)
 from nirs4all.pipeline import PipelineRunner, PipelineConfigs
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 
 pipeline = [...]
 config = PipelineConfigs(pipeline)
@@ -865,7 +865,7 @@ predictions, _ = runner.run(config, dataset)
 ```python
 # After (examples/Q1_regression.py)
 from nirs4all.pipeline import Pipeline
-from nirs4all.dataset import load_dataset  # New helper
+from nirs4all.data import load_dataset  # New helper
 
 # Load data as arrays
 X_train, X_test, y_train, y_test = load_dataset('sample_data/regression')

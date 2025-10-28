@@ -15,8 +15,8 @@ from unittest.mock import Mock, MagicMock, call
 from sklearn.preprocessing import StandardScaler
 
 from nirs4all.controllers.dataset.op_sample_augmentation import SampleAugmentationController
-from nirs4all.dataset.dataset import SpectroDataset
-from nirs4all.dataset.indexer import Indexer
+from nirs4all.data.dataset import SpectroDataset
+from nirs4all.data.indexer import Indexer
 
 
 class DummyTransformer:

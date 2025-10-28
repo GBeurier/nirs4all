@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from nirs4all.dataset.predictions import Predictions
+    from nirs4all.data.predictions import Predictions
 
 from ..models.base_model_controller import BaseModelController
 from nirs4all.controllers.registry import register_controller
@@ -25,7 +25,7 @@ from nirs4all.utils.model_builder import ModelBuilderFactory
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
-    from nirs4all.dataset.dataset import SpectroDataset
+    from nirs4all.data.dataset import SpectroDataset
 
 # Try to import TensorFlow
 try:

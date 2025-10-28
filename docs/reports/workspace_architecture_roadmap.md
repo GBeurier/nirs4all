@@ -923,7 +923,7 @@ class ReportGenerator:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
 
         # Use Predictions class for catalog queries
-        from nirs4all.dataset.predictions import Predictions
+        from nirs4all.data.predictions import Predictions
         self.predictions = Predictions.load_from_parquet(self.catalog_dir)
 
     def generate_run_summary(
@@ -1042,7 +1042,7 @@ Update CLI and UI to use workspace structure with extended classes.
 import click
 from pathlib import Path
 from nirs4all.workspace import WorkspaceManager
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 
 @click.group()
 def workspace():

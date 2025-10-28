@@ -14,9 +14,9 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.dataset.predictions import Predictions
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
+from nirs4all.data.analyzers import PredictionAnalyzer
 from nirs4all.operators.transformations import (
     Detrend, FirstDerivative, SecondDerivative, Gaussian,
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection

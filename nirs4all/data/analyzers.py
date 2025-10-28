@@ -15,7 +15,7 @@ import re
 
 from sklearn.metrics import confusion_matrix as sk_confusion_matrix
 
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 
 
@@ -259,7 +259,7 @@ class PredictionAnalyzer:
 
                         # Calculate score for this partition
                         try:
-                            from nirs4all.dataset.evaluator import eval as eval_metric
+                            from nirs4all.data.evaluator import eval as eval_metric
                             score = eval_metric(y_true, y_pred, rank_metric)
                             partition_scores[part_name] = score
                         except Exception as e:
@@ -466,7 +466,7 @@ class PredictionAnalyzer:
         Returns:
             matplotlib Figure
         """
-        from nirs4all.dataset.predictions import PredictionResult
+        from nirs4all.data.predictions import PredictionResult
 
         filters = {}
         if dataset_name:
@@ -1427,7 +1427,7 @@ class PredictionAnalyzer:
                 if score is None or (display_metric != rank_metric and display_metric != pred.get('metric', '')):
                     # Compute the metric from y_true and y_pred
                     try:
-                        from nirs4all.dataset.evaluator import eval as eval_metric
+                        from nirs4all.data.evaluator import eval as eval_metric
                         y_true = pred.get('y_true', [])
                         y_pred = pred.get('y_pred', [])
                         if y_true and y_pred:

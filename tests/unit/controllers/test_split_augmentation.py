@@ -14,7 +14,7 @@ from unittest.mock import Mock
 from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold
 
 from nirs4all.controllers.sklearn.op_split import CrossValidatorController
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 
 
 @pytest.fixture

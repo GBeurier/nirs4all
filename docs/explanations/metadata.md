@@ -61,7 +61,7 @@ dataset/
 - And many more variations...
 
 ```python
-from nirs4all.dataset.dataset_config import DatasetConfigs
+from nirs4all.data.dataset_config import DatasetConfigs
 
 configs = DatasetConfigs("path/to/dataset/folder")
 dataset = configs.get_dataset_at(0)
@@ -90,7 +90,7 @@ dataset = configs.get_dataset_at(0)
 
 ```python
 import pandas as pd
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 
 dataset = SpectroDataset(name="my_dataset")
 
@@ -478,7 +478,7 @@ Property returning list of metadata column names.
 
 ```python
 # Debug: Check what files were detected
-from nirs4all.dataset.dataset_config_parser import browse_folder
+from nirs4all.data.dataset_config_parser import browse_folder
 config = browse_folder("path/to/folder")
 print(config.get('train_group'))  # Should show metadata file path
 ```

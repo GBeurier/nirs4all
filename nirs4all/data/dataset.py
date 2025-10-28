@@ -9,12 +9,12 @@ and provides the primary public API for users.
 import re
 import numpy as np
 
-from nirs4all.dataset.helpers import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict, get_num_samples, InputFeatures, ProcessingList
-from nirs4all.dataset.features import Features
-from nirs4all.dataset.targets import Targets
-from nirs4all.dataset.indexer import Indexer
-from nirs4all.dataset.metadata import Metadata
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.helpers import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict, get_num_samples, InputFeatures, ProcessingList
+from nirs4all.data.features import Features
+from nirs4all.data.targets import Targets
+from nirs4all.data.indexer import Indexer
+from nirs4all.data.metadata import Metadata
+from nirs4all.data.predictions import Predictions
 from nirs4all.utils.emoji import CHART, REFRESH, TARGET
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 from sklearn.base import TransformerMixin

@@ -15,7 +15,7 @@ from nirs4all.utils.emoji import TARGET, ROCKET, TROPHY, CHART
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
-    from nirs4all.dataset.dataset import SpectroDataset
+    from nirs4all.data.dataset import SpectroDataset
 
 try:
     import optuna

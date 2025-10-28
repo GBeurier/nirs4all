@@ -56,7 +56,7 @@ def workspace_list_runs(args):
 
 def workspace_query_best(args):
     """Query best pipelines from catalog."""
-    from nirs4all.dataset.predictions import Predictions
+    from nirs4all.data.predictions import Predictions
 
     workspace_path = Path(args.workspace)
     catalog_dir = workspace_path / "catalog"
@@ -103,7 +103,7 @@ def workspace_query_best(args):
 
 def workspace_query_filter(args):
     """Filter predictions by criteria."""
-    from nirs4all.dataset.predictions import Predictions
+    from nirs4all.data.predictions import Predictions
 
     workspace_path = Path(args.workspace)
     catalog_dir = workspace_path / "catalog"
@@ -139,7 +139,7 @@ def workspace_query_filter(args):
 
 def workspace_stats(args):
     """Show catalog statistics."""
-    from nirs4all.dataset.predictions import Predictions
+    from nirs4all.data.predictions import Predictions
 
     workspace_path = Path(args.workspace)
     catalog_dir = workspace_path / "catalog"

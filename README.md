@@ -151,7 +151,7 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
 
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.transformations import (
     StandardNormalVariate, SavitzkyGolay, MultiplicativeScatterCorrection
@@ -288,7 +288,7 @@ print(f"Best model: {best_model['model_name']} with RMSE: {best_model['rmse']:.4
 ### Visualization and Analysis
 
 ```python
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+from nirs4all.data.prediction_analyzer import PredictionAnalyzer
 import matplotlib.pyplot as plt
 
 # Create analyzer for your predictions

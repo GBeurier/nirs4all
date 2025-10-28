@@ -7,7 +7,7 @@ from nirs4all.controllers.registry import register_controller
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
-    from nirs4all.dataset.dataset import SpectroDataset
+    from nirs4all.data.dataset import SpectroDataset
 
 import numpy as np
 

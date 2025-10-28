@@ -80,7 +80,7 @@ All tests passed successfully!
 ## Usage Example
 
 ```python
-from nirs4all.dataset import Predictions
+from nirs4all.data import Predictions
 
 # Load predictions
 predictions = Predictions.load(dataset_name="my_data")

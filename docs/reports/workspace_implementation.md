@@ -180,7 +180,7 @@ pipeline_dir = saver.register_workspace(
 )
 
 # Archive to catalog
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 pred = Predictions()
 pred_id = pred.archive_to_catalog(
     catalog_dir="my_workspace/catalog",

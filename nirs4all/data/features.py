@@ -3,8 +3,8 @@ from typing import List, Tuple, Dict, Any, Optional, Union
 import numpy as np
 import polars as pl
 
-from nirs4all.dataset.feature_source import FeatureSource
-from nirs4all.dataset.helpers import InputData, InputFeatures, ProcessingList, SampleIndices
+from nirs4all.data.feature_source import FeatureSource
+from nirs4all.data.helpers import InputData, InputFeatures, ProcessingList, SampleIndices
 
 class Features:
     """Manages N aligned NumPy sources + a Polars index."""

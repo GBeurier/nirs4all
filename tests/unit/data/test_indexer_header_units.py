@@ -8,7 +8,7 @@ import pytest
 from pathlib import Path
 import tempfile
 import os
-from nirs4all.dataset.dataset_config import DatasetConfigs
+from nirs4all.data.config import DatasetConfigs
 
 
 def write_csv(path, data, header=None, delimiter=';'):

@@ -4,9 +4,9 @@ import hashlib
 import json
 import numpy as np
 import pandas as pd
-from nirs4all.dataset.dataset_config_parser import parse_config
-from nirs4all.dataset.dataset import SpectroDataset
-from nirs4all.dataset.csv_loader import load_csv
+from nirs4all.data.config_parser import parse_config
+from nirs4all.data.dataset import SpectroDataset
+from nirs4all.data.loaders.csv_loader import load_csv
 from typing import Dict, Tuple, Union
 
 

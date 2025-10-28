@@ -10,15 +10,15 @@ import os
 
 
 from joblib import Parallel, delayed, parallel_backend
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 from nirs4all.utils.emoji import ROCKET, TROPHY, MEDAL_GOLD, FLAG, CHECK, CROSS, DIAMOND, SEARCH, REFRESH, WARNING, PLAY, SMALL_DIAMOND
 
 from nirs4all.pipeline.serialization import deserialize_component
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.io import SimulationSaver
 from nirs4all.pipeline.manifest_manager import ManifestManager
-from nirs4all.dataset.dataset import SpectroDataset
-from nirs4all.dataset.dataset_config import DatasetConfigs
+from nirs4all.data.dataset import SpectroDataset
+from nirs4all.data.config import DatasetConfigs
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.pipeline.binary_loader import BinaryLoader
 from nirs4all.utils.tab_report_manager import TabReportManager

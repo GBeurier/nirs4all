@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, KFold
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 from nirs4all.controllers.sklearn.op_split import CrossValidatorController
 
 

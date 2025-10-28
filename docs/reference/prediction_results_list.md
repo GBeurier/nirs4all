@@ -21,7 +21,7 @@ The `PredictionResultsList` class is a specialized list container that wraps lis
 ### Basic Usage
 
 ```python
-from nirs4all.dataset import Predictions
+from nirs4all.data import Predictions
 
 # Create or load predictions
 predictions = Predictions()
@@ -135,7 +135,7 @@ if some_prediction in top_models:
 ## Complete Workflow Example
 
 ```python
-from nirs4all.dataset import Predictions
+from nirs4all.data import Predictions
 
 # Load existing predictions
 predictions = Predictions.load(

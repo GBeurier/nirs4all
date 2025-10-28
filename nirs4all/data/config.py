@@ -13,9 +13,9 @@ from tabnanny import verbose
 from typing import List, Union, Dict, Any
 
 from nirs4all.utils.emoji import CROSS
-from nirs4all.dataset.dataset import SpectroDataset
-from nirs4all.dataset.loader import handle_data
-from nirs4all.dataset.dataset_config_parser import parse_config
+from nirs4all.data.dataset import SpectroDataset
+from nirs4all.data.loaders.loader import handle_data
+from nirs4all.data.config_parser import parse_config
 
 
 class DatasetConfigs:

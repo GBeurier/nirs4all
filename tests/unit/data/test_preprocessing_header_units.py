@@ -4,7 +4,7 @@ Test that header_unit is properly preserved during sample augmentation.
 """
 import numpy as np
 import pytest
-from nirs4all.dataset.dataset import SpectroDataset
+from nirs4all.data.dataset import SpectroDataset
 
 
 class TestAugmentationHeaderUnit:

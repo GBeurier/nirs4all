@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from nirs4all.dataset.dataset_config import DatasetConfigs
+from nirs4all.data.config import DatasetConfigs
 
 
 def example_load_dataset_with_metadata():
@@ -116,7 +116,7 @@ def example_filter_by_metadata():
     print("="*60)
 
     # Create example dataset with metadata
-    from nirs4all.dataset.dataset import SpectroDataset
+    from nirs4all.data.dataset import SpectroDataset
 
     dataset = SpectroDataset(name="example_with_metadata")
 
@@ -181,7 +181,7 @@ def example_use_metadata_in_pipeline():
     print("USING METADATA IN PIPELINES")
     print("="*60)
 
-    from nirs4all.dataset.dataset import SpectroDataset
+    from nirs4all.data.dataset import SpectroDataset
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.model_selection import cross_val_score
 

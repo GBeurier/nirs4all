@@ -1,7 +1,7 @@
 """Tests for predictions storage and management."""
 
 import pytest
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.predictions import Predictions
 
 
 class TestPredictions:

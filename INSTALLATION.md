@@ -379,7 +379,7 @@ Once installed, verify everything works:
 
 ```python
 # Import the new API components
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.transformations import StandardNormalVariate
 from sklearn.preprocessing import MinMaxScaler
