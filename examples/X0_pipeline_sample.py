@@ -9,7 +9,7 @@ from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, SecondDerivative, Gaussian,
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )
-from nirs4all.operators.models.cirad_tf import nicon, customizable_nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon, customizable_nicon
 
 preprocessing_options = [
     Detrend, FirstDerivative, SecondDerivative, Gaussian,

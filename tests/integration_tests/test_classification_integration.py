@@ -234,7 +234,7 @@ class TestClassificationIntegration:
     def test_tensorflow_classification(self, test_data_manager):
         """Test TensorFlow neural network classification (Q1_classif_tf.py)."""
         pytest.importorskip("tensorflow")
-        from nirs4all.operators.models.cirad_tf import nicon_classification
+        from nirs4all.operators.models.tensorflow.nicon import nicon_classification
 
         dataset_folder = str(test_data_manager.get_temp_directory() / "classification")
 
@@ -270,7 +270,7 @@ class TestClassificationIntegration:
     def test_tensorflow_vs_sklearn_classification(self, test_data_manager):
         """Test both TensorFlow and sklearn models in same pipeline."""
         pytest.importorskip("tensorflow")
-        from nirs4all.operators.models.cirad_tf import nicon_classification
+        from nirs4all.operators.models.tensorflow.nicon import nicon_classification
 
         dataset_folder = str(test_data_manager.get_temp_directory() / "classification")
 

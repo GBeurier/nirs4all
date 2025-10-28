@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold
 
-from nirs4all.controllers.sklearn.op_split import CrossValidatorController
+from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
 
 

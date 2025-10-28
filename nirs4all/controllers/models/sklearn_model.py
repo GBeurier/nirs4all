@@ -17,7 +17,7 @@ from sklearn.model_selection import cross_val_score
 from sklearn.metrics import mean_squared_error, accuracy_score
 from sklearn.base import is_classifier, is_regressor
 
-from ..models.base_model_controller import BaseModelController
+from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN
 from nirs4all.utils.model_utils import ModelUtils

@@ -106,7 +106,7 @@ def example_leak_prevention():
     """
     print("=== Example 3: Leak Prevention in CV ===\n")
 
-    from nirs4all.controllers.sklearn.op_split import CrossValidatorController
+    from nirs4all.controllers.splitters.split import CrossValidatorController
     from unittest.mock import Mock
 
     dataset = SpectroDataset("example3")

@@ -153,7 +153,7 @@ class TestPredictionReuseIntegration:
     def test_tensorflow_model_reuse(self, test_data_manager):
         """Test Q5_predict_NN style: TensorFlow model persistence and reuse."""
         pytest.importorskip("tensorflow")
-        from nirs4all.operators.models.cirad_tf import nicon
+        from nirs4all.operators.models.tensorflow.nicon import nicon
 
         train_folder = str(test_data_manager.get_temp_directory() / "regression")
         predict_folder = str(test_data_manager.get_temp_directory() / "regression_val")

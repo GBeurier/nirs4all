@@ -32,7 +32,7 @@ from nirs4all.operators.transforms import (
 
 # Try to import TF models, skip tests if not available
 try:
-    from nirs4all.operators.models.cirad_tf import nicon, customizable_nicon
+    from nirs4all.operators.models.tensorflow.nicon import nicon, customizable_nicon
     TF_AVAILABLE = True
 except (ImportError, ModuleNotFoundError):
     TF_AVAILABLE = False

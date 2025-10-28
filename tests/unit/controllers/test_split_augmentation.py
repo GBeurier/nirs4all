@@ -13,7 +13,7 @@ import pytest
 from unittest.mock import Mock
 from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold
 
-from nirs4all.controllers.sklearn.op_split import CrossValidatorController
+from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
 
 

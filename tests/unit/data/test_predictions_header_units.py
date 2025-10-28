@@ -3,12 +3,10 @@ Step 8 Tests: Visualization with Header Units
 Test that visualizations use appropriate axis labels based on header_unit.
 """
 import numpy as np
-import pytest
 import matplotlib
 matplotlib.use('Agg')  # Use non-GUI backend for testing
 import matplotlib.pyplot as plt
-from nirs4all.data.dataset import SpectroDataset
-from nirs4all.controllers.chart.op_spectra_charts import SpectraChartController
+from nirs4all.controllers.charts.spectra import SpectraChartController
 
 
 class TestVisualizationHeaderUnit:

@@ -17,7 +17,7 @@ import numpy as np
 if TYPE_CHECKING:
     from nirs4all.data.predictions import Predictions
 
-from ..models.base_model_controller import BaseModelController
+from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN, CHART, TROPHY
 from nirs4all.utils.model_utils import ModelUtils, TaskType

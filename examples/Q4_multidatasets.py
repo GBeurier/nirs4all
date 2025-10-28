@@ -21,7 +21,7 @@ from sklearn.svm import SVR
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.operators.models.cirad_tf import nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon
 from nirs4all.operators.transforms import (
     Gaussian, SavitzkyGolay, StandardNormalVariate, Haar, MultiplicativeScatterCorrection
 )

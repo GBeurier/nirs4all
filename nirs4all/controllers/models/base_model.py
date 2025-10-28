@@ -19,8 +19,8 @@ import numpy as np
 import copy
 
 from nirs4all.controllers.controller import OperatorController
-from .model_controller_helper import ModelControllerHelper
-from .optuna_manager import OptunaManager
+from .helper import ModelControllerHelper
+from ...optimization.optuna import OptunaManager
 from nirs4all.data.predictions import Predictions
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING

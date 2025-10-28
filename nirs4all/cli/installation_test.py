@@ -338,7 +338,7 @@ from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, R
 from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, ROCKET
         try:
             import tensorflow as tf
-            from nirs4all.operators.models.cirad_tf import nicon
+            from nirs4all.operators.models.tensorflow.nicon import nicon
         except ImportError:
             print("    {WARNING}TensorFlow/NIRS models not available, skipping test")
             return True  # Skip but don't fail
