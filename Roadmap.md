@@ -1,6 +1,13 @@
 ## ROADMAP ##
 
+**Bugs**:
+>   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
+>   - [_or_] with one element fallback on dummy controller
+
+
 > [Cleaning] Modularize/Clean/Refactor: PipelineRunner, Targets, Predictions, BaseModelController, PredictionAnalyzer, Model_builder, Evaluator
+
+> [CI/CD] remove systematic test on github actions - only for tags or a subset of tests.
 
 > [Structure] Update file naming and project tree structure
 
@@ -8,17 +15,20 @@
 
 > [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
 
+**RELEASE** 0.4.1
+
+**Bugs**:
+>   - [_or_] with one element fallback on dummy controller
+
 > [Pytorch] controller
 
 > [Imports] import tf and pytorch only when needed, reup backend_utils.
 
-**Bugs**:
->   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
-
 > [SEED] review and fix definitive logic
 
-> [ReadsTheDoc] minimal subset of signatures + update and export MD
+**RELEASE** 0.4.2
 
+> [ReadsTheDoc] minimal subset of signatures + update and export MD
 
 **RELEASE** 0.5
 
@@ -51,6 +61,8 @@
 > [Logs] implement feature and update print/log strategy
 
 > [Examples] update, clean and document examples and tutorial notebooks
+
+> [Dummy_Controller] remove totally and manage exceptions
 
 **RELEASE** 0.7: Cli framework
 
