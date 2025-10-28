@@ -3,93 +3,79 @@ Simulation IO Manager - Save and manage simulation outputs
 
 Provides organized storage for pipeline simulation results with
 dataset and pipeline-based folder structure management.
+
+REFACTORED: Now uses content-addressed artifact storage via serializer.
 """
 import json
-import pickle
 import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, BinaryIO, Tuple
 import uuid
 import shutil
+
+from nirs4all.utils.emoji import CHECK, WARNING
 from nirs4all.dataset.predictions import Predictions
 
 
 class SimulationSaver:
     """
-    Manages saving simulation results with organized folder structure.
+    Manages saving simulation results with flat pipeline structure.
 
-    Creates and manages directory structure: base_path/dataset_name/pipeline_name/
-    Provides methods to save files, binaries, and metadata with overwrite protection.
+    Works with ManifestManager to create: base_path/NNNN_hash/files
     """
 
-    def __init__(self, base_path: Optional[Union[str, Path]] = "simulations"):
+    def __init__(self, base_path: Optional[Union[str, Path]] = None, save_files: bool = True):
         """
         Initialize the simulation saver.
 
         Args:
-            base_path: Base directory for all simulation outputs
+            base_path: Base directory (run directory: workspace/runs/YYYY-MM-DD_dataset/)
+            save_files: Whether to actually save files (can disable for dry runs)
         """
-        self.base_path = Path(base_path) if base_path is not None else Path("results")
-        self.dataset_name: Optional[str] = None
-        self.pipeline_name: Optional[str] = None
-        self.current_path: Optional[Path] = None
+        self.base_path = Path(base_path) if base_path is not None else None
+        self.pipeline_id: Optional[str] = None  # e.g., "0001_abc123"
+        self.pipeline_dir: Optional[Path] = None
         self._metadata: Dict[str, Any] = {}
-        self.dataset_path: Optional[Path] = None
+        self.save_files = save_files
 
-    def register(self, dataset_name: str, pipeline_name: str, mode: str) -> Path:
+    def register(self, pipeline_id: str) -> Path:
         """
-        Register a dataset and pipeline name, creating the directory structure.
+        Register a pipeline ID and set current directory.
 
         Args:
-            dataset_name: Name of the dataset
-            pipeline_name: Name of the pipeline
+            pipeline_id: Pipeline ID from ManifestManager (e.g., "0001_abc123")
 
         Returns:
-            Path to the created simulation directory
-
-        Raises:
-            ValueError: If names contain invalid characters
+            Path to the pipeline directory
         """
-        # Validate names
-        if not self._is_valid_name(dataset_name):
-            raise ValueError(f"Invalid dataset name: {dataset_name}")
-        if not self._is_valid_name(pipeline_name):
-            raise ValueError(f"Invalid pipeline name: {pipeline_name}")
+        self.pipeline_id = pipeline_id
+        self.pipeline_dir = self.base_path / pipeline_id
 
-        self.dataset_name = dataset_name
-        self.pipeline_name = pipeline_name
-
-        # Create directory structure
-        self.dataset_path = self.base_path / dataset_name
-        self.dataset_path.mkdir(parents=True, exist_ok=True)
-        self.current_path = self.base_path / dataset_name / pipeline_name
-        if mode != "predict" and mode != "explain":
-            self.current_path.mkdir(parents=True, exist_ok=True)
+        # Directory should already exist from ManifestManager.create_pipeline()
+        if not self.pipeline_dir.exists():
+            self.pipeline_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize metadata
         self._metadata = {
-            "dataset_name": dataset_name,
-            "pipeline_name": pipeline_name,
+            "pipeline_id": pipeline_id,
             "created_at": datetime.now().isoformat(),
             "session_id": str(uuid.uuid4()),
             "files": {},
             "binaries": {}
         }
 
-        # Save initial metadata
-        if mode != "predict" and mode != "explain":
-            self._save_metadata()
-
-        return self.current_path
+        return self.pipeline_dir
 
     def _find_prediction_by_id(self, prediction_id: str) -> Optional[Dict[str, Any]]:
-        """Search for a prediction by ID in all predictions.json files (recursively)."""
-        results_dir = Path(self.base_path)
-        if not results_dir.exists():
+        """Search for a prediction by ID in global predictions databases at workspace root."""
+        # Navigate to workspace root (base_path is runs/YYYY-MM-DD_dataset/)
+        workspace_root = Path(self.base_path).parent.parent
+        if not workspace_root.exists():
             return None
 
-        for predictions_file in results_dir.rglob("predictions.json"):
+        # Search in global prediction databases (dataset_name.json files at workspace root)
+        for predictions_file in workspace_root.glob("*.json"):
             if not predictions_file.is_file():
                 continue
 
@@ -134,14 +120,11 @@ class SimulationSaver:
                   content: str,
                   overwrite: bool = True,
                   encoding: str = 'utf-8',
-                  warn_on_overwrite: bool = True,
-                  into_dataset: bool = False) -> Path:
+                  warn_on_overwrite: bool = True) -> Path:
 
         self._check_registered()
 
-        filepath = self.current_path / filename
-        if into_dataset and self.dataset_path is not None:
-            filepath = self.dataset_path / filename
+        filepath = self.pipeline_dir / filename
 
         if filepath.exists() and not overwrite:
             raise FileExistsError(f"File {filename} already exists. Use overwrite=True to replace.")
@@ -152,16 +135,6 @@ class SimulationSaver:
         # Save content
         with open(filepath, 'w', encoding=encoding) as f:
             f.write(content)
-
-        # Update metadata
-        self._metadata["files"][filename] = {
-            "path": str(filepath.relative_to(self.base_path)),
-            "size": filepath.stat().st_size,
-            "encoding": encoding,
-            "saved_at": datetime.now().isoformat(),
-            "overwritten": filepath.existed_before if hasattr(filepath, 'existed_before') else False
-        }
-        self._save_metadata()
 
         return filepath
 
@@ -176,208 +149,117 @@ class SimulationSaver:
         json_content = json.dumps(data, indent=indent, default=str)
         return self.save_file(filename, json_content, overwrite, warn_on_overwrite=False)
 
-
-    def save_binary(self,
-                    filename: str,
-                    data: Union[bytes, BinaryIO, Any],
-                    overwrite: bool = False,
-                    pickle_if_object: bool = True,
-                    into_dataset: bool = False) -> Path:
+    def persist_artifact(
+        self,
+        step_number: int,
+        name: str,
+        obj: Any,
+        format_hint: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
-        Deprecated: Use save_files or save_file instead.
+        Persist artifact using the new serializer with content-addressed storage.
 
-        Save binary data or objects to a file.
+        NOTE: This is for internal binary artifacts (models, transformers, etc.)
+        For human-readable outputs (charts, reports), use save_output() instead.
 
         Args:
-            filename: Name of the file
-            data: Binary data, file-like object, or Python object
-            overwrite: Whether to overwrite existing files
-            pickle_if_object: Whether to pickle non-bytes objects
+            step_number: Pipeline step number
+            name: Artifact name (for reference)
+            obj: Object to persist
+            format_hint: Optional format hint for serializer
 
         Returns:
-            Path to the saved file
-
-        Raises:
-            RuntimeError: If not registered
-            FileExistsError: If file exists and overwrite=False
-            TypeError: If data type is not supported
+            Artifact metadata dictionary (empty if save_files=False)
         """
-        warnings.warn(
-            "save_binary is deprecated and will be removed in a future version. "
-            "Use save_files or save_file instead.",
-            DeprecationWarning,
-            stacklevel=2
-        )
+        # Skip if save_files is disabled
+        if not self.save_files:
+            return {
+                "name": name,
+                "step": step_number,
+                "skipped": True,
+                "reason": "save_files=False"
+            }
+
+        from nirs4all.utils.serializer import persist
+
         self._check_registered()
 
-        filepath = self.current_path / Path(filename)
-        filepath.parent.mkdir(parents=True, exist_ok=True)  # Create subdirectories if needed
+        # Use _binaries directory (managed by ManifestManager)
+        artifacts_dir = self.base_path / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-        if filepath.exists() and not overwrite:
-            raise FileExistsError(f"File {filename} already exists. Use overwrite=True to replace.")
+        # Persist using new serializer
+        artifact = persist(obj, artifacts_dir, name, format_hint)
+        artifact["step"] = step_number
 
-        if filepath.exists():
-            warnings.warn(f"Overwriting existing binary file: {filename}")
+        # Note: metadata tracking removed - using manifest system now
 
-        # Handle different data types using modern Path methods
-        data_type = "unknown"
+        return artifact
 
-        if hasattr(data, "read"):
-            # File-like object - read the data
-            file_data = data.read()
-            if isinstance(file_data, str):
-                file_data = file_data.encode("utf-8")
-            filepath.write_bytes(bytes(file_data))
-            data_type = "file_like"
+    def save_output(
+        self,
+        step_number: int,
+        name: str,
+        data: Union[bytes, str],
+        extension: str = ".png"
+    ) -> Optional[Path]:
+        """
+        Save a human-readable output file (chart, report, etc.) directly to the pipeline directory.
 
-        elif isinstance(data, (bytes, bytearray, memoryview)):
-            # Direct binary data
-            filepath.write_bytes(bytes(data))
-            data_type = "bytes"
+        Args:
+            step_number: Pipeline step number
+            name: Output name (e.g., "2D_Chart")
+            data: Binary or text data to save
+            extension: File extension (e.g., ".png", ".csv", ".txt")
 
-        elif isinstance(data, str):
-            # Text data
-            filepath.write_text(data, encoding="utf-8")
-            data_type = "text"
+        Returns:
+            Path to saved file, or None if save_files=False
+        """
+        # Skip if save_files is disabled
+        if not self.save_files:
+            return None
 
-        elif filepath.suffix.lower() in {".pkl", ".pickle", ".p"}:
-            # Pickle with explicit extension
-            with filepath.open("wb") as f:
-                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-            data_type = "pickled_object"
+        self._check_registered()
 
-        elif pickle_if_object:
-            # Default to pickle for other objects
-            filepath = filepath.with_suffix(filepath.suffix + '.pkl')
-            filepath.parent.mkdir(parents=True, exist_ok=True)
-            with filepath.open("wb") as f:
-                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-            data_type = "pickled_object"
+        # Save directly in pipeline folder (no outputs/ subdirectory)
+        output_dir = self.pipeline_dir
 
+        # Create filename
+        if not name.endswith(extension):
+            filename = f"{name}{extension}"
         else:
-            raise TypeError(f"Unsupported type for {filename}: {type(data).__name__}")
+            filename = name
 
-        # Update metadata (keeping this advantage from original method)
-        final_filename = str(filepath.relative_to(self.current_path))
-        self._metadata["binaries"][final_filename] = {
-            "path": str(filepath.relative_to(self.base_path)),
-            "size": filepath.stat().st_size,
-            "data_type": data_type,
-            "saved_at": datetime.now().isoformat()
-        }
-        self._save_metadata()
+        filepath = output_dir / filename
+
+        # Save the file
+        if isinstance(data, bytes):
+            filepath.write_bytes(data)
+        elif isinstance(data, str):
+            filepath.write_text(data, encoding="utf-8")
+        else:
+            raise TypeError(f"Data must be bytes or str, got {type(data)}")
 
         return filepath
 
-    def save_files(self, step_number: int, substep_number: int, files: List[Tuple[Union[str, Path], Any]], into_dataset: bool = False) -> List[Path]:
-        """
-        Save multiple files in a single operation.
-
-        Args:
-            files: List of (filename, data) tuples where data may be:
-                  - bytes/bytearray/memoryview -> written as binary
-                  - file-like (has .read)     -> read then written
-                  - str                       -> written as UTF-8 text
-                  - any object with .pkl/.pickle/.p extension -> pickled
-                  - any other object -> raises TypeError
-
-        Returns:
-            List of Path objects for saved files
-        """
-        self._check_registered()
-
-        saved_paths: List[Path] = []
-        saved_names = []
-        for fname, obj in files:
-            name = str(step_number)
-            name += "_" + str(fname)
-            filepath = self.current_path / Path(name)
-
-
-            # if not full_save and filepath.suffix.lower() in {".pkl", ".pickle", ".p"}:
-            #     continue
-
-            filepath.parent.mkdir(parents=True, exist_ok=True)
-
-            data_type = "unknown"
-
-            if hasattr(obj, "read"):
-                # File-like object
-                file_data = obj.read()
-                if isinstance(file_data, str):
-                    file_data = file_data.encode("utf-8")
-                filepath.write_bytes(bytes(file_data))
-                data_type = "file_like"
-                saved_paths.append(filepath)
-
-            elif isinstance(obj, (bytes, bytearray, memoryview)):
-                # Binary data
-                filepath.write_bytes(bytes(obj))
-                data_type = "bytes"
-                saved_paths.append(filepath)
-
-            elif isinstance(obj, str):
-                # Text data
-                filepath.write_text(obj, encoding="utf-8")
-                data_type = "text"
-                saved_paths.append(filepath)
-
-            elif filepath.suffix.lower() in {".pkl", ".pickle", ".p"}:
-                # Pickle with explicit extension
-                with filepath.open("wb") as f:
-                    pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
-                data_type = "pickled_object"
-                saved_paths.append(filepath)
-
-            else:
-                raise TypeError(f"Unsupported type for {name}: {type(obj).__name__}")
-
-            # print(f"💾 Saved {name} to {filepath}")  # Debug print
-            saved_names.append(name)
-
-            # Update metadata for each file
-            relative_filename = str(filepath.relative_to(self.current_path))
-            if str(step_number) not in self._metadata["binaries"]:
-                self._metadata["binaries"][str(step_number)] = []
-            metadata_entry = {
-                "path": str(filepath.relative_to(self.base_path)),
-                "op_filename": str(fname),
-                "op_name": str(fname).split('.')[0],
-                "relative_path": relative_filename,
-                "step": step_number,
-                "size": filepath.stat().st_size,
-                "data_type": data_type,
-                "saved_at": datetime.now().isoformat()
-            }
-            self._metadata["binaries"][str(step_number)].append(metadata_entry)
-        # Save metadata once after all files
-        self._save_metadata()
-        # if len(saved_names) > 1:
-        #     print(f"💾 Saved {len(saved_names)} files.")
-        # elif len(saved_names) == 1:
-        #     print(f"💾 Saved file: {saved_names[0]}")
-
-        return saved_paths
-
-
     def get_path(self) -> Path:
-        """Get the current simulation path."""
+        """Get the current pipeline path."""
         self._check_registered()
-        return self.current_path
+        return self.pipeline_dir
 
     def list_files(self) -> Dict[str, List[str]]:
         """
-        List all saved files in the current simulation.
+        List all saved files in the current pipeline.
 
         Returns:
-            Dictionary with 'files' and 'binaries' keys containing file lists
+            Dictionary with file lists
         """
         self._check_registered()
 
         return {
             "files": list(self._metadata["files"].keys()),
             "binaries": list(self._metadata["binaries"].keys()),
-            "all_files": [f.name for f in self.current_path.glob("*") if f.is_file()]
+            "all_files": [f.name for f in self.pipeline_dir.glob("*") if f.is_file()]
         }
 
     def get_metadata(self) -> Dict[str, Any]:
@@ -399,13 +281,13 @@ class SimulationSaver:
         if not confirm:
             raise RuntimeError("cleanup() requires confirm=True to prevent accidental deletion")
 
-        if self.current_path.exists():
-            shutil.rmtree(self.current_path)
-            warnings.warn(f"Deleted simulation directory: {self.current_path}")
+        if self.pipeline_dir.exists():
+            shutil.rmtree(self.pipeline_dir)
+            warnings.warn(f"Deleted simulation directory: {self.pipeline_dir}")
 
     def _check_registered(self) -> None:
-        """Check if dataset and pipeline are registered."""
-        if self.current_path is None:
+        """Check if pipeline is registered."""
+        if self.pipeline_dir is None:
             raise RuntimeError("Must call register() before saving files")
 
     def _is_valid_name(self, name: str) -> bool:
@@ -428,12 +310,261 @@ class SimulationSaver:
 
         return True
 
-    def _save_metadata(self) -> None:
-        """Save metadata to file."""
-        if self.current_path is None:
-            return
+    def register_workspace(self, workspace_root: Path, dataset_name: str, pipeline_hash: str,
+                          run_name: str = None, pipeline_name: str = None) -> Path:
+        """
+        Register pipeline in workspace structure with optional custom names.
 
-        metadata_path = self.current_path / "metadata.json"
-        with open(metadata_path, 'w') as f:
-            json.dump(self._metadata, f, indent=2, default=str)
+        Creates:
+        - Without custom names: workspace_root/runs/{date}_{dataset}/NNNN_{hash}/
+        - With run_name: workspace_root/runs/{date}_{dataset}_{runname}/NNNN_{hash}/
+        - With pipeline_name: workspace_root/runs/{date}_{dataset}/NNNN_{pipelinename}_{hash}/
+        - With both: workspace_root/runs/{date}_{dataset}_{runname}/NNNN_{pipelinename}_{hash}/
+
+        Returns:
+            Full path to pipeline directory
+        """
+        from datetime import datetime
+
+        run_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Build run_id with optional custom name
+        if run_name:
+            run_id = f"{run_date}_{dataset_name}_{run_name}"
+        else:
+            run_id = f"{run_date}_{dataset_name}"
+        run_dir = workspace_root / "runs" / run_id
+
+        # Count existing pipelines for sequential numbering
+        # Exclude directories starting with underscore (like _binaries)
+        if run_dir.exists():
+            existing = [d for d in run_dir.iterdir()
+                       if d.is_dir() and not d.name.startswith("_")]
+            pipeline_num = len(existing) + 1
+        else:
+            pipeline_num = 1
+
+        # Build pipeline_id with optional custom name
+        if pipeline_name:
+            pipeline_id = f"{pipeline_num:04d}_{pipeline_name}_{pipeline_hash}"
+        else:
+            pipeline_id = f"{pipeline_num:04d}_{pipeline_hash}"
+        pipeline_dir = run_dir / pipeline_id
+
+        # Create structure
+        pipeline_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "_binaries").mkdir(exist_ok=True)
+
+        # Update internal state to use this directory
+        self.dataset_name = dataset_name
+        self.pipeline_name = pipeline_id
+        self.current_path = pipeline_dir
+        self.dataset_path = run_dir
+
+        # Initialize metadata
+        self._metadata = {
+            "dataset_name": dataset_name,
+            "pipeline_name": pipeline_id,
+            "created_at": datetime.now().isoformat(),
+            "session_id": run_id,
+            "files": {},
+            "binaries": {}
+        }
+
+        return pipeline_dir
+
+    def export_pipeline_full(self, pipeline_dir: Path, exports_dir: Path,
+                            dataset_name: str, run_date: str, custom_name: str = None) -> Path:
+        """Export full pipeline results to flat structure with optional custom name.
+
+        Args:
+            pipeline_dir: Path to pipeline (NNNN_hash/ or NNNN_pipelinename_hash/)
+            exports_dir: Workspace exports directory
+            dataset_name: Dataset name
+            run_date: Run date (YYYYMMDD)
+            custom_name: Optional custom name for export
+
+        Creates export directory:
+        - Without custom_name: dataset_run_pipelineid/
+        - With custom_name: customname_pipelineid/
+
+        Returns: Path to exported directory
+        """
+        pipeline_dir = Path(pipeline_dir)
+        exports_dir = Path(exports_dir)
+        exports_dir.mkdir(parents=True, exist_ok=True)
+
+        pipeline_id = pipeline_dir.name  # e.g., "0001_a1b2c3" or "0001_baseline_a1b2c3"
+
+        if custom_name:
+            export_name = f"{custom_name}_{pipeline_id}"
+        else:
+            export_name = f"{dataset_name}_{run_date}_{pipeline_id}"
+        export_path = exports_dir / export_name
+
+        # Copy entire pipeline folder
+        shutil.copytree(pipeline_dir, export_path, dirs_exist_ok=True)
+
+        return export_path
+
+    def export_best_prediction(self, predictions_file: Path, exports_dir: Path,
+                              dataset_name: str, run_date: str, pipeline_id: str,
+                              custom_name: str = None) -> Path:
+        """Export predictions CSV to best_predictions/ folder with optional custom name.
+
+        Args:
+            predictions_file: Path to predictions.csv
+            exports_dir: Workspace exports directory
+            dataset_name, run_date, pipeline_id: Metadata for naming
+            custom_name: Optional custom name for export
+
+        Creates CSV filename:
+        - Without custom_name: dataset_run_pipelineid.csv
+        - With custom_name: customname_pipelineid.csv
+
+        Returns: Path to exported CSV
+        """
+        predictions_file = Path(predictions_file)
+        exports_dir = Path(exports_dir)
+
+        best_dir = exports_dir / "best_predictions"
+        best_dir.mkdir(parents=True, exist_ok=True)
+
+        if custom_name:
+            csv_name = f"{custom_name}_{pipeline_id}.csv"
+        else:
+            csv_name = f"{dataset_name}_{run_date}_{pipeline_id}.csv"
+        dest_path = best_dir / csv_name
+
+        shutil.copy2(predictions_file, dest_path)
+
+        return dest_path
+
+    def export_best_for_dataset(self, dataset_name: str, workspace_path: Path,
+                                runs_dir: Path, mode: str = "predictions") -> Optional[Path]:
+        """Export best results for a dataset to exports/ folder.
+
+        Creates exports/{dataset_name}/ with best predictions, pipeline config, and charts.
+        Files are renamed to include run date for tracking.
+
+        Args:
+            dataset_name: Dataset name (matches global prediction JSON filename)
+            workspace_path: Workspace root path
+            runs_dir: Runs directory path
+            mode: Export mode - "predictions", "template", "trained", or "full"
+                - predictions: Only predictions CSV and summary
+                - template: Pipeline config only (no binaries)
+                - trained: Pipeline + binaries (for deployment)
+                - full: Pipeline + binaries + source dataset
+
+        Returns:
+            Path to export directory, or None if no predictions found
+        """
+        workspace_path = Path(workspace_path)
+        runs_dir = Path(runs_dir)
+
+        # Load global predictions for this dataset
+        predictions_file = workspace_path / f"{dataset_name}.json"
+        if not predictions_file.exists():
+            print(f"{WARNING} No predictions found for dataset '{dataset_name}'")
+            return None
+
+        from nirs4all.dataset.predictions import Predictions
+        predictions = Predictions.load_from_file_cls(str(predictions_file))
+        if predictions.num_predictions == 0:
+            print(f"{WARNING} No predictions in database for '{dataset_name}'")
+            return None
+
+        # Get best prediction
+        best = predictions.get_best(ascending=True)  # Adjust based on task type if needed
+
+        # Create export directory structure
+        exports_dir = workspace_path / "exports" / dataset_name
+        exports_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get run date from run directory name
+        run_dirs = list(runs_dir.glob(f"*_{dataset_name}"))
+        if not run_dirs:
+            print(f"{WARNING} No run directory found for dataset '{dataset_name}'")
+            return None
+
+        run_dir = run_dirs[-1]  # Get most recent run
+        run_date = run_dir.name.split('_')[0]  # Extract date from directory name
+
+        # Find the pipeline directory
+        config_name = best['config_name']
+        pipeline_dir = None
+        for pd in run_dir.iterdir():
+            if pd.is_dir() and config_name in pd.name and not pd.name.startswith('_'):
+                pipeline_dir = pd
+                break
+
+        if not pipeline_dir:
+            print(f"{WARNING} Pipeline directory not found for config '{config_name}'")
+            return None
+
+        # Export predictions
+        pred_filename = f"{run_date}_{best['model_name']}_predictions.csv"
+        pred_path = exports_dir / pred_filename
+        Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], pred_path)
+        print(f"{CHECK} Exported predictions: {pred_path}")
+
+        # Export pipeline config
+        pipeline_json = pipeline_dir / "pipeline.json"
+        if pipeline_json.exists():
+            config_filename = f"{run_date}_{best['model_name']}_pipeline.json"
+            config_path = exports_dir / config_filename
+            shutil.copy(pipeline_json, config_path)
+            print(f"{CHECK} Exported pipeline config: {config_path}")
+
+        # Export charts if they exist
+        for chart_file in pipeline_dir.glob("*.png"):
+            chart_filename = f"{run_date}_{best['model_name']}_{chart_file.name}"
+            chart_path = exports_dir / chart_filename
+            shutil.copy(chart_file, chart_path)
+            print(f"{CHECK} Exported chart: {chart_path}")
+
+        # Handle different export modes for binaries
+        if mode in ["trained", "full"]:
+            binaries_dir = run_dir / "_binaries"
+            if binaries_dir.exists():
+                export_binaries_dir = exports_dir / "_binaries"
+                export_binaries_dir.mkdir(exist_ok=True)
+
+                # Copy referenced binaries from manifest
+                manifest_file = pipeline_dir / "manifest.yaml"
+                if manifest_file.exists():
+                    import yaml
+                    with open(manifest_file, 'r') as f:
+                        manifest = yaml.safe_load(f)
+
+                    for artifact in manifest.get('artifacts', []):
+                        binary_name = Path(artifact['path']).name
+                        src = binaries_dir / binary_name
+                        if src.exists():
+                            shutil.copy(src, export_binaries_dir / binary_name)
+
+                    print(f"{CHECK} Exported {len(list(export_binaries_dir.iterdir()))} binaries")
+
+        # Create summary metadata
+        from datetime import datetime
+        summary = {
+            "dataset": dataset_name,
+            "model_name": best['model_name'],
+            "pipeline_id": config_name,
+            "prediction_id": best['id'],
+            "test_score": best.get('test_score'),
+            "val_score": best.get('val_score'),
+            "export_date": datetime.now().isoformat(),
+            "export_mode": mode,
+            "run_date": run_date
+        }
+        summary_path = exports_dir / f"{run_date}_{best['model_name']}_summary.json"
+        with open(summary_path, 'w') as f:
+            json.dump(summary, f, indent=2)
+        print(f"{CHECK} Exported summary: {summary_path}")
+
+        return exports_dir
+
+
 

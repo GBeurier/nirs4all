@@ -2,6 +2,8 @@ import os
 import importlib
 import inspect
 
+from nirs4all.utils.backend_utils import TF_AVAILABLE, TORCH_AVAILABLE
+
 # 1. str
 # "/myexp/cnn.pt"
 # "sklearn.linear_model.ElasticNet"
@@ -20,13 +22,20 @@ import inspect
 
 class ModelBuilderFactory:
 
-
+#
+    @staticmethod
     @staticmethod
     def build_single_model(model_config, dataset, force_params={}):
+        # # DEBUG: Print what we received
+        # print(f"DEBUG build_single_model received model_config: {model_config}")
+        # print(f"DEBUG model_config type: {type(model_config)}")
+        # if isinstance(model_config, dict):
+        #     print(f"DEBUG dict keys: {list(model_config.keys())}")
+
         # print("Building model with config:", model_config, "dataset:", dataset, "task:", task, "force_params:", force_params)
-        if dataset._task_type == "classification" or dataset._task_type == "binary_classification" or dataset._task_type == "multiclass_classification":
-            force_params['num_classes'] = dataset.num_classes  # TODO get loss to applied num_classes (sparse_categorical_crossentropy = 1, categorical_crossentropy = num_classe)
-            # force_params['num_classes'] = 1
+        if hasattr(dataset, 'is_classification') and dataset.is_classification:
+            if hasattr(dataset, 'num_classes'):
+                force_params['num_classes'] = dataset.num_classes
 
         if isinstance(model_config, str):  # 1
             # print("Building from string")
@@ -107,6 +116,16 @@ class ModelBuilderFactory:
 
         elif 'function' in model_dict:
             callable_model = model_dict['function']
+
+            # If function is a string path, import it first
+            if isinstance(callable_model, str):
+                try:
+                    mod_name, _, func_name = callable_model.rpartition(".")
+                    mod = importlib.import_module(mod_name)
+                    callable_model = getattr(mod, func_name)
+                except (ImportError, AttributeError) as e:
+                    raise ValueError(f"Could not import function {callable_model}: {e}")
+
             params = model_dict.get('params', {}).copy()  # copy to avoid mutating input
             framework = model_dict.get('framework', None)
             if framework is None:
@@ -116,15 +135,11 @@ class ModelBuilderFactory:
             input_dim = ModelBuilderFactory._get_input_dim(framework, dataset)
             params['input_dim'] = input_dim
             params['input_shape'] = input_dim
-            # Set num_classes and loss for tensorflow classification
-            if framework == 'tensorflow' and hasattr(dataset, 'num_classes'):
-                num_classes = dataset.num_classes
-                params['num_classes'] = num_classes
-                # Always override loss for tensorflow classification
-                if num_classes == 2:
-                    params['loss'] = 'binary_crossentropy'
-                else:
-                    params['loss'] = 'sparse_categorical_crossentropy'
+            # Set num_classes for tensorflow classification models
+            if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification:
+                if hasattr(dataset, 'num_classes'):
+                    num_classes = dataset.num_classes
+                    params['num_classes'] = num_classes
             model = ModelBuilderFactory.prepare_and_call(callable_model, params, force_params)
             return model
         else:
@@ -146,20 +161,13 @@ class ModelBuilderFactory:
             params['input_shape'] = input_dim
         if 'input_dim' in sig.parameters:
             params['input_dim'] = input_dim
-        # Only set num_classes and loss for tensorflow classification
-        task = getattr(dataset, 'task', None)
-        if framework == 'tensorflow' and hasattr(dataset, 'num_classes'):
-            # Try to infer task from dataset or force_params
-            if (task is None and force_params is not None and 'task' in force_params):
-                task = force_params['task']
-            if task == 'classification':
+        # Only set num_classes for tensorflow classification models
+        if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification:
+            if hasattr(dataset, 'num_classes'):
                 num_classes = dataset.num_classes
-                params['num_classes'] = num_classes
-                # Always override loss for tensorflow classification
-                if num_classes == 2:
-                    params['loss'] = 'binary_crossentropy'
-                else:
-                    params['loss'] = 'sparse_categorical_crossentropy'
+                # Only set num_classes if the function signature has it (for classification models)
+                if 'num_classes' in sig.parameters:
+                    params['num_classes'] = num_classes
         model = ModelBuilderFactory.prepare_and_call(model_callable, params, force_params)
         return model
 
@@ -194,15 +202,23 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _get_input_dim(framework, dataset):
-        if framework == 'tensorflow':
-            input_dim = dataset.x_train_('union').shape[1:]
-        elif framework == 'sklearn':
-            input_dim = dataset.x_train.shape[1:]
-        # elif framework == 'pytorch':
-            # input_dim = dataset.x_train.shape[1:]
-        else:
-            raise ValueError("Unknown framework.")
-        return input_dim
+        # Get X data with correct context
+        context = {'partition': 'train'}
+        # Use '3d_transpose' for TensorFlow to match the layout used during training
+        # This ensures Conv1D receives input_shape=(features, processings) not (processings, features)
+        layout = '3d_transpose' if framework == 'tensorflow' else '2d'
+
+        try:
+            X = dataset.x(context, layout=layout, concat_source=True)
+            if framework == 'tensorflow':
+                input_dim = X.shape[1:]  # (samples, features, processings) → (features, processings) for Conv1D
+            elif framework == 'sklearn':
+                input_dim = X.shape[1:]  # (samples, features) → (features,)
+            else:
+                input_dim = X.shape[1:]
+            return input_dim
+        except Exception as e:
+            raise ValueError(f"Could not determine input_dim from dataset: {str(e)}")
 
     @staticmethod
     def import_class(class_path):
@@ -424,11 +440,13 @@ class ModelBuilderFactory:
             model = torch.load(model_path)
             return model
 
-        # Sklearn model
+        # Sklearn model or pickled model
         elif ext == '.pkl':
-            import pickle
+            from nirs4all.utils.serializer import from_bytes
             with open(model_path, 'rb') as f:
-                model = pickle.load(f)
+                data = f.read()
+            # Use cloudpickle format for compatibility
+            model = from_bytes(data, 'cloudpickle')
             return model
 
         else:

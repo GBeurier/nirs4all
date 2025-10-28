@@ -4,6 +4,7 @@ from sklearn.base import TransformerMixin
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.emoji import CROSS
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -70,5 +71,5 @@ class FeatureAugmentationController(OperatorController):
             return context, []
 
         except Exception as e:
-            print(f"❌ Error applying feature augmentation: {e}")
+            print(f"{CROSS} Error applying feature augmentation: {e}")
             raise

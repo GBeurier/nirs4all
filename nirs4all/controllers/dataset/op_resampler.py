@@ -7,7 +7,6 @@ dataset headers and managing the resampling process across multiple sources.
 
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
-import pickle
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
@@ -41,8 +40,6 @@ class ResamplerController(OperatorController):
         model_obj = None
         if isinstance(step, dict) and 'model' in step:
             model_obj = step['model']
-            if isinstance(model_obj, dict) and '_runtime_instance' in model_obj:
-                model_obj = model_obj['_runtime_instance']
         elif operator is not None:
             model_obj = operator
         else:
@@ -261,9 +258,15 @@ class ResamplerController(OperatorController):
                 source_processing_names.append(processing_name)
                 source_resamplers.append(resampler)
 
-                # Serialize fitted resampler
-                resampler_binary = pickle.dumps(resampler)
-                fitted_resamplers.append((f"{new_operator_name}.pkl", resampler_binary))
+                # Persist fitted resampler using new serializer
+                if mode == "train":
+                    artifact = runner.saver.persist_artifact(
+                        step_number=runner.step_number,
+                        name=new_operator_name,
+                        obj=resampler,
+                        format_hint='sklearn'
+                    )
+                    fitted_resamplers.append(artifact)
 
             # Determine final wavelengths for headers
             # Use the OUTPUT wavelengths (target_wavelengths from interpolator_params_)

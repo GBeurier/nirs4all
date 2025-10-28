@@ -179,7 +179,22 @@ class SpectraChartController(OperatorController):
             if dataset.is_multi_source():
                 image_name += f"_src{sd_idx}"
             image_name += ".png"
-            img_list.append((image_name, img_png_binary))
+
+            # Save the chart as a human-readable output file
+            output_path = runner.saver.save_output(
+                step_number=runner.step_number,
+                name=image_name.replace('.png', ''),  # Name without extension
+                data=img_png_binary,
+                extension='.png'
+            )
+
+            # Add to image list for tracking (only if saved)
+            if output_path:
+                img_list.append({
+                    "name": image_name,
+                    "path": str(output_path),
+                    "type": "chart_output"
+                })
 
             if runner.plots_visible:
                 # Store figure reference - user will call plt.show() at the end

@@ -8,28 +8,51 @@ build_aliases = {
     # Add common aliases here if needed
 }
 
-def serialize_component(obj: Any, include_runtime: bool = True) -> Any:
-    """Return something that json.dumps can handle."""
+def serialize_component(obj: Any) -> Any:
+    """
+    Return something that json.dumps can handle.
 
-    if obj is None or isinstance(obj, (bool, int, float, str)):
+    Normalizes all syntaxes to canonical form for hash-based uniqueness.
+    All instances serialize to their internal module paths with only non-default parameters.
+    """
+
+    if obj is None or isinstance(obj, (bool, int, float)):
+        return obj
+
+    if isinstance(obj, str):
+        # Normalize string module paths to internal module paths for hash consistency
+        # e.g., "sklearn.preprocessing.StandardScaler" → "sklearn.preprocessing._data.StandardScaler"
+        if "." in obj and not obj.endswith(('.pkl', '.h5', '.keras', '.joblib', '.pt', '.pth')):
+            try:
+                # Try to import and get canonical internal module path
+                mod_name, _, cls_name = obj.rpartition(".")
+                mod = importlib.import_module(mod_name)
+                cls = getattr(mod, cls_name)
+                # Return canonical form (internal module path)
+                return f"{cls.__module__}.{cls.__qualname__}"
+            except (ImportError, AttributeError):
+                # If import fails, pass through as-is (e.g., controller names, invalid paths)
+                pass
         return obj
     if isinstance(obj, dict):
-        return {k: serialize_component(v, include_runtime) for k, v in obj.items()}
+        return {k: serialize_component(v) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [serialize_component(x, include_runtime) for x in obj]
+        return [serialize_component(x) for x in obj]
     if isinstance(obj, tuple):
-        # Preserve tuples that look like hyperparameter range specifications
-        # e.g., ('int', min, max) or ('float', min, max)
-        if (len(obj) == 3 and isinstance(obj[0], str) and
-                obj[0] in ['int', 'float'] and
-                isinstance(obj[1], (int, float)) and
-                isinstance(obj[2], (int, float))):
-            return obj  # Preserve tuple for hyperparameter ranges
-        else:
-            return [serialize_component(x, include_runtime) for x in obj]
+        # Convert tuples to lists for YAML/JSON compatibility
+        # Hyperparameter range specifications like ('int', min, max) become ['int', min, max]
+        return [serialize_component(x) for x in obj]
 
     if inspect.isclass(obj):
         return f"{obj.__module__}.{obj.__qualname__}"
+
+    # Handle numpy arrays and other array-like objects
+    # Convert to list for JSON/YAML serialization
+    if hasattr(obj, '__array__') or (hasattr(obj, 'tolist') and hasattr(obj, 'shape')):
+        try:
+            return obj.tolist()
+        except (AttributeError, TypeError):
+            pass
 
     params = _changed_kwargs(obj)
 
@@ -54,16 +77,8 @@ def serialize_component(obj: Any, include_runtime: bool = True) -> Any:
             "class": def_serialized,
             "params": serialize_component(params),
         }
-        if include_runtime:
-            def_serialized["_runtime_instance"] = obj
-    elif include_runtime:
-        def_serialized = {
-            "class": def_serialized,
-            "_runtime_instance": obj
-        }
 
     return def_serialized
-
 
 
 def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
@@ -93,7 +108,27 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
 
             mod = importlib.import_module(mod_name)
             cls_or_func = getattr(mod, cls_or_func_name)
-            return cls_or_func()
+
+            # Try to instantiate without parameters
+            try:
+                return cls_or_func()
+            except TypeError as e:
+                # If instantiation fails due to missing required parameters,
+                # check if there are required parameters without defaults
+                if inspect.isclass(cls_or_func):
+                    sig = inspect.signature(cls_or_func.__init__)
+                    required_params = [
+                        name for name, param in sig.parameters.items()
+                        if name != "self" and param.default is inspect._empty
+                    ]
+                    if required_params:
+                        raise TypeError(
+                            f"Cannot deserialize {blob} from string representation: "
+                            f"class requires parameters {required_params} but none were provided. "
+                            f"This usually means the serialization failed to capture required parameters. "
+                            f"Original error: {e}"
+                        ) from e
+                raise
         except (ImportError, AttributeError):
             return blob
 
@@ -101,6 +136,17 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
         if infer_type is not None and isinstance(infer_type, type):
             if issubclass(infer_type, tuple):
                 return tuple(deserialize_component(x) for x in blob)
+            # Handle numpy array deserialization
+            try:
+                import numpy as np
+                is_numpy_type = (infer_type is np.ndarray or
+                                 (hasattr(infer_type, '__module__') and
+                                  infer_type.__module__ == 'numpy' and
+                                  infer_type.__name__ == 'ndarray'))
+                if is_numpy_type:
+                    return np.array(blob)
+            except ImportError:
+                pass
         return [deserialize_component(x) for x in blob]
 
     if isinstance(blob, dict):
@@ -147,6 +193,8 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
 
                 if key == "class" or key == "instance" or key == "function":
                     return cls_or_func(**params)
+
+                # Fallback for other cases
                 if len(params) == 0:
                     return cls_or_func
                 else:
@@ -199,7 +247,8 @@ def _changed_kwargs(obj):
             is_different = current != default
             # For numpy arrays and similar, convert boolean array to single boolean
             if hasattr(is_different, '__iter__') and not isinstance(is_different, str):
-                is_different = not all(is_different) if hasattr(is_different, '__len__') else True
+                # any(is_different) means at least one element differs
+                is_different = any(is_different) if hasattr(is_different, '__len__') else True
         except (ValueError, TypeError):
             # If comparison fails (e.g., array vs None), consider them different
             is_different = True

@@ -45,7 +45,7 @@ pipeline = [
 ]
 
 # Add PLS models with different numbers of components
-for n_components in range(1, 30, 10):
+for n_components in range(1, 30, 5):
     model_config = {
         "name": f"PLS-{n_components}_components",
         "model": PLSRegression(n_components=n_components)
@@ -58,7 +58,7 @@ dataset_config = DatasetConfigs(data_path)
 
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+runner = PipelineRunner(save_files=True, verbose=0, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 

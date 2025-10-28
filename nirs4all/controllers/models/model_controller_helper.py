@@ -40,9 +40,6 @@ class ModelControllerHelper:
         if isinstance(model_config, dict):
             if 'name' in model_config:
                 return model_config['name']
-            elif 'model_instance' in model_config:
-                # Handle extracted model config from _extract_model_config
-                return self.get_model_class_name(model_config['model_instance'])
             elif 'function' in model_config:
                 # Handle function-based models (like TensorFlow functions)
                 function_path = model_config['function']
@@ -54,8 +51,10 @@ class ModelControllerHelper:
             elif 'class' in model_config:
                 class_path = model_config['class']
                 return class_path.split('.')[-1]  # Get class name from full path
-            elif '_runtime_instance' in model_config:
-                return self.get_model_class_name(model_config['_runtime_instance'])
+            elif 'model_instance' in model_config:
+                # Handle extracted model config from _extract_model_config
+                # Check after 'function' and 'class' since model_instance might be a string representation
+                return self.get_model_class_name(model_config['model_instance'])
             elif 'model' in model_config:
                 # Handle nested model structure
                 model_obj = model_config['model']
@@ -65,8 +64,6 @@ class ModelControllerHelper:
                         print(">>>> model_obj:", model_obj)
                         function_path = model_obj['function']
                         return function_path.split('.')[-1] if isinstance(function_path, str) else str(function_path)
-                    elif '_runtime_instance' in model_obj:
-                        return self.get_model_class_name(model_obj['_runtime_instance'])
                     elif 'class' in model_obj:
                         return model_obj['class'].split('.')[-1]
                 else:
@@ -118,7 +115,7 @@ class ModelControllerHelper:
         try:
             return copy.deepcopy(model)
         except Exception as e:
-            print(f"⚠️ Could not clone model: {e}")
+            print(f"{WARNING}Could not clone model: {e}")
             return model  # Return original if cloning fails
 
     def get_model_class_name(self, model: Any) -> str:
@@ -128,6 +125,16 @@ class ModelControllerHelper:
 
         if inspect.isfunction(model) or inspect.isbuiltin(model):
             return f"{model.__name__}"
+
+        # Handle string representation of functions/classes from deserialization
+        if isinstance(model, str):
+            # Check for pattern like "<function nicon at 0x...>" or "<class 'ModelName' at 0x...>"
+            if model.startswith("<function ") and " at 0x" in model:
+                # Extract function name: "<function nicon at 0x...>" -> "nicon"
+                return model.split("<function ")[1].split(" at ")[0]
+            elif model.startswith("<class '") and "' at 0x" in model:
+                # Extract class name: "<class 'ModelName' at 0x...>" -> "ModelName"
+                return model.split("<class '")[1].split("' at ")[0].split(".")[-1]
 
         else:
             return str(type(model).__name__)
@@ -166,8 +173,6 @@ class ModelControllerHelper:
                 if isinstance(model_obj, dict):
                     if 'model' in model_obj:
                         return model_obj['model']
-                    elif '_runtime_instance' in model_obj:
-                        return model_obj['_runtime_instance']
                     else:
                         return model_obj
                 else:
@@ -238,14 +243,10 @@ class ModelControllerHelper:
 
     def is_model_serializable(self, model: Any) -> bool:
         """
-        Check if a model can be serialized with pickle.
+        Check if a model can be serialized using the new serializer infrastructure.
         """
-        try:
-            import pickle
-            pickle.dumps(model)
-            return True
-        except Exception:
-            return False
+        from nirs4all.utils.serializer import is_serializable
+        return is_serializable(model)
 
     def get_model_info(self, model: Any) -> Dict[str, Any]:
         """

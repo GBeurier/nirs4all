@@ -8,6 +8,7 @@ import numpy as np
 import copy
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.emoji import INFO, WARNING
 import io
 
 if TYPE_CHECKING:
@@ -64,12 +65,12 @@ class FoldChartController(OperatorController):
         if keyword.startswith("fold_") and keyword != "chart_fold" and keyword != "fold_chart":
             metadata_column = keyword[5:]  # Extract column name after "fold_"
             if runner.verbose > 0:
-                print(f"ℹ️ Using metadata column '{metadata_column}' for color coding")
+                print(f"{INFO} Using metadata column '{metadata_column}' for color coding")
 
         # Determine which partition to use (default to train if not specified)
         partition = context.get("partition", "train")
         if partition not in ["train", "test"]:
-            print(f"⚠️ Invalid partition '{partition}'. Using 'train' instead.")
+            print(f"{WARNING}Invalid partition '{partition}'. Using 'train' instead.")
             partition = "train"
 
         # Get data for visualization
@@ -78,11 +79,28 @@ class FoldChartController(OperatorController):
 
         # Get folds from dataset
         folds = dataset.folds
-        use_absolute_indices = False  # Flag to indicate if folds contain absolute indices
+
+        # Detect if we have a simple train/test split (1 fold) vs actual CV folds (multiple folds)
+        # Single fold from SPXYSplitter should be treated as train/test split, not CV
+        is_simple_split = folds is not None and len(folds) == 1
+        original_folds_for_chart = dataset.folds  # Keep track of original for later
+
+        # For simple train/test split, check if test partition actually exists
+        # (could be that the fold created test, or test was created separately)
+        if is_simple_split:
+            test_ctx = {"partition": "test"}
+            test_indices = dataset._indexer.x_indices(test_ctx, include_augmented=True)
+            # If test exists and fold has a non-empty test set, this is a simple split
+            # We should visualize it as train/test bars, not as a "fold"
+            if len(test_indices) > 0 and len(folds[0][1]) > 0:
+                # This is a train/test split from SPXYSplitter - treat as no CV folds
+                # We'll reconstruct the visualization to show train and test as separate bars
+                folds = None  # Clear folds to trigger fallback logic
+                original_folds_for_chart = None  # Don't pass original folds to chart (not CV mode)
 
         # Fallback logic: If no folds, create a simple train/test split visualization
         if not folds:
-            print("ℹ️ No CV folds found. Creating visualization from train/test partition.")
+            print(f"{INFO}No CV folds found. Creating visualization from train/test partition.")
 
             # Try to get train and test data - INCLUDE AUGMENTED SAMPLES
             train_context = copy.deepcopy(context)
@@ -105,7 +123,7 @@ class FoldChartController(OperatorController):
                 folds = [(list(range(len(train_indices))), [])]
                 print(f"  Only train partition available ({len(train_indices)} samples including augmented).")
             else:
-                print("⚠️ No data available for visualization.")
+                print("{WARNING}No data available for visualization.")
                 return context, []
 
         # Get values for color coding (either y or metadata column)
@@ -120,21 +138,19 @@ class FoldChartController(OperatorController):
                 color_values = dataset.metadata_column(metadata_column, all_context, include_augmented=True)
 
             else:
-                # Fallback mode: Use y indices directly to get augmented mappings
-                # This is more reliable than metadata_column for augmented samples
                 train_ctx = copy.deepcopy(context)
                 train_ctx["partition"] = "train"
                 test_ctx = copy.deepcopy(context)
                 test_ctx["partition"] = "test"
 
                 # Get metadata using origin mapping (like y() does)
-                train_x_idx = dataset._indexer.x_indices(train_ctx, include_augmented=True)  # noqa: SLF001
-                test_x_idx = dataset._indexer.x_indices(test_ctx, include_augmented=True)  # noqa: SLF001
+                train_x_idx = dataset._indexer.x_indices(train_ctx, include_augmented=True)
+                test_x_idx = dataset._indexer.x_indices(test_ctx, include_augmented=True)
 
                 # Map to origins and get metadata
-                base_meta = dataset._metadata.get_column(metadata_column)  # noqa: SLF001
-                train_origin_indices = np.array([dataset._indexer.get_origin_for_sample(int(idx)) for idx in train_x_idx])  # noqa: SLF001
-                test_origin_indices = np.array([dataset._indexer.get_origin_for_sample(int(idx)) for idx in test_x_idx])  # noqa: SLF001
+                base_meta = dataset._metadata.get_column(metadata_column)
+                train_origin_indices = np.array([dataset._indexer.get_origin_for_sample(int(idx)) for idx in train_x_idx])
+                test_origin_indices = np.array([dataset._indexer.get_origin_for_sample(int(idx)) for idx in test_x_idx])
 
                 meta_train = base_meta[train_origin_indices]
                 meta_test = base_meta[test_origin_indices]
@@ -171,7 +187,8 @@ class FoldChartController(OperatorController):
         color_values_flat = color_values.flatten() if color_values.ndim > 1 else color_values
 
         # Create fold visualization
-        fig, plot_info = self._create_fold_chart(folds, color_values_flat, len(color_values_flat), partition, dataset.folds, dataset, metadata_column)
+        # Pass original_folds_for_chart (which is None for simple splits) instead of dataset.folds
+        fig, plot_info = self._create_fold_chart(folds, color_values_flat, len(color_values_flat), partition, original_folds_for_chart, dataset, metadata_column)
 
         # Save plot to memory buffer as PNG binary
         img_buffer = io.BytesIO()
@@ -184,7 +201,23 @@ class FoldChartController(OperatorController):
         fold_suffix = f"{len(folds)}folds" if dataset.folds else "traintest_split"
         metadata_suffix = f"_{metadata_column}" if metadata_column else ""
         image_name = f"fold_visualization_{fold_suffix}_{partition}{metadata_suffix}.png"
-        img_list = [(image_name, img_png_binary)]
+
+        # Save the chart as a human-readable output file
+        output_path = runner.saver.save_output(
+            step_number=runner.step_number,
+            name=image_name.replace('.png', ''),  # Name without extension
+            data=img_png_binary,
+            extension='.png'
+        )
+
+        # Add to image list for tracking (only if saved)
+        img_list = []
+        if output_path:
+            img_list.append({
+                "name": image_name,
+                "path": str(output_path),
+                "type": "chart_output"
+            })
 
         if runner.plots_visible:
             # Store figure reference - user will call plt.show() at the end
@@ -235,7 +268,7 @@ class FoldChartController(OperatorController):
         # Create colormap - use discrete contrastive colors for metadata and classification, continuous for regression
 
         # Check if we should use discrete colormap (metadata column or classification task)
-        is_classification_task = dataset is not None and dataset.is_classification()
+        is_classification_task = dataset is not None and dataset.is_classification
         use_discrete_colormap = metadata_column is not None or is_classification_task
 
         if use_discrete_colormap:
@@ -557,3 +590,5 @@ class FoldChartController(OperatorController):
             color = colormap(y_norm)
             ax.bar(position, 1, bottom=i, width=bar_width,
                   color=color, edgecolor='white', linewidth=0.5)
+
+

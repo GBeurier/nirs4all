@@ -51,8 +51,16 @@ def main():
         version=f'%(prog)s {get_version()}'
     )
 
+    # Add subcommands
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+
+    # Add workspace commands
+    from .workspace_commands import add_workspace_commands
+    add_workspace_commands(subparsers)
+
     args = parser.parse_args()
 
+    # Handle legacy flags first
     if args.test_install:
         from .test_install import test_installation
         result = test_installation()
@@ -61,6 +69,9 @@ def main():
         from .test_install import test_integration
         result = test_integration()
         sys.exit(0 if result else 1)
+    # Handle subcommands
+    elif hasattr(args, 'func'):
+        args.func(args)
     else:
         parser.print_help()
         sys.exit(0)

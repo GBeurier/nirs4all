@@ -6,10 +6,10 @@ Shows confusion matrix visualization for model performance evaluation.
 """
 
 # Standard library imports
-import os
 import matplotlib.pyplot as plt
 
 # Third-party imports
+from sklearn.discriminant_analysis import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
@@ -24,8 +24,7 @@ from nirs4all.operators.transformations import (
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter
-# Disable emojis in output (set to '1' to disable, '0' to enable)
-os.environ['DISABLE_EMOJIS'] = '0'
+
 
 # Configuration variables
 feature_scaler = MinMaxScaler()
@@ -41,50 +40,21 @@ data_path = {
     'y_train': 'sample_data/classification/Ytrain.csv',
 }
 
-# # Build the pipeline
-# pipeline = [
-#     "chart_3d",
-#     feature_scaler,
-#     "chart_2d",
-#     {"feature_augmentation": {"_or_": preprocessing_options, "size": [5, (1, 2)], "count": 2}},
-#     "chart_2d",
-#     "fold_chart",
-#     split,
-#     "fold_chart",
-#     cross_validation,
-#     "fold_chart",
-# ]
-
-# f = \
-# [SavGol, Gauss, StdNorm, SavGol, Haar ]
-
-# # Add Random Forest models with different max_depth values
-# for max_depth in range(5, 100, 2):
-#     model_config = {
-#         "name": f"RandomForest-depth-{max_depth}",
-#         "model": RandomForestClassifier(max_depth=max_depth)
-#     }
-#     pipeline.append(model_config)
-
-import random
-from sklearn.preprocessing import StandardScaler
-
-
 pipeline = [
     # "chart_3d",
-    # StandardScaler,
-    "chart_2d",
+    # "chart_2d",
     {"feature_augmentation": [
         Detrend, FstDer, SndDer, Gauss,
         StdNorm, SavGol, Haar, MSC
     ]},
-    "chart_2d",
+    StandardScaler,
+    # "chart_2d",
     "fold_chart",
     SPXYSplitter(0.25),
     "fold_chart",
     ShuffleSplit(n_splits=3, test_size=0.25),
     "fold_chart",
-    RandomForestClassifier(max_depth=30)
+    RandomForestClassifier(max_depth=40)
 ]
 
 
@@ -102,7 +72,7 @@ best_model_count = 5
 ranking_metric = 'accuracy'
 
 # Display top performing models
-top_models = predictions.top_k(best_model_count)
+top_models = predictions.top(best_model_count)
 print(f"Top {best_model_count} models by {ranking_metric}:")
 for idx, prediction in enumerate(top_models):
     print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")
@@ -112,5 +82,4 @@ analyzer = PredictionAnalyzer(predictions)
 # Rank models by accuracy on val partition, display confusion matrix from test partition
 confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
 
-# Keep all charts open (blocking)
 # plt.show()

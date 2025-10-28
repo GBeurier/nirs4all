@@ -22,13 +22,15 @@ from nirs4all.controllers.controller import OperatorController
 from .model_controller_helper import ModelControllerHelper
 from .optuna_manager import OptunaManager
 from nirs4all.dataset.predictions import Predictions
-from nirs4all.utils.model_utils import ModelUtils
+from nirs4all.utils.model_utils import ModelUtils, TaskType
 from nirs4all.utils.model_builder import ModelBuilderFactory
+from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING
 import nirs4all.dataset.evaluator as Evaluator
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.dataset.dataset import SpectroDataset
+    from nirs4all.pipeline.io import ArtifactMeta
 
 
 class BaseModelController(OperatorController, ABC):
@@ -65,7 +67,7 @@ class BaseModelController(OperatorController, ABC):
 
     @abstractmethod
     def _train_model(self, model: Any, X_train: Any, y_train: Any,
-                    X_val: Any = None, y_val: Any = None, **kwargs) -> Any:
+                     X_val: Any = None, y_val: Any = None, **kwargs) -> Any:
         """Train the model using framework-specific logic."""
         pass
 
@@ -99,7 +101,7 @@ class BaseModelController(OperatorController, ABC):
 
         # For classification tasks, use the transformed targets for evaluation
         # For regression tasks, use the original "numeric" targets
-        if dataset.task_type and 'classification' in dataset.task_type:
+        if dataset.task_type and dataset.task_type.is_classification:
             # Use the same y context as the model training (transformed targets)
             y_train_unscaled = dataset.y(train_context)
             y_test_unscaled = dataset.y(test_context)
@@ -123,7 +125,13 @@ class BaseModelController(OperatorController, ABC):
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
         prediction_store: 'Predictions' = None  # NEW: External prediction store
-    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+    ) -> Tuple[Dict[str, Any], List['ArtifactMeta']]:
+        # # DEBUG
+        # step_repr = step if not callable(step) else f'<callable>'
+        # operator_repr = operator if not callable(operator) else f'<callable>'
+        # print(f"DEBUG execute() step type: {type(step)}, step: {step_repr}")
+        # print(f"DEBUG execute() operator type: {type(operator)}, operator: {operator_repr}")
+
         self.prediction_store = prediction_store
         model_config = self._extract_model_config(step, operator)
         self.verbose = model_config.get('train_params', {}).get('verbose', 0)
@@ -131,18 +139,24 @@ class BaseModelController(OperatorController, ABC):
         # if mode == "predict":
             # return self._execute_prediction_mode( model_config, dataset, context, runner, loaded_binaries)
 
+        # In predict/explain mode, restore task_type from target_model if not set
+        if mode in ("predict", "explain") and dataset.task_type is None:
+            if hasattr(runner, 'target_model') and runner.target_model:
+                task_type_str = runner.target_model.get('task_type', 'regression')
+                dataset.set_task_type(task_type_str)
+
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
         folds = dataset.folds
 
         binaries = []
         finetune_params = model_config.get('finetune_params')
         if runner.verbose > 0:
-            print(f"🔍 Model config: {model_config}")
+            print(f"{SEARCH} Model config: {model_config}")
 
         if finetune_params:
             self.mode = "finetune"
             if verbose > 0:
-                print("🎯 Starting finetuning...")
+                print("{TARGET} Starting finetuning...")
 
             best_model_params = self.finetune(
                 dataset,
@@ -150,7 +164,7 @@ class BaseModelController(OperatorController, ABC):
                 folds, finetune_params, self.prediction_store, context, runner
             )
             # print("Best model params found:", best_model_params)
-            print(f"📊 Best parameters: {best_model_params}")
+            print(f"{CHART} Best parameters: {best_model_params}")
 
             binaries = self.train(
                 dataset, model_config, context, runner, prediction_store,
@@ -160,7 +174,7 @@ class BaseModelController(OperatorController, ABC):
         else:
             # TRAIN PATH
             if self.verbose > 0:
-                print("🏋️ Starting training...")
+                print(f"{WEIGHT_LIFT}Starting training...")
 
             binaries = self.train(
                 dataset, model_config, context, runner, prediction_store,
@@ -214,7 +228,7 @@ class BaseModelController(OperatorController, ABC):
         dataset, model_config, context, runner, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
         best_params=None, loaded_binaries=None, mode="train"
-    ) -> Dict:
+    ) -> List['ArtifactMeta']:
 
         verbose = model_config.get('train_params', {}).get('verbose', 0)
 
@@ -232,7 +246,7 @@ class BaseModelController(OperatorController, ABC):
                     # print("data sizes:", X_train.shape, y_train.shape, X_test.shape, y_test.shape)
 
                 if verbose > 0:
-                    print(f"📁 Training fold {fold_idx + 1}/{len(folds)}")
+                    print(f"{FOLDER} Training fold {fold_idx + 1}/{len(folds)}")
                 fold_val_indices.append(val_indices)
                 X_train_fold = X_train[train_indices] if X_train.shape[0] > 0 else np.array([])
                 y_train_fold = y_train[train_indices] if y_train.shape[0] > 0 else np.array([])
@@ -257,16 +271,21 @@ class BaseModelController(OperatorController, ABC):
                 folds_models.append((model_id, model, score))
                 all_fold_predictions.append(prediction_data)
                 base_model_name = model_name
-                binaries.append((f"{model_id}.pkl", self._binarize_model(model)))
+
+                # Only persist in train mode, not in predict/explain modes
+                if mode == "train":
+                    artifact = self._persist_model(runner, model, model_id)
+                    binaries.append(artifact)
+
                 scores.append(score)
                 model_classname = model.__class__.__name__
 
             # Compute weights based on scores
-            higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)[1]
+            metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
             weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
 
             # Create fold averages and get average predictions data
-            if dataset._task_type == 'regression':
+            if dataset.task_type and dataset.task_type.is_regression:
                 avg_predictions, w_avg_predictions = self._create_fold_averages(
                     base_model_name, dataset, model_config, context, runner, prediction_store, model_classname,
                     folds_models, fold_val_indices, scores,
@@ -283,7 +302,7 @@ class BaseModelController(OperatorController, ABC):
             self._add_all_predictions(prediction_store, all_fold_predictions, weights, mode=mode)
 
         else:
-            print("\033[91m⚠️⚠️⚠️⚠️⚠️  WARNING: Using test set as validation set (no folds provided) ⚠️⚠️⚠️⚠️⚠️⚠️\033[0m")
+            print(f"\033[91m{WARNING}{WARNING}{WARNING}{WARNING} WARNING: Using test set as validation set (no folds provided) {WARNING}{WARNING}{WARNING}{WARNING}{WARNING}{WARNING}\033[0m")
 
             model, model_id, score, model_name, prediction_data = self.launch_training(
                 dataset, model_config, context, runner, prediction_store,
@@ -291,7 +310,8 @@ class BaseModelController(OperatorController, ABC):
                 y_train_unscaled, y_test_unscaled, y_test_unscaled,
                 loaded_binaries=loaded_binaries, mode=mode
             )
-            binaries.append((f"{model_id}.pkl", self._binarize_model(model)))
+            artifact = self._persist_model(runner, model, model_id)
+            binaries.append(artifact)
 
             # Add predictions for single model case (no weights)
             self._add_all_predictions(prediction_store, [prediction_data], None, mode=mode)
@@ -307,12 +327,21 @@ class BaseModelController(OperatorController, ABC):
         train_indices=None, val_indices=None, fold_idx=None, best_params=None,
         loaded_binaries=None, mode="train"):
 
-        base_model = self._get_model_instance(dataset, model_config)
+        # Extract model classname from config consistently (works for both train and predict modes)
+        # This ensures the same name is used for saving and loading models
+        model_classname = self.model_helper.extract_core_name(model_config)
+
+        # In prediction/explain mode, we don't need to instantiate the model yet
+        # We just need to extract metadata to find the model in binaries
+        if mode in ("predict", "explain"):
+            base_model = None  # Will be loaded from binaries later
+        else:
+            base_model = self._get_model_instance(dataset, model_config)
+
         # Generate identifiers
         step_id = context['step_id']
-        pipeline_name = runner.saver.pipeline_name
+        pipeline_name = runner.saver.pipeline_id
         dataset_name = dataset.name
-        model_classname = self.model_helper.extract_core_name(base_model)
         model_name = model_config.get('name', model_classname)
         operation_counter = runner.next_op()
         new_operator_name = f"{model_name}_{operation_counter}"
@@ -330,9 +359,25 @@ class BaseModelController(OperatorController, ABC):
             # Load model from binaries
             if loaded_binaries is None:
                 raise ValueError("loaded_binaries must be provided in prediction mode")
-            model = dict(loaded_binaries).get(f"{new_operator_name}")
+
+            # Try to find model with various naming patterns for backward compatibility:
+            # 1. Exact match: "Q4_PLS_10_1"
+            # 2. With .pkl extension: "Q4_PLS_10_1.pkl"
+            # 3. With .joblib extension: "Q4_PLS_10_1.joblib"
+            binaries_dict = dict(loaded_binaries)
+            model = binaries_dict.get(new_operator_name)
             if model is None:
-                raise ValueError(f"Model binary for {model_name}_{operation_counter}.pkl not found in loaded_binaries")
+                model = binaries_dict.get(f"{new_operator_name}.pkl")
+            if model is None:
+                model = binaries_dict.get(f"{new_operator_name}.joblib")
+
+            if model is None:
+                available_keys = list(binaries_dict.keys())
+                raise ValueError(
+                    f"Model binary for {new_operator_name} not found in loaded_binaries. "
+                    f"Available keys: {available_keys}"
+                )
+
             if mode == "explain":
                 # print(f"Using model {model_name} for explanation...")
                 # print(f"Model ID: {runner.target_model['id']}, Name: {runner.target_model['model_name']}, Step: {runner.target_model['step_idx']}, Fold: {runner.target_model['fold_id']}, Op Counter: {runner.target_model['op_counter']}")
@@ -398,13 +443,13 @@ class BaseModelController(OperatorController, ABC):
         # print("Predicted fold:", fold_idx, "Shapes:", y_test_pred_unscaled.shape, "Tests", y_test_pred_unscaled[:5])
         # print("UNSCALED PRED:", y_train_pred_unscaled.shape, y_val_pred_unscaled.shape, y_test_pred_unscaled.shape)
 
-        metric, higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)
-        direction = "↑" if higher_is_better else "↓"
+        metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
+        _direction = ARROW_UP if higher_is_better else ARROW_DOWN
         score_train = Evaluator.eval(y_train_unscaled, y_train_pred_unscaled, metric)
         score_val = Evaluator.eval(y_val_unscaled, y_val_pred_unscaled, metric)
         score_test = Evaluator.eval(y_test_unscaled, y_test_pred_unscaled, metric)
 
-        # print(f"📊 {model_name} scores: Train {metric} {direction} {score_train:.4f}, Val {metric} {direction} {score_val:.4f}, Test {metric} {direction} {score_test:.4f}")
+        # print(f"{CHART} {model_name} scores: Train {metric} {direction} {score_train:.4f}, Val {metric} {direction} {score_val:.4f}, Test {metric} {direction} {score_test:.4f}")
 
         if train_indices is None:
             train_indices = list(range(len(y_train_unscaled)))
@@ -419,11 +464,13 @@ class BaseModelController(OperatorController, ABC):
         test_indices = list(range(len(y_test_unscaled)))
 
         # Prepare prediction data for return (don't store yet)
+        pipeline_uid = getattr(runner, 'pipeline_uid', None)
         prediction_data = {
             'dataset_name': dataset_name,
             'dataset_path': dataset_name,
             'config_name': pipeline_name,
             'config_path': f"{dataset_name}/{pipeline_name}",
+            'pipeline_uid': pipeline_uid,
             'step_idx': step_id,
             'op_counter': operation_counter,
             'model_name': model_name,
@@ -445,31 +492,31 @@ class BaseModelController(OperatorController, ABC):
             ]
         }
         # if y_test_pred_unscaled.shape[0] > 0:
-        #     # print("📊 y_test_pred_unscaled:")
+        #     # print("{CHART} y_test_pred_unscaled:")
         #     print(f"mean: {np.mean(y_test_pred_unscaled):.4f}, std: {np.std(y_test_pred_unscaled):.4f}, min: {np.min(y_test_pred_unscaled):.4f}, max: {np.max(y_test_pred_unscaled):.4f}")
 
         return trained_model, f"{model_name}_{operation_counter}", score_val, model_name, prediction_data
 
 
 
-    def _detect_task_type(self, y: Any) -> str:
+    def _detect_task_type(self, y: Any) -> TaskType:
         """Detect task type from target values."""
-        return ModelUtils.deprec_detect_task_type(y)
+        return ModelUtils.detect_task_type(y)
 
     def _calculate_and_print_scores(
         self,
         y_true: Any,
         y_pred: Any,
-        task_type: str,
+        task_type: TaskType,
         partition: str = "test",
         model_name: str = "model",
         show_detailed_scores: bool = True
     ) -> Dict[str, float]:
         """Calculate scores and print them."""
-        scores = ModelUtils.deprec_calculate_scores(y_true, y_pred, task_type)
+        scores = ModelUtils.calculate_scores(y_true, y_pred, task_type)
         if scores and show_detailed_scores:
-            score_str = ModelUtils.deprec_format_scores(scores)
-            print(f"📊 {model_name} {partition} scores: {score_str}")
+            score_str = ModelUtils.format_scores(scores)
+            print(f"{CHART} {model_name} {partition} scores: {score_str}")
         return scores
 
     def _clone_model(self, model: Any) -> Any:
@@ -487,8 +534,8 @@ class BaseModelController(OperatorController, ABC):
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
-        loaded_binaries: Optional[List[Tuple[str, bytes]]]
-    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+        loaded_binaries: Optional[List[Tuple[str, Any]]]
+    ) -> Tuple[Dict[str, Any], List['ArtifactMeta']]:
         """Handle prediction mode: load model and predict."""
 
         if not loaded_binaries:
@@ -508,19 +555,44 @@ class BaseModelController(OperatorController, ABC):
         # predictions_csv = prediction_store.create_prediction_csv(y_true, y_pred)  # TODO: implement CSV creation
         pred_filename = f"predictions_{runner.next_op()}.csv"
 
-        return context, [(pred_filename, "predictions csv placeholder".encode('utf-8'))]
+        # TODO: This should use persist_artifact for predictions CSV
+        # For now, return empty list since predictions are handled separately
+        return context, []
 
     def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
         """Extract model configuration from step or operator."""
+        # # DEBUG
+        # print(f"DEBUG _extract_model_config called")
+        # print(f"  step: {step if not callable(step) else '<callable>'}")
+        # print(f"  operator: {operator if not callable(operator) else '<callable>'}")
+        # print(f"  operator is not None: {operator is not None}")
+
         if operator is not None:
+            # print(f"DEBUG operator branch taken")
             if isinstance(step, dict):
                 config = step.copy()
                 config['model_instance'] = operator
+
+                # Preserve function/class keys from nested model structure for name extraction
+                if 'model' in step and isinstance(step['model'], dict):
+                    if 'function' in step['model']:
+                        config['function'] = step['model']['function']
+                    elif 'class' in step['model']:
+                        config['class'] = step['model']['class']
+
+                # print(f"DEBUG returning config (step is dict): {list(config.keys())}")
                 return config
             else:
+                # print(f"DEBUG returning model_instance wrapper")
                 return {'model_instance': operator}
 
         if isinstance(step, dict):
+            # If step is already a serialized format with 'function', 'class', or 'import',
+            # pass it through as-is for ModelBuilderFactory
+            if any(key in step for key in ('function', 'class', 'import')):
+                # print(f"DEBUG returning step as-is: {step}")
+                return step
+
             if 'model' in step:
                 config = step.copy()
                 model_obj = step['model']
@@ -531,8 +603,6 @@ class BaseModelController(OperatorController, ABC):
                         config['model_instance'] = model_obj['model']
                         if 'name' in model_obj:
                             config['name'] = model_obj['name']
-                    elif '_runtime_instance' in model_obj:
-                        config['model_instance'] = model_obj['_runtime_instance']
                     else:
                         config['model_instance'] = model_obj
                 else:
@@ -567,20 +637,28 @@ class BaseModelController(OperatorController, ABC):
                 y_all = dataset.y(context)
                 return {'X': X_all, 'y': y_all}
 
-    def _load_model_from_binaries(self, loaded_binaries: List[Tuple[str, bytes]]) -> Any:
-        """Load trained model from binary data."""
-        import pickle
+    def _load_model_from_binaries(self, loaded_binaries: List[Tuple[str, Any]]) -> Any:
+        """Load trained model from loaded artifacts.
 
-        model_binary = None
-        for name, binary in loaded_binaries:
+        Note: The BinaryLoader already deserializes the objects using the new
+        serializer infrastructure, so we just need to find the right artifact.
+
+        Args:
+            loaded_binaries: List of (name, loaded_object) tuples
+
+        Returns:
+            The loaded model object
+        """
+        model_obj = None
+        for name, obj in loaded_binaries:
             if name.endswith('.pkl') and ('model' in name.lower() or 'trained' in name.lower()):
-                model_binary = binary
+                model_obj = obj
                 break
 
-        if model_binary is None:
-            raise ValueError("No model binary found")
+        if model_obj is None:
+            raise ValueError("No model object found in loaded binaries")
 
-        return pickle.loads(model_binary)
+        return model_obj
 
     def _create_fold_averages(
         self,
@@ -639,9 +717,9 @@ class BaseModelController(OperatorController, ABC):
         score_val = 0.0
         score_test = 0.0
         score_train = 0.0
-        metric, higher_is_better = ModelUtils.deprec_get_best_metric_for_task(dataset.task_type)
+        metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
         if mode != "predict" and mode != "explain":
-            direction = "↑" if higher_is_better else "↓"
+            _direction = ARROW_UP if higher_is_better else ARROW_DOWN
             # Evaluate average predictions
             score_train = Evaluator.eval(y_train_unscaled, all_train_avg_preds, metric)
             score_val = Evaluator.eval(y_val_unscaled, all_val_avg_preds, metric)
@@ -659,8 +737,9 @@ class BaseModelController(OperatorController, ABC):
         avg_predictions = {
             'dataset_name': dataset.name,
             'dataset_path': dataset.name,
-            'config_name': runner.saver.pipeline_name,
-            'config_path': f"{dataset.name}/{runner.saver.pipeline_name}",
+            'config_name': runner.saver.pipeline_id,
+            'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
+            'pipeline_uid': getattr(runner, 'pipeline_uid', None),
             'step_idx': context['step_id'],
             'op_counter': avg_counter,
             'model_name': f"{base_model_name}",
@@ -680,8 +759,26 @@ class BaseModelController(OperatorController, ABC):
 
         # Weighted average predictions based on fold scores
         scores = np.asarray(scores, dtype=float)
+
         if mode == "predict" or mode == "explain":
-            weights = np.array(runner.target_model["weights"])
+            # Check if weights exist in target_model (they only exist for avg/w_avg predictions)
+            if "weights" in runner.target_model and runner.target_model["weights"] is not None:
+                weights_from_model = runner.target_model["weights"]
+                # Handle different formats: list, string (JSON serialized), or numpy array
+                if isinstance(weights_from_model, str):
+                    # Parse JSON string
+                    import json
+                    weights = np.array(json.loads(weights_from_model), dtype=float)
+                elif isinstance(weights_from_model, list):
+                    weights = np.array(weights_from_model, dtype=float)
+                else:
+                    weights = np.asarray(weights_from_model, dtype=float)
+            else:
+                # Fallback: use equal weights when scores are NaN (prediction mode)
+                if np.all(np.isnan(scores)):
+                    weights = np.ones(len(scores), dtype=float) / len(scores)
+                else:
+                    weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
         else:
             weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
 
@@ -720,8 +817,9 @@ class BaseModelController(OperatorController, ABC):
         w_avg_predictions = {
             'dataset_name': dataset.name,
             'dataset_path': dataset.name,
-            'config_name': runner.saver.pipeline_name,
-            'config_path': f"{dataset.name}/{runner.saver.pipeline_name}",
+            'config_name': runner.saver.pipeline_id,
+            'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
+            'pipeline_uid': getattr(runner, 'pipeline_uid', None),
             'step_idx': context['step_id'],
             'op_counter': w_avg_counter,
             'model_name': f"{base_model_name}",
@@ -757,7 +855,7 @@ class BaseModelController(OperatorController, ABC):
             metric = prediction_data['metric']
 
             # Determine direction symbol based on metric (assume lower is better for most metrics)
-            direction = "↑" if metric in ['r2', 'accuracy'] else "↓"
+            direction = ARROW_UP if metric in ['r2', 'accuracy'] else ARROW_DOWN
 
             first_partition = True
 
@@ -770,6 +868,7 @@ class BaseModelController(OperatorController, ABC):
                     dataset_path=prediction_data['dataset_path'],
                     config_name=prediction_data['config_name'],
                     config_path=prediction_data['config_path'],
+                    pipeline_uid=prediction_data.get('pipeline_uid'),
                     step_idx=prediction_data['step_idx'],
                     op_counter=prediction_data['op_counter'],
                     model_name=prediction_data['model_name'],
@@ -795,28 +894,56 @@ class BaseModelController(OperatorController, ABC):
 
                 # Print only once per prediction_data (for the first partition)
                 if first_partition:
-                    short_desc = f"✅ {model_name}"
+                    short_desc = f"{CHECK}{model_name}"
                     if mode != "predict" and mode != "explain":
                         short_desc += f" {metric} {direction}"
-                        short_desc += f" [test: {test_score:.4f}], [val: {val_score:.4f}], ("
+                        short_desc += f" [test: {test_score:.4f}], [val: {val_score:.4f}]"
                     else:
                         short_desc += f" from (step: {prediction_data['step_idx']}, "
 
                     if fold_id not in [None, 'None', 'avg', 'w_avg']:
-                        short_desc += f"fold: {fold_id}, id: {op_counter})"
+                        short_desc += f", (fold: {fold_id}, id: {op_counter})"
                     elif fold_id in ['avg', 'w_avg']:
-                        short_desc += f"{fold_id}, id: {op_counter})"
+                        short_desc += f", ({fold_id}, id: {op_counter})"
 
                     short_desc += f" - [{pred_id}]"
                     if mode != "predict" and mode != "explain":
                         print(short_desc)
                     first_partition = False
 
-    def _binarize_model(self, model: Any) -> bytes:
-        """Serialize model to binary using pickle."""
-        import pickle
-        try:
-            return pickle.dumps(model)
-        except Exception as e:
-            print(f"⚠️ Could not serialize model: {e}")
-            return b""
+    def _persist_model(self, runner: 'PipelineRunner', model: Any, model_id: str) -> 'ArtifactMeta':
+        """Persist model using the new serializer infrastructure.
+
+        Args:
+            runner: Pipeline runner with saver instance
+            model: The trained model to persist
+            model_id: Identifier for the model
+
+        Returns:
+            ArtifactMeta: Metadata about the persisted artifact
+        """
+        # Detect framework hint from model type
+        model_type = type(model).__module__
+        if 'sklearn' in model_type:
+            format_hint = 'sklearn'
+        elif 'tensorflow' in model_type or 'keras' in model_type:
+            format_hint = 'tensorflow'
+        elif 'torch' in model_type:
+            format_hint = 'pytorch'
+        elif 'xgboost' in model_type:
+            format_hint = 'xgboost'
+        elif 'catboost' in model_type:
+            format_hint = 'catboost'
+        elif 'lightgbm' in model_type:
+            format_hint = 'lightgbm'
+        else:
+            format_hint = None  # Let serializer auto-detect
+
+        return runner.saver.persist_artifact(
+            step_number=runner.step_number,
+            name=f"{model_id}.pkl",
+            obj=model,
+            format_hint=format_hint
+        )
+
+

@@ -4,14 +4,19 @@ from datetime import datetime
 from pathlib import Path
 import json
 import numpy as np
+import sys
+import io
+import os
+
 
 from joblib import Parallel, delayed, parallel_backend
 from nirs4all.dataset.predictions import Predictions
+from nirs4all.utils.emoji import ROCKET, TROPHY, MEDAL_GOLD, FLAG, CHECK, CROSS, DIAMOND, SEARCH, REFRESH, WARNING, PLAY, SMALL_DIAMOND
 
 from nirs4all.pipeline.serialization import deserialize_component
-from nirs4all.pipeline.history import PipelineHistory
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.io import SimulationSaver
+from nirs4all.pipeline.manifest_manager import ManifestManager
 from nirs4all.dataset.dataset import SpectroDataset
 from nirs4all.dataset.dataset_config import DatasetConfigs
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
@@ -45,7 +50,6 @@ def init_global_random_state(seed: Optional[int] = None):
 class PipelineRunner:
     """PipelineRunner - Executes a pipeline with enhanced context management and DatasetView support."""
 
-    ##TODO operators should not be located in workflow and serialization but only in registry (basically hardcode of class, _runtime_instance and so, dynamic loading for the rest)
     ##TODO handle the models defined as a class
     WORKFLOW_OPERATORS = ["sample_augmentation", "feature_augmentation", "branch", "dispatch", "model", "stack",
                           "scope", "cluster", "merge", "uncluster", "unscope", "chart_2d", "chart_3d", "fold_chart",
@@ -58,7 +62,7 @@ class PipelineRunner:
                  backend: str = 'threading',
                  verbose: int = 0,
                  parallel: bool = False,
-                 results_path: Optional[str] = None,
+                 workspace_path: Optional[Union[str, Path]] = None,
                  save_files: bool = True,
                  mode: str = "train",
                  load_existing_predictions: bool = True,
@@ -78,11 +82,26 @@ class PipelineRunner:
         self.continue_on_error = continue_on_error
         self.backend = backend
         self.verbose = verbose
-        self.history = PipelineHistory()
         self.parallel = parallel
         self.step_number = 0  # Initialize step number for tracking
         self.substep_number = -1  # Initialize sub-step number for tracking
-        self.saver = SimulationSaver(results_path)
+
+        # Workspace configuration
+        if workspace_path is None:
+            workspace_path = Path.cwd() / "workspace"
+        self.workspace_path = Path(workspace_path)
+        self.runs_dir = self.workspace_path / "runs"
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create other workspace directories
+        (self.workspace_path / "exports").mkdir(exist_ok=True)
+        (self.workspace_path / "library").mkdir(exist_ok=True)
+
+        # Will be set per-run
+        self.current_run_dir = None
+        self.saver = None
+        self.manifest_manager = None
+        self.pipeline_uid: Optional[str] = None
         self.operation_count = 0
         self.save_files = save_files
         self.mode = mode
@@ -306,7 +325,7 @@ class PipelineRunner:
 
         nb_combinations = len(pipeline_configs.steps) * len(dataset_configs.configs)
         print("=" * 120)
-        print(f"\033[94m🚀 Starting Nirs4all run(s) with {len(pipeline_configs.steps)} pipeline on {len(dataset_configs.configs)} dataset ({nb_combinations} total runs).\033[0m")
+        print(f"\033[94m{ROCKET}Starting Nirs4all run(s) with {len(pipeline_configs.steps)} pipeline on {len(dataset_configs.configs)} dataset ({nb_combinations} total runs).\033[0m")
         print("=" * 120)
 
         datasets_predictions = {}
@@ -314,9 +333,17 @@ class PipelineRunner:
 
         # Get datasets from DatasetConfigs
         for config, name in dataset_configs.configs:
-            # print("=" * 120)
+            # Create run directory: workspace/runs/YYYY-MM-DD_dataset/
+            date_str = datetime.now().strftime("%Y-%m-%d")
+            self.current_run_dir = self.runs_dir / f"{date_str}_{name}"
+            self.current_run_dir.mkdir(parents=True, exist_ok=True)
 
-            dataset_prediction_path = self.saver.base_path / name / "predictions.json"
+            # Initialize saver and manifest manager with run directory
+            self.saver = SimulationSaver(self.current_run_dir, save_files=self.save_files)
+            self.manifest_manager = ManifestManager(self.current_run_dir)
+
+            # Load global predictions from workspace root (dataset_name.json)
+            dataset_prediction_path = self.workspace_path / f"{name}.json"
             global_dataset_predictions = Predictions.load_from_file_cls(dataset_prediction_path)
             run_dataset_predictions = Predictions()
 
@@ -369,18 +396,20 @@ class PipelineRunner:
     def print_best_predictions(self, run_dataset_predictions: Predictions, global_dataset_predictions: Predictions,
                                dataset: SpectroDataset, name: str, dataset_prediction_path: str):
         if run_dataset_predictions.num_predictions > 0:
-            best = run_dataset_predictions.get_best(ascending=True if dataset.is_regression() else False)
-            print(f"🏆 Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
+            best = run_dataset_predictions.get_best(ascending=True if dataset.is_regression else False)
+            print(f"{TROPHY}Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
             if self.enable_tab_reports:
                 best_by_partition = run_dataset_predictions.get_entry_partitions(best)
                 tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
                 print(tab_report)
                 if tab_report_csv_file:
-                    filename = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Report_best_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
-                    self.saver.save_file(filename, tab_report_csv_file, into_dataset=True)
+                    # Filename: Report_best_{pipeline_id}_{model_name}_{pred_id}.csv
+                    filename = f"Report_best_{best['config_name']}_{best['model_name']}_{best['id']}.csv"
+                    self.saver.save_file(filename, tab_report_csv_file)
             if self.save_files:
-                prediction_name = f"{datetime.now().strftime('%m-%d_%Hh%M%Ss')}_Best_prediction_run_{best['config_name']}_{best['model_name']}_[{best['id']}].csv"
-                prediction_path = self.saver.base_path / name / prediction_name
+                # Filename: Best_prediction_{pipeline_id}_{model_name}_{pred_id}.csv
+                prediction_name = f"Best_prediction_{best['config_name']}_{best['model_name']}_{best['id']}.csv"
+                prediction_path = self.saver.base_path / prediction_name
                 Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
 
         if global_dataset_predictions.num_predictions > 0:
@@ -400,23 +429,49 @@ class PipelineRunner:
         #         Predictions.save_predictions_to_csv(best_overall["y_true"], best_overall["y_pred"], prediction_path)
         print("=" * 120)
 
+    def export_best_for_dataset(self, dataset_name: str, mode: str = "predictions") -> Optional[Path]:
+        """Export best results for a dataset to exports/ folder.
+
+        Delegates to SimulationSaver for file operations.
+
+        Args:
+            dataset_name: Dataset name (matches global prediction JSON filename)
+            mode: Export mode - "predictions", "template", "trained", or "full"
+
+        Returns:
+            Path to export directory, or None if no predictions found
+        """
+        return self.saver.export_best_for_dataset(
+            dataset_name,
+            self.workspace_path,
+            self.runs_dir,
+            mode
+        )
+
 
     def prepare_replay(self, selection_obj: Union[Dict[str, Any], str], dataset_config: DatasetConfigs, verbose: int = 0):
         config_path, target_model = self.saver.get_predict_targets(selection_obj)
-        del target_model["y_pred"]  # Remove potentially large arrays
-        del target_model["y_true"]
+        target_model.pop("y_pred", None)  # Remove potentially large arrays if present
+        target_model.pop("y_true", None)
         self.config_path = config_path
         self.target_model = target_model
         self.model_weights = target_model['weights'] if target_model else None
+
+        # Extract pipeline_uid from target_model if available
+        pipeline_uid = target_model.get('pipeline_uid') if target_model else None
+
         # print(f"🚀 Starting prediction using config: {config_path} on {len(dataset_config.configs)} dataset configuration(s)."
             #   if target_model else "")
 
         # 2. Load pipeline configuration
-        config_dir = Path(f"{self.saver.base_path}/{config_path}")
+        # config_path format: "dataset_name/0001_pipeline_hash"
+        # Extract just the pipeline directory (0001_pipeline_hash)
+        pipeline_dir_name = Path(config_path).parts[-1] if '/' in config_path or '\\' in config_path else config_path
+        config_dir = self.saver.base_path / pipeline_dir_name
         pipeline_json = config_dir / "pipeline.json"
 
         if verbose > 0:
-            print(f"🔍 Loading {pipeline_json}, {config_dir / 'metadata.json'}")
+            print(f"{SEARCH}Loading {pipeline_json}, {config_dir / 'metadata.json'}")
 
         if not pipeline_json.exists():
             raise FileNotFoundError(f"Pipeline not found: {pipeline_json}")
@@ -429,17 +484,31 @@ class PipelineRunner:
         else:
             steps = pipeline_data
 
-        # 3. Load metadata for binary resolution
-        metadata_file = config_dir / "metadata.json"
-        metadata = {}
-        if metadata_file.exists():
-            with open(metadata_file, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-        if 'binaries' not in metadata:
-            metadata['binaries'] = {}
-        if verbose > 0:
-            print(f"🔍 {len(metadata['binaries'])} binaries found")
-        self.binary_loader = BinaryLoader(self.saver.base_path, metadata)
+        # 3. Load binaries from manifest system
+        if not pipeline_uid:
+            raise ValueError(
+                f"No pipeline_uid found in prediction metadata. "
+                f"This prediction was created with an older version of nirs4all. "
+                f"Please retrain the model to use the new manifest system."
+            )
+
+        # Load from manifest
+        # In the new architecture, pipelines are directly in the run directory
+        from nirs4all.pipeline.manifest_manager import ManifestManager
+        manifest_manager = ManifestManager(self.saver.base_path)
+
+        manifest_path = self.saver.base_path / pipeline_uid / "manifest.yaml"
+        if not manifest_path.exists():
+            raise FileNotFoundError(
+                f"Manifest not found: {manifest_path}\n"
+                f"Pipeline UID: {pipeline_uid}\n"
+                f"The model artifacts may have been deleted or moved."
+            )
+
+        print(f"{SEARCH}Loading from manifest: {pipeline_uid}")
+        manifest = manifest_manager.load_manifest(pipeline_uid)
+        self.binary_loader = BinaryLoader.from_manifest(manifest, self.saver.base_path)
+
         return steps
 
 
@@ -465,7 +534,7 @@ class PipelineRunner:
             Predictions for the specified model
         """
         print("=" * 120)
-        print("\033[94m🚀 Starting Nirs4all prediction(s)\033[0m")
+        print(f"\033[94m{ROCKET}Starting Nirs4all prediction(s)\033[0m")
         print("=" * 120)
 
         # Normalize dataset input
@@ -473,6 +542,42 @@ class PipelineRunner:
 
         self.mode = "predict"
         self.verbose = verbose
+
+        # Initialize saver for prediction mode
+        # Extract run directory from prediction_obj
+        if isinstance(prediction_obj, dict):
+            if 'run_dir' in prediction_obj:
+                run_dir = Path(prediction_obj['run_dir'])
+            elif 'config_path' in prediction_obj:
+                # config_path format: "dataset_name/0001_pipeline_hash"
+                # We need to find the actual run dir: "YYYY-MM-DD_dataset_name"
+                config_path = prediction_obj['config_path']
+                dataset_name = Path(config_path).parts[0]  # Extract dataset name
+
+                # Find the most recent run directory matching this dataset
+                matching_dirs = sorted(
+                    self.runs_dir.glob(f"*_{dataset_name}"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True
+                )
+                if matching_dirs:
+                    run_dir = matching_dirs[0]
+                else:
+                    raise ValueError(f"No run directory found for dataset: {dataset_name}")
+            else:
+                # Fallback: use most recent run directory
+                run_dirs = sorted(self.runs_dir.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+                run_dir = run_dirs[0] if run_dirs else self.runs_dir
+        else:
+            # For string prediction_obj, use most recent run directory
+            run_dirs = sorted(self.runs_dir.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+            run_dir = run_dirs[0] if run_dirs else self.runs_dir
+
+        # Initialize saver and manifest manager
+        self.current_run_dir = run_dir
+        self.saver = SimulationSaver(run_dir, save_files=self.save_files)
+        self.manifest_manager = ManifestManager(run_dir)
+
         steps = self.prepare_replay(prediction_obj, dataset_config, verbose=verbose)
 
         run_predictions = Predictions()
@@ -496,7 +601,6 @@ class PipelineRunner:
         single_pred = run_predictions.get_similar(
             model_name=self.target_model.get('model_name', None),
             step_idx=self.target_model.get('step_idx', None),
-            op_counter=self.target_model.get('op_counter', None),
             fold_id=self.target_model.get('fold_id', None),
             partition='test'  # Always return test partition for predict
         )
@@ -504,10 +608,10 @@ class PipelineRunner:
         if single_pred is None:
             raise ValueError("No matching prediction found for the specified model criteria. Predict failed.")
 
-        print(f"✅ Predicted with: {single_pred['model_name']} [{single_pred['id']}]")
+        print(f"{CHECK}Predicted with: {single_pred['model_name']} [{single_pred['id']}]")
         filename = f"Predict_[{single_pred['id']}].csv"
         y_pred = single_pred["y_pred"]
-        prediction_path = self.saver.base_path / dataset.name / filename
+        prediction_path = self.saver.base_path / filename
         Predictions.save_predictions_to_csv(y_pred=y_pred, filepath=prediction_path)
 
         return single_pred["y_pred"], run_predictions
@@ -535,7 +639,7 @@ class PipelineRunner:
             Tuple of (shap_results, output_directory)
         """
         print("=" * 120)
-        print("\033[94m🔍 Starting SHAP Explanation Analysis\033[0m")
+        print(f"\033[94m{SEARCH}Starting SHAP Explanation Analysis\033[0m")
         print("=" * 120)
 
         # Normalize dataset input
@@ -585,7 +689,7 @@ class PipelineRunner:
                 feature_names = [f"λ{w:.1f}" for w in dataset.wavelengths]
 
             # Detect task type
-            task_type = 'classification' if dataset.task_type and 'classification' in dataset.task_type else 'regression'
+            task_type = 'classification' if dataset.task_type and dataset.task_type.is_classification else 'regression'
 
             # Create output directory
             model_id = self.target_model.get('id', 'unknown')
@@ -621,7 +725,7 @@ class PipelineRunner:
             shap_results['dataset_name'] = dataset.name
 
             if verbose > 0:
-                print(f"\n✅ SHAP explanation completed!")
+                print(f"\n{CHECK}SHAP explanation completed!")
                 print(f"📁 Visualizations saved to: {output_dir}")
                 for viz in shap_params['visualizations']:
                     print(f"   • {viz}.png")
@@ -637,18 +741,40 @@ class PipelineRunner:
     def _run_single(self, steps: List[Any], config_name: str, dataset: SpectroDataset, config_predictions: 'Predictions') -> SpectroDataset:
         """Run a single pipeline configuration on a single dataset with external prediction store."""
         # Reset runner state for each run
-        # self.history = PipelineHistory()
         self.step_number = 0
         self.substep_number = -1
         self.operation_count = 0
         self.step_binaries = {}
 
-        print(f"\033[94m🚀 Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
+        print(f"\033[94m{ROCKET}Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
         print("-" * 120)
 
-        self.saver.register(dataset.name, config_name, self.mode)
+        # Compute pipeline hash
+        import hashlib
+        import json
+        pipeline_json = json.dumps(steps, sort_keys=True, default=str).encode('utf-8')
+        pipeline_hash = hashlib.md5(pipeline_json).hexdigest()[:6]
+
+        # Create pipeline with sequential numbering
+        if self.mode == "train":
+            pipeline_config = {"steps": steps}
+            pipeline_id, pipeline_dir = self.manifest_manager.create_pipeline(
+                name=config_name,
+                dataset=dataset.name,
+                pipeline_config=pipeline_config,
+                pipeline_hash=pipeline_hash
+            )
+            self.pipeline_uid = pipeline_id
+
+            # Register with SimulationSaver
+            self.saver.register(pipeline_id)
+        else:
+            # For predict/explain modes, don't create new pipeline directories
+            pipeline_id = f"temp_{pipeline_hash}"
+            # Don't register in predict/explain mode - we're reusing existing pipelines
+
         if self.mode != "predict" and self.mode != "explain":
-            self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
+            self.saver.save_json("pipeline.json", steps)
 
         # Initialize context
         context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
@@ -656,17 +782,17 @@ class PipelineRunner:
         try:
             self.run_steps(steps, dataset, context, execution="sequential", prediction_store=config_predictions)
             if self.mode != "predict" and self.mode != "explain":
-                self.saver.save_json("pipeline.json", PipelineConfigs.serializable_steps(steps))
+                self.saver.save_json("pipeline.json", steps)
 
                 if config_predictions.num_predictions > 0:
-                    pipeline_best = config_predictions.get_best(ascending=True if dataset.is_regression() else False)
-                    print(f"🥇 Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
+                    pipeline_best = config_predictions.get_best(ascending=True if dataset.is_regression else False)
+                    print(f"{MEDAL_GOLD}Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
                     if self.verbose > 0:
-                        print(f"\033[94m🏁 Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
+                        print(f"\033[94m{FLAG}Pipeline {config_name} completed successfully on dataset {dataset.name}\033[0m")
                     print("=" * 120)
 
         except Exception as e:
-            print(f"\033[91m❌ Pipeline {config_name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
+            print(f"\033[91m{CROSS}Pipeline {config_name} on dataset {dataset.name} failed: \n{str(e)}\033[0m")
             import traceback
             traceback.print_exc()
             raise
@@ -712,19 +838,19 @@ class PipelineRunner:
         if is_substep:
             self.substep_number += 1
             if self.verbose > 0:
-                print(f"\033[96m   ▶ Sub-step {self.step_number}.{self.substep_number}: {step_description}\033[0m")
+                print(f"\033[96m   {PLAY}Sub-step {self.step_number}.{self.substep_number}: {step_description}\033[0m")
         else:
             self.step_number += 1
             self.substep_number = 0  # Reset substep counter for new main step
             self.operation_count = 0
             if self.verbose > 0:
-                print(f"\033[92m🔷 Step {self.step_number}: {step_description}\033[0m")
+                print(f"\033[92m{DIAMOND}Step {self.step_number}: {step_description}\033[0m")
         # print(f"🔹 Current context: {context}")
         # print(f"🔹 Step config: {step}")
 
         if step is None:
             if self.verbose > 0:
-                print("🔷 No operation defined for this step, skipping.")
+                print(f"{DIAMOND}No operation defined for this step, skipping.")
             return context
 
         try:
@@ -749,16 +875,17 @@ class PipelineRunner:
                         # Dict without 'class' or 'function' key - try to deserialize
                         operator = deserialize_component(step[key])
                         controller = self._select_controller(step, keyword=key, operator=operator)
+                    elif isinstance(step[key], str):
+                        # String reference to a class/function - deserialize it
+                        operator = deserialize_component(step[key])
+                        controller = self._select_controller(step, keyword=key, operator=operator)
                     else:
                         # Direct operator instance (e.g., GroupKFold(), nicon)
                         operator = step[key]
                         controller = self._select_controller(step, keyword=key, operator=operator)
                 elif key := next((k for k in step if k in self.SERIALIZATION_OPERATORS), None):
                     # print(f"📦 Deserializing dict operation: {key}")
-                    if '_runtime_instance' in step:
-                        operator = step['_runtime_instance']
-                    else:
-                        operator = deserialize_component(step)
+                    operator = deserialize_component(step)
                     controller = self._select_controller(step, operator=operator)
                 else:
                     # print(f"🔗 Running dict operation: {step}")
@@ -779,7 +906,7 @@ class PipelineRunner:
                     context["keyword"] = step  # Store keyword in context for controller use
 
             else:
-                print(f"🔍 Unknown step type: {type(step).__name__}, executing as operation")
+                print(f"{SEARCH}Unknown step type: {type(step).__name__}, executing as operation")
                 controller = self._select_controller(step)
 
             if controller is not None:
@@ -788,7 +915,7 @@ class PipelineRunner:
                 # Check if controller supports prediction mode
                 if (self.mode == "predict" or self.mode == "explain") and not controller.supports_prediction_mode():
                     if self.verbose > 0:
-                        print(f"⚠️ Controller {controller.__class__.__name__} does not support prediction mode, skipping step {self.step_number}")
+                        print(f"{WARNING}Controller {controller.__class__.__name__} does not support prediction mode, skipping step {self.step_number}")
                     return context
 
                 # Load binaries if in prediction mode
@@ -796,24 +923,18 @@ class PipelineRunner:
                 if (self.mode == "predict" or self.mode == "explain") and self.binary_loader is not None and loaded_binaries is None:
                     loaded_binaries = self.binary_loader.get_step_binaries(self.step_number)
                     if self.verbose > 1 and loaded_binaries:
-                        print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
+                        print(f"{SEARCH}Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
 
                 context["step_id"] = self.step_number
                 return self._execute_controller(
                     controller, step, operator, dataset, context, prediction_store, -1, loaded_binaries
                 )
 
-
-
-            # self.history.complete_step(step_execution.step_id)
-
         except Exception as e:
-            # Fail step
-            # self.history.fail_step(step_execution.step_id, str(e))
             import traceback
             traceback.print_exc()
             if self.continue_on_error:
-                print(f"⚠️ Step failed but continuing: {str(e)}")
+                print(f"{WARNING}Step failed but continuing: {str(e)}")
             else:
                 raise RuntimeError(f"Pipeline step failed: {str(e)}") from e
 
@@ -850,9 +971,9 @@ class PipelineRunner:
 
         if self.verbose > 0:
             if operator is not None:
-                print(f"🔹 Executing controller {controller_name} with operator {operator_name}")
+                print(f"{SMALL_DIAMOND}Executing controller {controller_name} with operator {operator_name}")
             else:
-                print(f"🔹 Executing controller {controller_name} without operator")
+                print(f"{SMALL_DIAMOND}Executing controller {controller_name} without operator")
 
         # Prediction counting is now handled by config_predictions externally
         # prev_prediction_count = len(config_predictions) if config_predictions else 0
@@ -866,7 +987,7 @@ class PipelineRunner:
         if needs_spinner and self.show_spinner and self.verbose == 0:  # Only show spinner when not verbose
             # Create and print the initial message
             controller_display_name = controller_name.replace('Controller', '')
-            initial_message = f"🔄 {controller_name} executes {controller_display_name}"
+            initial_message = f"{REFRESH}{controller_name} executes {controller_display_name}"
 
             # Only show test data shape for model controllers
             if is_model_controller:
@@ -906,48 +1027,21 @@ class PipelineRunner:
         # Always show final score for model controllers when verbose=0
         is_model_controller = 'model' in controller_name.lower()
         # print("🔹 Controller execution completed")
-        # Save binaries if in training mode and saving is enabled
-        if self.mode == "train" and self.save_files and binaries:
-            # Track binaries for this step with correct naming
-            step_id = f"{self.step_number}_{self.substep_number}"
 
-            # Store the actual filenames that will be saved (with step prefixes)
-            actual_filenames = []
-            for binary_name, _ in binaries:
-                # Construct the actual saved filename (same logic as in io.py)
-                prefixed_name = str(self.step_number)
-                if self.substep_number > 0:
-                    prefixed_name += "_" + str(self.substep_number)
-                prefixed_name += "_" + str(binary_name)
-                actual_filenames.append(prefixed_name)
-
-            self.step_binaries[step_id] = actual_filenames
-            self.saver.save_files(self.step_number, self.substep_number, binaries, self.save_files)
+        # Handle artifact metadata from controllers
+        if self.mode == "train" and binaries:
+            # Binaries are now List[ArtifactMeta] instead of List[Tuple[str, bytes]]
+            # They've already been persisted by controllers, just append to manifest
+            if self.manifest_manager and self.pipeline_uid:
+                self.manifest_manager.append_artifacts(self.pipeline_uid, binaries)
+                if self.verbose > 1:
+                    print(f"📦 Appended {len(binaries)} artifacts to manifest")
 
         return context
-
-        # if controller.use_multi_source():
-        #     if not dataset.is_multi_source():
-        #         source = 0
-        #     else:
-        #         source = [i for i in range(dataset.n_sources)]
-        #         operator = [operator]
-        #         for _ in range(len(source) - len(operator)):
-        #             op = deserialize_component(step)
-        #             print(f"🔄 Adding operator {op} for additional source")
-        #             operator.append(op)
-
-        # if isinstance(operator, list) and self.parallel:
-        #     print(f"🔄 Running operators in parallel with {self.max_workers} workers")
-        #     with parallel_backend(self.backend, n_jobs=self.max_workers):
-        #         Parallel()(delayed(controller.execute)(step, op, dataset, context, self, src) for op, src in zip(operator, source))
-        #     return context
-        # else:
-        #     print(f"🔄 Running single operator {operator} for step: {step}, source: {source}")
-            # return controller.execute(step, operator, dataset, context, self, source)
 
     def next_op(self) -> int:
         """Get the next operation ID."""
         self.operation_count += 1
         return self.operation_count
+
 

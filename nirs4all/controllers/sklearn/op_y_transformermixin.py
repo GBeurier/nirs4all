@@ -24,7 +24,7 @@ class YTransformerMixinController(OperatorController):
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
         """Match if keyword is 'y_processing' and operator is a TransformerMixin."""
-        # print(">>>> Checking YTransformerMixinController match...")
+        # print(f">>>> Checking YTransformerMixinController match...")
         # print(f"Keyword: {keyword}, Operator: {operator}, Is TransformerMixin: {isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)}")
         return (keyword == "y_processing" and
                 (isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)))
@@ -69,7 +69,6 @@ class YTransformerMixinController(OperatorController):
             Tuple of (updated_context, fitted_transformers_list)
         """
         # Skip execution in prediction mode
-        import pickle
         from sklearn.base import clone
 
         # Naming for the new processing
@@ -126,10 +125,15 @@ class YTransformerMixinController(OperatorController):
         updated_context = context.copy()
         updated_context["y"] = new_processing_name
 
-        # Serialize fitted transformer for potential reuse
-        if mode != "predict" and mode != "explain":
-            transformer_binary = pickle.dumps(transformer)
-            fitted_transformers = [(f"y_{operator_name}.pkl", transformer_binary)]
+        # Persist fitted transformer using new serializer
+        if mode == "train":
+            artifact = runner.saver.persist_artifact(
+                step_number=runner.step_number,
+                name=f"y_{operator_name}",
+                obj=transformer,
+                format_hint='sklearn'
+            )
+            fitted_transformers = [artifact]
             return updated_context, fitted_transformers
 
         # print(f"✅ Successfully applied {operator_name} to targets: {current_y_processing} → {new_processing_name}")
@@ -137,3 +141,4 @@ class YTransformerMixinController(OperatorController):
         # print(f"   All shape: {all_targets.shape} → {transformed_targets.shape}")
 
         return updated_context, []
+

@@ -215,7 +215,7 @@ class CrossValidatorController(OperatorController):
 
         # If no test partition exists, use first fold as test
         if dataset.x({"partition": "test"}).shape[0] == 0:
-            print("⚠️ No test partition found; using first fold as test set.")
+            print("{WARNING} No test partition found; using first fold as test set.")
             fold_1 = folds[0]
             dataset._indexer.update_by_indices(
                 fold_1[1], {"partition": "test"}
@@ -245,4 +245,25 @@ class CrossValidatorController(OperatorController):
                 folds_name += f"_seed{seed}"
         folds_name += ".csv"
 
+            # print(f"Generated {len(folds)} folds.")
+
+        # Save folds CSV as output in the pipeline directory (not as binary artifact)
+        # Handle case where runner is None (e.g., in unit tests)
+        if runner and hasattr(runner, 'saver') and runner.saver:
+            output_path = runner.saver.save_output(
+                step_number=runner.step_number,
+                name=folds_name.replace('.csv', ''),  # Name without extension
+                data=binary,
+                extension='.csv'
+            )
+            # Return output info instead of artifact
+            if output_path:
+                return context, [{"name": folds_name, "path": str(output_path), "type": "folds_csv"}]
+
+        # Fallback for tests: return binary directly
         return context, [(folds_name, binary)]
+        # else:
+        #     n_folds = operator.get_n_splits(**kwargs) if hasattr(operator, "get_n_splits") else 1
+        #     dataset.set_folds([(list(range(n_samples)), [])] * n_folds)
+        #     return context, []
+
