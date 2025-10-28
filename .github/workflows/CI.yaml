@@ -4,6 +4,8 @@ name: CI
 on:
   push:
     branches: [ main, master ]
+    # run the full test+coverage job when a tag is pushed
+    tags: ['*']
   pull_request:
     branches: [ main, master ]
 
@@ -13,14 +15,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]  # , macos-latest --- macos timeout issues
         python-version: ['3.9', '3.11', '3.13']
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}   # 👈 quoted above
+          python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
       - name: Install test deps
@@ -31,11 +33,18 @@ jobs:
       - name: Install package (editable)
         run: python -m pip install -e .
 
-      - name: Run pytest + coverage
+      - name: Run quick pytest (only on commits / PRs)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        run: |
+          python -m pytest -v tests/integration_tests/test_basic_pipeline.py tests/integration_tests/test_classification_integration.py
+
+      - name: Run full pytest + coverage (only on tag push)
+        if: "startsWith(github.ref, 'refs/tags/')"
         run: |
           python -m pytest -v tests/ --cov=nirs4all --cov-report=xml
 
       - name: Upload coverage to Codecov
+        if: "startsWith(github.ref, 'refs/tags/')"
         uses: codecov/codecov-action@v3
         with:
           file: ./coverage.xml
