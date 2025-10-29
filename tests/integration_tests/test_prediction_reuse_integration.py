@@ -65,7 +65,7 @@ class TestPredictionReuseIntegration:
         print(f"Best model: {best_prediction['model_name']}")
 
         # Get reference predictions from training
-        reference_predictions = best_prediction['y_pred'][:5].flatten()
+        reference_predictions = np.array(best_prediction['y_pred'][:5]).flatten()
         print(f"Reference predictions: {reference_predictions}")
 
         # Method 1: Predict using prediction entry
@@ -74,12 +74,13 @@ class TestPredictionReuseIntegration:
 
         # Make predictions using the best prediction entry
         method1_predictions, _ = predictor.predict(best_prediction, prediction_dataset, verbose=0)
-        method1_array = method1_predictions[:5].flatten()
+        method1_array = np.array(method1_predictions[:5]).flatten()
         print(f"Method 1 predictions: {method1_array}")
 
         # Verify predictions are valid
         assert method1_predictions is not None
         assert len(method1_predictions) > 0
+        method1_predictions = np.array(method1_predictions)
         assert np.isfinite(method1_predictions).all()
         assert method1_predictions.shape[0] > 0
 
