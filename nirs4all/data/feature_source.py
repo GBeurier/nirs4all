@@ -157,16 +157,6 @@ class FeatureSource:
         # Headers will be set by the controller after replacement
         self._headers = None
 
-    # def _validate_update_inputs(self, features: List[np.ndarray], source_processings: List[str], processings: List[str]) -> None:
-    #     """Validate inputs for update_features."""
-    #     if len(features) != len(source_processings) or len(features) != len(processings):
-    #         raise ValueError("features, source_processings, and processings must have the same length")
-
-    #     # Validate that all arrays have the same number of samples
-    #     if self.num_samples > 0:
-    #         for i, arr in enumerate(features):
-    #             if arr.shape[0] != self.num_samples:
-    #                 raise ValueError(f"Array {i} has {arr.shape[0]} samples, expected {self.num_samples}")
 
     def _categorize_operations(self, features: List[np.ndarray], source_processings: List[str], processings: List[str]):
         """Separate operations into replacements and additions."""
