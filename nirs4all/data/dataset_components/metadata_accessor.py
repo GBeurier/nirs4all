@@ -9,7 +9,7 @@ import polars as pl
 import numpy as np
 from typing import Optional, List, Union, Tuple, Dict, Literal
 
-from nirs4all.data.helpers import Selector
+from nirs4all.data.types import Selector
 from nirs4all.data.indexer import Indexer
 from nirs4all.data.metadata import Metadata
 

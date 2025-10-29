@@ -8,7 +8,7 @@ user-friendly selector dictionaries into optimized Polars expressions.
 from typing import Dict, Any, Optional
 import polars as pl
 
-from nirs4all.data.helpers import Selector
+from nirs4all.data.types import Selector
 
 
 class QueryBuilder:

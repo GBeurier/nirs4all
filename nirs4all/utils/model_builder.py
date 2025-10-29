@@ -281,9 +281,10 @@ class ModelBuilderFactory:
         """
         # Get X data with correct context
         context = {'partition': 'train'}
-        # Use '3d_transpose' for TensorFlow to match the layout used during training
+        # Use VOLUME_3D_TRANSPOSE for TensorFlow to match the layout used during training
         # This ensures Conv1D receives input_shape=(features, processings) not (processings, features)
-        layout = '3d_transpose' if framework == 'tensorflow' else '2d'
+        from nirs4all.data.feature_components import FeatureLayout
+        layout = FeatureLayout.VOLUME_3D_TRANSPOSE.value if framework == 'tensorflow' else FeatureLayout.FLAT_2D.value
 
         try:
             X = dataset.x(context, layout=layout, concat_source=True)

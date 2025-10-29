@@ -3,19 +3,45 @@ from typing import List, Tuple, Dict, Any, Optional, Union
 import numpy as np
 import polars as pl
 
-from nirs4all.data.feature_source import FeatureSource
-from nirs4all.data.helpers import InputData, InputFeatures, ProcessingList, SampleIndices
+from nirs4all.data.feature_components import FeatureSource
+from nirs4all.data.types import InputData, InputFeatures, ProcessingList, SampleIndices
 
 class Features:
-    """Manages N aligned NumPy sources + a Polars index."""
+    """Manages N aligned NumPy sources + a Polars index.
+
+    This class coordinates multiple FeatureSource objects, ensuring they remain
+    aligned in terms of sample count while allowing different feature dimensions
+    and processing pipelines per source.
+
+    Attributes:
+        sources: List of FeatureSource objects managing individual feature arrays.
+        cache: Whether to enable caching for operations.
+    """
 
     def __init__(self, cache: bool = False):
-        """Initialize empty feature block."""
+        """Initialize empty feature block.
+
+        Args:
+            cache: If True, enables caching for operations (not yet implemented).
+        """
         self.sources: List[FeatureSource] = []
         self.cache = cache
 
     def add_samples(self, data: InputData, headers: Optional[Union[List[str], List[List[str]]]] = None,
                     header_unit: Optional[Union[str, List[str]]] = None) -> None:
+        """Add samples to all sources, ensuring alignment.
+
+        Args:
+            data: Single 2D array or list of 2D arrays, one per source.
+            headers: Optional feature headers. Single list applies to all sources,
+                or list of lists for per-source headers.
+            header_unit: Optional unit type for headers ("cm-1", "nm", "none", "text", "index").
+                Single string applies to all sources, or list for per-source units.
+
+        Raises:
+            ValueError: If number of data arrays doesn't match existing sources,
+                or if headers/units lists don't match number of sources.
+        """
         if isinstance(data, np.ndarray):
             data = [data]
 
@@ -54,6 +80,14 @@ class Features:
                 src.set_headers(hdr, unit=unit)
 
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList, source: int = -1) -> None:
+        """Update or add new feature processings to a specific source.
+
+        Args:
+            source_processings: List of existing processing names to replace. Empty string "" means add new.
+            features: Feature arrays to add or replace (single array or list of arrays).
+            processings: Target processing names for the features.
+            source: Source index to update (default: 0 if negative).
+        """
         # Handle empty features list
         if not features:
             return
@@ -61,14 +95,22 @@ class Features:
 
     @property
     def num_samples(self) -> int:
-        """Get the number of samples (rows) across all sources."""
+        """Get the number of samples (rows) across all sources.
+
+        Returns:
+            Number of samples in the first source (all sources have the same count).
+        """
         if not self.sources:
             return 0
         return self.sources[0].num_samples
 
     @property
     def num_processings(self) -> Union[List[int], int]:
-        """Get the number of unique processing IDs per source."""
+        """Get the number of unique processing IDs per source.
+
+        Returns:
+            Single int if only one source, otherwise list of ints (one per source).
+        """
         if not self.sources:
             return 0
         res = []
@@ -80,7 +122,11 @@ class Features:
 
     @property
     def preprocessing_str(self) -> Union[List[List[str]], List[str]]:
-        """Get the list of processing IDs per source."""
+        """Get the list of processing IDs per source.
+
+        Returns:
+            List of processing ID lists, one per source.
+        """
         if not self.sources:
             return []
         res = []
@@ -90,7 +136,11 @@ class Features:
 
     @property
     def headers_list(self) -> Union[List[List[str]], List[str]]:
-        """Get the list of feature headers per source."""
+        """Get the list of feature headers per source.
+
+        Returns:
+            List of header lists, one per source.
+        """
         if not self.sources:
             return []
         res = []
@@ -99,14 +149,25 @@ class Features:
         return res
 
     def headers(self, src: int) -> List[str]:
-        """Get the list of feature headers for a specific source."""
+        """Get the list of feature headers for a specific source.
+
+        Args:
+            src: Source index.
+
+        Returns:
+            List of header strings for the specified source.
+        """
         if not self.sources:
             return []
         return self.sources[src].headers
 
     @property
     def num_features(self) -> Union[List[int], int]:
-        """Get the number of features per source."""
+        """Get the number of features per source.
+
+        Returns:
+            Single int if only one source, otherwise list of ints (one per source).
+        """
         if not self.sources:
             return 0
         res = []
@@ -149,6 +210,20 @@ class Features:
             src.augment_samples(sample_indices, arr, processings, count_list)
 
     def x(self, indices: SampleIndices, layout: str = "2d", concat_source: bool = True) -> Union[np.ndarray, list[np.ndarray]]:
+        """Retrieve feature data for specified samples.
+
+        Args:
+            indices: Sample indices to retrieve.
+            layout: Data layout format ("2d", "2d_interleaved", "3d", "3d_transpose").
+            concat_source: If True and multiple sources exist, concatenate along feature dimension.
+
+        Returns:
+            Feature array(s) in the requested layout. Single array if concat_source=True or
+            only one source, otherwise list of arrays.
+
+        Raises:
+            ValueError: If no features are available.
+        """
         if not self.sources:
             raise ValueError("No features available")
 

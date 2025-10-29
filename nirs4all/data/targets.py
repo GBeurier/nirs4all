@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Union
 import numpy as np
 from sklearn.base import TransformerMixin
 
-from nirs4all.data.helpers import SampleIndices
+from nirs4all.data.types import SampleIndices
 from nirs4all.data.targets_components.converters import NumericConverter
 from nirs4all.data.targets_components.processing_chain import ProcessingChain
 from nirs4all.data.targets_components.transformers import TargetTransformer

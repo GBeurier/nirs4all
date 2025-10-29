@@ -8,7 +8,7 @@ input formats and converting them to consistent internal representations.
 from typing import Union, List, Any, Optional, Dict
 import numpy as np
 
-from nirs4all.data.helpers import SampleIndices, ProcessingList, PartitionType, IndexDict
+from nirs4all.data.types import SampleIndices, ProcessingList, PartitionType, IndexDict
 
 
 class ParameterNormalizer:

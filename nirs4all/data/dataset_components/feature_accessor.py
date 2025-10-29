@@ -8,7 +8,7 @@ operations, including data retrieval, augmentation, and wavelength conversions.
 import numpy as np
 from typing import Optional, Union, List
 
-from nirs4all.data.helpers import Selector, Layout, OutputData, InputData, IndexDict, InputFeatures, ProcessingList, get_num_samples
+from nirs4all.data.types import Selector, Layout, OutputData, InputData, IndexDict, InputFeatures, ProcessingList, get_num_samples
 from nirs4all.data.indexer import Indexer
 from nirs4all.data.features import Features
 

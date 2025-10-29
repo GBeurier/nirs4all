@@ -26,6 +26,8 @@
 
 > [ReadsTheDoc] minimal subset of signatures + update and export MD
 
+> [Changelog] start maintaining a changelog
+
 **RELEASE** 0.5: documentation
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.

@@ -141,10 +141,10 @@ class TestDatasetWavelengthConversion:
         samples = np.random.rand(10, 3)
         headers = ["1", "2", "3"]
         dataset.add_samples(samples, headers=headers)
-        dataset._features.sources[0].set_headers(headers, unit="invalid")
 
-        with pytest.raises(ValueError, match="Cannot convert unit 'invalid'"):
-            dataset.wavelengths_nm(0)
+        # Now the validation happens at set_headers time, not at conversion time
+        with pytest.raises(ValueError, match="Invalid header unit"):
+            dataset._features.sources[0].set_headers(headers, unit="invalid")
 
     def test_multi_source_different_units(self):
         """Test that different sources can have different units"""
@@ -158,7 +158,7 @@ class TestDatasetWavelengthConversion:
         dataset._features.sources[0].set_headers(headers1, unit="cm-1")
 
         # Source 1: nm - manually add second source
-        from nirs4all.data.feature_source import FeatureSource
+        from nirs4all.data import FeatureSource
         source1 = FeatureSource()
         samples2 = np.random.rand(10, 2)
         headers2 = ["780.0", "1000.0"]
