@@ -6,6 +6,7 @@ with Random Forest classifiers and confusion matrix visualization.
 """
 
 # Standard library imports
+import argparse
 import os
 
 # Third-party imports
@@ -23,6 +24,11 @@ from nirs4all.operators.transforms import (
 )
 from nirs4all.operators.transforms.targets import RangeDiscretizer
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q7 Discretization Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 # Enable emojis in output
 os.environ['DISABLE_EMOJIS'] = '0'
@@ -78,4 +84,5 @@ predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_confi
 analyzer = PredictionAnalyzer(predictions)
 confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=3, metric='accuracy', partition='val')
 
-# plt.show()
+if args.show_plots:
+    plt.show()

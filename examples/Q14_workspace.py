@@ -15,6 +15,7 @@ Key nirs4all APIs demonstrated:
 - Clean filenames: No redundant date/time prefixes
 """
 
+import argparse
 import shutil
 from pathlib import Path
 import json
@@ -27,6 +28,10 @@ from nirs4all.data.predictions import Predictions
 from nirs4all.utils.emoji import DISK, TROPHY, SEARCH, ROCKET
 from nirs4all.workspace.library_manager import LibraryManager
 
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q14 Workspace Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 def main():
     print("=" * 80)

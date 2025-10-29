@@ -8,6 +8,9 @@ Demonstrates model training, saving, and three different prediction methods:
 Shows how to reuse trained models for new data.
 """
 
+# Standard library imports
+import argparse
+
 # Third-party imports
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
@@ -21,6 +24,11 @@ from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNorma
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.models.tensorflow.nicon import nicon
 from nirs4all.utils.emoji import CHECK, CROSS
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q5 Predict Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 # Build the pipeline with feature augmentation and model persistence
 pipeline = [

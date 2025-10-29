@@ -6,6 +6,7 @@ Shows confusion matrix visualization for model performance evaluation.
 """
 
 # Standard library imports
+import argparse
 import os
 os.environ['DISABLE_EMOJIS'] = '0'
 
@@ -48,6 +49,11 @@ from custom_NN import (
 from examples.custom_nicon import (
     nicon_improved, nicon_lightweight, nicon_experimental, nicon_auto_norm, nicon_batch_norm
 )
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='X3 Hiba Full Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 import tensorflow as tf
 print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
@@ -377,7 +383,7 @@ pipeline_config = PipelineConfigs(pipeline, "Hiba")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=True)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.show_plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 

@@ -1,11 +1,12 @@
 """
-Q1 Classification Example - Random Forest Classification Pipeline
-===============================================================
-Demonstrates NIRS classification analysis using Random Forest models with various max_depth parameters.
-Shows confusion matrix visualization for model performance evaluation.
+Q1 TensorFlow Classification Example - Neural Network Classification Pipeline
+============================================================================
+Demonstrates NIRS classification using TensorFlow-based neural networks (NICON).
+Shows comparison with traditional Random Forest models.
 """
 
 # Standard library imports
+import argparse
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -26,6 +27,10 @@ from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter
 from nirs4all.operators.models.tensorflow.nicon import nicon_classification
 
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q1 TensorFlow Classification Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 # Configuration variables
 feature_scaler = MinMaxScaler()
@@ -66,7 +71,7 @@ pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+runner = PipelineRunner(save_files=False, verbose=0, plots_visible=args.show_plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization
@@ -84,4 +89,5 @@ analyzer = PredictionAnalyzer(predictions)
 # Rank models by accuracy on val partition, display confusion matrix from test partition
 confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
 
-# plt.show()
+if args.show_plots:
+    plt.show()

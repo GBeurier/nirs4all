@@ -15,12 +15,14 @@
 
 > [Pytorch] controller
 
+> [Jax] controller
+
 > [Imports] import tf and pytorch only when needed, reup backend_utils.
 
 > [SEED] review and fix definitive logic
 
 
-**RELEASE** 0.4.2: torch up
+**RELEASE** 0.4.2: torch/jax up
 
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 

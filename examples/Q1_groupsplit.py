@@ -5,24 +5,19 @@ Demonstrates NIRS classification analysis using Random Forest models with variou
 Shows confusion matrix visualization for model performance evaluation.
 """
 
-# Standard library imports
-import os
-from sklearn.model_selection import ShuffleSplit
+import argparse
 
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import GroupKFold
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import ShuffleSplit, KFold, LeaveOneGroupOut, GroupKFold, StratifiedGroupKFold
 
 # NIRS4All imports
 from nirs4all.data import DatasetConfigs
-from nirs4all.data.predictions import Predictions
-from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer, Gaussian as Gauss,
-    StandardNormalVariate as StdNorm, SavitzkyGolay as SavGol, Haar, MultiplicativeScatterCorrection as MSC
-)
+from nirs4all.operators.splitters import KennardStoneSplitter, SPXYSplitter, KMeansSplitter, SPlitSplitter, SystematicCircularSplitter, KBinsStratifiedSplitter
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.splitters import SPXYSplitter
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q1 GroupSplit Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 data_path = 'sample_data/classification'
 
@@ -35,7 +30,7 @@ pipeline = [
 
 pipeline_config = PipelineConfigs(pipeline, "Q1_groupsplit")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.show_plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 
@@ -48,5 +43,5 @@ pipeline_stratified = [
 
 pipeline_config = PipelineConfigs(pipeline_stratified, "Q1_groupsplit")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.show_plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)

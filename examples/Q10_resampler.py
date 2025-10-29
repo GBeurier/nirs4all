@@ -11,6 +11,7 @@ The resampler uses scipy interpolation to estimate spectral values at new
 wavelengths based on the original wavelength-intensity relationship.
 """
 
+import argparse
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import ShuffleSplit
@@ -19,6 +20,11 @@ from sklearn.cross_decomposition import PLSRegression
 from nirs4all.operators.transforms import Resampler, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.data import DatasetConfigs
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q10 Resampler Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 def main():
     """Run resampler example."""
@@ -49,7 +55,7 @@ def main():
     dataset_config = DatasetConfigs("sample_data/regression_3")
     pipeline_config = PipelineConfigs(pipeline_other, name="Other_Dataset_Pipeline")
 
-    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=False)
+    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=args.show_plots)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Example 2: Downsample to fewer points (descending order)
@@ -67,7 +73,7 @@ def main():
     ]
 
     pipeline_config = PipelineConfigs(pipeline_downsample, name="Downsample_Pipeline")
-    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
+    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.show_plots)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Example 3: Focus on fingerprint region (descending order)
@@ -88,7 +94,7 @@ def main():
 
     pipeline_config = PipelineConfigs(pipeline_cropped, name="Cropped_Pipeline")
 
-    runner = PipelineRunner(plots_visible=False)
+    runner = PipelineRunner(plots_visible=args.show_plots)
 
     predictions, _ = runner.run(pipeline_config, dataset_config)
 

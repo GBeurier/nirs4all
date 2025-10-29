@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import RepeatedKFold
@@ -7,6 +8,12 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.models.tensorflow.nicon import nicon
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q8 SHAP Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
+
 print("Q8 - SHAP Model Explanation Example")
 
 pipeline = [
@@ -68,4 +75,4 @@ shap_params = {
     }
 }
 
-shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params, plots_visible=False)
+shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params, plots_visible=args.show_plots)
