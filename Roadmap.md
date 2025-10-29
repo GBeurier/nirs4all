@@ -1,6 +1,6 @@
 ## ROADMAP ##
 
-> [Cleaning] Modularize/Clean/Refactor: Predictions, PredictionAnalyzer, BaseModelController, Model_builder, PipelineRunner
+> [Cleaning] Modularize/Clean/Refactor: Predictions, PredictionAnalyzer, BaseModelController, Model_builder, PipelineRunner, tests (increase indexer coverage)
 
 > [Pipeline] authorize list of pipelineconfigs instead of pipelines....
 
