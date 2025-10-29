@@ -245,8 +245,8 @@ class PredictionRanker:
                         y_pred = self._get_array(row, "y_pred")
 
                         partition_dict = {
-                            "y_true": y_true.tolist(),
-                            "y_pred": y_pred.tolist(),
+                            "y_true": y_true,  # Keep as numpy array
+                            "y_pred": y_pred,  # Keep as numpy array
                             "train_score": row.get("train_score"),
                             "val_score": row.get("val_score"),
                             "test_score": row.get("test_score"),
@@ -269,8 +269,8 @@ class PredictionRanker:
                                 "model_path": row.get("model_path"),
                                 "fold_id": row.get("fold_id"),
                                 "op_counter": row.get("op_counter"),
-                                "sample_indices": sample_indices.tolist() if sample_indices is not None else [],
-                                "weights": weights.tolist() if weights is not None else [],
+                                "sample_indices": sample_indices if sample_indices is not None else np.array([]),
+                                "weights": weights if weights is not None else np.array([]),
                                 "metadata": json.loads(row.get("metadata", "{}")),
                                 "metric": row.get("metric"),
                                 "task_type": row.get("task_type", "regression"),
@@ -324,8 +324,8 @@ class PredictionRanker:
                         "model_path": row.get("model_path"),
                         "fold_id": row.get("fold_id"),
                         "op_counter": row.get("op_counter"),
-                        "sample_indices": sample_indices.tolist() if sample_indices is not None else [],
-                        "weights": weights.tolist() if weights is not None else [],
+                        "sample_indices": sample_indices if sample_indices is not None else np.array([]),
+                        "weights": weights if weights is not None else np.array([]),
                         "metadata": json.loads(row.get("metadata", "{}")),
                         "metric": row.get("metric"),
                         "task_type": row.get("task_type", "regression"),
@@ -333,8 +333,8 @@ class PredictionRanker:
                         "n_features": row.get("n_features"),
                         "preprocessings": row.get("preprocessings"),
                         "best_params": json.loads(row.get("best_params", "{}")),
-                        "y_true": y_true.tolist() if y_true is not None else None,
-                        "y_pred": y_pred.tolist() if y_pred is not None else None,
+                        "y_true": y_true,  # Keep as numpy array
+                        "y_pred": y_pred,  # Keep as numpy array
                         "train_score": row.get("train_score"),
                         "val_score": row.get("val_score"),
                         "test_score": row.get("test_score")

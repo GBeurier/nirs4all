@@ -35,7 +35,7 @@ pipeline = [
     RepeatedKFold(n_splits=2, n_repeats=1, random_state=42),
 
     # Machine learning models
-    {"model": PLSRegression(10), "name": "Q4_PLS_10"},
+    {"model": PLSRegression(10), "name": "Q5_PLS_10"},
     # {"model": PLSRegression(20), "name": "Q4_PLS_20"},
     # {"model": GradientBoostingRegressor(n_estimators=20)},
     # nicon

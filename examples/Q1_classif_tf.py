@@ -55,7 +55,8 @@ pipeline = [
     "fold_chart",
     ShuffleSplit(n_splits=3, test_size=0.25),
     "fold_chart",
-    nicon_classification
+    {"model": nicon_classification,
+     "train_params": {'epochs': 50, 'batch_size': 16, 'verbose': 0}}
 ]
 
 
@@ -65,7 +66,7 @@ pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
+runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization

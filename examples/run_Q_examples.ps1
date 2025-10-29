@@ -22,7 +22,10 @@ $examples = @(
     "Q11_flexible_inputs.py",
     "Q12_sample_augmentation.py",
     "Q13_nm_headers.py",
-    "Q14_workspace.py"
+    "Q14_workspace.py",
+    "X1_metadata.py",
+    "X2_sample_augmentation.py",
+    "X4_features.py"
 )
 
 # Setup logging if requested

@@ -15,12 +15,13 @@ Refactored architecture (v0.4.1):
 Public API is preserved for backward compatibility.
 """
 
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Union
+from uuid import uuid4
+
 import numpy as np
 import polars as pl
-from pathlib import Path
-from datetime import datetime
-from uuid import uuid4
 
 from nirs4all.utils.emoji import DISK, CHECK, WARNING
 from nirs4all.utils import evaluator

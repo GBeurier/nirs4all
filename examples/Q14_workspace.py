@@ -131,6 +131,7 @@ def main():
 
     # Load global predictions
     global_predictions_path = workspace_path / "regression.json"
+    global_preds = None  # Initialize variable
     if global_predictions_path.exists():
         global_preds = Predictions.load_from_file_cls(global_predictions_path)
         print(f"\n✓ Loaded {global_preds.num_predictions} predictions from database")
@@ -192,7 +193,7 @@ def main():
     )
     print(f"\n✅ Saved template using LibraryManager: {template_path.name}")
 
-    if global_preds.num_predictions > 0:
+    if global_preds and global_preds.num_predictions > 0:
         best = global_preds.get_best(ascending=True)
 
         # Find the source pipeline and run directories
@@ -278,7 +279,7 @@ def main():
     print("  STEP 6: Querying Global Predictions")
     print("=" * 80)
 
-    if global_preds.num_predictions > 0:
+    if global_preds and global_preds.num_predictions > 0:
         dataset_name = "regression"  # We know this from our setup
         print(f"\n📊 All predictions for dataset '{dataset_name}':")
 
