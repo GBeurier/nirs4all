@@ -9,7 +9,7 @@ import numpy as np
 from typing import Optional, List
 from sklearn.base import TransformerMixin
 
-from nirs4all.data.helpers import Selector
+from nirs4all.data.types import Selector
 from nirs4all.data.indexer import Indexer
 from nirs4all.data.targets import Targets
 from nirs4all.utils.model_utils import TaskType

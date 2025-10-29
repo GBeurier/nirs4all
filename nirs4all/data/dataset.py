@@ -9,7 +9,7 @@ and provides the primary public API for users.
 import re
 import numpy as np
 
-from nirs4all.data.helpers import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict, get_num_samples, InputFeatures, ProcessingList
+from nirs4all.data.types import Selector, SourceSelector, OutputData, InputData, Layout, IndexDict, InputFeatures, ProcessingList
 from nirs4all.data.features import Features
 from nirs4all.data.targets import Targets
 from nirs4all.data.indexer import Indexer

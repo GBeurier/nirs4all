@@ -10,4 +10,25 @@ from .config import DatasetConfigs
 from .predictions import Predictions, PredictionResult, PredictionResultsList
 from ..visualization.predictions import PredictionAnalyzer
 
-__all__ = ["SpectroDataset", "DatasetConfigs", "Predictions", "PredictionResult", "PredictionResultsList", "PredictionAnalyzer"]
+# Provide backward-compatible imports for feature components
+from .feature_components import (
+    FeatureSource,
+    FeatureLayout,
+    HeaderUnit,
+    normalize_layout,
+    normalize_header_unit,
+)
+
+__all__ = [
+    "SpectroDataset",
+    "DatasetConfigs",
+    "Predictions",
+    "PredictionResult",
+    "PredictionResultsList",
+    "PredictionAnalyzer",
+    "FeatureSource",
+    "FeatureLayout",
+    "HeaderUnit",
+    "normalize_layout",
+    "normalize_header_unit",
+]
