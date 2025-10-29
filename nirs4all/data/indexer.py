@@ -3,6 +3,14 @@ import numpy as np
 import polars as pl
 
 from nirs4all.data.helpers import Selector, SampleIndices, PartitionType, ProcessingList, IndexDict
+from nirs4all.data.indexer_components import (
+    IndexStore,
+    QueryBuilder,
+    SampleManager,
+    AugmentationTracker,
+    ProcessingManager,
+    ParameterNormalizer,
+)
 
 
 class Indexer:
@@ -14,55 +22,60 @@ class Indexer:
     For example, it can be used to get all test samples from branch 2,
     including augmented samples, for specific processings such as
     ["raw", "savgol", "gaussian"].
+
+    The Indexer uses a component-based architecture for maintainability:
+    - IndexStore: DataFrame storage and queries
+    - QueryBuilder: Selector to Polars expression conversion
+    - SampleManager: ID generation
+    - AugmentationTracker: Origin/augmented relationships
+    - ProcessingManager: Processing list operations
+    - ParameterNormalizer: Input validation
     """
 
     def __init__(self):
-        # Enable StringCache for consistent categorical encodings
-        pl.enable_string_cache()
+        # Initialize components
+        self._store = IndexStore()
+        self._query_builder = QueryBuilder(valid_columns=self._store.columns)
+        self._sample_manager = SampleManager(self._store)
+        self._augmentation_tracker = AugmentationTracker(self._store, self._query_builder)
+        self._processing_manager = ProcessingManager(self._store)
+        self._parameter_normalizer = ParameterNormalizer(default_processings=["raw"])
 
-        self.df = pl.DataFrame({
-            "row": pl.Series([], dtype=pl.Int32),  # row index - 1 value per line
-            "sample": pl.Series([], dtype=pl.Int32),  # index of the sample in the db
-            "origin": pl.Series([], dtype=pl.Int32),  # For data augmentation. index of the original sample. If sample is original, it's the same as sample index else it's a new one.
-            "partition": pl.Series([], dtype=pl.Categorical),  # is the sample in "train" set or "test" set
-            "group": pl.Series([], dtype=pl.Int8),  # group index - a metadata to aggregate samples per types or cluster, etc.
-            "branch": pl.Series([], dtype=pl.Int8),  # the branch of the pipeline where the sample is used
-            "processings": pl.Series([], dtype=pl.Utf8),  # the list of processing that has been applied to the sample (stored as string)
-            "augmentation": pl.Series([], dtype=pl.Categorical),  # the type of augmentation applied to generate the augmented sample
-        })
+    @property
+    def df(self) -> pl.DataFrame:
+        """
+        Get the underlying DataFrame for backward compatibility.
 
-        self.default_values = {
+        Returns:
+            pl.DataFrame: The complete index DataFrame.
+
+        Note:
+            Direct DataFrame access is provided for backward compatibility.
+            Prefer using indexer methods when possible.
+        """
+        return self._store.df
+
+    @property
+    def default_values(self) -> Dict[str, Any]:
+        """
+        Get default values for backward compatibility.
+
+        Returns:
+            Dict[str, Any]: Default values used when parameters are None.
+        """
+        return {
             "partition": "train",
-            # "group": 0,
-            # "branch": 0,
             "processings": ["raw"],
         }
 
     def _apply_filters(self, selector: Selector) -> pl.DataFrame:
-        condition = self._build_filter_condition(selector)
-        return self.df.filter(condition)
+        """Apply selector filters and return filtered DataFrame."""
+        condition = self._query_builder.build(selector, exclude_columns=["processings"])
+        return self._store.query(condition)
 
     def _build_filter_condition(self, selector: Selector) -> pl.Expr:
-        conditions = []
-        for col, value in selector.items():
-            if col not in self.df.columns or col == "processings":
-                continue
-            if isinstance(value, list):
-                conditions.append(pl.col(col).is_in(value))
-            elif value is None:
-                conditions.append(pl.col(col).is_null())
-            else:
-                conditions.append(pl.col(col) == value)
-
-        # Handle empty conditions (empty selector)
-        if not conditions:
-            return pl.lit(True)
-
-        condition = conditions[0]
-        for cond in conditions[1:]:
-            condition = condition & cond
-
-        return condition
+        """Build a Polars filter expression from selector."""
+        return self._query_builder.build(selector, exclude_columns=["processings"])
 
     def x_indices(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
         """
@@ -73,72 +86,110 @@ class Indexer:
         2. Phase 2: Get augmented versions of those base samples
 
         Args:
-            selector: Filter criteria (partition, group, branch, etc.)
+            selector: Filter criteria dictionary. Supported keys:
+                - partition: "train"|"test"|"val" or list
+                - group: int or list of ints
+                - branch: int or list of ints
+                - augmentation: str, list, or None for null check
+                - Any other indexed columns
             include_augmented: If True, include augmented versions of selected samples.
                              If False, return only base samples (sample == origin).
                              Default True for backward compatibility.
 
         Returns:
-            Array of sample indices
+            np.ndarray: Array of sample indices (dtype: np.int32). When include_augmented=True,
+                       includes base samples and their augmented versions. When False, only
+                       base samples where sample == origin.
 
-        Example:
+        Raises:
+            KeyError: If selector contains invalid column names.
+
+        Examples:
+            >>> indexer = Indexer()
+            >>> indexer.add_samples(5, partition="train")
+            >>> indexer.augment_rows([0, 1], 2, "flip")
+            >>>
             >>> # Get all train samples (base + augmented)
             >>> all_train = indexer.x_indices({"partition": "train"})
+            >>> # Returns: [0, 1, 2, 3, 4, 5, 6, 7, 8] (5 base + 4 augmented)
+            >>>
             >>> # Get only base train samples
             >>> base_train = indexer.x_indices({"partition": "train"}, include_augmented=False)
+            >>> # Returns: [0, 1, 2, 3, 4] (5 base only)
+            >>>
+            >>> # Filter by group
+            >>> group1 = indexer.x_indices({"partition": "train", "group": 1})
+            >>>
+            >>> # Get all samples (no filter)
+            >>> all_samples = indexer.x_indices({})
+
+        Note:
+            The two-phase selection ensures that augmented samples from other partitions
+            are NOT included, preventing data leakage in cross-validation scenarios.
         """
         if not include_augmented:
-            # Simple case: filter for base samples (sample == origin)
-            base_condition = self._build_filter_condition(selector) if selector else pl.lit(True)
-            base_condition = base_condition & (pl.col("sample") == pl.col("origin"))
-            filtered_df = self.df.filter(base_condition)
+            # Simple case: filter for base samples only
+            condition = self._build_filter_condition(selector)
+            base_condition = condition & self._query_builder.build_base_samples_filter()
+            filtered_df = self._store.query(base_condition)
             return filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
 
-        # Two-phase selection for leak prevention
-        # Phase 1: Get base samples (sample == origin)
-        base_condition = self._build_filter_condition(selector) if selector else pl.lit(True)
-        base_condition = base_condition & (pl.col("sample") == pl.col("origin"))
-
-        filtered_df = self.df.filter(base_condition)
-        base_indices = filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
-
-        # Phase 2: Get augmented samples if requested
-        if len(base_indices) > 0:
-            augmented_indices = self.get_augmented_for_origins(base_indices.tolist())
-            if len(augmented_indices) > 0:
-                return np.concatenate([base_indices, augmented_indices])
-
-        return base_indices
+        # Two-phase selection using augmentation tracker
+        condition = self._build_filter_condition(selector)
+        return self._augmentation_tracker.get_all_samples_with_augmentations(condition)
 
     def y_indices(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
         """
         Get y indices for samples. Returns origin indices for y-value lookup.
 
         For augmented samples, this method maps them to their base samples (origins)
-        since y-values only exist for base samples.
+        since y-values only exist for base samples. This enables proper target retrieval
+        when working with augmented data.
 
         Args:
-            selector: Filter criteria (partition, group, branch, etc.)
+            selector: Filter criteria dictionary. Same format as x_indices().
+                     See x_indices() for supported keys.
             include_augmented: If True (default), include augmented samples mapped to their origins.
                              If False, return only base sample origins (sample == origin).
                              Default True for backward compatibility with original behavior.
 
         Returns:
-            Array of origin sample indices for y-value lookup. When include_augmented=True (default),
-            augmented samples are included and mapped to their origins. When False, only
-            base samples are returned (sample == origin).
+            np.ndarray: Array of origin sample indices for y-value lookup (dtype: np.int32).
+                       When include_augmented=True (default), augmented samples are included
+                       and each is mapped to its origin. When False, only base samples are
+                       returned (sample == origin).
 
-        Example:
-            >>> # Get origin indices for all train samples (base + augmented mapped to origins)
-            >>> origins_with_aug = indexer.y_indices({"partition": "train"})  # include_augmented=True by default
-            >>> # Get origin indices only for base train samples
-            >>> origins_base = indexer.y_indices({"partition": "train"}, include_augmented=False)
+        Examples:
+            >>> indexer = Indexer()
+            >>> indexer.add_samples(5, partition="train")
+            >>> indexer.augment_rows([0, 1], 2, "flip")
+            >>>
+            >>> # Get origins for all train samples (base + augmented)
+            >>> y_idx = indexer.y_indices({"partition": "train"})
+            >>> # Returns: [0, 1, 2, 3, 4, 0, 0, 1, 1]
+            >>> # (5 base origins + 4 augmented mapped to origins 0, 0, 1, 1)
+            >>>
+            >>> # Use with targets
+            >>> targets = np.array([10, 20, 30, 40, 50])  # 5 base samples
+            >>> x_idx = indexer.x_indices({"partition": "train"})
+            >>> y_idx = indexer.y_indices({"partition": "train"})
+            >>> X = all_spectra[x_idx]  # Get spectra (includes augmented)
+            >>> y = targets[y_idx]   # Get targets (augmented samples use origin's target)
+            >>>
+            >>> # Get only base sample origins
+            >>> base_origins = indexer.y_indices({"partition": "train"}, include_augmented=False)
+            >>> # Returns: [0, 1, 2, 3, 4]
+
+        Note:
+            The length and order of y_indices() output always corresponds to x_indices()
+            output with the same selector and include_augmented parameters. This ensures
+            X and y arrays are properly aligned for training.
         """
-        filtered_df = self._apply_filters(selector) if selector else self.df
+        filtered_df = self._apply_filters(selector) if selector else self._store.df
 
         if not include_augmented:
             # Return only base sample origins (sample == origin)
-            base_condition = (pl.col("sample") == pl.col("origin"))
+            base_condition = self._query_builder.build_base_samples_filter()
             return filtered_df.filter(base_condition).select(pl.col("origin")).to_series().to_numpy().astype(np.int32)
 
         # Include augmented samples: all origins are returned (with augmented samples mapped)
@@ -152,190 +203,162 @@ class Indexer:
         enabling two-phase selection that prevents data leakage across CV folds.
 
         Args:
-            origin_samples: List of origin sample IDs to find augmented versions for
+            origin_samples: List of origin sample IDs to find augmented versions for.
+                          Can be empty list.
 
         Returns:
-            Array of augmented sample IDs (samples where origin is in origin_samples)
+            np.ndarray: Array of augmented sample IDs (dtype: np.int32). Only includes
+                       samples where origin is in origin_samples AND sample != origin
+                       (actual augmented samples, not base samples).
 
-        Example:
+        Examples:
+            >>> indexer = Indexer()
+            >>> indexer.add_samples(3, partition="train")
+            >>> indexer.augment_rows([0, 1], 2, "flip")
+            >>>
             >>> # Get base samples
-            >>> base_samples = indexer.x_indices({"partition": "train", "origin": None})
+            >>> base_samples = indexer.x_indices({"partition": "train"}, include_augmented=False)
+            >>> # base_samples: [0, 1, 2]
+            >>>
             >>> # Get their augmented versions
             >>> augmented = indexer.get_augmented_for_origins(base_samples.tolist())
+            >>> # augmented: [3, 4, 5, 6] (2 augmented each for samples 0 and 1)
+            >>>
             >>> # Combine for full dataset
             >>> all_samples = np.concatenate([base_samples, augmented])
-        """
-        if not origin_samples:
-            return np.array([], dtype=np.int32)
+            >>> # all_samples: [0, 1, 2, 3, 4, 5, 6]
 
-        # Filter for augmented samples: origin in list AND sample != origin
-        filter_condition = pl.col("origin").is_in(origin_samples) & (pl.col("sample") != pl.col("origin"))
-        augmented_df = self.df.filter(filter_condition)
-        return augmented_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
+        Note:
+            This method does not filter by partition, group, or other criteria. It returns
+            ALL augmented samples for the given origins, regardless of their attributes.
+            Use x_indices() for filtered retrieval with automatic augmentation handling.
+        """
+        return self._augmentation_tracker.get_augmented_for_origins(origin_samples)
 
     def get_origin_for_sample(self, sample_id: int) -> Optional[int]:
         """
         Get origin sample ID for a given sample.
 
-        With the new design, all samples have origin set:
+        With the current design, all samples have origin set:
         - Base samples: origin == sample (self-referencing)
         - Augmented samples: origin != sample (references base sample)
 
         Args:
-            sample_id: Sample ID to look up
+            sample_id: Sample ID to look up.
 
         Returns:
-            Origin sample ID, or None if sample not found
+            Optional[int]: Origin sample ID, or None if sample not found in index.
 
-        Example:
+        Examples:
+            >>> indexer = Indexer()
+            >>> indexer.add_samples(2, partition="train")
+            >>> indexer.augment_rows([0], 1, "flip")
+            >>>
             >>> # For augmented sample
-            >>> indexer.get_origin_for_sample(100)  # Returns 10 (origin)
+            >>> origin = indexer.get_origin_for_sample(2)  # Sample 2 is augmentation of 0
+            >>> print(origin)  # 0
+            >>>
             >>> # For base sample
-            >>> indexer.get_origin_for_sample(10)   # Returns 10 (itself)
+            >>> origin = indexer.get_origin_for_sample(0)  # Sample 0 is base
+            >>> print(origin)  # 0 (self-referencing)
+            >>>
             >>> # For non-existent sample
-            >>> indexer.get_origin_for_sample(999)  # Returns None
+            >>> origin = indexer.get_origin_for_sample(999)
+            >>> print(origin)  # None
+
+        Note:
+            This is a single-sample lookup. For batch operations, use y_indices()
+            which is more efficient for retrieving origins for multiple samples.
         """
-        row = self.df.filter(pl.col("sample") == sample_id)
-        if len(row) == 0:
-            return None
-        return int(row.select(pl.col("origin")).item())
+        return self._augmentation_tracker.get_origin_for_sample(sample_id)
 
     def replace_processings(self, source_processings: List[str], new_processings: List[str]) -> None:
         """
-        Replace processing names for a specific source.
+        Replace processing names across all samples.
+
+        Creates a mapping from old to new processing names and applies it to
+        all processing lists in the index.
 
         Args:
-            source_processings: List of existing processing names to replace
-            new_processings: List of new processing names to set
+            source_processings: List of existing processing names to replace.
+            new_processings: List of new processing names to set. Must have
+                           same length as source_processings.
+
+        Raises:
+            ValueError: If source_processings and new_processings have different lengths.
+            ValueError: If source_processings or new_processings is empty.
+
+        Examples:
+            >>> indexer = Indexer()
+            >>> indexer.add_samples(5, processings=["raw", "old_msc", "savgol"])
+            >>>
+            >>> # Replace single processing
+            >>> indexer.replace_processings(["old_msc"], ["msc"])
+            >>> # Now all samples have ["raw", "msc", "savgol"]
+            >>>
+            >>> # Replace multiple processings
+            >>> indexer.replace_processings(
+            ...     ["raw", "savgol"],
+            ...     ["raw_v2", "savgol_v2"]
+            ... )
+            >>> # Now all samples have ["raw_v2", "msc", "savgol_v2"]
+
+        Note:
+            - Operates on ALL rows in the index
+            - Non-matched processings are left unchanged
+            - Case-sensitive matching
+            - Use this method when renaming processings after pipeline changes
         """
-        if not source_processings or not new_processings:
-            return
-
-        def replace_proc(proc_str: str) -> str:
-            try:
-                proc_list = eval(proc_str)
-                if not isinstance(proc_list, list):
-                    return proc_str
-
-                # Create a mapping from old to new processing names
-                replacement_map = {old: new for old, new in zip(source_processings, new_processings)}
-
-                # Replace each processing name if it exists in the map
-                updated = [replacement_map.get(proc, proc) for proc in proc_list]
-                return str(updated)
-            except Exception:
-                return proc_str
-
-        # Apply replacement to all rows (no filtering needed for replacement)
-        self.df = self.df.with_columns(
-            pl.col("processings").map_elements(replace_proc, return_dtype=pl.Utf8)
-        )
+        self._processing_manager.replace_processings(source_processings, new_processings)
 
     def add_processings(self, new_processings: List[str]) -> None:
         """
-        Add new processing names to all existing processing lists.
+        Append processing names to all existing processing lists.
+
+        Adds new processings to the end of each sample's processing list.
+        This is useful when applying additional transformations to all data.
 
         Args:
-            new_processings: List of new processing names to add to existing lists
+            new_processings: List of new processing names to add to existing lists.
+
+        Raises:
+            ValueError: If new_processings is empty.
+
+        Examples:
+            >>> indexer = Indexer()
+            >>> indexer.add_samples(5, processings=["raw", "msc"])
+            >>>
+            >>> # Add single processing
+            >>> indexer.add_processings(["normalize"])
+            >>> # All samples now have ["raw", "msc", "normalize"]
+            >>>
+            >>> # Add multiple processings
+            >>> indexer.add_processings(["scale", "center"])
+            >>> # All samples now have ["raw", "msc", "normalize", "scale", "center"]
+
+        Note:
+            - Operates on ALL rows in the index
+            - Appends to the end of each processing list
+            - Does not check for duplicates (allows intentional reprocessing)
+            - Use this method when adding pipeline steps to existing data
         """
-        if not new_processings:
-            return
-
-        def append_processings(proc_str: str) -> str:
-            try:
-                proc_list = eval(proc_str)
-                if not isinstance(proc_list, list):
-                    proc_list = [proc_str]
-                # Add new processings to the existing list
-                updated_list = proc_list + new_processings
-                return str(updated_list)
-            except Exception:
-                # If parsing fails, create new list with new processings
-                return str(new_processings)
-
-        # Apply to all rows
-        self.df = self.df.with_columns(
-            pl.col("processings").map_elements(append_processings, return_dtype=pl.Utf8)
-        )
+        self._processing_manager.add_processings(new_processings)
 
     def _normalize_indices(self, indices: SampleIndices, count: int, param_name: str) -> List[int]:
-        """Normalize various index formats to a list of integers."""
-        if isinstance(indices, (int, np.integer)):
-            return [indices] * count
-        elif isinstance(indices, np.ndarray):
-            result = indices.tolist()
-        else:
-            result = list(indices)
-
-        if len(result) != count:
-            raise ValueError(f"{param_name} length ({len(result)}) must match count ({count})")
-        return result
+        """Normalize various index formats to a list of integers (internal helper)."""
+        return self._parameter_normalizer.normalize_indices(indices, count, param_name)
 
     def _normalize_single_or_list(self, value: Union[Any, List[Any]], count: int, param_name: str, allow_none: bool = False) -> List[Any]:
-        """Normalize single value or list to a list of specified length."""
-        if value is None and allow_none:
-            return [None] * count
-        elif isinstance(value, (int, np.integer, str)) or value is None:
-            return [value] * count
-        else:
-            result = list(value)
-            if len(result) != count:
-                raise ValueError(f"{param_name} length ({len(result)}) must match count ({count})")
-            return result
+        """Normalize single value or list to a list of specified length (internal helper)."""
+        return self._parameter_normalizer.normalize_single_or_list(value, count, param_name, allow_none)
 
-    def _prepare_processings(self, processings: Union[ProcessingList, List[ProcessingList], str, List[str], None], count: int) -> List[str]:
-        """Prepare processings list with proper validation and string conversion."""
-        if processings is None:
-            return [str(self.default_values["processings"])] * count
-        elif isinstance(processings, str):
-            # Single string representation for all samples
-            return [processings] * count
-        elif isinstance(processings, list) and len(processings) > 0:
-            if isinstance(processings[0], str) and processings[0].startswith("[") and processings[0].endswith("]"):
-                # List of string representations - each for a different sample
-                if len(processings) != count:
-                    raise ValueError(f"processings length ({len(processings)}) must match count ({count})")
-                return processings
-            elif isinstance(processings[0], str):
-                # Actual processing names - single list for all samples
-                return [str(processings)] * count
-            elif isinstance(processings[0], list):
-                # List of processing lists
-                if len(processings) != count:
-                    raise ValueError(f"processings length ({len(processings)}) must match count ({count})")
-                return [str(p) for p in processings]
-            else:
-                # Other cases - convert to string
-                if len(processings) == count:
-                    return [str(p) for p in processings]
-                else:
-                    return [str(processings)] * count
-        else:
-            # Other cases - single processing for all samples
-            return [str(processings)] * count
+    def _prepare_processings(self, processings: Union[ProcessingList, List[ProcessingList], str, List[str], None], count: int) -> List[List[str]]:
+        """Prepare processings list with proper validation (internal helper)."""
+        return self._parameter_normalizer.prepare_processings(processings, count)
 
     def _convert_indexdict_to_params(self, index_dict: IndexDict, count: int) -> Dict[str, Any]:
-        """Convert IndexDict to method parameters, similar to _apply_filters pattern."""
-        params = {}
-
-        # Handle special mappings
-        if "sample" in index_dict:
-            params["sample_indices"] = index_dict["sample"]
-        if "origin" in index_dict:
-            params["origin_indices"] = index_dict["origin"]
-
-        # Handle direct mappings
-        direct_mappings = ["partition", "group", "branch", "processings", "augmentation"]
-        for key in direct_mappings:
-            if key in index_dict:
-                params[key] = index_dict[key]
-
-        # Handle any other columns as overrides
-        for key, value in index_dict.items():
-            if key not in ["sample", "origin"] + direct_mappings:
-                params[key] = value
-
-        return params
+        """Convert IndexDict to method parameters (internal helper)."""
+        return self._parameter_normalizer.convert_indexdict_to_params(index_dict, count)
 
     def _append(self,
                 count: int,
@@ -349,7 +372,7 @@ class Indexer:
                 augmentation: Optional[Union[str, List[str]]] = None,
                 **overrides) -> List[int]:
         """
-        Core method to append samples to the indexer.
+        Core method to append samples to the indexer (internal).
 
         Args:
             count: Number of samples to add
@@ -358,7 +381,7 @@ class Indexer:
             origin_indices: Original sample IDs for augmented samples
             group: Group ID(s) - single value or list of values
             branch: Branch ID(s) - single value or list of values
-            processings: Processing steps - single list or list of lists or string representations
+            processings: Processing steps - single list or list of lists
             augmentation: Augmentation type(s) - single value or list
             **overrides: Additional column overrides
 
@@ -368,39 +391,34 @@ class Indexer:
         if count <= 0:
             return []
 
-        # Prepare row indices
-        next_row_idx = self.next_row_index()
-        row_ids = list(range(next_row_idx, next_row_idx + count))
+        # Generate row and sample IDs using SampleManager
+        row_ids = self._sample_manager.generate_row_ids(count)
 
-        # Prepare sample indices and origins
         if sample_indices is None:
-            next_sample_idx = self.next_sample_index()
-            sample_ids = list(range(next_sample_idx, next_sample_idx + count))
+            sample_ids = self._sample_manager.generate_sample_ids(count)
             if origin_indices is None:
                 # Base samples: origin = sample (self-referencing)
                 origins = sample_ids.copy()
             else:
-                origins_normalized = self._normalize_indices(origin_indices, count, "origin_indices")
-                origins = [int(x) for x in origins_normalized]
+                origins = self._normalize_indices(origin_indices, count, "origin_indices")
         else:
             sample_ids = self._normalize_indices(sample_indices, count, "sample_indices")
             if origin_indices is None:
                 # Base samples: origin = sample (self-referencing)
                 origins = [int(x) for x in sample_ids]
             else:
-                origins_normalized = self._normalize_indices(origin_indices, count, "origin_indices")
-                origins = [int(x) for x in origins_normalized]
+                origins = self._normalize_indices(origin_indices, count, "origin_indices")
 
-        # Prepare column values
+        # Normalize column values
         groups = self._normalize_single_or_list(group, count, "group")
         branches = self._normalize_single_or_list(branch, count, "branch")
-        processings_list = self._prepare_processings(processings, count)
+        processings_list = self._prepare_processings(processings, count)  # Now returns List[List[str]]
         augmentations = self._normalize_single_or_list(augmentation, count, "augmentation", allow_none=True)
 
         # Handle additional overrides
         additional_cols = {}
         for col, value in overrides.items():
-            if col in self.df.columns and col not in ["row", "sample", "origin", "partition", "group", "branch", "processings", "augmentation"]:
+            if col in self._store.columns and col not in ["row", "sample", "origin", "partition", "group", "branch", "processings", "augmentation"]:
                 if isinstance(value, (list, np.ndarray)):
                     if len(value) != count:
                         raise ValueError(f"{col} length ({len(value)}) must match count ({count})")
@@ -408,7 +426,7 @@ class Indexer:
                 else:
                     additional_cols[col] = [value] * count
 
-        # Create new DataFrame
+        # Create new DataFrame with native List type for processings
         new_data = {
             "row": pl.Series(row_ids, dtype=pl.Int32),
             "sample": pl.Series(sample_ids, dtype=pl.Int32),
@@ -416,17 +434,17 @@ class Indexer:
             "partition": pl.Series([partition] * count, dtype=pl.Categorical),
             "group": pl.Series(groups, dtype=pl.Int8),
             "branch": pl.Series(branches, dtype=pl.Int8),
-            "processings": pl.Series(processings_list, dtype=pl.Utf8),
+            "processings": pl.Series(processings_list, dtype=pl.List(pl.Utf8)),  # Native list!
             "augmentation": pl.Series(augmentations, dtype=pl.Categorical),
         }
 
         # Add additional columns with proper casting
         for col, values in additional_cols.items():
-            expected_dtype = self.df.schema[col]
+            expected_dtype = self._store.schema[col]
             new_data[col] = pl.Series(values, dtype=expected_dtype)
 
-        new_df = pl.DataFrame(new_data)
-        self.df = pl.concat([self.df, new_df], how="vertical")
+        # Append to store
+        self._store.append(new_data)
 
         return sample_ids
 
@@ -445,19 +463,75 @@ class Indexer:
         """
         Add multiple samples to the indexer efficiently.
 
+        This is the primary method for registering samples in the index. Samples can be
+        base samples or augmented samples, with flexible parameter specification.
+
         Args:
-            count: Number of samples to add
-            partition: Data partition ("train", "test", "val")
-            sample_indices: Specific sample IDs to use. If None, auto-increment
-            origin_indices: Original sample IDs for augmented samples
-            group: Group ID(s) - single value or list of values
-            branch: Branch ID(s) - single value or list of values
-            processings: Processing steps - single list or list of lists
-            augmentation: Augmentation type(s) - single value or list
-            **kwargs: Additional column overrides
+            count: Number of samples to add. Must be positive.
+            partition: Data partition ("train", "test", "val"). Default "train".
+            sample_indices: Specific sample IDs to use. If None, auto-increment from
+                          current max. Can be:
+                          - int: Single ID repeated for all samples
+                          - List[int]: One ID per sample (length must match count)
+                          - np.ndarray: One ID per sample (length must match count)
+            origin_indices: Original sample IDs for augmented samples. If None, samples
+                          are treated as base samples (origin = sample). Same format
+                          options as sample_indices.
+            group: Group ID(s) for sample categorization. Can be:
+                  - int: Single group for all samples
+                  - List[int]: One group per sample (length must match count)
+                  - None: No group assignment
+            branch: Pipeline branch ID(s). Same format as group.
+            processings: Processing transformations applied. Can be:
+                        - None: Uses default ["raw"]
+                        - List[str]: Single list for all samples (e.g., ["raw", "msc"])
+                        - List[List[str]]: One list per sample (length must match count)
+            augmentation: Augmentation type(s). Same format as group, but allows None values.
+            **kwargs: Additional column values. Must match count if list/array.
 
         Returns:
-            List of sample indices that were added
+            List[int]: List of sample IDs that were added. Length equals count.
+
+        Raises:
+            ValueError: If count <= 0, or if list/array parameter lengths don't match count.
+            TypeError: If parameter types are invalid.
+
+        Examples:
+            >>> indexer = Indexer()
+            >>>
+            >>> # Add 5 base train samples with default settings
+            >>> ids = indexer.add_samples(5)
+            >>> # ids: [0, 1, 2, 3, 4]
+            >>>
+            >>> # Add test samples with specific processings
+            >>> test_ids = indexer.add_samples(
+            ...     3,
+            ...     partition="test",
+            ...     processings=["raw", "msc", "savgol"]
+            ... )
+            >>>
+            >>> # Add samples with different groups
+            >>> grouped_ids = indexer.add_samples(
+            ...     4,
+            ...     partition="train",
+            ...     group=[1, 1, 2, 2],
+            ...     processings=["raw"]
+            ... )
+            >>>
+            >>> # Add augmented samples (references existing samples as origins)
+            >>> aug_ids = indexer.add_samples(
+            ...     2,
+            ...     partition="train",
+            ...     origin_indices=[0, 1],  # Augmentations of samples 0 and 1
+            ...     augmentation="flip"
+            ... )
+
+        Note:
+            - Auto-incrementing sample IDs start from 0 or next available ID
+            - Base samples have origin == sample (self-referencing)
+            - Augmented samples have origin != sample (references base sample)
+            - Single values are broadcast to all samples
+            - Lists/arrays must match count exactly
         """
         return self._append(
             count,
@@ -619,63 +693,137 @@ class Indexer:
         return self._append(count, **params)
 
     def update_by_filter(self, selector: Selector, updates: Dict[str, Any]) -> None:
-        condition = self._build_filter_condition(selector)
+        """
+        Update rows matching a selector filter.
 
-        for col, value in updates.items():
-            # Cast the literal value to the expected column type
-            cast_value = pl.lit(value).cast(self.df.schema[col])
-            self.df = self.df.with_columns(
-                pl.when(condition).then(cast_value).otherwise(pl.col(col)).alias(col)
-            )
+        Args:
+            selector: Filter criteria dictionary (same format as x_indices).
+            updates: Dictionary of column:value pairs to update.
+
+        Example:
+            >>> indexer.update_by_filter({"partition": "train", "group": 1}, {"branch": 2})
+        """
+        condition = self._build_filter_condition(selector)
+        self._store.update_by_condition(condition, updates)
 
     def update_by_indices(self, sample_indices: SampleIndices, updates: Dict[str, Any]) -> None:
-        sample_ids = self._normalize_indices(sample_indices, len(sample_indices) if isinstance(sample_indices, (list, np.ndarray)) else 1, "sample_indices")
-        condition = pl.col("row").is_in(sample_ids)
+        """
+        Update rows by sample indices.
 
-        for col, value in updates.items():
-            # Cast the literal value to the expected column type
-            cast_value = pl.lit(value).cast(self.df.schema[col])
-            self.df = self.df.with_columns(
-                pl.when(condition).then(cast_value).otherwise(pl.col(col)).alias(col)
-            )
+        Args:
+            sample_indices: Sample IDs to update (int, list, or array).
+            updates: Dictionary of column:value pairs to update.
+
+        Example:
+            >>> indexer.update_by_indices([0, 1, 2], {"group": 5})
+        """
+        count = len(sample_indices) if isinstance(sample_indices, (list, np.ndarray)) else 1
+        sample_ids = self._normalize_indices(sample_indices, count, "sample_indices")
+        condition = self._query_builder.build_sample_filter(sample_ids)
+        self._store.update_by_condition(condition, updates)
 
 
     def next_row_index(self) -> int:
-        if len(self.df) == 0:
-            return 0
-        max_val = self.df["row"].max()
-        return int(max_val) + 1 if max_val is not None else 0
+        """
+        Get the next available row index.
+
+        Returns:
+            int: Next row index (max + 1, or 0 if empty).
+
+        Example:
+            >>> next_idx = indexer.next_row_index()
+        """
+        return self._sample_manager.next_row_id()
 
     def next_sample_index(self) -> int:
-        if len(self.df) == 0:
-            return 0
-        max_val = self.df["sample"].max()
-        return int(max_val) + 1 if max_val is not None else 0
+        """
+        Get the next available sample index.
+
+        Returns:
+            int: Next sample index (max + 1, or 0 if empty).
+
+        Example:
+            >>> next_idx = indexer.next_sample_index()
+        """
+        return self._sample_manager.next_sample_id()
 
     def get_column_values(self, col: str, filters: Optional[Dict[str, Any]] = None) -> List[Any]:
-        if col not in self.df.columns:
-            raise ValueError(f"Column '{col}' does not exist in the DataFrame.")
+        """
+        Get column values, optionally filtered.
 
-        # Apply filters if provided, otherwise use the full dataframe
-        filtered_df = self._apply_filters(filters) if filters else self.df
-        return filtered_df.select(pl.col(col)).to_series().to_list()
+        Args:
+            col: Column name to retrieve.
+            filters: Optional selector dictionary for filtering.
+
+        Returns:
+            List[Any]: Column values.
+
+        Example:
+            >>> partitions = indexer.get_column_values("partition")
+            >>> train_groups = indexer.get_column_values("group", {"partition": "train"})
+        """
+        condition = self._build_filter_condition(filters) if filters else None
+        return self._store.get_column(col, condition)
 
     def uniques(self, col: str) -> List[Any]:
-        if col not in self.df.columns:
-            raise ValueError(f"Column '{col}' does not exist in the DataFrame.")
-        return self.df.select(pl.col(col)).unique().to_series().to_list()
+        """
+        Get unique values in a column.
+
+        Args:
+            col: Column name.
+
+        Returns:
+            List[Any]: Unique values in the column.
+
+        Example:
+            >>> unique_partitions = indexer.uniques("partition")
+        """
+        return self._store.get_unique(col)
 
     def augment_rows(self, samples: List[int], count: Union[int, List[int]], augmentation_id: str) -> List[int]:
         """
         Create augmented samples based on existing samples.
 
+        This method creates new augmented samples that reference existing base samples
+        as their origins. The augmented samples inherit all attributes (partition, group,
+        branch, processings) from their origin samples.
+
         Args:
-            samples: List of sample IDs to augment
-            count: Number of augmentations per sample (int) or list of counts per sample
+            samples: List of sample IDs to augment. Must exist in the index.
+            count: Number of augmentations per sample. Can be:
+                  - int: Same count for all samples
+                  - List[int]: One count per sample (length must match samples)
             augmentation_id: String identifier for the augmentation type
+                           (e.g., "flip", "rotate", "noise").
 
         Returns:
-            List of new sample IDs for the augmented samples
+            List[int]: List of new sample IDs for the augmented samples.
+
+        Raises:
+            ValueError: If samples list is empty, if count list length doesn't match
+                       samples length, or if any sample IDs are not found.
+
+        Examples:
+            >>> indexer = Indexer()
+            >>> base_ids = indexer.add_samples(3, partition="train", processings=["raw", "msc"])
+            >>>
+            >>> # Create 2 augmentations for each base sample
+            >>> aug_ids = indexer.augment_rows(base_ids, 2, "flip")
+            >>> # aug_ids: [3, 4, 5, 6, 7, 8] (2 per sample)
+            >>>
+            >>> # Different counts per sample
+            >>> aug_ids2 = indexer.augment_rows([0, 1], [1, 3], "rotate")
+            >>> # aug_ids2: [9, 10, 11, 12] (1 for sample 0, 3 for sample 1)
+            >>>
+            >>> # Verify augmented samples reference their origins
+            >>> origin = indexer.get_origin_for_sample(aug_ids[0])
+            >>> print(origin)  # base_ids[0]
+
+        Note:
+            - Augmented samples inherit partition, group, branch, and processings from origins
+            - origin field is set to the base sample ID
+            - augmentation field is set to augmentation_id
+            - Useful for data augmentation in ML pipelines (flips, rotations, noise, etc.)
         """
         if not samples:
             return []
@@ -693,8 +841,8 @@ class Indexer:
             return []
 
         # Get sample data for the samples to augment
-        sample_filter = pl.col("sample").is_in(samples)
-        filtered_df = self.df.filter(sample_filter).sort("sample")
+        sample_filter = self._query_builder.build_sample_filter(samples)
+        filtered_df = self._store.query(sample_filter).sort("sample")
 
         if len(filtered_df) != len(samples):
             missing = set(samples) - set(filtered_df["sample"].to_list())
@@ -719,11 +867,10 @@ class Indexer:
             partitions.extend([sample_row["partition"]] * sample_count)
             groups.extend([sample_row["group"]] * sample_count)
             branches.extend([sample_row["branch"]] * sample_count)
-            # Since processings are stored as strings, we need to keep them as strings
+            # Processings are now native lists, not strings
             processings_list.extend([sample_row["processings"]] * sample_count)
 
         # Create augmented samples using _append
-        # Use first partition as default since partitions should be consistent
         partition = partitions[0] if partitions else "train"
 
         augmented_ids = self._append(
@@ -738,43 +885,53 @@ class Indexer:
 
         return augmented_ids
 
-    def __repr__(self):
-        return str(self.df)
+    def __repr__(self) -> str:
+        """
+        String representation showing the DataFrame.
 
-    def __str__(self):
-        # Get columns to include (excluding sample and origin, and row)
-        cols_to_include = [col for col in self.df.columns if col not in ["sample", "origin", "row"]]
+        Returns:
+            str: String representation of the index DataFrame.
+        """
+        return str(self._store.df)
+
+    def __str__(self) -> str:
+        """
+        Human-readable summary of indexed samples.
+
+        Returns:
+            str: Summary showing sample counts by combination of attributes.
+        """
+        df = self._store.df
+        cols_to_include = [col for col in df.columns if col not in ["sample", "origin", "row"]]
 
         if not cols_to_include:
             return "No indexable columns found"
 
-        if len(self.df) == 0:
+        if len(df) == 0:
             return "No rows found"
 
-        # Group by all columns and count (include null values)
-        combinations = self.df.select(cols_to_include).group_by(cols_to_include).agg(
+        # Group by all columns and count
+        combinations = df.select(cols_to_include).group_by(cols_to_include).agg(
             pl.len().alias("count")
         ).sort("count", descending=True)
 
         # Format output
         summary = []
         for row in combinations.to_dicts():
-            # Build the combination string, skipping null values
             parts = []
             for col in cols_to_include:
                 value = row[col]
-                # Skip null values
                 if value is None:
                     continue
 
-                if isinstance(value, str) and value.startswith("[") and value.endswith("]"):
-                    # Already formatted as list string
+                # Handle native list type for processings
+                if col == "processings" and isinstance(value, list):
                     parts.append(f"{col} - {value}")
-                else:
-                    # Format other values appropriately
+                elif isinstance(value, str):
                     parts.append(f'{col} - "{value}"')
+                else:
+                    parts.append(f"{col} - {value}")
 
-            # Only add to summary if we have at least one non-null value
             if parts:
                 combination_str = ", ".join(parts)
                 count = row["count"]
