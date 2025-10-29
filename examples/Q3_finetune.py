@@ -6,6 +6,7 @@ Includes preprocessing augmentation and comprehensive visualization of results.
 """
 
 # Standard library imports
+import argparse
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -23,6 +24,11 @@ from nirs4all.operators.transforms import (
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.models.tensorflow.nicon import nicon, customizable_nicon
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q3 Finetune Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 # Configuration variables
 feature_scaler = MinMaxScaler()
@@ -134,4 +140,5 @@ fig4 = analyzer.plot_variable_candlestick(
     variable="model_name",
 )
 
-# plt.show()
+if args.show_plots:
+    plt.show()

@@ -1,7 +1,18 @@
 param(
-    [int]$Index = 0,    # 1-based index to run a single example
-    [int]$Start = 0,    # 1-based start index to run all examples from
-    [switch]$Log        # Enable logging to log.txt
+    [Alias('i')]
+    [int]$Index = 0,       # 1-based index to run a single example
+
+    [Alias('s')]
+    [int]$Start = 0,       # 1-based start index to run all examples from
+
+    [Alias('n')]
+    [string]$Name = "",    # Name of a single example to run (e.g., "Q1_classif.py")
+
+    [Alias('l')]
+    [switch]$Log,          # Enable logging to log.txt
+
+    [Alias('p')]
+    [switch]$Plot          # Pass boolean option to all examples (enables plots)
 )
 
 $examples = @(
@@ -52,8 +63,13 @@ if ($Log) {
 # }
 
 # Determine which examples to run based on parameters
-if ($Index -gt 0 -and $Start -gt 0) {
-    Write-Host "Error: Specify only -Index OR -Start, not both." -ForegroundColor Red
+$paramCount = 0
+if ($Index -gt 0) { $paramCount++ }
+if ($Start -gt 0) { $paramCount++ }
+if ($Name -ne "") { $paramCount++ }
+
+if ($paramCount -gt 1) {
+    Write-Host "Error: Specify only one of -Index, -Start, or -Name." -ForegroundColor Red
     exit 1
 }
 
@@ -74,6 +90,18 @@ elseif ($Start -gt 0) {
     $startIndex = $Start - 1
     $selectedExamples = $examples[$startIndex..($examples.Count - 1)]
     Write-Host ("Running all examples starting from #{0} (count: {1})" -f $Start, $selectedExamples.Count)
+}
+elseif ($Name -ne "") {
+    # Find the example by name (case-insensitive)
+    $matchedExample = $examples | Where-Object { $_ -like $Name }
+    if (-not $matchedExample) {
+        Write-Host "Error: Example '$Name' not found in the list." -ForegroundColor Red
+        Write-Host "Available examples:" -ForegroundColor Yellow
+        $examples | ForEach-Object { Write-Host "  $_" }
+        exit 1
+    }
+    $selectedExamples = @($matchedExample)
+    Write-Host "Running example by name: $matchedExample"
 }
 
 # Disable emojis only when logging to avoid encoding issues with file output
@@ -99,14 +127,24 @@ foreach ($example in $selectedExamples) {
             "===============================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
 
             # Run and capture output using Tee-Object to show AND log
-            & python $example 2>&1 | Tee-Object -FilePath $logFile -Append
+            if ($Plot) {
+                & python $example --show-plots 2>&1 | Tee-Object -FilePath $logFile -Append
+            }
+            else {
+                & python $example 2>&1 | Tee-Object -FilePath $logFile -Append
+            }
 
             # Log the footer
             "Finished: $example at $(Get-Date)" | Out-File -FilePath $logFile -Append -Encoding UTF8
             "" | Out-File -FilePath $logFile -Append -Encoding UTF8
         }
         else {
-            & python $example
+            if ($Plot) {
+                & python $example --show-plots
+            }
+            else {
+                & python $example
+            }
         }
 
         $endTime = Get-Date

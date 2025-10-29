@@ -15,6 +15,7 @@ Key Features:
 - Backward compatible with traditional approach
 """
 
+import argparse
 import numpy as np
 from pathlib import Path
 
@@ -24,6 +25,11 @@ from nirs4all.data import DatasetConfigs, SpectroDataset
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q11 Flexible Inputs Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 print("=" * 100)
 print("Q11: Flexible Input Formats Demo")

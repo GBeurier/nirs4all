@@ -8,11 +8,17 @@ This example demonstrates how to:
 4. Use metadata in custom operations
 """
 
+import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
 
 from nirs4all.data.config import DatasetConfigs
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='X1 Metadata Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 
 def example_load_dataset_with_metadata():

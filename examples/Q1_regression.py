@@ -6,6 +6,7 @@ Features automated hyperparameter tuning for n_components and comprehensive resu
 """
 
 # Standard library imports
+import argparse
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -22,6 +23,11 @@ from nirs4all.operators.transforms import (
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q1 Regression Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 # Configuration variables
 feature_scaler = MinMaxScaler()
@@ -58,7 +64,7 @@ dataset_config = DatasetConfigs(data_path)
 
 
 # Run the pipeline
-runner = PipelineRunner(save_files=True, verbose=0, plots_visible=False)
+runner = PipelineRunner(save_files=True, verbose=0, plots_visible=args.show_plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 
@@ -111,4 +117,5 @@ fig4 = analyzer.plot_variable_candlestick(
 
 fig5 = analyzer.plot_score_histogram(partition="test")
 
-# plt.show()
+if args.show_plots:
+    plt.show()

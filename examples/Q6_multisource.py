@@ -7,6 +7,7 @@ PLS, Random Forest, and neural networks. Shows model persistence and reuse.
 """
 
 # Standard library imports
+import argparse
 import os
 import numpy as np
 from pathlib import Path
@@ -28,6 +29,11 @@ from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNorma
 from nirs4all.utils.emoji import CHECK, CROSS
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from sklearn.linear_model import ElasticNet
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q6 Multi-Source Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 # Disable emojis in output
 os.environ['DISABLE_EMOJIS'] = '1'
@@ -107,7 +113,8 @@ fig2 = analyzer.plot_heatmap_v2(
     aggregation='best'  # Options: 'best', 'mean', 'median'
 )
 
-# plt.show()
+if args.show_plots:
+    plt.show()
 
 # Model reuse demonstration
 best_prediction = predictions.top(n=1, rank_partition="test")[0]
@@ -169,4 +176,5 @@ fig4 = analyzer.plot_variable_candlestick(
 
 fig5 = analyzer.plot_score_histogram(partition="test")
 
-# plt.show()
+if args.show_plots:
+    plt.show()

@@ -7,8 +7,14 @@ This script tests that:
 3. New enums work as expected
 """
 
+import argparse
 import numpy as np
 from nirs4all.data import SpectroDataset, FeatureLayout, HeaderUnit
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='X4 Features Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 print("=" * 60)
 print("Feature Components Refactoring - Verification Test")

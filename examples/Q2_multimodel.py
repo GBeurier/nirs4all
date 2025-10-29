@@ -6,6 +6,7 @@ Elastic Net, SVR, MLP, Gradient Boosting, and neural networks on NIRS data.
 """
 
 # Standard library imports
+import argparse
 from matplotlib import pyplot as plt
 
 # Third-party imports
@@ -24,6 +25,11 @@ from nirs4all.visualization.predictions import PredictionAnalyzer
 from nirs4all.operators.models.tensorflow.nicon import nicon
 from nirs4all.operators.transforms import MultiplicativeScatterCorrection
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q2 Multi-Model Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 # Build the pipeline with multiple model types
 pipeline = [
@@ -67,7 +73,7 @@ data_paths = ['sample_data/regression']
 dataset_config = DatasetConfigs(data_paths)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+runner = PipelineRunner(save_files=False, verbose=0, plots_visible=args.show_plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization
@@ -115,4 +121,5 @@ fig5 = analyzer.plot_heatmap_v2(
     y_var="fold_id",
 )
 
-# plt.show()
+if args.show_plots:
+    plt.show()

@@ -4,12 +4,18 @@ Sample Augmentation Examples for nirs4all
 This file demonstrates various sample augmentation scenarios.
 """
 
+import argparse
 import numpy as np
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import StratifiedKFold
 
 from nirs4all.data.dataset import SpectroDataset
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='X2 Sample Augmentation Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 # Example 1: Basic Augmentation
 # ===============================

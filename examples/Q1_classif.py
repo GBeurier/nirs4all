@@ -6,6 +6,7 @@ Shows confusion matrix visualization for model performance evaluation.
 """
 
 # Standard library imports
+import argparse
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -25,6 +26,10 @@ from nirs4all.operators.transforms import (
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter
 
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q1 Classification Example')
+parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+args = parser.parse_args()
 
 # Configuration variables
 feature_scaler = MinMaxScaler()
@@ -64,7 +69,7 @@ pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.show_plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization
@@ -82,4 +87,5 @@ analyzer = PredictionAnalyzer(predictions)
 # Rank models by accuracy on val partition, display confusion matrix from test partition
 confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
 
-# plt.show()
+if args.show_plots:
+    plt.show()
