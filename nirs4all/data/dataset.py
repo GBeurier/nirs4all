@@ -15,6 +15,7 @@ from nirs4all.data.targets import Targets
 from nirs4all.data.indexer import Indexer
 from nirs4all.data.metadata import Metadata
 from nirs4all.data.predictions import Predictions
+from nirs4all.data.dataset_components import FeatureAccessor, TargetAccessor, MetadataAccessor
 from nirs4all.utils.emoji import CHART, REFRESH, TARGET
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 from sklearn.base import TransformerMixin
@@ -23,18 +24,56 @@ from typing import Optional, Union, List, Tuple, Dict, Any, Literal
 
 class SpectroDataset:
     """
-    Main dataset orchestrator that manages feature, target, metadata,
-    fold, and prediction blocks.
+    Main dataset facade for spectroscopy and ML/DL pipelines.
+
+    Coordinates feature, target, and metadata management through
+    specialized accessor interfaces. The primary API uses direct methods
+    like dataset.x() and dataset.y() for convenience.
+
+    Attributes:
+        name (str): Dataset identifier
+        features (FeatureAccessor): Feature data accessor (internal use)
+        targets (TargetAccessor): Target data accessor (internal use)
+        metadata_accessor (MetadataAccessor): Metadata accessor (internal use)
+        folds (List[Tuple]): Cross-validation fold splits
+
+    Examples:
+        >>> # Create dataset
+        >>> dataset = SpectroDataset("my_dataset")
+        >>> # Add samples
+        >>> dataset.add_samples(X_train, {"partition": "train"})
+        >>> dataset.add_targets(y_train)
+        >>> # Get data
+        >>> X = dataset.x({"partition": "train"})
+        >>> y = dataset.y({"partition": "train"})
     """
     def __init__(self, name: str = "Unknown_dataset"):
+        """
+        Initialize a new SpectroDataset.
+
+        Args:
+            name: Dataset identifier (default: "Unknown_dataset")
+        """
         self._indexer = Indexer()
-        self._features = Features()
-        self._targets = Targets()
-        self._folds = []
-        self._metadata = Metadata()
-        # self._predictions = Predictions()
+        self._folds: List[Tuple[List[int], List[int]]] = []
         self.name = name
-        self._task_type: Optional[TaskType] = None
+
+        # Initialize internal blocks
+        _features_block = Features()
+        _targets_block = Targets()
+        _metadata_block = Metadata()
+
+        # Create accessors (internal use, not primary API)
+        self._feature_accessor = FeatureAccessor(self._indexer, _features_block)
+        self._target_accessor = TargetAccessor(self._indexer, _targets_block)
+        self._metadata_accessor = MetadataAccessor(self._indexer, _metadata_block)
+
+        # Keep direct references for backward compatibility with internal code
+        self._features = _features_block
+        self._targets = _targets_block
+        self._metadata = _metadata_block
+
+    # ========== PRIMARY API: Feature Methods ==========
 
     def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True, include_augmented: bool = True) -> OutputData:
         """
@@ -57,8 +96,7 @@ class SpectroDataset:
             >>> # Get only base train samples (for splitting)
             >>> X_base = dataset.x({"partition": "train"}, include_augmented=False)
         """
-        indices = self._indexer.x_indices(selector, include_augmented=include_augmented)
-        return self._features.x(indices, layout, concat_source)
+        return self._feature_accessor.x(selector, layout, concat_source, include_augmented)
 
     # def x_train(self, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
     #     selector = {"partition": "train"}
@@ -88,60 +126,46 @@ class SpectroDataset:
             >>> # Get only base train targets (for splitting)
             >>> y_base = dataset.y({"partition": "train"}, include_augmented=False)
         """
-        if include_augmented:
-            # Get all sample indices (base + augmented)
-            x_indices = self._indexer.x_indices(selector, include_augmented=True)
+        return self._target_accessor.y(selector, include_augmented)
 
-            # Map each sample to its y index (augmented → origin)
-            y_indices = np.array([
-                self._indexer.get_origin_for_sample(int(sample_id))
-                for sample_id in x_indices
-            ], dtype=np.int32)
-        else:
-            # Get only base samples using x_indices with include_augmented=False
-            y_indices = self._indexer.x_indices(selector, include_augmented=False)
-
-        if selector and "y" in selector:
-            processing = selector["y"]
-        else:
-            processing = "numeric"
-
-        return self._targets.y(y_indices, processing)
-
-    # FEATURES
     def add_samples(self,
                     data: InputData,
                     indexes: Optional[IndexDict] = None,
                     headers: Optional[Union[List[str], List[List[str]]]] = None,
                     header_unit: Optional[Union[str, List[str]]] = None) -> None:
-        num_samples = get_num_samples(data)
-        self._indexer.add_samples_dict(num_samples, indexes)
-        self._features.add_samples(data, headers=headers, header_unit=header_unit)
+        """
+        Add feature samples to the dataset.
+
+        Args:
+            data: Feature data (single or multi-source)
+            indexes: Optional index dictionary (partition, group, branch, fold)
+            headers: Feature headers (wavelengths, feature names)
+            header_unit: Unit type for headers ("cm-1", "nm", "none", "text", "index")
+        """
+        self._feature_accessor.add_samples(data, indexes, headers, header_unit)
 
     def add_features(self,
                      features: InputFeatures,
                      processings: ProcessingList,
                      source: int = -1) -> None:
-        # print("Adding features with processings:", processings)
-        self._features.update_features([], features, processings, source=source)
-        # Update the indexer to add new processings to existing processing lists
-        self._indexer.add_processings(processings)
+        """Add processed feature versions to existing data."""
+        self._feature_accessor.add_features(features, processings, source)
 
     def replace_features(self,
                          source_processings: ProcessingList,
                          features: InputFeatures,
                          processings: ProcessingList,
                          source: int = -1) -> None:
-        self._features.update_features(source_processings, features, processings, source=source)
-        if source <= 0:  # Update all sources or single source 0
-            self._indexer.replace_processings(source_processings, processings)
+        """Replace existing processed features with new versions."""
+        self._feature_accessor.replace_features(source_processings, features, processings, source)
 
     def update_features(self,
                         source_processings: ProcessingList,
                         features: InputFeatures,
                         processings: ProcessingList,
                         source: int = -1) -> None:
-        self._features.update_features(source_processings, features, processings, source=source)
+        """Update existing processed features."""
+        self._feature_accessor.update_features(source_processings, features, processings, source)
 
     def augment_samples(self,
                         data: InputData,
@@ -149,34 +173,16 @@ class SpectroDataset:
                         augmentation_id: str,
                         selector: Optional[Selector] = None,
                         count: Union[int, List[int]] = 1) -> List[int]:
-        # Get indices of samples to augment using selector
-        # IMPORTANT: Always use include_augmented=False to only augment base samples
-        if selector is None:
-            # Augment all base samples (exclude already augmented ones)
-            sample_indices = self._indexer.x_indices({}, include_augmented=False).tolist()
-        else:
-            sample_indices = self._indexer.x_indices(selector, include_augmented=False).tolist()
-
-        if not sample_indices:
-            return []
-
-        # Add augmented samples to indexer first
-        augmented_sample_ids = self._indexer.augment_rows(
-            sample_indices, count, augmentation_id
-        )
-
-        # Add augmented data to features
-        self._features.augment_samples(
-            sample_indices, data, processings, count
-        )
-
-        return augmented_sample_ids
+        """Create augmented versions of existing samples."""
+        return self._feature_accessor.augment_samples(data, processings, augmentation_id, selector, count)
 
     def features_processings(self, src: int) -> List[str]:
-        return self._features.preprocessing_str[src]
+        """Get processing names for a source."""
+        return self._feature_accessor.processing_names(src)
 
     def headers(self, src: int) -> List[str]:
-        return self._features.headers(src)
+        """Get feature headers for a source."""
+        return self._feature_accessor.headers(src)
 
     def header_unit(self, src: int) -> str:
         """
@@ -188,7 +194,7 @@ class SpectroDataset:
         Returns:
             Unit string: "cm-1", "nm", "none", "text", "index"
         """
-        return self._features.sources[src].header_unit
+        return self._feature_accessor.header_unit(src)
 
     def float_headers(self, src: int) -> np.ndarray:
         """
@@ -206,10 +212,7 @@ class SpectroDataset:
         Raises:
             ValueError: If headers cannot be converted to float
         """
-        try:
-            return np.array([float(header) for header in self._features.headers(src)])
-        except ValueError as e:
-            raise ValueError(f"Cannot convert headers to float: {e}")
+        return self._feature_accessor.float_headers(src)
 
     def wavelengths_cm1(self, src: int) -> np.ndarray:
         """
@@ -224,24 +227,7 @@ class SpectroDataset:
         Raises:
             ValueError: If headers cannot be converted to wavelengths
         """
-        headers = self.headers(src)
-        unit = self.header_unit(src)
-
-        if unit == "cm-1":
-            # Already in cm⁻¹
-            return np.array([float(h) for h in headers])
-        elif unit == "nm":
-            # Convert nm to cm⁻¹: wavenumber = 10,000,000 / wavelength_nm
-            nm_values = np.array([float(h) for h in headers])
-            return 10_000_000.0 / nm_values
-        elif unit in ["none", "index"]:
-            # No real wavelengths, return feature indices
-            return np.arange(len(headers), dtype=float)
-        else:
-            raise ValueError(
-                f"Cannot convert unit '{unit}' to wavelengths (cm⁻¹). "
-                f"Expected 'cm-1', 'nm', 'none', or 'index'."
-            )
+        return self._feature_accessor.wavelengths_cm1(src)
 
     def wavelengths_nm(self, src: int) -> np.ndarray:
         """
@@ -256,26 +242,10 @@ class SpectroDataset:
         Raises:
             ValueError: If headers cannot be converted to wavelengths
         """
-        headers = self.headers(src)
-        unit = self.header_unit(src)
-
-        if unit == "nm":
-            # Already in nm
-            return np.array([float(h) for h in headers])
-        elif unit == "cm-1":
-            # Convert cm⁻¹ to nm: wavelength = 10,000,000 / wavenumber_cm1
-            cm1_values = np.array([float(h) for h in headers])
-            return 10_000_000.0 / cm1_values
-        elif unit in ["none", "index"]:
-            # No real wavelengths, return feature indices
-            return np.arange(len(headers), dtype=float)
-        else:
-            raise ValueError(
-                f"Cannot convert unit '{unit}' to wavelengths (nm). "
-                f"Expected 'cm-1', 'nm', 'none', or 'index'."
-            )
+        return self._feature_accessor.wavelengths_nm(src)
 
     def short_preprocessings_str(self) -> str:
+        """Get shortened processing string for display."""
         processings_list = self._features.sources[0].processing_ids
         processings_list.pop(0)
         processings = "|".join(self.features_processings(0))
@@ -295,7 +265,6 @@ class SpectroDataset:
             ("StandardScaler", "Std"),
             ("QuantileTransformer", "Quant"),
             ("PowerTransformer", "Pow"),
-            # ("_", ""),
         ]
         for long, short in replacements:
             processings = processings.replace(long, short)
@@ -306,78 +275,51 @@ class SpectroDataset:
         return processings
 
     def features_sources(self) -> int:
-        return len(self._features.sources)
+        """Get number of feature sources."""
+        return self._feature_accessor.num_sources
 
     def is_multi_source(self) -> bool:
-        return len(self._features.sources) > 1
+        """Check if dataset has multiple feature sources."""
+        return self._feature_accessor.is_multi_source
 
-    @property
-    def is_regression(self) -> bool:
-        """Check if dataset is for regression task."""
-        return self._task_type == TaskType.REGRESSION if self._task_type else False
-
-    @property
-    def is_classification(self) -> bool:
-        """Check if dataset is for classification task."""
-        return self._task_type.is_classification if self._task_type else False
-
-
-    # def targets(self, filter: Dict[str, Any] = {}, encoding: str = "auto") -> np.ndarray:
-    #     indices = self._indexer.samples(filter)
-    #     return self._targets.y(indices=indices, encoding=encoding)
-
-    #     return self._targets.y(indices=indices, encoding=encoding)
-
-    #     return self._targets.y(indices=indices, encoding=encoding)
+    # ========== PRIMARY API: Target Methods ==========
 
     def add_targets(self, y: np.ndarray) -> None:
-        self._targets.add_targets(y)
-        # Detect and set task type when targets are added (skip if empty)
-        if y.size > 0:
-            self._task_type = ModelUtils.detect_task_type(y)
+        """Add target samples to the dataset."""
+        self._target_accessor.add_targets(y)
 
     def add_processed_targets(self,
                               processing_name: str,
                               targets: np.ndarray,
                               ancestor_processing: str = "numeric",
                               transformer: Optional[TransformerMixin] = None) -> None:
-        new_task_type = ModelUtils.detect_task_type(targets)
-        if self._task_type != new_task_type:
-            print(f"{REFRESH} Task type updated from {self._task_type.value if self._task_type else None} to {new_task_type.value}")
-            self._task_type = new_task_type
-
-        self._targets.add_processed_targets(processing_name, targets, ancestor_processing, transformer)
+        """Add processed target version (e.g., scaled, encoded)."""
+        self._target_accessor.add_processed_targets(processing_name, targets, ancestor_processing, transformer)
 
     @property
     def task_type(self) -> Optional[TaskType]:
         """Get the detected task type."""
-        return self._task_type
+        return self._target_accessor.task_type
 
     @property
     def num_classes(self) -> int:
-        """Get the number of unique classes for classification tasks (wrapper to targets.num_classes)."""
-        return self._targets.num_classes
+        """Get the number of unique classes for classification tasks."""
+        return self._target_accessor.num_classes
 
-    def set_task_type(self, task_type: Union[str, TaskType]) -> None:
-        """
-        Manually set the task type.
+    @property
+    def is_regression(self) -> bool:
+        """Check if dataset is for regression task."""
+        task_type = self._target_accessor.task_type
+        return task_type == TaskType.REGRESSION if task_type else False
 
-        Args:
-            task_type: One of TaskType enum values or string "regression", "binary_classification", "multiclass_classification"
-        """
-        if isinstance(task_type, str):
-            try:
-                task_type = TaskType(task_type)
-            except ValueError:
-                # Handle legacy "classification" string
-                if task_type == "classification":
-                    task_type = TaskType.MULTICLASS_CLASSIFICATION
-                else:
-                    valid_types = [t.value for t in TaskType]
-                    raise ValueError(f"Invalid task_type. Must be one of {valid_types}")
-        self._task_type = task_type
+    @property
+    def is_classification(self) -> bool:
+        """Check if dataset is for classification task."""
+        task_type = self._target_accessor.task_type
+        return task_type.is_classification if task_type else False
 
-    # METADATA
+    # ========== PRIMARY API: Metadata Methods ==========
+
     def add_metadata(self,
                      data: Union[np.ndarray, Any],
                      headers: Optional[List[str]] = None) -> None:
@@ -388,7 +330,7 @@ class SpectroDataset:
             data: Metadata as 2D array (n_samples, n_cols) or DataFrame
             headers: Column names (required if data is ndarray)
         """
-        self._metadata.add_metadata(data, headers)
+        self._metadata_accessor.add_metadata(data, headers)
 
     def metadata(self,
                  selector: Optional[Selector] = None,
@@ -406,8 +348,7 @@ class SpectroDataset:
         Returns:
             Polars DataFrame with metadata
         """
-        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else None
-        return self._metadata.get(indices, columns)
+        return self._metadata_accessor.get(selector, columns, include_augmented)
 
     def metadata_column(self,
                         column: str,
@@ -425,8 +366,7 @@ class SpectroDataset:
         Returns:
             Numpy array of column values
         """
-        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else None
-        return self._metadata.get_column(column, indices)
+        return self._metadata_accessor.column(column, selector, include_augmented)
 
     def metadata_numeric(self,
                          column: str,
@@ -446,8 +386,7 @@ class SpectroDataset:
         Returns:
             Tuple of (numeric_array, encoding_info)
         """
-        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else None
-        return self._metadata.to_numeric(column, indices, method)
+        return self._metadata_accessor.to_numeric(column, selector, method, include_augmented)
 
     def update_metadata(self,
                         column: str,
@@ -464,8 +403,7 @@ class SpectroDataset:
             include_augmented: If True, include augmented versions of selected samples.
                              Default True for backward compatibility.
         """
-        indices = self._indexer.x_indices(selector, include_augmented=include_augmented) if selector else list(range(self._metadata.num_rows))
-        self._metadata.update_metadata(indices, column, values)
+        self._metadata_accessor.update_metadata(column, values, selector, include_augmented)
 
     def add_metadata_column(self,
                             column: str,
@@ -477,72 +415,66 @@ class SpectroDataset:
             column: Column name
             values: Column values (must match number of samples)
         """
-        self._metadata.add_column(column, values)
+        self._metadata_accessor.add_column(column, values)
 
     @property
     def metadata_columns(self) -> List[str]:
         """Get list of metadata column names."""
-        return self._metadata.columns
+        return self._metadata_accessor.columns
 
-    # def set_targets(self, filter: Dict[str, Any], y: np.ndarray, transformer: TransformerMixin, new_processing: str) -> None:
-    #     self._targets.set_y(filter, y, transformer, new_processing)
+    # ========== Cross-Validation Folds ==========
 
-    # def metadata(self, filter: Dict[str, Any] = {}) -> pl.DataFrame:
-    #     return self._metadata.meta(filter)
-
-    # def add_metadata(self, meta_df: pl.DataFrame) -> None:
-    #     self._metadata.add_meta(meta_df)
-
-    # def predictions(self, filter: Dict[str, Any] = {}) -> pl.DataFrame:
-    #     return self._predictions.prediction(filter)
-
-    # def add_predictions(self, np_arr: np.ndarray, meta_dict: Dict[str, Any]) -> None:
-    #     self._predictions.add_prediction(np_arr, meta_dict)
+    # ========== Cross-Validation Folds ==========
 
     @property
     def folds(self) -> List[Tuple[List[int], List[int]]]:
+        """Get cross-validation folds."""
         return self._folds
 
     def set_folds(self, folds_iterable) -> None:
         """Set cross-validation folds from an iterable of (train_idx, val_idx) tuples."""
         self._folds = list(folds_iterable)
 
-    def index_column(self, col: str, filter: Dict[str, Any] = {}) -> List[int]:
-        return self._indexer.get_column_values(col, filter)
-
     @property
     def num_folds(self) -> int:
         """Return the number of folds."""
         return len(self._folds)
 
-    @property
-    def num_features(self) -> Union[List[int], int]:
-        return self._features.num_features
-
-    @property
-    def num_samples(self) -> int:
-        return self._features.num_samples
-
-    @property
-    def n_sources(self) -> int:
-        return len(self._features.sources)
-
     def _fold_str(self) -> str:
+        """Get string representation of folds."""
         if not self._folds:
             return ""
         folds_count = [(len(train), len(val)) for train, val in self._folds]
         return str(folds_count)
 
-    # def __repr__(self):
-    #     txt = str(self._features)
-    #     txt += "\n" + str(self._targets)
-    #     txt += "\n" + str(self._indexer)
-    #     return txt
+    # ========== Index and Size Properties ==========
+
+    def index_column(self, col: str, filter: Dict[str, Any] = {}) -> List[int]:
+        """Get values from index column."""
+        return self._indexer.get_column_values(col, filter)
+
+    @property
+    def num_features(self) -> Union[List[int], int]:
+        """Get number of features per source."""
+        return self._feature_accessor.num_features
+
+    @property
+    def num_samples(self) -> int:
+        """Get total number of samples."""
+        return self._feature_accessor.num_samples
+
+    @property
+    def n_sources(self) -> int:
+        """Get number of feature sources."""
+        return self._feature_accessor.num_sources
+
+    # ========== String Representations ==========
 
     def __str__(self):
+        """Return readable dataset summary."""
         txt = f"{CHART}Dataset: {self.name}"
-        if self._task_type:
-            txt += f" ({self._task_type})"
+        if self._target_accessor.task_type:
+            txt += f" ({self._target_accessor.task_type})"
         txt += "\n" + str(self._features)
         txt += "\n" + str(self._targets)
         txt += "\n" + str(self._indexer)
@@ -552,32 +484,30 @@ class SpectroDataset:
             txt += f"\nFolds: {self._fold_str()}"
         return txt
 
-    # PRINTING AND SUMMARY
     def print_summary(self) -> None:
         """
         Print a comprehensive summary of the dataset.
 
-        Shows counts, dimensions, number of sources, target versions, predictions, etc.
+        Shows counts, dimensions, number of sources, target versions, etc.
         """
         print("=== SpectroDataset Summary ===")
         print()
 
         # Task type
-        if self._task_type:
-            print(f"{TARGET} Task Type: {self._task_type}")
+        task_type = self._target_accessor.task_type
+        if task_type:
+            print(f"{TARGET} Task Type: {task_type}")
         else:
-            print("{TARGET} Task Type: Not detected (no targets added yet)")
+            print(f"{TARGET} Task Type: Not detected (no targets added yet)")
         print()
 
         # Features summary
         if self._features.sources:
-            total_samples = self._features.num_samples
-            n_sources = len(self._features.sources)
+            total_samples = self._feature_accessor.num_samples
+            n_sources = self._feature_accessor.num_sources
             print(f"{CHART}Features: {total_samples} samples, {n_sources} source(s)")
-            print(f"Features: {self._features.num_features}, processings: {self._features.num_processings}")
+            print(f"Features: {self._feature_accessor.num_features}, processings: {self._features.num_processings}")
             print(f"Processing IDs: {self._features.preprocessing_str}")
-            # print(self._features)
-            # print(self._targets)
         else:
             print(f"{CHART}Features: No data")
         print()
@@ -590,32 +520,3 @@ class SpectroDataset:
         else:
             print("📋 Metadata: None")
             print()
-
-    # IO methods (commented out)
-    # def save(self, path: str) -> None:
-    #     """
-    #     Save the dataset to disk.
-
-    #     Args:
-    #         path: Directory path where to save the dataset
-    #     """
-    #     from . import io
-    #     io.save(self, path)
-
-    # def load(self, path: str) -> "SpectroDataset":
-    #     """
-    #     Load a dataset from disk.
-
-    #     Args:
-    #         path: Directory path containing the saved dataset
-
-    #     Returns:
-    #         Loaded SpectroDataset instance
-    #     """
-    #     from . import io
-    #     return io.load(path)
-
-    # FOLDS
-
-
-

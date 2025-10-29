@@ -206,3 +206,28 @@ class TestTargetsRefactoredIntegration:
 
         repr_str = repr(targets)
         assert "Targets" in repr_str
+
+    def test_task_type_update_on_discretization(self):
+        """Test that task type is updated when processed targets change the task nature."""
+        from nirs4all.operators.transforms.targets import RangeDiscretizer
+        from nirs4all.utils.model_utils import TaskType
+
+        # Start with regression data
+        values = np.array([10.5, 15.2, 22.8, 28.3, 35.1, 42.9, 48.7])
+        targets = Targets()
+        targets.add_targets(values)
+
+        # Verify it's detected as regression
+        assert targets._task_type == TaskType.REGRESSION
+
+        # Apply discretization to convert to classification
+        discretizer = RangeDiscretizer([15, 25, 35, 45])
+        numeric_data = targets.get_targets("numeric")
+        discretized = discretizer.fit_transform(numeric_data.reshape(-1, 1)).ravel()
+
+        # Add discretized targets
+        targets.add_processed_targets("discretized", discretized, ancestor="numeric", transformer=discretizer)
+
+        # Task type should now be classification
+        assert targets._task_type in (TaskType.BINARY_CLASSIFICATION, TaskType.MULTICLASS_CLASSIFICATION)
+        assert targets.num_classes > 1
