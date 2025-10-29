@@ -1,6 +1,6 @@
 ## ROADMAP ##
 
-> [Cleaning] Modularize/Clean/Refactor: PipelineRunner, Predictions, BaseModelController, PredictionAnalyzer, Model_builder, Evaluator
+> [Cleaning] Modularize/Clean/Refactor: PipelineRunner, Predictions, BaseModelController, PredictionAnalyzer, Model_builder, Dataset
 
 **RELEASE** 0.4.1: final structure
 
@@ -11,7 +11,6 @@
   lines 140-157 > The op_fold_charts save directly the image with runner saver instead of returning the image to save.
 - op_split:
   line 250-260 > same problems as op_fold_charts. Save directly instead of returning tuple
-
 
 > [Pytorch] controller
 

@@ -21,11 +21,31 @@ from nirs4all.utils.backend import TF_AVAILABLE, TORCH_AVAILABLE
 # sklearn.linear_model.ElasticNet
 
 class ModelBuilderFactory:
+    """Factory class for building machine learning models from various configurations.
 
-#
-    @staticmethod
+    Supports multiple input formats:
+    - String: file path or class path
+    - Dict: configuration with class, import, or function keys
+    - Instance: pre-built model object
+    - Callable: function or class to instantiate
+    """
+
     @staticmethod
     def build_single_model(model_config, dataset, force_params={}):
+        """Build a single model from the given configuration.
+
+        Args:
+            model_config: Configuration for the model. Can be a string (file path or class path),
+                dict (with 'class', 'import', or 'function' keys), instance, or callable.
+            dataset: Dataset object used to determine input dimensions and classification settings.
+            force_params: Dictionary of parameters to force override on the model.
+
+        Returns:
+            The built model instance.
+
+        Raises:
+            ValueError: If the model_config format is invalid.
+        """
         # print("Building model with config:", model_config, "dataset:", dataset, "task:", task, "force_params:", force_params)
         if hasattr(dataset, 'is_classification') and dataset.is_classification:
             if hasattr(dataset, 'num_classes'):
@@ -52,6 +72,18 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _from_string(model_str, force_params=None):
+        """Build a model from a string configuration.
+
+        Args:
+            model_str: String representing either a file path or a class path.
+            force_params: Dictionary of parameters to force override.
+
+        Returns:
+            The built model instance.
+
+        Raises:
+            ValueError: If the string format is invalid.
+        """
         if os.path.exists(model_str):
             model = ModelBuilderFactory._load_model_from_file(model_str)
             if force_params is not None:
@@ -67,12 +99,35 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _from_instance(model_instance, force_params=None):
+        """Build a model from an existing instance.
+
+        Args:
+            model_instance: Pre-built model instance.
+            force_params: Dictionary of parameters to force override.
+
+        Returns:
+            The model instance, possibly reconstructed with force_params.
+        """
         if force_params is not None:
             model_instance = ModelBuilderFactory.reconstruct_object(model_instance, force_params)
         return model_instance
 
     @staticmethod
     def _from_dict(model_dict, dataset, force_params=None):
+        """Build a model from a dictionary configuration.
+
+        Args:
+            model_dict: Dictionary containing model configuration.
+                Can have 'class', 'import', or 'function' keys.
+            dataset: Dataset object for input dimensions.
+            force_params: Dictionary of parameters to force override.
+
+        Returns:
+            The built model instance.
+
+        Raises:
+            ValueError: If the dict format is invalid.
+        """
         if 'model' in model_dict:
             model_dict = model_dict['model']
 
@@ -141,6 +196,19 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _from_callable(model_callable, dataset, force_params=None):
+        """Build a model from a callable (function or class).
+
+        Args:
+            model_callable: Callable to instantiate the model.
+            dataset: Dataset object for input dimensions.
+            force_params: Dictionary of parameters to force override.
+
+        Returns:
+            The built model instance.
+
+        Raises:
+            ValueError: If framework cannot be determined.
+        """
         framework = None
         if inspect.isclass(model_callable):
             framework = ModelBuilderFactory.detect_framework(model_callable)
@@ -167,11 +235,14 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _clone_model(model, framework):
-        """
-        Clone the model using framework-specific cloning methods.
+        """Clone the model using framework-specific cloning methods.
+
+        Args:
+            model: The model instance to clone.
+            framework: The framework string ('sklearn', 'tensorflow', etc.).
 
         Returns:
-        - A cloned model instance.
+            A cloned model instance.
         """
         if framework == 'sklearn':
             from sklearn.base import clone
@@ -196,6 +267,18 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _get_input_dim(framework, dataset):
+        """Get the input dimensions for the model based on framework and dataset.
+
+        Args:
+            framework: The framework string ('tensorflow', 'sklearn', etc.).
+            dataset: Dataset object to extract dimensions from.
+
+        Returns:
+            Tuple representing input dimensions.
+
+        Raises:
+            ValueError: If input_dim cannot be determined.
+        """
         # Get X data with correct context
         context = {'partition': 'train'}
         # Use '3d_transpose' for TensorFlow to match the layout used during training
@@ -216,6 +299,17 @@ class ModelBuilderFactory:
 
     @staticmethod
     def import_class(class_path):
+        """Import a class from a module path.
+
+        Args:
+            class_path: String path like 'module.submodule.ClassName'.
+
+        Returns:
+            The imported class.
+
+        Raises:
+            ImportError: If TensorFlow or PyTorch is required but not available.
+        """
         module_name, class_name = class_path.rsplit('.', 1)
         if module_name.startswith('tensorflow'):
             if not TF_AVAILABLE:
@@ -229,6 +323,17 @@ class ModelBuilderFactory:
 
     @staticmethod
     def import_object(object_path):
+        """Import an object from a module path.
+
+        Args:
+            object_path: String path like 'module.submodule.object_name'.
+
+        Returns:
+            The imported object.
+
+        Raises:
+            ImportError: If TensorFlow or PyTorch is required but not available.
+        """
         module_name, object_name = object_path.rsplit('.', 1)
         if module_name.startswith('tensorflow'):
             if not TF_AVAILABLE:
@@ -242,15 +347,20 @@ class ModelBuilderFactory:
 
     @staticmethod
     def detect_framework(model):
-        """
-        Detect the framework from the model instance.
+        """Detect the framework from the model instance.
+
+        Args:
+            model: Model instance or class.
 
         Returns:
-        - A string representing the framework.
+            String representing the framework ('sklearn', 'tensorflow', 'pytorch').
+
+        Raises:
+            ValueError: If framework cannot be determined.
         """
-        # Spécial cas pour les objets mockés dans les tests
+        # Special case for mocked objects in tests
         if hasattr(model, '_mock_name') or str(type(model)).startswith("<class 'unittest.mock."):
-            return 'sklearn'  # Par défaut, on considère que les mocks sont des objets sklearn
+            return 'sklearn'  # By default, consider mocks as sklearn objects
 
         if hasattr(model, 'framework'):
             return model.framework
@@ -272,6 +382,15 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _filter_params(model_or_class, params):
+        """Filter parameters to only include those valid for the model's constructor.
+
+        Args:
+            model_or_class: Model class or instance.
+            params: Dictionary of parameters to filter.
+
+        Returns:
+            Dictionary of filtered parameters.
+        """
         constructor_signature = inspect.signature(model_or_class.__init__)
         valid_params = {param.name for param in constructor_signature.parameters.values() if param.name != 'self'}
         filtered_params = {key: value for key, value in params.items() if key in valid_params}
@@ -279,6 +398,15 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _force_param_on_instance(model, force_params):
+        """Force parameters on an existing model instance by reconstructing it.
+
+        Args:
+            model: Model instance to modify.
+            force_params: Dictionary of parameters to force.
+
+        Returns:
+            New model instance with forced parameters.
+        """
         try:
             filtered_params = ModelBuilderFactory._filter_params(model, force_params)
             new_model = model.__class__(**filtered_params)
@@ -289,6 +417,19 @@ class ModelBuilderFactory:
 
     @staticmethod
     def prepare_and_call(callable_obj, params_from_caller=None, force_params_from_caller=None):
+        """Prepare arguments and call a callable with proper parameter handling.
+
+        Args:
+            callable_obj: The callable to invoke.
+            params_from_caller: Parameters from the caller.
+            force_params_from_caller: Force parameters that take precedence.
+
+        Returns:
+            The result of calling the callable.
+
+        Raises:
+            TypeError: If arguments cannot be bound to the callable.
+        """
         if params_from_caller is None:
             params_from_caller = {}
         if force_params_from_caller is None:
@@ -351,21 +492,19 @@ class ModelBuilderFactory:
 
     @staticmethod
     def reconstruct_object(obj, params=None, force_params=None):
-        """
-        Reconstruct an object using its current attributes as default values,
-        then overwriting with provided params and force_params.
+        """Reconstruct an object using its current attributes as default values.
 
-        Parameters:
-        - obj: The object to be reconstructed.
-        - params: A dictionary of parameters to overwrite the object's current parameters.
-        - force_params: A dictionary of parameters that take precedence over both the object's
-                        current parameters and params.
+        Args:
+            obj: The object to be reconstructed.
+            params: Dictionary of parameters to overwrite the object's current parameters.
+            force_params: Dictionary of parameters that take precedence over both the object's
+                current parameters and params.
 
         Returns:
-        - A new instance of the object with the updated parameters.
+            A new instance of the object with the updated parameters.
 
         Raises:
-        - TypeError: If a required parameter is missing and no default value is provided.
+            TypeError: If a required parameter is missing and no default value is provided.
         """
         if params is None:
             params = {}
@@ -401,11 +540,18 @@ class ModelBuilderFactory:
 
     @staticmethod
     def _load_model_from_file(model_path):
-        """
-        Load a model from a file path.
+        """Load a model from a file path.
+
+        Args:
+            model_path: Path to the model file.
 
         Returns:
-        - A tuple of (model instance, framework string).
+            The loaded model instance.
+
+        Raises:
+            FileNotFoundError: If the model file does not exist.
+            ValueError: If the file extension is unsupported.
+            ImportError: If required libraries are not available.
         """
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file '{model_path}' does not exist.")
