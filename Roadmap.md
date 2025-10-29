@@ -1,10 +1,6 @@
 ## ROADMAP ##
 
-> [Cleaning] Modularize/Clean/Refactor: PipelineRunner, Targets, Predictions, BaseModelController, PredictionAnalyzer, Model_builder, Evaluator
-
-> [Structure] Update file naming and project tree structure
-
-> [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
+> [Cleaning] Modularize/Clean/Refactor: PipelineRunner, Predictions, BaseModelController, PredictionAnalyzer, Model_builder, Evaluator
 
 **RELEASE** 0.4.1: final structure
 
@@ -25,11 +21,13 @@
 
 **RELEASE** 0.4.2: torch up
 
+> [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
+
 > [ReadsTheDoc] minimal subset of signatures + update and export MD
 
 **RELEASE** 0.5: documentation
 
-> [Chart controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
+> [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
 > **Enhancement**:
 > - Options normalisation in charts (0-1 ou 1-0)
@@ -38,7 +36,9 @@
 
 > [Predictions] as a pipeline context.
 
-> [Metrics] uniformize Model_Utils / Evaluator / Predictions and add custom losses
+> [Metrics] uniformize Model_Utils / Evaluator / Predictions and add custom losses - lambda / functions / classes
+
+> [Layout] review layouts (tests) and add operators params
 
 > [Deprec: Model selection] Tools to select "best" predictions | verify if already exists
 
@@ -65,13 +65,15 @@
 
 > [Logs] implement feature and update print/log strategy
 
-> [Examples] update, clean and document examples and tutorial notebooks
+> [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
 
 **RELEASE** 0.7: User friendly (log + examples)
 
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
+
+> [Pipeline] verify and clean type for input in pipeline
 
 **RELEASE** 0.8: CLI
 
