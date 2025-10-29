@@ -1,11 +1,10 @@
 ## ROADMAP ##
 
-> [Cleaning] Modularize/Clean/Refactor: PipelineRunner, Predictions, BaseModelController, PredictionAnalyzer, Model_builder, Dataset
+> [Cleaning] Modularize/Clean/Refactor: Dataset, Predictions, PredictionAnalyzer, Model_builder, PipelineRunner, BaseModelController
 
 **RELEASE** 0.4.1: final structure
 
 **Bugs**:
->   - [_or_] with one element fallback on dummy controller
 > [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
 - op_fold_charts:
   lines 140-157 > The op_fold_charts save directly the image with runner saver instead of returning the image to save.
@@ -30,6 +29,9 @@
 
 > **Enhancement**:
 > - Options normalisation in charts (0-1 ou 1-0)
+
+**Bugs**:
+>   - [_or_] with one element fallback on dummy controller
 
 **RELEASE** 0.5.1: charts operators
 
