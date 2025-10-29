@@ -94,8 +94,8 @@ class TestBasicPipelineIntegration:
         # Should have predictions from multiple models
         assert predictions.num_predictions >= 4
 
-        # Test top_k functionality
-        top_3 = predictions.top_k(3, 'rmse')
+        # Test top functionality
+        top_3 = predictions.top(n=3, rank_metric='rmse', display_metrics=['rmse'])
         assert len(top_3) == 3
 
         # Verify each model has different performance
@@ -243,8 +243,8 @@ class TestBasicPipelineIntegration:
         analyzer = PredictionAnalyzer(predictions)
         assert analyzer is not None
 
-        # Test top_k functionality
-        top_models = predictions.top_k(2, 'rmse')
+        # Test top functionality
+        top_models = predictions.top(n=2, rank_metric='rmse')
         assert len(top_models) == 2
 
         # Test prediction string formatting

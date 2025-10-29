@@ -44,7 +44,7 @@ class ModelControllerHelper:
                 # Handle function-based models (like TensorFlow functions)
                 function_path = model_config['function']
                 if isinstance(function_path, str):
-                    # Extract function name from path (e.g., 'nirs4all.operators.models.cirad_tf.nicon' -> 'nicon')
+                    # Extract function name from path (e.g., 'nirs4all.operators.models.tensorflow.nicon.nicon' -> 'nicon')
                     return function_path.split('.')[-1]
                 else:
                     return str(function_path)

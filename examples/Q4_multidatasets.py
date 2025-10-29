@@ -93,7 +93,7 @@ for dataset_name, dataset_prediction in predictions_per_dataset.items():
 
     # Get the Predictions object from the dataset_prediction dictionary
     dataset_predictions = dataset_prediction['run_predictions']
-    top_models = dataset_predictions.top_k(4, 'rmse')
+    top_models = dataset_predictions.top(n=4, rank_metric='rmse')
     print("Top 4 models by RMSE:")
     for idx, model in enumerate(top_models):
         print(f"{idx+1}. {Predictions.pred_long_string(model, metrics=['rmse', 'r2', 'mae'])}")

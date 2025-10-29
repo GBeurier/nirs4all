@@ -42,6 +42,9 @@ class PredictionSerializer:
         """
         Serialize a prediction row by converting arrays/dicts to JSON strings.
 
+        Note: When using ArrayRegistry, arrays are externalized before serialization,
+        so this method only handles metadata fields.
+
         Args:
             row: Dictionary with prediction data (may contain numpy arrays, lists, dicts)
 
@@ -55,10 +58,13 @@ class PredictionSerializer:
             '[1, 2, 3]'
         """
         serialized = {}
+
         for key, value in row.items():
             if value is None:
-                serialized[key] = json.dumps([])
+                # Keep None as None (important for nullable columns in Polars schema)
+                serialized[key] = None
             elif isinstance(value, np.ndarray):
+                # Convert to JSON string (legacy or non-registry mode)
                 serialized[key] = json.dumps(value.tolist())
             elif isinstance(value, (list, dict)):
                 # Handle nested numpy arrays in lists
@@ -81,6 +87,8 @@ class PredictionSerializer:
         """
         Deserialize a prediction row by parsing JSON strings back to Python objects.
 
+        Handles both legacy format (arrays as JSON) and new format (array_id references).
+
         Args:
             row: Dictionary with JSON-serialized string values
 
@@ -88,10 +96,16 @@ class PredictionSerializer:
             Dictionary with parsed Python objects (lists, numpy arrays, dicts)
 
         Examples:
+            >>> # Legacy format
             >>> serialized = {"y_true": '[1, 2, 3]', "metadata": '{"key": "value"}'}
             >>> deserialized = PredictionSerializer.deserialize_row(serialized)
             >>> deserialized["y_true"]
             [1, 2, 3]
+            >>> # New format with array references
+            >>> serialized = {"y_true_id": "array_abc123", "metadata": '{"key": "value"}'}
+            >>> deserialized = PredictionSerializer.deserialize_row(serialized)
+            >>> deserialized["y_true_id"]
+            'array_abc123'
         """
         deserialized = {}
         json_fields = ['y_true', 'y_pred', 'sample_indices', 'weights', 'metadata', 'best_params']
@@ -103,6 +117,7 @@ class PredictionSerializer:
                 except (json.JSONDecodeError, TypeError):
                     deserialized[key] = value
             else:
+                # Pass through all other values (including array_id fields)
                 deserialized[key] = value
         return deserialized
 
@@ -112,7 +127,7 @@ class PredictionSerializer:
         Generate a unique hash ID for a prediction row.
 
         The hash is based on key fields that uniquely identify a prediction:
-        dataset, config, model, fold, partition, and sample indices.
+        dataset, config, model, fold, partition, and sample indices (or sample_indices_id).
 
         Args:
             row: Prediction row dictionary
@@ -132,6 +147,9 @@ class PredictionSerializer:
             >>> len(id_hash)
             16
         """
+        # Use sample_indices_id if available (new format), otherwise sample_indices
+        sample_idx_field = row.get('sample_indices_id', row.get('sample_indices', ''))
+
         hash_fields = [
             str(row.get('dataset_name', '')),
             str(row.get('dataset_path', '')),
@@ -143,7 +161,7 @@ class PredictionSerializer:
             str(row.get('partition', '')),
             str(row.get('step_idx', 0)),
             str(row.get('op_counter', 0)),
-            str(row.get('sample_indices', '')),
+            str(sample_idx_field),
         ]
         hash_string = '|'.join(hash_fields)
         return hashlib.sha256(hash_string.encode()).hexdigest()[:16]
@@ -230,81 +248,3 @@ class PredictionSerializer:
                 predictions.append(dict(row))
 
         return predictions
-
-    @staticmethod
-    def save_arrays_parquet(
-        predictions_df: pl.DataFrame,
-        parquet_path: Path,
-        array_columns: List[str] = None
-    ) -> None:
-        """
-        Save array columns to Parquet format for efficient storage.
-
-        Args:
-            predictions_df: DataFrame containing predictions
-            parquet_path: Output Parquet file path
-            array_columns: List of columns to save (default: y_true, y_pred, sample_indices)
-
-        Examples:
-            >>> df = pl.DataFrame({"id": ["a1"], "y_true": ['[1,2,3]']})
-            >>> PredictionSerializer.save_arrays_parquet(df, Path("arrays.parquet"))
-        """
-        if array_columns is None:
-            array_columns = ["y_true", "y_pred", "sample_indices"]
-
-        # Select only ID and array columns
-        cols_to_save = ["id"] + [col for col in array_columns if col in predictions_df.columns]
-        array_df = predictions_df.select(cols_to_save)
-
-        parquet_path.parent.mkdir(parents=True, exist_ok=True)
-        array_df.write_parquet(parquet_path)
-
-    @staticmethod
-    def load_arrays_parquet(parquet_path: Path) -> pl.DataFrame:
-        """
-        Load array data from Parquet format.
-
-        Args:
-            parquet_path: Input Parquet file path
-
-        Returns:
-            DataFrame with array columns
-
-        Examples:
-            >>> df = PredictionSerializer.load_arrays_parquet(Path("arrays.parquet"))
-        """
-        return pl.read_parquet(parquet_path)
-
-    @staticmethod
-    def numpy_to_bytes(arr: np.ndarray) -> bytes:
-        """
-        Convert numpy array to bytes for binary storage.
-
-        Args:
-            arr: Numpy array
-
-        Returns:
-            Byte representation
-
-        Examples:
-            >>> arr = np.array([1, 2, 3])
-            >>> bytes_data = PredictionSerializer.numpy_to_bytes(arr)
-        """
-        return arr.tobytes()
-
-    @staticmethod
-    def bytes_to_numpy(data: bytes) -> np.ndarray:
-        """
-        Convert bytes back to numpy array.
-
-        Args:
-            data: Byte representation
-
-        Returns:
-            Numpy array
-
-        Examples:
-            >>> bytes_data = b'...'
-            >>> arr = PredictionSerializer.bytes_to_numpy(bytes_data)
-        """
-        return np.frombuffer(data)

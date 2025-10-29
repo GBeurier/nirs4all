@@ -26,16 +26,19 @@ class TestPhase4QueryReporting:
     def sample_predictions(self):
         """Create sample predictions dataframe."""
         pred = Predictions()
-        pred._df = pl.DataFrame({
-            "prediction_id": ["pred_001", "pred_002", "pred_003", "pred_004"],
-            "dataset_name": ["wheat", "wheat", "corn", "corn"],
-            "config_name": ["baseline_pls", "advanced_pls", "baseline_pls", "advanced_rf"],
-            "test_score": [0.45, 0.52, 0.38, 0.61],
-            "train_score": [0.32, 0.39, 0.28, 0.55],
-            "val_score": [0.41, 0.48, 0.35, 0.58],
-            "model_name": ["PLSRegression", "PLSRegression", "PLSRegression", "RandomForest"],
-            "pipeline_hash": ["abc123", "def456", "abc123", "ghi789"]
-        })
+        # Use the proper API to add predictions instead of directly accessing _df
+        pred.add_predictions(
+            dataset_name=["wheat", "wheat", "corn", "corn"],
+            config_name=["baseline_pls", "advanced_pls", "baseline_pls", "advanced_rf"],
+            test_score=[0.45, 0.52, 0.38, 0.61],
+            train_score=[0.32, 0.39, 0.28, 0.55],
+            val_score=[0.41, 0.48, 0.35, 0.58],
+            model_name=["PLSRegression", "PLSRegression", "PLSRegression", "RandomForest"],
+            pipeline_uid=["abc123", "def456", "abc123", "ghi789"],
+            partition=["test", "test", "test", "test"],
+            fold_id=[0, 0, 0, 0],
+            metric=["mse", "mse", "mse", "mse"]
+        )
         return pred
 
     def test_query_best(self, sample_predictions):
@@ -117,11 +120,10 @@ class TestPhase4QueryReporting:
         assert "wheat" in datasets
         assert "corn" in datasets
 
-        # Check aggregated stats columns exist
-        assert "test_score_min" in comparison.columns
-        assert "test_score_max" in comparison.columns
-        assert "test_score_mean" in comparison.columns
-        assert "num_predictions" in comparison.columns
+        # Check result columns exist (returns best score per dataset)
+        assert "best_test_score" in comparison.columns
+        assert "model_name" in comparison.columns
+        assert "config_name" in comparison.columns
 
     def test_list_runs(self, sample_predictions):
         """Test listing runs with summary statistics."""
@@ -131,13 +133,12 @@ class TestPhase4QueryReporting:
 
         assert runs.height >= 1
         assert "dataset_name" in runs.columns
-        assert "num_pipelines" in runs.columns
-        assert "best_score" in runs.columns
+        assert "n_predictions" in runs.columns
+        assert "best_test_score" in runs.columns
 
-        # Should have counts per dataset
+        # Should have 2 runs for wheat (baseline_pls and advanced_pls)
         wheat_rows = runs.filter(pl.col("dataset_name") == "wheat")
-        if wheat_rows.height > 0:
-            assert wheat_rows["num_pipelines"][0] == 2
+        assert wheat_rows.height == 2
 
     def test_list_runs_with_filter(self, sample_predictions):
         """Test listing runs filtered by dataset."""
@@ -172,20 +173,24 @@ class TestPhase4QueryReporting:
         """Test querying predictions loaded from Parquet."""
         catalog_dir = temp_workspace / "catalog"
 
-        # Save predictions
+        # Save predictions using proper API
         pred_save = Predictions()
-        pred_save._df = pl.DataFrame({
-            "dataset_name": ["wheat", "corn", "wheat"],
-            "test_score": [0.45, 0.38, 0.52],
-            "config_name": ["pls1", "pls1", "pls2"]
-        })
+        pred_save.add_predictions(
+            dataset_name=["wheat", "corn", "wheat"],
+            test_score=[0.45, 0.38, 0.52],
+            config_name=["pls1", "pls1", "pls2"],
+            partition=["test", "test", "test"],
+            fold_id=[0, 0, 0],
+            model_name=["PLS", "PLS", "PLS"],
+            metric=["mse", "mse", "mse"]
+        )
         pred_save.save_to_parquet(catalog_dir, "pred_001")
 
         # Load and query
         pred_load = Predictions.load_from_parquet(catalog_dir)
 
         # Verify all rows loaded
-        assert pred_load._df.height >= 3
+        assert pred_load.num_predictions >= 3
 
         best = pred_load.query_best(metric="test_score", n=2)
 

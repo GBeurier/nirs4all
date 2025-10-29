@@ -48,7 +48,9 @@ class TestPredictions:
 
         assert pred_id is not None
         # Verify through top() which is the public API
-        all_preds = predictions.top(100, metric="test_score")
+        # Note: Must specify rank_partition since we only added a "test" partition record
+        # Use rank_metric="" to use the stored metric (mse) and precomputed test_score
+        all_preds = predictions.top(100, rank_partition="test", rank_metric="")
         assert len(all_preds) >= 1
 
     def test_add_prediction_with_numpy_arrays(self, base_prediction_params):
@@ -64,9 +66,9 @@ class TestPredictions:
 
         assert pred_id is not None
         # Check serialization through top()
-        preds = predictions.top(1, metric="test_score")
+        preds = predictions.top(1, rank_partition="test", rank_metric="")
         assert len(preds) == 1
-        # Arrays should be serialized to lists in JSON
+        # Arrays should be available in results
         assert "y_true" in preds[0]
         assert "y_pred" in preds[0]
 
@@ -123,8 +125,8 @@ class TestPredictions:
                 **{k: v for k, v in base_prediction_params.items() if k != "model_name"}
             )
 
-        # Best by lowest test_score
-        best = predictions.top(1, metric="test_score", ascending=True)
+        # Best by lowest test_score (using stored metric)
+        best = predictions.top(1, rank_partition="test", rank_metric="", ascending=True)
         assert len(best) == 1
         assert best[0]["test_score"] == 0.01
 
@@ -143,8 +145,8 @@ class TestPredictions:
                 **{k: v for k, v in base_prediction_params.items() if k != "model_name"}
             )
 
-        # Top 3 by lowest test_score
-        top_3 = predictions.top_k(3, metric="test_score", ascending=True)
+        # Top 3 by lowest test_score (using stored metric)
+        top_3 = predictions.top(n=3, rank_metric="", ascending=True, rank_partition="test")
         assert len(top_3) == 3
         # Should be sorted by test_score ascending
         assert top_3[0]["test_score"] <= top_3[1]["test_score"]
@@ -170,7 +172,7 @@ class TestPredictions:
             **base_prediction_params
         )
 
-        best_test = predictions.top(1, metric="test_score", ascending=True, partition="test")
+        best_test = predictions.top(1, rank_partition="test", rank_metric="", ascending=True)
         assert len(best_test) == 1
         assert best_test[0]["partition"] == "test"
         assert best_test[0]["test_score"] == 0.02
@@ -186,12 +188,12 @@ class TestPredictions:
             **base_prediction_params
         )
 
-        best = predictions.top(1, metric="test_score", ascending=True)
+        best = predictions.top(1, rank_partition="test", rank_metric="", ascending=True)
         assert "pipeline_uid" in best[0]
         assert best[0]["pipeline_uid"] == "pipe_123"
 
     def test_top_k_preserves_all_metadata(self, base_prediction_params):
-        """Test that top_k() preserves all metadata including pipeline_uid."""
+        """Test that top() preserves all metadata including pipeline_uid."""
         predictions = Predictions()
 
         for i in range(3):
@@ -204,7 +206,7 @@ class TestPredictions:
                 **{k: v for k, v in base_prediction_params.items() if k != "model_name"}
             )
 
-        top_3 = predictions.top_k(3, metric="test_score", ascending=True)
+        top_3 = predictions.top(n=3, rank_metric="test_score", ascending=True)
         for pred in top_3:
             assert "pipeline_uid" in pred
             assert "model_name" in pred
@@ -233,7 +235,7 @@ class TestPredictions:
                 **{k: v for k, v in base_prediction_params.items() if k != "model_name"}
             )
 
-        unique_models = predictions.catalog("model_name")
+        unique_models = predictions.get_unique_values("model_name")
         assert len(unique_models) == 5
         assert "Model_0" in unique_models
         assert "Model_4" in unique_models
@@ -251,7 +253,7 @@ class TestPredictions:
                 **base_prediction_params
             )
 
-        unique_partitions = predictions.catalog("partition")
+        unique_partitions = predictions.get_unique_values("partition")
         assert len(unique_partitions) == 2
         assert "test" in unique_partitions
         assert "val" in unique_partitions
@@ -268,9 +270,9 @@ class TestPredictions:
             **base_prediction_params
         )
 
-        preds = predictions.top(1, metric="test_score")
+        preds = predictions.top(1, rank_partition="test", rank_metric="")
         assert len(preds) == 1
-        # Weights should be serialized
+        # Weights should be available
         assert "weights" in preds[0]
 
     def test_none_weights_handling(self, base_prediction_params):
@@ -285,7 +287,7 @@ class TestPredictions:
             **base_prediction_params
         )
 
-        preds = predictions.top(1, metric="test_score")
+        preds = predictions.top(1, rank_partition="test", rank_metric="")
         assert len(preds) == 1
         # Should handle None gracefully
         assert "weights" in preds[0]

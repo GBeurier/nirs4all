@@ -25,7 +25,7 @@ print("Training models...")
 runner = PipelineRunner(save_files=True, verbose=0)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
-best_prediction = predictions.top_k(1, metric='rmse', partition="test")[0]
+best_prediction = predictions.top(n=1, rank_metric='rmse', rank_partition="test")[0]
 print(f"Best model: {best_prediction['model_name']} (RMSE: {best_prediction['rmse']:.4f})")
 
 print("Running SHAP analysis...")

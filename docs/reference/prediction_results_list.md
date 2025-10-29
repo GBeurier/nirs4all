@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `PredictionResultsList` class is a specialized list container that wraps lists of `PredictionResult` objects returned by the `top()` and `top_k()` methods of the `Predictions` class. It provides additional functionality while maintaining full compatibility with standard Python list operations.
+The `PredictionResultsList` class is a specialized list container that wraps lists of `PredictionResult` objects returned by the `top()` method of the `Predictions` class. It provides additional functionality while maintaining full compatibility with standard Python list operations.
 
 ## Key Features
 
@@ -267,7 +267,7 @@ y_true,y_pred
 - **Compatibility:** Fully compatible with all list operations and duck typing
 - **Performance:** `get()` method uses linear search (O(n)), suitable for small result sets
 - **Dependencies:** Uses `TabReportManager` for summary generation
-- **Return Type:** Both `top()` and `top_k()` now return `PredictionResultsList` instead of plain list
+- **Return Type:** `top()` returns `PredictionResultsList` instead of plain list
 
 ## See Also
 

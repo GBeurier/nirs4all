@@ -49,7 +49,7 @@ class TestShapIntegration:
         runner = PipelineRunner(save_files=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
-        best_prediction = predictions.top_k(1, metric='rmse', partition="test")[0]
+        best_prediction = predictions.top(n=1, rank_metric='rmse', rank_partition="test")[0]
 
         # Run SHAP analysis
         shap_params = {

@@ -349,7 +349,7 @@ def test_print_best_predictions_generates_reports(tmp_path, monkeypatch):
     )
 
     dataset_stub = SimpleNamespace(name="dataset", is_regression=True)
-    dataset_prediction_path = runner.workspace_path / "dataset.json"
+    dataset_prediction_path = runner.workspace_path / "dataset.meta.parquet"
 
     runner.print_best_predictions(run_predictions, global_predictions, dataset_stub, "dataset", str(dataset_prediction_path))
 

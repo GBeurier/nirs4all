@@ -84,7 +84,7 @@ best_model_count = 5
 ranking_metric = 'rmse'
 
 # Display top performing models
-top_models = predictions.top_k(best_model_count, ranking_metric)
+top_models = predictions.top(n=best_model_count, rank_metric=ranking_metric)
 print(f"Top {best_model_count} models by {ranking_metric}:")
 for idx, prediction in enumerate(top_models):
     print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")
@@ -110,7 +110,7 @@ fig2 = analyzer.plot_heatmap_v2(
 # plt.show()
 
 # Model reuse demonstration
-best_prediction = predictions.top_k(1, partition="test")[0]
+best_prediction = predictions.top(n=1, rank_partition="test")[0]
 model_id = best_prediction['id']
 
 print("\n=== Q6 - Multisource Model + Reuse Example ===")

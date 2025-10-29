@@ -65,7 +65,7 @@ class TestMultisourceIntegration:
         assert predictions.num_predictions > 0
 
         # Test top models
-        top_models = predictions.top_k(3, 'rmse')
+        top_models = predictions.top(n=3, rank_metric='rmse', display_metrics=['rmse'])
         assert len(top_models) >= 1
 
         for pred in top_models:
@@ -113,7 +113,7 @@ class TestMultisourceIntegration:
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get best model
-        best_prediction = predictions.top_k(1, partition="test")[0]
+        best_prediction = predictions.top(n=1, rank_partition="test")[0]
         model_id = best_prediction['id']
 
         print(f"Best model ID for multi-source: {model_id}")

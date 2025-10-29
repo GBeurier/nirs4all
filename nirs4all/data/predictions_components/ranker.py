@@ -65,6 +65,34 @@ class PredictionRanker:
         """Parse JSON string to numpy array."""
         return np.asarray(json.loads(s), dtype=float)
 
+    def _get_array(self, row: Dict[str, Any], field_name: str) -> Optional[np.ndarray]:
+        """
+        Get array from row, handling both legacy and registry formats.
+
+        Args:
+            row: Row dictionary
+            field_name: Name of array field (e.g., 'y_true', 'y_pred')
+
+        Returns:
+            Numpy array or None if not found
+        """
+        # Try array registry format first (new format)
+        array_id_field = f"{field_name}_id"
+        if array_id_field in row and row[array_id_field] is not None:
+            try:
+                return self._storage._array_registry.get_array(row[array_id_field])
+            except (KeyError, AttributeError):
+                pass
+
+        # Fall back to legacy format (JSON string)
+        if field_name in row and row[field_name] is not None:
+            try:
+                return self._parse_vec_json(row[field_name])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return None
+
     def top(
         self,
         n: int,
@@ -162,9 +190,12 @@ class PredictionRanker:
             else:
                 # Compute metric from y_true/y_pred
                 try:
-                    y_true = self._parse_vec_json(row["y_true"])
-                    y_pred = self._parse_vec_json(row["y_pred"])
-                    score = Evaluator.eval(y_true, y_pred, rank_metric)
+                    y_true = self._get_array(row, "y_true")
+                    y_pred = self._get_array(row, "y_pred")
+                    if y_true is not None and y_pred is not None:
+                        score = evaluator.eval(y_true, y_pred, rank_metric)
+                    else:
+                        score = None
                 except Exception:
                     score = None
 
@@ -210,8 +241,8 @@ class PredictionRanker:
 
                     if partition_data.height > 0:
                         row = partition_data.to_dicts()[0]
-                        y_true = self._parse_vec_json(row["y_true"])
-                        y_pred = self._parse_vec_json(row["y_pred"])
+                        y_true = self._get_array(row, "y_true")
+                        y_pred = self._get_array(row, "y_pred")
 
                         partition_dict = {
                             "y_true": y_true.tolist(),
@@ -224,6 +255,10 @@ class PredictionRanker:
 
                         # Add metadata from test partition
                         if partition == "test":
+                            # Get arrays using _get_array method
+                            sample_indices = self._get_array(row, "sample_indices")
+                            weights = self._get_array(row, "weights")
+
                             result.update({
                                 "partition": "test",
                                 "dataset_name": row.get("dataset_name"),
@@ -234,8 +269,8 @@ class PredictionRanker:
                                 "model_path": row.get("model_path"),
                                 "fold_id": row.get("fold_id"),
                                 "op_counter": row.get("op_counter"),
-                                "sample_indices": json.loads(row.get("sample_indices", "[]")),
-                                "weights": json.loads(row.get("weights", "[]")),
+                                "sample_indices": sample_indices.tolist() if sample_indices is not None else [],
+                                "weights": weights.tolist() if weights is not None else [],
                                 "metadata": json.loads(row.get("metadata", "{}")),
                                 "metric": row.get("metric"),
                                 "task_type": row.get("task_type", "regression"),
@@ -274,8 +309,10 @@ class PredictionRanker:
 
                 if display_data.height > 0:
                     row = display_data.to_dicts()[0]
-                    y_true = self._parse_vec_json(row["y_true"])
-                    y_pred = self._parse_vec_json(row["y_pred"])
+                    y_true = self._get_array(row, "y_true")
+                    y_pred = self._get_array(row, "y_pred")
+                    sample_indices = self._get_array(row, "sample_indices")
+                    weights = self._get_array(row, "weights")
 
                     result.update({
                         "partition": display_partition,
@@ -287,8 +324,8 @@ class PredictionRanker:
                         "model_path": row.get("model_path"),
                         "fold_id": row.get("fold_id"),
                         "op_counter": row.get("op_counter"),
-                        "sample_indices": json.loads(row.get("sample_indices", "[]")),
-                        "weights": json.loads(row.get("weights", "[]")),
+                        "sample_indices": sample_indices.tolist() if sample_indices is not None else [],
+                        "weights": weights.tolist() if weights is not None else [],
                         "metadata": json.loads(row.get("metadata", "{}")),
                         "metric": row.get("metric"),
                         "task_type": row.get("task_type", "regression"),
@@ -296,8 +333,8 @@ class PredictionRanker:
                         "n_features": row.get("n_features"),
                         "preprocessings": row.get("preprocessings"),
                         "best_params": json.loads(row.get("best_params", "{}")),
-                        "y_true": y_true.tolist(),
-                        "y_pred": y_pred.tolist(),
+                        "y_true": y_true.tolist() if y_true is not None else None,
+                        "y_pred": y_pred.tolist() if y_pred is not None else None,
                         "train_score": row.get("train_score"),
                         "val_score": row.get("val_score"),
                         "test_score": row.get("test_score")

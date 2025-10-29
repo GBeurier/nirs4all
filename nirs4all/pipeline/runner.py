@@ -342,8 +342,8 @@ class PipelineRunner:
             self.saver = SimulationSaver(self.current_run_dir, save_files=self.save_files)
             self.manifest_manager = ManifestManager(self.current_run_dir)
 
-            # Load global predictions from workspace root (dataset_name.json)
-            dataset_prediction_path = self.workspace_path / f"{name}.json"
+            # Load global predictions from workspace root (dataset_name.meta.parquet)
+            dataset_prediction_path = self.workspace_path / f"{name}.meta.parquet"
             global_dataset_predictions = Predictions.load_from_file_cls(dataset_prediction_path)
             run_dataset_predictions = Predictions()
 

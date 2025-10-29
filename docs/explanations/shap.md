@@ -149,7 +149,7 @@ from nirs4all.pipeline import PipelineRunner
 # Train model
 runner = PipelineRunner(save_files=True)
 predictions, _ = runner.run(pipeline_config, dataset_config)
-best = predictions.top_k(1, 'rmse')[0]
+best = predictions.top(n=1, rank_metric='rmse')[0]
 
 # Explain with SHAP (default binning)
 explainer = PipelineRunner()
@@ -265,7 +265,7 @@ Look for:
 
 ```python
 # Explain top 3 models
-top_models = predictions.top_k(3, 'rmse', partition='test')
+top_models = predictions.top(n=3, rank_metric='rmse', rank_partition='test')
 
 for model in top_models:
     results, output_dir = explainer.explain(model, dataset_config, shap_params)

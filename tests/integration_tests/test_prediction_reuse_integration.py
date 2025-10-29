@@ -58,7 +58,7 @@ class TestPredictionReuseIntegration:
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get best prediction
-        best_prediction = predictions.top_k(1, partition="test")[0]
+        best_prediction = predictions.top(n=1, rank_partition="test")[0]
         model_id = best_prediction['id']
 
         print(f"Best model ID: {model_id}")
@@ -104,7 +104,7 @@ class TestPredictionReuseIntegration:
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get best model ID
-        best_prediction = predictions.top_k(1, partition="test")[0]
+        best_prediction = predictions.top(n=1, rank_partition="test")[0]
         model_id = best_prediction['id']
 
         print(f"Using model ID: {model_id}")
@@ -182,7 +182,7 @@ class TestPredictionReuseIntegration:
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get best TensorFlow model
-        best_prediction = predictions.top_k(1, partition="test")[0]
+        best_prediction = predictions.top(n=1, rank_partition="test")[0]
 
         # Predict with TensorFlow model
         predictor = PipelineRunner(save_files=False, verbose=0)
@@ -215,7 +215,7 @@ class TestPredictionReuseIntegration:
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Test prediction with each preprocessing variant
-        top_3 = predictions.top_k(3, partition="test")
+        top_3 = predictions.top(n=3, rank_partition="test")
 
         predictor = PipelineRunner(save_files=False, verbose=0)
         prediction_dataset = DatasetConfigs(predict_folder)

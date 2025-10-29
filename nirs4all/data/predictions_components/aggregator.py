@@ -52,6 +52,27 @@ class PartitionAggregator:
         """Parse JSON string to numpy array."""
         return np.asarray(json.loads(s), dtype=float)
 
+    def _get_array(self, row: Dict[str, Any], field_name: str):
+        """
+        Get array from row, handling both legacy and registry formats.
+
+        Args:
+            row: Row dictionary
+            field_name: Name of array field (e.g., 'y_true', 'y_pred')
+
+        Returns:
+            Numpy array or None if not found
+        """
+        # Try array registry format first (new format)
+        array_id_field = f"{field_name}_id"
+        if array_id_field in row and row[array_id_field] is not None:
+            try:
+                return self._storage._array_registry.get_array(row[array_id_field])
+            except (KeyError, AttributeError):
+                pass
+
+        return None
+
     def aggregate_partitions(
         self,
         partitions: List[str] = None,
@@ -85,8 +106,8 @@ class PartitionAggregator:
 
             if df_partition.height > 0:
                 row = df_partition.to_dicts()[0]
-                y_true = self._parse_vec_json(row["y_true"])
-                y_pred = self._parse_vec_json(row["y_pred"])
+                y_true = self._get_array(row, "y_true")
+                y_pred = self._get_array(row, "y_pred")
 
                 aggregated[partition] = {
                     "y_true": y_true.tolist(),
