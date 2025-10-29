@@ -142,7 +142,10 @@ class PredictionResult(dict):
             y_true = self.get("y_true", [])
             y_pred = self.get("y_pred", [])
 
-            max_len = max(len(y_true), len(y_pred)) if y_true or y_pred else 0
+            # Check if arrays exist and have length (avoid ambiguous truth value with numpy arrays)
+            has_y_true = y_true is not None and len(y_true) > 0
+            has_y_pred = y_pred is not None and len(y_pred) > 0
+            max_len = max(len(y_true) if has_y_true else 0, len(y_pred) if has_y_pred else 0)
 
             for i in range(max_len):
                 row = {}

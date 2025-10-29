@@ -110,8 +110,8 @@ class PartitionAggregator:
                 y_pred = self._get_array(row, "y_pred")
 
                 aggregated[partition] = {
-                    "y_true": y_true.tolist(),
-                    "y_pred": y_pred.tolist(),
+                    "y_true": y_true,  # Keep as numpy array
+                    "y_pred": y_pred,  # Keep as numpy array
                     "train_score": row.get("train_score"),
                     "val_score": row.get("val_score"),
                     "test_score": row.get("test_score"),
