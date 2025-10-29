@@ -1,6 +1,8 @@
 ## ROADMAP ##
 
-> [Cleaning] Modularize/Clean/Refactor: Dataset, Predictions, PredictionAnalyzer, Model_builder, PipelineRunner, BaseModelController
+> [Cleaning] Modularize/Clean/Refactor: Indexer, Predictions, PredictionAnalyzer, Model_builder, PipelineRunner, BaseModelController
+
+> [Pipeline] authorize list of pipelineconfigs instead of pipelines....
 
 **RELEASE** 0.4.1: final structure
 
@@ -17,6 +19,7 @@
 
 > [SEED] review and fix definitive logic
 
+
 **RELEASE** 0.4.2: torch up
 
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
@@ -29,6 +32,7 @@
 
 > **Enhancement**:
 > - Options normalisation in charts (0-1 ou 1-0)
+> - Chart normalisation per dataset.
 
 **Bugs**:
 >   - [_or_] with one element fallback on dummy controller

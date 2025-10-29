@@ -9,6 +9,7 @@ from nirs4all.data.helpers import SampleIndices
 from nirs4all.data.targets_components.converters import NumericConverter
 from nirs4all.data.targets_components.processing_chain import ProcessingChain
 from nirs4all.data.targets_components.transformers import TargetTransformer
+from nirs4all.utils.model_utils import ModelUtils, TaskType
 
 # Re-export for backward compatibility
 from nirs4all.data.targets_components.encoders import FlexibleLabelEncoder  # noqa: F401
@@ -67,6 +68,9 @@ class Targets:
 
         # Performance caching
         self._stats_cache: Dict[str, any] = {}
+
+        # Task type detection
+        self._task_type: Optional[TaskType] = None
 
     def __repr__(self) -> str:
         """
@@ -261,6 +265,10 @@ class Targets:
             numeric_data, transformer = self._converter.convert(targets)
             self._data["numeric"] = numeric_data
             self._processing_chain.add_processing("numeric", ancestor="raw", transformer=transformer)
+
+            # Detect task type when targets are first added (use numeric data for detection)
+            if numeric_data.size > 0:
+                self._task_type = ModelUtils.detect_task_type(numeric_data)
         else:
             # Subsequent times: append to existing data
             if targets.shape[1] != self.num_targets:
@@ -330,6 +338,12 @@ class Targets:
         self._data[processing_name] = targets.copy()
         self._processing_chain.add_processing(processing_name, ancestor, transformer)
         self._stats_cache.clear()
+
+        # Re-detect task type after adding processed targets (e.g., discretization may change regression to classification)
+        if targets.size > 0:
+            new_task_type = ModelUtils.detect_task_type(targets)
+            if self._task_type != new_task_type:
+                self._task_type = new_task_type
 
     def get_targets(self,
                     processing: str = "numeric",
