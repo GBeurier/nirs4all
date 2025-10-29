@@ -14,7 +14,7 @@ import json
 import hashlib
 from nirs4all.utils.emoji import DISK, CHECK, SEARCH, WARNING
 from nirs4all.utils.model_utils import ModelUtils
-import nirs4all.data.evaluator as Evaluator
+import nirs4all.utils.evaluator as Evaluator
 import csv
 import io
 

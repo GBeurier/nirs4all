@@ -259,7 +259,7 @@ class PredictionAnalyzer:
 
                         # Calculate score for this partition
                         try:
-                            from nirs4all.data.evaluator import eval as eval_metric
+                            from nirs4all.utils.evaluator import eval as eval_metric
                             score = eval_metric(y_true, y_pred, rank_metric)
                             partition_scores[part_name] = score
                         except Exception as e:
@@ -1137,7 +1137,7 @@ class PredictionAnalyzer:
 
         if len(y_true) > 0 and len(y_pred) > 0:
             try:
-                from ..data.evaluator import eval
+                from ..utils.evaluator import eval
                 score = eval(np.array(y_true), np.array(y_pred), metric)
                 return float(score)
             except Exception as e:
@@ -1427,7 +1427,7 @@ class PredictionAnalyzer:
                 if score is None or (display_metric != rank_metric and display_metric != pred.get('metric', '')):
                     # Compute the metric from y_true and y_pred
                     try:
-                        from nirs4all.data.evaluator import eval as eval_metric
+                        from nirs4all.utils.evaluator import eval as eval_metric
                         y_true = pred.get('y_true', [])
                         y_pred = pred.get('y_pred', [])
                         if y_true and y_pred:
