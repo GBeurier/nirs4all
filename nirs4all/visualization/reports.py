@@ -12,7 +12,7 @@ import os
 import io
 
 # Import evaluator functions
-import nirs4all.data.evaluator as evaluator
+import nirs4all.utils.evaluator as evaluator
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 
 

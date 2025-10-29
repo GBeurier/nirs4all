@@ -24,7 +24,7 @@ from ...optimization.optuna import OptunaManager
 from nirs4all.data.predictions import Predictions
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING
-import nirs4all.data.evaluator as Evaluator
+import nirs4all.utils.evaluator as Evaluator
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
