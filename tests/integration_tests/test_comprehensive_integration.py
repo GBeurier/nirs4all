@@ -72,8 +72,8 @@ class TestNirs4allIntegration:
         # Verify predictions were generated
         assert predictions.num_predictions > 0
 
-        # Test top_k functionality
-        top_models = predictions.top_k(2, 'rmse')
+        # Test top functionality
+        top_models = predictions.top(n=2, rank_metric='rmse', display_metrics=['rmse'])
         assert len(top_models) <= 2
 
         # Verify metrics are reasonable for regression
@@ -383,8 +383,8 @@ class TestNirs4allIntegration:
         # Test Predictions functionality
         assert predictions.num_predictions > 0
 
-        # Test top_k
-        top_3 = predictions.top_k(3, 'rmse')
+        # Test top
+        top_3 = predictions.top(n=3, rank_metric='rmse', display_metrics=['rmse', 'r2'])
         assert len(top_3) <= 6
 
         # Test get_best

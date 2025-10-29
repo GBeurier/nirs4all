@@ -483,7 +483,7 @@ class BaseModelController(OperatorController, ABC):
             'task_type': dataset.task_type,
             'n_features': X_train.shape[1] if len(X_train.shape) > 1 else 1,
             'preprocessings': dataset.short_preprocessings_str(),
-            'best_params': {} if best_params is None else str(best_params),
+            'best_params': best_params if best_params is not None else {},
             'partitions': [
                 ("train", train_indices, y_train_unscaled, y_train_pred_unscaled),
                 ("val", val_indices, y_val_unscaled, y_val_pred_unscaled),
@@ -753,7 +753,7 @@ class BaseModelController(OperatorController, ABC):
             'n_features': X_train.shape[1],
             'preprocessings': dataset.short_preprocessings_str(),
             'partitions': prediction_array,
-            'best_params': {} if best_params is None else str(best_params),
+            'best_params': best_params if best_params is not None else {},
         }
 
         # Weighted average predictions based on fold scores
@@ -834,7 +834,7 @@ class BaseModelController(OperatorController, ABC):
             'preprocessings': dataset.short_preprocessings_str(),
             'weights': weights.tolist(),
             'partitions': prediction_array_w,
-            'best_params': {} if best_params is None else str(best_params),
+            'best_params': best_params if best_params is not None else {},
         }
 
         return avg_predictions, w_avg_predictions

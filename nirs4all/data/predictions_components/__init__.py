@@ -19,7 +19,8 @@ Public classes exported for backward compatibility:
 from .result import PredictionResult, PredictionResultsList
 from .storage import PredictionStorage
 from .serializer import PredictionSerializer
-from .schemas import PREDICTION_SCHEMA, METADATA_SCHEMA, ARRAY_SCHEMA
+from .schemas import PREDICTION_SCHEMA
+from .array_registry import ArrayRegistry, ARRAY_SCHEMA
 
 __all__ = [
     'PredictionResult',
@@ -27,6 +28,6 @@ __all__ = [
     'PredictionStorage',
     'PredictionSerializer',
     'PREDICTION_SCHEMA',
-    'METADATA_SCHEMA',
     'ARRAY_SCHEMA',
+    'ArrayRegistry',
 ]

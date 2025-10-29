@@ -237,7 +237,7 @@ predictions, _ = runner.run(pipeline_config, dataset_config)
 
 ```python
 # 1. Get best prediction object (contains pipeline reference)
-best = predictions.top_k(1, partition="test")[0]
+best = predictions.top(n=1, rank_partition="test")[0]
 
 # 2. Create predictor and predict
 predictor = PipelineRunner()

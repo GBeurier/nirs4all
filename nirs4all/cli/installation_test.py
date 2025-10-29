@@ -319,7 +319,7 @@ from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, R
 
             # Verify results
             assert predictions is not None, "No predictions returned"
-            num_predictions = len(predictions.top_k(-1))
+            num_predictions = predictions.num_predictions
             print(f"    {CHART} Pipeline executed successfully, {num_predictions} predictions generated")
 
             # Additional validation
@@ -436,7 +436,7 @@ from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, R
 
             # Verify results
             assert predictions is not None, "No predictions returned"
-            num_predictions = len(predictions.top_k(-1))
+            num_predictions = predictions.num_predictions
             print(f"    🔧 Optuna optimization completed, {num_predictions} predictions generated")
 
             # Additional validation - should have predictions from both optimizations

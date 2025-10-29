@@ -51,7 +51,7 @@ runner = PipelineRunner(save_files=True, verbose=0)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Get best performing model for prediction testing
-best_prediction = predictions.top_k(1, partition="test")[0]
+best_prediction = predictions.top(n=1, rank_partition="test")[0]
 model_id = best_prediction['id']
 fold_id = best_prediction['fold_id']
 

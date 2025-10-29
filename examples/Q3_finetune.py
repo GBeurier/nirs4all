@@ -101,7 +101,7 @@ best_model_count = 5
 ranking_metric = 'rmse'  # Options: 'rmse', 'mae', 'r2'
 
 # Display top performing models (including finetuned ones)
-top_models = predictions.top_k(best_model_count, ranking_metric)
+top_models = predictions.top(n=best_model_count, rank_metric=ranking_metric)
 print(f"Top {best_model_count} models by {ranking_metric}:")
 for idx, prediction in enumerate(top_models):
     print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")

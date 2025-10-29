@@ -402,7 +402,7 @@ runner = PipelineRunner(save_files=False, verbose=1)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 print(f"Pipeline completed! Generated {len(predictions)} predictions.")
-print(f"Best model RMSE: {predictions.top_k(1, 'rmse')[0]['rmse']:.4f}")
+print(f"Best model RMSE: {predictions.top(n=1, rank_metric='rmse')[0]['rmse']:.4f}")
 ```
 
 🎉 **Congratulations!** NIRS4ALL is now installed and ready to use. Check out the example scripts in the `examples/` directory:

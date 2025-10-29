@@ -17,6 +17,7 @@ from sklearn.metrics import confusion_matrix as sk_confusion_matrix
 
 from nirs4all.data.predictions import Predictions
 from nirs4all.utils.model_utils import ModelUtils, TaskType
+from nirs4all.utils.emoji import WARNING
 
 
 class PredictionAnalyzer:
@@ -116,11 +117,12 @@ class PredictionAnalyzer:
 
         # Use the Predictions API directly
         try:
-            top_predictions = self.predictions.top_k(
-                k=k,
-                metric=metric,
+            top_predictions = self.predictions.top(
+                n=k,
+                rank_metric=metric,
+                rank_partition=filters.get('partition', 'val'),
                 ascending=(metric not in ['r2', 'accuracy', 'f1']),
-                **filters
+                **{k: v for k, v in filters.items() if k != 'partition'}
             )
             return top_predictions
         except Exception as e:
@@ -249,8 +251,8 @@ class PredictionAnalyzer:
 
                         # Scatter plot with partition-specific color (predicted on X-axis)
                         ax_scatter.scatter(y_pred, y_true, alpha=0.6, s=20,
-                                         color=partition_colors[part_name],
-                                         label=part_name.capitalize())
+                                           color=partition_colors[part_name],
+                                           label=part_name.capitalize())
 
                         # Collect for residuals
                         all_y_true.extend(y_true)
@@ -476,11 +478,12 @@ class PredictionAnalyzer:
         else:
             filters['partition'] = 'test'  # Default to test partition
 
-        # Use top_k to get all predictions for the specified partition
-        predictions = self.predictions.top_k(
-            k=-1,  # Get all predictions
-            metric=metric,
-            **filters
+        # Use top to get all predictions for the specified partition
+        predictions = self.predictions.top(
+            n=self.predictions.num_predictions,  # Get all predictions
+            rank_metric=metric,
+            rank_partition=filters.get('partition', 'test'),
+            **{k: v for k, v in filters.items() if k != 'partition'}
         )
 
         if not predictions:
@@ -581,13 +584,19 @@ class PredictionAnalyzer:
                                  normalize: bool, best_only: bool, display_n: bool = True,
                                  score_partition: str = 'test', score_metric: str = '') -> Figure:
         """Helper method to create variable heatmap (split for complexity)."""
-        # Get predictions using the existing top_k method with filters
+        # Get predictions using the existing top method with filters
         try:
-            # Use top_k with k=-1 to get all predictions matching filters
+            # Use top with n=-1 equivalent (get all predictions matching filters)
             if x_var == "partition" or y_var == "partition" or filters.get('partition') in ['all', 'ALL', 'All', '_all_']:
                 filters['partition'] = '_all_'
 
-            predictions = self.predictions.top_k(k=-1, metric=metric, aggregate_partitions=[score_partition], **filters)  # True only if score_partition and partition are different
+            predictions = self.predictions.top(
+                n=self.predictions.num_predictions,
+                rank_metric=metric,
+                rank_partition=filters.get('partition', 'val'),
+                aggregate_partitions=True if score_partition else False,
+                **{k: v for k, v in filters.items() if k != 'partition'}
+            )
         except Exception as e:
             print(f"{WARNING}Error getting predictions: {e}")
             # Fallback to filter_predictions
@@ -878,13 +887,19 @@ class PredictionAnalyzer:
         rank_higher_better = rank_metric.lower() in ['r2', 'accuracy', 'f1', 'precision', 'recall', 'auc']
         display_higher_better = display_metric.lower() in ['r2', 'accuracy', 'f1', 'precision', 'recall', 'auc']
 
-        # Strategy: Use fast top_k() calls and merge by model identity when needed
+        # Strategy: Use fast top() calls and merge by model identity when needed
         # 1. Get ranking from rank_partition
         rank_filters = {k: v for k, v in filters.items() if k != 'partition'}
         rank_filters['partition'] = rank_partition
 
         # Get all predictions from rank partition (fast - uses stored scores)
-        rank_predictions = self.predictions.top_k(k=-1, metric=rank_metric, ascending=(not rank_higher_better), **rank_filters)
+        rank_predictions = self.predictions.top(
+            n=self.predictions.num_predictions,
+            rank_metric=rank_metric,
+            ascending=(not rank_higher_better),
+            rank_partition=rank_partition,
+            **{k: v for k, v in rank_filters.items() if k != 'partition'}
+        )
 
         if not rank_predictions:
             return self._create_empty_heatmap_figure(figsize, filters, "No predictions found")
@@ -908,16 +923,17 @@ class PredictionAnalyzer:
                 unique_models[identity_key] = pred
                 unique_model_keys.add(identity_key)
 
-            # Get display predictions using top_k with display partition
+            # Get display predictions using top with display partition
             display_filters = {k: v for k, v in filters.items() if k != 'partition'}
             display_filters['partition'] = display_partition
 
-            # Use top_k for display partition (it's faster than filter_predictions)
-            display_predictions = self.predictions.top_k(
-                k=-1,
-                metric=display_metric if display_metric == rank_metric else "",  # Use same metric if possible for speed
+            # Use top for display partition (it's faster than filter_predictions)
+            display_predictions = self.predictions.top(
+                n=self.predictions.num_predictions,
+                rank_metric=display_metric if display_metric == rank_metric else "",  # Use same metric if possible for speed
                 ascending=(not display_higher_better),
-                **display_filters
+                rank_partition=display_partition,
+                **{k: v for k, v in display_filters.items() if k != 'partition'}
             )
 
             # Build lookup for display scores indexed by model identity
@@ -1155,10 +1171,15 @@ class PredictionAnalyzer:
             plot_variable_candlestick({"dataset": "regression", "partition": "test"},
                                     "model_name", 'rmse')
         """
-        # Get predictions using the existing top_k method with filters
+        # Get predictions using the existing top method with filters
         try:
-            # Use top_k with k=-1 to get all predictions matching filters
-            predictions = self.predictions.top_k(k=-1, metric=metric, **filters)
+            # Use top with n=-1 equivalent to get all predictions matching filters
+            predictions = self.predictions.top(
+                n=self.predictions.num_predictions,
+                rank_metric=metric,
+                rank_partition=filters.get('partition', 'val'),
+                **{k: v for k, v in filters.items() if k != 'partition'}
+            )
         except Exception as e:
             print(f"{WARNING}Error getting predictions: {e}")
             # Fallback to filter_predictions

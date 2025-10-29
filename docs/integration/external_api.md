@@ -187,7 +187,6 @@ class Predictions:
 
     # Ranking and selection
     def top(self, n: int, rank_metric: str = "", rank_partition: str = "val", display_metrics: list[str] = None, display_partition: str = "test", aggregate_partitions: bool = False, ascending: bool = True, group_by_fold: bool = False, **filters) -> PredictionResultsList
-    def top_k(self, k: int = 5, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> List[Union[Dict[str, Any], 'PredictionResult']]
     def get_best(self, metric: str = "", ascending: bool = True, aggregate_partitions: List[str] = [], **filters) -> Optional[Union[Dict[str, Any], 'PredictionResult']]
 
     # Utility

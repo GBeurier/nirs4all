@@ -22,8 +22,7 @@ from pathlib import Path
 from datetime import datetime
 from uuid import uuid4
 
-from nirs4all.utils.emoji import DISK, CHECK, SEARCH, WARNING
-from nirs4all.utils.model_utils import ModelUtils
+from nirs4all.utils.emoji import DISK, CHECK, WARNING
 from nirs4all.utils import evaluator
 
 # Import components
@@ -32,9 +31,6 @@ from .predictions_components import (
     PredictionSerializer,
     PredictionResult,
     PredictionResultsList,
-    PREDICTION_SCHEMA,
-    METADATA_SCHEMA,
-    ARRAY_SCHEMA
 )
 from .predictions_components.indexer import PredictionIndexer
 from .predictions_components.ranker import PredictionRanker
@@ -84,9 +80,9 @@ class Predictions:
         Initialize Predictions storage with component-based architecture.
 
         Args:
-            filepath: Optional path to load predictions from
+            filepath: Optional path to load predictions from (.meta.parquet file)
         """
-        # Initialize components
+        # Initialize components with array registry support
         self._storage = PredictionStorage()
         self._serializer = PredictionSerializer()
         self._indexer = PredictionIndexer(self._storage)
@@ -302,12 +298,14 @@ class Predictions:
         model_name: Optional[str] = None,
         fold_id: Optional[str] = None,
         step_idx: Optional[int] = None,
+        load_arrays: bool = True,
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
-        Filter predictions and return as list of dictionaries with deserialized arrays.
+        Filter predictions and return as list of dictionaries.
 
         Delegates to PredictionIndexer for filtering, then deserializes results.
+        Supports lazy loading of arrays for performance optimization.
 
         Args:
             dataset_name: Filter by dataset name
@@ -316,10 +314,19 @@ class Predictions:
             model_name: Filter by model name
             fold_id: Filter by fold ID
             step_idx: Filter by step index
+            load_arrays: If True, loads actual arrays from registry (slower).
+                        If False, returns metadata only with array references (fast).
             **kwargs: Additional filter criteria
 
         Returns:
-            List of prediction dictionaries with deserialized numpy arrays
+            List of prediction dictionaries with deserialized numpy arrays (if load_arrays=True)
+            or metadata with array_id references (if load_arrays=False)
+
+        Examples:
+            >>> # Fast metadata-only query
+            >>> preds = predictions.filter_predictions(dataset_name="wheat", load_arrays=False)
+            >>> # Full query with arrays
+            >>> preds = predictions.filter_predictions(dataset_name="wheat", load_arrays=True)
         """
         df_filtered = self._indexer.filter(
             dataset_name=dataset_name,
@@ -334,7 +341,19 @@ class Predictions:
         # Deserialize results
         results = []
         for row in df_filtered.to_dicts():
-            results.append(self._serializer.deserialize_row(row))
+            deserialized = self._serializer.deserialize_row(row)
+
+            # Hydrate arrays if requested (always using array registry now)
+            if load_arrays:
+                pred_id = deserialized.get('id')
+                if pred_id:
+                    # Get full prediction with arrays from storage
+                    full_pred = self._storage.get_by_id(pred_id, load_arrays=True)
+                    if full_pred:
+                        deserialized = full_pred
+
+            results.append(deserialized)
+
         return results
 
     def get_similar(self, **filter_kwargs) -> Optional[Dict[str, Any]]:
@@ -396,49 +415,6 @@ class Predictions:
             group_by_fold=group_by_fold,
             **filters
         )
-
-    def top_k(
-        self,
-        k: int = 5,
-        metric: str = "",
-        ascending: bool = True,
-        aggregate_partitions: List[str] = [],
-        **filters
-    ) -> PredictionResultsList:
-        """
-        DEPRECATED: Use top() instead.
-
-        Get top K predictions ranked by metric. Maintained for backward compatibility.
-
-        Args:
-            k: Number of top results to return
-            metric: Metric name to rank by
-            ascending: If True, lower scores rank higher
-            aggregate_partitions: List of partitions to aggregate
-            **filters: Additional filter criteria
-
-        Returns:
-            List of top K prediction results
-        """
-        # Map to new top() method
-        if aggregate_partitions:
-            return self.top(
-                n=k if k > 0 else self.num_predictions,
-                rank_metric=metric,
-                rank_partition=filters.get("partition", "val"),
-                aggregate_partitions=True,
-                ascending=ascending,
-                **{k: v for k, v in filters.items() if k != "partition"}
-            )
-        else:
-            return self.top(
-                n=k if k > 0 else self.num_predictions,
-                rank_metric=metric,
-                rank_partition=filters.get("partition", "val"),
-                aggregate_partitions=False,
-                ascending=ascending,
-                **{k: v for k, v in filters.items() if k != "partition"}
-            )
 
     def get_best(
         self,
@@ -602,27 +578,77 @@ class Predictions:
     # STORAGE OPERATIONS - Delegate to Storage & Serializer
     # =========================================================================
 
-    def save_to_file(self, filepath: str) -> None:
+    def save_to_file(self, filepath: str, format: str = "parquet") -> None:
         """
-        Save predictions to JSON file.
-
-        Delegates to PredictionStorage component.
+        Save predictions to split Parquet format with array registry.
 
         Args:
-            filepath: Output file path
+            filepath: Output file path (should end with .meta.parquet)
+            format: Format to use (only "parquet" is supported)
+
+        Examples:
+            >>> predictions.save_to_file("predictions.meta.parquet")
         """
-        self._storage.save_json(Path(filepath))
+        if format != "parquet":
+            raise ValueError(f"Only 'parquet' format is supported, got: {format}")
+
+        filepath = Path(filepath)
+
+        if not filepath.name.endswith(".meta.parquet"):
+            raise ValueError(
+                f"Expected .meta.parquet extension, got: {filepath.name}\n"
+                f"Use 'predictions.meta.parquet' as the filename"
+            )
+
+        # Split Parquet with array registry
+        arrays_path = filepath.with_name(
+            filepath.name.replace(".meta.parquet", ".arrays.parquet")
+        )
+        self._storage.save_parquet(filepath, arrays_path)
 
     def load_from_file(self, filepath: str) -> None:
         """
-        Load predictions from JSON file.
+        Load predictions from split Parquet format.
 
-        Delegates to PredictionStorage component.
+        Supports:
+        - Split Parquet with array registry (.meta.parquet + .arrays.parquet)
 
         Args:
-            filepath: Input file path
+            filepath: Path to .meta.parquet file
+
+        Examples:
+            >>> predictions.load_from_file("predictions.meta.parquet")
         """
-        self._storage.load_json(Path(filepath))
+        filepath = Path(filepath)
+
+        if not filepath.exists():
+            raise FileNotFoundError(f"File not found: {filepath}")
+
+        # Must be .meta.parquet format
+        if not filepath.name.endswith('.meta.parquet'):
+            raise ValueError(
+                f"Expected .meta.parquet file, got: {filepath}\n"
+                f"Only split Parquet format is supported (use .meta.parquet + .arrays.parquet)"
+            )
+
+        arrays_path = filepath.with_name(
+            filepath.name.replace('.meta.parquet', '.arrays.parquet')
+        )
+
+        if not arrays_path.exists():
+            raise FileNotFoundError(
+                f"Array file not found: {arrays_path}\n"
+                f"Expected paired .arrays.parquet file for {filepath}"
+            )
+
+        # Load using storage
+        self._storage.load_parquet(filepath, arrays_path)
+
+        # Reinitialize dependent components
+        self._indexer = PredictionIndexer(self._storage)
+        self._ranker = PredictionRanker(self._storage, self._serializer, self._indexer)
+        self._aggregator = PartitionAggregator(self._storage, self._indexer)
+        self._query = CatalogQueryEngine(self._storage, self._indexer)
 
     @classmethod
     def load_from_file_cls(cls, filepath: str) -> 'Predictions':
@@ -663,21 +689,22 @@ class Predictions:
         instance = cls()
         base_path = Path(path)
 
-        # Case 1: path is a JSON file
-        if base_path.is_file() and base_path.suffix == '.json':
+        # Case 1: path is a .meta.parquet file
+        if base_path.is_file() and base_path.name.endswith('.meta.parquet'):
             instance.load_from_file(str(base_path))
 
         # Case 2: path is a directory
         elif base_path.is_dir():
             if dataset_name:
-                dataset_path = base_path / dataset_name / "predictions.json"
+                # Look for .meta.parquet files
+                dataset_path = base_path / dataset_name / "predictions.meta.parquet"
                 if dataset_path.exists():
                     temp = cls()
                     temp.load_from_file(str(dataset_path))
                     instance.merge_predictions(temp)
             else:
                 # Load all datasets
-                predictions_files = list(base_path.glob("*/predictions.json"))
+                predictions_files = list(base_path.glob("*/predictions.meta.parquet"))
                 for pred_file in predictions_files:
                     temp = cls()
                     temp.load_from_file(str(pred_file))
@@ -696,6 +723,8 @@ class Predictions:
     def save_to_parquet(self, catalog_dir: Path, prediction_id: str = None) -> tuple:
         """
         Save predictions as split Parquet (metadata + arrays separate).
+
+        Appends to existing files if they exist.
 
         Delegates to PredictionStorage component.
 
@@ -727,7 +756,16 @@ class Predictions:
         meta_path = catalog_dir / "predictions_meta.parquet"
         data_path = catalog_dir / "predictions_data.parquet"
 
-        self._storage.save_parquet(meta_path, data_path)
+        # Load existing data if files exist
+        if meta_path.exists() and data_path.exists():
+            existing = Predictions.load_from_parquet(catalog_dir)
+            # Merge with existing
+            existing._storage.merge(self._storage)
+            # Save the merged data
+            existing._storage.save_parquet(meta_path, data_path)
+        else:
+            # Save new data
+            self._storage.save_parquet(meta_path, data_path)
 
         return (meta_path, data_path)
 
@@ -761,6 +799,40 @@ class Predictions:
 
         return instance
 
+    def archive_to_catalog(
+        self,
+        catalog_dir: Path,
+        pipeline_dir: Path,
+        metrics: Dict[str, Any] = None
+    ) -> str:
+        """
+        Archive pipeline predictions to catalog.
+
+        Loads predictions CSV from pipeline directory, adds metadata,
+        and saves to catalog.
+
+        Delegates to PredictionStorage for CSV loading.
+
+        Args:
+            catalog_dir: Catalog directory for storage
+            pipeline_dir: Pipeline directory containing predictions.csv
+            metrics: Optional metadata dict to add to predictions
+
+        Returns:
+            Generated prediction ID
+        """
+        # Load CSV and prepare data using storage component
+        pred_csv = pipeline_dir / "predictions.csv"
+        pred_data = self._storage.archive_from_csv(pred_csv, metrics)
+
+        # Add to predictions
+        pred_id = self.add_prediction(**pred_data)
+
+        # Save to catalog
+        self.save_to_parquet(catalog_dir, pred_id)
+
+        return pred_id
+
     def merge_predictions(self, other: 'Predictions') -> None:
         """
         Merge predictions from another Predictions instance.
@@ -783,6 +855,28 @@ class Predictions:
     # =========================================================================
     # METADATA & UTILITY OPERATIONS - Delegate to Indexer
     # =========================================================================
+
+    @property
+    def _df(self) -> pl.DataFrame:
+        """
+        Backward compatibility property for direct DataFrame access.
+
+        Delegates to storage._df for tests and legacy code.
+
+        Returns:
+            Internal Polars DataFrame
+        """
+        return self._storage._df
+
+    @_df.setter
+    def _df(self, value: pl.DataFrame) -> None:
+        """
+        Backward compatibility setter for direct DataFrame assignment.
+
+        Args:
+            value: DataFrame to set
+        """
+        self._storage._df = value
 
     @property
     def num_predictions(self) -> int:
@@ -1013,7 +1107,7 @@ class Predictions:
 
         for partition in ['train', 'val', 'test']:
             filter_dict['partition'] = partition
-            predictions = self.filter_predictions(**filter_dict)
+            predictions = self.filter_predictions(**filter_dict, load_arrays=True)
             if predictions:
                 res[partition] = predictions[0]
             else:
@@ -1029,9 +1123,28 @@ class Predictions:
         """Get predictions as Polars DataFrame."""
         return self._storage.to_dataframe()
 
-    def to_dicts(self) -> List[Dict[str, Any]]:
-        """Get predictions as list of dictionaries."""
-        return self._storage.to_dataframe().to_dicts()
+    def to_dicts(self, load_arrays: bool = True) -> List[Dict[str, Any]]:
+        """
+        Get predictions as list of dictionaries.
+
+        Args:
+            load_arrays: If True, hydrate array references with actual arrays.
+                        If False, returns metadata with array IDs only (faster).
+
+        Returns:
+            List of prediction dictionaries
+        """
+        if load_arrays:
+            # Hydrate arrays for each row
+            df = self._storage.to_dataframe()
+            result = []
+            for row in df.to_dicts():
+                hydrated = self._storage._hydrate_arrays(row)
+                result.append(hydrated)
+            return result
+        else:
+            # Return raw data with array IDs
+            return self._storage.to_dataframe().to_dicts()
 
     def to_pandas(self):
         """Get predictions as pandas DataFrame."""

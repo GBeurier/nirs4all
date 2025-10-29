@@ -3,12 +3,12 @@
 ## New Features Overview
 
 ### 1. PredictionResultsList Class
-Wrapper for lists of predictions returned by `top()` and `top_k()` methods.
+Wrapper for lists of predictions returned by `top()` method.
 
 ```python
 # Get top predictions (now returns PredictionResultsList)
 top_models = predictions.top(n=5, rank_metric="mse", aggregate_partitions=True)
-top_k_models = predictions.top_k(k=5, metric="rmse")
+top_k_models = predictions.top(n=5, rank_metric="rmse")
 ```
 
 ### 2. Save All Predictions to CSV

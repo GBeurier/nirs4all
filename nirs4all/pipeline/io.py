@@ -74,14 +74,28 @@ class SimulationSaver:
         if not workspace_root.exists():
             return None
 
-        # Search in global prediction databases (dataset_name.json files at workspace root)
+        # Search in global prediction databases (dataset_name.meta.parquet and dataset_name.json files at workspace root)
+        # Try Parquet files first (new format)
+        for predictions_file in workspace_root.glob("*.meta.parquet"):
+            if not predictions_file.is_file():
+                continue
+
+            try:
+                predictions = Predictions.load_from_file_cls(str(predictions_file))
+                for pred in predictions.filter_predictions(load_arrays=True):
+                    if pred.get('id') == prediction_id:
+                        return pred
+            except Exception:
+                continue
+
+        # Fall back to JSON files (legacy format)
         for predictions_file in workspace_root.glob("*.json"):
             if not predictions_file.is_file():
                 continue
 
             try:
                 predictions = Predictions.load_from_file_cls(str(predictions_file))
-                for pred in predictions.filter_predictions():
+                for pred in predictions.filter_predictions(load_arrays=True):
                     if pred.get('id') == prediction_id:
                         return pred
             except Exception:

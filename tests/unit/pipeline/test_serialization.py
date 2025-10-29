@@ -372,7 +372,7 @@ class TestFunctionBasedModelsWithTensorFlow:
         # Should serialize as function reference
         assert isinstance(serialized, dict)
         assert "function" in serialized
-        assert serialized["function"] == "nirs4all.operators.models.cirad_tf.nicon"
+        assert serialized["function"] == "nirs4all.operators.models.tensorflow.nicon.nicon"
 
         # Deserialize should return function reference, NOT call it
         deserialized = deserialize_component(serialized)
@@ -402,7 +402,7 @@ class TestFunctionBasedModelsWithTensorFlow:
         assert "model" in serialized
         assert isinstance(serialized["model"], dict)
         assert "function" in serialized["model"]
-        assert serialized["model"]["function"] == "nirs4all.operators.models.cirad_tf.nicon"
+        assert serialized["model"]["function"] == "nirs4all.operators.models.tensorflow.nicon.nicon"
 
         # Deserialize should return function reference
         deserialized = deserialize_component(serialized)
@@ -420,7 +420,7 @@ class TestFunctionBasedModelsWithTensorFlow:
 
         # Simulate what happens when a function is serialized with params
         serialized = {
-            "function": "nirs4all.operators.models.cirad_tf.customizable_nicon",
+            "function": "nirs4all.operators.models.tensorflow.nicon.customizable_nicon",
             "params": {
                 "filters1": 16,
                 "filters2": 32
@@ -459,7 +459,7 @@ class TestFunctionBasedModelsWithTensorFlow:
 
         assert isinstance(nicon_step, dict)
         assert "function" in nicon_step
-        assert nicon_step["function"] == "nirs4all.operators.models.cirad_tf.nicon"
+        assert nicon_step["function"] == "nirs4all.operators.models.tensorflow.nicon.nicon"
 
     def test_customizable_nicon_with_train_params_in_pipeline(self):
         """Test function with train_params in pipeline."""
@@ -486,7 +486,7 @@ class TestFunctionBasedModelsWithTensorFlow:
         assert "model" in model_step
         assert isinstance(model_step["model"], dict)
         assert "function" in model_step["model"]
-        assert model_step["model"]["function"] == "nirs4all.operators.models.cirad_tf.customizable_nicon"
+        assert model_step["model"]["function"] == "nirs4all.operators.models.tensorflow.nicon.customizable_nicon"
         assert "train_params" in model_step
         assert model_step["train_params"]["epochs"] == 50
 

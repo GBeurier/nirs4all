@@ -176,7 +176,7 @@ runner = PipelineRunner(save_files=False, verbose=1)
 predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_config)
 
 # Analyze results
-top_models = predictions.top_k(5, 'rmse')
+top_models = predictions.top(n=5, rank_metric='rmse')
 print("Top 5 models by RMSE:")
 for i, model in enumerate(top_models):
     print(f"{i+1}. {model['model_name']}: RMSE = {model['rmse']:.4f}")
@@ -248,7 +248,7 @@ runner = PipelineRunner(save_files=False, verbose=1)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Compare neural network with traditional models
-top_models = predictions.top_k(3, 'rmse')
+top_models = predictions.top(n=3, rank_metric='rmse')
 for i, model in enumerate(top_models):
     print(f"{i+1}. {model['model_name']}: RMSE = {model['rmse']:.4f}")
 ```
@@ -281,7 +281,7 @@ runner = PipelineRunner(save_files=False, verbose=1)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Get the best optimized model
-best_model = predictions.top_k(1, 'rmse')[0]
+best_model = predictions.top(n=1, rank_metric='rmse')[0]
 print(f"Best model: {best_model['model_name']} with RMSE: {best_model['rmse']:.4f}")
 ```
 
