@@ -124,6 +124,7 @@ else {
 foreach ($example in $selectedExamples) {
     if (Test-Path "$example") {
         $startTime = Get-Date
+        Write-Host "########################################"
         Write-Host "Launch: $example"
         Write-Host "########################################"
 
@@ -133,13 +134,11 @@ foreach ($example in $selectedExamples) {
             "Starting: $example at $startTime" | Out-File -FilePath $logFile -Append -Encoding UTF8
             "===============================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
 
-            # Run and capture output using Tee-Object to show AND log
-            if ($Plot) {
-                & python $example --show-plots 2>&1 | Tee-Object -FilePath $logFile -Append
-            }
-            else {
-                & python $example 2>&1 | Tee-Object -FilePath $logFile -Append
-            }
+            $args = @()
+            if ($Plot) { $args += "--plots" }
+            if ($Show) { $args += "--show" }
+
+             & python $example @args 2>&1 | Tee-Object -FilePath $logFile -Append
 
             # Log the footer
             "Finished: $example at $(Get-Date)" | Out-File -FilePath $logFile -Append -Encoding UTF8
@@ -149,6 +148,7 @@ foreach ($example in $selectedExamples) {
             $args = @()
             if ($Plot) { $args += "--plots" }
             if ($Show) { $args += "--show" }
+
             & python $example @args
         }
 
