@@ -1,9 +1,11 @@
 ## ROADMAP ##
 
 
-> [Cleaning] Modularize/Clean/Refactor: BaseModelController, Model_builder, PipelineRunner, tests (increase indexer coverage, reduce test redondancy)
+> [Cleaning] Modularize/Clean/Refactor: Model_utils, Model_builder, PipelineRunner, tests (increase indexer coverage, reduce test redondancy)
 
 > [Pipeline] authorize list of pipelineconfigs instead of pipelines... Goes into cleaning
+
+> [Cleaning] Model building, model instanciation is all over and the role of __runtime_instance__ is not clear at all (it is related to a pipeline where a user provides directly an instance of model but I think it's used for another purpose)
 
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions calls. Don't dispatch or copy responsibility
 
@@ -52,9 +54,9 @@
 
 > [Predictions] as a pipeline context.
 
-> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization
+> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss
 
-> [Layout] review layouts (tests) and add operators params
+> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
 
 **Bugs**:
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)

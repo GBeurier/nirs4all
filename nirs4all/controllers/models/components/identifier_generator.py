@@ -55,13 +55,136 @@ class ModelIdentifierGenerator:
         """Initialize identifier generator.
 
         Args:
-            helper: ModelControllerHelper instance for extracting names from config.
-                   If None, will be created internally.
+            helper: Deprecated parameter, kept for backwards compatibility.
         """
-        if helper is None:
-            from ..helper import ModelControllerHelper
-            helper = ModelControllerHelper()
-        self.helper = helper
+        # Helper is deprecated - methods are now implemented directly in this class
+        pass
+
+    def extract_core_name(self, model_config: Dict[str, Any]) -> str:
+        """Extract core name from model configuration.
+
+        User-provided name or class name. This is the base name provided by
+        the user or derived from the class.
+
+        Args:
+            model_config: Model configuration dictionary.
+
+        Returns:
+            str: Core name extracted from config.
+        """
+        if isinstance(model_config, dict):
+            if 'name' in model_config:
+                return model_config['name']
+            elif 'function' in model_config:
+                # Handle function-based models (like TensorFlow functions)
+                function_path = model_config['function']
+                if isinstance(function_path, str):
+                    # Extract function name from path
+                    return function_path.split('.')[-1]
+                else:
+                    return str(function_path)
+            elif 'class' in model_config:
+                class_path = model_config['class']
+                return class_path.split('.')[-1]  # Get class name from full path
+            elif 'model_instance' in model_config:
+                return self._get_model_class_name(model_config['model_instance'])
+            elif 'model' in model_config:
+                # Handle nested model structure
+                model_obj = model_config['model']
+                if isinstance(model_obj, dict):
+                    if 'function' in model_obj:
+                        function_path = model_obj['function']
+                        return function_path.split('.')[-1] if isinstance(function_path, str) else str(function_path)
+                    elif 'class' in model_obj:
+                        return model_obj['class'].split('.')[-1]
+                else:
+                    return self._get_model_class_name(model_obj)
+
+        # Fallback for other types
+        return self._get_model_class_name(model_config)
+
+    def extract_classname_from_config(self, model_config: Dict[str, Any]) -> str:
+        """Extract classname from model configuration.
+
+        Based on the model declared in config or instance.__class__.__name__ or function name.
+
+        Args:
+            model_config: Model configuration dictionary.
+
+        Returns:
+            str: Class name of the model.
+        """
+        # Extract model instance
+        model_instance = self._get_model_instance_from_config(model_config)
+
+        if model_instance is not None:
+            # Handle functions
+            if callable(model_instance) and hasattr(model_instance, '__name__'):
+                return model_instance.__name__
+            # Handle classes and instances
+            elif hasattr(model_instance, '__class__'):
+                return model_instance.__class__.__name__
+            else:
+                return str(type(model_instance).__name__)
+
+        return "unknown_model"
+
+    def _get_model_instance_from_config(self, model_config: Dict[str, Any]) -> Any:
+        """Helper to extract model instance from various config formats.
+
+        Args:
+            model_config: Model configuration dictionary.
+
+        Returns:
+            Model instance or None.
+        """
+        if isinstance(model_config, dict):
+            # Direct model_instance
+            if 'model_instance' in model_config:
+                return model_config['model_instance']
+            # Nested model structure
+            elif 'model' in model_config:
+                model_obj = model_config['model']
+                if isinstance(model_obj, dict):
+                    if 'model' in model_obj:
+                        return model_obj['model']
+                    else:
+                        return model_obj
+                else:
+                    return model_obj
+        else:
+            return model_config
+
+        return None
+
+    def _get_model_class_name(self, model: Any) -> str:
+        """Get the class name of a model.
+
+        Args:
+            model: Model object, class, function, or string representation.
+
+        Returns:
+            str: Class or function name.
+        """
+        import inspect
+
+        if inspect.isclass(model):
+            return f"{model.__qualname__}"
+
+        if inspect.isfunction(model) or inspect.isbuiltin(model):
+            return f"{model.__name__}"
+
+        # Handle string representation of functions/classes from deserialization
+        if isinstance(model, str):
+            if model.startswith("<function ") and " at 0x" in model:
+                # Extract function name
+                return model.split("<function ")[1].split(" at ")[0]
+            elif model.startswith("<class '") and "' at 0x" in model:
+                # Extract class name
+                return model.split("<class '")[1].split("' at ")[0].split(".")[-1]
+
+        else:
+            return str(type(model).__name__)
 
     def generate(
         self,
@@ -82,8 +205,8 @@ class ModelIdentifierGenerator:
             ModelIdentifiers: Container with all generated identifiers
         """
         # Extract base information
-        classname = self.helper.extract_classname_from_config(model_config)
-        name = self.helper.extract_core_name(model_config)
+        classname = self.extract_classname_from_config(model_config)
+        name = self.extract_core_name(model_config)
 
         # Get operation counter and step info
         operation_counter = runner.next_op()

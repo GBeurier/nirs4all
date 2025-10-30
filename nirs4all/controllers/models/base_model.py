@@ -19,7 +19,6 @@ import numpy as np
 import copy
 
 from nirs4all.controllers.controller import OperatorController
-from .helper import ModelControllerHelper
 from ...optimization.optuna import OptunaManager
 from nirs4all.data.predictions import Predictions
 from nirs4all.utils.model_utils import ModelUtils, TaskType
@@ -54,7 +53,6 @@ class BaseModelController(OperatorController, ABC):
         - Fold-averaged predictions (simple and weighted)
 
     Attributes:
-        model_helper (ModelControllerHelper): Helper for model operations.
         optuna_manager (OptunaManager): Manager for hyperparameter optimization.
         identifier_generator (ModelIdentifierGenerator): Component for model naming.
         prediction_transformer (PredictionTransformer): Component for prediction scaling.
@@ -70,11 +68,10 @@ class BaseModelController(OperatorController, ABC):
 
     def __init__(self):
         super().__init__()
-        self.model_helper = ModelControllerHelper()
         self.optuna_manager = OptunaManager()
 
         # Initialize components for modular operations
-        self.identifier_generator = ModelIdentifierGenerator(self.model_helper)
+        self.identifier_generator = ModelIdentifierGenerator()
         self.prediction_transformer = PredictionTransformer()
         self.prediction_assembler = PredictionDataAssembler()
         self.model_loader = ModelLoader()
@@ -146,6 +143,23 @@ class BaseModelController(OperatorController, ABC):
 
         Returns:
             Tuple of (prepared_X, prepared_y) in framework-specific format.
+        """
+        pass
+
+    @abstractmethod
+    def _clone_model(self, model: Any) -> Any:
+        """Clone model using framework-specific cloning method.
+
+        Each framework has its own best practice for cloning models:
+        - sklearn: use sklearn.base.clone()
+        - tensorflow/keras: use keras.models.clone_model()
+        - pytorch: use copy.deepcopy() or custom cloning
+
+        Args:
+            model: Model instance to clone.
+
+        Returns:
+            Cloned model instance with same architecture but fresh weights.
         """
         pass
 
@@ -521,7 +535,7 @@ class BaseModelController(OperatorController, ABC):
                 model = self._get_model_instance(dataset, model_config, force_params=best_params)
             else:
                 base_model = self._get_model_instance(dataset, model_config)
-                model = self.model_helper.clone_model(base_model)
+                model = self._clone_model(base_model)
 
             # === 3. TRAIN MODEL ===
             X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context or {})
