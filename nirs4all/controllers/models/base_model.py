@@ -24,23 +24,46 @@ from ...optimization.optuna import OptunaManager
 from nirs4all.data.predictions import Predictions
 from nirs4all.utils.model_utils import ModelUtils, TaskType
 from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING
-import nirs4all.utils.evaluator as Evaluator
+from .components import (
+    ModelIdentifierGenerator,
+    PredictionTransformer,
+    PredictionDataAssembler,
+    ModelLoader,
+    ScoreCalculator,
+    IndexNormalizer
+)
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-    from nirs4all.pipeline.io import ArtifactMeta
 
 
 class BaseModelController(OperatorController, ABC):
-    """
-    Simplified Base Model Controller - following user's pseudo-code design.
+    """Abstract base controller for machine learning model training and prediction.
 
-    This controller implements exactly the structure requested:
-    - execute() handles prediction_mode and training_mode
-    - train() handles fold logic and delegates to launch_training()
-    - finetune() handles optuna optimization
-    - launch_training() does the actual training and prediction
+    This controller provides a unified interface for training, finetuning, and predicting
+    with machine learning models across different frameworks (scikit-learn, TensorFlow, PyTorch).
+    It implements cross-validation, fold averaging, hyperparameter optimization, and
+    comprehensive prediction tracking.
+
+    The controller delegates framework-specific operations to subclasses while handling:
+        - Cross-validation fold management
+        - Model identification and naming
+        - Prediction storage and tracking
+        - Score calculation and aggregation
+        - Fold-averaged predictions (simple and weighted)
+
+    Attributes:
+        model_helper (ModelControllerHelper): Helper for model operations.
+        optuna_manager (OptunaManager): Manager for hyperparameter optimization.
+        identifier_generator (ModelIdentifierGenerator): Component for model naming.
+        prediction_transformer (PredictionTransformer): Component for prediction scaling.
+        prediction_assembler (PredictionDataAssembler): Component for assembling prediction records.
+        model_loader (ModelLoader): Component for loading persisted models.
+        score_calculator (ScoreCalculator): Component for calculating evaluation scores.
+        index_normalizer (IndexNormalizer): Component for normalizing sample indices.
+        prediction_store (Predictions): External storage for predictions.
+        verbose (int): Verbosity level for logging.
     """
 
     priority = 15
@@ -49,6 +72,14 @@ class BaseModelController(OperatorController, ABC):
         super().__init__()
         self.model_helper = ModelControllerHelper()
         self.optuna_manager = OptunaManager()
+
+        # Initialize components for modular operations
+        self.identifier_generator = ModelIdentifierGenerator(self.model_helper)
+        self.prediction_transformer = PredictionTransformer()
+        self.prediction_assembler = PredictionDataAssembler()
+        self.model_loader = ModelLoader()
+        self.score_calculator = ScoreCalculator()
+        self.index_normalizer = IndexNormalizer()
 
     @classmethod
     def use_multi_source(cls) -> bool:
@@ -61,32 +92,92 @@ class BaseModelController(OperatorController, ABC):
     # Abstract methods that subclasses must implement for their frameworks
     @abstractmethod
     def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
-        """Create model instance from config using ModelBuilderFactory."""
+        """Create model instance from configuration using framework-specific builder.
+
+        Args:
+            dataset: SpectroDataset containing training data and metadata.
+            model_config: Model configuration dictionary with architecture and parameters.
+            force_params: Optional parameters to override config values (used in finetuning).
+
+        Returns:
+            Framework-specific model instance ready for training.
+        """
         pass
 
     @abstractmethod
     def _train_model(self, model: Any, X_train: Any, y_train: Any,
                      X_val: Any = None, y_val: Any = None, **kwargs) -> Any:
-        """Train the model using framework-specific logic."""
+        """Train the model using framework-specific training logic.
+
+        Args:
+            model: Model instance to train.
+            X_train: Training features.
+            y_train: Training targets.
+            X_val: Optional validation features.
+            y_val: Optional validation targets.
+            **kwargs: Additional framework-specific training parameters.
+
+        Returns:
+            Trained model instance.
+        """
         pass
 
     @abstractmethod
     def _predict_model(self, model: Any, X: Any) -> np.ndarray:
-        """Generate predictions using framework-specific logic."""
+        """Generate predictions using framework-specific prediction logic.
+
+        Args:
+            model: Trained model instance.
+            X: Input features for prediction.
+
+        Returns:
+            NumPy array of predictions.
+        """
         pass
 
     @abstractmethod
     def _prepare_data(self, X: Any, y: Any, context: Dict[str, Any]) -> Tuple[Any, Any]:
-        """Prepare data in framework-specific format."""
+        """Prepare data in framework-specific format (e.g., tensors, DataFrames).
+
+        Args:
+            X: Input features to prepare.
+            y: Target values to prepare.
+            context: Execution context with preprocessing and partition information.
+
+        Returns:
+            Tuple of (prepared_X, prepared_y) in framework-specific format.
+        """
         pass
 
     @abstractmethod
     def _evaluate_model(self, model: Any, X_val: Any, y_val: Any) -> float:
-        """Evaluate model for optimization (returns score to minimize)."""
+        """Evaluate model performance for hyperparameter optimization.
+
+        Args:
+            model: Trained model instance to evaluate.
+            X_val: Validation features.
+            y_val: Validation targets.
+
+        Returns:
+            Validation score to minimize (e.g., RMSE, negative accuracy).
+        """
         pass
 
 
     def get_xy(self, dataset: 'SpectroDataset', context: Dict[str, Any]) -> Tuple[Any, Any, Any, Any, Any, Any]:
+        """Extract train/test splits with scaled and unscaled targets.
+
+        For classification tasks, both scaled and unscaled targets are transformed.
+        For regression tasks, scaled targets are used for training while unscaled
+        (numeric) targets are used for evaluation.
+
+        Args:
+            dataset: SpectroDataset with partitioned data.
+            context: Execution context with partition and preprocessing info.
+
+        Returns:
+            Tuple of (X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled).
+        """
         layout = self.get_preferred_layout()
         train_context = copy.deepcopy(context)
         train_context['partition'] = 'train'
@@ -123,13 +214,30 @@ class BaseModelController(OperatorController, ABC):
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
-        prediction_store: 'Predictions' = None  # NEW: External prediction store
+        prediction_store: 'Predictions' = None
     ) -> Tuple[Dict[str, Any], List['ArtifactMeta']]:
-        # # DEBUG
-        # step_repr = step if not callable(step) else f'<callable>'
-        # operator_repr = operator if not callable(operator) else f'<callable>'
-        # print(f"DEBUG execute() step type: {type(step)}, step: {step_repr}")
-        # print(f"DEBUG execute() operator type: {type(operator)}, operator: {operator_repr}")
+        """Execute model training, finetuning, or prediction.
+
+        This is the main entry point for model execution. It handles:
+            - Extracting model configuration
+            - Restoring task type in predict/explain modes
+            - Delegating to finetune() or train() based on configuration
+            - Managing prediction storage
+
+        Args:
+            step: Pipeline step configuration.
+            operator: Model operator instance or configuration.
+            dataset: SpectroDataset with features and targets.
+            context: Execution context with step_id, partition info, etc.
+            runner: PipelineRunner managing pipeline execution.
+            source: Data source index (default: -1).
+            mode: Execution mode ('train', 'finetune', 'predict', 'explain').
+            loaded_binaries: Optional list of (name, bytes) tuples for prediction mode.
+            prediction_store: External Predictions storage instance.
+
+        Returns:
+            Tuple of (updated_context, list_of_artifact_metadata).
+        """
 
         self.prediction_store = prediction_store
         model_config = self._extract_model_config(step, operator)
@@ -197,11 +305,26 @@ class BaseModelController(OperatorController, ABC):
         context: Dict[str, Any],
         runner: 'PipelineRunner',
     ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
-        """
-        Finetune method - delegates to external Optuna manager.
+        """Optimize hyperparameters using Optuna.
 
-        Clean delegation that passes all necessary data to the optuna manager
-        and returns the optimized parameters for use in training.
+        Delegates to OptunaManager for Bayesian hyperparameter optimization.
+        Returns optimized parameters that will be used in subsequent training.
+
+        Args:
+            dataset: SpectroDataset for optimization.
+            model_config: Base model configuration.
+            X_train: Training features.
+            y_train: Training targets.
+            X_test: Test features.
+            y_test: Test targets.
+            folds: List of (train_idx, val_idx) tuples for cross-validation.
+            finetune_params: Optuna configuration with search space and trials.
+            predictions: Prediction storage dictionary.
+            context: Execution context.
+            runner: PipelineRunner instance.
+
+        Returns:
+            Dictionary of optimized parameters (single model) or list of dicts (per-fold).
         """
         # Store dataset reference for model building
 
@@ -228,6 +351,35 @@ class BaseModelController(OperatorController, ABC):
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
         best_params=None, loaded_binaries=None, mode="train"
     ) -> List['ArtifactMeta']:
+        """Orchestrate model training across folds with prediction tracking.
+
+        Manages the complete training workflow:
+            - Iterates through cross-validation folds
+            - Delegates to launch_training() for each fold
+            - Creates fold-averaged predictions for regression tasks
+            - Persists trained models as artifacts
+            - Stores all predictions with weights
+
+        Args:
+            dataset: SpectroDataset with features and targets.
+            model_config: Model configuration dictionary.
+            context: Execution context with step_id and preprocessing info.
+            runner: PipelineRunner managing execution.
+            prediction_store: External Predictions storage.
+            X_train: Training features (all folds).
+            y_train: Training targets (scaled).
+            X_test: Test features.
+            y_test: Test targets (scaled).
+            y_train_unscaled: Training targets (unscaled for evaluation).
+            y_test_unscaled: Test targets (unscaled for evaluation).
+            folds: List of (train_idx, val_idx) tuples or empty list.
+            best_params: Optional hyperparameters from finetuning.
+            loaded_binaries: Optional model binaries for prediction mode.
+            mode: Execution mode ('train', 'finetune', 'predict', 'explain').
+
+        Returns:
+            List of ArtifactMeta objects for persisted models.
+        """
 
         verbose = model_config.get('train_params', {}).get('verbose', 0)
 
@@ -240,9 +392,6 @@ class BaseModelController(OperatorController, ABC):
             base_model_name = ""
             model_classname = ""
             for fold_idx, (train_indices, val_indices) in enumerate(folds):
-                # if mode == "predict":
-                    # print(f"indices length: train {len(train_indices)}, val {len(val_indices)}")
-                    # print("data sizes:", X_train.shape, y_train.shape, X_test.shape, y_test.shape)
 
                 if verbose > 0:
                     print(f"{FOLDER} Training fold {fold_idx + 1}/{len(folds)}")
@@ -292,11 +441,6 @@ class BaseModelController(OperatorController, ABC):
                 )
                 # Collect ALL predictions (folds + averages) and add them in one shot with same weights
                 all_fold_predictions = all_fold_predictions + [avg_predictions, w_avg_predictions]
-            # for p in all_predictions:
-            #     fold_id = p['fold_id']
-            #     for part in p['partitions']:
-            #         if len(part[1]) > 0:
-            #             print(f"Fold {fold_id} - Partition {part[0]}: {part[2].shape}")
 
             self._add_all_predictions(prediction_store, all_fold_predictions, weights, mode=mode)
 
@@ -325,181 +469,202 @@ class BaseModelController(OperatorController, ABC):
         y_train_unscaled, y_val_unscaled, y_test_unscaled,
         train_indices=None, val_indices=None, fold_idx=None, best_params=None,
         loaded_binaries=None, mode="train"):
+        """Execute single model training or prediction.
 
-        # Extract model classname from config consistently (works for both train and predict modes)
-        # This ensures the same name is used for saving and loading models
-        model_classname = self.model_helper.extract_core_name(model_config)
+        This refactored method uses modular components to handle:
+        - Model identification and naming
+        - Model loading for predict/explain modes
+        - Training execution
+        - Prediction transformation
+        - Score calculation
+        - Prediction data assembly
 
-        # In prediction/explain mode, we don't need to instantiate the model yet
-        # We just need to extract metadata to find the model in binaries
+        Args:
+            dataset: SpectroDataset instance
+            model_config: Model configuration dictionary
+            context: Execution context with step_id, y processing, etc.
+            runner: PipelineRunner instance
+            prediction_store: Predictions storage instance
+            X_train, y_train: Training data (scaled)
+            X_val, y_val: Validation data (scaled)
+            X_test: Test data (scaled)
+            y_train_unscaled, y_val_unscaled, y_test_unscaled: True values (unscaled)
+            train_indices, val_indices: Sample indices for each partition
+            fold_idx: Optional fold index for CV
+            best_params: Optional hyperparameters from optimization
+            loaded_binaries: Optional binaries for predict/explain mode
+            mode: Execution mode ('train', 'finetune', 'predict', 'explain')
+
+        Returns:
+            Tuple of (trained_model, model_id, val_score, model_name, prediction_data)
+        """
+        # === 1. GENERATE IDENTIFIERS ===
+        identifiers = self.identifier_generator.generate(model_config, runner, context, fold_idx)
+
+        # === 2. GET OR LOAD MODEL ===
         if mode in ("predict", "explain"):
-            base_model = None  # Will be loaded from binaries later
-        else:
-            base_model = self._get_model_instance(dataset, model_config)
-
-        # Generate identifiers
-        step_id = context['step_id']
-        pipeline_name = runner.saver.pipeline_id
-        dataset_name = dataset.name
-        model_name = model_config.get('name', model_classname)
-        operation_counter = runner.next_op()
-        new_operator_name = f"{model_name}_{operation_counter}"
-
-        if mode != "predict" and mode != "explain":
-            if mode == "finetune":
-                if best_params is not None:
-                    print(f"Training model {model_name} with: {best_params}...")
-
-                model = self._get_model_instance(dataset, model_config, force_params=best_params)
-            else:
-                model = self.model_helper.clone_model(base_model)
-
-        else:
-            # Load model from binaries
+            # Load from binaries
             if loaded_binaries is None:
                 raise ValueError("loaded_binaries must be provided in prediction mode")
+            model = self.model_loader.load(identifiers.model_id, loaded_binaries, fold_idx)
 
-            # Try to find model with various naming patterns for backward compatibility:
-            # 1. Exact match: "Q4_PLS_10_1"
-            # 2. With .pkl extension: "Q4_PLS_10_1.pkl"
-            # 3. With .joblib extension: "Q4_PLS_10_1.joblib"
-            binaries_dict = dict(loaded_binaries)
-            model = binaries_dict.get(new_operator_name)
-            if model is None:
-                model = binaries_dict.get(f"{new_operator_name}.pkl")
-            if model is None:
-                model = binaries_dict.get(f"{new_operator_name}.joblib")
+            # Capture model for SHAP explanation
+            if mode == "explain" and self._should_capture_for_explanation(runner, identifiers):
+                runner._captured_model = (model, self)
 
-            if model is None:
-                available_keys = list(binaries_dict.keys())
-                raise ValueError(
-                    f"Model binary for {new_operator_name} not found in loaded_binaries. "
-                    f"Available keys: {available_keys}"
-                )
+            trained_model = model
+        else:
+            # Create new model for training
+            if mode == "finetune" and best_params is not None:
+                if self.verbose > 0:
+                    print(f"Training model {identifiers.name} with: {best_params}...")
+                model = self._get_model_instance(dataset, model_config, force_params=best_params)
+            else:
+                base_model = self._get_model_instance(dataset, model_config)
+                model = self.model_helper.clone_model(base_model)
 
-            if mode == "explain":
-                # print(f"Using model {model_name} for explanation...")
-                # print(f"Model ID: {runner.target_model['id']}, Name: {runner.target_model['model_name']}, Step: {runner.target_model['step_idx']}, Fold: {runner.target_model['fold_id']}, Op Counter: {runner.target_model['op_counter']}")
-                # print(f"vs Current: Name: {model_name}, Step: {step_id}, Fold: {fold_idx}, Op Counter: {operation_counter}")
-                 # Set the model to be explained in the runner for SHAP
-                if runner.target_model["model_name"] == model_name and \
-                        runner.target_model["step_idx"] == step_id:
-                        # runner.target_model["op_counter"] == operation_counter:
-                        # runner.target_model["fold_id"] == fold_idx and \
-                    # print("✅ Model matches the target model for explanation.")
-                    runner._captured_model = (model, self)
+            # === 3. TRAIN MODEL ===
+            X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context or {})
+            X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context or {})
+            X_test_prep, _ = self._prepare_data(X_test, None, context or {})
 
-        # Apply best params if provided ####TODO RETRIEVE THE HOLD METHOD (construct with params !!!!)
-        if best_params is not None:
-            if hasattr(model, 'set_params'):
-                model.set_params(**best_params)
+            trained_model = self._train_model(
+                model, X_train_prep, y_train_prep, X_val_prep, y_val_prep,
+                **model_config.get('train_params', {})
+            )
 
-        # Prepare data in framework format
+        # === 4. GENERATE PREDICTIONS (scaled) ===
         X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context or {})
         X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context or {})
         X_test_prep, _ = self._prepare_data(X_test, None, context or {})
 
-        # if self.verbose > 0:
-        # print("🚀 Training model...")
-        # print("Dataset:", dataset_name, "Shape:", X_train.shape)
-        if mode != "predict" and mode != "explain":
-            trained_model = self._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **model_config.get('train_params', {}))
-        else:
-            trained_model = model
-
-        # predict y_test_pred, y_train_pred, y_val_pred (these are in scaled space)
-        # print(X_train_prep.shape, y_train_prep.shape, X_val_prep.shape, y_val_prep.shape, X_test_prep.shape)
-        y_train_pred_scaled = self._predict_model(trained_model, X_train_prep) if y_train_prep.shape[0] > 0 else np.array([])
-        y_val_pred_scaled = self._predict_model(trained_model, X_val_prep) if y_val_prep.shape[0] > 0 else np.array([])
-        y_test_pred_scaled = self._predict_model(trained_model, X_test_prep) if X_test_prep.shape[0] > 0 else np.array([])
-        # print(y_train_pred_scaled.shape, y_val_pred_scaled.shape, y_test_pred_scaled.shape)
-
-        # Transform predictions from scaled space back to unscaled space
-        current_y_processing = context.get('y', 'numeric') if context else 'numeric'
-
-        # For classification tasks, keep predictions in the same space as the targets
-        # For regression tasks, transform back to numeric space
-        if dataset.task_type and 'classification' in dataset.task_type:
-            # Keep predictions in the transformed space for classification
-            y_train_pred_unscaled = y_train_pred_scaled
-            y_val_pred_unscaled = y_val_pred_scaled
-            y_test_pred_unscaled = y_test_pred_scaled
-        elif current_y_processing != 'numeric':
-            y_train_pred_unscaled = dataset._targets.transform_predictions(
-                y_train_pred_scaled, current_y_processing, 'numeric'
-            )
-            y_val_pred_unscaled = dataset._targets.transform_predictions(
-                y_val_pred_scaled, current_y_processing, 'numeric'
-            )
-            y_test_pred_unscaled = dataset._targets.transform_predictions(
-                y_test_pred_scaled, current_y_processing, 'numeric'
-            )
-        else:
-            y_train_pred_unscaled = y_train_pred_scaled
-            y_val_pred_unscaled = y_val_pred_scaled
-            y_test_pred_unscaled = y_test_pred_scaled
-
-        # print("Predicted fold:", fold_idx, "Shapes:", y_test_pred_unscaled.shape, "Tests", y_test_pred_unscaled[:5])
-        # print("UNSCALED PRED:", y_train_pred_unscaled.shape, y_val_pred_unscaled.shape, y_test_pred_unscaled.shape)
-
-        metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
-        _direction = ARROW_UP if higher_is_better else ARROW_DOWN
-        score_train = Evaluator.eval(y_train_unscaled, y_train_pred_unscaled, metric)
-        score_val = Evaluator.eval(y_val_unscaled, y_val_pred_unscaled, metric)
-        score_test = Evaluator.eval(y_test_unscaled, y_test_pred_unscaled, metric)
-
-        # print(f"{CHART} {model_name} scores: Train {metric} {direction} {score_train:.4f}, Val {metric} {direction} {score_val:.4f}, Test {metric} {direction} {score_test:.4f}")
-
-        if train_indices is None:
-            train_indices = list(range(len(y_train_unscaled)))
-        else:
-            train_indices = [int(idx) for idx in train_indices]  # Convert numpy int types to Python int
-
-        if val_indices is None:
-            val_indices = list(range(len(y_val_unscaled)))
-        else:
-            val_indices = [int(idx) for idx in val_indices]  # Convert numpy int types to Python int
-
-        test_indices = list(range(len(y_test_unscaled)))
-
-        # Prepare prediction data for return (don't store yet)
-        pipeline_uid = getattr(runner, 'pipeline_uid', None)
-        prediction_data = {
-            'dataset_name': dataset_name,
-            'dataset_path': dataset_name,
-            'config_name': pipeline_name,
-            'config_path': f"{dataset_name}/{pipeline_name}",
-            'pipeline_uid': pipeline_uid,
-            'step_idx': step_id,
-            'op_counter': operation_counter,
-            'model_name': model_name,
-            'model_classname': model_classname,
-            'model_path': f"{dataset_name}/{pipeline_name}/{step_id}_{model_name}_{operation_counter}.pkl",
-            'fold_id': fold_idx,
-            'val_score': score_val,
-            'test_score': score_test,
-            'train_score': score_train,
-            'metric': metric,
-            'task_type': dataset.task_type,
-            'n_features': X_train.shape[1] if len(X_train.shape) > 1 else 1,
-            'preprocessings': dataset.short_preprocessings_str(),
-            'best_params': best_params if best_params is not None else {},
-            'partitions': [
-                ("train", train_indices, y_train_unscaled, y_train_pred_unscaled),
-                ("val", val_indices, y_val_unscaled, y_val_pred_unscaled),
-                ("test", test_indices, y_test_unscaled, y_test_pred_unscaled)
-            ]
+        predictions_scaled = {
+            'train': self._predict_model(trained_model, X_train_prep) if y_train_prep.shape[0] > 0 else np.array([]),
+            'val': self._predict_model(trained_model, X_val_prep) if y_val_prep.shape[0] > 0 else np.array([]),
+            'test': self._predict_model(trained_model, X_test_prep) if X_test_prep.shape[0] > 0 else np.array([])
         }
-        # if y_test_pred_unscaled.shape[0] > 0:
-        #     # print("{CHART} y_test_pred_unscaled:")
-        #     print(f"mean: {np.mean(y_test_pred_unscaled):.4f}, std: {np.std(y_test_pred_unscaled):.4f}, min: {np.min(y_test_pred_unscaled):.4f}, max: {np.max(y_test_pred_unscaled):.4f}")
 
-        return trained_model, f"{model_name}_{operation_counter}", score_val, model_name, prediction_data
+        # === 5. TRANSFORM PREDICTIONS TO UNSCALED ===
+        predictions_unscaled = {
+            'train': self.prediction_transformer.transform_to_unscaled(predictions_scaled['train'], dataset, context),
+            'val': self.prediction_transformer.transform_to_unscaled(predictions_scaled['val'], dataset, context),
+            'test': self.prediction_transformer.transform_to_unscaled(predictions_scaled['test'], dataset, context)
+        }
+
+        # === 6. CALCULATE SCORES ===
+        true_values = {
+            'train': y_train_unscaled,
+            'val': y_val_unscaled,
+            'test': y_test_unscaled
+        }
+
+        partition_scores = self.score_calculator.calculate(
+            true_values,
+            predictions_unscaled,
+            dataset.task_type
+        )
+
+        # === 7. NORMALIZE INDICES ===
+        n_samples = {
+            'train': len(y_train_unscaled),
+            'val': len(y_val_unscaled),
+            'test': len(y_test_unscaled)
+        }
+
+        indices = {
+            'train': self.index_normalizer.normalize(train_indices, n_samples['train']),
+            'val': self.index_normalizer.normalize(val_indices, n_samples['val']),
+            'test': self.index_normalizer.normalize(None, n_samples['test'])
+        }
+
+        # === 8. ASSEMBLE PREDICTION DATA ===
+        scores_dict = {
+            'train': partition_scores.train,
+            'val': partition_scores.val,
+            'test': partition_scores.test,
+            'metric': partition_scores.metric
+        }
+
+        prediction_data = self.prediction_assembler.assemble(
+            dataset=dataset,
+            identifiers=identifiers,
+            scores=scores_dict,
+            predictions=predictions_unscaled,
+            true_values=true_values,
+            indices=indices,
+            runner=runner,
+            X_shape=X_train.shape,
+            best_params=best_params
+        )
+
+        return trained_model, identifiers.model_id, partition_scores.val, identifiers.name, prediction_data
+
+    def _should_capture_for_explanation(self, runner, identifiers) -> bool:
+        """Check if current model should be captured for SHAP explanation.
+
+        Compares model name and step index with runner's target_model to determine
+        if this is the model requiring explanation.
+
+        Args:
+            runner: PipelineRunner with target_model info.
+            identifiers: ModelIdentifiers with name and step_id.
+
+        Returns:
+            True if model should be captured for explanation, False otherwise.
+        """
+        target = runner.target_model
+        return (target["model_name"] == identifiers.name and
+                target["step_idx"] == identifiers.step_id)
 
 
+
+    def _print_prediction_summary(self, prediction_data, pred_id, mode):
+        """Print formatted summary for a single prediction.
+
+        Displays model name, metric, test/val scores, and fold information
+        with appropriate directional indicators (↑ for metrics to maximize, ↓ to minimize).
+
+        Args:
+            prediction_data: Prediction dictionary with scores and metadata.
+            pred_id: Unique prediction identifier.
+            mode: Execution mode.
+        """
+        model_name = prediction_data['model_name']
+        fold_id = prediction_data['fold_id']
+        op_counter = prediction_data['op_counter']
+        val_score = prediction_data['val_score']
+        test_score = prediction_data['test_score']
+        metric = prediction_data['metric']
+        direction = ARROW_UP if metric in ['r2', 'accuracy'] else ARROW_DOWN
+
+        summary = f"{CHECK}{model_name} {metric} {direction} [test: {test_score:.4f}], [val: {val_score:.4f}]"
+        if fold_id not in [None, 'None', 'avg', 'w_avg']:
+            summary += f", (fold: {fold_id}, id: {op_counter})"
+        elif fold_id in ['avg', 'w_avg']:
+            summary += f", ({fold_id}, id: {op_counter})"
+        summary += f" - [{pred_id}]"
+        print(summary)
+
+    def get_preferred_layout(self) -> str:
+        """Get preferred data layout for the framework.
+
+        Returns:
+            Data layout string ('2d' for NumPy arrays, '3d' for TensorFlow, etc.).
+
+        Note:
+            Override in subclasses for framework-specific layouts.
+        """
+        return "2d"
 
     def _detect_task_type(self, y: Any) -> TaskType:
-        """Detect task type from target values."""
+        """Detect task type from target values.
+
+        Args:
+            y: Target values array.
+
+        Returns:
+            TaskType enum (REGRESSION, BINARY_CLASSIFICATION, or MULTICLASS_CLASSIFICATION).
+        """
         return ModelUtils.detect_task_type(y)
 
     def _calculate_and_print_scores(
@@ -511,60 +676,41 @@ class BaseModelController(OperatorController, ABC):
         model_name: str = "model",
         show_detailed_scores: bool = True
     ) -> Dict[str, float]:
-        """Calculate scores and print them."""
+        """Calculate evaluation scores and print formatted output.
+
+        Args:
+            y_true: True target values.
+            y_pred: Predicted values.
+            task_type: TaskType enum indicating regression or classification.
+            partition: Partition name for display ('train', 'val', 'test').
+            model_name: Model name for display.
+            show_detailed_scores: Whether to print detailed score breakdown.
+
+        Returns:
+            Dictionary of metric names and scores.
+        """
         scores = ModelUtils.calculate_scores(y_true, y_pred, task_type)
         if scores and show_detailed_scores:
             score_str = ModelUtils.format_scores(scores)
             print(f"{CHART} {model_name} {partition} scores: {score_str}")
         return scores
 
-    def _clone_model(self, model: Any) -> Any:
-        """Clone model using model utils."""
-        return self.model_helper.clone_model(model)
-
-    def get_preferred_layout(self) -> str:
-        """Get the preferred data layout. Override in subclasses."""
-        return "2d"
-
-    # Helper methods
-    def _execute_prediction_mode(
-        self,
-        model_config: Dict[str, Any],
-        dataset: 'SpectroDataset',
-        context: Dict[str, Any],
-        runner: 'PipelineRunner',
-        loaded_binaries: Optional[List[Tuple[str, Any]]]
-    ) -> Tuple[Dict[str, Any], List['ArtifactMeta']]:
-        """Handle prediction mode: load model and predict."""
-
-        if not loaded_binaries:
-            raise ValueError("No model binaries provided for prediction mode")
-
-        # Load trained model from binaries
-        trained_model = self._load_model_from_binaries(loaded_binaries)
-
-        # Get prediction data (try test, fallback to train, then all)
-        prediction_data = self._get_prediction_data(dataset, context)
-        X_pred_prep, y_true = self._prepare_data(prediction_data['X'], prediction_data.get('y'), context)
-
-        # Generate predictions
-        y_pred = self._predict_model(trained_model, X_pred_prep)
-
-        # Store and create CSV as requested in pseudo-code
-        # predictions_csv = prediction_store.create_prediction_csv(y_true, y_pred)  # TODO: implement CSV creation
-        pred_filename = f"predictions_{runner.next_op()}.csv"
-
-        # TODO: This should use persist_artifact for predictions CSV
-        # For now, return empty list since predictions are handled separately
-        return context, []
-
     def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
-        """Extract model configuration from step or operator."""
-        # # DEBUG
-        # print(f"DEBUG _extract_model_config called")
-        # print(f"  step: {step if not callable(step) else '<callable>'}")
-        # print(f"  operator: {operator if not callable(operator) else '<callable>'}")
-        # print(f"  operator is not None: {operator is not None}")
+        """Extract and normalize model configuration from step or operator.
+
+        Handles various configuration formats:
+            - Dictionary with 'model' key
+            - Dictionary with 'function'/'class'/'import' keys (serialized)
+            - Direct model instance
+            - Nested model dictionaries
+
+        Args:
+            step: Pipeline step configuration (dict or model instance).
+            operator: Optional model operator instance.
+
+        Returns:
+            Normalized configuration dictionary with 'model_instance' or builder keys.
+        """
 
         if operator is not None:
             # print(f"DEBUG operator branch taken")
@@ -612,52 +758,7 @@ class BaseModelController(OperatorController, ABC):
         else:
             return {'model_instance': step}
 
-    def _get_prediction_data(self, dataset: 'SpectroDataset', context: Dict[str, Any]) -> Dict[str, Any]:
-        """Get data for prediction mode."""
-        layout = context.get('layout', '2d')
 
-        # Try different partitions
-        try:
-            test_context = context.copy()
-            test_context["partition"] = "test"
-            X_test = dataset.x(test_context, layout, concat_source=True)
-            y_test = dataset.y(test_context)
-            return {'X': X_test, 'y': y_test}
-        except Exception:
-            try:
-                train_context = context.copy()
-                train_context["partition"] = "train"
-                X_train = dataset.x(train_context, layout, concat_source=True)
-                y_train = dataset.y(train_context)
-                return {'X': X_train, 'y': y_train}
-            except Exception:
-                # Fallback to all data
-                X_all = dataset.x(context, layout, concat_source=True)
-                y_all = dataset.y(context)
-                return {'X': X_all, 'y': y_all}
-
-    def _load_model_from_binaries(self, loaded_binaries: List[Tuple[str, Any]]) -> Any:
-        """Load trained model from loaded artifacts.
-
-        Note: The BinaryLoader already deserializes the objects using the new
-        serializer infrastructure, so we just need to find the right artifact.
-
-        Args:
-            loaded_binaries: List of (name, loaded_object) tuples
-
-        Returns:
-            The loaded model object
-        """
-        model_obj = None
-        for name, obj in loaded_binaries:
-            if name.endswith('.pkl') and ('model' in name.lower() or 'trained' in name.lower()):
-                model_obj = obj
-                break
-
-        if model_obj is None:
-            raise ValueError("No model object found in loaded binaries")
-
-        return model_obj
 
     def _create_fold_averages(
         self,
@@ -666,202 +767,216 @@ class BaseModelController(OperatorController, ABC):
         X_train, X_test, y_train_unscaled, y_test_unscaled,
         mode="train", best_params=None
     ) -> Tuple[Dict, Dict]:
+        """Create simple and weighted fold-averaged predictions.
 
-        # X_val is the concatenation of all fold val sets
+        Generates two averaged predictions:
+            1. Simple average: Equal weight to all folds
+            2. Weighted average: Weights based on validation scores
+
+        Uses modular components for prediction transformation and score calculation.
+
+        Args:
+            base_model_name: Base name for averaged models.
+            dataset: SpectroDataset with task type and preprocessing info.
+            model_config: Model configuration dictionary.
+            context: Execution context.
+            runner: PipelineRunner instance.
+            prediction_store: Predictions storage.
+            model_classname: Model class name string.
+            folds_models: List of (model_id, model, score) tuples from folds.
+            fold_val_indices: List of validation indices for each fold.
+            scores: List of validation scores for each fold.
+            X_train: Training features (all folds).
+            X_test: Test features.
+            y_train_unscaled: Training targets (unscaled).
+            y_test_unscaled: Test targets (unscaled).
+            mode: Execution mode.
+            best_params: Optional hyperparameters.
+
+        Returns:
+            Tuple of (avg_prediction_dict, weighted_avg_prediction_dict).
+        """
+
+        # Prepare validation data
         X_val = np.vstack([X_train[val_idx] for val_idx in fold_val_indices])
-        # print("Val shape for averages:", X_val.shape)
         y_val_unscaled = np.vstack([y_train_unscaled[val_idx] for val_idx in fold_val_indices])
-        # print("Val shape for averages:", y_val_unscaled.shape)
         all_val_indices = np.hstack(fold_val_indices)
-        # print("Val indices shape for averages:", all_val_indices.shape)
 
-        # Generate all predictions for train, val, test for each fold model
+        # Collect predictions from all folds (using prediction_transformer component)
         all_train_preds = []
         all_val_preds = []
         all_test_preds = []
 
-        for fold_model_tuple in folds_models:
-            # Extract the actual model from the tuple (model_id, model, score)
-            _, fold_model, _ = fold_model_tuple
-            fold_train_preds = self._predict_model(fold_model, X_train) if X_train.shape[0] > 0 else np.array([])
-            fold_val_preds = self._predict_model(fold_model, X_val) if X_val.shape[0] > 0 else np.array([])
-            fold_test_preds = self._predict_model(fold_model, X_test) if X_test.shape[0] > 0 else np.array([])
+        for _, fold_model, _ in folds_models:
+            preds_scaled = {
+                'train': self._predict_model(fold_model, X_train) if X_train.shape[0] > 0 else np.array([]),
+                'val': self._predict_model(fold_model, X_val) if X_val.shape[0] > 0 else np.array([]),
+                'test': self._predict_model(fold_model, X_test) if X_test.shape[0] > 0 else np.array([])
+            }
 
-            current_y_processing = context.get('y', 'numeric') if context else 'numeric'
-            if current_y_processing != 'numeric':
-                fold_train_preds_unscaled = dataset._targets.transform_predictions(
-                    fold_train_preds, current_y_processing, 'numeric'
-                )
-                fold_val_preds_unscaled = dataset._targets.transform_predictions(
-                    fold_val_preds, current_y_processing, 'numeric'
-                )
-                fold_test_preds_unscaled = dataset._targets.transform_predictions(
-                    fold_test_preds, current_y_processing, 'numeric'
-                )
-            else:
-                fold_train_preds_unscaled = fold_train_preds
-                fold_val_preds_unscaled = fold_val_preds
-                fold_test_preds_unscaled = fold_test_preds
+            # Use prediction_transformer component for unscaling
+            preds_unscaled = {
+                'train': self.prediction_transformer.transform_to_unscaled(preds_scaled['train'], dataset, context),
+                'val': self.prediction_transformer.transform_to_unscaled(preds_scaled['val'], dataset, context),
+                'test': self.prediction_transformer.transform_to_unscaled(preds_scaled['test'], dataset, context)
+            }
 
-            all_train_preds.append(fold_train_preds_unscaled)
-            all_val_preds.append(fold_val_preds_unscaled)
-            all_test_preds.append(fold_test_preds_unscaled)
+            all_train_preds.append(preds_unscaled['train'])
+            all_val_preds.append(preds_unscaled['val'])
+            all_test_preds.append(preds_unscaled['test'])
 
-        all_train_avg_preds = np.mean(all_train_preds, axis=0)
-        all_val_avg_preds = np.mean(all_val_preds, axis=0)
-        all_test_avg_preds = np.mean(all_test_preds, axis=0)
+        # Simple average
+        avg_preds = {
+            'train': np.mean(all_train_preds, axis=0),
+            'val': np.mean(all_val_preds, axis=0) if mode not in ("predict", "explain") else np.array([]),
+            'test': np.mean(all_test_preds, axis=0)
+        }
 
-        # print("Predicted fold:", 'avg', "Shapes:", all_test_avg_preds.shape, "Tests", all_test_avg_preds[:5])
+        # Use score_calculator component
+        true_values = {'train': y_train_unscaled, 'val': y_val_unscaled, 'test': y_test_unscaled}
+        avg_scores = self.score_calculator.calculate(true_values, avg_preds, dataset.task_type) if mode not in ("predict", "explain") else None
 
-        score_val = 0.0
-        score_test = 0.0
-        score_train = 0.0
+        # Weighted average
         metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
-        if mode != "predict" and mode != "explain":
-            _direction = ARROW_UP if higher_is_better else ARROW_DOWN
-            # Evaluate average predictions
-            score_train = Evaluator.eval(y_train_unscaled, all_train_avg_preds, metric)
-            score_val = Evaluator.eval(y_val_unscaled, all_val_avg_preds, metric)
-            score_test = Evaluator.eval(y_test_unscaled, all_test_avg_preds, metric)
+        weights = self._get_fold_weights(scores, higher_is_better, mode, runner)
 
-        avg_counter = runner.next_op()
-
-        # Prepare average predictions data for return
-        prediction_array = []
-        prediction_array.append(("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_avg_preds))
-        if mode != "predict" and mode != "explain":
-            prediction_array.append(("val", all_val_indices.tolist(), y_val_unscaled, all_val_avg_preds))
-        prediction_array.append(("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_avg_preds))
-
-        avg_predictions = {
-            'dataset_name': dataset.name,
-            'dataset_path': dataset.name,
-            'config_name': runner.saver.pipeline_id,
-            'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
-            'pipeline_uid': getattr(runner, 'pipeline_uid', None),
-            'step_idx': context['step_id'],
-            'op_counter': avg_counter,
-            'model_name': f"{base_model_name}",
-            'model_classname': str(model_classname),
-            'model_path': "",
-            'fold_id': "avg",
-            'val_score': score_val,
-            'test_score': score_test,
-            'train_score': score_train,
-            'metric': metric,
-            'task_type': dataset.task_type,
-            'n_features': X_train.shape[1],
-            'preprocessings': dataset.short_preprocessings_str(),
-            'partitions': prediction_array,
-            'best_params': best_params if best_params is not None else {},
+        w_avg_preds = {
+            'train': np.sum([w * p for w, p in zip(weights, all_train_preds)], axis=0),
+            'val': np.sum([w * p for w, p in zip(weights, all_val_preds)], axis=0) if mode not in ("predict", "explain") else np.array([]),
+            'test': np.sum([w * p for w, p in zip(weights, all_test_preds)], axis=0)
         }
 
-        # Weighted average predictions based on fold scores
-        scores = np.asarray(scores, dtype=float)
+        w_avg_scores = self.score_calculator.calculate(true_values, w_avg_preds, dataset.task_type) if mode not in ("predict", "explain") else None
 
-        if mode == "predict" or mode == "explain":
-            # Check if weights exist in target_model (they only exist for avg/w_avg predictions)
-            if "weights" in runner.target_model and runner.target_model["weights"] is not None:
-                weights_from_model = runner.target_model["weights"]
-                # Handle different formats: list, string (JSON serialized), or numpy array
-                if isinstance(weights_from_model, str):
-                    # Parse JSON string
-                    import json
-                    weights = np.array(json.loads(weights_from_model), dtype=float)
-                elif isinstance(weights_from_model, list):
-                    weights = np.array(weights_from_model, dtype=float)
-                else:
-                    weights = np.asarray(weights_from_model, dtype=float)
-            else:
-                # Fallback: use equal weights when scores are NaN (prediction mode)
-                if np.all(np.isnan(scores)):
-                    weights = np.ones(len(scores), dtype=float) / len(scores)
-                else:
-                    weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
-        else:
-            weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
+        # Use prediction_assembler component to create prediction dicts
+        avg_predictions = self._assemble_avg_prediction(dataset, runner, context, base_model_name, model_classname,
+                                                         avg_preds, avg_scores, true_values, all_val_indices,
+                                                         "avg", best_params, mode)
 
-        all_train_w_avg_preds = np.zeros_like(all_train_preds[0], dtype=float)
-        for arr, weight in zip(all_train_preds, weights):
-            all_train_w_avg_preds += weight * arr
-
-        if mode != "predict" and mode != "explain":
-            all_val_w_avg_preds = np.zeros_like(all_val_preds[0], dtype=float)
-            for arr, weight in zip(all_val_preds, weights):
-                all_val_w_avg_preds += weight * arr
-
-        all_test_w_avg_preds = np.zeros_like(all_test_preds[0], dtype=float)
-        for arr, weight in zip(all_test_preds, weights):
-            all_test_w_avg_preds += weight * arr
-
-        # print("Predicted fold:", 'w_avg', "Shapes:", all_test_w_avg_preds.shape, "Tests", all_test_w_avg_preds[:5])
-
-        # Evaluate weighted average predictions
-        score_val_w = 0.0
-        score_test_w = 0.0
-        score_train_w = 0.0
-        if mode != "predict" and mode != "explain":
-            score_train_w = Evaluator.eval(y_train_unscaled, all_train_w_avg_preds, metric)
-            score_val_w = Evaluator.eval(y_val_unscaled, all_val_w_avg_preds, metric)
-            score_test_w = Evaluator.eval(y_test_unscaled, all_test_w_avg_preds, metric)
-        w_avg_counter = runner.next_op()
-
-        # Prepare weighted average predictions data for return
-        prediction_array_w = []
-        prediction_array_w.append(("train", list(range(len(y_train_unscaled))), y_train_unscaled, all_train_w_avg_preds))
-        if mode != "predict" and mode != "explain":
-            prediction_array_w.append(("val", all_val_indices.tolist(), y_val_unscaled, all_val_w_avg_preds))
-        prediction_array_w.append(("test", list(range(len(y_test_unscaled))), y_test_unscaled, all_test_w_avg_preds))
-
-        w_avg_predictions = {
-            'dataset_name': dataset.name,
-            'dataset_path': dataset.name,
-            'config_name': runner.saver.pipeline_id,
-            'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
-            'pipeline_uid': getattr(runner, 'pipeline_uid', None),
-            'step_idx': context['step_id'],
-            'op_counter': w_avg_counter,
-            'model_name': f"{base_model_name}",
-            'model_classname': str(model_classname),
-            'model_path': "",
-            'fold_id': 'w_avg',
-            'val_score': score_val_w,
-            'test_score': score_test_w,
-            'train_score': score_train_w,
-            'metric': metric,
-            'task_type': dataset.task_type,
-            'n_features': X_train.shape[1],
-            'preprocessings': dataset.short_preprocessings_str(),
-            'weights': weights.tolist(),
-            'partitions': prediction_array_w,
-            'best_params': best_params if best_params is not None else {},
-        }
+        w_avg_predictions = self._assemble_avg_prediction(dataset, runner, context, base_model_name, model_classname,
+                                                           w_avg_preds, w_avg_scores, true_values, all_val_indices,
+                                                           "w_avg", best_params, mode, weights)
 
         return avg_predictions, w_avg_predictions
 
+    def _get_fold_weights(self, scores, higher_is_better, mode, runner):
+        """Calculate weights for fold averaging based on validation scores.
+
+        In prediction/explain modes, restores weights from target model if available.
+        Otherwise, computes weights using ModelUtils._scores_to_weights().
+
+        Args:
+            scores: Array of validation scores for each fold.
+            higher_is_better: Whether higher scores are better (True for R², False for RMSE).
+            mode: Execution mode.
+            runner: PipelineRunner with target_model info.
+
+        Returns:
+            NumPy array of normalized weights summing to 1.0.
+        """
+        scores = np.asarray(scores, dtype=float)
+
+        if mode in ("predict", "explain") and "weights" in runner.target_model:
+            weights_from_model = runner.target_model["weights"]
+            # Check if weights exist and are not None/empty
+            if weights_from_model is not None:
+                if isinstance(weights_from_model, str):
+                    import json
+                    return np.array(json.loads(weights_from_model), dtype=float)
+                elif isinstance(weights_from_model, (list, np.ndarray)):
+                    weights_array = np.asarray(weights_from_model, dtype=float)
+                    if len(weights_array) > 0:
+                        return weights_array
+
+        if np.all(np.isnan(scores)):
+            return np.ones(len(scores), dtype=float) / len(scores)
+
+        return ModelUtils._scores_to_weights(scores, higher_is_better=higher_is_better)
+
+    def _assemble_avg_prediction(self, dataset, runner, context, model_name, model_classname,
+                                  predictions, scores, true_values, val_indices, fold_id, best_params, mode, weights=None):
+        """Assemble prediction dictionary for averaged model.
+
+        Creates a complete prediction record with all metadata, scores, and partition data
+        for simple or weighted averaged predictions.
+
+        Args:
+            dataset: SpectroDataset with name and preprocessing info.
+            runner: PipelineRunner with pipeline metadata.
+            context: Execution context with step_id.
+            model_name: Base model name.
+            model_classname: Model class name string.
+            predictions: Dict of {partition: predictions_array}.
+            scores: PartitionScores object with train/val/test scores.
+            true_values: Dict of {partition: true_values_array}.
+            val_indices: Validation sample indices.
+            fold_id: Fold identifier ('avg' or 'w_avg').
+            best_params: Optional hyperparameters dictionary.
+            mode: Execution mode.
+            weights: Optional array of fold weights.
+
+        Returns:
+            Dictionary ready for prediction storage with all required fields.
+        """
+        op_counter = runner.next_op()
+
+        partitions = [
+            ("train", list(range(len(true_values['train']))), true_values['train'], predictions['train'])
+        ]
+        if mode not in ("predict", "explain"):
+            partitions.append(("val", val_indices.tolist(), true_values['val'], predictions['val']))
+        partitions.append(("test", list(range(len(true_values['test']))), true_values['test'], predictions['test']))
+
+        result = {
+            'dataset_name': dataset.name,
+            'dataset_path': dataset.name,
+            'config_name': runner.saver.pipeline_id,
+            'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
+            'pipeline_uid': getattr(runner, 'pipeline_uid', None),
+            'step_idx': context['step_id'],
+            'op_counter': op_counter,
+            'model_name': model_name,
+            'model_classname': str(model_classname),
+            'model_path': "",
+            'fold_id': fold_id,
+            'val_score': scores.val if scores else 0.0,
+            'test_score': scores.test if scores else 0.0,
+            'train_score': scores.train if scores else 0.0,
+            'metric': scores.metric if scores else ModelUtils.get_best_score_metric(dataset.task_type)[0],
+            'task_type': dataset.task_type,
+            'n_features': true_values['train'].shape[1] if len(true_values['train'].shape) > 1 else 1,
+            'preprocessings': dataset.short_preprocessings_str(),
+            'partitions': partitions,
+            'best_params': best_params if best_params else {}
+        }
+
+        if weights is not None:
+            result['weights'] = weights.tolist()
+
+        return result
+
     def _add_all_predictions(self, prediction_store, all_predictions, weights, mode="train"):
-        """Add all predictions with the same weights array."""
+        """Add all predictions to storage and print summaries.
+
+        Iterates through prediction records, adds each partition to the store,
+        and prints formatted summaries in train mode.
+
+        Args:
+            prediction_store: Predictions storage instance.
+            all_predictions: List of prediction dictionaries.
+            weights: Optional array of fold weights (applied to all predictions).
+            mode: Execution mode ('train', 'finetune', 'predict', 'explain').
+        """
         for prediction_data in all_predictions:
-            if prediction_data is None:
+            if not prediction_data:
                 continue
 
-            # Print the model description once per prediction_data
-            model_name = prediction_data['model_name']
-            fold_id = prediction_data['fold_id']
-            op_counter = prediction_data['op_counter']
-            val_score = prediction_data['val_score']
-            test_score = prediction_data['test_score']
-            metric = prediction_data['metric']
-
-            # Determine direction symbol based on metric (assume lower is better for most metrics)
-            direction = ARROW_UP if metric in ['r2', 'accuracy'] else ARROW_DOWN
-
-            first_partition = True
-
+            # Add each partition's predictions
+            pred_id = None
             for partition_name, indices, y_true_part, y_pred_part in prediction_data['partitions']:
                 if len(indices) == 0:
                     continue
-                # print(f"Adding predictions for fold {fold_id}, partition {partition_name} with {len(indices)} samples.")
+
                 pred_id = prediction_store.add_prediction(
                     dataset_name=prediction_data['dataset_name'],
                     dataset_path=prediction_data['dataset_path'],
@@ -875,7 +990,7 @@ class BaseModelController(OperatorController, ABC):
                     model_path=prediction_data['model_path'],
                     fold_id=prediction_data['fold_id'],
                     sample_indices=indices,
-                    weights=weights,  # ALL predictions get the SAME weights array
+                    weights=weights,
                     metadata={},
                     partition=partition_name,
                     y_true=y_true_part,
@@ -891,35 +1006,23 @@ class BaseModelController(OperatorController, ABC):
                     best_params=prediction_data['best_params']
                 )
 
-                # Print only once per prediction_data (for the first partition)
-                if first_partition:
-                    short_desc = f"{CHECK}{model_name}"
-                    if mode != "predict" and mode != "explain":
-                        short_desc += f" {metric} {direction}"
-                        short_desc += f" [test: {test_score:.4f}], [val: {val_score:.4f}]"
-                    else:
-                        short_desc += f" from (step: {prediction_data['step_idx']}, "
-
-                    if fold_id not in [None, 'None', 'avg', 'w_avg']:
-                        short_desc += f", (fold: {fold_id}, id: {op_counter})"
-                    elif fold_id in ['avg', 'w_avg']:
-                        short_desc += f", ({fold_id}, id: {op_counter})"
-
-                    short_desc += f" - [{pred_id}]"
-                    if mode != "predict" and mode != "explain":
-                        print(short_desc)
-                    first_partition = False
+            # Print summary (only once per model)
+            if pred_id and mode not in ("predict", "explain"):
+                self._print_prediction_summary(prediction_data, pred_id, mode)
 
     def _persist_model(self, runner: 'PipelineRunner', model: Any, model_id: str) -> 'ArtifactMeta':
-        """Persist model using the new serializer infrastructure.
+        """Persist trained model to disk using serializer infrastructure.
+
+        Auto-detects model framework (sklearn, tensorflow, pytorch, xgboost, catboost, lightgbm)
+        and delegates to appropriate serializer for optimal storage format.
 
         Args:
-            runner: Pipeline runner with saver instance
-            model: The trained model to persist
-            model_id: Identifier for the model
+            runner: PipelineRunner with saver instance.
+            model: Trained model to persist.
+            model_id: Unique identifier for the model.
 
         Returns:
-            ArtifactMeta: Metadata about the persisted artifact
+            ArtifactMeta with persistence metadata (path, format, size, etc.).
         """
         # Detect framework hint from model type
         model_type = type(model).__module__

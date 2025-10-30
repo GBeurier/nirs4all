@@ -171,7 +171,7 @@ class SimulationSaver:
         format_hint: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Persist artifact using the new serializer with content-addressed storage.
+        Persist artifact using the serializer with content-addressed storage.
 
         NOTE: This is for internal binary artifacts (models, transformers, etc.)
         For human-readable outputs (charts, reports), use save_output() instead.
