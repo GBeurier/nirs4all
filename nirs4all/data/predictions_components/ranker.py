@@ -11,7 +11,7 @@ import numpy as np
 import polars as pl
 
 from nirs4all.utils import evaluator
-from nirs4all.utils.model_utils import ModelUtils
+from nirs4all.data.ensemble_utils import EnsembleUtils
 
 from .storage import PredictionStorage
 from .serializer import PredictionSerializer
@@ -210,7 +210,7 @@ class PredictionRanker:
             rank_metric = base[0, "metric"]
 
         # Adjust ascending based on metric direction
-        if ModelUtils._is_higher_better(rank_metric):
+        if EnsembleUtils._is_higher_better(rank_metric):
             ascending = not ascending  # Reverse for higher is better
 
         # Model identity key

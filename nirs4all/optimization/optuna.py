@@ -25,7 +25,7 @@ except ImportError:
     OPTUNA_AVAILABLE = False
     optuna = None
 
-from nirs4all.utils.model_builder import ModelBuilderFactory
+from nirs4all.controllers.models.factory import ModelFactory as ModelBuilderFactory
 
 
 class OptunaManager:

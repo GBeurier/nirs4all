@@ -9,7 +9,8 @@ from nirs4all.data.types import SampleIndices
 from nirs4all.data.targets_components.converters import NumericConverter
 from nirs4all.data.targets_components.processing_chain import ProcessingChain
 from nirs4all.data.targets_components.transformers import TargetTransformer
-from nirs4all.utils.model_utils import ModelUtils, TaskType
+from nirs4all.utils.task_type import TaskType
+from nirs4all.utils.task_detection import detect_task_type
 
 # Re-export for backward compatibility
 from nirs4all.data.targets_components.encoders import FlexibleLabelEncoder  # noqa: F401
@@ -71,6 +72,7 @@ class Targets:
 
         # Task type detection
         self._task_type: Optional[TaskType] = None
+        self._task_type_by_processing: Dict[str, TaskType] = {}  # Track task_type per processing
 
     def __repr__(self) -> str:
         """
@@ -218,6 +220,32 @@ class Targets:
         self._stats_cache['num_classes'] = num_classes
         return num_classes
 
+    def get_task_type_for_processing(self, processing: str) -> Optional[TaskType]:
+        """
+        Get the task type for a specific processing.
+
+        This method allows retrieving the task type that was detected when a specific
+        processing was added. Useful for understanding how different transformations
+        (e.g., discretization, binning) affect the task type.
+
+        Args:
+            processing (str): Processing name to query
+
+        Returns:
+            Optional[TaskType]: Task type for the processing, or None if not available
+
+        Examples:
+            >>> targets.add_targets([1.0, 2.0, 3.0, 4.0, 5.0])
+            >>> targets.get_task_type_for_processing('numeric')
+            TaskType.REGRESSION
+
+            >>> # After discretization
+            >>> targets.add_processed_targets('binned', [0, 0, 1, 1, 2], 'numeric')
+            >>> targets.get_task_type_for_processing('binned')
+            TaskType.MULTICLASS_CLASSIFICATION
+        """
+        return self._task_type_by_processing.get(processing)
+
     def add_targets(self, targets: Union[np.ndarray, List, tuple]) -> None:
         """
         Add target samples. Can be called multiple times to append.
@@ -268,7 +296,11 @@ class Targets:
 
             # Detect task type when targets are first added (use numeric data for detection)
             if numeric_data.size > 0:
-                self._task_type = ModelUtils.detect_task_type(numeric_data)
+                self._task_type = detect_task_type(numeric_data)
+                self._task_type_by_processing['numeric'] = self._task_type
+                # Also store for 'raw' if it exists
+                if 'raw' in self._data:
+                    self._task_type_by_processing['raw'] = self._task_type
         else:
             # Subsequent times: append to existing data
             if targets.shape[1] != self.num_targets:
@@ -341,8 +373,13 @@ class Targets:
 
         # Re-detect task type after adding processed targets (e.g., discretization may change regression to classification)
         if targets.size > 0:
-            new_task_type = ModelUtils.detect_task_type(targets)
+            new_task_type = detect_task_type(targets)
+            self._task_type_by_processing[processing_name] = new_task_type
+
+            # Update global task_type (for current processing)
             if self._task_type != new_task_type:
+                print(f"⚠️  Task type changed: {self._task_type.value if self._task_type else 'None'} → {new_task_type.value} "
+                      f"(processing '{processing_name}')")
                 self._task_type = new_task_type
 
     def get_targets(self,

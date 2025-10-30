@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Any
 import numpy as np
 
-from nirs4all.utils.model_utils import ModelUtils
+from ..utilities import ModelControllerUtils as ModelUtils
 from nirs4all.utils import evaluator
 
 

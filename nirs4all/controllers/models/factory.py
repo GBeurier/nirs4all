@@ -1,26 +1,24 @@
+"""
+Model Factory - Framework-specific model instantiation for controllers
+
+This module provides a factory for building machine learning models from various configurations.
+Relocated from utils/model_builder.py to be co-located with model controllers.
+
+Supports multiple input formats:
+- String: file path or class path
+- Dict: configuration with class, import, or function keys
+- Instance: pre-built model object
+- Callable: function or class to instantiate
+"""
+
 import os
 import importlib
 import inspect
 
 from nirs4all.utils.backend import TF_AVAILABLE, TORCH_AVAILABLE
 
-# 1. str
-# "/myexp/cnn.pt"
-# "sklearn.linear_model.ElasticNet"
 
-# 2. instance
-# RandomForestClassifier(n_estimators=50, max_depth=5)
-
-# 3. dict
-# {'class': 'sklearn.linear_model.ElasticNet', 'params': {'alpha': 0.1}}
-# {'import': 'custom_lib.model.CustomModel', 'params': {...}}
-# {'function': get_my_cnn_tf_model, 'params': {...}}
-
-# 4. callable
-# get_my_cnn_tf_model
-# sklearn.linear_model.ElasticNet
-
-class ModelBuilderFactory:
+class ModelFactory:
     """Factory class for building machine learning models from various configurations.
 
     Supports multiple input formats:
@@ -46,26 +44,21 @@ class ModelBuilderFactory:
         Raises:
             ValueError: If the model_config format is invalid.
         """
-        # print("Building model with config:", model_config, "dataset:", dataset, "task:", task, "force_params:", force_params)
         if hasattr(dataset, 'is_classification') and dataset.is_classification:
             if hasattr(dataset, 'num_classes'):
                 force_params['num_classes'] = dataset.num_classes
 
-        if isinstance(model_config, str):  # 1
-            # print("Building from string")
-            return ModelBuilderFactory._from_string(model_config, force_params)
+        if isinstance(model_config, str):
+            return ModelFactory._from_string(model_config, force_params)
 
-        elif isinstance(model_config, dict):  # 3
-            # print("Building from dict")
-            return ModelBuilderFactory._from_dict(model_config, dataset, force_params)
+        elif isinstance(model_config, dict):
+            return ModelFactory._from_dict(model_config, dataset, force_params)
 
-        elif hasattr(model_config, '__class__') and not inspect.isclass(model_config) and not inspect.isfunction(model_config):  # 2
-            # print("Building from instance")
-            return ModelBuilderFactory._from_instance(model_config)
+        elif hasattr(model_config, '__class__') and not inspect.isclass(model_config) and not inspect.isfunction(model_config):
+            return ModelFactory._from_instance(model_config)
 
-        elif callable(model_config):  # 4
-            # print("Building from callable")
-            return ModelBuilderFactory._from_callable(model_config, dataset, force_params)
+        elif callable(model_config):
+            return ModelFactory._from_callable(model_config, dataset, force_params)
 
         else:
             raise ValueError("Invalid model_config format.")
@@ -85,14 +78,14 @@ class ModelBuilderFactory:
             ValueError: If the string format is invalid.
         """
         if os.path.exists(model_str):
-            model = ModelBuilderFactory._load_model_from_file(model_str)
+            model = ModelFactory._load_model_from_file(model_str)
             if force_params is not None:
-                model = ModelBuilderFactory.reconstruct_object(model, force_params)
+                model = ModelFactory.reconstruct_object(model, force_params)
             return model
         else:
             try:
-                cls = ModelBuilderFactory.import_class(model_str)
-                model = ModelBuilderFactory.prepare_and_call(cls, force_params)
+                cls = ModelFactory.import_class(model_str)
+                model = ModelFactory.prepare_and_call(cls, force_params)
                 return model
             except Exception as e:
                 raise ValueError(f"Invalid model string format: {str(e)}") from e
@@ -109,7 +102,7 @@ class ModelBuilderFactory:
             The model instance, possibly reconstructed with force_params.
         """
         if force_params is not None:
-            model_instance = ModelBuilderFactory.reconstruct_object(model_instance, force_params)
+            model_instance = ModelFactory.reconstruct_object(model_instance, force_params)
         return model_instance
 
     @staticmethod
@@ -133,7 +126,7 @@ class ModelBuilderFactory:
             model_obj = model_dict['model_instance']
             # Recursively build the model instance through build_single_model
             # which will detect if it's an instance, callable, etc.
-            return ModelBuilderFactory.build_single_model(model_obj, dataset, force_params)
+            return ModelFactory.build_single_model(model_obj, dataset, force_params)
 
         if 'model' in model_dict:
             model_dict = model_dict['model']
@@ -141,32 +134,32 @@ class ModelBuilderFactory:
         if 'class' in model_dict:
             class_path = model_dict['class']
             params = model_dict.get('params', {})
-            cls = ModelBuilderFactory.import_class(class_path)
+            cls = ModelFactory.import_class(class_path)
             # Filter params for sklearn models
             framework = None
             try:
-                framework = ModelBuilderFactory.detect_framework(cls)
+                framework = ModelFactory.detect_framework(cls)
             except Exception:
                 pass
             if framework == 'sklearn':
                 all_params = {**params, **(force_params or {})}
-                filtered_params = ModelBuilderFactory._filter_params(cls, all_params)
-                model = ModelBuilderFactory.prepare_and_call(cls, filtered_params)
+                filtered_params = ModelFactory._filter_params(cls, all_params)
+                model = ModelFactory.prepare_and_call(cls, filtered_params)
             else:
-                model = ModelBuilderFactory.prepare_and_call(cls, params, force_params)
+                model = ModelFactory.prepare_and_call(cls, params, force_params)
             return model
 
         elif 'import' in model_dict:
             object_path = model_dict['import']
             params = model_dict.get('params', {})
-            obj = ModelBuilderFactory.import_object(object_path)
+            obj = ModelFactory.import_object(object_path)
 
             if callable(obj):  # function or class
-                model = ModelBuilderFactory.prepare_and_call(obj, params, force_params)
+                model = ModelFactory.prepare_and_call(obj, params, force_params)
             else:  # instance
                 model = obj
                 if force_params is not None:
-                    model = ModelBuilderFactory.reconstruct_object(model, params, force_params)
+                    model = ModelFactory.reconstruct_object(model, params, force_params)
 
             return model
 
@@ -188,7 +181,7 @@ class ModelBuilderFactory:
                 framework = getattr(callable_model, 'framework', None)
             if framework is None:
                 raise ValueError("Cannot determine framework from callable model_config. Please set 'experiments.utils.framework' decorator on the function or add 'framework' key to the config.")
-            input_dim = ModelBuilderFactory._get_input_dim(framework, dataset)
+            input_dim = ModelFactory._get_input_dim(framework, dataset)
             params['input_dim'] = input_dim
             params['input_shape'] = input_dim
             # Set num_classes for tensorflow classification models
@@ -196,7 +189,7 @@ class ModelBuilderFactory:
                 if hasattr(dataset, 'num_classes'):
                     num_classes = dataset.num_classes
                     params['num_classes'] = num_classes
-            model = ModelBuilderFactory.prepare_and_call(callable_model, params, force_params)
+            model = ModelFactory.prepare_and_call(callable_model, params, force_params)
             return model
         else:
             raise ValueError("Dict model_config must contain 'class', 'path', or 'callable' with 'framework' key.")
@@ -218,7 +211,7 @@ class ModelBuilderFactory:
         """
         framework = None
         if inspect.isclass(model_callable):
-            framework = ModelBuilderFactory.detect_framework(model_callable)
+            framework = ModelFactory.detect_framework(model_callable)
         elif inspect.isfunction(model_callable):
             framework = getattr(model_callable, 'framework', None)
         if framework is None:
@@ -226,9 +219,9 @@ class ModelBuilderFactory:
 
         # Use framework-specific model creation for TensorFlow
         if framework == 'tensorflow':
-            return ModelBuilderFactory._from_tensorflow_callable(model_callable, dataset, force_params)
+            return ModelFactory._from_tensorflow_callable(model_callable, dataset, force_params)
 
-        input_dim = ModelBuilderFactory._get_input_dim(framework, dataset)
+        input_dim = ModelFactory._get_input_dim(framework, dataset)
         sig = inspect.signature(model_callable)
         params = {}
         if 'input_shape' in sig.parameters:
@@ -242,7 +235,7 @@ class ModelBuilderFactory:
                 # Only set num_classes if the function signature has it (for classification models)
                 if 'num_classes' in sig.parameters:
                     params['num_classes'] = num_classes
-        model = ModelBuilderFactory.prepare_and_call(model_callable, params, force_params)
+        model = ModelFactory.prepare_and_call(model_callable, params, force_params)
         return model
 
     @staticmethod
@@ -263,7 +256,7 @@ class ModelBuilderFactory:
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is required but not installed")
 
-        input_dim = ModelBuilderFactory._get_input_dim('tensorflow', dataset)
+        input_dim = ModelFactory._get_input_dim('tensorflow', dataset)
         sig = inspect.signature(model_callable)
         params = {}
 
@@ -282,11 +275,11 @@ class ModelBuilderFactory:
                     params['num_classes'] = dataset.n_classes
 
         # Call the function with prepared parameters
-        model = ModelBuilderFactory.prepare_and_call(model_callable, params, force_params)
+        model = ModelFactory.prepare_and_call(model_callable, params, force_params)
 
         # If it's a class, we've instantiated it
         # If it's a function, it should return a model
-        if not ModelBuilderFactory._is_tensorflow_model(model):
+        if not ModelFactory._is_tensorflow_model(model):
             raise ValueError(
                 f"TensorFlow model function {model_callable.__name__} did not return a valid model. "
                 f"Got {type(model)} instead."
@@ -333,12 +326,6 @@ class ModelBuilderFactory:
                 from tensorflow.keras.models import clone_model
                 cloned_model = clone_model(model)
                 return cloned_model
-
-        # elif framework == 'pytorch':
-        #     import torch
-        #     from copy import deepcopy
-        #     # Deepcopy works for PyTorch models in most cases
-        #     return deepcopy(model)
 
         else:
             # Fallback to deepcopy
@@ -489,7 +476,7 @@ class ModelBuilderFactory:
             New model instance with forced parameters.
         """
         try:
-            filtered_params = ModelBuilderFactory._filter_params(model, force_params)
+            filtered_params = ModelFactory._filter_params(model, force_params)
             new_model = model.__class__(**filtered_params)
             return new_model
         except Exception as e:
@@ -643,12 +630,9 @@ class ModelBuilderFactory:
             if not TF_AVAILABLE:
                 raise ImportError("TensorFlow is not available but required to load this model.")
             from tensorflow import keras
-            # from tensorflow.keras import metrics
 
             # Pass custom objects if needed
-            custom_objects = {
-                # 'mse': metrics.MeanSquaredError()
-            }
+            custom_objects = {}
 
             model = keras.models.load_model(model_path, custom_objects=custom_objects)
             return model
@@ -672,3 +656,7 @@ class ModelBuilderFactory:
 
         else:
             raise ValueError(f"Unsupported file extension '{ext}' for model file.")
+
+
+# Backward compatibility alias
+ModelBuilderFactory = ModelFactory

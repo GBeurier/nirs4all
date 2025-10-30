@@ -13,7 +13,8 @@ import io
 
 # Import evaluator functions
 import nirs4all.utils.evaluator as evaluator
-from nirs4all.utils.model_utils import ModelUtils, TaskType
+from nirs4all.utils.task_type import TaskType
+from nirs4all.utils.task_detection import detect_task_type
 
 
 class TabReportManager:
@@ -35,9 +36,9 @@ class TabReportManager:
         if not best_by_partition:
             return "No prediction data available", None
 
-        # Detect task type from first available prediction
+        # Get task type from first available prediction's metadata
         first_entry = next(iter(best_by_partition.values()))
-        task_type = TabReportManager._detect_task_type_from_entry(first_entry)
+        task_type = TabReportManager._get_task_type_from_entry(first_entry)
 
         # Extract n_features from metadata if available
         n_features = first_entry.get('n_features', 0)
@@ -67,12 +68,37 @@ class TabReportManager:
         return formatted_string, csv_string
 
     @staticmethod
-    def _detect_task_type_from_entry(entry: Dict[str, Any]) -> TaskType:
-        """Detect task type from a prediction entry."""
+    def _get_task_type_from_entry(entry: Dict[str, Any]) -> TaskType:
+        """
+        Get task type from a prediction entry's metadata.
+
+        Prioritizes stored task_type from metadata, falls back to detection only
+        if metadata is missing (for backward compatibility with old predictions).
+
+        Args:
+            entry: Prediction entry dictionary
+
+        Returns:
+            TaskType: The task type for this prediction
+        """
+        # First, try to get from metadata
+        task_type_str = entry.get('task_type')
+        if task_type_str:
+            # Convert string to TaskType enum
+            try:
+                if isinstance(task_type_str, str):
+                    return TaskType(task_type_str)
+                elif isinstance(task_type_str, TaskType):
+                    return task_type_str
+            except (ValueError, KeyError):
+                pass  # Fall through to detection
+
+        # Fallback: detect from y_true (for backward compatibility)
+        print("⚠️  Warning: task_type not found in prediction metadata, detecting from data")
         y_true = np.array(entry.get('y_true', []))
         if len(y_true) == 0:
             return TaskType.REGRESSION
-        return ModelUtils.detect_task_type(y_true)
+        return detect_task_type(y_true)
 
     @staticmethod
     def _format_as_table_string(

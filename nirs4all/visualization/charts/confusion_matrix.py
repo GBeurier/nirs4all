@@ -8,7 +8,6 @@ from typing import Optional
 from sklearn.metrics import confusion_matrix as sk_confusion_matrix
 from nirs4all.visualization.charts.base import BaseChart
 from nirs4all.visualization.chart_utils.predictions_adapter import PredictionsAdapter
-from nirs4all.utils.model_utils import ModelUtils, TaskType
 
 
 class ConfusionMatrixChart(BaseChart):

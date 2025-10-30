@@ -21,7 +21,10 @@ import copy
 from nirs4all.controllers.controller import OperatorController
 from ...optimization.optuna import OptunaManager
 from nirs4all.data.predictions import Predictions
-from nirs4all.utils.model_utils import ModelUtils, TaskType
+from nirs4all.data.ensemble_utils import EnsembleUtils
+from nirs4all.utils.task_type import TaskType
+from .utilities import ModelControllerUtils as ModelUtils
+from nirs4all.utils import evaluator
 from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING
 from .components import (
     ModelIdentifierGenerator,
@@ -444,7 +447,7 @@ class BaseModelController(OperatorController, ABC):
 
             # Compute weights based on scores
             metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
-            weights = ModelUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
+            weights = EnsembleUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
 
             # Create fold averages and get average predictions data
             if dataset.task_type and dataset.task_type.is_regression:
@@ -542,9 +545,13 @@ class BaseModelController(OperatorController, ABC):
             X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context or {})
             X_test_prep, _ = self._prepare_data(X_test, None, context or {})
 
+            # Pass task_type to train_model
+            train_params = model_config.get('train_params', {}).copy()
+            train_params['task_type'] = dataset.task_type
+
             trained_model = self._train_model(
                 model, X_train_prep, y_train_prep, X_val_prep, y_val_prep,
-                **model_config.get('train_params', {})
+                **train_params
             )
 
         # === 4. GENERATE PREDICTIONS (scaled) ===
@@ -670,17 +677,6 @@ class BaseModelController(OperatorController, ABC):
         """
         return "2d"
 
-    def _detect_task_type(self, y: Any) -> TaskType:
-        """Detect task type from target values.
-
-        Args:
-            y: Target values array.
-
-        Returns:
-            TaskType enum (REGRESSION, BINARY_CLASSIFICATION, or MULTICLASS_CLASSIFICATION).
-        """
-        return ModelUtils.detect_task_type(y)
-
     def _calculate_and_print_scores(
         self,
         y_true: Any,
@@ -703,7 +699,7 @@ class BaseModelController(OperatorController, ABC):
         Returns:
             Dictionary of metric names and scores.
         """
-        scores = ModelUtils.calculate_scores(y_true, y_pred, task_type)
+        scores = evaluator.eval_multi(y_true, y_pred, task_type.value)
         if scores and show_detailed_scores:
             score_str = ModelUtils.format_scores(scores)
             print(f"{CHART} {model_name} {partition} scores: {score_str}")
@@ -877,7 +873,7 @@ class BaseModelController(OperatorController, ABC):
         """Calculate weights for fold averaging based on validation scores.
 
         In prediction/explain modes, restores weights from target model if available.
-        Otherwise, computes weights using ModelUtils._scores_to_weights().
+        Otherwise, computes weights using EnsembleUtils._scores_to_weights().
 
         Args:
             scores: Array of validation scores for each fold.
@@ -905,7 +901,7 @@ class BaseModelController(OperatorController, ABC):
         if np.all(np.isnan(scores)):
             return np.ones(len(scores), dtype=float) / len(scores)
 
-        return ModelUtils._scores_to_weights(scores, higher_is_better=higher_is_better)
+        return EnsembleUtils._scores_to_weights(scores, higher_is_better=higher_is_better)
 
     def _assemble_avg_prediction(self, dataset, runner, context, model_name, model_classname,
                                   predictions, scores, true_values, val_indices, fold_id, best_params, mode, weights=None):
@@ -958,6 +954,7 @@ class BaseModelController(OperatorController, ABC):
             'train_score': scores.train if scores else 0.0,
             'metric': scores.metric if scores else ModelUtils.get_best_score_metric(dataset.task_type)[0],
             'task_type': dataset.task_type,
+            'target_processing': context.get('y', 'numeric'),  # Track which target processing was used
             'n_features': true_values['train'].shape[1] if len(true_values['train'].shape) > 1 else 1,
             'preprocessings': dataset.short_preprocessings_str(),
             'partitions': partitions,
