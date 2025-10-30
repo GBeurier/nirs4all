@@ -54,7 +54,7 @@ class BinaryLoader:
         Returns:
             List of (name, loaded_object) tuples
         """
-        from nirs4all.utils.serialization import load
+        from nirs4all.pipeline.artifact_serialization import load
 
         # Parse step_id - handle both "step_substep" format and simple step number
         if isinstance(step_id, int):

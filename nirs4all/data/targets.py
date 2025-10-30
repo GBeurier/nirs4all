@@ -9,8 +9,8 @@ from nirs4all.data.types import SampleIndices
 from nirs4all.data.targets_components.converters import NumericConverter
 from nirs4all.data.targets_components.processing_chain import ProcessingChain
 from nirs4all.data.targets_components.transformers import TargetTransformer
-from nirs4all.utils.task_type import TaskType
-from nirs4all.utils.task_detection import detect_task_type
+from nirs4all.core.task_type import TaskType
+from nirs4all.core.task_detection import detect_task_type
 
 # Re-export for backward compatibility
 from nirs4all.data.targets_components.encoders import FlexibleLabelEncoder  # noqa: F401

@@ -53,7 +53,7 @@ Seed 99:  [2, 2, 3, 3, 2]  ← samples 2 and 3 selected
 
 ## Usage
 ```python
-from nirs4all.utils.balancing import BalancingCalculator
+from nirs4all.controllers.data.balancing import BalancingCalculator
 import numpy as np
 
 counts = BalancingCalculator.calculate_balanced_counts(
@@ -64,6 +64,6 @@ counts = BalancingCalculator.calculate_balanced_counts(
 ```
 
 ## Files Modified
-- `nirs4all/utils/balancing.py` - Added `random_state` parameter and random selection
+- `nirs4all/controllers/data/balancing.py` - Added `random_state` parameter and random selection
 - `tests/unit/test_balancing.py` - Updated tests, added 2 new tests
 - `examples/Q14_random_remainder_selection.py` - New example demonstrating the feature

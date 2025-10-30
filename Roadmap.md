@@ -2,7 +2,7 @@
 
 > [utils] move evaluator, binning, balancing, task_type and task_detection, serialization out of utils. True utils files are only spinner, backend, emoji for now.
 
-> [Step] the role of __runtime_instance__ is not clear at all (it is related to a pipeline where a user provides directly an instance of model but I think it's used for another purpose)
+> [Step] the role of __runtime_instance__ is not clear at all (it is related to a pipeline where a user provides directly an instance of model but I think it's used for another purpose) _ check redondancy between serialization and factory
 
 > [PipelineRunner] Refactor, modularize, clean, anticipate 0.6.1, authorize list of pipelineconfigs instead of pipelines
 

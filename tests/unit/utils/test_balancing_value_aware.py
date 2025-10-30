@@ -9,7 +9,7 @@ Tests cover:
 """
 import numpy as np
 import pytest
-from nirs4all.utils.balancing import BalancingCalculator
+from nirs4all.controllers.data.balancing import BalancingCalculator
 
 
 class TestValueAwareBalancing:

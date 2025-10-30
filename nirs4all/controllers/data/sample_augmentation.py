@@ -4,8 +4,8 @@ import numpy as np  # noqa: F401
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.balancing import BalancingCalculator
-from nirs4all.utils.binning import BinningCalculator  # noqa: F401 - used in _execute_balanced
+from nirs4all.controllers.data.balancing import BalancingCalculator
+from nirs4all.data.binning import BinningCalculator  # noqa: F401 - used in _execute_balanced
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner

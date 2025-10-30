@@ -22,10 +22,11 @@ from nirs4all.controllers.controller import OperatorController
 from ...optimization.optuna import OptunaManager
 from nirs4all.data.predictions import Predictions
 from nirs4all.data.ensemble_utils import EnsembleUtils
-from nirs4all.utils.task_type import TaskType
+from nirs4all.core.task_type import TaskType
 from .utilities import ModelControllerUtils as ModelUtils
-from nirs4all.utils import evaluator
+from nirs4all.core import metrics as evaluator
 from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING
+from nirs4all.pipeline.artifact_serialization import ArtifactMeta
 from .components import (
     ModelIdentifierGenerator,
     PredictionTransformer,

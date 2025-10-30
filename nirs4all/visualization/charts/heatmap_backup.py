@@ -10,7 +10,7 @@ from nirs4all.visualization.chart_utils.predictions_adapter import PredictionsAd
 from nirs4all.visualization.chart_utils.matrix_builder import MatrixBuilder
 from nirs4all.visualization.chart_utils.normalizer import ScoreNormalizer
 from nirs4all.visualization.chart_utils.annotator import ChartAnnotator
-from nirs4all.utils import evaluator
+from nirs4all.core import metrics as evaluator
 
 
 class HeatmapChart(BaseChart):

@@ -434,7 +434,7 @@ class PredictionsAdapter:
             # If not available, try to compute it
             if value is None and partition in pred:
                 try:
-                    from nirs4all.utils.evaluator import eval as eval_metric
+                    from nirs4all.core.metrics import eval as eval_metric
                     part_data = pred[partition]
                     y_true = part_data.get('y_true', [])
                     y_pred = part_data.get('y_pred', [])

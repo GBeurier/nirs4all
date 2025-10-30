@@ -12,9 +12,9 @@ import os
 import io
 
 # Import evaluator functions
-import nirs4all.utils.evaluator as evaluator
-from nirs4all.utils.task_type import TaskType
-from nirs4all.utils.task_detection import detect_task_type
+import nirs4all.core.metrics as evaluator
+from nirs4all.core.task_type import TaskType
+from nirs4all.core.task_detection import detect_task_type
 
 
 class TabReportManager:

@@ -10,7 +10,7 @@ from typing import Dict, Optional, Any
 import numpy as np
 
 from ..utilities import ModelControllerUtils as ModelUtils
-from nirs4all.utils import evaluator
+from nirs4all.core import metrics as evaluator
 
 
 @dataclass
