@@ -1,17 +1,15 @@
 ## ROADMAP ##
 
+> [utils] move evaluator, binning, balancing, task_type and task_detection, serialization out of utils. True utils files are only spinner, backend, emoji for now.
 
-> [Cleaning] Modularize/Clean/Refactor: Model_utils, Model_builder, PipelineRunner, tests (increase indexer coverage, reduce test redondancy)
+> [Step] the role of __runtime_instance__ is not clear at all (it is related to a pipeline where a user provides directly an instance of model but I think it's used for another purpose)
 
-> [Pipeline] authorize list of pipelineconfigs instead of pipelines... Goes into cleaning
+> [PipelineRunner] Refactor, modularize, clean, anticipate 0.6.1, authorize list of pipelineconfigs instead of pipelines
 
-> [Cleaning] the role of __runtime_instance__ is not clear at all (it is related to a pipeline where a user provides directly an instance of model but I think it's used for another purpose)
-
-> [utils] move evaluator, binning, balancing, task_type and task_detection out of utils and even maybe serialization. True utils are spinner, backend, emoji
+> [Tests] increase indexer coverage, reduce test redondancy. Reduce to around 400 tests maybe
 
 
-**RELEASE** 0.4.1: final structure
-
+**RELEASE** 0.4.1: Folder/File structure rc
 
 
 **Bugs**:
@@ -29,26 +27,26 @@
 
 > [SEED] review and fix definitive logic
 
-**RELEASE** 0.4.2: torch/jax up
-
+**RELEASE** 0.4.2: Torch & Jax
 
 
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
 > [ReadsTheDoc] minimal subset of signatures + update and export MD
 
-**RELEASE** 0.5: documentation
-
+**RELEASE** 0.5: Documentation
 
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
+> [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline.
+
+
+**RELEASE** 0.5.1: Chart and Analyses
+
+
 **Bugs**:
 >   - [_or_] with one element fallback on dummy controller
-
-**RELEASE** 0.5.1: charts operators
-
-
 
 > [Predictions] as a pipeline context.
 
@@ -59,8 +57,7 @@
 **Bugs**:
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
 
-**RELEASE** 0.5.2: predictions/metrics final
-
+**RELEASE** 0.5.2: Data Flow
 
 
 > [Folds] Operator load fold (csv)
@@ -69,8 +66,7 @@
 
 > [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin)
 
-**RELEASE** 0.6: Minimal controller set
-
+**RELEASE** 0.6: Minimal Valuable Controllers
 
 
 > [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
@@ -79,15 +75,15 @@
 
 > [Dummy_Controller] remove totally and manage exceptions
 
-**RELEASE** 0.6.1: pipeline logic complete
-
+**RELEASE** 0.6.1: Pipeline logic
 
 
 > [Logs] implement feature and update print/log strategy
 
 > [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
 
-**RELEASE** 0.7: User friendly (log + examples)
+**RELEASE** 0.7: User experience
+
 
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 
@@ -98,13 +94,11 @@
 **RELEASE** 0.8: CLI
 
 
-
 > [GLOBAL REVIEW] v1.0 signatures freeze (private pattern _module), Complete tests > Prod coverage (transformations, controllers, predictions, datasets, runner)
 
 > [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
 
-**RELEASE**  0.9 alpha: SIGNATURE FREEZE - MVP (feature complete)
-
+**RELEASE**  0.9 alpha: Minimum Viable Product. Signatures frozen.
 
 
 > [Y_pipeline in models]
@@ -115,16 +109,14 @@
 
 > [Transformations] Asymetric processings (PCA in pipelines) > auto/optional padding and cropping
 
-**RELEASE** 0.10 beta: operators/controllers complete
-
+**RELEASE** 0.10 beta: Operators & Controllers rc
 
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
 
 > [DEPLOY] standalone installer, web installer
 
-**RELEASE** 0.11 rc - GUI version (sync with nirs4all_ui project)
-
+**RELEASE** 0.11 rc - GUI version (cf. nirs4all_ui)
 
 
 > [REVIEW] Documentation complete (RTD, Tutorial, Examples), Dead code removed, Tests coverage

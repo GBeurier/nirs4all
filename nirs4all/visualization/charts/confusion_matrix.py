@@ -28,7 +28,6 @@ class ConfusionMatrixChart(BaseChart):
         """
         super().__init__(predictions, dataset_name_override, config)
         self.adapter = PredictionsAdapter(predictions)
-        self.model_utils = ModelUtils()
 
     def validate_inputs(self, k: int, metric: str, **kwargs) -> None:
         """Validate confusion matrix inputs.
