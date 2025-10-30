@@ -181,6 +181,36 @@ class BaseModelController(OperatorController, ABC):
         """
         pass
 
+    def save_model(self, model: Any, filepath: str) -> None:
+        """Optional: Save model in framework-specific format.
+
+        Default implementation delegates to artifact_serialization.persist().
+        Subclasses can override to use framework-specific formats:
+        - TensorFlow: .h5 or .keras format
+        - PyTorch: .ckpt or .pt format
+        - sklearn: .joblib format
+
+        Args:
+            model: Trained model to save.
+            filepath: Path to save (without extension, will be added by implementation).
+        """
+        from nirs4all.pipeline.artifact_serialization import persist
+        persist(model, filepath)
+
+    def load_model(self, filepath: str) -> Any:
+        """Optional: Load model from framework-specific format.
+
+        Default implementation delegates to artifact_serialization.load().
+        Subclasses can override to use framework-specific loading.
+
+        Args:
+            filepath: Path to load from.
+
+        Returns:
+            Loaded model instance.
+        """
+        from nirs4all.pipeline.artifact_serialization import load
+        return load(filepath)
 
     def get_xy(self, dataset: 'SpectroDataset', context: Dict[str, Any]) -> Tuple[Any, Any, Any, Any, Any, Any]:
         """Extract train/test splits with scaled and unscaled targets.
@@ -744,7 +774,7 @@ class BaseModelController(OperatorController, ABC):
 
         if isinstance(step, dict):
             # If step is already a serialized format with 'function', 'class', or 'import',
-            # pass it through as-is for ModelBuilderFactory
+            # pass it through as-is for ModelFactory
             if any(key in step for key in ('function', 'class', 'import')):
                 # print(f"DEBUG returning step as-is: {step}")
                 return step

@@ -22,7 +22,7 @@ from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.emoji import WARNING
 from nirs4all.core.task_type import TaskType
 from .utilities import ModelControllerUtils as ModelUtils
-from .factory import ModelFactory as ModelBuilderFactory
+from .factory import ModelFactory
 from .tensorflow import (
     TensorFlowCompilationConfig,
     TensorFlowFitConfig,
@@ -167,7 +167,7 @@ class TensorFlowModelController(BaseModelController):
     def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
         """Create TensorFlow model instance from configuration.
 
-        Delegates to ModelBuilderFactory which handles various input formats:
+        Delegates to ModelFactory which handles various input formats:
         - Model instances (returns as-is)
         - Callables/functions (calls with input_dim, num_classes parameters)
         - Serialized configs ({'function': path, 'params': {...}})
@@ -190,8 +190,8 @@ class TensorFlowModelController(BaseModelController):
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is required but not installed")
 
-        # Delegate entirely to ModelBuilderFactory
-        model = ModelBuilderFactory.build_single_model(
+        # Delegate entirely to ModelFactory
+        model = ModelFactory.build_single_model(
             model_config,
             dataset,
             force_params or {}
@@ -440,7 +440,7 @@ class TensorFlowModelController(BaseModelController):
         Cloning strategy:
         - Callable functions: Return as-is (will be called with proper input_shape later)
         - Keras model instances: Use keras.models.clone_model() to create fresh copy
-        - Other objects: Return as-is for ModelBuilderFactory to handle
+        - Other objects: Return as-is for ModelFactory to handle
 
         Args:
             model: Model instance, function, or configuration to clone.
@@ -455,12 +455,12 @@ class TensorFlowModelController(BaseModelController):
             # TensorFlow model instance: use clone_model
             return keras.models.clone_model(model)
         else:
-            # Return as is (will be handled by ModelBuilderFactory)
+            # Return as is (will be handled by ModelFactory)
             return model
 
     # Remove the _extract_model_config override - use base class implementation
     # The base class correctly returns {'model_instance': operator, 'train_params': {...}}
-    # and ModelBuilderFactory now handles 'model_instance' key properly
+    # and ModelFactory now handles 'model_instance' key properly
 
     def _sample_hyperparameters(self, trial, finetune_params: Dict[str, Any]) -> Dict[str, Any]:
         """Sample hyperparameters for TensorFlow model tuning with Optuna.

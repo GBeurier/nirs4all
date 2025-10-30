@@ -229,11 +229,12 @@ class TestFunctionBasedModels:
         assert "test_serialization" in serialized["function"]
         assert "mock_model_function" in serialized["function"]
 
-        # Deserialize should return function reference, NOT call it
+        # Deserialize should return dict with type info (not call it)
         deserialized = deserialize_component(serialized)
-        # Check if it's a dict wrapper (for framework functions)
-        if isinstance(deserialized, dict) and "_runtime_instance" in deserialized:
-            func = deserialized["_runtime_instance"]
+        # New format: {"type": "function", "func": <func>, "framework": "tensorflow", "params": {}}
+        if isinstance(deserialized, dict) and "type" in deserialized:
+            assert deserialized["type"] == "function"
+            func = deserialized["func"]
         else:
             func = deserialized
         assert inspect.isfunction(func)
@@ -262,10 +263,11 @@ class TestFunctionBasedModels:
         # Deserialize should return function reference
         deserialized = deserialize_component(serialized)
         assert "model" in deserialized
-        # Handle dict wrapper for framework functions
+        # Handle new dict format with 'type' and 'func' keys
         model = deserialized["model"]
-        if isinstance(model, dict) and "_runtime_instance" in model:
-            model = model["_runtime_instance"]
+        if isinstance(model, dict) and "type" in model:
+            assert model["type"] == "function"
+            model = model["func"]
         assert inspect.isfunction(model)
         assert model == mock_model_function
 
@@ -292,17 +294,20 @@ class TestFunctionBasedModels:
         deserialized = deserialize_component(serialized_with_params)
 
         assert isinstance(deserialized, dict)
-        # New serialization returns wrapped format for framework functions
-        if "_runtime_instance" in deserialized:
-            # It's the wrapped format - extract function and verify
-            func = deserialized["_runtime_instance"]
+        # New serialization returns wrapped format with 'type' and 'func' keys
+        if "type" in deserialized:
+            # New format: {"type": "function", "func": <func>, "framework": "tensorflow", "params": {...}}
+            assert deserialized["type"] == "function"
+            func = deserialized["func"]
             assert inspect.isfunction(func)
             assert func == mock_model_function
+            # Params should be in the dict
+            assert "params" in deserialized
         else:
             # Old format with separate function and params keys
             assert "function" in deserialized
-            if isinstance(deserialized["function"], dict) and "_runtime_instance" in deserialized["function"]:
-                func = deserialized["function"]["_runtime_instance"]
+            if isinstance(deserialized["function"], dict) and "type" in deserialized["function"]:
+                func = deserialized["function"]["func"]
             else:
                 func = deserialized["function"]
             assert inspect.isfunction(func)
@@ -321,12 +326,13 @@ class TestFunctionBasedModels:
         deserialized = deserialize_component(serialized)
 
         # Should get function reference back, not a call result
-        # Handle dict wrapper for framework functions
-        if isinstance(deserialized, dict) and "_runtime_instance" in deserialized:
-            func = deserialized["_runtime_instance"]
+        # Handle new dict format with 'type' and 'func' keys
+        if isinstance(deserialized, dict) and "type" in deserialized:
+            assert deserialized["type"] == "function"
+            func = deserialized["func"]
             assert inspect.isfunction(func)
             assert func == mock_model_function
-            # For wrapped format, call the function from runtime instance
+            # For wrapped format, call the function from func
             result = func(input_shape=(1, 100), params={"test": "value"})
         else:
             func = deserialized
@@ -376,9 +382,10 @@ class TestFunctionBasedModelsWithTensorFlow:
 
         # Deserialize should return function reference, NOT call it
         deserialized = deserialize_component(serialized)
-        # Handle dict wrapper for framework functions
-        if isinstance(deserialized, dict) and "_runtime_instance" in deserialized:
-            func = deserialized["_runtime_instance"]
+        # Handle new dict format with 'type' and 'func' keys
+        if isinstance(deserialized, dict) and "type" in deserialized:
+            assert deserialized["type"] == "function"
+            func = deserialized["func"]
         else:
             func = deserialized
         assert inspect.isfunction(func)
@@ -407,10 +414,11 @@ class TestFunctionBasedModelsWithTensorFlow:
         # Deserialize should return function reference
         deserialized = deserialize_component(serialized)
         assert "model" in deserialized
-        # Handle dict wrapper for framework functions
+        # Handle new dict format with 'type' and 'func' keys
         model = deserialized["model"]
-        if isinstance(model, dict) and "_runtime_instance" in model:
-            model = model["_runtime_instance"]
+        if isinstance(model, dict) and "type" in model:
+            assert model["type"] == "function"
+            model = model["func"]
         assert inspect.isfunction(model)
         assert model == nicon
 
@@ -431,11 +439,13 @@ class TestFunctionBasedModelsWithTensorFlow:
         deserialized = deserialize_component(serialized)
 
         assert isinstance(deserialized, dict)
-        # New serialization wraps framework functions
-        if "_runtime_instance" in deserialized:
-            # Wrapped format - function is runtime instance
-            assert inspect.isfunction(deserialized["_runtime_instance"])
-            # Params are not preserved in wrapped format (handled by ModelBuilder)
+        # New serialization wraps framework functions with 'type' and 'func' keys
+        if "type" in deserialized:
+            # New format: {"type": "function", "func": <func>, "framework": "tensorflow", "params": {...}}
+            assert deserialized["type"] == "function"
+            assert inspect.isfunction(deserialized["func"])
+            # Params should be in the dict
+            assert "params" in deserialized
         else:
             # Old format - might not fully deserialize with params
             # The test is verifying that serialization format is handled
