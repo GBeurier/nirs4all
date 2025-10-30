@@ -52,7 +52,8 @@ from examples.custom_nicon import (
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='X3 Hiba Full Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 import tensorflow as tf
@@ -383,7 +384,7 @@ pipeline_config = PipelineConfigs(pipeline, "Hiba")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.show_plots)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 
@@ -401,7 +402,7 @@ top_models[0].save_to_csv("Q1_regression_best_model.csv")
 # # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=3, rank_metric='rmse')
-fig2 = analyzer.plot_top_k_comparison(k=3, rank_metric='rmse', rank_partition='test')
-# fig3 = analyzer.plot_top_k_comparison(k=3, rank_metric='rmse', rank_partition='train')
+fig1 = analyzer.plot_top_k(k=3, rank_metric='rmse')
+fig2 = analyzer.plot_top_k(k=3, rank_metric='rmse', rank_partition='test')
+# fig3 = analyzer.plot_top_k(k=3, rank_metric='rmse', rank_partition='train')
 plt.show()

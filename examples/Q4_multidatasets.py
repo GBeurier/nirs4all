@@ -31,7 +31,8 @@ from nirs4all.utils.emoji import REFRESH
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q4 Multi-Datasets Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 # Build the pipeline with feature augmentation
@@ -105,22 +106,22 @@ for dataset_name, dataset_prediction in predictions_per_dataset.items():
 
     # Plot comparison for this dataset
     analyzer = PredictionAnalyzer(dataset_predictions)
-    fig = analyzer.plot_top_k_comparison(k=5, rank_metric='rmse')
+    fig = analyzer.plot_top_k(k=5, rank_metric='rmse')
 
 # Overall analysis across all datasets
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot heatmap: models vs datasets
-fig2 = analyzer.plot_variable_heatmap(
+fig2 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="dataset_name",
 )
 
 # Plot candlestick chart for model performance distribution
-fig3 = analyzer.plot_variable_candlestick(
-    filters={"partition": "test"},
+fig3 = analyzer.plot_candlestick(
     variable="model_name",
+    partition="test"
 )
 
-if args.show_plots:
+if args.show:
     plt.show()

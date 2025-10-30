@@ -700,7 +700,7 @@ class PipelineRunner:
                 print(f"📁 Output directory: {output_dir}")
 
             # Initialize and run SHAP analyzer
-            from nirs4all.visualization.shap import ShapAnalyzer
+            from nirs4all.visualization.analysis.shap import ShapAnalyzer
             analyzer = ShapAnalyzer()
 
             shap_results = analyzer.explain_model(

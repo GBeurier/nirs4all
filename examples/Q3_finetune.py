@@ -27,7 +27,8 @@ from nirs4all.operators.models.tensorflow.nicon import nicon, customizable_nicon
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q3 Finetune Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 # Configuration variables
@@ -116,29 +117,28 @@ for idx, prediction in enumerate(top_models):
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse')
+fig1 = analyzer.plot_top_k(k=best_model_count, rank_metric='rmse')
 
 # Plot heatmap of model performance vs preprocessing
-fig2 = analyzer.plot_variable_heatmap(
+fig2 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="preprocessings",
-    metric='rmse',
-    best_only=False
+    rank_metric='rmse'
 )
 
 # Plot simplified heatmap without count display
-fig3 = analyzer.plot_variable_heatmap(
+fig3 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="preprocessings",
-    metric='rmse',
-    display_n=False
+    rank_metric='rmse',
+    show_counts=False
 )
 
 # Plot candlestick chart for model performance distribution
-fig4 = analyzer.plot_variable_candlestick(
-    filters={"partition": "test"},
+fig4 = analyzer.plot_candlestick(
     variable="model_name",
+    partition="test"
 )
 
-if args.show_plots:
+if args.show:
     plt.show()

@@ -32,7 +32,8 @@ from sklearn.linear_model import ElasticNet
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q6 Multi-Source Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 # Disable emojis in output
@@ -99,11 +100,11 @@ for idx, prediction in enumerate(top_models):
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot comparison of top models
-# fig1 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse')
+# fig1 = analyzer.plot_top_k(k=best_model_count, rank_metric='rmse')
 
 # Plot heatmap: models vs preprocessing using NEW v2 method
 # This properly ranks on val and displays test scores
-fig2 = analyzer.plot_heatmap_v2(
+fig2 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="preprocessings",
     rank_metric="rmse",
@@ -113,7 +114,7 @@ fig2 = analyzer.plot_heatmap_v2(
     aggregation='best'  # Options: 'best', 'mean', 'median'
 )
 
-if args.show_plots:
+if args.show:
     plt.show()
 
 # Model reuse demonstration
@@ -143,10 +144,10 @@ print(f"Model reuse identical to training: {f'{CHECK}YES' if is_identical else f
 # # Create visualizations
 analyzer = PredictionAnalyzer(predictions)
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse')
+fig1 = analyzer.plot_top_k(k=best_model_count, rank_metric='rmse')
 
 # Plot heatmap of model performance vs preprocessing
-fig2 = analyzer.plot_heatmap_v2(
+fig2 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="preprocessings",
     aggregation='best',  # Options: 'best', 'mean', 'median'
@@ -157,7 +158,7 @@ fig2 = analyzer.plot_heatmap_v2(
 )
 
 # Plot simplified heatmap without count display
-fig3 = analyzer.plot_heatmap_v2(
+fig3 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="preprocessings",
     aggregation='best',  # Show average instead of best
@@ -169,12 +170,12 @@ fig3 = analyzer.plot_heatmap_v2(
 )
 
 # Plot candlestick chart for model performance distribution
-fig4 = analyzer.plot_variable_candlestick(
-    filters={"partition": "test"},
+fig4 = analyzer.plot_candlestick(
     variable="model_name",
+    partition="test"
 )
 
-fig5 = analyzer.plot_score_histogram(partition="test")
+fig5 = analyzer.plot_histogram(partition="test")
 
-if args.show_plots:
+if args.show:
     plt.show()

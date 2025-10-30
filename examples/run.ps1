@@ -2,8 +2,11 @@ param(
     [Alias('i')]
     [int]$Index = 0,       # 1-based index to run a single example
 
-    [Alias('s')]
-    [int]$Start = 0,       # 1-based start index to run all examples from
+    [Alias('b')]
+    [int]$Begin = 0,       # 1-based start index to run all examples from
+
+    [Alias('e')]
+    [int]$End = 0,       # 1-based end index to run all examples to
 
     [Alias('n')]
     [string]$Name = "",    # Name of a single example to run (e.g., "Q1_classif.py")
@@ -12,7 +15,10 @@ param(
     [switch]$Log,          # Enable logging to log.txt
 
     [Alias('p')]
-    [switch]$Plot          # Pass boolean option to all examples (enables plots)
+    [switch]$Plot,          # Pass boolean option to all examples (enables plots)
+
+    [Alias('s')]
+    [switch]$Show          # Pass boolean option to all examples (enables plots)
 )
 
 $examples = @(
@@ -65,11 +71,12 @@ if ($Log) {
 # Determine which examples to run based on parameters
 $paramCount = 0
 if ($Index -gt 0) { $paramCount++ }
-if ($Start -gt 0) { $paramCount++ }
+if ($Begin -gt 0) { $paramCount++ }
+if ($End -gt 0) { $paramCount++ }
 if ($Name -ne "") { $paramCount++ }
 
 if ($paramCount -gt 1) {
-    Write-Host "Error: Specify only one of -Index, -Start, or -Name." -ForegroundColor Red
+    Write-Host "Error: Specify only one of -Index, -Begin, or -Name." -ForegroundColor Red
     exit 1
 }
 
@@ -82,14 +89,14 @@ if ($Index -gt 0) {
     $selectedExamples = @($examples[$Index - 1])
     Write-Host ("Running single example #{0}: {1}" -f $Index, $selectedExamples[0])
 }
-elseif ($Start -gt 0) {
-    if ($Start -lt 1 -or $Start -gt $examples.Count) {
-        Write-Host ("Error: Start index {0} is out of range. Valid range is 1..{1}." -f $Start, $examples.Count) -ForegroundColor Red
+elseif ($Begin -gt 0) {
+    if ($Begin -lt 1 -or $Begin -gt $examples.Count) {
+        Write-Host ("Error: Start index {0} is out of range. Valid range is 1..{1}." -f $Begin, $examples.Count) -ForegroundColor Red
         exit 1
     }
-    $startIndex = $Start - 1
+    $startIndex = $Begin - 1
     $selectedExamples = $examples[$startIndex..($examples.Count - 1)]
-    Write-Host ("Running all examples starting from #{0} (count: {1})" -f $Start, $selectedExamples.Count)
+    Write-Host ("Running all examples starting from #{0} (count: {1})" -f $Begin, $selectedExamples.Count)
 }
 elseif ($Name -ne "") {
     # Find the example by name (case-insensitive)
@@ -139,12 +146,10 @@ foreach ($example in $selectedExamples) {
             "" | Out-File -FilePath $logFile -Append -Encoding UTF8
         }
         else {
-            if ($Plot) {
-                & python $example --show-plots
-            }
-            else {
-                & python $example
-            }
+            $args = @()
+            if ($Plot) { $args += "--plots" }
+            if ($Show) { $args += "--show" }
+            & python $example @args
         }
 
         $endTime = Get-Date

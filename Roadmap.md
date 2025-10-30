@@ -1,6 +1,6 @@
 ## ROADMAP ##
 
-> [Cleaning] Modularize/Clean/Refactor: PredictionAnalyzer, BaseModelController, Model_builder, PipelineRunner, tests (increase indexer coverage)
+> [Cleaning] Modularize/Clean/Refactor: PredictionAnalyzer, Eval/modelbuilder redondancy, BaseModelController, Model_builder, PipelineRunner, tests (increase indexer coverage)
 
 > [Pipeline] authorize list of pipelineconfigs instead of pipelines....
 
@@ -36,7 +36,6 @@
 
 > **Enhancement**:
 > - Options normalisation in charts (0-1 ou 1-0)
-> - Chart normalisation per dataset.
 
 **Bugs**:
 >   - [_or_] with one element fallback on dummy controller

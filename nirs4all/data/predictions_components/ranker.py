@@ -103,6 +103,7 @@ class PredictionRanker:
         aggregate_partitions: bool = False,
         ascending: bool = True,
         group_by_fold: bool = False,
+        load_arrays: bool = True,
         **filters
     ) -> PredictionResultsList:
         """
@@ -154,8 +155,50 @@ class PredictionRanker:
             - ascending=True means lower scores rank higher (good for RMSE, MAE)
             - ascending=False means higher scores rank higher (good for R², accuracy)
         """
-        # Apply filters (excluding partition)
+        # Handle display_partition as list (backward compat)
+        if isinstance(display_partition, list):
+            aggregate_partitions = True
+            display_partition = "test"  # Reset to default for non-aggregate sections
+
+        # Handle display_metrics as single string (backward compat)
+        if isinstance(display_metrics, str):
+            display_metrics = [display_metrics]
+
+        # Remove non-filter parameters that might have been passed
+        # (for backward compatibility and to prevent polars errors)
         _ = filters.pop("partition", None)
+        _ = filters.pop("load_arrays", None)
+
+        # Handle display_metric (singular) for backward compatibility
+        if "display_metric" in filters:
+            passed_display_metric = filters.pop("display_metric")
+            if isinstance(passed_display_metric, list):
+                display_metrics = passed_display_metric
+            elif isinstance(passed_display_metric, str):
+                display_metrics = [passed_display_metric]
+
+        # Handle display_partition as list (backward compat)
+        if "display_partition" in filters:
+            passed_display_partition = filters.pop("display_partition")
+            if isinstance(passed_display_partition, list):
+                # If list passed, use aggregate mode
+                aggregate_partitions = True
+                # Keep display_partition as default "test" for non-aggregate sections
+            else:
+                display_partition = passed_display_partition
+
+        # Handle display_metrics variations
+        if "display_metrics" in filters:
+            passed_display_metrics = filters.pop("display_metrics")
+            if isinstance(passed_display_metrics, list):
+                display_metrics = passed_display_metrics
+
+        _ = filters.pop("rank_metric", None)  # Already a parameter
+        _ = filters.pop("rank_partition", None)  # Already a parameter
+        _ = filters.pop("aggregate_partitions", None)  # Already a parameter
+        _ = filters.pop("ascending", None)  # Already a parameter
+        _ = filters.pop("group_by_fold", None)  # Already a parameter
+
         df = self._storage.to_dataframe()
         base = df.filter([pl.col(k) == v for k, v in filters.items()]) if filters else df
 
@@ -297,7 +340,10 @@ class PredictionRanker:
                                     except:
                                         partition_dict[metric] = None
 
-                        result[partition] = partition_dict
+                        # Nest partitions under 'partitions' key
+                        if 'partitions' not in result:
+                            result['partitions'] = {}
+                        result['partitions'][partition] = partition_dict
             else:
                 # Single partition display
                 display_data = base.filter(

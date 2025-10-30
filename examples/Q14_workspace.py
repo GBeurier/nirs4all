@@ -30,7 +30,8 @@ from nirs4all.workspace.library_manager import LibraryManager
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q14 Workspace Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 def main():

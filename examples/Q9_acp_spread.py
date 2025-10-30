@@ -20,11 +20,12 @@ from nirs4all.operators.transforms import (
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.utils.emoji import REFRESH, TROPHY, TARGET, CHART, MICROSCOPE
-from nirs4all.visualization.pca import PreprocPCAEvaluator
+from nirs4all.visualization.analysis.transfer import PreprocPCAEvaluator
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q9 ACP Spread Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 # Configuration variables
@@ -49,7 +50,7 @@ dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
 print(f"{REFRESH}Running preprocessing pipeline...")
-runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=args.show_plots)
+runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Get datasets (no manual pivot needed - evaluator handles it!)

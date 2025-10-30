@@ -13,7 +13,7 @@ from .backend import (
     is_gpu_available
 )
 
-from ..visualization.pca import PreprocPCAEvaluator
+from ..visualization.analysis.transfer import PreprocPCAEvaluator
 from .balancing import BalancingCalculator
 
 __all__ = [

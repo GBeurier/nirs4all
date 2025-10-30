@@ -29,7 +29,8 @@ from nirs4all.operators.models.tensorflow.nicon import nicon_classification
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q1 TensorFlow Classification Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 # Configuration variables
@@ -71,7 +72,7 @@ pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=0, plots_visible=args.show_plots)
+runner = PipelineRunner(save_files=False, verbose=0, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization
@@ -87,7 +88,7 @@ for idx, prediction in enumerate(top_models):
 # Create confusion matrix visualization for top models
 analyzer = PredictionAnalyzer(predictions)
 # Rank models by accuracy on val partition, display confusion matrix from test partition
-confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
+confusion_matrix_fig = analyzer.plot_confusion_matrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
 
-if args.show_plots:
+if args.show:
     plt.show()

@@ -11,7 +11,8 @@ from nirs4all.operators.models.tensorflow.nicon import nicon
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q8 SHAP Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 print("Q8 - SHAP Model Explanation Example")
@@ -75,4 +76,4 @@ shap_params = {
     }
 }
 
-shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params, plots_visible=args.show_plots)
+shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params, plots_visible=args.plots)
