@@ -8,6 +8,6 @@
 
 # When writing code, follow best practices for Python, React, and FastAPI development.
 # Write modular, reusable, and testable code.
+# Use Google Style Docstrings
 
 # Use the .venv in nirs4all when launching scripts or commands.
-# Use Google Style Docstrings
