@@ -12,7 +12,7 @@ from sklearn.base import TransformerMixin
 from nirs4all.data.types import Selector
 from nirs4all.data.indexer import Indexer
 from nirs4all.data.targets import Targets
-from nirs4all.utils.model_utils import TaskType
+from nirs4all.utils.task_type import TaskType
 
 
 class TargetAccessor:

@@ -5,11 +5,9 @@
 
 > [Pipeline] authorize list of pipelineconfigs instead of pipelines... Goes into cleaning
 
-> [Cleaning] Model building, model instanciation is all over and the role of __runtime_instance__ is not clear at all (it is related to a pipeline where a user provides directly an instance of model but I think it's used for another purpose)
+> [Cleaning] the role of __runtime_instance__ is not clear at all (it is related to a pipeline where a user provides directly an instance of model but I think it's used for another purpose)
 
-> [Metrics] uniformize Model_Utils / Evaluator / Predictions calls. Don't dispatch or copy responsibility
-
-> [TaskType] Centralize responsibility of task_type. It's a mess right now
+> [utils] move evaluator, binning, balancing, task_type and task_detection out of utils and even maybe serialization. True utils are spinner, backend, emoji
 
 
 **RELEASE** 0.4.1: final structure

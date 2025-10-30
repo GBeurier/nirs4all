@@ -20,8 +20,9 @@ if TYPE_CHECKING:
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.emoji import WARNING
-from nirs4all.utils.model_utils import ModelUtils, TaskType
-from nirs4all.utils.model_builder import ModelBuilderFactory
+from nirs4all.utils.task_type import TaskType
+from .utilities import ModelControllerUtils as ModelUtils
+from .factory import ModelFactory as ModelBuilderFactory
 from .tensorflow import (
     TensorFlowCompilationConfig,
     TensorFlowFitConfig,
@@ -249,8 +250,10 @@ class TensorFlowModelController(BaseModelController):
         train_params = kwargs
         verbose = train_params.get('verbose', 0)
 
-        # Detect task type
-        task_type = ModelUtils.detect_task_type(y_train)
+        # Get task type from train_params (passed by base controller)
+        task_type = train_params.get('task_type')
+        if task_type is None:
+            raise ValueError("task_type must be provided in train_params")
 
         # 1. Prepare compilation configuration
         compile_config = TensorFlowCompilationConfig.prepare(train_params, task_type)

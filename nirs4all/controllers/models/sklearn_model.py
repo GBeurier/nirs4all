@@ -20,8 +20,8 @@ from sklearn.base import is_classifier, is_regressor
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN
-from nirs4all.utils.model_utils import ModelUtils
-from nirs4all.utils.model_builder import ModelBuilderFactory
+from .utilities import ModelControllerUtils as ModelUtils
+from .factory import ModelFactory as ModelBuilderFactory
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -146,7 +146,7 @@ class SklearnModelController(BaseModelController):
         y_train: np.ndarray,
         X_val: Optional[np.ndarray] = None,
         y_val: Optional[np.ndarray] = None,
-        train_params: Optional[Dict[str, Any]] = None,
+        **kwargs
     ) -> BaseEstimator:
         """Train sklearn model with score tracking.
 
@@ -162,21 +162,19 @@ class SklearnModelController(BaseModelController):
                 Defaults to None.
             y_val (Optional[np.ndarray]): Validation targets for score calculation.
                 Defaults to None.
-            train_params (Optional[Dict[str, Any]]): Additional training parameters
-                including 'verbose' level for output control. Defaults to None.
+            **kwargs: Training parameters including 'verbose' level for output control
+                and 'task_type' for metric calculation.
 
         Returns:
             BaseEstimator: Trained sklearn model instance.
 
         Note:
             - y_train is automatically raveled to 1D for sklearn compatibility
-            - Only valid model parameters are applied from train_params
+            - Only valid model parameters are applied from kwargs
             - Training and validation scores are displayed when verbose > 1
         """
 
-        if train_params is None:
-            train_params = {}
-
+        train_params = kwargs
         verbose = train_params.get('verbose', 0)
 
         # if verbose > 1 and train_params:
@@ -206,7 +204,11 @@ class SklearnModelController(BaseModelController):
         # But control the detail level based on verbose
 
         if verbose > 1:
-            task_type = self._detect_task_type(y_train)
+            # Get task_type from train_params (passed by base controller)
+            task_type = kwargs.get('task_type')
+            if task_type is None:
+                raise ValueError("task_type must be provided in train_params")
+
             # Show detailed training scores at verbose > 1
             y_train_pred = self._predict_model(trained_model, X_train)
             train_scores = self._calculate_and_print_scores(
