@@ -3,9 +3,12 @@
 
 > [Cleaning] Modularize/Clean/Refactor: BaseModelController, Model_builder, PipelineRunner, tests (increase indexer coverage, reduce test redondancy)
 
+> [Pipeline] authorize list of pipelineconfigs instead of pipelines... Goes into cleaning
+
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions calls. Don't dispatch or copy responsibility
 
-> [Pipeline] authorize list of pipelineconfigs instead of pipelines....
+> [TaskType] Centralize responsibility of task_type. It's a mess right now
+
 
 **RELEASE** 0.4.1: final structure
 
