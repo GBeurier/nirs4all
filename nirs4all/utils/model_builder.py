@@ -118,7 +118,7 @@ class ModelBuilderFactory:
 
         Args:
             model_dict: Dictionary containing model configuration.
-                Can have 'class', 'import', or 'function' keys.
+                Can have 'class', 'import', 'function', or 'model_instance' keys.
             dataset: Dataset object for input dimensions.
             force_params: Dictionary of parameters to force override.
 
@@ -128,6 +128,13 @@ class ModelBuilderFactory:
         Raises:
             ValueError: If the dict format is invalid.
         """
+        # Handle model_instance key (used by base_model._extract_model_config)
+        if 'model_instance' in model_dict:
+            model_obj = model_dict['model_instance']
+            # Recursively build the model instance through build_single_model
+            # which will detect if it's an instance, callable, etc.
+            return ModelBuilderFactory.build_single_model(model_obj, dataset, force_params)
+
         if 'model' in model_dict:
             model_dict = model_dict['model']
 
@@ -216,6 +223,11 @@ class ModelBuilderFactory:
             framework = getattr(model_callable, 'framework', None)
         if framework is None:
             raise ValueError("Cannot determine framework from callable model_config. Please set 'experiments.utils.framework' decorator on the callable.")
+
+        # Use framework-specific model creation for TensorFlow
+        if framework == 'tensorflow':
+            return ModelBuilderFactory._from_tensorflow_callable(model_callable, dataset, force_params)
+
         input_dim = ModelBuilderFactory._get_input_dim(framework, dataset)
         sig = inspect.signature(model_callable)
         params = {}
@@ -232,6 +244,74 @@ class ModelBuilderFactory:
                     params['num_classes'] = num_classes
         model = ModelBuilderFactory.prepare_and_call(model_callable, params, force_params)
         return model
+
+    @staticmethod
+    def _from_tensorflow_callable(model_callable, dataset, force_params=None):
+        """Build a TensorFlow model from a callable (function or class).
+
+        This method handles TensorFlow-specific model creation with proper
+        input shape formatting and parameter passing.
+
+        Args:
+            model_callable: TensorFlow model function or class.
+            dataset: Dataset object for input dimensions.
+            force_params: Dictionary of parameters to force override.
+
+        Returns:
+            Built TensorFlow model instance.
+        """
+        if not TF_AVAILABLE:
+            raise ImportError("TensorFlow is required but not installed")
+
+        input_dim = ModelBuilderFactory._get_input_dim('tensorflow', dataset)
+        sig = inspect.signature(model_callable)
+        params = {}
+
+        # Add input shape parameter
+        if 'input_shape' in sig.parameters:
+            params['input_shape'] = input_dim
+        if 'input_dim' in sig.parameters:
+            params['input_dim'] = input_dim
+
+        # Add num_classes for classification
+        if hasattr(dataset, 'is_classification') and dataset.is_classification:
+            if 'num_classes' in sig.parameters:
+                if hasattr(dataset, 'num_classes'):
+                    params['num_classes'] = dataset.num_classes
+                elif hasattr(dataset, 'n_classes'):
+                    params['num_classes'] = dataset.n_classes
+
+        # Call the function with prepared parameters
+        model = ModelBuilderFactory.prepare_and_call(model_callable, params, force_params)
+
+        # If it's a class, we've instantiated it
+        # If it's a function, it should return a model
+        if not ModelBuilderFactory._is_tensorflow_model(model):
+            raise ValueError(
+                f"TensorFlow model function {model_callable.__name__} did not return a valid model. "
+                f"Got {type(model)} instead."
+            )
+
+        return model
+
+    @staticmethod
+    def _is_tensorflow_model(obj):
+        """Check if an object is a TensorFlow/Keras model.
+
+        Args:
+            obj: Object to check.
+
+        Returns:
+            True if object is a TensorFlow model, False otherwise.
+        """
+        if not TF_AVAILABLE:
+            return False
+
+        try:
+            from tensorflow import keras
+            return isinstance(obj, (keras.Model, keras.Sequential))
+        except ImportError:
+            return False
 
     @staticmethod
     def _clone_model(model, framework):

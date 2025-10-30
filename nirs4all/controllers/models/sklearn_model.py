@@ -30,13 +30,36 @@ if TYPE_CHECKING:
 
 @register_controller
 class SklearnModelController(BaseModelController):
-    """Controller for scikit-learn models."""
+    """Controller for scikit-learn models.
+
+    This controller handles sklearn models with support for training on 2D data,
+    cross-validation, hyperparameter tuning with Optuna, model persistence,
+    and integration with the nirs4all pipeline.
+
+    Attributes:
+        priority (int): Controller priority (6) - higher than TransformerMixin to
+            prioritize supervised models over transformers.
+    """
 
     priority = 6  # Higher priority than TransformerMixin (10) to win matching
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
-        """Match sklearn estimators and model dictionaries with sklearn models."""
+        """Match sklearn estimators and model dictionaries with sklearn models.
+
+        Prioritizes supervised models (regressors and classifiers) over transformers
+        by checking for predict methods and using sklearn's is_regressor/is_classifier.
+
+        Args:
+            step (Any): Pipeline step to check, can be a dict with 'model' key or
+                BaseEstimator instance.
+            operator (Any): Optional operator object to check if it's a BaseEstimator.
+            keyword (str): Pipeline keyword (unused in this implementation).
+
+        Returns:
+            bool: True if the step matches a sklearn estimator (regressor, classifier,
+                or has predict method), False otherwise.
+        """
         # Check if step contains a model key with sklearn object
         if isinstance(step, dict) and 'model' in step:
             model = step['model']
@@ -59,7 +82,26 @@ class SklearnModelController(BaseModelController):
         return False
 
     def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> BaseEstimator:
-        """Create sklearn model instance from configuration."""
+        """Create sklearn model instance from configuration.
+
+        Handles multiple configuration formats:
+        - Direct model_instance (class or instance)
+        - New serialization format with 'function', 'class', or 'import' keys
+        - Legacy format with nested 'model' dict containing 'class' key
+
+        Args:
+            dataset (SpectroDataset): Dataset for context-aware parameter building.
+            model_config (Dict[str, Any]): Model configuration containing model class,
+                instance, or serialization info with optional params.
+            force_params (Optional[Dict[str, Any]]): Parameters to override or merge
+                with existing model parameters. Defaults to None.
+
+        Returns:
+            BaseEstimator: Instantiated sklearn model with configured parameters.
+
+        Raises:
+            ValueError: If model instance cannot be created from the configuration.
+        """
         # If we have a model_instance (class or instance) and force_params, we need to rebuild with new params
         if 'model_instance' in model_config:
             model = model_config['model_instance']
@@ -106,7 +148,31 @@ class SklearnModelController(BaseModelController):
         y_val: Optional[np.ndarray] = None,
         train_params: Optional[Dict[str, Any]] = None,
     ) -> BaseEstimator:
-        """Train sklearn model with score tracking."""
+        """Train sklearn model with score tracking.
+
+        Trains the model on training data, validates parameters against model's
+        available parameters, and optionally calculates training and validation
+        scores based on verbosity level.
+
+        Args:
+            model (BaseEstimator): Sklearn model instance to train (already cloned).
+            X_train (np.ndarray): Training features, shape (n_samples, n_features).
+            y_train (np.ndarray): Training targets, shape (n_samples, n_targets).
+            X_val (Optional[np.ndarray]): Validation features for score calculation.
+                Defaults to None.
+            y_val (Optional[np.ndarray]): Validation targets for score calculation.
+                Defaults to None.
+            train_params (Optional[Dict[str, Any]]): Additional training parameters
+                including 'verbose' level for output control. Defaults to None.
+
+        Returns:
+            BaseEstimator: Trained sklearn model instance.
+
+        Note:
+            - y_train is automatically raveled to 1D for sklearn compatibility
+            - Only valid model parameters are applied from train_params
+            - Training and validation scores are displayed when verbose > 1
+        """
 
         if train_params is None:
             train_params = {}
@@ -175,7 +241,16 @@ class SklearnModelController(BaseModelController):
         return trained_model
 
     def _predict_model(self, model: BaseEstimator, X: np.ndarray) -> np.ndarray:
-        """Generate predictions with sklearn model."""
+        """Generate predictions with sklearn model.
+
+        Args:
+            model (BaseEstimator): Trained sklearn model instance.
+            X (np.ndarray): Input features for prediction, shape (n_samples, n_features).
+
+        Returns:
+            np.ndarray: Model predictions, reshaped to (n_samples, n_outputs) format
+                for consistency with pipeline expectations.
+        """
         predictions = model.predict(X)
 
         # Ensure predictions are in the correct shape
@@ -190,7 +265,25 @@ class SklearnModelController(BaseModelController):
         y: np.ndarray,
         context: Dict[str, Any]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Prepare data for sklearn (ensure 2D X and 2D y for consistency)."""
+        """Prepare data for sklearn (ensure 2D X and 2D y for consistency).
+
+        Reshapes input data to ensure proper dimensionality for sklearn models:
+        - X is reshaped to 2D (n_samples, n_features)
+        - y is reshaped to 2D (n_samples, n_targets) for consistency
+
+        Args:
+            X (np.ndarray): Input features, can be 1D, 2D, or higher dimensional.
+            y (np.ndarray): Target values, can be None for prediction-only scenarios.
+            context (Dict[str, Any]): Pipeline context (unused in this implementation).
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Prepared (X, y) arrays in proper format,
+                or (None, None) if X is None.
+
+        Note:
+            - Extra dimensions in X are flattened to (n_samples, n_features)
+            - y can be None for prediction-only scenarios
+        """
         if X is None:
             return None, None
 
@@ -212,7 +305,27 @@ class SklearnModelController(BaseModelController):
         return X, y
 
     def _evaluate_model(self, model: BaseEstimator, X_val: np.ndarray, y_val: np.ndarray) -> float:
-        """Evaluate sklearn model using cross-validation."""
+        """Evaluate sklearn model using cross-validation.
+
+        Uses task-appropriate metrics:
+        - Classifiers: negative accuracy (for minimization)
+        - Regressors: negative MSE (for minimization)
+        - Others: model's score method or fallback to MSE
+
+        Args:
+            model (BaseEstimator): Sklearn model to evaluate.
+            X_val (np.ndarray): Validation features, shape (n_samples, n_features).
+            y_val (np.ndarray): Validation targets, shape (n_samples, n_targets).
+
+        Returns:
+            float: Evaluation score (negative for maximization metrics to support
+                minimization-based optimization). Returns inf on error.
+
+        Note:
+            - Uses 3-fold cross-validation
+            - y_val is automatically raveled to 1D for sklearn compatibility
+            - Fallback to MSE if cross-validation fails
+        """
         # Ensure y_val is 1D for sklearn functions
         y_val_1d = y_val.ravel() if y_val.ndim > 1 else y_val
 
@@ -246,11 +359,50 @@ class SklearnModelController(BaseModelController):
                 return float('inf')  # Return worst possible score
 
     def get_preferred_layout(self) -> str:
-        """Return the preferred data layout for sklearn models."""
+        """Return the preferred data layout for sklearn models.
+
+        Returns:
+            str: Data layout preference, always '2d' for sklearn models which
+                expect (n_samples, n_features) input format.
+        """
         return "2d"
 
+    def _clone_model(self, model: BaseEstimator) -> BaseEstimator:
+        """Clone sklearn model using sklearn's clone function.
+
+        Uses sklearn.base.clone() which creates a new instance with the same
+        parameters but without fitted attributes. This is the recommended way
+        to clone sklearn estimators.
+
+        Args:
+            model (BaseEstimator): Sklearn model instance to clone.
+
+        Returns:
+            BaseEstimator: Cloned sklearn model with same parameters but fresh state.
+
+        Raises:
+            RuntimeError: If sklearn is not available.
+        """
+        try:
+            from sklearn.base import clone as sklearn_clone
+            return sklearn_clone(model)
+        except ImportError:
+            raise RuntimeError("sklearn is required to clone sklearn models")
+
     def _sample_hyperparameters(self, trial, finetune_params: Dict[str, Any]) -> Dict[str, Any]:
-        """Sample hyperparameters specific to sklearn models."""
+        """Sample hyperparameters specific to sklearn models.
+
+        Extends base hyperparameter sampling with sklearn-specific handling.
+        Currently delegates to parent implementation but provides extension point
+        for sklearn-specific cases like random_state preservation.
+
+        Args:
+            trial: Optuna trial object for hyperparameter sampling.
+            finetune_params (Dict[str, Any]): Hyperparameter search space configuration.
+
+        Returns:
+            Dict[str, Any]: Sampled hyperparameters for model instantiation.
+        """
         params = super()._sample_hyperparameters(trial, finetune_params)
 
         # Add sklearn-specific parameter handling if needed
@@ -270,7 +422,32 @@ class SklearnModelController(BaseModelController):
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
         prediction_store: Optional[Any] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
-        """Execute sklearn model controller with score management."""
+        """Execute sklearn model controller with score management.
+
+        Main entry point for sklearn model execution in the pipeline. Sets the
+        preferred data layout to '2d' and delegates to parent execute method.
+
+        Args:
+            step (Any): Pipeline step configuration containing model info.
+            operator (Any): Model operator or instance to execute.
+            dataset (SpectroDataset): Dataset containing features and targets.
+            context (Dict[str, Any]): Pipeline execution context with state info.
+            runner (PipelineRunner): Pipeline runner for coordination.
+            source (int): Source index for multi-source pipelines. Defaults to -1.
+            mode (str): Execution mode ('train' or 'predict'). Defaults to 'train'.
+            loaded_binaries (Optional[List[Tuple[str, bytes]]]): Pre-loaded model
+                binaries for prediction mode. Defaults to None.
+            prediction_store (Optional[Any]): Store for managing predictions.
+                Defaults to None.
+
+        Returns:
+            Tuple[Dict[str, Any], List[Tuple[str, bytes]]]: Updated context and
+                list of model binaries (name, serialized_model) for persistence.
+
+        Note:
+            - Automatically sets context['layout'] = '2d' for sklearn compatibility
+            - Inherits full training, evaluation, and prediction logic from BaseModelController
+        """
         # Set layout preference for sklearn models
         context = context.copy()
         context['layout'] = self.get_preferred_layout()
