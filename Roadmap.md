@@ -1,7 +1,7 @@
 ## ROADMAP ##
 
 
-> [Cleaning] Modularize/Clean/Refactor: Eval/modelbuilder redondancy, BaseModelController, Model_builder, PipelineRunner, tests (increase indexer coverage)
+> [Cleaning] Modularize/Clean/Refactor: BaseModelController, Model_builder, PipelineRunner, tests (increase indexer coverage, reduce test redondancy)
 
 > [Metrics] uniformize Model_Utils / Evaluator / Predictions calls. Don't dispatch or copy responsibility
 
@@ -49,7 +49,7 @@
 
 > [Predictions] as a pipeline context.
 
-> [Metrics] add custom losses - lambda / functions / classes
+> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization
 
 > [Layout] review layouts (tests) and add operators params
 
