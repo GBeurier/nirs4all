@@ -14,8 +14,8 @@ Provides:
 from typing import Dict, List, Tuple
 import numpy as np
 
-from nirs4all.utils.task_type import TaskType
-from nirs4all.utils.task_detection import detect_task_type as _detect_task_type
+from nirs4all.core.task_type import TaskType
+from nirs4all.core.task_detection import detect_task_type as _detect_task_type
 
 
 class ModelControllerUtils:

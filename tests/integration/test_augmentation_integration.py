@@ -14,7 +14,7 @@ from sklearn.preprocessing import StandardScaler
 
 from nirs4all.pipeline.io import SimulationSaver
 from nirs4all.pipeline.manifest_manager import ManifestManager
-from nirs4all.utils.serialization import persist, load
+from nirs4all.pipeline.artifact_serialization import persist, load
 
 
 @pytest.fixture

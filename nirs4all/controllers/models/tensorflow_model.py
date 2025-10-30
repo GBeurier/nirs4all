@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.emoji import WARNING
-from nirs4all.utils.task_type import TaskType
+from nirs4all.core.task_type import TaskType
 from .utilities import ModelControllerUtils as ModelUtils
 from .factory import ModelFactory as ModelBuilderFactory
 from .tensorflow import (

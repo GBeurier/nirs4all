@@ -194,7 +194,7 @@ class SimulationSaver:
                 "reason": "save_files=False"
             }
 
-        from nirs4all.utils.serialization import persist
+        from nirs4all.pipeline.artifact_serialization import persist
 
         self._check_registered()
 

@@ -811,7 +811,7 @@ def launch_training(self, dataset, model_config, context, runner, ...):
 scores = ModelUtils.calculate_scores(y_true, y_pred, task_type)
 
 # After
-from nirs4all.utils import evaluator
+from nirs4all.core import metrics as evaluator
 scores = evaluator.eval_multi(y_true, y_pred, task_type.value)
 ```
 

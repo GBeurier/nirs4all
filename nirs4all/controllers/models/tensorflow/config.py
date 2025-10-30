@@ -10,7 +10,7 @@ This module provides classes for managing TensorFlow model configuration:
 from typing import Any, Dict, List, Optional
 import numpy as np
 
-from nirs4all.utils.task_type import TaskType
+from nirs4all.core.task_type import TaskType
 from ..utilities import ModelControllerUtils as ModelUtils
 
 try:

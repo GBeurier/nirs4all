@@ -14,7 +14,7 @@ import numpy as np
 import polars as pl
 
 from nirs4all.utils.emoji import DISK, WARNING
-from nirs4all.utils import evaluator
+from nirs4all.core import metrics as evaluator
 
 
 class PredictionResult(dict):

@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from nirs4all.utils import evaluator
+from nirs4all.core import metrics as evaluator
 from nirs4all.data.ensemble_utils import EnsembleUtils
 
 from .storage import PredictionStorage

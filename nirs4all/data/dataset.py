@@ -17,7 +17,7 @@ from nirs4all.data.metadata import Metadata
 from nirs4all.data.predictions import Predictions
 from nirs4all.data.dataset_components import FeatureAccessor, TargetAccessor, MetadataAccessor
 from nirs4all.utils.emoji import CHART, REFRESH, TARGET
-from nirs4all.utils.task_type import TaskType
+from nirs4all.core.task_type import TaskType
 from sklearn.base import TransformerMixin
 from typing import Optional, Union, List, Tuple, Dict, Any, Literal
 

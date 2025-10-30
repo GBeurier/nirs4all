@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.utils.task_type import TaskType
+from nirs4all.core.task_type import TaskType
 
 
 class TestSpectroDatasetInitialization:
