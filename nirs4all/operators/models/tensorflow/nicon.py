@@ -236,6 +236,32 @@ nicon_sample_finetune = {
     'dense_activation': ['relu', 'selu', 'elu', 'swish'],
 }
 
+@framework('tensorflow')
+def thin_nicon(input_shape, params={}):
+    """
+    Builds a custom CNN model with depthwise convolutions.
+
+    Parameters:
+        input_shape (tuple): Shape of the input data.
+        params (dict): Dictionary of parameters for model configuration.
+
+    Returns:
+        keras.Sequential: Compiled model.
+    """
+    model = Sequential()
+    model.add(Input(shape=input_shape))
+    model.add(SpatialDropout1D(params.get('spatial_dropout', 0.08)))
+    model.add(Conv1D(filters=params.get('filters1', 8), kernel_size=7, strides=3, activation="selu"))
+    model.add(Dropout(params.get('dropout_rate', 0.2)))
+    model.add(Conv1D(filters=params.get('filters2', 64), kernel_size=11, strides=2, activation="relu"))
+    model.add(BatchNormalization())
+    model.add(Conv1D(filters=params.get('filters3', 32), kernel_size=3, strides=2, activation="elu"))
+    model.add(BatchNormalization())
+    model.add(Flatten())
+    model.add(Dense(params.get('dense_units', 16), activation="sigmoid"))
+    model.add(Dense(1, activation="sigmoid"))
+    return model
+
 
 @framework('tensorflow')
 def nicon_VG(input_shape, params={}):

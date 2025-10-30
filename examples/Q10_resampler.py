@@ -23,7 +23,8 @@ from nirs4all.data import DatasetConfigs
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q10 Resampler Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 def main():
@@ -55,7 +56,7 @@ def main():
     dataset_config = DatasetConfigs("sample_data/regression_3")
     pipeline_config = PipelineConfigs(pipeline_other, name="Other_Dataset_Pipeline")
 
-    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=args.show_plots)
+    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=args.plots)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Example 2: Downsample to fewer points (descending order)
@@ -73,7 +74,7 @@ def main():
     ]
 
     pipeline_config = PipelineConfigs(pipeline_downsample, name="Downsample_Pipeline")
-    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.show_plots)
+    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Example 3: Focus on fingerprint region (descending order)
@@ -94,7 +95,7 @@ def main():
 
     pipeline_config = PipelineConfigs(pipeline_cropped, name="Cropped_Pipeline")
 
-    runner = PipelineRunner(plots_visible=args.show_plots)
+    runner = PipelineRunner(plots_visible=args.plots)
 
     predictions, _ = runner.run(pipeline_config, dataset_config)
 

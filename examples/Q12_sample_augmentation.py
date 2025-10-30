@@ -31,7 +31,8 @@ from sklearn.model_selection import GroupKFold
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q12 Sample Augmentation Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 # Configuration
@@ -94,5 +95,5 @@ pipeline_config = PipelineConfigs(pipeline, "q12")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.show_plots)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)

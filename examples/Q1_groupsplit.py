@@ -16,7 +16,8 @@ from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q1 GroupSplit Example')
-parser.add_argument('--show-plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
 
 data_path = 'sample_data/classification'
@@ -30,7 +31,7 @@ pipeline = [
 
 pipeline_config = PipelineConfigs(pipeline, "Q1_groupsplit")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.show_plots)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 
@@ -43,5 +44,5 @@ pipeline_stratified = [
 
 pipeline_config = PipelineConfigs(pipeline_stratified, "Q1_groupsplit")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.show_plots)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)

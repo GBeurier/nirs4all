@@ -1040,7 +1040,7 @@ class Predictions:
         print(f"{CHECK}Saved {len(all_results)} files to {path}")
 
     @classmethod
-    def pred_short_string(cls, entry: Dict, metrics: Optional[List[str]] = None) -> str:
+    def pred_short_string(cls, entry: Dict, metrics: Optional[List[str]] = None, partition: str | List[str] = "test") -> str:
         """
         Generate short string representation of a prediction.
 
@@ -1053,16 +1053,30 @@ class Predictions:
         """
         scores_str = ""
         if metrics:
-            if 'rmse' in metrics:
-                metrics.remove('rmse')
-            scores = evaluator.eval_list(
-                entry['y_true'],
-                entry['y_pred'],
-                metrics=metrics
-            )
-            scores_str = ", ".join(
-                [f"[{k}:{v:.4f}]" for k, v in zip(metrics, scores)]
-            )
+            # Make a copy to avoid modifying the original list
+            metrics = metrics.copy()
+            if isinstance(partition, str):
+                partition = [partition]
+
+            for p in partition:
+                # Handle aggregated partitions structure
+                if 'partitions' in entry and p in entry['partitions']:
+                    y_true = entry['partitions'][p].get('y_true')
+                    y_pred = entry['partitions'][p].get('y_pred')
+                else:
+                    y_true = entry.get('y_true')
+                    y_pred = entry.get('y_pred')
+
+                if y_true is not None and y_pred is not None:
+                    scores = evaluator.eval_list(
+                        y_true,
+                        y_pred,
+                        metrics=metrics
+                    )
+                    scores_str += f" [{p}]: "
+                    scores_str += ", ".join(
+                        [f"[{k}:{v:.4f}]" for k, v in zip(metrics, scores)]
+                    )
 
         desc = f"{entry['model_name']} - {entry['metric']} "
         desc += f"[test: {entry['test_score']:.4f}], [val: {entry['val_score']:.4f}]"
