@@ -5,8 +5,9 @@
 
 # Avoid overengineering, keep it simple and pragmatic, I want clean, neat, maintenable and readable code
 # prefer using existing libraries and tools rather than reinventing the wheel
+# I don't want deprecated functions or backward compatibility dead code, simply remove them.
 
-# When writing code, follow best practices for Python, React, and FastAPI development.
+# When writing code, follow best practices for Python, sklearn, tensorflow, React, and FastAPI development.
 # Write modular, reusable, and testable code.
 # Use Google Style Docstrings
 
