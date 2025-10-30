@@ -47,19 +47,14 @@ data_path = {
 }
 
 pipeline = [
-    # "chart_3d",
-    # "chart_2d",
+    "chart_2d",
     {"feature_augmentation": [
         Detrend, FstDer, SndDer, Gauss,
         StdNorm, SavGol, Haar, MSC
     ]},
     StandardScaler,
-    # "chart_2d",
-    "fold_chart",
     SPXYSplitter(0.25),
-    "fold_chart",
     ShuffleSplit(n_splits=3, test_size=0.25),
-    "fold_chart",
     RandomForestClassifier(max_depth=40)
 ]
 

@@ -179,10 +179,11 @@ class PipelineConfigs:
         """
         Generate a hash for the pipeline configuration.
 
-        Note: No longer needs to strip _runtime_instance since it's no longer used.
+        All objects are fully JSON-serializable (no _runtime_instance).
+        No need for default=str hack anymore.
         """
         import hashlib
-        serializable = json.dumps(steps, sort_keys=True, default=str).encode('utf-8')
+        serializable = json.dumps(steps, sort_keys=True).encode('utf-8')
         return hashlib.md5(serializable).hexdigest()[0:8]
 
     @staticmethod

@@ -61,12 +61,11 @@ def serialize_component(obj: Any) -> Any:
             "function": f"{obj.__module__}.{obj.__name__}"
         }
         if params:
-            func_serialized["params"] = serialize_component(params, False)
+            func_serialized["params"] = serialize_component(params)
 
-        # Keep runtime instance for model factory functions that need dataset-dependent parameters
-        # (e.g., TensorFlow models with @framework decorator that require input_shape)
+        # Store framework as string (not runtime instance) for JSON serialization
         if hasattr(obj, 'framework'):
-            func_serialized["_runtime_instance"] = obj
+            func_serialized["framework"] = obj.framework
 
         return func_serialized
 
@@ -183,12 +182,14 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
             try:
                 # Special handling for model factory functions with @framework decorator
                 # These need dataset-dependent parameters (like input_shape) so we return
-                # them as-is without instantiation for controllers to handle
+                # them as dict for controllers to instantiate
                 if key == "function" and hasattr(cls_or_func, 'framework'):
-                    # This is a model factory function - return dict with function and runtime instance
+                    # Return dict for controller instantiation (no runtime instance)
                     return {
-                        "function": blob[key],
-                        "_runtime_instance": cls_or_func
+                        "type": "function",
+                        "func": cls_or_func,
+                        "framework": cls_or_func.framework,
+                        "params": params
                     }
 
                 if key == "class" or key == "instance" or key == "function":
@@ -211,9 +212,12 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
 
                 # Check again if this is a model factory function
                 if hasattr(cls_or_func, 'framework'):
+                    # Return dict for controller instantiation
                     return {
-                        "function": blob[key],
-                        "_runtime_instance": cls_or_func
+                        "type": "function",
+                        "func": cls_or_func,
+                        "framework": cls_or_func.framework,
+                        "params": filtered
                     }
 
                 return cls_or_func(**filtered)

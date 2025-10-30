@@ -25,7 +25,7 @@ except ImportError:
     OPTUNA_AVAILABLE = False
     optuna = None
 
-from nirs4all.controllers.models.factory import ModelFactory as ModelBuilderFactory
+from nirs4all.controllers.models.factory import ModelFactory
 
 
 class OptunaManager:
@@ -199,28 +199,16 @@ class OptunaManager:
                 X_val_fold = X_train[val_indices]
                 y_val_fold = y_train[val_indices]
                 try:
-                    # Create model with trial parameters using ModelBuilder
-                    # model = ModelBuilderFactory.build_single_model(
-                    #     model_config,
-                    #     controller.dataset,  # Pass dataset for framework detection
-                    #     task=getattr(controller.dataset, 'task_type', 'regression'),
-                    #     force_params=sampled_params
-                    # )
                     model = controller._get_model_instance(dataset, model_config, force_params=sampled_params)
-                    # print(sampled_params)
-                    # if hasattr(model, 'n_components'):
-                        # print("n_components:", model.n_components)
 
                     # Prepare data
                     X_train_prep, y_train_prep = controller._prepare_data(X_train_fold, y_train_fold, context)
                     X_val_prep, y_val_prep = controller._prepare_data(X_val_fold, y_val_fold, context)
-                    # print(X_train_prep.shape, y_train_prep.shape, X_val_prep.shape, y_val_prep.shape)
 
                     # Train and evaluate - pass train_params from finetune_params
                     train_params_for_trial = finetune_params.get('train_params', {})
                     trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)
                     score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep)
-                    # print(f"   Fold score: {score:.4f}", end=' 'if verbose > 1 else '\n')
                     scores.append(score)
 
                 except Exception as e:
@@ -294,15 +282,6 @@ class OptunaManager:
                 print(f"Trial params: {sampled_params}")
 
             try:
-                # Create model with trial parameters using ModelBuilder
-                # print(">>>>>>> Sampled params:", sampled_params)
-                # model = ModelBuilderFactory.build_single_model(
-                #     model_config["model"],
-                #     controller.dataset,  # Pass dataset for framework detection
-                #     task=getattr(controller.dataset, 'task_type', 'regression'),
-                #     force_params=sampled_params
-                # )
-                # print(model)
                 model = controller._get_model_instance(dataset, model_config, force_params=sampled_params)
 
                 # Prepare data

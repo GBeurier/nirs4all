@@ -26,7 +26,91 @@ class ModelFactory:
     - Dict: configuration with class, import, or function keys
     - Instance: pre-built model object
     - Callable: function or class to instantiate
+
+    Also provides helper utilities for controllers:
+    - filter_params: Filter parameters to match callable signature
+    - compute_input_shape: Compute input shape from dataset
+    - detect_framework: Detect framework from model instance
+    - get_num_classes: Extract number of classes for classification
     """
+
+    @staticmethod
+    def filter_params(callable_obj, params: dict) -> dict:
+        """Filter parameters to only those accepted by callable's signature.
+
+        Args:
+            callable_obj: Class or function to check signature
+            params: Dictionary of parameters
+
+        Returns:
+            Filtered parameters matching signature
+        """
+        if inspect.isclass(callable_obj):
+            sig = inspect.signature(callable_obj.__init__)
+        else:
+            sig = inspect.signature(callable_obj)
+
+        # Check for **kwargs
+        has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD
+                        for p in sig.parameters.values())
+
+        if has_kwargs:
+            return params  # Accept all if **kwargs present
+
+        valid_params = {name for name in sig.parameters if name != 'self'}
+        return {k: v for k, v in params.items() if k in valid_params}
+
+    @staticmethod
+    def compute_input_shape(dataset, framework: str):
+        """Compute input shape from dataset based on framework.
+
+        Args:
+            dataset: Dataset with X array
+            framework: Framework name ('sklearn', 'tensorflow', 'pytorch', etc.)
+
+        Returns:
+            Input shape appropriate for framework (int or tuple)
+        """
+        # Get X data with correct layout
+        from nirs4all.data.feature_components import FeatureLayout
+
+        context = {'partition': 'train'}
+        # Use VOLUME_3D_TRANSPOSE for TensorFlow to match Conv1D layout
+        layout = FeatureLayout.VOLUME_3D_TRANSPOSE.value if framework == 'tensorflow' else FeatureLayout.FLAT_2D.value
+
+        try:
+            X = dataset.x(context, layout=layout, concat_source=True)
+            if framework in ['sklearn', 'xgboost', 'lightgbm']:
+                return X.shape[1]  # Flat features
+            elif framework in ['tensorflow', 'pytorch']:
+                return X.shape[1:]  # Tuple shape for neural networks
+            else:
+                return X.shape[1]
+        except Exception as e:
+            raise ValueError(f"Could not determine input shape from dataset: {str(e)}")
+
+    @staticmethod
+    def get_num_classes(dataset) -> int:
+        """Extract number of classes for classification tasks.
+
+        Args:
+            dataset: Dataset with y labels and task type
+
+        Returns:
+            Number of unique classes, or None if not classification
+        """
+        if hasattr(dataset, 'is_classification') and dataset.is_classification:
+            if hasattr(dataset, 'num_classes'):
+                return dataset.num_classes
+            elif hasattr(dataset, 'n_classes'):
+                return dataset.n_classes
+            else:
+                # Fallback: compute from y
+                import numpy as np
+                context = {'partition': 'train'}
+                y = dataset.y(context)
+                return len(np.unique(y))
+        return None
 
     @staticmethod
     def build_single_model(model_config, dataset, force_params={}):
@@ -111,7 +195,7 @@ class ModelFactory:
 
         Args:
             model_dict: Dictionary containing model configuration.
-                Can have 'class', 'import', 'function', or 'model_instance' keys.
+                Can have 'class', 'import', 'function', 'model_instance', or new 'type'/'func' keys.
             dataset: Dataset object for input dimensions.
             force_params: Dictionary of parameters to force override.
 
@@ -121,6 +205,28 @@ class ModelFactory:
         Raises:
             ValueError: If the dict format is invalid.
         """
+        # Handle new dict format from deserialize_component (no _runtime_instance)
+        if 'type' in model_dict and model_dict['type'] == 'function':
+            # New format: {"type": "function", "func": <func>, "framework": "tensorflow", "params": {...}}
+            callable_model = model_dict['func']
+            params = model_dict.get('params', {}).copy()
+            framework = model_dict.get('framework', None)
+
+            if framework is None:
+                raise ValueError("Framework must be specified in function config")
+
+            input_dim = ModelFactory.compute_input_shape(dataset, framework)
+            params['input_dim'] = input_dim
+            params['input_shape'] = input_dim
+
+            # Set num_classes for tensorflow classification models
+            if framework == 'tensorflow' and hasattr(dataset, 'is_classification') and dataset.is_classification:
+                if hasattr(dataset, 'num_classes'):
+                    params['num_classes'] = dataset.num_classes
+
+            model = ModelFactory.prepare_and_call(callable_model, params, force_params)
+            return model
+
         # Handle model_instance key (used by base_model._extract_model_config)
         if 'model_instance' in model_dict:
             model_obj = model_dict['model_instance']
@@ -143,8 +249,7 @@ class ModelFactory:
                 pass
             if framework == 'sklearn':
                 all_params = {**params, **(force_params or {})}
-                filtered_params = ModelFactory._filter_params(cls, all_params)
-                model = ModelFactory.prepare_and_call(cls, filtered_params)
+                model = ModelFactory.prepare_and_call(cls, all_params)
             else:
                 model = ModelFactory.prepare_and_call(cls, params, force_params)
             return model
@@ -181,7 +286,7 @@ class ModelFactory:
                 framework = getattr(callable_model, 'framework', None)
             if framework is None:
                 raise ValueError("Cannot determine framework from callable model_config. Please set 'experiments.utils.framework' decorator on the function or add 'framework' key to the config.")
-            input_dim = ModelFactory._get_input_dim(framework, dataset)
+            input_dim = ModelFactory.compute_input_shape(dataset, framework)
             params['input_dim'] = input_dim
             params['input_shape'] = input_dim
             # Set num_classes for tensorflow classification models
@@ -221,7 +326,7 @@ class ModelFactory:
         if framework == 'tensorflow':
             return ModelFactory._from_tensorflow_callable(model_callable, dataset, force_params)
 
-        input_dim = ModelFactory._get_input_dim(framework, dataset)
+        input_dim = ModelFactory.compute_input_shape(dataset, framework)
         sig = inspect.signature(model_callable)
         params = {}
         if 'input_shape' in sig.parameters:
@@ -256,7 +361,7 @@ class ModelFactory:
         if not TF_AVAILABLE:
             raise ImportError("TensorFlow is required but not installed")
 
-        input_dim = ModelFactory._get_input_dim('tensorflow', dataset)
+        input_dim = ModelFactory.compute_input_shape(dataset, 'tensorflow')
         sig = inspect.signature(model_callable)
         params = {}
 
@@ -333,39 +438,6 @@ class ModelFactory:
             return deepcopy(model)
 
     @staticmethod
-    def _get_input_dim(framework, dataset):
-        """Get the input dimensions for the model based on framework and dataset.
-
-        Args:
-            framework: The framework string ('tensorflow', 'sklearn', etc.).
-            dataset: Dataset object to extract dimensions from.
-
-        Returns:
-            Tuple representing input dimensions.
-
-        Raises:
-            ValueError: If input_dim cannot be determined.
-        """
-        # Get X data with correct context
-        context = {'partition': 'train'}
-        # Use VOLUME_3D_TRANSPOSE for TensorFlow to match the layout used during training
-        # This ensures Conv1D receives input_shape=(features, processings) not (processings, features)
-        from nirs4all.data.feature_components import FeatureLayout
-        layout = FeatureLayout.VOLUME_3D_TRANSPOSE.value if framework == 'tensorflow' else FeatureLayout.FLAT_2D.value
-
-        try:
-            X = dataset.x(context, layout=layout, concat_source=True)
-            if framework == 'tensorflow':
-                input_dim = X.shape[1:]  # (samples, features, processings) → (features, processings) for Conv1D
-            elif framework == 'sklearn':
-                input_dim = X.shape[1:]  # (samples, features) → (features,)
-            else:
-                input_dim = X.shape[1:]
-            return input_dim
-        except Exception as e:
-            raise ValueError(f"Could not determine input_dim from dataset: {str(e)}")
-
-    @staticmethod
     def import_class(class_path):
         """Import a class from a module path.
 
@@ -414,55 +486,47 @@ class ModelFactory:
         return obj
 
     @staticmethod
-    def detect_framework(model):
+    def detect_framework(model) -> str:
         """Detect the framework from the model instance.
+
+        This is a helper for controllers to determine framework type.
+        Returns simplified framework names for routing logic.
 
         Args:
             model: Model instance or class.
 
         Returns:
-            String representing the framework ('sklearn', 'tensorflow', 'pytorch').
-
-        Raises:
-            ValueError: If framework cannot be determined.
+            String representing the framework ('sklearn', 'tensorflow', 'pytorch',
+            'xgboost', 'lightgbm', 'catboost', or 'unknown').
         """
         # Special case for mocked objects in tests
         if hasattr(model, '_mock_name') or str(type(model)).startswith("<class 'unittest.mock."):
             return 'sklearn'  # By default, consider mocks as sklearn objects
 
+        # Check for explicit framework attribute (e.g., from @framework decorator)
         if hasattr(model, 'framework'):
             return model.framework
 
+        # Inspect module path
         if inspect.isclass(model):
-            model_desc = f"{model.__module__}.{model.__name__}"
+            module = model.__module__
         else:
-            model_desc = f"{model.__class__.__module__}.{model.__class__.__name__}"
-        if TF_AVAILABLE and 'tensorflow' in model_desc:
-            return 'tensorflow'
-        if TF_AVAILABLE and 'keras' in model_desc:
-            return 'tensorflow'
-        elif TORCH_AVAILABLE and 'torch' in model_desc:
-            return 'pytorch'
-        elif 'sklearn' in model_desc:
+            module = model.__class__.__module__
+
+        if 'sklearn' in module:
             return 'sklearn'
+        elif 'tensorflow' in module or 'keras' in module:
+            return 'tensorflow'
+        elif 'torch' in module:
+            return 'pytorch'
+        elif 'xgboost' in module:
+            return 'xgboost'
+        elif 'lightgbm' in module:
+            return 'lightgbm'
+        elif 'catboost' in module:
+            return 'catboost'
         else:
-            raise ValueError("Cannot determine framework from the model instance.")
-
-    @staticmethod
-    def _filter_params(model_or_class, params):
-        """Filter parameters to only include those valid for the model's constructor.
-
-        Args:
-            model_or_class: Model class or instance.
-            params: Dictionary of parameters to filter.
-
-        Returns:
-            Dictionary of filtered parameters.
-        """
-        constructor_signature = inspect.signature(model_or_class.__init__)
-        valid_params = {param.name for param in constructor_signature.parameters.values() if param.name != 'self'}
-        filtered_params = {key: value for key, value in params.items() if key in valid_params}
-        return filtered_params
+            return 'unknown'
 
     @staticmethod
     def _force_param_on_instance(model, force_params):
@@ -476,7 +540,7 @@ class ModelFactory:
             New model instance with forced parameters.
         """
         try:
-            filtered_params = ModelFactory._filter_params(model, force_params)
+            filtered_params = ModelFactory.filter_params(model, force_params)
             new_model = model.__class__(**filtered_params)
             return new_model
         except Exception as e:
@@ -656,7 +720,3 @@ class ModelFactory:
 
         else:
             raise ValueError(f"Unsupported file extension '{ext}' for model file.")
-
-
-# Backward compatibility alias
-ModelBuilderFactory = ModelFactory

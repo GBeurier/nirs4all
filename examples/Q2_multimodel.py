@@ -87,48 +87,48 @@ analyzer = PredictionAnalyzer(predictions)
 # Plot comparison of top models
 fig1 = analyzer.plot_top_k(k=best_model_count, rank_metric='rmse')
 
-# for idx, dataset_name in enumerate(predictions_per_dataset):
-#     dataset_predictions = predictions_per_dataset[dataset_name]["run_predictions"]
-#     val_top_rmse = dataset_predictions.top(n=best_model_count, rank_metric='rmse', rank_partition='val', display_partition=['val', 'test'], display_metric=['mse', 'rmse', 'R2', 'mae'])
-#     test_top_rmse = dataset_predictions.top(n=best_model_count, rank_metric='rmse', rank_partition='test', display_partition=['val', 'test'], display_metric=['mse', 'rmse', 'R2', 'mae'])
-#     val_top_r2 = dataset_predictions.top(n=best_model_count, rank_metric='r2', rank_partition='val', display_partition=['val', 'test'], display_metric=['mse', 'rmse', 'R2', 'mae'])
-#     test_top_r2 = dataset_predictions.top(n=best_model_count, rank_metric='r2', rank_partition='test', display_partition=['val', 'test'], display_metric=['mse', 'rmse', 'R2', 'mae'])
+for idx, dataset_name in enumerate(predictions_per_dataset):
+    dataset_predictions = predictions_per_dataset[dataset_name]["run_predictions"]
+    val_top_rmse = dataset_predictions.top(n=best_model_count, rank_metric='rmse', rank_partition='val', display_partition=['val', 'test'], display_metric=['mse', 'rmse', 'R2', 'mae'])
+    test_top_rmse = dataset_predictions.top(n=best_model_count, rank_metric='rmse', rank_partition='test', display_partition=['val', 'test'], display_metric=['mse', 'rmse', 'R2', 'mae'])
+    val_top_r2 = dataset_predictions.top(n=best_model_count, rank_metric='r2', rank_partition='val', display_partition=['val', 'test'], display_metric=['mse', 'rmse', 'R2', 'mae'])
+    test_top_r2 = dataset_predictions.top(n=best_model_count, rank_metric='r2', rank_partition='test', display_partition=['val', 'test'], display_metric=['mse', 'rmse', 'R2', 'mae'])
 
-#     all_tops = [val_top_rmse, test_top_rmse, val_top_r2, test_top_r2]
-#     print(f"\nDataset: {dataset_name}")
-#     for top_models in all_tops:
-#         print("\nTop models:")
-#         for idx, model in enumerate(top_models):
-#             print(f"{idx+1}. {Predictions.pred_short_string(model, metrics=['mse', 'rmse', 'R2'], partition=['val', 'test'])}")
+    all_tops = [val_top_rmse, test_top_rmse, val_top_r2, test_top_r2]
+    print(f"\nDataset: {dataset_name}")
+    for top_models in all_tops:
+        print("\nTop models:")
+        for idx, model in enumerate(top_models):
+            print(f"{idx+1}. {Predictions.pred_short_string(model, metrics=['mse', 'rmse', 'R2'], partition=['val', 'test'])}")
 
-# # Create visualizations
+# Create visualizations
 
-# # Plot heatmap: models vs partitions
-# fig2 = analyzer.plot_heatmap(
-#     x_var="model_name",
-#     y_var="dataset_name",
-#     display_metric='mse',
-# )
+# Plot heatmap: models vs partitions
+fig2 = analyzer.plot_heatmap(
+    x_var="model_name",
+    y_var="dataset_name",
+    display_metric='mse',
+)
 
-# # Plot heatmap: models vs datasets
-# fig3 = analyzer.plot_heatmap(
-#     x_var="model_name",
-#     y_var="dataset_name",
-#     rank_partition='test',  # default
-#     rank_metric='rmse',   # default
-#     display_metric='mse',  # default
-#     display_partition='test',  # default
-#     rank_agg='best',  # default
-#     display_agg='best'  # default
-# )
+# Plot heatmap: models vs datasets
+fig3 = analyzer.plot_heatmap(
+    x_var="model_name",
+    y_var="dataset_name",
+    rank_partition='test',  # default
+    rank_metric='rmse',   # default
+    display_metric='mse',  # default
+    display_partition='test',  # default
+    rank_agg='best',  # default
+    display_agg='best'  # default
+)
 
-# # Plot heatmap: models vs datasets (all results)
-# fig4 = analyzer.plot_heatmap(
-#     x_var="model_name",
-#     y_var="dataset_name",
-#     rank_metric='r2',
-#     display_metric='r2',
-# )
+# Plot heatmap: models vs datasets (all results)
+fig4 = analyzer.plot_heatmap(
+    x_var="model_name",
+    y_var="dataset_name",
+    rank_metric='r2',
+    display_metric='r2',
+)
 
 # fig5 = analyzer.plot_heatmap(
 #     x_var="model_name",
@@ -151,29 +151,29 @@ fig1 = analyzer.plot_top_k(k=best_model_count, rank_metric='rmse')
 #     display_metric='r2'
 # )
 
-# # Plot heatmap: models vs fold IDs
-# fig8 = analyzer.plot_heatmap(
-#     x_var="dataset_name",
-#     y_var="fold_id",
-#     display_metric='r2'
-# )
+# Plot heatmap: models vs fold IDs
+fig8 = analyzer.plot_heatmap(
+    x_var="dataset_name",
+    y_var="fold_id",
+    display_metric='r2'
+)
 
-# # Plot heatmap: models vs fold IDs
-# fig8 = analyzer.plot_heatmap(
-#     x_var="dataset_name",
-#     y_var="preprocessings",
-#     display_metric='mse'
-# )
+# Plot heatmap: models vs fold IDs
+fig8 = analyzer.plot_heatmap(
+    x_var="dataset_name",
+    y_var="preprocessings",
+    display_metric='mse'
+)
 
-# fig9 = analyzer.plot_candlestick(
-#     variable="model_name",
-#     metric='rmse',
-# )
+fig9 = analyzer.plot_candlestick(
+    variable="model_name",
+    metric='rmse',
+)
 
-# fig10 = analyzer.plot_candlestick(
-#     variable="fold_id",
-#     metric='r2',
-# )
+fig10 = analyzer.plot_candlestick(
+    variable="fold_id",
+    metric='r2',
+)
 
 fig11 = analyzer.plot_histogram(
     metric='mae',

@@ -21,7 +21,7 @@ from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN
 from .utilities import ModelControllerUtils as ModelUtils
-from .factory import ModelFactory as ModelBuilderFactory
+from .factory import ModelFactory
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -119,14 +119,14 @@ class SklearnModelController(BaseModelController):
                     model_class = type(model)
 
                 # Rebuild with force_params
-                return ModelBuilderFactory.build_single_model(model_class, dataset, force_params)
+                return ModelFactory.build_single_model(model_class, dataset, force_params)
 
         # Handle new serialization formats: {'function': ..., 'params': ...} or {'class': ..., 'params': ...}
         if any(key in model_config for key in ('function', 'class', 'import')):
             params = model_config.get('params', {})
             if force_params:
                 params.update(force_params)
-            return ModelBuilderFactory.build_single_model(model_config, dataset, params)
+            return ModelFactory.build_single_model(model_config, dataset, params)
 
         # Handle old format: model_config['model']['class']
         if 'model' in model_config and 'class' in model_config['model']:
@@ -134,7 +134,7 @@ class SklearnModelController(BaseModelController):
             model_params = model_config.get('model_params', {})
             if force_params:
                 model_params.update(force_params)
-            model = ModelBuilderFactory.build_single_model(model_class, dataset, model_params)
+            model = ModelFactory.build_single_model(model_class, dataset, model_params)
             return model
 
         raise ValueError("Could not create model instance from configuration")
