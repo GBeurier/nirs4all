@@ -187,7 +187,8 @@ else:
 print("\n   📈 7. Within-dataset structure preservation metrics...")
 evaluator.plot_preservation_summary(by="preproc")
 
-# plt.show(block=True)
-
 print("\n✅ Analysis complete!")
 print("="*120)
+
+if args.show:
+    plt.show()
