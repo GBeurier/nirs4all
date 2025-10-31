@@ -4,7 +4,7 @@ import numpy as np
 from typing import List, Optional
 
 from nirs4all.data.types import InputFeatures, ProcessingList, SampleIndices
-from nirs4all.data.feature_components import (
+from nirs4all.data._features import (
     ArrayStorage,
     ProcessingManager,
     HeaderManager,

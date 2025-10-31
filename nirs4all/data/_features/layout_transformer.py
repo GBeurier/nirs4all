@@ -1,7 +1,7 @@
 """Layout transformation for feature arrays."""
 
 import numpy as np
-from nirs4all.data.feature_components.feature_constants import FeatureLayout, normalize_layout, LayoutType
+from nirs4all.data._features.feature_constants import FeatureLayout, normalize_layout, LayoutType
 
 
 class LayoutTransformer:

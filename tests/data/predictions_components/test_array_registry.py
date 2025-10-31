@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 import shutil
 
-from nirs4all.data.predictions_components.array_registry import ArrayRegistry, ARRAY_SCHEMA
+from nirs4all.data._predictions.array_registry import ArrayRegistry, ARRAY_SCHEMA
 
 
 class TestArrayRegistryBasics:

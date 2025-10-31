@@ -1072,7 +1072,7 @@ pred.save_to_file("predictions.json")
 
 ```python
 from nirs4all.data.predictions import Predictions
-from nirs4all.data.predictions_components import PredictionIndexer, PredictionRanker
+from nirs4all.data._predictions import PredictionIndexer, PredictionRanker
 
 # For advanced users who need fine-grained control
 pred = Predictions()
@@ -1141,7 +1141,7 @@ nirs4all/data/
 # All these imports continue to work
 from nirs4all.data import Predictions, PredictionResult, PredictionResultsList
 from nirs4all.data.predictions import Predictions
-from nirs4all.data.predictions_components import PredictionResult, PredictionResultsList
+from nirs4all.data._predictions import PredictionResult, PredictionResultsList
 ```
 
 ---

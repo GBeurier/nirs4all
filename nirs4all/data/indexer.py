@@ -3,7 +3,7 @@ import numpy as np
 import polars as pl
 
 from nirs4all.data.types import Selector, SampleIndices, PartitionType, ProcessingList, IndexDict
-from nirs4all.data.indexer_components import (
+from nirs4all.data._indexer import (
     IndexStore,
     QueryBuilder,
     SampleManager,

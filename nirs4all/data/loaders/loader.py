@@ -291,7 +291,7 @@ def handle_data(config, t_set):
             m_headers = [f"meta_{i}" for i in range(m_data.shape[1])]
 
         # For pre-loaded arrays, default to cm-1 unit
-        from nirs4all.data.feature_components import HeaderUnit
+        from nirs4all.data._features import HeaderUnit
         x_header_unit = HeaderUnit.WAVENUMBER.value
 
         return x_array, y_array, m_data, x_headers, m_headers, x_header_unit

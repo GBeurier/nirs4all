@@ -11,7 +11,7 @@ from .predictions import Predictions, PredictionResult, PredictionResultsList
 from ..visualization.predictions import PredictionAnalyzer
 
 # Provide backward-compatible imports for feature components
-from .feature_components import (
+from ._features import (
     FeatureSource,
     FeatureLayout,
     HeaderUnit,

@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from sklearn.preprocessing import StandardScaler
 
-from nirs4all.data.targets_components.processing_chain import ProcessingChain
-from nirs4all.data.targets_components.transformers import TargetTransformer
+from nirs4all.data._targets.processing_chain import ProcessingChain
+from nirs4all.data._targets.transformers import TargetTransformer
 
 
 class TestTargetTransformer:

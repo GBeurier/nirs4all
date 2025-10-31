@@ -1,7 +1,7 @@
 """Feature header and unit management."""
 
 from typing import Optional, List
-from nirs4all.data.feature_components.feature_constants import HeaderUnit, normalize_header_unit
+from nirs4all.data._features.feature_constants import HeaderUnit, normalize_header_unit
 
 
 class HeaderManager:

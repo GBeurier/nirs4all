@@ -3,7 +3,7 @@ from typing import List, Tuple, Dict, Any, Optional, Union
 import numpy as np
 import polars as pl
 
-from nirs4all.data.feature_components import FeatureSource
+from nirs4all.data._features import FeatureSource
 from nirs4all.data.types import InputData, InputFeatures, ProcessingList, SampleIndices
 
 class Features:
