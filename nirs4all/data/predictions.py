@@ -27,16 +27,16 @@ from nirs4all.utils.emoji import DISK, CHECK, WARNING
 from nirs4all.core import metrics as evaluator
 
 # Import components
-from .predictions_components import (
+from ._predictions import (
     PredictionStorage,
     PredictionSerializer,
     PredictionResult,
     PredictionResultsList,
 )
-from .predictions_components.indexer import PredictionIndexer
-from .predictions_components.ranker import PredictionRanker
-from .predictions_components.aggregator import PartitionAggregator
-from .predictions_components.query import CatalogQueryEngine
+from ._predictions.indexer import PredictionIndexer
+from ._predictions.ranker import PredictionRanker
+from ._predictions.aggregator import PartitionAggregator
+from ._predictions.query import CatalogQueryEngine
 
 # Re-export result classes for backward compatibility
 __all__ = ['Predictions', 'PredictionResult', 'PredictionResultsList']

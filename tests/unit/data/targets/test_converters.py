@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from sklearn.preprocessing import StandardScaler
 
-from nirs4all.data.targets_components.converters import NumericConverter, ColumnWiseTransformer
+from nirs4all.data._targets.converters import NumericConverter, ColumnWiseTransformer
 
 
 class TestNumericConverter:

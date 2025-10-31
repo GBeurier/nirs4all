@@ -6,14 +6,14 @@ import numpy as np
 from sklearn.base import TransformerMixin
 
 from nirs4all.data.types import SampleIndices
-from nirs4all.data.targets_components.converters import NumericConverter
-from nirs4all.data.targets_components.processing_chain import ProcessingChain
-from nirs4all.data.targets_components.transformers import TargetTransformer
+from nirs4all.data._targets.converters import NumericConverter
+from nirs4all.data._targets.processing_chain import ProcessingChain
+from nirs4all.data._targets.transformers import TargetTransformer
 from nirs4all.core.task_type import TaskType
 from nirs4all.core.task_detection import detect_task_type
 
 # Re-export for backward compatibility
-from nirs4all.data.targets_components.encoders import FlexibleLabelEncoder  # noqa: F401
+from nirs4all.data._targets.encoders import FlexibleLabelEncoder  # noqa: F401
 
 
 class Targets:

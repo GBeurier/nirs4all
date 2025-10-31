@@ -7,7 +7,7 @@ using component-based design.
 
 import pytest
 import numpy as np
-from nirs4all.data.feature_components import (
+from nirs4all.data._features import (
     FeatureSource,
     FeatureLayout,
     HeaderUnit,

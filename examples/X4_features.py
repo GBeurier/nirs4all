@@ -83,7 +83,7 @@ print("   ✓ All layout transformations work correctly")
 
 # Test 6: Component-based architecture verification
 print("\n6. Verifying component architecture...")
-from nirs4all.data.feature_components import (
+from nirs4all.data._features import (
     ArrayStorage,
     ProcessingManager,
     HeaderManager,

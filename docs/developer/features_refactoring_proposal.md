@@ -33,7 +33,7 @@ nirs4all/data/
 # File: nirs4all/data/__init__.py
 
 # Provide shortcut imports for common classes
-from nirs4all.data.feature_components import (
+from nirs4all.data._features import (
     FeatureSource,           # Main class
     FeatureLayout,           # Enum
     HeaderUnit,              # Enum
@@ -42,7 +42,7 @@ from nirs4all.data.feature_components import (
 
 # This allows both:
 # from nirs4all.data import FeatureSource, FeatureLayout
-# from nirs4all.data.feature_components import FeatureSource, FeatureLayout
+# from nirs4all.data._features import FeatureSource, FeatureLayout
 ```
 
 ```python
@@ -914,7 +914,7 @@ import numpy as np
 from typing import List, Optional, Union
 from nirs4all.data.helpers import InputFeatures, ProcessingList, SampleIndices
 from nirs4all.data.feature_constants import FeatureLayout, HeaderUnit, normalize_layout
-from nirs4all.data.feature_components import (
+from nirs4all.data._features import (
     ArrayStorage,
     ProcessingManager,
     HeaderManager,
@@ -1225,32 +1225,32 @@ Based on grep search, the following files need import updates:
 1. **`nirs4all/data/features.py`**
    ```python
    # Add at top
-   from nirs4all.data.feature_components import FeatureSource, FeatureLayout
+   from nirs4all.data._features import FeatureSource, FeatureLayout
    ```
 
 2. **`nirs4all/data/dataset.py`**
    ```python
    # Update import
    from nirs4all.data.helpers import Layout  # Keep for type hints
-   from nirs4all.data.feature_components import FeatureLayout  # Add for validation
+   from nirs4all.data._features import FeatureLayout  # Add for validation
    ```
 
 3. **`nirs4all/data/dataset_components/feature_accessor.py`**
    ```python
    # Add imports
-   from nirs4all.data.feature_components import FeatureLayout, HeaderUnit
+   from nirs4all.data._features import FeatureLayout, HeaderUnit
    ```
 
 4. **`nirs4all/data/loaders/loader.py`**
    ```python
    # Add imports
-   from nirs4all.data.feature_components import HeaderUnit
+   from nirs4all.data._features import HeaderUnit
    ```
 
 5. **`nirs4all/utils/model_builder.py`**
    ```python
    # Add imports
-   from nirs4all.data.feature_components import FeatureLayout
+   from nirs4all.data._features import FeatureLayout
 
    # Update code to use enum while maintaining string BC
    layout = FeatureLayout.VOLUME_3D_TRANSPOSE if framework == 'tensorflow' else FeatureLayout.FLAT_2D
@@ -1260,7 +1260,7 @@ Based on grep search, the following files need import updates:
 6. **`nirs4all/pipeline/runner.py`**
    ```python
    # Add imports
-   from nirs4all.data.feature_components import FeatureLayout
+   from nirs4all.data._features import FeatureLayout
 
    # Can optionally update string literals to enums:
    x_train = dataset.x({"partition": "train"}, layout=FeatureLayout.FLAT_2D)
@@ -1300,7 +1300,7 @@ Layout = Literal["2d", "3d", "2d_t", "3d_i"]
 # Type hints in function signatures continue to work
 def x(self, selector: Selector, layout: Layout = "2d") -> OutputData:
     # Internally, normalize to enum if needed
-    from nirs4all.data.feature_components import normalize_layout
+    from nirs4all.data._features import normalize_layout
     layout_enum = normalize_layout(layout)
 ```
 
@@ -1489,7 +1489,7 @@ from nirs4all.data.feature_source import FeatureSource  # ❌ File moved
 
 # AFTER (backward compatible via __init__.py):
 from nirs4all.data import FeatureSource  # ✅ Works via shortcut
-from nirs4all.data.feature_components import FeatureSource  # ✅ Direct path
+from nirs4all.data._features import FeatureSource  # ✅ Direct path
 ```
 
 ### Migration Strategy for External Users
@@ -1507,7 +1507,7 @@ Will be removed in version 0.5.0.
 """
 
 import warnings
-from nirs4all.data.feature_components import FeatureSource
+from nirs4all.data._features import FeatureSource
 
 warnings.warn(
     "Importing from nirs4all.data.feature_source is deprecated. "

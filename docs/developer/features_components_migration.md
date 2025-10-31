@@ -96,7 +96,7 @@ from nirs4all.data.feature_source import FeatureSource  # ⚠️ Deprecated
 from nirs4all.data import FeatureSource
 
 # Or direct from feature_components
-from nirs4all.data.feature_components import FeatureSource
+from nirs4all.data._features import FeatureSource
 
 # With enums
 from nirs4all.data import FeatureSource, FeatureLayout, HeaderUnit

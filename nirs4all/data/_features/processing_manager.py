@@ -1,7 +1,7 @@
 """Processing ID management and tracking."""
 
 from typing import List, Dict, Optional
-from nirs4all.data.feature_components.feature_constants import DEFAULT_PROCESSING
+from nirs4all.data._features.feature_constants import DEFAULT_PROCESSING
 
 
 class ProcessingManager:

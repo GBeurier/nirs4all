@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from nirs4all.data.targets_components.encoders import FlexibleLabelEncoder
+from nirs4all.data._targets.encoders import FlexibleLabelEncoder
 
 
 class TestFlexibleLabelEncoder:
