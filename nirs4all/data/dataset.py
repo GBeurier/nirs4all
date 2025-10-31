@@ -15,7 +15,7 @@ from nirs4all.data.targets import Targets
 from nirs4all.data.indexer import Indexer
 from nirs4all.data.metadata import Metadata
 from nirs4all.data.predictions import Predictions
-from nirs4all.data.dataset_components import FeatureAccessor, TargetAccessor, MetadataAccessor
+from nirs4all.data._dataset import FeatureAccessor, TargetAccessor, MetadataAccessor
 from nirs4all.utils.emoji import CHART, REFRESH, TARGET
 from nirs4all.core.task_type import TaskType
 from sklearn.base import TransformerMixin

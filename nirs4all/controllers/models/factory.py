@@ -72,7 +72,7 @@ class ModelFactory:
             Input shape appropriate for framework (int or tuple)
         """
         # Get X data with correct layout
-        from nirs4all.data.feature_components import FeatureLayout
+        from nirs4all.data._features import FeatureLayout
 
         context = {'partition': 'train'}
         # Use VOLUME_3D_TRANSPOSE for TensorFlow to match Conv1D layout
