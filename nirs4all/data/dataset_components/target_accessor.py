@@ -15,6 +15,29 @@ from nirs4all.data.targets import Targets
 from nirs4all.core.task_type import TaskType
 
 
+def _selector_to_dict(selector: Optional[Selector]) -> dict:
+    """
+    Convert selector to dict format for internal use.
+
+    Handles both legacy dict format and new DataSelector format.
+
+    Args:
+        selector: Selector in any format
+
+    Returns:
+        Dict representation of selector
+    """
+    if selector is None:
+        return {}
+
+    # Check if it's a DataSelector object (has to_dict method)
+    if hasattr(selector, 'to_dict'):
+        return selector.to_dict()
+
+    # Otherwise assume it's already a dict
+    return selector
+
+
 class TargetAccessor:
     """
     Accessor for target data operations.
@@ -78,20 +101,19 @@ class TargetAccessor:
             ...     include_augmented=True
             ... )
         """
-        if selector is None:
-            selector = {}
+        selector_dict = _selector_to_dict(selector)
 
         if include_augmented:
-            x_indices = self._indexer.x_indices(selector, include_augmented=True)
+            x_indices = self._indexer.x_indices(selector_dict, include_augmented=True)
             # Map each sample to its y index (augmented → origin)
             y_indices = np.array([
                 self._indexer.get_origin_for_sample(int(sample_id))
                 for sample_id in x_indices
             ], dtype=np.int32)
         else:
-            y_indices = self._indexer.x_indices(selector, include_augmented=False)
+            y_indices = self._indexer.x_indices(selector_dict, include_augmented=False)
 
-        processing = selector.get("y", "numeric") if selector else "numeric"
+        processing = selector_dict.get("y", "numeric") if selector_dict else "numeric"
         return self._block.y(y_indices, processing)
 
     def add_targets(self, y: np.ndarray) -> None:

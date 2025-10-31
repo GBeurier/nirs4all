@@ -665,8 +665,11 @@ class BaseModelController(OperatorController, ABC):
             True if model should be captured for explanation, False otherwise.
         """
         target = runner.target_model
+        # Convert both to string for comparison to handle int/string mismatch
+        target_step = str(target["step_idx"])
+        ident_step = str(identifiers.step_id)
         return (target["model_name"] == identifiers.name and
-                target["step_idx"] == identifiers.step_id)
+                target_step == ident_step)
 
 
 

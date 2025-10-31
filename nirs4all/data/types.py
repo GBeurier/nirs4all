@@ -1,8 +1,14 @@
 from typing import Dict, Any, Optional, Literal, Sequence, overload, Union
 import numpy as np
 
+# Import DataSelector for type annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from nirs4all.pipeline.context import DataSelector
+
 IndexDict = Dict[str, Any]
-Selector = Optional[IndexDict]
+# Selector can be either dict (legacy) or DataSelector (new typed)
+Selector = Optional[Union[IndexDict, 'DataSelector']]
 SourceSelector = Optional[Union[int, list[int]]]
 OutputData = Union[np.ndarray, list[np.ndarray]]
 InputData = Union[np.ndarray, list[np.ndarray]]

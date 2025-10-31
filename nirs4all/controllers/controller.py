@@ -2,12 +2,13 @@
 """Base class for pipeline operator controllers."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, Optional, Union, TYPE_CHECKING
 
 from nirs4all.data.dataset import SpectroDataset
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
+    from nirs4all.pipeline.context import ExecutionContext
 
 class OperatorController(ABC):
     """Base class for pipeline operators."""
@@ -42,7 +43,7 @@ class OperatorController(ABC):
         step: Any,
         operator: Any,
         dataset: SpectroDataset,
-        context: Dict[str, Any],
+        context: Union[Dict[str, Any], "ExecutionContext"],
         runner: "PipelineRunner",
         source: int = -1,
         mode: str = "train",
@@ -56,7 +57,7 @@ class OperatorController(ABC):
             step: Pipeline step configuration
             operator: The operator instance
             dataset: Dataset to operate on
-            context: Pipeline execution context
+            context: Pipeline execution context (dict or ExecutionContext)
             runner: Pipeline runner instance
             source: Data source index
             mode: Execution mode ("train" or "predict")
