@@ -5,13 +5,14 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from joblib import Parallel, delayed, parallel_backend
-from nirs4all.data.predictions import Predictions
 
+from nirs4all.data.predictions import Predictions
 from nirs4all.controllers.registry import CONTROLLER_REGISTRY
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.binary_loader import BinaryLoader
 from nirs4all.pipeline.config import PipelineConfigs
+from nirs4all.pipeline.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
 from nirs4all.pipeline.io import SimulationSaver
 from nirs4all.pipeline.manifest_manager import ManifestManager
 from nirs4all.pipeline.serialization import deserialize_component
@@ -118,6 +119,37 @@ class PipelineRunner:
 
         # Store figure references to prevent garbage collection
         self._figure_refs: List[Any] = []
+
+    def _initialize_context(self, dataset: SpectroDataset) -> ExecutionContext:
+        """
+        Initialize ExecutionContext for pipeline execution.
+
+        Args:
+            dataset: Dataset being processed
+
+        Returns:
+            ExecutionContext with appropriate initial state
+        """
+        selector = DataSelector(
+            partition=None,  # No default partition - controllers set this as needed
+            processing=[["raw"]] * dataset.features_sources(),
+            layout="2d",
+            concat_source=True
+        )
+
+        state = PipelineState(
+            y_processing="numeric",
+            step_number=self.step_number,
+            mode=self.mode
+        )
+
+        metadata = StepMetadata()
+
+        return ExecutionContext(
+            selector=selector,
+            state=state,
+            metadata=metadata
+        )
 
 
     def _normalize_pipeline(
@@ -673,8 +705,11 @@ class PipelineRunner:
             model, controller = self._captured_model
 
             # Get test data with proper layout
-            test_context = context.copy()
-            test_context['partition'] = 'test'
+            if isinstance(context, ExecutionContext):
+                test_context = context.with_partition('test')
+            else:
+                test_context = context.copy()
+                test_context['partition'] = 'test'
             X_test = dataset.x(test_context, layout=controller.get_preferred_layout())
             y_test = dataset.y(test_context)
 
@@ -771,8 +806,8 @@ class PipelineRunner:
         if self.mode != "predict" and self.mode != "explain":
             self.saver.save_json("pipeline.json", steps)
 
-        # Initialize context
-        context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
+        # Initialize context with ExecutionContext
+        context = self._initialize_context(dataset)
 
         try:
             self.run_steps(steps, dataset, context, execution="sequential", prediction_store=config_predictions)
@@ -794,9 +829,9 @@ class PipelineRunner:
 
         return dataset, context
 
-    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Dict[str, Any]], Dict[str, Any]],
+    def run_steps(self, steps: List[Any], dataset: SpectroDataset, context: Union[List[Union[Dict[str, Any], ExecutionContext]], Union[Dict[str, Any], ExecutionContext]],
                   execution: str = "sequential", prediction_store: Optional['Predictions'] = None,
-                  is_substep: bool = False, mode: str = "train") -> Dict[str, Any]:
+                  is_substep: bool = False, mode: str = "train") -> Union[Dict[str, Any], ExecutionContext]:
         """Run a list of steps with enhanced context management and DatasetView support."""
 
         if not isinstance(steps, list):
@@ -809,7 +844,8 @@ class PipelineRunner:
                 for step, ctx in zip(steps, context):
                     self.run_step(step, dataset, ctx, is_substep=is_substep)
                 return context[-1]
-            elif isinstance(context, dict):
+            else:
+                # Single shared context (dict or ExecutionContext)
                 # print("🔄 Running steps sequentially with shared context")
                 for step in steps:
                     context = self.run_step(step, dataset, context, prediction_store, is_substep=is_substep)
@@ -822,8 +858,8 @@ class PipelineRunner:
             with parallel_backend(self.backend, n_jobs=self.max_workers):
                 Parallel()(delayed(self.run_step)(step, dataset, context, prediction_store, is_substep=is_substep) for step, context in zip(steps, context))
 
-    def run_step(self, step: Any, dataset: SpectroDataset, context: Dict[str, Any], prediction_store: Optional['Predictions'] = None,
-                 *, is_substep: bool = False, propagated_binaries: Any = None) -> Dict[str, Any]:
+    def run_step(self, step: Any, dataset: SpectroDataset, context: Union[Dict[str, Any], ExecutionContext], prediction_store: Optional['Predictions'] = None,
+                 *, is_substep: bool = False, propagated_binaries: Any = None) -> Union[Dict[str, Any], ExecutionContext]:
         """
         Run a single pipeline step with enhanced context management and DatasetView support.
         """
@@ -893,12 +929,20 @@ class PipelineRunner:
                 if key := next((s for s in step.split() if s in self.WORKFLOW_OPERATORS), None):
                     # print(f"📋 Workflow operation: {key}")
                     controller = self._select_controller(key, keyword=key)
-                    context["keyword"] = key  # Store keyword in context for controller use
+                    # Store keyword in context (works with both dict and ExecutionContext)
+                    if isinstance(context, ExecutionContext):
+                        context.metadata.keyword = key
+                    else:
+                        context["keyword"] = key
                 else:
                     # print(f"📦 Deserializing str operation: {step}")
                     operator = deserialize_component(step)
                     controller = self._select_controller(step, operator=operator, keyword=step)
-                    context["keyword"] = step  # Store keyword in context for controller use
+                    # Store keyword in context (works with both dict and ExecutionContext)
+                    if isinstance(context, ExecutionContext):
+                        context.metadata.keyword = step
+                    else:
+                        context["keyword"] = step
 
             else:
                 print(f"{SEARCH}Unknown step type: {type(step).__name__}, executing as operation")
@@ -920,7 +964,11 @@ class PipelineRunner:
                     if self.verbose > 1 and loaded_binaries:
                         print(f"{SEARCH}Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
 
-                context["step_id"] = self.step_number
+                # Store step_id in context (works with both dict and ExecutionContext)
+                if isinstance(context, ExecutionContext):
+                    context.metadata.step_id = str(self.step_number)
+                else:
+                    context["step_id"] = str(self.step_number)
                 return self._execute_controller(
                     controller, step, operator, dataset, context, prediction_store, -1, loaded_binaries
                 )
@@ -955,7 +1003,7 @@ class PipelineRunner:
         step: Any,
         operator: Any,
         dataset: SpectroDataset,
-        context: Dict[str, Any],
+        context: Union[Dict[str, Any], ExecutionContext],
         prediction_store: Optional['Predictions'] = None,
         source: Union[int, List[int]] = -1,
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None

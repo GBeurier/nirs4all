@@ -13,6 +13,29 @@ from nirs4all.data.indexer import Indexer
 from nirs4all.data.features import Features
 
 
+def _selector_to_dict(selector: Optional[Selector]) -> IndexDict:
+    """
+    Convert selector to dict format for internal use.
+
+    Handles both legacy dict format and new DataSelector format.
+
+    Args:
+        selector: Selector in any format
+
+    Returns:
+        Dict representation of selector
+    """
+    if selector is None:
+        return {}
+
+    # Check if it's a DataSelector object (has to_dict method)
+    if hasattr(selector, 'to_dict'):
+        return selector.to_dict()
+
+    # Otherwise assume it's already a dict
+    return selector
+
+
 class FeatureAccessor:
     """
     Accessor for feature data operations.
@@ -85,9 +108,9 @@ class FeatureAccessor:
             ...     include_augmented=True
             ... )
         """
-        if selector is None:
-            selector = {}
-        indices = self._indexer.x_indices(selector, include_augmented)
+        # Convert selector to dict format for internal use
+        selector_dict = _selector_to_dict(selector)
+        indices = self._indexer.x_indices(selector_dict, include_augmented)
         return self._block.x(indices, layout, concat_source)
 
     def add_samples(self,
@@ -256,13 +279,14 @@ class FeatureAccessor:
             ... )
         """
         # Always exclude already-augmented samples
-        if selector is None:
+        selector_dict = _selector_to_dict(selector)
+        if selector_dict:
             sample_indices = self._indexer.x_indices(
-                {}, include_augmented=False
+                selector_dict, include_augmented=False
             ).tolist()
         else:
             sample_indices = self._indexer.x_indices(
-                selector, include_augmented=False
+                {}, include_augmented=False
             ).tolist()
 
         if not sample_indices:
