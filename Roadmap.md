@@ -2,6 +2,10 @@
 
 > [PipelineRunner] Refactor, modularize, clean, anticipate 0.6.1, authorize list of pipelineconfigs instead of pipelines
 
+> [Review] pipeline module. Redondancy in serialization, binary_loader, artifact_serialization, io, or reorganization ?
+
+> [Review] data module. bad naming of folders and binning should'nt be there > it's related to augmentation ?
+
 > [Tests] increase indexer coverage, reduce test redondancy. Reduce to around 400 tests maybe
 
 
