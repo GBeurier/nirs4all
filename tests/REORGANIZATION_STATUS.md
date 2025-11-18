@@ -38,6 +38,11 @@
 #### ✅ 3.3: Data Module - Predictions
 - [x] Moved `data/predictions_components/test_array_registry.py` → `unit/data/predictions/test_array_registry.py`
 
+#### ✅ 3.3: Data Module - Merging
+- [x] Merged `test_dataset_save_load_header_units.py` into `test_dataset.py`
+- [x] Merged `test_metadata_loading.py` into `test_metadata.py`
+- [x] Merged `test_predictions_header_units.py` into `test_predictions.py`
+
 #### ✅ 3.4: Operators Module - Augmentation
 - [x] Moved `test_augmentation.py` → `unit/operators/augmentation/test_augmentation.py`
 
@@ -109,24 +114,23 @@
 
 ---
 
-## Files Requiring User Approval for Merging or Removal
+## Files Merged (Completed)
 
-### Files to Potentially Merge (Need Approval):
+### ✅ Files Successfully Merged:
 
 1. **test_dataset_save_load_header_units.py**
-   - Current location: `unit/data/test_dataset_save_load_header_units.py`
-   - Plan says: Merge into `unit/data/test_dataset.py`
-   - Question: Should this be merged or kept separate?
+   - ✅ Merged into `unit/data/test_dataset.py`
+   - Added TestLoadXYHeaderUnit and TestHandleDataHeaderUnit classes
 
 2. **test_metadata_loading.py**
-   - Current location: `unit/data/test_metadata_loading.py`
-   - Plan says: Merge into `unit/data/test_metadata.py`
-   - Question: Should this be merged or kept separate?
+   - ✅ Merged into `unit/data/test_metadata.py`
+   - Added TestMetadataLoading and TestMetadataConfigNormalization classes
 
 3. **test_predictions_header_units.py**
-   - Current location: `unit/data/test_predictions_header_units.py`
-   - Plan says: Merge into `unit/data/test_predictions.py`
-   - Question: Should this be merged or kept separate?
+   - ✅ Merged into `unit/data/test_predictions.py`
+   - Added TestVisualizationHeaderUnit class
+
+### Files to Potentially Split (Still Need Approval):
 
 4. **test_feature_components.py**
    - Current location: `unit/data/features/test_feature_components.py`
@@ -346,7 +350,8 @@ tests/
 
 ## Success So Far
 
-✅ **84 files moved/renamed successfully**
+✅ **87 files moved/renamed successfully** (84 initial + 3 merged)
+✅ **3 test files merged into their main counterparts**
 ✅ **New directory structure mirrors source code structure**
 ✅ **Integration tests consolidated into logical groups**
 ✅ **Old empty directories removed**
@@ -356,10 +361,10 @@ tests/
 
 ## Questions for User
 
-1. **Should we merge the "header_units" test files into their main counterparts?**
-   - `test_dataset_save_load_header_units.py` → `test_dataset.py`
-   - `test_metadata_loading.py` → `test_metadata.py`
-   - `test_predictions_header_units.py` → `test_predictions.py`
+1. ~~**Should we merge the "header_units" test files into their main counterparts?**~~ ✅ **COMPLETED**
+   - ~~`test_dataset_save_load_header_units.py` → `test_dataset.py`~~
+   - ~~`test_metadata_loading.py` → `test_metadata.py`~~
+   - ~~`test_predictions_header_units.py` → `test_predictions.py`~~
 
 2. **Should we split large test files as per the plan?**
    - `test_feature_components.py` (split into 4 files)
