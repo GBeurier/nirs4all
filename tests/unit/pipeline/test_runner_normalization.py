@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config.config import PipelineConfigs
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from sklearn.preprocessing import StandardScaler

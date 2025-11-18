@@ -13,7 +13,7 @@ import numpy as np
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.config.config import PipelineConfigs
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
 from nirs4all.pipeline.predictor import Predictor
@@ -309,6 +309,9 @@ class PipelineRunner:
         Returns:
             Path to current run directory, or None if not set
         """
+        if self.saver and hasattr(self.saver, 'base_path'):
+            return self.saver.base_path
+        # Fallback for predictor/explainer modes
         saver = getattr(self.predictor, 'saver', None) or getattr(self.explainer, 'saver', None)
         return getattr(saver, 'base_path', None) if saver else None
 
@@ -367,7 +370,7 @@ class PipelineRunner:
         """
         from nirs4all.pipeline.steps.parser import StepParser
         from nirs4all.pipeline.steps.router import ControllerRouter
-        from nirs4all.pipeline.steps.runner import StepRunner
+        from nirs4all.pipeline.steps.step_runner import StepRunner
 
         # Increment substep number if this is a substep
         if is_substep:

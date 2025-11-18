@@ -9,7 +9,7 @@ from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.storage.artifacts.manager import ArtifactManager
 from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.storage.manifest_manager import ManifestManager
-from nirs4all.pipeline.steps.runner import StepRunner
+from nirs4all.pipeline.steps.step_runner import StepRunner
 from nirs4all.utils.emoji import ROCKET, MEDAL_GOLD, FLAG, CROSS
 
 

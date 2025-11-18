@@ -8,6 +8,20 @@ import pandas as pd
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, KFold
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.controllers.splitters.split import CrossValidatorController
+from nirs4all.pipeline.steps.parser import ParsedStep, StepType
+
+
+def make_step_info(operator, step=None):
+    """Helper to create ParsedStep for testing."""
+    if step is None:
+        step = {}
+    return ParsedStep(
+        operator=operator,
+        keyword="",
+        step_type=StepType.DIRECT,
+        original_step=step,
+        metadata={}
+    )
 
 
 class TestGroupSplitSyntax:
@@ -69,7 +83,8 @@ class TestGroupSplitExecution:
         context = {"processing": [["raw"]]}
 
         context, binaries = controller.execute(
-            step, step["split"], dataset_with_metadata, context, None, mode="train"
+            step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
+            context=context, runner=None, mode="train"
         )
 
         # Verify folds created
@@ -95,7 +110,8 @@ class TestGroupSplitExecution:
 
         # Should use first column (batch) by default
         context, binaries = controller.execute(
-            step, step["split"], dataset_with_metadata, context, None, mode="train"
+            step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
+            context=context, runner=None, mode="train"
         )
 
         assert dataset_with_metadata._folds is not None
@@ -108,7 +124,8 @@ class TestGroupSplitExecution:
         context = {"processing": [["raw"]]}
 
         context, binaries = controller.execute(
-            step, step["split"], dataset_with_metadata, context, None, mode="train"
+            step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
+            context=context, runner=None, mode="train"
         )
 
         # Verify folds created
@@ -129,7 +146,8 @@ class TestGroupSplitExecution:
 
         with pytest.raises(ValueError, match="not found in metadata"):
             controller.execute(
-                step, step["split"], dataset_with_metadata, context, None, mode="train"
+                step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
+                context=context, runner=None, mode="train"
             )
 
     def test_no_metadata_error(self):
@@ -143,7 +161,8 @@ class TestGroupSplitExecution:
         context = {"processing": [["raw"]]}
 
         with pytest.raises(ValueError, match="no metadata"):
-            controller.execute(step, step["split"], dataset, context, None, mode="train")
+            controller.execute(step_info=make_step_info(step["split"], step), dataset=dataset,
+                             context=context, runner=None, mode="train")
 
     def test_non_string_group_type(self, dataset_with_metadata):
         """Test error when group is not a string."""
@@ -153,7 +172,8 @@ class TestGroupSplitExecution:
 
         with pytest.raises(TypeError, match="must be a string"):
             controller.execute(
-                step, step["split"], dataset_with_metadata, context, None, mode="train"
+                step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
+                context=context, runner=None, mode="train"
             )
 
     def test_non_grouped_splitter(self, dataset_with_metadata):
@@ -163,7 +183,8 @@ class TestGroupSplitExecution:
         context = {"processing": [["raw"]]}
 
         context, binaries = controller.execute(
-            step, step, dataset_with_metadata, context, None, mode="train"
+            step_info=make_step_info(step), dataset=dataset_with_metadata,
+            context=context, runner=None, mode="train"
         )
 
         assert dataset_with_metadata._folds is not None
@@ -176,7 +197,8 @@ class TestGroupSplitExecution:
         context = {"processing": [["raw"]]}
 
         context, binaries = controller.execute(
-            step, step["split"], dataset_with_metadata, context, None, mode="predict"
+            step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
+            context=context, runner=None, mode="predict"
         )
 
         # Should create dummy folds for prediction mode
@@ -189,7 +211,7 @@ class TestSerialization:
 
     def test_serialize_split_with_group(self):
         """Test serialization preserves group parameter."""
-        from nirs4all.pipeline.config.config import PipelineConfigs
+        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
         from nirs4all.pipeline.config.component_serialization import serialize_component
 
         pipeline = [
@@ -207,7 +229,7 @@ class TestSerialization:
 
     def test_roundtrip_serialization(self):
         """Test save/load roundtrip."""
-        from nirs4all.pipeline.config.config import PipelineConfigs
+        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
         import json
 
         original = [

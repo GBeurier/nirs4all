@@ -4,7 +4,7 @@ This module contains core domain objects that define pipeline structure,
 execution context, and configuration expansion logic.
 """
 
-from .config import PipelineConfigs
+from .pipeline_config import PipelineConfigs
 from .context import (
     ExecutionContext,
     DataSelector,

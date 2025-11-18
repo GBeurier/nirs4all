@@ -49,7 +49,7 @@ class PredictionResolver:
                 return config_path, target_model
 
             # Otherwise, treat as prediction ID
-            target_model = self._find_prediction_by_id(prediction_obj)
+            target_model = self.find_prediction_by_id(prediction_obj)
             if not target_model:
                 raise ValueError(f"Prediction ID not found: {prediction_obj}")
 

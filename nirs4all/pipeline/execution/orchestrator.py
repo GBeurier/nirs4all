@@ -9,7 +9,7 @@ from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.storage.artifacts.manager import ArtifactManager
-from nirs4all.pipeline.config.config import PipelineConfigs
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.execution.executor import PipelineExecutor
 from nirs4all.pipeline.storage.io import SimulationSaver

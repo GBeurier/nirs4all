@@ -29,7 +29,7 @@ from nirs4all.operators.transforms.targets import RangeDiscretizer
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
-from tests.unit.utils.test_data_generator import TestDataManager
+from tests.fixtures.data_generators import TestDataManager
 
 
 class TestNirs4allIntegration:

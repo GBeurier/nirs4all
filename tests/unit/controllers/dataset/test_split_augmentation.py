@@ -15,6 +15,20 @@ from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold
 
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline.steps.parser import ParsedStep, StepType
+
+
+def make_step_info(operator, step=None):
+    """Helper to create ParsedStep for testing."""
+    if step is None:
+        step = {}
+    return ParsedStep(
+        operator=operator,
+        keyword="",
+        step_type=StepType.DIRECT,
+        original_step=step,
+        metadata={}
+    )
 
 
 @pytest.fixture
@@ -107,7 +121,7 @@ class TestLeakPrevention:
         context = {"partition": "train"}
 
         controller.execute(
-            step={}, operator=splitter, dataset=dataset_with_augmentation,
+            step_info=make_step_info(splitter), dataset=dataset_with_augmentation,
             context=context, runner=mock_runner
         )
 
@@ -133,7 +147,7 @@ class TestLeakPrevention:
         context = {"partition": "train"}
 
         controller.execute(
-            step={}, operator=splitter, dataset=dataset_with_augmentation,
+            step_info=make_step_info(splitter), dataset=dataset_with_augmentation,
             context=context, runner=mock_runner
         )
 
@@ -157,7 +171,7 @@ class TestLeakPrevention:
         context = {"partition": "train"}
 
         controller.execute(
-            step=step, operator=splitter, dataset=dataset_with_augmentation_and_groups,
+            step_info=make_step_info(splitter, step), dataset=dataset_with_augmentation_and_groups,
             context=context, runner=mock_runner
         )
 
@@ -189,7 +203,7 @@ class TestDatasetCounts:
 
         # Execute split
         controller.execute(
-            step={}, operator=splitter, dataset=dataset_with_augmentation,
+            step_info=make_step_info(splitter), dataset=dataset_with_augmentation,
             context=context, runner=mock_runner
         )
 
@@ -209,7 +223,7 @@ class TestDatasetCounts:
 
         # y should have 6 values (base samples only) when used for splitting
         controller.execute(
-            step={}, operator=splitter, dataset=dataset_with_augmentation,
+            step_info=make_step_info(splitter), dataset=dataset_with_augmentation,
             context=context, runner=mock_runner
         )
 
@@ -236,7 +250,7 @@ class TestGroupMetadata:
         context = {"partition": "train"}
 
         controller.execute(
-            step=step, operator=splitter, dataset=dataset_with_augmentation_and_groups,
+            step_info=make_step_info(splitter, step), dataset=dataset_with_augmentation_and_groups,
             context=context, runner=mock_runner
         )
 
@@ -263,7 +277,7 @@ class TestGroupMetadata:
 
         # Should not raise error about mismatched lengths
         controller.execute(
-            step=step, operator=splitter, dataset=dataset_with_augmentation_and_groups,
+            step_info=make_step_info(splitter, step), dataset=dataset_with_augmentation_and_groups,
             context=context, runner=mock_runner
         )
 
@@ -299,7 +313,7 @@ class TestIntegration:
 
         context = {"partition": "train"}
         controller.execute(
-            step={}, operator=splitter, dataset=dataset,
+            step_info=make_step_info(splitter), dataset=dataset,
             context=context, runner=mock_runner
         )
 
@@ -351,7 +365,7 @@ class TestIntegration:
 
         context = {"partition": "train"}
         controller.execute(
-            step={}, operator=splitter, dataset=dataset,
+            step_info=make_step_info(splitter), dataset=dataset,
             context=context, runner=mock_runner
         )
 
@@ -382,7 +396,7 @@ class TestEdgeCases:
 
         context = {"partition": "train"}
         controller.execute(
-            step={}, operator=splitter, dataset=dataset,
+            step_info=make_step_info(splitter), dataset=dataset,
             context=context, runner=mock_runner
         )
 
@@ -423,7 +437,7 @@ class TestEdgeCases:
 
         context = {"partition": "train"}
         controller.execute(
-            step={}, operator=splitter, dataset=dataset,
+            step_info=make_step_info(splitter), dataset=dataset,
             context=context, runner=mock_runner
         )
 

@@ -18,6 +18,20 @@ from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold
 
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline.steps.parser import ParsedStep, StepType
+
+
+def make_step_info(operator, step=None):
+    """Helper to create ParsedStep for testing."""
+    if step is None:
+        step = {}
+    return ParsedStep(
+        operator=operator,
+        keyword="",
+        step_type=StepType.DIRECT,
+        original_step=step,
+        metadata={}
+    )
 
 
 @pytest.fixture
@@ -133,8 +147,7 @@ class TestLeakPreventionIntegration:
         splitter = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
         split_controller.execute(
-            step={},
-            operator=splitter,
+            step_info=make_step_info(splitter),
             dataset=dataset,
             context={},
             runner=mock_runner
@@ -173,8 +186,7 @@ class TestLeakPreventionIntegration:
         splitter = KFold(n_splits=2, shuffle=False)
 
         split_controller.execute(
-            step={},
-            operator=splitter,
+            step_info=make_step_info(splitter),
             dataset=dataset,
             context={},
             runner=mock_runner
@@ -216,8 +228,7 @@ class TestLeakPreventionIntegration:
         splitter = GroupKFold(n_splits=3)
 
         split_controller.execute(
-            step={"group": "group"},
-            operator=splitter,
+            step_info=make_step_info(splitter, {"group": "group"}),
             dataset=dataset,
             context={},
             runner=mock_runner
@@ -407,8 +418,7 @@ class TestEdgeCases:
         splitter = StratifiedKFold(n_splits=2, shuffle=False)
 
         split_controller.execute(
-            step={},
-            operator=splitter,
+            step_info=make_step_info(splitter),
             dataset=dataset,
             context={},
             runner=mock_runner

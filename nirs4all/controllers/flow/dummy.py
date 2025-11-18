@@ -171,14 +171,14 @@ class DummyController(OperatorController):
 
         # Step analysis
         print(f"\n{CLIPBOARD}Step Analysis:")
-        step_analysis = self._analyze_step_structure(step)
+        step_analysis = self._analyze_step_structure(config)
         for key, value in step_analysis.items():
             print(f"   {key}: {value}")
 
         # Operator analysis
         print(f"\n{WRENCH}Operator Analysis:")
-        if operator is not None:
-            operator_analysis = self._analyze_step_structure(operator)
+        if op is not None:
+            operator_analysis = self._analyze_step_structure(op)
             for key, value in operator_analysis.items():
                 print(f"   {key}: {value}")
         else:
@@ -198,23 +198,23 @@ class DummyController(OperatorController):
         print(f"\n{BULB}Possible Issues:")
         suggestions = []
 
-        if isinstance(step, dict):
-            if not any(k in step for k in ['model', 'feature_augmentation', 'y_processing', 'sample_augmentation']):
+        if isinstance(config, dict):
+            if not any(k in config for k in ['model', 'feature_augmentation', 'y_processing', 'sample_augmentation']):
                 suggestions.append("- Step is a dict but doesn't contain recognized pipeline keywords")
 
-            if 'model' in step:
+            if 'model' in config:
                 suggestions.append("- Step contains 'model' - should be handled by a model controller")
 
-            if 'feature_augmentation' in step:
+            if 'feature_augmentation' in config:
                 suggestions.append("- Step contains 'feature_augmentation' - should be handled by FeatureAugmentationController")
 
-        elif hasattr(step, 'fit') and hasattr(step, 'transform'):
+        elif hasattr(op, 'fit') and hasattr(op, 'transform'):
             suggestions.append("- Step has fit() and transform() methods - should be handled by TransformerMixinController")
 
-        elif hasattr(step, 'fit') and hasattr(step, 'predict'):
+        elif hasattr(op, 'fit') and hasattr(op, 'predict'):
             suggestions.append("- Step has fit() and predict() methods - should be handled by a model controller")
 
-        elif hasattr(step, 'split'):
+        elif hasattr(op, 'split'):
             suggestions.append("- Step has split() method - should be handled by CrossValidatorController")
 
         if keyword == 'unknown':
