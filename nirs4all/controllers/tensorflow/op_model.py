@@ -261,7 +261,7 @@ class TensorFlowModelController(BaseModelController):
             # Show detailed training scores at verbose > 1
             y_train_pred = self._predict_model(trained_model, X_train)
             train_scores = self._calculate_and_print_scores(
-                y_train, y_train_pred, task_type_str, "train",
+                y_train, y_train_pred, task_type, "train",
                 trained_model.__class__.__name__, show_detailed_scores=False
             )
             # Display concise training summary
@@ -277,7 +277,7 @@ class TensorFlowModelController(BaseModelController):
             if X_val is not None and y_val is not None:
                 y_val_pred = self._predict_model(trained_model, X_val)
                 val_scores = self._calculate_and_print_scores(
-                    y_val, y_val_pred, task_type_str, "validation",
+                    y_val, y_val_pred, task_type, "validation",
                     trained_model.__class__.__name__, show_detailed_scores=False
                 )
                 # # Display concise validation summary
@@ -293,7 +293,7 @@ class TensorFlowModelController(BaseModelController):
                 X_val_data, y_val_data = validation_data
                 y_val_pred = self._predict_model(trained_model, X_val_data)
                 val_scores = self._calculate_and_print_scores(
-                    y_val_data, y_val_pred, task_type_str, "validation",
+                    y_val_data, y_val_pred, task_type, "validation",
                     trained_model.__class__.__name__, show_detailed_scores=False
                 )
                 # Display concise validation summary
