@@ -18,7 +18,7 @@ from nirs4all.operators.transforms import (
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
-from tests.unit.utils.test_data_generator import TestDataManager
+from tests.fixtures.data_generators import TestDataManager
 
 
 class TestFinetuneIntegration:

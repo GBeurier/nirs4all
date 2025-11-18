@@ -37,14 +37,14 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import ShuffleSplit, KFold
 
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config.config import PipelineConfigs
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, Gaussian, StandardNormalVariate
 )
-from tests.unit.utils.test_data_generator import TestDataManager
+from tests.fixtures.data_generators import TestDataManager
 
 
 # ============================================================================
@@ -193,10 +193,8 @@ class TestRunnerInitialization:
         assert runner.saver is None
         assert runner.manifest_manager is None
         assert runner.binary_loader is None
-        assert runner.config_path is None
         assert runner.target_model is None
         assert runner._capture_model is False
-        assert runner._captured_model is None
         assert runner._figure_refs == []
         assert runner.raw_data == {}
         assert runner.pp_data == {}

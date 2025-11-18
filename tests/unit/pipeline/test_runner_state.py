@@ -16,7 +16,7 @@ from sklearn.model_selection import ShuffleSplit
 from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.predictions import Predictions
-from tests.unit.utils.test_data_generator import TestDataManager
+from tests.fixtures.data_generators import TestDataManager
 
 
 @pytest.fixture
@@ -67,9 +67,7 @@ class TestStateInitialization:
         assert runner.saver is None
         assert runner.manifest_manager is None
         assert runner.binary_loader is None
-        assert runner.config_path is None
         assert runner.target_model is None
-        assert runner._captured_model is None
 
     def test_boolean_flags(self):
         """Verify boolean flags are set correctly."""
@@ -363,12 +361,6 @@ class TestModelCaptureState:
         runner = PipelineRunner(save_files=False)
 
         assert runner._capture_model is False
-
-    def test_captured_model_none_initially(self):
-        """Test that _captured_model is None initially."""
-        runner = PipelineRunner(save_files=False)
-
-        assert runner._captured_model is None
 
     def test_capture_model_flag_can_be_set(self):
         """Test that _capture_model flag can be set."""

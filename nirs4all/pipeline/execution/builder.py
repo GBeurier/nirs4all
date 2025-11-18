@@ -13,7 +13,7 @@ from nirs4all.pipeline.storage.io import SimulationSaver
 from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 from nirs4all.pipeline.steps.parser import StepParser
 from nirs4all.pipeline.steps.router import ControllerRouter
-from nirs4all.pipeline.steps.runner import StepRunner
+from nirs4all.pipeline.steps.step_runner import StepRunner
 
 
 class ExecutorBuilder:

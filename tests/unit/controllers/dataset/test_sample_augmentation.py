@@ -16,6 +16,20 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 from nirs4all.controllers.transforms.transformer import TransformerMixinController
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline.steps.parser import ParsedStep, StepType
+
+
+def make_step_info(operator, step=None):
+    """Helper to create ParsedStep for testing."""
+    if step is None:
+        step = {}
+    return ParsedStep(
+        operator=operator,
+        keyword="",
+        step_type=StepType.DIRECT,
+        original_step=step,
+        metadata={}
+    )
 
 
 @pytest.fixture
@@ -60,7 +74,7 @@ class TestAugmentSampleDetection:
 
         # Should execute normally (not augmentation mode)
         result_context, binaries = controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 
@@ -82,7 +96,7 @@ class TestAugmentSampleDetection:
 
         # Should execute in augmentation mode
         result_context, binaries = controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 
@@ -109,7 +123,7 @@ class TestSampleAugmentation:
         }
 
         controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 
@@ -132,7 +146,7 @@ class TestSampleAugmentation:
         }
 
         controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 
@@ -153,7 +167,7 @@ class TestSampleAugmentation:
         }
 
         controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 
@@ -188,7 +202,7 @@ class TestSampleAugmentation:
         }
 
         controller.execute(
-            step={}, operator=transformer, dataset=dataset,
+            step_info=make_step_info(transformer), dataset=dataset,
             context=context, runner=mock_runner
         )
 
@@ -227,7 +241,7 @@ class TestTransformation:
         original_data = simple_dataset.x({"sample": [0]}, layout="2d")
 
         controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 
@@ -252,7 +266,7 @@ class TestTransformation:
 
         # Execute augmentation
         _, binaries = controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 
@@ -278,7 +292,7 @@ class TestEdgeCases:
         }
 
         controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 
@@ -300,7 +314,7 @@ class TestEdgeCases:
         }
 
         controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 
@@ -321,7 +335,7 @@ class TestEdgeCases:
         }
 
         controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 
@@ -359,7 +373,7 @@ class TestMultiSource:
         initial_count = initial_data.shape[0]
 
         controller.execute(
-            step={}, operator=transformer, dataset=dataset,
+            step_info=make_step_info(transformer), dataset=dataset,
             context=context, runner=mock_runner
         )
 
@@ -388,7 +402,7 @@ class TestIntegration:
         initial_count = simple_dataset.x({"partition": "train"}).shape[0]
 
         controller.execute(
-            step={}, operator=transformer, dataset=simple_dataset,
+            step_info=make_step_info(transformer), dataset=simple_dataset,
             context=context, runner=mock_runner
         )
 

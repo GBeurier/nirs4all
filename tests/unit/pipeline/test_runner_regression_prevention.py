@@ -20,11 +20,11 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import ShuffleSplit
 
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config.config import PipelineConfigs
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from tests.unit.utils.test_data_generator import TestDataManager
+from tests.fixtures.data_generators import TestDataManager
 
 
 @pytest.fixture

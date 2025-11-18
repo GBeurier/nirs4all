@@ -92,8 +92,7 @@ class StepRunner:
                 dataset,
                 context,
                 execution="sequential",
-                prediction_store=prediction_store,
-                is_substep=True
+                prediction_store=prediction_store
             )
             return StepResult(updated_context=updated_context, artifacts=[])
 

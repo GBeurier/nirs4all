@@ -112,7 +112,7 @@ class CrossValidatorController(OperatorController):
         if mode == "predict" or mode == "explain":
             local_context = copy.deepcopy(context)
             local_context["partition"] = "train"
-            needs_y, needs_g = _needs(operator)
+            needs_y, needs_g = _needs(op)
             X = dataset.x(local_context, layout="2d", concat_source=True)
             n_samples = X.shape[0]
 
@@ -123,14 +123,14 @@ class CrossValidatorController(OperatorController):
                 if y is not None:
                     kwargs["y"] = y
 
-            n_folds = operator.get_n_splits(**kwargs) if hasattr(operator, "get_n_splits") else 1
+            n_folds = op.get_n_splits(**kwargs) if hasattr(op, "get_n_splits") else 1
             dataset.set_folds([(list(range(n_samples)), [])] * n_folds)
             return context, []
 
         # Extract group column specification from step dict (train mode only)
         group_column = None
-        if isinstance(step, dict) and "group" in step:
-            group_column = step["group"]
+        if isinstance(step_info.original_step, dict) and "group" in step_info.original_step:
+            group_column = step_info.original_step["group"]
             if not isinstance(group_column, str):
                 raise TypeError(
                     f"Group column must be a string, got {type(group_column).__name__}"
@@ -138,7 +138,7 @@ class CrossValidatorController(OperatorController):
 
         local_context = copy.deepcopy(context)
         local_context["partition"] = "train"
-        needs_y, needs_g = _needs(operator)
+        needs_y, needs_g = _needs(op)
         # IMPORTANT: Only split on base samples (exclude augmented) to prevent data leakage
         X = dataset.x(local_context, layout="2d", concat_source=True, include_augmented=False)
         y = dataset.y(local_context, include_augmented=False) if needs_y else None
@@ -175,7 +175,7 @@ class CrossValidatorController(OperatorController):
                 # No explicit group column, but metadata available - use first column as default
                 group_column = dataset.metadata_columns[0]
                 print(
-                    f"⚠️ {operator.__class__.__name__} has 'groups' parameter but no 'group' specified. "
+                    f"⚠️ {op.__class__.__name__} has 'groups' parameter but no 'group' specified. "
                     f"Using default: '{group_column}'"
                 )
                 try:
@@ -199,7 +199,7 @@ class CrossValidatorController(OperatorController):
         if needs_y:
             if y is None:
                 raise ValueError(
-                    f"{operator.__class__.__name__} requires y but dataset.y returned None"
+                    f"{op.__class__.__name__} requires y but dataset.y returned None"
                 )
             kwargs["y"] = y
         if needs_g and groups is not None:
@@ -208,7 +208,7 @@ class CrossValidatorController(OperatorController):
             kwargs["groups"] = groups
 
         # Train mode: perform actual fold splitting
-        folds = list(operator.split(X, **kwargs))  # Convert to list to avoid iterator consumption
+        folds = list(op.split(X, **kwargs))  # Convert to list to avoid iterator consumption
 
         # Store the folds in the dataset
         dataset.set_folds(folds)
@@ -236,11 +236,11 @@ class CrossValidatorController(OperatorController):
             binary += ",".join(row_values).encode("utf-8") + b"\n"
 
         # Filename includes group column if used
-        folds_name = f"folds_{operator.__class__.__name__}"
+        folds_name = f"folds_{op.__class__.__name__}"
         if group_column:
             folds_name += f"_group-{group_column}"
-        if hasattr(operator, "random_state"):
-            seed = getattr(operator, "random_state")
+        if hasattr(op, "random_state"):
+            seed = getattr(op, "random_state")
             if seed is not None:
                 folds_name += f"_seed{seed}"
         folds_name += ".csv"

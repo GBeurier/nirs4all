@@ -20,7 +20,7 @@ from nirs4all.operators.transforms import (
     Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 )
 
-from tests.unit.utils.test_data_generator import TestDataManager
+from tests.fixtures.data_generators import TestDataManager
 
 
 class TestPredictionReuseIntegration:

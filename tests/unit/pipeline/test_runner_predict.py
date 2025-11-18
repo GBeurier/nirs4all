@@ -34,7 +34,7 @@ def test_run_steps_with_sequential_execution(monkeypatch):
     steps = [{"model": "a"}, {"model": "b"}]
     call_order = []
 
-    from nirs4all.pipeline.steps.runner import StepRunner, StepResult
+    from nirs4all.pipeline.steps.step_runner import StepRunner, StepResult
 
     def fake_execute(self, step, dataset, context, runner, loaded_binaries=None, prediction_store=None):
         step_id = step.get("model", "unknown")
@@ -44,7 +44,7 @@ def test_run_steps_with_sequential_execution(monkeypatch):
 
     monkeypatch.setattr(StepRunner, "execute", fake_execute)
 
-    result = runner.run_steps(steps, dataset, context, execution="sequential", is_substep=False)
+    result = runner.run_steps(steps, dataset, context, execution="sequential")
 
     assert call_order == [("a", 1), ("b", 2)]
     assert result["value"] == 2
@@ -56,6 +56,9 @@ def test_run_step_none_returns_context(tmp_path):
     dataset = MagicMock()
     context = {"value": 1}
 
-    result = runner.run_step(None, dataset, context)
+    from nirs4all.data.predictions import Predictions
+    prediction_store = Predictions()
+
+    result = runner.run_step(None, dataset, context, prediction_store)
 
     assert result is context

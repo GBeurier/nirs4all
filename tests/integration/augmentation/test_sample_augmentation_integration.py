@@ -17,7 +17,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transforms import Rotate_Translate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 
-from tests.unit.utils.test_data_generator import TestDataManager
+from tests.fixtures.data_generators import TestDataManager
 
 
 class TestSampleAugmentationIntegration:
