@@ -219,6 +219,8 @@ class BaseModelController(OperatorController, ABC):
         For regression tasks, scaled targets are used for training while unscaled
         (numeric) targets are used for evaluation.
 
+        In prediction mode, uses all available data (partition=None) instead of splitting.
+
         Args:
             dataset: SpectroDataset with partitioned data.
             context: Execution context with partition and preprocessing info.
@@ -227,6 +229,43 @@ class BaseModelController(OperatorController, ABC):
             Tuple of (X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled).
         """
         layout = self.get_preferred_layout()
+
+        # Check if we're in prediction/explain mode
+        mode = context.get('mode', 'train') if isinstance(context, dict) else (context.state.mode if hasattr(context, 'state') else 'train')
+
+        if mode in ("predict", "explain"):
+            # In prediction mode, use all available data (no partition split)
+            if isinstance(context, dict):
+                pred_context = copy.deepcopy(context)
+                pred_context['partition'] = None
+            else:
+                # ExecutionContext - use with_partition method
+                pred_context = context.with_partition(None)
+
+            X_all = dataset.x(pred_context, layout=layout)
+            y_all = dataset.y(pred_context)
+
+            # Return empty training data and all data as "test" for prediction
+            empty_X = np.array([]).reshape(0, X_all.shape[1] if len(X_all.shape) > 1 else 0)
+            empty_y = np.array([])
+
+            # For unscaled targets
+            if dataset.task_type and dataset.task_type.is_classification:
+                y_all_unscaled = y_all
+            else:
+                # For regression, get numeric (unscaled) targets
+                # Build selector dict for y() call
+                if isinstance(pred_context, dict):
+                    pred_context['y'] = 'numeric'
+                    y_all_unscaled = dataset.y(pred_context)
+                else:
+                    # ExecutionContext - convert to dict for dataset.y()
+                    y_selector = {'partition': None, 'y': 'numeric'}
+                    y_all_unscaled = dataset.y(y_selector)
+
+            return empty_X, empty_y, X_all, y_all, empty_y, y_all_unscaled
+
+        # Normal training mode: split into train/test
         train_context = copy.deepcopy(context)
         train_context['partition'] = 'train'
         test_context = copy.deepcopy(context)
@@ -549,6 +588,12 @@ class BaseModelController(OperatorController, ABC):
         # === 1. GENERATE IDENTIFIERS ===
         identifiers = self.identifier_generator.generate(model_config, runner, context, fold_idx)
 
+        # Debug: check identifiers
+        if identifiers.step_id == '' or identifiers.step_id == 0:
+            print(f"\n⚠️  WARNING in launch_training: step_id={identifiers.step_id}")
+            print(f"   context.get('step_number')={context.get('step_number', 'NOT_FOUND')}")
+            print(f"   context.state.step_number={context.state.step_number if hasattr(context, 'state') else 'NO_STATE'}")
+
         # === 2. GET OR LOAD MODEL ===
         if mode in ("predict", "explain"):
             # Load from binaries
@@ -590,12 +635,13 @@ class BaseModelController(OperatorController, ABC):
         X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context or {})
         X_test_prep, _ = self._prepare_data(X_test, None, context or {})
 
+        # Generate predictions for all partitions with data (based on X, not y)
         predictions_scaled = {
-            'train': self._predict_model(trained_model, X_train_prep) if y_train_prep.shape[0] > 0 else np.array([]),
-            'val': self._predict_model(trained_model, X_val_prep) if y_val_prep.shape[0] > 0 else np.array([]),
+            'train': self._predict_model(trained_model, X_train_prep) if X_train_prep.shape[0] > 0 else np.array([]),
+            'val': self._predict_model(trained_model, X_val_prep) if X_val_prep.shape[0] > 0 else np.array([]),
             'test': self._predict_model(trained_model, X_test_prep) if X_test_prep.shape[0] > 0 else np.array([])
         }
-
+        
         # === 5. TRANSFORM PREDICTIONS TO UNSCALED ===
         predictions_unscaled = {
             'train': self.prediction_transformer.transform_to_unscaled(predictions_scaled['train'], dataset, context),
@@ -617,10 +663,11 @@ class BaseModelController(OperatorController, ABC):
         )
 
         # === 7. NORMALIZE INDICES ===
+        # In predict mode with no y, use X shape to determine sample counts
         n_samples = {
-            'train': len(y_train_unscaled),
-            'val': len(y_val_unscaled),
-            'test': len(y_test_unscaled)
+            'train': len(y_train_unscaled) if y_train_unscaled is not None and len(y_train_unscaled) > 0 else (len(y_train_prep) if y_train_prep is not None and len(y_train_prep) > 0 else X_train_prep.shape[0]),
+            'val': len(y_val_unscaled) if y_val_unscaled is not None and len(y_val_unscaled) > 0 else (len(y_val_prep) if y_val_prep is not None and len(y_val_prep) > 0 else X_val_prep.shape[0]),
+            'test': len(y_test_unscaled) if y_test_unscaled is not None and len(y_test_unscaled) > 0 else X_test_prep.shape[0]
         }
 
         indices = {
@@ -977,7 +1024,7 @@ class BaseModelController(OperatorController, ABC):
             'config_name': runner.saver.pipeline_id,
             'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
             'pipeline_uid': getattr(runner, 'pipeline_uid', None),
-            'step_idx': context['step_id'],
+            'step_idx': context.get('step_number', 0),  # Use step_number (int) not step_id (str)
             'op_counter': op_counter,
             'model_name': model_name,
             'model_classname': str(model_classname),
@@ -1012,13 +1059,15 @@ class BaseModelController(OperatorController, ABC):
             weights: Optional array of fold weights (applied to all predictions).
             mode: Execution mode ('train', 'finetune', 'predict', 'explain').
         """
-        for prediction_data in all_predictions:
+        for idx, prediction_data in enumerate(all_predictions):
             if not prediction_data:
                 continue
 
+            partitions = prediction_data.get('partitions', [])
+
             # Add each partition's predictions
             pred_id = None
-            for partition_name, indices, y_true_part, y_pred_part in prediction_data['partitions']:
+            for partition_name, indices, y_true_part, y_pred_part in partitions:
                 if len(indices) == 0:
                     continue
 

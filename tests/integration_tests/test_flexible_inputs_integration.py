@@ -194,8 +194,6 @@ class TestFlexibleInputsIntegration:
         predictions, _ = result
         assert predictions.num_predictions > 0
 
-
-    @pytest.mark.skip(reason="Prediction with numpy arrays not fully supported yet.")
     def test_prediction_with_numpy_arrays(self, sample_numpy_data):
         """Test prediction using numpy arrays."""
         X, y = sample_numpy_data

@@ -309,7 +309,6 @@ class TestPredictionReuseIntegration:
             assert pred_result is not None
             assert np.isfinite(pred_result).all()
 
-    @pytest.mark.skip(reason="Prediction with numpy arrays not fully supported yet.")
     def test_prediction_with_new_data_format(self, test_data_manager):
         """Test prediction with different data formats."""
         train_folder = str(test_data_manager.get_temp_directory() / "regression")

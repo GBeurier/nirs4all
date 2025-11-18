@@ -95,6 +95,8 @@ class PredictionStorage:
 
         return serialized['id']
 
+        return serialized['id']
+
     def add_rows(self, rows: List[Dict[str, Any]]) -> List[str]:
         """
         Add multiple prediction rows to storage (batch operation).

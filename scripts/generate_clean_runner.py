@@ -1,4 +1,7 @@
-"""Pipeline runner - Main entry point for pipeline execution.
+"""Generate clean runner.py without backward compatibility."""
+from pathlib import Path
+
+CLEAN_RUNNER_CONTENT = '''"""Pipeline runner - Main entry point for pipeline execution.
 
 This module provides the PipelineRunner class, which serves as the main interface
 for executing ML pipelines on spectroscopic datasets. It delegates execution to
@@ -14,7 +17,6 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.binary_loader import BinaryLoader
 from nirs4all.pipeline.config import PipelineConfigs
-from nirs4all.pipeline.context import ExecutionContext
 from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
 
 
@@ -139,11 +141,6 @@ class PipelineRunner:
         self.keep_datasets = keep_datasets
         self.plots_visible = plots_visible
 
-        # Compatibility attributes (for controllers that access runner state)
-        self.step_number = 0
-        self.substep_number = -1
-        self.operation_count = 0
-
         # State for predict/explain modes
         self.saver = None
         self.manifest_manager = None
@@ -228,7 +225,7 @@ class PipelineRunner:
         import json
 
         print("=" * 120)
-        print(f"\033[94m{ROCKET}Starting Nirs4all prediction(s)\033[0m")
+        print(f"\\033[94m{ROCKET}Starting Nirs4all prediction(s)\\033[0m")
         print("=" * 120)
 
         # Normalize dataset
@@ -285,8 +282,7 @@ class PipelineRunner:
                 verbose=verbose,
                 mode="predict",
                 continue_on_error=self.continue_on_error,
-                saver=self.saver,
-                binary_loader=self.binary_loader
+                saver=self.saver
             )
 
             executor.execute(steps, "prediction", dataset_obj, context, self, config_predictions)
@@ -301,17 +297,12 @@ class PipelineRunner:
             return res, run_predictions
 
         # Get single prediction matching target model
-        # Note: Don't filter by partition in predict mode - data might be in train/val/test depending on input
-        # Filter candidates by model criteria
-        candidates = run_predictions.filter_predictions(
+        single_pred = run_predictions.get_similar(
             model_name=self.target_model.get('model_name', None),
             step_idx=self.target_model.get('step_idx', None),
-            fold_id=self.target_model.get('fold_id', None)
+            fold_id=self.target_model.get('fold_id', None),
+            partition='test'
         )
-        
-        # Prefer predictions with non-empty y_pred (in predict mode, train partition may be empty)
-        non_empty = [p for p in candidates if len(p['y_pred']) > 0]
-        single_pred = non_empty[0] if non_empty else (candidates[0] if candidates else None)
 
         if single_pred is None:
             raise ValueError("No matching prediction found for the specified model criteria.")
@@ -346,7 +337,7 @@ class PipelineRunner:
         from nirs4all.pipeline.steps.router import ControllerRouter
 
         print("=" * 120)
-        print(f"\033[94m{SEARCH}Starting SHAP Explanation Analysis\033[0m")
+        print(f"\\033[94m{SEARCH}Starting SHAP Explanation Analysis\\033[0m")
         print("=" * 120)
 
         # Setup SHAP parameters
@@ -372,9 +363,6 @@ class PipelineRunner:
             run_dir = self._get_run_dir_from_prediction(prediction_obj)
             self.saver = SimulationSaver(run_dir, save_files=self.save_files)
             self.manifest_manager = ManifestManager(run_dir)
-
-            # Register with saver to allow artifact persistence
-            self.saver.register(self.pipeline_uid)
 
             # Load pipeline
             steps = self._prepare_replay(prediction_obj, dataset_config, verbose)
@@ -409,8 +397,7 @@ class PipelineRunner:
                 verbose=verbose,
                 mode="explain",
                 continue_on_error=self.continue_on_error,
-                saver=self.saver,
-                binary_loader=self.binary_loader
+                saver=self.saver
             )
 
             executor.execute(steps, "explanation", dataset_obj, context, self, config_predictions)
@@ -464,7 +451,7 @@ class PipelineRunner:
             shap_results['dataset_name'] = dataset_obj.name
 
             if verbose > 0:
-                print(f"\n{CHECK}SHAP explanation completed!")
+                print(f"\\n{CHECK}SHAP explanation completed!")
                 print(f"📁 Visualizations saved to: {output_dir}")
                 for viz in shap_params['visualizations']:
                     print(f"   • {viz}.png")
@@ -546,7 +533,7 @@ class PipelineRunner:
             )
 
         # Load pipeline configuration
-        pipeline_dir_name = Path(config_path).parts[-1] if '/' in config_path or '\\' in config_path else config_path
+        pipeline_dir_name = Path(config_path).parts[-1] if '/' in config_path or '\\\\' in config_path else config_path
         config_dir = self.saver.base_path / pipeline_dir_name
         pipeline_json = config_dir / "pipeline.json"
 
@@ -565,8 +552,8 @@ class PipelineRunner:
         manifest_path = self.saver.base_path / pipeline_uid / "manifest.yaml"
         if not manifest_path.exists():
             raise FileNotFoundError(
-                f"Manifest not found: {manifest_path}\n"
-                f"Pipeline UID: {pipeline_uid}\n"
+                f"Manifest not found: {manifest_path}\\n"
+                f"Pipeline UID: {pipeline_uid}\\n"
                 f"The model artifacts may have been deleted or moved."
             )
 
@@ -575,135 +562,6 @@ class PipelineRunner:
         self.binary_loader = BinaryLoader.from_manifest(manifest, self.saver.base_path)
 
         return steps
-
-    def run_step(
-        self,
-        step: Any,
-        dataset: SpectroDataset,
-        context: Union[Dict[str, Any], ExecutionContext],
-        prediction_store: Optional[Predictions] = None,
-        *,
-        is_substep: bool = False,
-        propagated_binaries: Any = None
-    ) -> Tuple[Union[Dict[str, Any], ExecutionContext], List[Tuple[str, Any]]]:
-        """Run a single pipeline step (compatibility method for controllers).
-
-        This method exists for backward compatibility with controllers that execute
-        nested pipelines (e.g., feature_augmentation, sample_augmentation).
-
-        Args:
-            step: Pipeline step definition
-            dataset: Dataset to process
-            context: Execution context
-            prediction_store: Predictions collection
-            is_substep: Whether this is a substep (affects logging)
-            propagated_binaries: Pre-loaded binaries for predict mode
-
-        Returns:
-            Tuple of (updated_context, artifacts)
-        """
-        from nirs4all.pipeline.steps.parser import StepParser
-        from nirs4all.pipeline.steps.router import ControllerRouter
-        from nirs4all.pipeline.steps.runner import StepRunner
-        from nirs4all.utils.emoji import DIAMOND, PLAY, SEARCH
-
-        # Update step counters
-        if is_substep:
-            self.substep_number += 1
-            if self.verbose > 0:
-                print(f"\\033[96m   {PLAY}Sub-step {self.step_number}.{self.substep_number}: {step}\\033[0m")
-        else:
-            self.step_number += 1
-            self.substep_number = 0
-            self.operation_count = 0
-            if self.verbose > 0:
-                print(f"\\033[92m{DIAMOND}Step {self.step_number}: {step}\\033[0m")
-
-        if step is None:
-            return context
-
-        # Load binaries if in prediction mode
-        loaded_binaries = propagated_binaries
-        if (self.mode in ("predict", "explain")) and self.binary_loader and loaded_binaries is None:
-            loaded_binaries = self.binary_loader.get_step_binaries(self.step_number)
-            if self.verbose > 1 and loaded_binaries:
-                print(f"{SEARCH}Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
-
-        # Execute step
-        step_runner = StepRunner(
-            parser=StepParser(),
-            router=ControllerRouter(),
-            verbose=self.verbose,
-            mode=self.mode,
-            show_spinner=self.show_spinner
-        )
-
-        result = step_runner.execute(
-            step=step,
-            dataset=dataset,
-            context=context,
-            runner=self,
-            prediction_store=prediction_store,
-            loaded_binaries=loaded_binaries
-        )
-
-        return result.updated_context, result.artifacts
-
-    def run_steps(
-        self,
-        steps: List[Any],
-        dataset: 'SpectroDataset',
-        context: Union['ExecutionContext', dict],
-        execution: str = "sequential",
-        prediction_store: Optional['Predictions'] = None,
-        is_substep: bool = False
-    ) -> Union['ExecutionContext', dict]:
-        """Execute multiple pipeline steps sequentially (for subpipeline support).
-
-        This method provides backward compatibility for subpipeline execution,
-        delegating to the step runner for each step in sequence.
-
-        Args:
-            steps: List of pipeline steps to execute
-            dataset: Dataset to operate on
-            context: Execution context (ExecutionContext or dict)
-            execution: Execution strategy (only "sequential" supported)
-            prediction_store: Optional predictions storage
-            is_substep: Whether these are substeps (affects logging)
-
-        Returns:
-            Updated execution context after all steps
-        """
-        from nirs4all.pipeline.steps.runner import StepRunner
-        from nirs4all.pipeline.steps.parser import StepParser
-        from nirs4all.pipeline.steps.router import ControllerRouter
-
-        step_runner = StepRunner(
-            parser=StepParser(),
-            router=ControllerRouter(),
-            verbose=self.verbose,
-            mode=self.mode,
-            show_spinner=self.show_spinner
-        )
-
-        # Execute each step sequentially
-        for step in steps:
-            result = step_runner.execute(
-                step=step,
-                dataset=dataset,
-                context=context,
-                runner=self,
-                prediction_store=prediction_store,
-                loaded_binaries=None
-            )
-            context = result.updated_context
-
-        return context
-
-    def next_op(self) -> int:
-        """Get the next operation ID (compatibility method for controllers)."""
-        self.operation_count += 1
-        return self.operation_count
 
     @property
     def current_run_dir(self) -> Optional[Path]:
@@ -714,3 +572,11 @@ class PipelineRunner:
     def runs_dir(self) -> Path:
         """Get runs directory."""
         return self.orchestrator.runs_dir
+'''
+
+if __name__ == "__main__":
+    output_path = Path(__file__).parent.parent / "nirs4all" / "pipeline" / "runner.py"
+    print(f"Writing clean runner to: {output_path}")
+    output_path.write_text(CLEAN_RUNNER_CONTENT, encoding='utf-8')
+    print(f"✓ Clean runner written ({len(CLEAN_RUNNER_CONTENT)} characters)")
+    print(f"  Lines: {CLEAN_RUNNER_CONTENT.count(chr(10))}")

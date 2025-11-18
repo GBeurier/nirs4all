@@ -48,6 +48,7 @@ class FeatureAugmentationController(OperatorController):
             initial_context = copy.deepcopy(context)
             # Faire une deepcopy à chaque utilisation pour éviter les modifications
             original_source_processings = copy.deepcopy(initial_context["processing"])
+            all_artifacts = []
 
             for i, operation in enumerate(step["feature_augmentation"]):
                 # Recréer source_processings à chaque itération pour éviter les mutations
@@ -62,13 +63,19 @@ class FeatureAugmentationController(OperatorController):
 
                 # Assigner une nouvelle copie à chaque fois
                 local_context["processing"] = copy.deepcopy(source_processings)
-                runner.run_step(operation, dataset, local_context, prediction_store, is_substep=True, propagated_binaries=loaded_binaries)
+
+                # Run substep and collect artifacts
+                updated_context, substep_artifacts = runner.run_step(
+                    operation, dataset, local_context, prediction_store,
+                    is_substep=True, propagated_binaries=loaded_binaries
+                )
+                all_artifacts.extend(substep_artifacts)
 
             context["processing"] = []
             for sdx in range(dataset.n_sources):
                 processing_ids = dataset.features_processings(sdx)
                 context["processing"].append(processing_ids)
-            return context, []
+            return context, all_artifacts
 
         except Exception as e:
             print(f"{CROSS} Error applying feature augmentation: {e}")

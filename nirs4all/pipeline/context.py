@@ -24,7 +24,7 @@ Example:
     >>> new_context = context.with_partition("test")
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any, Dict, List, Optional
 from copy import deepcopy
 
@@ -377,6 +377,34 @@ class ExecutionContext:
         """
         new_ctx = self.copy()
         new_ctx.selector = new_ctx.selector.with_processing(processing)
+        return new_ctx
+
+    def with_step_number(self, step_number: int) -> "ExecutionContext":
+        """
+        Create new context with updated step number.
+
+        Args:
+            step_number: New step number
+
+        Returns:
+            New ExecutionContext with updated step number
+        """
+        new_ctx = self.copy()
+        new_ctx.state = dataclass_replace(new_ctx.state, step_number=step_number)
+        return new_ctx
+
+    def with_metadata(self, **kwargs) -> "ExecutionContext":
+        """
+        Create new context with updated metadata fields.
+
+        Args:
+            **kwargs: Metadata fields to update
+
+        Returns:
+            New ExecutionContext with updated metadata
+        """
+        new_ctx = self.copy()
+        new_ctx.metadata = dataclass_replace(new_ctx.metadata, **kwargs)
         return new_ctx
 
     def get_selector(self) -> DataSelector:

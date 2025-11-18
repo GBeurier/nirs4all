@@ -348,7 +348,7 @@ class SampleAugmentationController(OperatorController):
             local_context["partition"] = "train"
 
             # ONE run_step per transformer - it handles all target samples
-            runner.run_step(
+            _, _ = runner.run_step(
                 transformer,
                 dataset,
                 local_context,

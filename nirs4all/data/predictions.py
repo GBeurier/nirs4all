@@ -1078,12 +1078,25 @@ class Predictions:
                         [f"[{k}:{v:.4f}]" for k, v in zip(metrics, scores)]
                     )
 
-        desc = f"{entry['model_name']} - {entry['metric']} "
-        desc += f"[test: {entry['test_score']:.4f}], [val: {entry['val_score']:.4f}]"
+        # Handle cases where metric might not exist (e.g., in predict mode)
+        metric_str = entry.get('metric', 'N/A')
+        test_score = entry.get('test_score')
+        val_score = entry.get('val_score')
+        fold_id = entry.get('fold_id', '')
+        op_counter = entry.get('op_counter', entry.get('id', 'unknown'))
+        step_idx = entry.get('step_idx', 0)
+        entry_id = entry.get('id', 'unknown')
+
+        desc = f"{entry['model_name']}"
+        if metric_str != 'N/A':
+            desc += f" - {metric_str} "
+            if test_score is not None and val_score is not None:
+                desc += f"[test: {test_score:.4f}], [val: {val_score:.4f}]"
+
         if scores_str:
             desc += f", {scores_str}"
-        desc += f", (fold: {entry['fold_id']}, id: {entry['op_counter']}, "
-        desc += f"step: {entry['step_idx']}) - [{entry['id']}]"
+        desc += f", (fold: {fold_id}, id: {op_counter}, "
+        desc += f"step: {step_idx}) - [{entry_id}]"
         return desc
 
     @classmethod
