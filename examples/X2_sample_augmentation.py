@@ -110,7 +110,7 @@ def example_multiple_transformers():
 def example_leak_prevention():
     """
     Demonstrates leak prevention: CV splits only use base samples.
-    
+
     Note: For full leak prevention demonstration with CV splitting,
     see Q12_sample_augmentation.py which uses the pipeline API.
     This example shows the dataset-level augmentation API.
