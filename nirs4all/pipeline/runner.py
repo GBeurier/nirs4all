@@ -308,7 +308,7 @@ class PipelineRunner:
             step_idx=self.target_model.get('step_idx', None),
             fold_id=self.target_model.get('fold_id', None)
         )
-        
+
         # Prefer predictions with non-empty y_pred (in predict mode, train partition may be empty)
         non_empty = [p for p in candidates if len(p['y_pred']) > 0]
         single_pred = non_empty[0] if non_empty else (candidates[0] if candidates else None)

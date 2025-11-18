@@ -641,7 +641,7 @@ class BaseModelController(OperatorController, ABC):
             'val': self._predict_model(trained_model, X_val_prep) if X_val_prep.shape[0] > 0 else np.array([]),
             'test': self._predict_model(trained_model, X_test_prep) if X_test_prep.shape[0] > 0 else np.array([])
         }
-        
+
         # === 5. TRANSFORM PREDICTIONS TO UNSCALED ===
         predictions_unscaled = {
             'train': self.prediction_transformer.transform_to_unscaled(predictions_scaled['train'], dataset, context),
