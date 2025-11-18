@@ -1,3 +1,8 @@
+## BUGS CRITICAL ##
+Q5 tf predict NO
+Q6 reuse predict NO
+Verify sample augmentation per percentage
+X4 7. Testing backward compatible imports... Error with backward compatible import: No module named 'nirs4all.data.feature_source'
 ## ROADMAP ##
 
 > [PipelineRunner] Refactor, modularize, clean, anticipate 0.6.1, authorize list of pipelineconfigs instead of pipelines
