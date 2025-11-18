@@ -27,6 +27,8 @@
 
 > [SEED] review and fix definitive logic
 
+> [SHAP] Fix import with new numpy / shap package
+
 **RELEASE** 0.4.2: Torch & Jax
 
 

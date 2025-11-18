@@ -198,7 +198,7 @@ class ModelIdentifierGenerator:
         Args:
             model_config: Model configuration dictionary
             runner: Pipeline runner for operation counter
-            context: Execution context with step_id
+            context: Execution context with step_number
             fold_idx: Optional fold index for cross-validation
 
         Returns:
@@ -210,7 +210,8 @@ class ModelIdentifierGenerator:
 
         # Get operation counter and step info
         operation_counter = runner.next_op()
-        step_id = context.get('step_id', 0)
+        # Use step_number (int) not step_id (str) for the numeric step index
+        step_id = context.get('step_number', 0)
 
         # Build model_id and display_name
         model_id = f"{name}_{operation_counter}"

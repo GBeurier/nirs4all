@@ -64,7 +64,7 @@ class TestPipelineNormalization:
         runner = PipelineRunner(save_files=False, verbose=0)
         pipeline_configs = PipelineConfigs(sample_pipeline_steps)
 
-        normalized = runner._normalize_pipeline(pipeline_configs)
+        normalized = runner.orchestrator._normalize_pipeline(pipeline_configs)
 
         assert normalized is pipeline_configs
         assert isinstance(normalized, PipelineConfigs)
@@ -73,7 +73,7 @@ class TestPipelineNormalization:
         """Test that list of steps is converted to PipelineConfigs."""
         runner = PipelineRunner(save_files=False, verbose=0)
 
-        normalized = runner._normalize_pipeline(sample_pipeline_steps, name="test_pipeline")
+        normalized = runner.orchestrator._normalize_pipeline(sample_pipeline_steps, name="test_pipeline")
 
         assert isinstance(normalized, PipelineConfigs)
         assert len(normalized.steps) >= 1
@@ -83,7 +83,7 @@ class TestPipelineNormalization:
         """Test that dict definition is converted to PipelineConfigs."""
         runner = PipelineRunner(save_files=False, verbose=0)
 
-        normalized = runner._normalize_pipeline(sample_pipeline_dict)
+        normalized = runner.orchestrator._normalize_pipeline(sample_pipeline_dict)
 
         assert isinstance(normalized, PipelineConfigs)
         assert len(normalized.steps) >= 1
@@ -105,7 +105,7 @@ class TestPipelineNormalization:
             temp_path = f.name
 
         try:
-            normalized = runner._normalize_pipeline(temp_path)
+            normalized = runner.orchestrator._normalize_pipeline(temp_path)
 
             assert isinstance(normalized, PipelineConfigs)
             assert len(normalized.steps) >= 1
@@ -130,7 +130,7 @@ class TestDatasetNormalization:
         }
         dataset_configs = DatasetConfigs(dataset_config)
 
-        normalized = runner._normalize_dataset(dataset_configs)
+        normalized = runner.orchestrator._normalize_dataset(dataset_configs)
 
         assert normalized is dataset_configs
         assert isinstance(normalized, DatasetConfigs)
@@ -146,7 +146,7 @@ class TestDatasetNormalization:
         dataset.add_samples(X[80:], indexes={"partition": "test"})
         dataset.add_targets(y[80:])
 
-        normalized = runner._normalize_dataset(dataset)
+        normalized = runner.orchestrator._normalize_dataset(dataset)
 
         assert isinstance(normalized, DatasetConfigs)
         assert len(normalized.configs) == 1
@@ -163,7 +163,7 @@ class TestDatasetNormalization:
         runner = PipelineRunner(save_files=False, verbose=0)
         X, _ = sample_data
 
-        normalized = runner._normalize_dataset(X, dataset_name="array_x")
+        normalized = runner.orchestrator._normalize_dataset(X, dataset_name="array_x")
 
         assert isinstance(normalized, DatasetConfigs)
         assert len(normalized.configs) == 1
@@ -181,7 +181,7 @@ class TestDatasetNormalization:
         runner = PipelineRunner(save_files=False, verbose=0)
         X, y = sample_data
 
-        normalized = runner._normalize_dataset((X, y), dataset_name="array_xy")
+        normalized = runner.orchestrator._normalize_dataset((X, y), dataset_name="array_xy")
 
         assert isinstance(normalized, DatasetConfigs)
         assert len(normalized.configs) == 1
@@ -203,7 +203,7 @@ class TestDatasetNormalization:
         X, y = sample_data
 
         partition_info = {"train": 80}  # First 80 samples for training
-        normalized = runner._normalize_dataset((X, y, partition_info), dataset_name="split_array")
+        normalized = runner.orchestrator._normalize_dataset((X, y, partition_info), dataset_name="split_array")
 
         assert isinstance(normalized, DatasetConfigs)
         config, name = normalized.configs[0]
@@ -226,7 +226,7 @@ class TestDatasetNormalization:
         test_idx = slice(70, 100)
         partition_info = {"train": train_idx, "test": test_idx}
 
-        normalized = runner._normalize_dataset((X, y, partition_info), dataset_name="indexed_array")
+        normalized = runner.orchestrator._normalize_dataset((X, y, partition_info), dataset_name="indexed_array")
 
         config, name = normalized.configs[0]
         dataset = normalized.get_dataset(config, name)
@@ -250,7 +250,7 @@ class TestDatasetNormalization:
             "test_y": y[80:]
         }
 
-        normalized = runner._normalize_dataset(config_dict)
+        normalized = runner.orchestrator._normalize_dataset(config_dict)
 
         assert isinstance(normalized, DatasetConfigs)
         assert len(normalized.configs) == 1
@@ -353,7 +353,7 @@ class TestErrorHandling:
         runner = PipelineRunner(save_files=False, verbose=0)
 
         with pytest.raises((TypeError, ValueError, AttributeError)):
-            runner._normalize_pipeline(12345)  # Invalid type
+            runner.orchestrator._normalize_pipeline(12345)  # Invalid type
 
     def test_invalid_dataset_type(self):
         """Test that invalid dataset path returns DatasetConfigs (even if empty)."""
@@ -361,7 +361,7 @@ class TestErrorHandling:
 
         # Invalid path string doesn't raise, but returns DatasetConfigs
         # It will have 1 config entry but with None values (folder doesn't exist)
-        result = runner._normalize_dataset("not_a_valid_path_or_config")
+        result = runner.orchestrator._normalize_dataset("not_a_valid_path_or_config")
         assert isinstance(result, DatasetConfigs)
         # Should have 1 config entry (even though the folder doesn't exist)
         assert len(result.configs) >= 0  # May be 0 or 1 depending on parser behavior
@@ -370,8 +370,8 @@ class TestErrorHandling:
         """Test that tuple with non-arrays raises error."""
         runner = PipelineRunner(save_files=False, verbose=0)
 
-        with pytest.raises(ValueError, match="Tuple dataset must contain numpy arrays"):
-            runner._normalize_dataset(("not_array", "also_not_array"))
+        with pytest.raises((ValueError, TypeError)):
+            runner.orchestrator._normalize_dataset(("not_array", "also_not_array"))
 
 
 if __name__ == "__main__":

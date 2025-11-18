@@ -83,14 +83,17 @@ class PredictionDataAssembler:
         pipeline_name = runner.saver.pipeline_id
         dataset_name = dataset.name
 
+        # Ensure task_type is a string (convert from enum if needed)
+        task_type_str = str(dataset.task_type.value) if hasattr(dataset.task_type, 'value') else str(dataset.task_type)
+
         prediction_data = {
             'dataset_name': dataset_name,
             'dataset_path': dataset_name,
             'config_name': pipeline_name,
             'config_path': f"{dataset_name}/{pipeline_name}",
-            'pipeline_uid': pipeline_uid,
-            'step_idx': identifiers.step_id,
-            'op_counter': identifiers.operation_counter,
+            'pipeline_uid': pipeline_uid if pipeline_uid else "",
+            'step_idx': int(identifiers.step_id) if identifiers.step_id else 0,
+            'op_counter': int(identifiers.operation_counter),
             'model_name': identifiers.name,
             'model_classname': identifiers.classname,
             'model_path': f"{dataset_name}/{pipeline_name}/{identifiers.step_id}_{identifiers.name}_{identifiers.operation_counter}.pkl",
@@ -99,7 +102,7 @@ class PredictionDataAssembler:
             'test_score': scores.get('test', 0.0),
             'train_score': scores.get('train', 0.0),
             'metric': scores.get('metric', 'unknown'),
-            'task_type': dataset.task_type,
+            'task_type': task_type_str,
             'n_features': X_shape[1] if len(X_shape) > 1 else 1,
             'preprocessings': dataset.short_preprocessings_str(),
             'best_params': best_params if best_params is not None else {},
@@ -142,6 +145,11 @@ class PredictionDataAssembler:
         suffix = "_weighted_avg" if is_weighted else "_avg"
         avg_prediction['model_name'] = base_prediction['model_name'] + suffix
         avg_prediction['fold_id'] = None  # No specific fold for average
+
+        # Ensure step_idx is an integer (copy from base may have string)
+        if 'step_idx' in avg_prediction:
+            step_idx = avg_prediction['step_idx']
+            avg_prediction['step_idx'] = int(step_idx) if step_idx and str(step_idx).strip() else 0
 
         # Update scores
         avg_prediction['train_score'] = averaged_scores.get('train', 0.0)

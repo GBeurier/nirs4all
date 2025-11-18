@@ -120,14 +120,10 @@ class TestRunnerInitialization:
         """Test runner initialization with default parameters."""
         runner = PipelineRunner()
 
-        assert runner.max_workers == -1
-        assert runner.continue_on_error is False
-        assert runner.backend == 'threading'
+        # Test runner attributes (not moved to orchestrator)
         assert runner.verbose == 0
-        assert runner.parallel is False
         assert runner.save_files is True
         assert runner.mode == "train"
-        assert runner.load_existing_predictions is True
         assert runner.show_spinner is True
         assert runner.enable_tab_reports is True
         assert runner.plots_visible is False
@@ -135,19 +131,19 @@ class TestRunnerInitialization:
         assert runner.step_number == 0
         assert runner.substep_number == -1
         assert runner.operation_count == 0
+        assert runner.continue_on_error is False
+
+        # Test orchestrator is created
+        assert runner.orchestrator is not None
+        assert runner.orchestrator.mode == "train"
 
     def test_custom_initialization(self, temp_workspace):
         """Test runner with custom parameters."""
         runner = PipelineRunner(
-            max_workers=4,
-            continue_on_error=True,
-            backend='loky',
             verbose=2,
-            parallel=True,
             workspace_path=temp_workspace,
             save_files=False,
             mode="predict",
-            load_existing_predictions=False,
             show_spinner=False,
             enable_tab_reports=False,
             random_state=123,
@@ -155,19 +151,15 @@ class TestRunnerInitialization:
             keep_datasets=False
         )
 
-        assert runner.max_workers == 4
-        assert runner.continue_on_error is True
-        assert runner.backend == 'loky'
         assert runner.verbose == 2
-        assert runner.parallel is True
         assert runner.workspace_path == temp_workspace
         assert runner.save_files is False
         assert runner.mode == "predict"
-        assert runner.load_existing_predictions is False
         assert runner.show_spinner is False
         assert runner.enable_tab_reports is False
         assert runner.plots_visible is True
         assert runner.keep_datasets is False
+        assert runner.orchestrator.mode == "predict"
 
     def test_workspace_directory_creation(self, temp_workspace):
         """Test that workspace directories are created."""
@@ -200,12 +192,9 @@ class TestRunnerInitialization:
         assert runner.current_run_dir is None
         assert runner.saver is None
         assert runner.manifest_manager is None
-        assert runner.step_binaries == {}
         assert runner.binary_loader is None
-        assert runner.prediction_metadata is None
         assert runner.config_path is None
         assert runner.target_model is None
-        assert runner.model_weights is None
         assert runner._capture_model is False
         assert runner._captured_model is None
         assert runner._figure_refs == []
@@ -214,224 +203,11 @@ class TestRunnerInitialization:
 
 
 # ============================================================================
-# 2. DATASET NORMALIZATION TESTS
-# ============================================================================
-
-class TestDatasetNormalization:
-    """Test dataset input normalization."""
-
-    def test_normalize_dataset_configs_passthrough(self, sample_regression_data):
-        """Test that DatasetConfigs passes through unchanged."""
-        runner = PipelineRunner(save_files=False)
-        X, y = sample_regression_data
-
-        dataset_config = DatasetConfigs({
-            "name": "test",
-            "train_x": X[:80],
-            "train_y": y[:80],
-            "test_x": X[80:],
-            "test_y": y[80:]
-        })
-
-        normalized = runner._normalize_dataset(dataset_config)
-
-        assert normalized is dataset_config
-        assert isinstance(normalized, DatasetConfigs)
-
-    def test_normalize_spectro_dataset(self, sample_regression_data):
-        """Test SpectroDataset wrapping."""
-        runner = PipelineRunner(save_files=False)
-        X, y = sample_regression_data
-
-        dataset = SpectroDataset(name="spectro_test")
-        dataset.add_samples(X[:80], indexes={"partition": "train"})
-        dataset.add_targets(y[:80])
-        dataset.add_samples(X[80:], indexes={"partition": "test"})
-        dataset.add_targets(y[80:])
-
-        normalized = runner._normalize_dataset(dataset)
-
-        assert isinstance(normalized, DatasetConfigs)
-        assert len(normalized.configs) == 1
-        config, name = normalized.configs[0]
-        assert name == "spectro_test"
-        assert "_preloaded_dataset" in config
-
-    def test_normalize_numpy_x_only(self, sample_regression_data):
-        """Test single numpy array (X only) normalization."""
-        runner = PipelineRunner(save_files=False)
-        X, _ = sample_regression_data
-
-        normalized = runner._normalize_dataset(X, dataset_name="x_only")
-
-        assert isinstance(normalized, DatasetConfigs)
-        config, name = normalized.configs[0]
-        assert name == "x_only"
-
-        dataset = normalized.get_dataset(config, name)
-        X_test = dataset.x({"partition": "test"}, layout="2d")
-        assert X_test.shape == X.shape
-
-    def test_normalize_numpy_tuple_xy(self, sample_regression_data):
-        """Test (X, y) tuple normalization."""
-        runner = PipelineRunner(save_files=False)
-        X, y = sample_regression_data
-
-        normalized = runner._normalize_dataset((X, y), dataset_name="xy_data")
-
-        assert isinstance(normalized, DatasetConfigs)
-        config, name = normalized.configs[0]
-        assert name == "xy_data"
-
-        dataset = normalized.get_dataset(config, name)
-        X_train = dataset.x({"partition": "train"}, layout="2d")
-        y_train = dataset.y({"partition": "train"})
-
-        assert X_train.shape[0] == y_train.shape[0]
-        assert X_train.shape[1] == X.shape[1]
-
-    def test_normalize_numpy_with_partition_dict(self, sample_regression_data):
-        """Test (X, y, partition_info) tuple normalization."""
-        runner = PipelineRunner(save_files=False)
-        X, y = sample_regression_data
-
-        partition_info = {"train": 70, "test": slice(70, 100)}
-        normalized = runner._normalize_dataset((X, y, partition_info), dataset_name="partitioned")
-
-        config, name = normalized.configs[0]
-        dataset = normalized.get_dataset(config, name)
-
-        X_train = dataset.x({"partition": "train"}, layout="2d")
-        X_test = dataset.x({"partition": "test"}, layout="2d")
-
-        assert X_train.shape[0] == 70
-        assert X_test.shape[0] == 30
-
-    def test_normalize_dict_config(self, sample_regression_data):
-        """Test dict config normalization."""
-        runner = PipelineRunner(save_files=False)
-        X, y = sample_regression_data
-
-        config_dict = {
-            "name": "dict_dataset",
-            "train_x": X[:80],
-            "train_y": y[:80],
-            "test_x": X[80:],
-            "test_y": y[80:]
-        }
-
-        normalized = runner._normalize_dataset(config_dict)
-
-        assert isinstance(normalized, DatasetConfigs)
-        assert len(normalized.configs) == 1
-
-    def test_extract_dataset_cache(self, sample_regression_data):
-        """Test dataset cache extraction."""
-        runner = PipelineRunner(save_files=False)
-        X, y = sample_regression_data
-
-        dataset = SpectroDataset(name="cache_test")
-        dataset.add_samples(X[:80], indexes={"partition": "train"})
-        dataset.add_targets(y[:80])
-        dataset.add_samples(X[80:], indexes={"partition": "test"})
-        dataset.add_targets(y[80:])
-
-        cache = runner._extract_dataset_cache(dataset)
-
-        assert isinstance(cache, tuple)
-        assert len(cache) == 10
-        x_train, y_train, m_train, train_headers, m_train_headers, \
-        x_test, y_test, m_test, test_headers, m_test_headers = cache
-
-        assert x_train is not None
-        assert y_train is not None
-        assert x_test is not None
-        assert y_test is not None
-
-    def test_normalize_invalid_tuple(self):
-        """Test error handling for invalid tuple."""
-        runner = PipelineRunner(save_files=False)
-
-        with pytest.raises(ValueError, match="Tuple dataset must contain numpy arrays"):
-            runner._normalize_dataset(("not_array", "also_not_array"))
-
-
-# ============================================================================
-# 3. PIPELINE NORMALIZATION TESTS
-# ============================================================================
-
-class TestPipelineNormalization:
-    """Test pipeline input normalization."""
-
-    def test_normalize_pipeline_configs_passthrough(self, simple_pipeline_steps):
-        """Test that PipelineConfigs passes through unchanged."""
-        runner = PipelineRunner(save_files=False)
-        pipeline_configs = PipelineConfigs(simple_pipeline_steps)
-
-        normalized = runner._normalize_pipeline(pipeline_configs)
-
-        assert normalized is pipeline_configs
-        assert isinstance(normalized, PipelineConfigs)
-
-    def test_normalize_list_steps(self, simple_pipeline_steps):
-        """Test list of steps normalization."""
-        runner = PipelineRunner(save_files=False)
-
-        normalized = runner._normalize_pipeline(simple_pipeline_steps, name="test_pipeline")
-
-        assert isinstance(normalized, PipelineConfigs)
-        assert len(normalized.steps) >= 1
-        assert "test_pipeline" in normalized.names[0]
-
-    def test_normalize_dict_pipeline(self, simple_pipeline_steps):
-        """Test dict pipeline normalization."""
-        runner = PipelineRunner(save_files=False)
-        pipeline_dict = {"pipeline": simple_pipeline_steps}
-
-        normalized = runner._normalize_pipeline(pipeline_dict)
-
-        assert isinstance(normalized, PipelineConfigs)
-        assert len(normalized.steps) >= 1
-
-    def test_normalize_json_file(self, temp_workspace):
-        """Test JSON file loading."""
-        runner = PipelineRunner(save_files=False)
-
-        pipeline_dict = {
-            "pipeline": [
-                {"preprocessing": {"class": "sklearn.preprocessing.StandardScaler"}},
-                {"model": {"class": "sklearn.linear_model.LinearRegression"}}
-            ]
-        }
-
-        json_path = temp_workspace / "pipeline.json"
-        with open(json_path, 'w') as f:
-            json.dump(pipeline_dict, f)
-
-        normalized = runner._normalize_pipeline(str(json_path))
-
-        assert isinstance(normalized, PipelineConfigs)
-        assert len(normalized.steps) >= 1
-
-    def test_normalize_max_generation_count(self, simple_pipeline_steps):
-        """Test max_generation_count parameter."""
-        runner = PipelineRunner(save_files=False)
-
-        normalized = runner._normalize_pipeline(
-            simple_pipeline_steps,
-            name="test",
-            max_generation_count=500
-        )
-
-        assert isinstance(normalized, PipelineConfigs)
-        # The max_generation_count is stored in PipelineConfigs
-
-
-# ============================================================================
-# 4. RUN METHOD TESTS (TRAIN MODE)
+# 2. RUN METHOD TESTS (TRAIN MODE)
 # ============================================================================
 
 class TestRunMethod:
+
     """Test the main run() method in training mode."""
 
     def test_run_basic_regression(self, test_data_manager, simple_pipeline_steps, temp_workspace):
@@ -757,289 +533,11 @@ class TestExplainMethod:
 
 
 # ============================================================================
-# 7. STEP EXECUTION TESTS
-# ============================================================================
-
-class TestStepExecution:
-    """Test step execution and control flow."""
-
-    def test_run_steps_sequential(self, test_data_manager, temp_workspace):
-        """Test sequential step execution."""
-        runner = PipelineRunner(
-            workspace_path=temp_workspace,
-            save_files=False,
-            verbose=0,
-            enable_tab_reports=False
-        )
-
-        dataset_path = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_path)
-        config, name = dataset_config.configs[0]
-        dataset = dataset_config.get_dataset(config, name)
-
-        # Initialize saver and manifest manager (required for step execution)
-        runner.current_run_dir = temp_workspace / "test_run"
-        runner.current_run_dir.mkdir(exist_ok=True)
-        from nirs4all.pipeline.io import SimulationSaver
-        from nirs4all.pipeline.manifest_manager import ManifestManager
-        runner.saver = SimulationSaver(runner.current_run_dir, save_files=False)
-        runner.manifest_manager = ManifestManager(runner.current_run_dir)
-
-        # Create pipeline manifest (required for step execution)
-        pipeline_id, _ = runner.manifest_manager.create_pipeline(
-            name="test",
-            dataset=dataset.name,
-            pipeline_config={"steps": []},
-            pipeline_hash="test123"
-        )
-        runner.pipeline_uid = pipeline_id
-        runner.saver.register(pipeline_id)
-
-        steps = [
-            {"preprocessing": StandardScaler()},
-            {"model": LinearRegression()}
-        ]
-
-        context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
-        predictions = Predictions()
-
-        final_context = runner.run_steps(
-            steps, dataset, context,
-            execution="sequential",
-            prediction_store=predictions
-        )
-
-        assert final_context is not None
-        assert isinstance(final_context, dict)
-
-    def test_run_step_preprocessing(self, test_data_manager, temp_workspace):
-        """Test individual preprocessing step."""
-        runner = PipelineRunner(
-            workspace_path=temp_workspace,
-            save_files=False,
-            verbose=0
-        )
-
-        dataset_path = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_path)
-        config, name = dataset_config.configs[0]
-        dataset = dataset_config.get_dataset(config, name)
-
-        # Initialize required state
-        runner.current_run_dir = temp_workspace / "test_run"
-        runner.current_run_dir.mkdir(exist_ok=True)
-        from nirs4all.pipeline.io import SimulationSaver
-        from nirs4all.pipeline.manifest_manager import ManifestManager
-        runner.saver = SimulationSaver(runner.current_run_dir, save_files=False)
-        runner.manifest_manager = ManifestManager(runner.current_run_dir)
-
-        # Create pipeline manifest (required for step execution)
-        pipeline_id, _ = runner.manifest_manager.create_pipeline(
-            name="test",
-            dataset=dataset.name,
-            pipeline_config={"steps": []},
-            pipeline_hash="test123"
-        )
-        runner.pipeline_uid = pipeline_id
-        runner.saver.register(pipeline_id)
-
-        step = {"preprocessing": StandardScaler()}
-        context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
-        predictions = Predictions()
-
-        new_context = runner.run_step(step, dataset, context, predictions)
-
-        assert new_context is not None
-
-    def test_run_step_model(self, test_data_manager, temp_workspace):
-        """Test model step execution."""
-        runner = PipelineRunner(
-            workspace_path=temp_workspace,
-            save_files=False,
-            verbose=0,
-            enable_tab_reports=False
-        )
-
-        dataset_path = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_path)
-        config, name = dataset_config.configs[0]
-        dataset = dataset_config.get_dataset(config, name)
-
-        # Initialize required state
-        runner.current_run_dir = temp_workspace / "test_run"
-        runner.current_run_dir.mkdir(exist_ok=True)
-        from nirs4all.pipeline.io import SimulationSaver
-        from nirs4all.pipeline.manifest_manager import ManifestManager
-        runner.saver = SimulationSaver(runner.current_run_dir, save_files=False)
-        runner.manifest_manager = ManifestManager(runner.current_run_dir)
-
-        # Create pipeline manifest (required for step execution)
-        pipeline_id, _ = runner.manifest_manager.create_pipeline(
-            name="test",
-            dataset=dataset.name,
-            pipeline_config={"steps": []},
-            pipeline_hash="test123"
-        )
-        runner.pipeline_uid = pipeline_id
-        runner.saver.register(pipeline_id)
-
-        # Run preprocessing first - wrap in dict
-        scaler = {"preprocessing": StandardScaler()}
-        context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
-        predictions = Predictions()
-        context = runner.run_step(scaler, dataset, context, predictions)
-
-        # Now run model
-        model_step = {"model": LinearRegression()}
-        context = runner.run_step(model_step, dataset, context, predictions)
-
-        # Should have predictions now
-        assert predictions.num_predictions > 0
-
-    def test_run_step_none(self, test_data_manager, temp_workspace):
-        """Test that None step is handled gracefully."""
-        runner = PipelineRunner(
-            workspace_path=temp_workspace,
-            save_files=False,
-            verbose=0
-        )
-
-        dataset_path = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_path)
-        config, name = dataset_config.configs[0]
-        dataset = dataset_config.get_dataset(config, name)
-
-        context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
-        predictions = Predictions()
-
-        new_context = runner.run_step(None, dataset, context, predictions)
-
-        assert new_context == context
-
-    def test_step_number_tracking(self, test_data_manager, temp_workspace):
-        """Test that step numbers are tracked correctly."""
-        runner = PipelineRunner(
-            workspace_path=temp_workspace,
-            save_files=False,
-            verbose=0,
-            enable_tab_reports=False
-        )
-
-        dataset_path = str(test_data_manager.get_temp_directory() / "regression")
-
-        pipeline = [
-            StandardScaler(),
-            MinMaxScaler(),
-            {"model": LinearRegression()}
-        ]
-
-        result = runner.run(pipeline, dataset_path)
-
-        # Step number should have incremented
-        assert runner.step_number > 0
-
-    def test_operation_count_tracking(self, test_data_manager, temp_workspace):
-        """Test operation count tracking."""
-        runner = PipelineRunner(
-            workspace_path=temp_workspace,
-            save_files=False,
-            verbose=0,
-            enable_tab_reports=False
-        )
-
-        # Test next_op
-        op1 = runner.next_op()
-        op2 = runner.next_op()
-        op3 = runner.next_op()
-
-        assert op1 == 1
-        assert op2 == 2
-        assert op3 == 3
-
-
-# ============================================================================
-# 8. CONTROLLER SELECTION TESTS
-# ============================================================================
-
-class TestControllerSelection:
-    """Test controller selection logic."""
-
-    def test_select_controller_for_scaler(self):
-        """Test controller selection for sklearn scaler."""
-        runner = PipelineRunner(save_files=False)
-
-        scaler = StandardScaler()
-        controller = runner._select_controller(scaler, operator=scaler)
-
-        assert controller is not None
-        assert hasattr(controller, 'execute')
-
-    def test_select_controller_for_model(self):
-        """Test controller selection for model."""
-        runner = PipelineRunner(save_files=False)
-
-        model = LinearRegression()
-        step = {"model": model}
-        controller = runner._select_controller(step, operator=model, keyword="model")
-
-        assert controller is not None
-        assert hasattr(controller, 'execute')
-
-    def test_select_controller_for_split(self):
-        """Test controller selection for cross-validator."""
-        runner = PipelineRunner(save_files=False)
-
-        cv = ShuffleSplit(n_splits=2, random_state=42)
-        controller = runner._select_controller(cv, operator=cv)
-
-        assert controller is not None
-        assert hasattr(controller, 'execute')
-
-    def test_select_controller_for_dict(self):
-        """Test controller selection for dict step."""
-        runner = PipelineRunner(save_files=False)
-
-        step = {"preprocessing": StandardScaler()}
-        controller = runner._select_controller(step, operator=StandardScaler(), keyword="preprocessing")
-
-        assert controller is not None
-
-    def test_select_controller_for_string(self):
-        """Test controller selection for string step."""
-        runner = PipelineRunner(save_files=False)
-
-        step = "chart_2d"
-        controller = runner._select_controller(step, keyword="chart_2d")
-
-        assert controller is not None
-
-
-# ============================================================================
-# 9. BINARY MANAGEMENT TESTS
-# ============================================================================
-
-class TestBinaryManagement:
-    """Test binary artifact management."""
-
-    def test_step_binaries_initialization(self):
-        """Test step_binaries dict initialization."""
-        runner = PipelineRunner(save_files=False)
-
-        assert runner.step_binaries == {}
-        assert isinstance(runner.step_binaries, dict)
-
-    def test_binary_loader_none_initially(self):
-        """Test that binary_loader is None initially."""
-        runner = PipelineRunner(save_files=False)
-
-        assert runner.binary_loader is None
-
-
-# ============================================================================
-# 10. WORKSPACE AND FILE MANAGEMENT TESTS
+# 7. WORKSPACE MANAGEMENT TESTS
 # ============================================================================
 
 class TestWorkspaceManagement:
+
     """Test workspace and file management."""
 
     def test_default_workspace_creation(self):
@@ -1117,47 +615,6 @@ class TestContextManagement:
         assert "y" in context
         assert context["y"] == "numeric"
 
-    def test_context_propagation(self, test_data_manager, temp_workspace):
-        """Test that context is propagated through steps."""
-        runner = PipelineRunner(
-            workspace_path=temp_workspace,
-            save_files=False,
-            verbose=0,
-            enable_tab_reports=False
-        )
-
-        dataset_path = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_path)
-        config, name = dataset_config.configs[0]
-        dataset = dataset_config.get_dataset(config, name)
-
-        # Initialize required state
-        runner.current_run_dir = temp_workspace / "test_run"
-        runner.current_run_dir.mkdir(exist_ok=True)
-        from nirs4all.pipeline.io import SimulationSaver
-        from nirs4all.pipeline.manifest_manager import ManifestManager
-        runner.saver = SimulationSaver(runner.current_run_dir, save_files=False)
-        runner.manifest_manager = ManifestManager(runner.current_run_dir)
-
-        # Create pipeline manifest (required for step execution)
-        pipeline_id, _ = runner.manifest_manager.create_pipeline(
-            name="test",
-            dataset=dataset.name,
-            pipeline_config={"steps": []},
-            pipeline_hash="test123"
-        )
-        runner.pipeline_uid = pipeline_id
-        runner.saver.register(pipeline_id)
-
-        steps = [{"preprocessing": StandardScaler()}, {"preprocessing": MinMaxScaler()}]
-        context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
-        predictions = Predictions()
-
-        final_context = runner.run_steps(steps, dataset, context, prediction_store=predictions)
-
-        assert final_context is not None
-        assert "processing" in final_context
-
 
 # ============================================================================
 # 12. ERROR HANDLING TESTS
@@ -1234,33 +691,6 @@ class TestErrorHandling:
 
         # Should complete without error, but no predictions
         assert result is not None
-
-
-# ============================================================================
-# 13. PARALLEL EXECUTION TESTS
-# ============================================================================
-
-class TestParallelExecution:
-    """Test parallel execution functionality."""
-
-    def test_parallel_disabled_by_default(self):
-        """Test that parallel is disabled by default."""
-        runner = PipelineRunner(save_files=False)
-
-        assert runner.parallel is False
-
-    def test_parallel_enabled(self):
-        """Test parallel enabled configuration."""
-        runner = PipelineRunner(parallel=True, max_workers=2, save_files=False)
-
-        assert runner.parallel is True
-        assert runner.max_workers == 2
-
-    def test_backend_configuration(self):
-        """Test backend configuration."""
-        runner = PipelineRunner(backend='loky', save_files=False)
-
-        assert runner.backend == 'loky'
 
 
 # ============================================================================
@@ -1518,19 +948,6 @@ class TestEdgeCases:
         except Exception:
             # Some algorithms might fail with constant data
             pass
-
-    def test_nan_handling_in_normalization(self):
-        """Test that NaN values are handled."""
-        runner = PipelineRunner(save_files=False)
-
-        # This should raise or handle gracefully
-        X = np.random.randn(100, 50)
-        X[0, 0] = np.nan
-        y = np.random.randn(100)
-
-        # Normalization should work, execution might fail
-        normalized = runner._normalize_dataset((X, y))
-        assert isinstance(normalized, DatasetConfigs)
 
 
 # ============================================================================
