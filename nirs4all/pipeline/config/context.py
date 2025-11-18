@@ -277,6 +277,18 @@ class StepMetadata:
             target_features=self.target_features.copy()
         )
 
+    def reset_ephemeral_flags(self) -> None:
+        """Reset ephemeral flags after step execution.
+
+        Clears augment_sample, add_feature, replace_processing flags
+        and target lists to prevent leakage between steps.
+        """
+        self.augment_sample = False
+        self.add_feature = False
+        self.replace_processing = False
+        self.target_samples.clear()
+        self.target_features.clear()
+
 
 class ExecutionContext:
     """

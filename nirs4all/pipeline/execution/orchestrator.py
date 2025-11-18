@@ -8,16 +8,12 @@ import numpy as np
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.artifacts.manager import ArtifactManager
-from nirs4all.pipeline.config import PipelineConfigs
-from nirs4all.pipeline.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
+from nirs4all.pipeline.storage.artifacts.manager import ArtifactManager
+from nirs4all.pipeline.config.config import PipelineConfigs
+from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.execution.executor import PipelineExecutor
-from nirs4all.pipeline.execution.result import OrchestrationResult
-from nirs4all.pipeline.io import SimulationSaver
-from nirs4all.pipeline.manifest_manager import ManifestManager
-from nirs4all.pipeline.steps.parser import StepParser
-from nirs4all.pipeline.steps.router import ControllerRouter
-from nirs4all.pipeline.steps.runner import StepRunner
+from nirs4all.pipeline.storage.io import SimulationSaver
+from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 from nirs4all.utils.emoji import ROCKET, TROPHY
 from nirs4all.visualization.reports import TabReportManager
 
@@ -103,7 +99,7 @@ class PipelineOrchestrator:
         dataset_name: str = "dataset",
         max_generation_count: int = 10000,
         runner: Any = None  # PipelineRunner reference for backward compatibility
-    ) -> OrchestrationResult:
+    ) -> Tuple[Predictions, Dict[str, Any]]:
         """Execute pipeline configurations on dataset configurations.
 
         Args:
@@ -115,7 +111,7 @@ class PipelineOrchestrator:
             runner: Optional PipelineRunner reference for compatibility
 
         Returns:
-            OrchestrationResult with predictions and execution results
+            Tuple of (run_predictions, dataset_predictions)
         """
         # Normalize inputs
         pipeline_configs = self._normalize_pipeline(
@@ -139,7 +135,6 @@ class PipelineOrchestrator:
 
         datasets_predictions = {}
         run_predictions = Predictions()
-        execution_results = []
 
         # Execute for each dataset
         for config, name in dataset_configs.configs:
@@ -148,38 +143,23 @@ class PipelineOrchestrator:
             current_run_dir = self.runs_dir / f"{date_str}_{name}"
             current_run_dir.mkdir(parents=True, exist_ok=True)
 
-            # Initialize components for this dataset run
-            saver = SimulationSaver(current_run_dir, save_files=self.save_files)
-            manifest_manager = ManifestManager(current_run_dir)
-            artifact_manager = ArtifactManager(
-                current_run_dir / "artifacts",
-                manifest_manager=manifest_manager
-            )
+            # Build executor using ExecutorBuilder
+            binary_loader = runner.binary_loader if (runner and hasattr(runner, 'binary_loader')) else None
 
-            # Set runner attributes if runner is provided (for compatibility)
-            if runner:
-                runner.saver = saver
-                runner.manifest_manager = manifest_manager
+            executor = (ExecutorBuilder()
+                .with_run_directory(current_run_dir)
+                .with_verbose(self.verbose)
+                .with_mode(self.mode)
+                .with_save_files(self.save_files)
+                .with_continue_on_error(self.continue_on_error)
+                .with_show_spinner(self.show_spinner)
+                .with_binary_loader(binary_loader)
+                .with_runner(runner)
+                .build())
 
-            # Create step runner and executor
-            step_runner = StepRunner(
-                parser=StepParser(),
-                router=ControllerRouter(),
-                verbose=self.verbose,
-                mode=self.mode,
-                show_spinner=self.show_spinner
-            )
-
-            executor = PipelineExecutor(
-                step_runner=step_runner,
-                artifact_manager=artifact_manager,
-                manifest_manager=manifest_manager,
-                verbose=self.verbose,
-                mode=self.mode,
-                continue_on_error=self.continue_on_error,
-                saver=saver,
-                binary_loader=runner.binary_loader if hasattr(runner, 'binary_loader') else None
-            )
+            # Get components from executor for compatibility
+            saver = executor.saver
+            manifest_manager = executor.manifest_manager
 
             # Load global predictions from workspace root (dataset_name.meta.parquet)
             dataset_prediction_path = self.workspace_path / f"{name}.meta.parquet"
@@ -197,12 +177,12 @@ class PipelineOrchestrator:
                 if self.verbose > 0:
                     print(dataset)
 
-                # Initialize execution context
-                context = self._initialize_context(dataset)
+                # Initialize execution context via executor
+                context = executor.initialize_context(dataset)
 
                 # Execute pipeline
                 config_predictions = Predictions()
-                result = executor.execute(
+                executor.execute(
                     steps=steps,
                     config_name=config_name,
                     dataset=dataset,
@@ -210,8 +190,6 @@ class PipelineOrchestrator:
                     runner=runner,  # Pass runner for compatibility
                     prediction_store=config_predictions
                 )
-
-                execution_results.append(result)
 
                 # Capture preprocessed data AFTER preprocessing
                 if self.keep_datasets:
@@ -243,34 +221,7 @@ class PipelineOrchestrator:
                 "dataset_name": name
             }
 
-        return OrchestrationResult(
-            run_predictions=run_predictions,
-            dataset_predictions=datasets_predictions,
-            execution_results=execution_results
-        )
-
-    def _initialize_context(self, dataset: SpectroDataset) -> ExecutionContext:
-        """Initialize ExecutionContext for pipeline execution."""
-        selector = DataSelector(
-            partition=None,
-            processing=[["raw"]] * dataset.features_sources(),
-            layout="2d",
-            concat_source=True
-        )
-
-        state = PipelineState(
-            y_processing="numeric",
-            step_number=0,
-            mode=self.mode
-        )
-
-        metadata = StepMetadata()
-
-        return ExecutionContext(
-            selector=selector,
-            state=state,
-            metadata=metadata
-        )
+        return run_predictions, datasets_predictions
 
     def _normalize_pipeline(
         self,

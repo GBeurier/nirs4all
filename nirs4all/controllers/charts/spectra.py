@@ -62,8 +62,7 @@ class SpectraChartController(OperatorController):
 
     def execute(
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
@@ -79,6 +78,9 @@ class SpectraChartController(OperatorController):
         Returns:
             Tuple of (context, image_list) where image_list contains plot metadata
         """
+        # Extract step config for compatibility
+        step = step_info.original_step
+
         # Skip execution in prediction mode
         if mode == "predict" or mode == "explain":
             return context, []

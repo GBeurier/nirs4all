@@ -10,7 +10,7 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from nirs4all.pipeline.manifest_manager import ManifestManager
+from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 
 
 @pytest.fixture

@@ -414,8 +414,7 @@ class SklearnModelController(BaseModelController):
 
     def execute(
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
@@ -430,8 +429,7 @@ class SklearnModelController(BaseModelController):
         preferred data layout to '2d' and delegates to parent execute method.
 
         Args:
-            step (Any): Pipeline step configuration containing model info.
-            operator (Any): Model operator or instance to execute.
+            step_info: Parsed step containing model configuration and operator.
             dataset (SpectroDataset): Dataset containing features and targets.
             context (Dict[str, Any]): Pipeline execution context with state info.
             runner (PipelineRunner): Pipeline runner for coordination.
@@ -455,6 +453,6 @@ class SklearnModelController(BaseModelController):
         context['layout'] = self.get_preferred_layout()
 
         # Call parent execute method
-        return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
+        return super().execute(step_info, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
 
 

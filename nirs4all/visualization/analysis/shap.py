@@ -891,7 +891,7 @@ class ShapAnalyzer:
 
     def save_results(self, results: Dict[str, Any], output_path: str):
         """Save SHAP results to disk using the new serializer."""
-        from nirs4all.pipeline.artifact_serialization import to_bytes
+        from nirs4all.pipeline.storage.artifacts.artifact_persistence import to_bytes
 
         data, _ = to_bytes(results, format_hint=None)
         with open(output_path, 'wb') as f:
@@ -901,7 +901,7 @@ class ShapAnalyzer:
     @staticmethod
     def load_results(input_path: str) -> Dict[str, Any]:
         """Load SHAP results from disk using the new serializer."""
-        from nirs4all.pipeline.artifact_serialization import from_bytes
+        from nirs4all.pipeline.storage.artifacts.artifact_persistence import from_bytes
 
         with open(input_path, 'rb') as f:
             data = f.read()

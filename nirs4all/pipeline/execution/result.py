@@ -16,12 +16,16 @@ class ArtifactMeta:
         content_hash: Content-based hash for deduplication
         path: Relative path from artifacts directory
         format: Artifact format (e.g., 'joblib', 'h5', 'safetensors')
+        format_version: Version of the library used (e.g., 'sklearn==1.3.0')
+        nirs4all_version: Version of nirs4all used (e.g., '0.4.1')
         metadata: Additional artifact metadata
     """
     name: str
     content_hash: str
     path: str
     format: str
+    format_version: str = ""
+    nirs4all_version: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -38,34 +42,3 @@ class StepResult:
     artifacts: List[ArtifactMeta] = field(default_factory=list)
     predictions: Optional[Predictions] = None
 
-
-@dataclass
-class ExecutionResult:
-    """Result of executing a full pipeline on a single dataset.
-
-    Attributes:
-        predictions: Aggregated predictions from pipeline execution
-        artifacts: All artifacts persisted during execution
-        dataset: Final dataset state after execution
-        metadata: Execution metadata (timing, pipeline info, etc.)
-        pipeline_uid: Unique identifier for this pipeline execution
-    """
-    predictions: Predictions
-    artifacts: List[ArtifactMeta]
-    dataset: SpectroDataset
-    metadata: Dict[str, Any]
-    pipeline_uid: str
-
-
-@dataclass
-class OrchestrationResult:
-    """Result of orchestrating multiple pipeline runs.
-
-    Attributes:
-        run_predictions: All predictions from this orchestration run
-        dataset_predictions: Dict mapping dataset names to their prediction info
-        execution_results: List of individual execution results
-    """
-    run_predictions: Predictions
-    dataset_predictions: Dict[str, Dict[str, Any]]
-    execution_results: List[ExecutionResult] = field(default_factory=list)

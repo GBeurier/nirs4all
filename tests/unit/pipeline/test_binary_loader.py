@@ -10,8 +10,8 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
-from nirs4all.pipeline.binary_loader import BinaryLoader
-from nirs4all.pipeline.artifact_serialization import persist
+from nirs4all.pipeline.storage.artifacts.binary_loader import BinaryLoader
+from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
 
 
 @pytest.fixture

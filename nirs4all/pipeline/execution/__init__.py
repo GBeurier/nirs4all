@@ -1,13 +1,14 @@
 """Pipeline execution module for nirs4all."""
-from .result import StepResult, ExecutionResult, OrchestrationResult, ArtifactMeta
+from .result import StepResult, ArtifactMeta
 from .executor import PipelineExecutor
 from .orchestrator import PipelineOrchestrator
+from .builder import ExecutorBuilder
 
 __all__ = [
     'StepResult',
-    'ExecutionResult',
-    'OrchestrationResult',
     'ArtifactMeta',
     'PipelineExecutor',
     'PipelineOrchestrator',
+    'ExecutorBuilder',
 ]
+

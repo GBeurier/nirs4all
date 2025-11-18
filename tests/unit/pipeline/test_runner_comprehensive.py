@@ -37,7 +37,7 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import ShuffleSplit, KFold
 
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.config import PipelineConfigs
+from nirs4all.pipeline.config.config import PipelineConfigs
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions

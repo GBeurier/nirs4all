@@ -11,7 +11,7 @@ This module provides comprehensive tests for:
 import pytest
 from copy import deepcopy
 
-from nirs4all.pipeline.context import (
+from nirs4all.pipeline.config.context import (
     DataSelector,
     PipelineState,
     StepMetadata,

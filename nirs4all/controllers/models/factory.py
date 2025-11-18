@@ -711,7 +711,7 @@ class ModelFactory:
 
         # Sklearn model or pickled model
         elif ext == '.pkl':
-            from nirs4all.pipeline.artifact_serialization import from_bytes
+            from nirs4all.pipeline.storage.artifacts.artifact_persistence import from_bytes
             with open(model_path, 'rb') as f:
                 data = f.read()
             # Use cloudpickle format for compatibility
