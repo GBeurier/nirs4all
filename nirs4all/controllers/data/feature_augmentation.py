@@ -32,8 +32,7 @@ class FeatureAugmentationController(OperatorController):
 
     def execute(  # TODO reup parralelization
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
@@ -43,6 +42,7 @@ class FeatureAugmentationController(OperatorController):
         prediction_store: Optional[Any] = None
     ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
         # print(f"Executing feature augmentation for step: {step}, keyword: {context.get('keyword', '')}, source: {source}, mode: {mode}")
+        op = step_info.operator
 
         try:
             initial_context = copy.deepcopy(context)

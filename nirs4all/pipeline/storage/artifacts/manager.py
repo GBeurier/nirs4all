@@ -2,9 +2,9 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from nirs4all.pipeline import artifact_serialization
-from nirs4all.pipeline.artifact_serialization import ArtifactMeta
-from nirs4all.pipeline.manifest_manager import ManifestManager
+from nirs4all.pipeline.storage.artifacts import artifact_persistence
+from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
+from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 
 
 class ArtifactManager:
@@ -57,8 +57,8 @@ class ArtifactManager:
         Raises:
             ValueError: If artifact cannot be serialized
         """
-        # Save artifact using artifact_serialization module
-        meta = artifact_serialization.persist(
+        # Save artifact using artifact_persistence module
+        meta = artifact_persistence.persist(
             obj=artifact,
             artifacts_dir=self.artifacts_dir,
             name=name,
@@ -87,11 +87,11 @@ class ArtifactManager:
         if not artifact_path.exists():
             raise FileNotFoundError(f"Artifact not found: {artifact_path}")
 
-        # Load using artifact_serialization module
+        # Load using artifact_persistence module
         with open(artifact_path, 'rb') as f:
             data = f.read()
 
-        artifact = artifact_serialization.from_bytes(data, format=meta['format'])
+        artifact = artifact_persistence.from_bytes(data, format=meta['format'])
 
         return artifact
 

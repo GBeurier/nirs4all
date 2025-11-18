@@ -26,7 +26,7 @@ from nirs4all.core.task_type import TaskType
 from .utilities import ModelControllerUtils as ModelUtils
 from nirs4all.core import metrics as evaluator
 from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING
-from nirs4all.pipeline.artifact_serialization import ArtifactMeta
+from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
 from .components import (
     ModelIdentifierGenerator,
     PredictionTransformer,
@@ -39,6 +39,7 @@ from .components import (
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 
 class BaseModelController(OperatorController, ABC):
@@ -194,7 +195,7 @@ class BaseModelController(OperatorController, ABC):
             model: Trained model to save.
             filepath: Path to save (without extension, will be added by implementation).
         """
-        from nirs4all.pipeline.artifact_serialization import persist
+        from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
         persist(model, filepath)
 
     def load_model(self, filepath: str) -> Any:
@@ -209,7 +210,7 @@ class BaseModelController(OperatorController, ABC):
         Returns:
             Loaded model instance.
         """
-        from nirs4all.pipeline.artifact_serialization import load
+        from nirs4all.pipeline.storage.artifacts.artifact_persistence import load
         return load(filepath)
 
     def get_xy(self, dataset: 'SpectroDataset', context: Dict[str, Any]) -> Tuple[Any, Any, Any, Any, Any, Any]:
@@ -293,8 +294,7 @@ class BaseModelController(OperatorController, ABC):
 
     def execute(
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
@@ -312,8 +312,7 @@ class BaseModelController(OperatorController, ABC):
             - Managing prediction storage
 
         Args:
-            step: Pipeline step configuration.
-            operator: Model operator instance or configuration.
+            step_info: Parsed step containing model configuration and operator.
             dataset: SpectroDataset with features and targets.
             context: Execution context with step_id, partition info, etc.
             runner: PipelineRunner managing pipeline execution.
@@ -325,6 +324,9 @@ class BaseModelController(OperatorController, ABC):
         Returns:
             Tuple of (updated_context, list_of_artifact_metadata).
         """
+        # Extract for compatibility with existing code
+        step = step_info.original_step
+        operator = step_info.operator
 
         self.prediction_store = prediction_store
         model_config = self._extract_model_config(step, operator)
@@ -603,7 +605,8 @@ class BaseModelController(OperatorController, ABC):
 
             # Capture model for SHAP explanation
             if mode == "explain" and self._should_capture_for_explanation(runner, identifiers):
-                runner._captured_model = (model, self)
+                if hasattr(runner, 'explainer') and hasattr(runner.explainer, 'capture_model'):
+                    runner.explainer.capture_model(model, self)
 
             trained_model = model
         else:

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Any, Dict, Union
 import yaml
 
-from .serialization import serialize_component
+from .component_serialization import serialize_component
 from .generator import expand_spec, count_combinations
 
 logging.basicConfig(level=logging.INFO)

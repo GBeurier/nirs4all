@@ -42,8 +42,7 @@ class SampleAugmentationController(OperatorController):
 
     def execute(
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
@@ -112,6 +111,9 @@ class SampleAugmentationController(OperatorController):
                 }
             }
         """
+        # Extract step config for compatibility
+        step = step_info.original_step
+
         config = step["sample_augmentation"]
         transformers = config.get("transformers", [])
 

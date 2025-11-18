@@ -2,7 +2,8 @@
 
 This module provides the PipelineRunner class, which serves as the main interface
 for executing ML pipelines on spectroscopic datasets. It delegates execution to
-PipelineOrchestrator while managing runner-specific state for predict/explain modes.
+PipelineOrchestrator and provides prediction/explanation capabilities via
+Predictor and Explainer classes.
 """
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -12,10 +13,11 @@ import numpy as np
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.binary_loader import BinaryLoader
-from nirs4all.pipeline.config import PipelineConfigs
-from nirs4all.pipeline.context import ExecutionContext
+from nirs4all.pipeline.config.config import PipelineConfigs
+from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
+from nirs4all.pipeline.predictor import Predictor
+from nirs4all.pipeline.explainer import Explainer
 
 
 def init_global_random_state(seed: Optional[int] = None):
@@ -54,7 +56,7 @@ class PipelineRunner:
 
     Orchestrates pipeline execution on datasets, providing a simplified interface for
     training, prediction, and explanation workflows. Delegates actual execution to
-    PipelineOrchestrator while managing runner-specific state.
+    PipelineOrchestrator, Predictor, and Explainer.
 
     Attributes:
         workspace_path (Path): Root workspace directory
@@ -67,18 +69,10 @@ class PipelineRunner:
         keep_datasets (bool): Whether to keep raw/preprocessed data snapshots
         plots_visible (bool): Whether to display plots interactively
         orchestrator (PipelineOrchestrator): Underlying orchestrator for execution
+        predictor (Predictor): Handler for prediction mode
+        explainer (Explainer): Handler for explanation mode
         raw_data (Dict[str, np.ndarray]): Raw dataset snapshots (if keep_datasets=True)
         pp_data (Dict[str, Dict[str, np.ndarray]]): Preprocessed data snapshots
-
-    Predict/Explain State:
-        saver: File saver instance (set during predict/explain)
-        manifest_manager: Manifest manager instance
-        pipeline_uid: Current pipeline unique identifier
-        binary_loader: Binary artifact loader for predict mode
-        config_path: Path to loaded configuration
-        target_model: Target model metadata for predictions
-        _capture_model: Flag to capture model for SHAP analysis
-        _captured_model: Captured model instance
 
     Example:
         >>> # Training workflow
@@ -139,21 +133,6 @@ class PipelineRunner:
         self.keep_datasets = keep_datasets
         self.plots_visible = plots_visible
 
-        # Compatibility attributes (for controllers that access runner state)
-        self.step_number = 0
-        self.substep_number = -1
-        self.operation_count = 0
-
-        # State for predict/explain modes
-        self.saver = None
-        self.manifest_manager = None
-        self.pipeline_uid: Optional[str] = None
-        self.binary_loader: Optional[BinaryLoader] = None
-        self.config_path: Optional[str] = None
-        self.target_model: Optional[Dict[str, Any]] = None
-        self._capture_model: bool = False
-        self._captured_model: Optional[Any] = None
-
         # Create orchestrator
         self.orchestrator = PipelineOrchestrator(
             workspace_path=self.workspace_path,
@@ -167,10 +146,32 @@ class PipelineRunner:
             plots_visible=plots_visible
         )
 
+        # Create predictor and explainer
+        self.predictor = Predictor(self)
+        self.explainer = Explainer(self)
+
         # Expose orchestrator state for convenience
         self.raw_data = self.orchestrator.raw_data
         self.pp_data = self.orchestrator.pp_data
         self._figure_refs = self.orchestrator._figure_refs
+
+        # Model capture support for explainer
+        self._capture_model: bool = False
+
+        # Execution state (synchronized from executor during execution)
+        self.step_number: int = 0
+        self.substep_number: int = -1
+        self.operation_count: int = 0
+
+        # Runtime components (set by executor during execution)
+        self.saver: Any = None  # SimulationSaver
+        self.manifest_manager: Any = None  # ManifestManager
+        self.binary_loader: Any = None  # BinaryLoader for predict/explain modes
+        self.pipeline_uid: Optional[str] = None  # Current pipeline UID
+        self.target_model: Optional[Dict] = None  # Target model for predict/explain modes
+
+        # Library for template management
+        self._library: Any = None  # PipelineLibrary (lazy)
 
     def run(
         self,
@@ -195,7 +196,7 @@ class PipelineRunner:
         Returns:
             Tuple of (run_predictions, datasets_predictions)
         """
-        result = self.orchestrator.execute(
+        run_predictions, dataset_predictions = self.orchestrator.execute(
             pipeline=pipeline,
             dataset=dataset,
             pipeline_name=pipeline_name,
@@ -210,7 +211,7 @@ class PipelineRunner:
             self.pp_data = self.orchestrator.pp_data
         self._figure_refs = self.orchestrator._figure_refs
 
-        return result.run_predictions, result.dataset_predictions
+        return run_predictions, dataset_predictions
 
     def predict(
         self,
@@ -220,109 +221,28 @@ class PipelineRunner:
         all_predictions: bool = False,
         verbose: int = 0
     ) -> Union[Tuple[np.ndarray, Predictions], Tuple[Dict[str, Any], Predictions]]:
-        """Run prediction using a saved model on new dataset."""
-        from nirs4all.data.config import DatasetConfigs
-        from nirs4all.pipeline.manifest_manager import ManifestManager
-        from nirs4all.utils.emoji import ROCKET, CHECK, SEARCH
-        from nirs4all.pipeline.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
-        import json
+        """Run prediction using a saved model on new dataset.
 
-        print("=" * 120)
-        print(f"\033[94m{ROCKET}Starting Nirs4all prediction(s)\033[0m")
-        print("=" * 120)
+        Delegates to Predictor class for actual execution.
 
-        # Normalize dataset
-        dataset_config = self.orchestrator._normalize_dataset(dataset, dataset_name, runner=self)
+        Args:
+            prediction_obj: Model identifier (dict with config_path or prediction ID)
+            dataset: New dataset to predict on
+            dataset_name: Name for the dataset
+            all_predictions: If True, return all predictions; if False, return single best
+            verbose: Verbosity level
 
-        self.mode = "predict"
-        self.verbose = verbose
-
-        # Initialize saver for prediction mode
-        run_dir = self._get_run_dir_from_prediction(prediction_obj)
-        from nirs4all.pipeline.io import SimulationSaver
-        self.saver = SimulationSaver(run_dir, save_files=self.save_files)
-        self.manifest_manager = ManifestManager(run_dir)
-
-        # Load pipeline steps
-        steps = self._prepare_replay(prediction_obj, dataset_config, verbose)
-
-        # Execute pipeline on dataset
-        run_predictions = Predictions()
-        for config, name in dataset_config.configs:
-            dataset_obj = dataset_config.get_dataset(config, name)
-            config_predictions = Predictions()
-
-            # Initialize context
-            context = ExecutionContext(
-                selector=DataSelector(
-                    partition=None,
-                    processing=[["raw"]] * dataset_obj.features_sources(),
-                    layout="2d",
-                    concat_source=True
-                ),
-                state=PipelineState(y_processing="numeric", step_number=0, mode="predict"),
-                metadata=StepMetadata()
-            )
-
-            # Create executor and run
-            from nirs4all.pipeline.execution.executor import PipelineExecutor
-            from nirs4all.pipeline.steps.runner import StepRunner
-            from nirs4all.pipeline.steps.parser import StepParser
-            from nirs4all.pipeline.steps.router import ControllerRouter
-
-            step_runner = StepRunner(
-                parser=StepParser(),
-                router=ControllerRouter(),
-                verbose=verbose,
-                mode="predict",
-                show_spinner=self.show_spinner
-            )
-
-            executor = PipelineExecutor(
-                step_runner=step_runner,
-                artifact_manager=None,
-                manifest_manager=self.manifest_manager,
-                verbose=verbose,
-                mode="predict",
-                continue_on_error=self.continue_on_error,
-                saver=self.saver,
-                binary_loader=self.binary_loader
-            )
-
-            executor.execute(steps, "prediction", dataset_obj, context, self, config_predictions)
-            run_predictions.merge_predictions(config_predictions)
-
-        if all_predictions:
-            res = {}
-            for pred in run_predictions.to_dicts():
-                if pred['dataset_name'] not in res:
-                    res[pred['dataset_name']] = {}
-                res[pred['dataset_name']][pred['id']] = pred['y_pred']
-            return res, run_predictions
-
-        # Get single prediction matching target model
-        # Note: Don't filter by partition in predict mode - data might be in train/val/test depending on input
-        # Filter candidates by model criteria
-        candidates = run_predictions.filter_predictions(
-            model_name=self.target_model.get('model_name', None),
-            step_idx=self.target_model.get('step_idx', None),
-            fold_id=self.target_model.get('fold_id', None)
+        Returns:
+            If all_predictions=False: (y_pred, predictions)
+            If all_predictions=True: (predictions_dict, predictions)
+        """
+        return self.predictor.predict(
+            prediction_obj=prediction_obj,
+            dataset=dataset,
+            dataset_name=dataset_name,
+            all_predictions=all_predictions,
+            verbose=verbose
         )
-
-        # Prefer predictions with non-empty y_pred (in predict mode, train partition may be empty)
-        non_empty = [p for p in candidates if len(p['y_pred']) > 0]
-        single_pred = non_empty[0] if non_empty else (candidates[0] if candidates else None)
-
-        if single_pred is None:
-            raise ValueError("No matching prediction found for the specified model criteria.")
-
-        print(f"{CHECK}Predicted with: {single_pred['model_name']} [{single_pred['id']}]")
-        filename = f"Predict_[{single_pred['id']}].csv"
-        y_pred = single_pred["y_pred"]
-        prediction_path = self.saver.base_path / filename
-        Predictions.save_predictions_to_csv(y_pred=y_pred, filepath=prediction_path)
-
-        return single_pred["y_pred"], run_predictions
 
     def explain(
         self,
@@ -333,303 +253,127 @@ class PipelineRunner:
         verbose: int = 0,
         plots_visible: bool = True
     ) -> Tuple[Dict[str, Any], str]:
-        """Generate SHAP explanations for a saved model."""
-        from nirs4all.data.config import DatasetConfigs
-        from nirs4all.utils.emoji import SEARCH, CHECK
-        from nirs4all.visualization.analysis.shap import ShapAnalyzer
-        from nirs4all.pipeline.manifest_manager import ManifestManager
-        from nirs4all.pipeline.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
-        from nirs4all.pipeline.io import SimulationSaver
-        from nirs4all.pipeline.execution.executor import PipelineExecutor
-        from nirs4all.pipeline.steps.runner import StepRunner
-        from nirs4all.pipeline.steps.parser import StepParser
-        from nirs4all.pipeline.steps.router import ControllerRouter
+        """Generate SHAP explanations for a saved model.
 
-        print("=" * 120)
-        print(f"\033[94m{SEARCH}Starting SHAP Explanation Analysis\033[0m")
-        print("=" * 120)
+        Delegates to Explainer class for actual execution.
 
-        # Setup SHAP parameters
-        if shap_params is None:
-            shap_params = {}
-        shap_params.setdefault('n_samples', 200)
-        shap_params.setdefault('visualizations', ['spectral', 'summary'])
-        shap_params.setdefault('explainer_type', 'auto')
-        shap_params.setdefault('bin_size', 20)
-        shap_params.setdefault('bin_stride', 10)
-        shap_params.setdefault('bin_aggregation', 'sum')
+        Args:
+            prediction_obj: Model identifier (dict with config_path or prediction ID)
+            dataset: Dataset to explain on
+            dataset_name: Name for the dataset
+            shap_params: SHAP configuration parameters
+            verbose: Verbosity level
+            plots_visible: Whether to display plots interactively
 
-        # Normalize dataset
-        dataset_config = self.orchestrator._normalize_dataset(dataset, dataset_name, runner=self)
-
-        self.mode = "explain"
-        self._capture_model = True
-        self._captured_model = None
-
-        try:
-            # Setup saver and manifest
-            config, name = dataset_config.configs[0]
-            run_dir = self._get_run_dir_from_prediction(prediction_obj)
-            self.saver = SimulationSaver(run_dir, save_files=self.save_files)
-            self.manifest_manager = ManifestManager(run_dir)
-
-            # Register with saver to allow artifact persistence
-            self.saver.register(self.pipeline_uid)
-
-            # Load pipeline
-            steps = self._prepare_replay(prediction_obj, dataset_config, verbose)
-            dataset_obj = dataset_config.get_dataset(config, name)
-
-            # Execute pipeline to capture model
-            context = ExecutionContext(
-                selector=DataSelector(
-                    partition=None,
-                    processing=[["raw"]] * dataset_obj.features_sources(),
-                    layout="2d",
-                    concat_source=True
-                ),
-                state=PipelineState(y_processing="numeric", step_number=0, mode="explain"),
-                metadata=StepMetadata()
-            )
-
-            config_predictions = Predictions()
-
-            step_runner = StepRunner(
-                parser=StepParser(),
-                router=ControllerRouter(),
-                verbose=verbose,
-                mode="explain",
-                show_spinner=self.show_spinner
-            )
-
-            executor = PipelineExecutor(
-                step_runner=step_runner,
-                artifact_manager=None,
-                manifest_manager=self.manifest_manager,
-                verbose=verbose,
-                mode="explain",
-                continue_on_error=self.continue_on_error,
-                saver=self.saver,
-                binary_loader=self.binary_loader
-            )
-
-            executor.execute(steps, "explanation", dataset_obj, context, self, config_predictions)
-
-            # Extract captured model
-            if self._captured_model is None:
-                raise ValueError("Failed to capture model. Model controller may not support capture.")
-
-            model, controller = self._captured_model
-
-            # Get test data
-            test_context = context.with_partition('test')
-            X_test = dataset_obj.x(test_context, layout=controller.get_preferred_layout())
-            y_test = dataset_obj.y(test_context)
-
-            # Get feature names
-            feature_names = None
-            if hasattr(dataset_obj, 'wavelengths') and dataset_obj.wavelengths is not None:
-                feature_names = [f"λ{w:.1f}" for w in dataset_obj.wavelengths]
-
-            task_type = 'classification' if dataset_obj.task_type and dataset_obj.task_type.is_classification else 'regression'
-
-            # Create output directory
-            model_id = self.target_model.get('id', 'unknown')
-            output_dir = self.saver.base_path / dataset_obj.name / self.config_path / "explanations" / model_id
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-            if verbose > 0:
-                print(f"📁 Output directory: {output_dir}")
-
-            # Run SHAP analysis
-            analyzer = ShapAnalyzer()
-            shap_results = analyzer.explain_model(
-                model=model,
-                X=X_test,
-                y=y_test,
-                feature_names=feature_names,
-                task_type=task_type,
-                n_background=shap_params['n_samples'],
-                explainer_type=shap_params['explainer_type'],
-                output_dir=str(output_dir),
-                visualizations=shap_params['visualizations'],
-                bin_size=shap_params['bin_size'],
-                bin_stride=shap_params['bin_stride'],
-                bin_aggregation=shap_params['bin_aggregation'],
-                plots_visible=plots_visible
-            )
-
-            shap_results['model_name'] = self.target_model.get('model_name', 'unknown')
-            shap_results['model_id'] = model_id
-            shap_results['dataset_name'] = dataset_obj.name
-
-            if verbose > 0:
-                print(f"\n{CHECK}SHAP explanation completed!")
-                print(f"📁 Visualizations saved to: {output_dir}")
-                for viz in shap_params['visualizations']:
-                    print(f"   • {viz}.png")
-                print("=" * 120)
-
-            return shap_results, str(output_dir)
-
-        finally:
-            self._capture_model = False
-            self._captured_model = None
+        Returns:
+            Tuple of (shap_results_dict, output_directory_path)
+        """
+        return self.explainer.explain(
+            prediction_obj=prediction_obj,
+            dataset=dataset,
+            dataset_name=dataset_name,
+            shap_params=shap_params,
+            verbose=verbose,
+            plots_visible=plots_visible
+        )
 
     def export_best_for_dataset(
         self,
         dataset_name: str,
         mode: str = "predictions"
     ) -> Optional[Path]:
-        """Export best results for a dataset to exports/ folder."""
-        if self.saver is None:
+        """Export best results for a dataset to exports/ folder.
+
+        Args:
+            dataset_name: Name of the dataset to export
+            mode: Export mode ('predictions' or other)
+
+        Returns:
+            Path to exported file, or None if export failed
+        """
+        saver = getattr(self.predictor, 'saver', None) or getattr(self.explainer, 'saver', None)
+        if saver is None:
             raise ValueError("No saver configured. Run a pipeline first.")
 
-        return self.saver.export_best_for_dataset(
+        return saver.export_best_for_dataset(
             dataset_name,
             self.workspace_path,
             self.orchestrator.runs_dir,
             mode
         )
 
-    def _get_run_dir_from_prediction(self, prediction_obj: Union[Dict[str, Any], str]) -> Path:
-        """Get run directory from prediction object."""
-        if isinstance(prediction_obj, dict):
-            if 'run_dir' in prediction_obj:
-                return Path(prediction_obj['run_dir'])
-            elif 'config_path' in prediction_obj:
-                config_path = prediction_obj['config_path']
-                dataset_name = Path(config_path).parts[0]
-                matching_dirs = sorted(
-                    self.orchestrator.runs_dir.glob(f"*_{dataset_name}"),
-                    key=lambda p: p.stat().st_mtime,
-                    reverse=True
-                )
-                if matching_dirs:
-                    return matching_dirs[0]
-                raise ValueError(f"No run directory found for dataset: {dataset_name}")
+    @property
+    def current_run_dir(self) -> Optional[Path]:
+        """Get current run directory.
 
-        # Fallback: use most recent run
-        run_dirs = sorted(
-            self.orchestrator.runs_dir.glob("*"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True
-        )
-        if run_dirs:
-            return run_dirs[0]
-        raise ValueError("No run directories found")
+        Returns:
+            Path to current run directory, or None if not set
+        """
+        saver = getattr(self.predictor, 'saver', None) or getattr(self.explainer, 'saver', None)
+        return getattr(saver, 'base_path', None) if saver else None
 
-    def _prepare_replay(
-        self,
-        selection_obj: Union[Dict[str, Any], str],
-        dataset_config: DatasetConfigs,
-        verbose: int = 0
-    ) -> List[Any]:
-        """Prepare pipeline replay from saved configuration."""
-        from nirs4all.utils.emoji import SEARCH
-        import json
+    @property
+    def runs_dir(self) -> Path:
+        """Get runs directory.
 
-        # Get configuration path and target model
-        config_path, target_model = self.saver.get_predict_targets(selection_obj)
-        target_model.pop("y_pred", None)
-        target_model.pop("y_true", None)
+        Returns:
+            Path to runs directory in workspace
+        """
+        return self.orchestrator.runs_dir
 
-        self.config_path = config_path
-        self.target_model = target_model
+    @property
+    def library(self) -> "PipelineLibrary":
+        """Get pipeline library for template management.
 
-        pipeline_uid = target_model.get('pipeline_uid')
-        if not pipeline_uid:
-            raise ValueError(
-                "No pipeline_uid found in prediction metadata. "
-                "This prediction was created with an older version of nirs4all. "
-                "Please retrain the model."
-            )
+        Returns:
+            PipelineLibrary instance for managing pipeline templates
+        """
+        if self._library is None:
+            from nirs4all.pipeline.storage.library import PipelineLibrary
+            self._library = PipelineLibrary(self.workspace_path)
+        return self._library
 
-        # Load pipeline configuration
-        pipeline_dir_name = Path(config_path).parts[-1] if '/' in config_path or '\\' in config_path else config_path
-        config_dir = self.saver.base_path / pipeline_dir_name
-        pipeline_json = config_dir / "pipeline.json"
+    def next_op(self) -> int:
+        """Get the next operation ID (for controller compatibility).
 
-        if verbose > 0:
-            print(f"{SEARCH}Loading {pipeline_json}")
-
-        if not pipeline_json.exists():
-            raise FileNotFoundError(f"Pipeline not found: {pipeline_json}")
-
-        with open(pipeline_json, 'r', encoding='utf-8') as f:
-            pipeline_data = json.load(f)
-
-        steps = pipeline_data["steps"] if isinstance(pipeline_data, dict) and "steps" in pipeline_data else pipeline_data
-
-        # Load binaries from manifest
-        manifest_path = self.saver.base_path / pipeline_uid / "manifest.yaml"
-        if not manifest_path.exists():
-            raise FileNotFoundError(
-                f"Manifest not found: {manifest_path}\n"
-                f"Pipeline UID: {pipeline_uid}\n"
-                f"The model artifacts may have been deleted or moved."
-            )
-
-        print(f"{SEARCH}Loading from manifest: {pipeline_uid}")
-        manifest = self.manifest_manager.load_manifest(pipeline_uid)
-        self.binary_loader = BinaryLoader.from_manifest(manifest, self.saver.base_path)
-
-        return steps
+        Returns:
+            Next operation counter value
+        """
+        self.operation_count += 1
+        return self.operation_count
 
     def run_step(
         self,
         step: Any,
         dataset: SpectroDataset,
-        context: Union[Dict[str, Any], ExecutionContext],
-        prediction_store: Optional[Predictions] = None,
-        *,
+        context: Union[ExecutionContext, Dict],
+        prediction_store: Predictions,
         is_substep: bool = False,
-        propagated_binaries: Any = None
-    ) -> Tuple[Union[Dict[str, Any], ExecutionContext], List[Tuple[str, Any]]]:
-        """Run a single pipeline step (compatibility method for controllers).
-
-        This method exists for backward compatibility with controllers that execute
-        nested pipelines (e.g., feature_augmentation, sample_augmentation).
+        propagated_binaries: Optional[List] = None
+    ) -> Union[Tuple[Union[ExecutionContext, Dict], List], Union[ExecutionContext, Dict]]:
+        """Execute a single pipeline step (compatibility method).
 
         Args:
-            step: Pipeline step definition
+            step: Pipeline step to execute
             dataset: Dataset to process
-            context: Execution context
-            prediction_store: Predictions collection
-            is_substep: Whether this is a substep (affects logging)
-            propagated_binaries: Pre-loaded binaries for predict mode
+            context: Execution context or dict
+            prediction_store: Prediction store
+            is_substep: Whether this is a substep execution
+            propagated_binaries: Binaries to propagate to the step
 
         Returns:
-            Tuple of (updated_context, artifacts)
+            If is_substep: Tuple of (updated_context, artifacts)
+            Otherwise: updated_context only
         """
         from nirs4all.pipeline.steps.parser import StepParser
         from nirs4all.pipeline.steps.router import ControllerRouter
         from nirs4all.pipeline.steps.runner import StepRunner
-        from nirs4all.utils.emoji import DIAMOND, PLAY, SEARCH
 
-        # Update step counters
+        # Increment substep number if this is a substep
         if is_substep:
             self.substep_number += 1
-            if self.verbose > 0:
-                print(f"\\033[96m   {PLAY}Sub-step {self.step_number}.{self.substep_number}: {step}\\033[0m")
-        else:
-            self.step_number += 1
-            self.substep_number = 0
-            self.operation_count = 0
-            if self.verbose > 0:
-                print(f"\\033[92m{DIAMOND}Step {self.step_number}: {step}\\033[0m")
 
-        if step is None:
-            return context
-
-        # Load binaries if in prediction mode
-        loaded_binaries = propagated_binaries
-        if (self.mode in ("predict", "explain")) and self.binary_loader and loaded_binaries is None:
-            loaded_binaries = self.binary_loader.get_step_binaries(self.step_number)
-            if self.verbose > 1 and loaded_binaries:
-                print(f"{SEARCH}Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
-
-        # Execute step
+        # Create step runner if needed
         step_runner = StepRunner(
             parser=StepParser(),
             router=ControllerRouter(),
@@ -638,79 +382,46 @@ class PipelineRunner:
             show_spinner=self.show_spinner
         )
 
+        # Execute step
         result = step_runner.execute(
             step=step,
             dataset=dataset,
             context=context,
             runner=self,
-            prediction_store=prediction_store,
-            loaded_binaries=loaded_binaries
+            loaded_binaries=propagated_binaries,
+            prediction_store=prediction_store
         )
 
-        return result.updated_context, result.artifacts
+        if is_substep:
+            return result.updated_context, result.artifacts
+        else:
+            return result.updated_context
 
     def run_steps(
         self,
         steps: List[Any],
-        dataset: 'SpectroDataset',
-        context: Union['ExecutionContext', dict],
+        dataset: SpectroDataset,
+        context: Union[ExecutionContext, Dict],
         execution: str = "sequential",
-        prediction_store: Optional['Predictions'] = None,
-        is_substep: bool = False
-    ) -> Union['ExecutionContext', dict]:
-        """Execute multiple pipeline steps sequentially (for subpipeline support).
-
-        This method provides backward compatibility for subpipeline execution,
-        delegating to the step runner for each step in sequence.
+        prediction_store: Optional[Predictions] = None
+    ) -> Union[ExecutionContext, Dict]:
+        """Execute multiple pipeline steps (compatibility method).
 
         Args:
-            steps: List of pipeline steps to execute
-            dataset: Dataset to operate on
-            context: Execution context (ExecutionContext or dict)
-            execution: Execution strategy (only "sequential" supported)
-            prediction_store: Optional predictions storage
-            is_substep: Whether these are substeps (affects logging)
+            steps: List of pipeline steps
+            dataset: Dataset to process
+            context: Execution context or dict
+            execution: Execution mode (only 'sequential' supported)
+            prediction_store: Prediction store
 
         Returns:
-            Updated execution context after all steps
+            Final context after all steps
         """
-        from nirs4all.pipeline.steps.runner import StepRunner
-        from nirs4all.pipeline.steps.parser import StepParser
-        from nirs4all.pipeline.steps.router import ControllerRouter
+        if prediction_store is None:
+            prediction_store = Predictions()
 
-        step_runner = StepRunner(
-            parser=StepParser(),
-            router=ControllerRouter(),
-            verbose=self.verbose,
-            mode=self.mode,
-            show_spinner=self.show_spinner
-        )
-
-        # Execute each step sequentially
+        current_context = context
         for step in steps:
-            result = step_runner.execute(
-                step=step,
-                dataset=dataset,
-                context=context,
-                runner=self,
-                prediction_store=prediction_store,
-                loaded_binaries=None
-            )
-            context = result.updated_context
+            current_context = self.run_step(step, dataset, current_context, prediction_store)
 
-        return context
-
-    def next_op(self) -> int:
-        """Get the next operation ID (compatibility method for controllers)."""
-        self.operation_count += 1
-        return self.operation_count
-
-    @property
-    def current_run_dir(self) -> Optional[Path]:
-        """Get current run directory."""
-        return getattr(self.saver, 'base_path', None) if self.saver else None
-
-    @property
-    def runs_dir(self) -> Path:
-        """Get runs directory."""
-        return self.orchestrator.runs_dir
+        return current_context

@@ -144,8 +144,7 @@ class DummyController(OperatorController):
 
     def execute(
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
@@ -157,6 +156,8 @@ class DummyController(OperatorController):
         """
         Handle unmatched operators and provide detailed debugging information.
         """
+        op = step_info.operator
+        config = step_info.original_step
 
         print("\n" + "="*80)
         print(f"{ALERT}DUMMY CONTROLLER ACTIVATED - UNHANDLED OPERATOR DETECTED")

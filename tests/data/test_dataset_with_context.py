@@ -8,7 +8,7 @@ import pytest
 import numpy as np
 
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.context import DataSelector
+from nirs4all.pipeline.config.context import DataSelector
 
 
 class TestDatasetWithSelector:

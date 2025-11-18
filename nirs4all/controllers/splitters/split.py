@@ -91,8 +91,7 @@ class CrossValidatorController(OperatorController):
 
     def execute(  # type: ignore[override]
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: "SpectroDataset",
         context: Dict[str, Any],
         runner: "PipelineRunner",
@@ -108,6 +107,7 @@ class CrossValidatorController(OperatorController):
         * Maps local indices back to the global index space.
         * Stores the list of folds into the dataset for subsequent steps.
         """
+        op = step_info.operator
         # In predict/explain mode, skip fold splitting entirely
         if mode == "predict" or mode == "explain":
             local_context = copy.deepcopy(context)

@@ -135,8 +135,7 @@ class ResamplerController(OperatorController):
 
     def execute(
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
@@ -145,6 +144,7 @@ class ResamplerController(OperatorController):
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Any] = None
     ):
+        op = step_info.operator
         """
         Execute resampling operation.
 

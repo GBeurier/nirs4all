@@ -39,8 +39,8 @@ except (ImportError, ModuleNotFoundError):
     nicon = None
     customizable_nicon = None
 
-from nirs4all.pipeline.config import PipelineConfigs
-from nirs4all.pipeline.serialization import serialize_component, deserialize_component
+from nirs4all.pipeline.config.config import PipelineConfigs
+from nirs4all.pipeline.config.component_serialization import serialize_component, deserialize_component
 
 
 # Mock function to simulate TF/PyTorch model functions

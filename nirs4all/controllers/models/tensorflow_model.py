@@ -517,8 +517,7 @@ class TensorFlowModelController(BaseModelController):
 
     def execute(
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
@@ -533,8 +532,7 @@ class TensorFlowModelController(BaseModelController):
         then delegates to the base class execute method.
 
         Args:
-            step: Pipeline step configuration dictionary containing model and parameters.
-            operator: Extracted model operator (instance, function, or configuration).
+            step_info: Parsed step containing model configuration and operator.
             dataset: SpectroDataset with features, targets, and fold information.
             context: Execution context with step_id, processing history, partition info.
             runner: PipelineRunner instance managing the pipeline execution.
@@ -561,7 +559,7 @@ class TensorFlowModelController(BaseModelController):
         context['layout'] = self.get_preferred_layout()
 
         # Call parent execute method
-        return super().execute(step, operator, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
+        return super().execute(step_info, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
 
 
 

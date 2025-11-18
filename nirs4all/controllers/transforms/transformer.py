@@ -8,6 +8,7 @@ from nirs4all.controllers.registry import register_controller
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.spectra.spectra_dataset import SpectroDataset
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 import numpy as np
 from sklearn.base import clone
@@ -46,8 +47,7 @@ class TransformerMixinController(OperatorController):
 
     def execute(
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
@@ -57,14 +57,16 @@ class TransformerMixinController(OperatorController):
         prediction_store: Optional[Any] = None
     ):
         """Execute transformer - handles normal, feature augmentation, and sample augmentation modes."""
+        op = step_info.operator
+
         # Check if we're in sample augmentation mode
         if context.get("augment_sample", False) and mode not in ["predict", "explain"]:
             return self._execute_for_sample_augmentation(
-                operator, dataset, context, runner, mode, loaded_binaries, prediction_store
+                op, dataset, context, runner, mode, loaded_binaries, prediction_store
             )
 
         # Normal or feature augmentation execution (existing code)
-        operator_name = operator.__class__.__name__
+        operator_name = op.__class__.__name__
 
         # Get train and all data as lists of 3D arrays (one per source)
         train_context = context.copy()
@@ -117,7 +119,7 @@ class TransformerMixinController(OperatorController):
                     if transformer is None:
                         raise ValueError(f"Binary for {new_operator_name} not found in loaded_binaries")
                 else:
-                    transformer = clone(operator)
+                    transformer = clone(op)
                     transformer.fit(train_2d)
 
                 transformed_2d = transformer.transform(all_2d)

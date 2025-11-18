@@ -189,8 +189,8 @@ class TestSerialization:
 
     def test_serialize_split_with_group(self):
         """Test serialization preserves group parameter."""
-        from nirs4all.pipeline.config import PipelineConfigs
-        from nirs4all.pipeline.serialization import serialize_component
+        from nirs4all.pipeline.config.config import PipelineConfigs
+        from nirs4all.pipeline.config.component_serialization import serialize_component
 
         pipeline = [
             {"split": GroupKFold(n_splits=5), "group": "batch_id"}
@@ -207,7 +207,7 @@ class TestSerialization:
 
     def test_roundtrip_serialization(self):
         """Test save/load roundtrip."""
-        from nirs4all.pipeline.config import PipelineConfigs
+        from nirs4all.pipeline.config.config import PipelineConfigs
         import json
 
         original = [
@@ -224,7 +224,7 @@ class TestSerialization:
 
     def test_backward_compatible_serialization(self):
         """Test that old format still works."""
-        from nirs4all.pipeline.serialization import serialize_component
+        from nirs4all.pipeline.config.component_serialization import serialize_component
 
         old_format = GroupKFold(n_splits=5)
         # serialize_component doesn't take include_runtime parameter in refactored version

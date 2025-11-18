@@ -41,8 +41,7 @@ class YTransformerMixinController(OperatorController):
 
     def execute(
         self,
-        step: Any,
-        operator: Any,
+        step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: Dict[str, Any],
         runner: 'PipelineRunner',
@@ -56,8 +55,8 @@ class YTransformerMixinController(OperatorController):
         Skips execution in prediction mode.
 
         Args:
-            step: Pipeline step configuration
-            operator: sklearn TransformerMixin to apply to targets
+            step_info: Parsed step containing operator and metadata
+            dataset: Dataset to operate on
             dataset: Dataset containing targets to transform
             context: Pipeline context with partition information
             runner: Pipeline runner instance
@@ -68,6 +67,9 @@ class YTransformerMixinController(OperatorController):
         Returns:
             Tuple of (updated_context, fitted_transformers_list)
         """
+        # Extract operator for compatibility with existing code
+        operator = step_info.operator
+
         # Skip execution in prediction mode
         from sklearn.base import clone
 

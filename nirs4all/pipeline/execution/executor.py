@@ -6,10 +6,9 @@ from typing import Any, Dict, List, Optional, Union
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.artifacts.manager import ArtifactManager
-from nirs4all.pipeline.context import ExecutionContext
-from nirs4all.pipeline.execution.result import ExecutionResult
-from nirs4all.pipeline.manifest_manager import ManifestManager
+from nirs4all.pipeline.storage.artifacts.manager import ArtifactManager
+from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 from nirs4all.pipeline.steps.runner import StepRunner
 from nirs4all.utils.emoji import ROCKET, MEDAL_GOLD, FLAG, CROSS
 
@@ -69,6 +68,38 @@ class PipelineExecutor:
         self.substep_number = -1
         self.operation_count = 0
 
+    def initialize_context(self, dataset: SpectroDataset) -> ExecutionContext:
+        """Initialize ExecutionContext for pipeline execution.
+
+        Args:
+            dataset: Dataset to create context for
+
+        Returns:
+            Initialized ExecutionContext
+        """
+        from nirs4all.pipeline.config.context import DataSelector, PipelineState, StepMetadata
+
+        selector = DataSelector(
+            partition=None,
+            processing=[["raw"]] * dataset.features_sources(),
+            layout="2d",
+            concat_source=True
+        )
+
+        state = PipelineState(
+            y_processing="numeric",
+            step_number=0,
+            mode=self.mode
+        )
+
+        metadata = StepMetadata()
+
+        return ExecutionContext(
+            selector=selector,
+            state=state,
+            metadata=metadata
+        )
+
     def execute(
         self,
         steps: List[Any],
@@ -77,7 +108,7 @@ class PipelineExecutor:
         context: ExecutionContext,
         runner: Any,  # PipelineRunner reference for compatibility
         prediction_store: Optional[Predictions] = None
-    ) -> ExecutionResult:
+    ) -> None:
         """Execute pipeline steps sequentially on dataset.
 
         Args:
@@ -87,9 +118,6 @@ class PipelineExecutor:
             context: Initial execution context
             runner: Runner instance (for compatibility with controllers)
             prediction_store: Prediction store for accumulating results
-
-        Returns:
-            ExecutionResult containing predictions, artifacts, and metadata
 
         Raises:
             RuntimeError: If pipeline execution fails
@@ -167,19 +195,6 @@ class PipelineExecutor:
 
             print("=" * 120)
 
-            return ExecutionResult(
-                predictions=prediction_store,
-                artifacts=all_artifacts,
-                dataset=dataset,
-                metadata={
-                    "config_name": config_name,
-                    "dataset_name": dataset.name,
-                    "pipeline_hash": pipeline_hash,
-                    "num_steps": self.step_number
-                },
-                pipeline_uid=pipeline_uid
-            )
-
         except Exception as e:
             print(
                 f"\033[91m{CROSS}Pipeline {config_name} on dataset {dataset.name} "
@@ -220,7 +235,7 @@ class PipelineExecutor:
             if runner:
                 runner.step_number = self.step_number
                 runner.substep_number = self.substep_number
-                runner.operation_count = 0
+                runner.operation_count = self.operation_count
 
             # Update context with current step number
             if isinstance(context, ExecutionContext):
@@ -247,6 +262,10 @@ class PipelineExecutor:
                 # Update context and accumulate artifacts
                 context = step_result.updated_context
                 all_artifacts.extend(step_result.artifacts)
+
+                # Sync operation_count back from runner (controllers may have incremented it)
+                if runner:
+                    self.operation_count = runner.operation_count
 
                 # Append artifacts to manifest if in train mode
                 if (self.mode == "train" and

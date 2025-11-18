@@ -3,7 +3,7 @@ from typing import Any, List, Optional, Tuple, Union
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.context import ExecutionContext
+from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.execution.result import ArtifactMeta, StepResult
 from nirs4all.pipeline.steps.parser import ParsedStep, StepParser, StepType
 from nirs4all.pipeline.steps.router import ControllerRouter
@@ -133,8 +133,7 @@ class StepRunner:
         # Execute controller
         try:
             updated_context, artifacts = controller.execute(
-                step=step,
-                operator=parsed_step.operator,
+                step_info=parsed_step,
                 dataset=dataset,
                 context=context,
                 runner=runner,
@@ -151,3 +150,7 @@ class StepRunner:
 
         except Exception as e:
             raise RuntimeError(f"Step execution failed: {str(e)}") from e
+        finally:
+            # Reset ephemeral metadata flags to prevent leakage between steps
+            if isinstance(context, ExecutionContext):
+                context.metadata.reset_ephemeral_flags()

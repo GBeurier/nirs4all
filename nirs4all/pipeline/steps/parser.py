@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from nirs4all.pipeline.serialization import deserialize_component
+from nirs4all.pipeline.config.component_serialization import deserialize_component
 
 
 class StepType(Enum):

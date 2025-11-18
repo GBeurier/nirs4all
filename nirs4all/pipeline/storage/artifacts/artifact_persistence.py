@@ -26,6 +26,8 @@ class ArtifactMeta(TypedDict):
     name: str           # Original name for reference
     path: str           # Relative path from results root
     format: str         # Serialization format used
+    format_version: str # Version of the library used (e.g., 'sklearn==1.3.0')
+    nirs4all_version: str # Version of nirs4all (e.g., '0.4.1')
     size: int           # Size in bytes
     saved_at: str       # ISO timestamp
     step: int           # Pipeline step number (set by caller)
@@ -127,6 +129,58 @@ def _format_to_extension(format: str) -> str:
 def compute_hash(data: bytes) -> str:
     """Compute SHA256 hash of data."""
     return hashlib.sha256(data).hexdigest()
+
+
+def _get_library_version(obj: Any) -> str:
+    """Get version of the library that created the object.
+
+    Args:
+        obj: Object to inspect
+
+    Returns:
+        Version string like 'sklearn==1.3.0' or empty string if unknown
+    """
+    obj_module = type(obj).__module__
+
+    try:
+        if 'sklearn' in obj_module:
+            import sklearn
+            return f"sklearn=={sklearn.__version__}"
+        elif 'tensorflow' in obj_module or 'keras' in obj_module:
+            import tensorflow as tf
+            return f"tensorflow=={tf.__version__}"
+        elif 'torch' in obj_module:
+            import torch
+            return f"torch=={torch.__version__}"
+        elif 'xgboost' in obj_module:
+            import xgboost
+            return f"xgboost=={xgboost.__version__}"
+        elif 'catboost' in obj_module:
+            import catboost
+            return f"catboost=={catboost.__version__}"
+        elif 'lightgbm' in obj_module:
+            import lightgbm
+            return f"lightgbm=={lightgbm.__version__}"
+        elif 'numpy' in obj_module:
+            import numpy
+            return f"numpy=={numpy.__version__}"
+    except (ImportError, AttributeError):
+        pass
+
+    return ""
+
+
+def _get_nirs4all_version() -> str:
+    """Get current nirs4all version.
+
+    Returns:
+        Version string like '0.4.1' or empty string if not available
+    """
+    try:
+        from nirs4all import __version__
+        return __version__
+    except (ImportError, AttributeError):
+        return ""
 
 
 def to_bytes(obj: Any, format_hint: Optional[str] = None) -> Tuple[bytes, str]:
@@ -453,6 +507,8 @@ def persist(
         "name": name,
         "path": relative_path,
         "format": format,
+        "format_version": _get_library_version(obj),
+        "nirs4all_version": _get_nirs4all_version(),
         "size": len(data),
         "saved_at": datetime.now(timezone.utc).isoformat(),
         "step": -1  # Caller must set this
