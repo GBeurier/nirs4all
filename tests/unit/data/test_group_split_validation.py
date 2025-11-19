@@ -9,6 +9,7 @@ from sklearn.model_selection import GroupKFold, GroupShuffleSplit, KFold
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
+from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
 
 
 def make_step_info(operator, step=None):
@@ -80,7 +81,11 @@ class TestGroupSplitExecution:
         """Test GroupKFold with batch column."""
         step = {"split": GroupKFold(n_splits=4), "group": "batch"}
         controller = CrossValidatorController()
-        context = {"processing": [["raw"]]}
+        context = ExecutionContext(
+            selector=DataSelector(processing=[["raw"]]),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         context, binaries = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
@@ -106,7 +111,11 @@ class TestGroupSplitExecution:
         """Test default to first metadata column."""
         step = {"split": GroupKFold(n_splits=4)}  # No group specified
         controller = CrossValidatorController()
-        context = {"processing": [["raw"]]}
+        context = ExecutionContext(
+            selector=DataSelector(processing=[["raw"]]),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         # Should use first column (batch) by default
         context, binaries = controller.execute(
@@ -121,7 +130,11 @@ class TestGroupSplitExecution:
         """Test GroupShuffleSplit with location column."""
         step = {"split": GroupShuffleSplit(n_splits=3, test_size=0.5, random_state=42), "group": "location"}
         controller = CrossValidatorController()
-        context = {"processing": [["raw"]]}
+        context = ExecutionContext(
+            selector=DataSelector(processing=[["raw"]]),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         context, binaries = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
@@ -142,7 +155,11 @@ class TestGroupSplitExecution:
         """Test error on invalid group column."""
         step = {"split": GroupKFold(n_splits=4), "group": "nonexistent"}
         controller = CrossValidatorController()
-        context = {"processing": [["raw"]]}
+        context = ExecutionContext(
+            selector=DataSelector(processing=[["raw"]]),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         with pytest.raises(ValueError, match="not found in metadata"):
             controller.execute(
@@ -158,7 +175,11 @@ class TestGroupSplitExecution:
 
         step = {"split": GroupKFold(n_splits=4), "group": "batch"}
         controller = CrossValidatorController()
-        context = {"processing": [["raw"]]}
+        context = ExecutionContext(
+            selector=DataSelector(processing=[["raw"]]),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         with pytest.raises(ValueError, match="no metadata"):
             controller.execute(step_info=make_step_info(step["split"], step), dataset=dataset,
@@ -168,7 +189,11 @@ class TestGroupSplitExecution:
         """Test error when group is not a string."""
         step = {"split": GroupKFold(n_splits=4), "group": 123}
         controller = CrossValidatorController()
-        context = {"processing": [["raw"]]}
+        context = ExecutionContext(
+            selector=DataSelector(processing=[["raw"]]),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         with pytest.raises(TypeError, match="must be a string"):
             controller.execute(
@@ -180,7 +205,11 @@ class TestGroupSplitExecution:
         """Test non-grouped splitter still works."""
         step = KFold(n_splits=5)  # No groups needed
         controller = CrossValidatorController()
-        context = {"processing": [["raw"]]}
+        context = ExecutionContext(
+            selector=DataSelector(processing=[["raw"]]),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         context, binaries = controller.execute(
             step_info=make_step_info(step), dataset=dataset_with_metadata,
@@ -194,7 +223,11 @@ class TestGroupSplitExecution:
         """Test prediction mode doesn't fail."""
         step = {"split": GroupKFold(n_splits=4), "group": "batch"}
         controller = CrossValidatorController()
-        context = {"processing": [["raw"]]}
+        context = ExecutionContext(
+            selector=DataSelector(processing=[["raw"]]),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         context, binaries = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,

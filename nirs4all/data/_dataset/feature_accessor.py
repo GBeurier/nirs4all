@@ -27,6 +27,11 @@ def _selector_to_dict(selector: Optional[Selector]) -> IndexDict:
     """
     if selector is None:
         return {}
+
+    # Handle ExecutionContext (duck typing to avoid circular import)
+    if hasattr(selector, "selector") and hasattr(selector, "state"):
+        return dict(selector.selector)
+
     return dict(selector)
 
 

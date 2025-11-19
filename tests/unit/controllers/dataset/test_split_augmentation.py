@@ -16,6 +16,7 @@ from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
+from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
 
 
 def make_step_info(operator, step=None):
@@ -118,7 +119,11 @@ class TestLeakPrevention:
         controller = CrossValidatorController()
         splitter = KFold(n_splits=3, shuffle=False)
 
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset_with_augmentation,
@@ -144,7 +149,11 @@ class TestLeakPrevention:
         controller = CrossValidatorController()
         splitter = StratifiedKFold(n_splits=2, shuffle=False)
 
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset_with_augmentation,
@@ -168,7 +177,11 @@ class TestLeakPrevention:
         splitter = GroupKFold(n_splits=3)
 
         step = {"group": "group"}  # Specify group column
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         controller.execute(
             step_info=make_step_info(splitter, step), dataset=dataset_with_augmentation_and_groups,
@@ -195,7 +208,11 @@ class TestDatasetCounts:
         controller = CrossValidatorController()
         splitter = KFold(n_splits=2, shuffle=False)
 
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         # Get X shape before splitting
         X_all = dataset_with_augmentation.x({"partition": "train"}, layout="2d")
@@ -219,7 +236,11 @@ class TestDatasetCounts:
         controller = CrossValidatorController()
         splitter = StratifiedKFold(n_splits=2, shuffle=False)
 
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         # y should have 6 values (base samples only) when used for splitting
         controller.execute(
@@ -247,7 +268,11 @@ class TestGroupMetadata:
         splitter = GroupKFold(n_splits=3)
 
         step = {"group": "group"}
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         controller.execute(
             step_info=make_step_info(splitter, step), dataset=dataset_with_augmentation_and_groups,
@@ -273,7 +298,11 @@ class TestGroupMetadata:
         splitter = GroupKFold(n_splits=2)
 
         step = {"group": "group"}
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         # Should not raise error about mismatched lengths
         controller.execute(
@@ -311,7 +340,11 @@ class TestIntegration:
         controller = CrossValidatorController()
         splitter = StratifiedKFold(n_splits=5, shuffle=False)
 
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset,
             context=context, runner=mock_runner
@@ -363,7 +396,11 @@ class TestIntegration:
         controller = CrossValidatorController()
         splitter = KFold(n_splits=2, shuffle=False)
 
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset,
             context=context, runner=mock_runner
@@ -394,7 +431,11 @@ class TestEdgeCases:
         controller = CrossValidatorController()
         splitter = StratifiedKFold(n_splits=3, shuffle=False)  # Use StratifiedKFold which needs y
 
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset,
             context=context, runner=mock_runner
@@ -435,7 +476,11 @@ class TestEdgeCases:
         controller = CrossValidatorController()
         splitter = StratifiedKFold(n_splits=2, shuffle=False)  # Use StratifiedKFold
 
-        context = {"partition": "train"}
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset,
             context=context, runner=mock_runner

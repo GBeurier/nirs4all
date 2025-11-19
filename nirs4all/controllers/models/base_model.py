@@ -239,8 +239,12 @@ class BaseModelController(OperatorController, ABC):
             # In prediction mode, use all available data (no partition split)
             pred_context = context.with_partition(None)
 
-            X_all = dataset.x(pred_context, layout=layout)
-            y_all = dataset.y(pred_context)
+            X_all = dataset.x(pred_context.selector, layout=layout)
+
+            # Build selector for y with processing from state
+            y_selector = dict(pred_context.selector)
+            y_selector['y'] = pred_context.state.y_processing
+            y_all = dataset.y(y_selector)
 
             # Return empty training data and all data as "test" for prediction
             empty_X = np.array([]).reshape(0, X_all.shape[1] if len(X_all.shape) > 1 else 0)
@@ -251,9 +255,9 @@ class BaseModelController(OperatorController, ABC):
                 y_all_unscaled = y_all
             else:
                 # For regression, get numeric (unscaled) targets
-                # Build selector dict for y() call
-                y_selector = {'partition': None, 'y': 'numeric'}
-                y_all_unscaled = dataset.y(y_selector)
+                y_unscaled_selector = dict(pred_context.selector)
+                y_unscaled_selector['y'] = 'numeric'
+                y_all_unscaled = dataset.y(y_unscaled_selector)
 
             return empty_X, empty_y, X_all, y_all, empty_y, y_all_unscaled
 
@@ -261,24 +265,35 @@ class BaseModelController(OperatorController, ABC):
         train_context = context.with_partition('train')
         test_context = context.with_partition('test')
 
-        X_train = dataset.x(train_context, layout=layout)
-        y_train = dataset.y(train_context)
-        X_test = dataset.x(test_context, layout=layout)
-        y_test = dataset.y(test_context)
+        X_train = dataset.x(train_context.selector, layout=layout)
+
+        # Build selectors for y with processing from state
+        train_y_selector = dict(train_context.selector)
+        train_y_selector['y'] = train_context.state.y_processing
+        y_train = dataset.y(train_y_selector)
+
+        X_test = dataset.x(test_context.selector, layout=layout)
+
+        test_y_selector = dict(test_context.selector)
+        test_y_selector['y'] = test_context.state.y_processing
+        y_test = dataset.y(test_y_selector)
 
         # For classification tasks, use the transformed targets for evaluation
         # For regression tasks, use the original "numeric" targets
         if dataset.task_type and dataset.task_type.is_classification:
             # Use the same y context as the model training (transformed targets)
-            y_train_unscaled = dataset.y(train_context)
-            y_test_unscaled = dataset.y(test_context)
+            y_train_unscaled = dataset.y(train_y_selector)
+            y_test_unscaled = dataset.y(test_y_selector)
         else:
             # Use numeric targets for regression
-            train_context = train_context.with_y('numeric')
-            test_context = test_context.with_y('numeric')
+            train_y_unscaled_selector = dict(train_context.selector)
+            train_y_unscaled_selector['y'] = 'numeric'
 
-            y_train_unscaled = dataset.y(train_context)
-            y_test_unscaled = dataset.y(test_context)
+            test_y_unscaled_selector = dict(test_context.selector)
+            test_y_unscaled_selector['y'] = 'numeric'
+
+            y_train_unscaled = dataset.y(train_y_unscaled_selector)
+            y_test_unscaled = dataset.y(test_y_unscaled_selector)
         return X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled
 
 

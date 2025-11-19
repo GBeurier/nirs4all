@@ -17,6 +17,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from nirs4all.controllers.transforms.transformer import TransformerMixinController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
+from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
 
 
 def make_step_info(operator, step=None):
@@ -37,6 +38,7 @@ def mock_runner():
     """Mock PipelineRunner."""
     runner = Mock()
     runner.next_op = Mock(side_effect=lambda: f"op_{runner.next_op.call_count}")
+    runner.step_number = 1
 
     # Configure saver mock to return tuple as expected by controller
     runner.saver = Mock()
@@ -72,10 +74,11 @@ class TestAugmentSampleDetection:
         controller = TransformerMixinController()
         transformer = StandardScaler()
 
-        context = {
-            "partition": "train",
-            "processing": [["raw"]]  # Required by normal execution
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train", processing=[["raw"]]),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
 
         # Should execute normally (not augmentation mode)
         result_context, binaries = controller.execute(
@@ -92,12 +95,14 @@ class TestAugmentSampleDetection:
         controller = TransformerMixinController()
         transformer = StandardScaler()
 
-        context = {
-            "augment_sample": True,
-            "target_samples": [0, 1],
-            "partition": "train",
-            "augmentation_id": "test_aug"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[0, 1]
+            )
+        )
 
         # Should execute in augmentation mode
         result_context, binaries = controller.execute(
@@ -120,12 +125,14 @@ class TestSampleAugmentation:
 
         initial_count = simple_dataset.x({"partition": "train"}).shape[0]
 
-        context = {
-            "augment_sample": True,
-            "target_samples": [2],  # Augment sample ID 2
-            "partition": "train",
-            "augmentation_id": "aug_test"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[2]
+            )
+        )
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
@@ -143,12 +150,14 @@ class TestSampleAugmentation:
 
         initial_count = simple_dataset.x({"partition": "train"}).shape[0]
 
-        context = {
-            "augment_sample": True,
-            "target_samples": [0, 2, 4],  # Augment 3 samples
-            "partition": "train",
-            "augmentation_id": "aug_multi"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[0, 2, 4]
+            )
+        )
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
@@ -164,12 +173,14 @@ class TestSampleAugmentation:
         controller = TransformerMixinController()
         transformer = MinMaxScaler()
 
-        context = {
-            "augment_sample": True,
-            "target_samples": [1],
-            "partition": "train",
-            "augmentation_id": "aug_origin_test"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[1]
+            )
+        )
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
@@ -199,12 +210,14 @@ class TestSampleAugmentation:
         controller = TransformerMixinController()
         transformer = MinMaxScaler()
 
-        context = {
-            "augment_sample": True,
-            "target_samples": [0],  # Augment sample 0 (group A)
-            "partition": "train",
-            "augmentation_id": "aug_group_test"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[0]
+            )
+        )
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=dataset,
@@ -235,12 +248,14 @@ class TestTransformation:
         # Use a simple transformer that we can verify
         transformer = StandardScaler()
 
-        context = {
-            "augment_sample": True,
-            "target_samples": [0],
-            "partition": "train",
-            "augmentation_id": "aug_transform_test"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[0]
+            )
+        )
 
         # Get original sample 0 data
         original_data = simple_dataset.x({"sample": [0]}, layout="2d")
@@ -262,12 +277,14 @@ class TestTransformation:
         controller = TransformerMixinController()
         transformer = StandardScaler()
 
-        context = {
-            "augment_sample": True,
-            "target_samples": [0],
-            "partition": "train",
-            "augmentation_id": "aug_fit_test"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[0]
+            )
+        )
 
         # Execute augmentation
         _, binaries = controller.execute(
@@ -290,11 +307,14 @@ class TestEdgeCases:
 
         initial_count = simple_dataset.x({"partition": "train"}).shape[0]
 
-        context = {
-            "augment_sample": True,
-            "target_samples": [],  # Empty list
-            "partition": "train"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[]
+            )
+        )
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
@@ -312,11 +332,14 @@ class TestEdgeCases:
 
         initial_count = simple_dataset.x({"partition": "train"}).shape[0]
 
-        context = {
-            "augment_sample": True,
-            # target_samples key missing
-            "partition": "train"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True
+                # target_samples default is empty list
+            )
+        )
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
@@ -332,12 +355,14 @@ class TestEdgeCases:
         controller = TransformerMixinController()
         transformer = MinMaxScaler()
 
-        context = {
-            "augment_sample": True,
-            "target_samples": [0],
-            "partition": "train"
-            # augmentation_id not provided
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[0]
+            )
+        )
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
@@ -367,12 +392,14 @@ class TestMultiSource:
         controller = TransformerMixinController()
         transformer = MinMaxScaler()
 
-        context = {
-            "augment_sample": True,
-            "target_samples": [0],
-            "partition": "train",
-            "augmentation_id": "aug_multi_source"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[0]
+            )
+        )
 
         initial_data = dataset.x({"partition": "train"}, layout="2d", concat_source=True)
         initial_count = initial_data.shape[0]
@@ -397,12 +424,14 @@ class TestIntegration:
         transformer = StandardScaler()
 
         # Simulate context emitted by SampleAugmentationController
-        context = {
-            "augment_sample": True,
-            "target_samples": [0, 1, 2],
-            "partition": "train",
-            "augmentation_id": "aug_StandardScaler_0"
-        }
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata(
+                augment_sample=True,
+                target_samples=[0, 1, 2]
+            )
+        )
 
         initial_count = simple_dataset.x({"partition": "train"}).shape[0]
 

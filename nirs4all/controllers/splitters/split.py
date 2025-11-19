@@ -140,7 +140,10 @@ class CrossValidatorController(OperatorController):
         needs_y, needs_g = _needs(op)
         # IMPORTANT: Only split on base samples (exclude augmented) to prevent data leakage
         X = dataset.x(local_context, layout="2d", concat_source=True, include_augmented=False)
-        y = dataset.y(local_context, include_augmented=False) if needs_y else None
+
+        y = None
+        if needs_y:
+            y = dataset.y(local_context, include_augmented=False)
 
         # Get groups from metadata if available
         groups = None

@@ -73,6 +73,10 @@ class Indexer:
         if selector is None:
             return {}
 
+        # Handle ExecutionContext (duck typing)
+        if hasattr(selector, "selector") and hasattr(selector, "state"):
+            return dict(selector.selector)
+
         if isinstance(selector, Mapping):
             return dict(selector)
 

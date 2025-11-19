@@ -72,8 +72,8 @@ class TransformerMixinController(OperatorController):
         # Get train and all data as lists of 3D arrays (one per source)
         train_context = context.with_partition("train")
 
-        train_data = dataset.x(train_context, "3d", concat_source=False)
-        all_data = dataset.x(context, "3d", concat_source=False)
+        train_data = dataset.x(train_context.selector, "3d", concat_source=False)
+        all_data = dataset.x(context.selector, "3d", concat_source=False)
 
         # Ensure data is in list format
         if not isinstance(train_data, list):
@@ -198,10 +198,8 @@ class TransformerMixinController(OperatorController):
             # Note: dataset.x expects context, but we need to ensure include_augmented=False
             # We can use a temporary selector for this
             train_selector = train_context.selector.with_augmented(False)
-            train_ctx_for_x = train_context.copy()
-            train_ctx_for_x.selector = train_selector
 
-            train_data = dataset.x(train_ctx_for_x, "3d", concat_source=False)
+            train_data = dataset.x(train_selector, "3d", concat_source=False)
             if not isinstance(train_data, list):
                 train_data = [train_data]
 
