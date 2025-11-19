@@ -4,7 +4,7 @@ TensorFlow Data Preparation
 This module handles TensorFlow-specific data preparation and tensor formatting.
 """
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 import numpy as np
 
 
@@ -69,7 +69,7 @@ class TensorFlowDataPreparation:
     def prepare_data(
         X: np.ndarray,
         y: Optional[np.ndarray],
-        context: dict = None
+        context: Any = None
     ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """Prepare both features and targets for TensorFlow.
 

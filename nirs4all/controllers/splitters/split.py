@@ -94,7 +94,7 @@ class CrossValidatorController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: "SpectroDataset",
-        context: Union[Dict[str, Any], ExecutionContext],
+        context: ExecutionContext,
         runner: "PipelineRunner",
         source: int = -1,
         mode: str = "train",
@@ -108,10 +108,6 @@ class CrossValidatorController(OperatorController):
         * Maps local indices back to the global index space.
         * Stores the list of folds into the dataset for subsequent steps.
         """
-        # Ensure context is ExecutionContext
-        if isinstance(context, dict):
-            context = ExecutionContext.from_dict(context)
-
         op = step_info.operator
         # In predict/explain mode, skip fold splitting entirely
         if mode == "predict" or mode == "explain":
@@ -248,7 +244,7 @@ class CrossValidatorController(OperatorController):
                 folds_name += f"_seed{seed}"
         folds_name += ".csv"
 
-            # print(f"Generated {len(folds)} folds.")
+        # print(f"Generated {len(folds)} folds.")
 
         # Save folds CSV as output in the pipeline directory (not as binary artifact)
         # Handle case where runner is None (e.g., in unit tests)

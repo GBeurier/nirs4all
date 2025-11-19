@@ -349,17 +349,17 @@ class PipelineRunner:
         self,
         step: Any,
         dataset: SpectroDataset,
-        context: Union[ExecutionContext, Dict],
+        context: ExecutionContext,
         prediction_store: Predictions,
         is_substep: bool = False,
         propagated_binaries: Optional[List] = None
-    ) -> Union[Tuple[Union[ExecutionContext, Dict], List], Union[ExecutionContext, Dict]]:
+    ) -> Union[Tuple[ExecutionContext, List], ExecutionContext]:
         """Execute a single pipeline step (compatibility method).
 
         Args:
             step: Pipeline step to execute
             dataset: Dataset to process
-            context: Execution context or dict
+            context: Execution context
             prediction_store: Prediction store
             is_substep: Whether this is a substep execution
             propagated_binaries: Binaries to propagate to the step
@@ -404,16 +404,16 @@ class PipelineRunner:
         self,
         steps: List[Any],
         dataset: SpectroDataset,
-        context: Union[ExecutionContext, Dict],
+        context: ExecutionContext,
         execution: str = "sequential",
         prediction_store: Optional[Predictions] = None
-    ) -> Union[ExecutionContext, Dict]:
+    ) -> ExecutionContext:
         """Execute multiple pipeline steps (compatibility method).
 
         Args:
             steps: List of pipeline steps
             dataset: Dataset to process
-            context: Execution context or dict
+            context: Execution context
             execution: Execution mode (only 'sequential' supported)
             prediction_store: Prediction store
 

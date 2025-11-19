@@ -47,6 +47,8 @@ data_path = {
     'y_train': 'sample_data/classification/Ytrain.csv',
 }
 
+data_path_2 = 'sample_data/binary'
+
 pipeline = [
     # "chart_3d",
     # "chart_2d",
@@ -56,20 +58,20 @@ pipeline = [
     ]},
     StandardScaler,
     # "chart_2d",
-    "fold_chart",
+    # "fold_chart",
     SPXYSplitter(0.25),
-    "fold_chart",
+    # "fold_chart",
     ShuffleSplit(n_splits=3, test_size=0.25),
-    "fold_chart",
+    # "fold_chart",
     {"model": nicon_classification,
-     "train_params": {'epochs': 50, 'batch_size': 16, 'verbose': 0}}
+     "train_params": {'epochs': 5, 'batch_size': 16, 'verbose': 3}}
 ]
 
 
 
 # Create configuration objects
 pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
-dataset_config = DatasetConfigs(data_path)
+dataset_config = DatasetConfigs([data_path_2])
 
 # Run the pipeline
 runner = PipelineRunner(save_files=False, verbose=0, plots_visible=args.plots)

@@ -68,9 +68,9 @@ X4 7. Testing backward compatible imports... Error with backward compatible impo
 
 > [Folds] Operator load fold (csv)
 
-> [PLS] implements all PLS (cf. doc.md)
+> [PLS] implements all PLS (cf. doc)
 
-> [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin)
+> [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin) _ add data aug operators en masse.
 
 **RELEASE** 0.6: Minimal Valuable Controllers
 

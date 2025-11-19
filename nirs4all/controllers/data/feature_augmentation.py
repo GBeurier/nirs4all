@@ -9,6 +9,7 @@ from nirs4all.utils.emoji import CROSS
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.spectra.spectra_dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext
 import copy
 
 
@@ -34,14 +35,14 @@ class FeatureAugmentationController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Any] = None
-    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
-        # print(f"Executing feature augmentation for step: {step}, keyword: {context.get('keyword', '')}, source: {source}, mode: {mode}")
+    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+        # print(f"Executing feature augmentation for step: {step}, keyword: {context.metadata.keyword}, source: {source}, mode: {mode}")
         op = step_info.operator
 
         try:

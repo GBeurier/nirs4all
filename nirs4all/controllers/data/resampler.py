@@ -5,7 +5,7 @@ This controller handles the Resampler operator, extracting wavelengths from
 dataset headers and managing the resampling process across multiple sources.
 """
 
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import Any, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
@@ -14,7 +14,9 @@ from nirs4all.operators.transforms.resampler import Resampler
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
-    from nirs4all.spectra.spectra_dataset import SpectroDataset
+    from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 
 @register_controller
@@ -46,9 +48,8 @@ class ResamplerController(OperatorController):
             model_obj = step
 
         # Check if it's a Resampler
-        return (isinstance(model_obj, Resampler) or
-                (hasattr(model_obj, '__class__') and
-                 model_obj.__class__.__name__ == 'Resampler'))
+        is_resampler_class = hasattr(model_obj, '__class__') and model_obj.__class__.__name__ == 'Resampler'
+        return isinstance(model_obj, Resampler) or is_resampler_class
 
     @classmethod
     def use_multi_source(cls) -> bool:
@@ -97,7 +98,7 @@ class ResamplerController(OperatorController):
                 f"Failed to extract wavelengths from headers for source {source_idx}. "
                 f"Header unit: {header_unit}. Headers: {headers[:5]}... "
                 f"Error: {str(e)}"
-            )
+            ) from e
 
     def _get_target_wavelengths_for_source(
         self,
@@ -137,20 +138,18 @@ class ResamplerController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Any] = None
-    ):
-        op = step_info.operator
+    ) -> Tuple['ExecutionContext', List]:
         """
         Execute resampling operation.
 
         Args:
-            step: Pipeline step configuration
-            operator: The Resampler instance
+            step_info: Pipeline step configuration
             dataset: Dataset to operate on
             context: Pipeline execution context
             runner: Pipeline runner instance
@@ -162,13 +161,14 @@ class ResamplerController(OperatorController):
         Returns:
             Tuple of (updated_context, fitted_resamplers)
         """
-        operator_name = operator.__class__.__name__
+        op = step_info.operator
+        operator_name = op.__class__.__name__
 
         # Get train and all data as lists of 3D arrays (one per source)
         train_context = context.with_partition("train")
 
-        train_data = dataset.x(train_context, "3d", concat_source=False)
-        all_data = dataset.x(context, "3d", concat_source=False)
+        train_data = dataset.x(train_context.selector, "3d", concat_source=False)
+        all_data = dataset.x(context.selector, "3d", concat_source=False)
 
         # Ensure data is in list format
         if not isinstance(train_data, list):
@@ -197,7 +197,7 @@ class ResamplerController(OperatorController):
 
             # Get target wavelengths for this source
             target_wavelengths = self._get_target_wavelengths_for_source(
-                operator, sd_idx, n_sources
+                op, sd_idx, n_sources
             )
 
             source_transformed_features = []
@@ -227,7 +227,7 @@ class ResamplerController(OperatorController):
                 else:
                     # Create new resampler with target wavelengths for this source
                     from sklearn.base import clone
-                    resampler = clone(operator)
+                    resampler = clone(op)
                     resampler.target_wavelengths = target_wavelengths
 
                     # Fit the resampler with original wavelengths
@@ -300,15 +300,15 @@ class ResamplerController(OperatorController):
 
             # Update headers AFTER replacing features (so they don't get reset)
             # Resampler always outputs wavelengths in cm-1
-            dataset._features.sources[sd_idx].set_headers(new_headers, unit="cm-1")
+            dataset._features.sources[sd_idx].set_headers(new_headers, unit="cm-1")  # noqa: SLF001
 
             if runner.save_files:
                 print(f"Exporting resampled features for dataset '{dataset.name}', source {sd_idx} to CSV...")
                 print(dataset.features_processings(sd_idx))
                 train_context = context.with_partition("train")
-                train_x_full = dataset.x(train_context, "2d", concat_source=True)
+                train_x_full = dataset.x(train_context.selector, "2d", concat_source=True)
                 test_context = context.with_partition("test")
-                test_x_full = dataset.x(test_context, "2d", concat_source=True)
+                test_x_full = dataset.x(test_context.selector, "2d", concat_source=True)
                 # save train and test features to CSV for debugging, create folder if needed
                 import os
                 root_path = runner.saver.base_path
@@ -318,7 +318,5 @@ class ResamplerController(OperatorController):
 
         context = context.with_processing(new_processing_list)
         context = context.with_metadata(add_feature=False)
-
-
 
         return context, fitted_resamplers

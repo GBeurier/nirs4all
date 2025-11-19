@@ -11,6 +11,8 @@ import io
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 @register_controller
 class YChartController(OperatorController):
@@ -34,13 +36,13 @@ class YChartController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    ) -> Tuple['ExecutionContext', List[Dict[str, Any]]]:
         """
         Execute y values histogram visualization with train/test split.
         Skips execution in prediction mode.
@@ -55,12 +57,14 @@ class YChartController(OperatorController):
         # Initialize image list to track generated plots
         img_list = []
 
-        local_context = context.copy()
-        y = dataset.y(local_context)
-        local_context["partition"] = "train"
-        y_train = dataset.y(local_context)
-        local_context["partition"] = "test"
-        y_test = dataset.y(local_context)
+        local_context = context
+        y = dataset.y(local_context.selector)
+
+        local_context = context.with_partition("train")
+        y_train = dataset.y(local_context.selector)
+
+        local_context = context.with_partition("test")
+        y_test = dataset.y(local_context.selector)
 
         # print(len(y), len(y_train), len(y_test))
 
@@ -98,6 +102,7 @@ class YChartController(OperatorController):
             plt.close(fig)
 
         return context, img_list
+
     def _create_bicolor_histogram(self, y_train: np.ndarray, y_test: np.ndarray, y_all: np.ndarray) -> Tuple[Any, Dict[str, Any]]:
         """Create a bicolor histogram showing train/test distribution."""
         fig, ax = plt.subplots(figsize=(12, 6))

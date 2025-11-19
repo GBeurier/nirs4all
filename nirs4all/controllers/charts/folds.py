@@ -15,6 +15,8 @@ import io
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.steps.parser import ParsedStep
+    from nirs4all.pipeline.config.context import ExecutionContext
 
 
 @register_controller
@@ -39,13 +41,13 @@ class FoldChartController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Union[Dict[str, Any], ExecutionContext],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
         """
         Execute fold visualization showing train/test splits with y-value color coding.
         Skips execution in prediction mode.
@@ -53,15 +55,11 @@ class FoldChartController(OperatorController):
         Returns:
             Tuple of (context, image_list) where image_list contains plot binaries
         """
-        # Ensure context is ExecutionContext
-        if isinstance(context, dict):
-            context = ExecutionContext.from_dict(context)
-
         # Skip execution in prediction mode
         if mode == "predict" or mode == "explain":
             return context, []
 
-        # print(f"Executing fold charts for step: {step}, keyword: {context.get('keyword', '')}")
+        # print(f"Executing fold charts for step: {step}, keyword: {context.metadata.keyword}")
 
         # Check if using metadata column for colors (keyword like "chart_columnName")
         keyword = context.metadata.keyword

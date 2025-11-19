@@ -50,7 +50,7 @@ class TransformerMixinController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Union[Dict[str, Any], ExecutionContext],
+        context: ExecutionContext,
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
@@ -58,10 +58,6 @@ class TransformerMixinController(OperatorController):
         prediction_store: Optional[Any] = None
     ):
         """Execute transformer - handles normal, feature augmentation, and sample augmentation modes."""
-        # Ensure context is ExecutionContext
-        if isinstance(context, dict):
-            context = ExecutionContext.from_dict(context)
-
         op = step_info.operator
 
         # Check if we're in sample augmentation mode

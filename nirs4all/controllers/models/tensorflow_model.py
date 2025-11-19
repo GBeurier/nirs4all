@@ -11,11 +11,14 @@ This controller handles TensorFlow/Keras models with support for:
 Matches TensorFlow/Keras model objects and model configurations.
 """
 
+from __future__ import annotations
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
     from nirs4all.data.predictions import Predictions
+    from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
@@ -365,7 +368,7 @@ class TensorFlowModelController(BaseModelController):
         self,
         X: np.ndarray,
         y: Optional[np.ndarray],
-        context: Dict[str, Any]
+        context: Any
     ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """Prepare data for TensorFlow with proper tensor formatting.
 
@@ -379,8 +382,7 @@ class TensorFlowModelController(BaseModelController):
         Args:
             X: Input features as numpy array (2D or 3D).
             y: Optional target values as numpy array.
-            context: Execution context dictionary (currently unused but kept for
-                interface compatibility).
+            context: Execution context.
 
         Returns:
             Tuple of (prepared_X, prepared_y) in TensorFlow-compatible formats.
@@ -519,13 +521,13 @@ class TensorFlowModelController(BaseModelController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: ExecutionContext,
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
         prediction_store: 'Predictions' = None
-    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+    ) -> Tuple[ExecutionContext, List[Tuple[str, bytes]]]:
         """Execute TensorFlow model training, finetuning, or prediction.
 
         Sets the preferred data layout to '3d_transpose' for TensorFlow Conv1D models,

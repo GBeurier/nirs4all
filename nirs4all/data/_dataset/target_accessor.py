@@ -29,13 +29,7 @@ def _selector_to_dict(selector: Optional[Selector]) -> dict:
     """
     if selector is None:
         return {}
-
-    # Check if it's a DataSelector object (has to_dict method)
-    if hasattr(selector, 'to_dict'):
-        return selector.to_dict()
-
-    # Otherwise assume it's already a dict
-    return selector
+    return dict(selector)
 
 
 class TargetAccessor:
@@ -210,7 +204,7 @@ class TargetAccessor:
         Returns:
             TaskType enum or None if no targets added
         """
-        return self._block._task_type
+        return self._block.task_type
 
     @property
     def num_classes(self) -> int:

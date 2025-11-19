@@ -1,6 +1,6 @@
 """Target data management with processing chains."""
 
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 from sklearn.base import TransformerMixin
@@ -68,7 +68,7 @@ class Targets:
         self._transformer = TargetTransformer(self._processing_chain)
 
         # Performance caching
-        self._stats_cache: Dict[str, any] = {}
+        self._stats_cache: Dict[str, Any] = {}
 
         # Task type detection
         self._task_type: Optional[TaskType] = None
@@ -219,6 +219,16 @@ class Targets:
         # Cache result
         self._stats_cache['num_classes'] = num_classes
         return num_classes
+
+    @property
+    def task_type(self) -> Optional[TaskType]:
+        """
+        Get the detected task type.
+
+        Returns:
+            TaskType enum or None if no targets added
+        """
+        return self._task_type
 
     def get_task_type_for_processing(self, processing: str) -> Optional[TaskType]:
         """

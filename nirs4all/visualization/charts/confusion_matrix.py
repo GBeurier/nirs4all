@@ -142,6 +142,13 @@ class ConfusionMatrixChart(BaseChart):
                     ax.axis('off')
                     continue
 
+                # Auto-convert probabilities to labels for binary classification
+                if len(np.unique(y_true)) == 2 and np.issubdtype(y_pred.dtype, np.floating):
+                     unique_vals = np.unique(y_pred)
+                     if np.min(y_pred) >= 0 and np.max(y_pred) <= 1 and \
+                       not (len(unique_vals) <= 2 and np.all(np.isin(unique_vals, [0.0, 1.0]))):
+                        y_pred = (y_pred > 0.5).astype(int)
+
                 # Compute confusion matrix
                 cm = sk_confusion_matrix(y_true, y_pred)
 

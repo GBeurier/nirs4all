@@ -11,6 +11,8 @@ from nirs4all.utils.emoji import FOLDER, TARGET, ALERT, PIN, CLIPBOARD, WRENCH, 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.steps.parser import ParsedStep
+    from nirs4all.pipeline.config.context import ExecutionContext
 
 
 @register_controller
@@ -130,23 +132,34 @@ class DummyController(OperatorController):
         """Extract useful information from the pipeline context."""
         context_info = {}
 
-        if hasattr(context, 'to_dict'):
-             # Use to_dict if available (ExecutionContext)
-             context_dict = context.to_dict()
+        # Check if it's an ExecutionContext
+        if hasattr(context, 'selector') and hasattr(context, 'state') and hasattr(context, 'metadata'):
+            # Extract info directly from ExecutionContext
+            context_info['keyword'] = self._safe_repr(context.metadata.keyword)
+            context_info['processing'] = self._safe_repr(context.selector.processing)
+            context_info['partition'] = self._safe_repr(context.selector.partition)
+            context_info['y'] = self._safe_repr(context.state.y_processing)
+            context_info['layout'] = self._safe_repr(context.selector.layout)
+            context_info['add_feature'] = self._safe_repr(context.metadata.add_feature)
+
+            # Count total context keys (simulated)
+            context_info["total_keys"] = "N/A (ExecutionContext)"
+            context_info["all_keys"] = ["selector", "state", "metadata", "custom"]
         elif isinstance(context, dict):
-             context_dict = context
+            # Legacy dict context
+            context_dict = context
+
+            # Key context fields
+            important_keys = ['keyword', 'processing', 'partition', 'y', 'layout', 'add_feature']
+            for key in important_keys:
+                if key in context_dict:
+                    context_info[key] = self._safe_repr(context_dict[key])
+
+            # Count total context keys
+            context_info["total_keys"] = len(context_dict)
+            context_info["all_keys"] = list(context_dict.keys())
         else:
-             return {"error": f"Unknown context type: {type(context)}"}
-
-        # Key context fields
-        important_keys = ['keyword', 'processing', 'partition', 'y', 'layout', 'add_feature']
-        for key in important_keys:
-            if key in context_dict:
-                context_info[key] = self._safe_repr(context_dict[key])
-
-        # Count total context keys
-        context_info["total_keys"] = len(context_dict)
-        context_info["all_keys"] = list(context_dict.keys())
+            return {"error": f"Unknown context type: {type(context)}"}
 
         return context_info
 
@@ -154,13 +167,13 @@ class DummyController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Any] = None
-    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
         """
         Handle unmatched operators and provide detailed debugging information.
         """
@@ -201,8 +214,6 @@ class DummyController(OperatorController):
         # Keyword analysis
         if hasattr(context, 'metadata'):
              keyword = context.metadata.keyword
-        elif isinstance(context, dict):
-             keyword = context.get('keyword', 'unknown')
         else:
              keyword = 'unknown'
         print(f"\n{KEY}Keyword: '{keyword}'")

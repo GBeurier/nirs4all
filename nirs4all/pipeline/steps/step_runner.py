@@ -1,5 +1,5 @@
 """Step runner for executing individual pipeline steps."""
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
@@ -53,7 +53,7 @@ class StepRunner:
         self,
         step: Any,
         dataset: SpectroDataset,
-        context: Union[ExecutionContext, Any],
+        context: ExecutionContext,
         runner: Any,  # PipelineRunner reference for compatibility
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Predictions] = None
@@ -122,12 +122,8 @@ class StepRunner:
             return StepResult(updated_context=context, artifacts=[])
 
         # Update context with step metadata
-        if isinstance(context, ExecutionContext):
-            if parsed_step.keyword:
-                context = context.with_metadata(keyword=parsed_step.keyword)
-        else:
-            if parsed_step.keyword:
-                context["keyword"] = parsed_step.keyword
+        if parsed_step.keyword:
+            context = context.with_metadata(keyword=parsed_step.keyword)
 
         # Execute controller
         try:
@@ -151,5 +147,4 @@ class StepRunner:
             raise RuntimeError(f"Step execution failed: {str(e)}") from e
         finally:
             # Reset ephemeral metadata flags to prevent leakage between steps
-            if isinstance(context, ExecutionContext):
-                context.metadata.reset_ephemeral_flags()
+            context.metadata.reset_ephemeral_flags()
