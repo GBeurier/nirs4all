@@ -91,6 +91,9 @@ class PipelineOrchestrator:
         # Figure references to prevent garbage collection
         self._figure_refs: List[Any] = []
 
+        # Store saver from last executed pipeline for post-run operations
+        self.last_saver: Any = None
+
     def execute(
         self,
         pipeline: Union[PipelineConfigs, List[Any], Dict, str],
@@ -160,6 +163,9 @@ class PipelineOrchestrator:
             # Get components from executor for compatibility
             saver = executor.saver
             manifest_manager = executor.manifest_manager
+
+            # Store saver for post-run operations (e.g., export_best_for_dataset)
+            self.last_saver = saver
 
             # Load global predictions from workspace root (dataset_name.meta.parquet)
             dataset_prediction_path = self.workspace_path / f"{name}.meta.parquet"
