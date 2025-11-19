@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 import numpy as np
 import re
 from nirs4all.controllers.controller import OperatorController
@@ -158,12 +159,13 @@ class SpectraChartController(OperatorController):
                     header_unit = "cm-1"
 
                 # Create subplot
+                is_classification = dataset.is_classification
                 if is_3d:
                     ax = fig.add_subplot(n_rows, n_cols, processing_idx + 1, projection='3d')
-                    self._plot_3d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit)
+                    self._plot_3d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit, is_classification)
                 else:
                     ax = fig.add_subplot(n_rows, n_cols, processing_idx + 1)
-                    self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit)
+                    self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit, is_classification)
 
             # Adjust layout to prevent overlap
             plt.tight_layout(rect=[0, 0, 1, 0.96])
@@ -207,7 +209,7 @@ class SpectraChartController(OperatorController):
 
         return context, img_list
 
-    def _plot_2d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None, header_unit: str = "cm-1") -> None:
+    def _plot_2d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None, header_unit: str = "cm-1", is_classification: bool = False) -> None:
         """Plot 2D spectra on given axis."""
         # Create feature indices (wavelengths)
         n_features = x_sorted.shape[1]
@@ -232,15 +234,33 @@ class SpectraChartController(OperatorController):
             x_values = np.arange(n_features)
             x_label = 'Features'
 
-        # Create colormap for gradient based on y values
-        colormap = plt.colormaps.get_cmap('viridis')
-        y_min, y_max = y_sorted.min(), y_sorted.max()
+        # Create colormap - discrete for classification, continuous for regression
+        if is_classification:
+            # Use discrete colormap for classification
+            unique_values = np.unique(y_sorted)
+            n_unique = len(unique_values)
 
-        # Normalize y values to [0, 1] for colormap
-        if y_max != y_min:
-            y_normalized = (y_sorted - y_min) / (y_max - y_min)
+            if n_unique <= 10:
+                colormap = cm.get_cmap('tab10', n_unique)
+            elif n_unique <= 20:
+                colormap = cm.get_cmap('tab20', n_unique)
+            else:
+                colormap = cm.get_cmap('hsv', n_unique)
+
+            # Create mapping from actual values to discrete indices
+            value_to_index = {val: idx for idx, val in enumerate(unique_values)}
+            y_normalized = np.array([value_to_index[val] / max(n_unique - 1, 1) for val in y_sorted])
+            y_min, y_max = 0, n_unique - 1
         else:
-            y_normalized = np.zeros_like(y_sorted)
+            # Use continuous colormap for regression
+            colormap = plt.colormaps.get_cmap('viridis')
+            y_min, y_max = y_sorted.min(), y_sorted.max()
+
+            # Normalize y values to [0, 1] for colormap
+            if y_max != y_min:
+                y_normalized = (y_sorted - y_min) / (y_max - y_min)
+            else:
+                y_normalized = np.zeros_like(y_sorted)
 
         # Plot each spectrum as a 2D line with gradient colors
         for i, spectrum in enumerate(x_sorted):
@@ -261,13 +281,38 @@ class SpectraChartController(OperatorController):
         ax.set_title(subtitle, fontsize=10)
 
         # Add colorbar to show the y-value gradient
-        mappable = cm.ScalarMappable(cmap=colormap)
-        mappable.set_array(y_sorted)
-        cbar = plt.colorbar(mappable, ax=ax, shrink=0.8, aspect=10)
+        if is_classification:
+            # Discrete colorbar for classification
+            unique_values = np.unique(y_sorted)
+            n_unique = len(unique_values)
+
+            import matplotlib.colors as mcolors
+            boundaries = np.arange(n_unique + 1) - 0.5
+            norm = mcolors.BoundaryNorm(boundaries, colormap.N)
+
+            mappable = cm.ScalarMappable(cmap=colormap, norm=norm)
+            mappable.set_array(np.arange(n_unique))
+
+            cbar = plt.colorbar(mappable, ax=ax, shrink=0.8, aspect=10,
+                              boundaries=boundaries, ticks=np.arange(n_unique))
+
+            # Set tick labels to actual class values
+            if n_unique <= 20:
+                cbar.ax.set_yticklabels([str(val) for val in unique_values])
+            else:
+                step = max(1, n_unique // 10)
+                cbar.set_ticks(np.arange(0, n_unique, step).tolist())
+                cbar.ax.set_yticklabels([str(unique_values[i]) for i in range(0, n_unique, step)])
+        else:
+            # Continuous colorbar for regression
+            mappable = cm.ScalarMappable(cmap=colormap)
+            mappable.set_array(y_sorted)
+            cbar = plt.colorbar(mappable, ax=ax, shrink=0.8, aspect=10)
+
         cbar.set_label('y', fontsize=8)
         cbar.ax.tick_params(labelsize=7)
 
-    def _plot_3d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None, header_unit: str = "cm-1") -> None:
+    def _plot_3d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None, header_unit: str = "cm-1", is_classification: bool = False) -> None:
         """Plot 3D spectra on given axis."""
         # Create feature indices (wavelengths)
         n_features = x_sorted.shape[1]
@@ -292,15 +337,33 @@ class SpectraChartController(OperatorController):
             x_values = np.arange(n_features)
             x_label = 'Features'
 
-        # Create colormap for gradient based on y values
-        colormap = plt.colormaps.get_cmap('viridis')
-        y_min, y_max = y_sorted.min(), y_sorted.max()
+        # Create colormap - discrete for classification, continuous for regression
+        if is_classification:
+            # Use discrete colormap for classification
+            unique_values = np.unique(y_sorted)
+            n_unique = len(unique_values)
 
-        # Normalize y values to [0, 1] for colormap
-        if y_max != y_min:
-            y_normalized = (y_sorted - y_min) / (y_max - y_min)
+            if n_unique <= 10:
+                colormap = cm.get_cmap('tab10', n_unique)
+            elif n_unique <= 20:
+                colormap = cm.get_cmap('tab20', n_unique)
+            else:
+                colormap = cm.get_cmap('hsv', n_unique)
+
+            # Create mapping from actual values to discrete indices
+            value_to_index = {val: idx for idx, val in enumerate(unique_values)}
+            y_normalized = np.array([value_to_index[val] / max(n_unique - 1, 1) for val in y_sorted])
+            y_min, y_max = 0, n_unique - 1
         else:
-            y_normalized = np.zeros_like(y_sorted)
+            # Use continuous colormap for regression
+            colormap = plt.colormaps.get_cmap('viridis')
+            y_min, y_max = y_sorted.min(), y_sorted.max()
+
+            # Normalize y values to [0, 1] for colormap
+            if y_max != y_min:
+                y_normalized = (y_sorted - y_min) / (y_max - y_min)
+            else:
+                y_normalized = np.zeros_like(y_sorted)
 
         # Plot each spectrum as a line in 3D space with gradient colors
         for i, (spectrum, y_val) in enumerate(zip(x_sorted, y_sorted)):
@@ -322,8 +385,33 @@ class SpectraChartController(OperatorController):
         ax.set_title(subtitle, fontsize=10)
 
         # Add colorbar to show the y-value gradient
-        mappable = cm.ScalarMappable(cmap=colormap)
-        mappable.set_array(y_sorted)
-        cbar = plt.colorbar(mappable, ax=ax, shrink=0.8, aspect=10, pad=0.1)
+        if is_classification:
+            # Discrete colorbar for classification
+            unique_values = np.unique(y_sorted)
+            n_unique = len(unique_values)
+
+            import matplotlib.colors as mcolors
+            boundaries = np.arange(n_unique + 1) - 0.5
+            norm = mcolors.BoundaryNorm(boundaries, colormap.N)
+
+            mappable = cm.ScalarMappable(cmap=colormap, norm=norm)
+            mappable.set_array(np.arange(n_unique))
+
+            cbar = plt.colorbar(mappable, ax=ax, shrink=0.8, aspect=10, pad=0.1,
+                              boundaries=boundaries, ticks=np.arange(n_unique))
+
+            # Set tick labels to actual class values
+            if n_unique <= 20:
+                cbar.ax.set_yticklabels([str(val) for val in unique_values])
+            else:
+                step = max(1, n_unique // 10)
+                cbar.set_ticks(np.arange(0, n_unique, step).tolist())
+                cbar.ax.set_yticklabels([str(unique_values[i]) for i in range(0, n_unique, step)])
+        else:
+            # Continuous colorbar for regression
+            mappable = cm.ScalarMappable(cmap=colormap)
+            mappable.set_array(y_sorted)
+            cbar = plt.colorbar(mappable, ax=ax, shrink=0.8, aspect=10, pad=0.1)
+
         cbar.set_label('y', fontsize=8)
         cbar.ax.tick_params(labelsize=7)

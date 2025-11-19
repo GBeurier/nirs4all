@@ -99,7 +99,7 @@ class FoldChartController(OperatorController):
 
         # Fallback logic: If no folds, create a simple train/test split visualization
         if not folds:
-            print(f"{INFO}No CV folds found. Creating visualization from train/test partition.")
+            # print(f"{INFO}No CV folds found. Creating visualization from train/test partition.")
 
             # Try to get train and test data - INCLUDE AUGMENTED SAMPLES
             train_context = copy.deepcopy(context)
