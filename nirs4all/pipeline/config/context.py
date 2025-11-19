@@ -25,23 +25,19 @@ Example:
 """
 
 from dataclasses import dataclass, field, replace as dataclass_replace, fields
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Iterator
 from copy import deepcopy
-from collections.abc import Mapping
+from collections.abc import MutableMapping
 
 
-@dataclass(frozen=True)
-class DataSelector(Mapping):
+@dataclass
+class DataSelector(MutableMapping):
     """
-    Immutable data selection parameters for dataset operations.
+    Mutable data selection parameters for dataset operations.
 
     This class replaces the dict-based Selector pattern used by dataset.x() and dataset.y().
-    All fields are immutable to ensure data selection consistency.
-    It implements the Mapping protocol, so it can be used as a dictionary.
-
-    Processing chains are stored here (not in PipelineState) because:
-    - Future flow controllers need processing paths for cache selection
-    - Feature caching requires processing chains to identify data variants
+    It implements the MutableMapping protocol, so it can be used as a dictionary.
+    It supports arbitrary keys via an internal dict to allow flexibility.
 
     Attributes:
         partition: Data partition to select ("train", "test", "all", "val")
@@ -50,13 +46,13 @@ class DataSelector(Mapping):
         concat_source: Whether to concatenate multiple sources
         fold_id: Optional fold identifier for cross-validation
         include_augmented: Whether to include augmented samples
+        y: Optional target processing version (e.g. "numeric", "scaled")
 
     Example:
         >>> selector = DataSelector(partition="train", processing=[["raw"]])
-        >>> train_selector = selector.with_partition("train")
-        >>> # Use as dict
+        >>> selector["y"] = "scaled"  # Direct modification
+        >>> selector["custom_key"] = "value"  # Arbitrary keys supported
         >>> print(selector["partition"])
-        >>> print(dict(selector))
     """
 
     partition: str = "all"
@@ -65,27 +61,67 @@ class DataSelector(Mapping):
     concat_source: bool = True
     fold_id: Optional[int] = None
     include_augmented: bool = False
+    y: Optional[str] = None
+    _extra: Dict[str, Any] = field(default_factory=dict, repr=False)
 
-    def __iter__(self):
-        """Iterate over non-None fields."""
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over non-None fields and extra keys."""
+        # Yield defined fields if they are not None
         for f in fields(self):
+            if f.name == "_extra":
+                continue
             if getattr(self, f.name) is not None:
                 yield f.name
+        # Yield extra keys
+        yield from self._extra
 
-    def __getitem__(self, key):
-        """Get field value if not None."""
-        try:
+    def __getitem__(self, key: str) -> Any:
+        """Get field value or extra key."""
+        # Check if it's a defined field
+        if hasattr(self, key) and key != "_extra":
             val = getattr(self, key)
-        except AttributeError as exc:
-            raise KeyError(key) from exc
+            if val is not None:
+                return val
 
-        if val is None:
+        # Check extra keys
+        if key in self._extra:
+            return self._extra[key]
+
+        raise KeyError(key)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Set field value or extra key."""
+        if hasattr(self, key) and key != "_extra":
+            setattr(self, key, value)
+        else:
+            self._extra[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        """Delete extra key or set field to None."""
+        if hasattr(self, key) and key != "_extra":
+            setattr(self, key, None)
+        elif key in self._extra:
+            del self._extra[key]
+        else:
             raise KeyError(key)
-        return val
 
-    def __len__(self):
-        """Count of non-None fields."""
+    def __len__(self) -> int:
+        """Count of non-None fields and extra keys."""
         return sum(1 for _ in self)
+
+    def copy(self) -> "DataSelector":
+        """Create a deep copy of the selector."""
+        new_selector = DataSelector(
+            partition=self.partition,
+            processing=deepcopy(self.processing),
+            layout=self.layout,
+            concat_source=self.concat_source,
+            fold_id=self.fold_id,
+            include_augmented=self.include_augmented,
+            y=self.y
+        )
+        new_selector._extra = deepcopy(self._extra)
+        return new_selector
 
     def with_partition(self, partition: str) -> "DataSelector":
         """
@@ -97,14 +133,9 @@ class DataSelector(Mapping):
         Returns:
             New DataSelector with updated partition
         """
-        return DataSelector(
-            partition=partition,
-            processing=self.processing,
-            layout=self.layout,
-            concat_source=self.concat_source,
-            fold_id=self.fold_id,
-            include_augmented=self.include_augmented
-        )
+        new_selector = self.copy()
+        new_selector.partition = partition
+        return new_selector
 
     def with_processing(self, processing: List[List[str]]) -> "DataSelector":
         """
@@ -116,14 +147,9 @@ class DataSelector(Mapping):
         Returns:
             New DataSelector with updated processing
         """
-        return DataSelector(
-            partition=self.partition,
-            processing=processing,
-            layout=self.layout,
-            concat_source=self.concat_source,
-            fold_id=self.fold_id,
-            include_augmented=self.include_augmented
-        )
+        new_selector = self.copy()
+        new_selector.processing = processing
+        return new_selector
 
     def with_layout(self, layout: str) -> "DataSelector":
         """
@@ -135,14 +161,9 @@ class DataSelector(Mapping):
         Returns:
             New DataSelector with updated layout
         """
-        return DataSelector(
-            partition=self.partition,
-            processing=self.processing,
-            layout=layout,
-            concat_source=self.concat_source,
-            fold_id=self.fold_id,
-            include_augmented=self.include_augmented
-        )
+        new_selector = self.copy()
+        new_selector.layout = layout
+        return new_selector
 
     def with_fold(self, fold_id: Optional[int]) -> "DataSelector":
         """
@@ -154,14 +175,9 @@ class DataSelector(Mapping):
         Returns:
             New DataSelector with updated fold_id
         """
-        return DataSelector(
-            partition=self.partition,
-            processing=self.processing,
-            layout=self.layout,
-            concat_source=self.concat_source,
-            fold_id=fold_id,
-            include_augmented=self.include_augmented
-        )
+        new_selector = self.copy()
+        new_selector.fold_id = fold_id
+        return new_selector
 
     def with_augmented(self, include_augmented: bool) -> "DataSelector":
         """
@@ -173,14 +189,9 @@ class DataSelector(Mapping):
         Returns:
             New DataSelector with updated include_augmented
         """
-        return DataSelector(
-            partition=self.partition,
-            processing=self.processing,
-            layout=self.layout,
-            concat_source=self.concat_source,
-            fold_id=self.fold_id,
-            include_augmented=include_augmented
-        )
+        new_selector = self.copy()
+        new_selector.include_augmented = include_augmented
+        return new_selector
 
 
 @dataclass
@@ -348,14 +359,7 @@ class ExecutionContext:
             Deep copy of ExecutionContext
         """
         return ExecutionContext(
-            selector=DataSelector(
-                partition=self.selector.partition,
-                processing=deepcopy(self.selector.processing),
-                layout=self.selector.layout,
-                concat_source=self.selector.concat_source,
-                fold_id=self.selector.fold_id,
-                include_augmented=self.selector.include_augmented
-            ),
+            selector=self.selector.copy(),
             state=self.state.copy(),
             metadata=self.metadata.copy(),
             custom=deepcopy(self.custom)

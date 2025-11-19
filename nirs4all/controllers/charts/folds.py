@@ -137,9 +137,7 @@ class FoldChartController(OperatorController):
             if dataset.folds:
                 # CV folds mode: need all data including augmented since indices refer to full dataset
                 # Create selector without partition constraint to get all data
-                all_selector = dict(context.selector)
-                if "partition" in all_selector:
-                    del all_selector["partition"]
+                all_selector = context.selector.with_partition(None)
                 color_values = dataset.metadata_column(metadata_column, all_selector, include_augmented=True)
 
             else:
@@ -169,9 +167,7 @@ class FoldChartController(OperatorController):
             if dataset.folds:
                 # CV folds mode: need all data including augmented since indices refer to full dataset
                 # Create selector without partition constraint to get all data
-                all_selector = dict(context.selector)
-                if "partition" in all_selector:
-                    del all_selector["partition"]
+                all_selector = context.selector.with_partition(None)
                 color_values = dataset.y(all_selector, include_augmented=True)
             else:
                 # Fallback mode: get train and test separately and concatenate
