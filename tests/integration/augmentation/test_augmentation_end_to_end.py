@@ -19,6 +19,7 @@ from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
+from nirs4all.pipeline.config.context import ExecutionContext
 
 
 def make_step_info(operator, step=None):
@@ -149,7 +150,7 @@ class TestLeakPreventionIntegration:
         split_controller.execute(
             step_info=make_step_info(splitter),
             dataset=dataset,
-            context={},
+            context=ExecutionContext(),
             runner=mock_runner
         )
 
@@ -188,7 +189,7 @@ class TestLeakPreventionIntegration:
         split_controller.execute(
             step_info=make_step_info(splitter),
             dataset=dataset,
-            context={},
+            context=ExecutionContext(),
             runner=mock_runner
         )
 
@@ -230,7 +231,7 @@ class TestLeakPreventionIntegration:
         split_controller.execute(
             step_info=make_step_info(splitter, {"group": "group"}),
             dataset=dataset,
-            context={},
+            context=ExecutionContext(),
             runner=mock_runner
         )
 
@@ -420,7 +421,7 @@ class TestEdgeCases:
         split_controller.execute(
             step_info=make_step_info(splitter),
             dataset=dataset,
-            context={},
+            context=ExecutionContext(),
             runner=mock_runner
         )
 

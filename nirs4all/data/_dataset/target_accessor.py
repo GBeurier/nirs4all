@@ -29,6 +29,14 @@ def _selector_to_dict(selector: Optional[Selector]) -> dict:
     """
     if selector is None:
         return {}
+
+    # Handle ExecutionContext (duck typing to avoid circular import)
+    if hasattr(selector, "selector") and hasattr(selector, "state"):
+        d = dict(selector.selector)
+        if hasattr(selector.state, "y_processing"):
+            d["y"] = selector.state.y_processing
+        return d
+
     return dict(selector)
 
 

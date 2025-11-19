@@ -100,8 +100,14 @@ class YTransformerMixinController(OperatorController):
 
         # Get train and all targets
         train_context = context.with_partition("train")
-        train_data = dataset.y(train_context)
-        all_data = dataset.y(context)
+
+        train_y_selector = dict(train_context.selector)
+        train_y_selector['y'] = train_context.state.y_processing
+        train_data = dataset.y(train_y_selector)
+
+        all_y_selector = dict(context.selector)
+        all_y_selector['y'] = context.state.y_processing
+        all_data = dataset.y(all_y_selector)
 
         # Clone and fit the transformer on training targets
         transformer = clone(operator)

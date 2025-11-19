@@ -78,6 +78,10 @@ class FoldChartController(OperatorController):
         # Get data for visualization
         local_context = context.with_partition(partition)
 
+        # Get base sample IDs for the partition used for splitting (usually train)
+        # This maps relative indices (0..N) to actual sample IDs
+        base_sample_ids = dataset._indexer.x_indices(local_context, include_augmented=False)
+
         # Get folds from dataset
         folds = dataset.folds
 
@@ -132,8 +136,11 @@ class FoldChartController(OperatorController):
             # Use metadata column for colors
             if dataset.folds:
                 # CV folds mode: need all data including augmented since indices refer to full dataset
-                all_context = context.with_partition("all")
-                color_values = dataset.metadata_column(metadata_column, all_context, include_augmented=True)
+                # Create selector without partition constraint to get all data
+                all_selector = dict(context.selector)
+                if "partition" in all_selector:
+                    del all_selector["partition"]
+                color_values = dataset.metadata_column(metadata_column, all_selector, include_augmented=True)
 
             else:
                 train_ctx = context.with_partition("train")
@@ -161,8 +168,11 @@ class FoldChartController(OperatorController):
             # Use y values for colors (default behavior)
             if dataset.folds:
                 # CV folds mode: need all data including augmented since indices refer to full dataset
-                all_context = context.with_partition("all")
-                color_values = dataset.y(all_context, include_augmented=True)
+                # Create selector without partition constraint to get all data
+                all_selector = dict(context.selector)
+                if "partition" in all_selector:
+                    del all_selector["partition"]
+                color_values = dataset.y(all_selector, include_augmented=True)
             else:
                 # Fallback mode: get train and test separately and concatenate
                 train_ctx = context.with_partition("train")
@@ -181,7 +191,7 @@ class FoldChartController(OperatorController):
 
         # Create fold visualization
         # Pass original_folds_for_chart (which is None for simple splits) instead of dataset.folds
-        fig, plot_info = self._create_fold_chart(folds, color_values_flat, len(color_values_flat), partition, original_folds_for_chart, dataset, metadata_column)
+        fig, plot_info = self._create_fold_chart(folds, color_values_flat, len(color_values_flat), partition, original_folds_for_chart, dataset, metadata_column, base_sample_ids)
 
         # Save plot to memory buffer as PNG binary
         img_buffer = io.BytesIO()
@@ -222,7 +232,8 @@ class FoldChartController(OperatorController):
         return context, img_list
 
     def _create_fold_chart(self, folds: List[Tuple[List[int], List[int]]], y_values: np.ndarray, n_samples: int, partition: str = "train",
-                           original_folds: List = None, dataset: 'SpectroDataset' = None, metadata_column: str = None) -> Tuple[Any, Dict[str, Any]]:
+                           original_folds: List = None, dataset: 'SpectroDataset' = None, metadata_column: str = None,
+                           base_sample_ids: np.ndarray = None) -> Tuple[Any, Dict[str, Any]]:
         """
         Create a fold visualization chart with stacked bars showing y-value distribution.
 
@@ -342,8 +353,23 @@ class FoldChartController(OperatorController):
                 # CV folds mode: folds contain base sample indices. Expand to include augmented samples.
                 train_idx_arr = np.array(train_idx) if isinstance(train_idx, list) else train_idx
                 test_idx_arr = np.array(test_idx) if isinstance(test_idx, list) else test_idx
-                train_idx_list = train_idx_arr.tolist() if hasattr(train_idx_arr, 'tolist') else list(train_idx_arr)
-                test_idx_list = test_idx_arr.tolist() if hasattr(test_idx_arr, 'tolist') else list(test_idx_arr)
+
+                # Map relative indices to actual sample IDs (origins)
+                if base_sample_ids is not None:
+                    try:
+                        train_origins = base_sample_ids[train_idx_arr]
+                        test_origins = base_sample_ids[test_idx_arr]
+                    except IndexError:
+                        # Fallback if indices don't match
+                        print(f"{WARNING} Fold indices out of bounds for partition '{partition}'. Using indices as origins.")
+                        train_origins = train_idx_arr
+                        test_origins = test_idx_arr
+                else:
+                    train_origins = train_idx_arr
+                    test_origins = test_idx_arr
+
+                train_idx_list = train_origins.tolist() if hasattr(train_origins, 'tolist') else list(train_origins)
+                test_idx_list = test_origins.tolist() if hasattr(test_origins, 'tolist') else list(test_origins)
 
                 # Expand to include augmented samples for each base sample in the fold
                 train_augmented = dataset._indexer.get_augmented_for_origins(train_idx_list)  # noqa: SLF001
@@ -353,11 +379,19 @@ class FoldChartController(OperatorController):
                 train_all_idx = train_idx_list + train_augmented.tolist()
                 test_all_idx = test_idx_list + test_augmented.tolist()
 
-                # Get origins for all (base + augmented) samples
-                train_y_idx = dataset._indexer.y_indices({"sample": train_all_idx}, include_augmented=True)  # noqa: SLF001
-                test_y_idx = dataset._indexer.y_indices({"sample": test_all_idx}, include_augmented=True)  # noqa: SLF001
-                train_y = y_values[train_y_idx]
-                test_y = y_values[test_y_idx]
+                # Fetch values directly using sample IDs
+                if metadata_column:
+                    train_y = dataset.metadata_column(metadata_column, {"sample": train_all_idx}, include_augmented=True)
+                    test_y = dataset.metadata_column(metadata_column, {"sample": test_all_idx}, include_augmented=True)
+                else:
+                    train_y = dataset.y({"sample": train_all_idx}, include_augmented=True)
+                    test_y = dataset.y({"sample": test_all_idx}, include_augmented=True)
+
+                # Ensure 1D arrays
+                if train_y.ndim > 1:
+                    train_y = train_y.flatten()
+                if test_y.ndim > 1:
+                    test_y = test_y.flatten()
             else:
                 # Fallback mode: use direct indexing (fold indices are indices into concatenated array)
                 train_y = y_values[train_idx]
