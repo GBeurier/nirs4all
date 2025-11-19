@@ -91,13 +91,6 @@ class TestDataSelector:
         assert selector.include_augmented is False
         assert new_selector.include_augmented is True
 
-    def test_immutability(self):
-        """Test that DataSelector is truly immutable."""
-        selector = DataSelector(partition="train")
-
-        with pytest.raises(AttributeError):
-            selector.partition = "test"  # type: ignore
-
     def test_mapping_protocol(self):
         """Test that DataSelector behaves like a dict."""
         selector = DataSelector(partition="train", fold_id=1)

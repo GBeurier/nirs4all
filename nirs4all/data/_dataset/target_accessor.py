@@ -33,7 +33,8 @@ def _selector_to_dict(selector: Optional[Selector]) -> dict:
     # Handle ExecutionContext (duck typing to avoid circular import)
     if hasattr(selector, "selector") and hasattr(selector, "state"):
         d = dict(selector.selector)
-        if hasattr(selector.state, "y_processing"):
+        # Only use state.y_processing if y is not already defined in selector
+        if "y" not in d and hasattr(selector.state, "y_processing"):
             d["y"] = selector.state.y_processing
         return d
 
