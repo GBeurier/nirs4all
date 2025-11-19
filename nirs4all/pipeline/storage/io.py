@@ -101,6 +101,9 @@ class SimulationSaver:
             "binaries": {}
         }
 
+        # Reset writer to ensure it uses the new pipeline directory
+        self._writer = None
+
         return self.pipeline_dir
 
     def get_predict_targets(self, prediction_obj: Union[Dict[str, Any], str]):

@@ -66,15 +66,14 @@ print("-" * 80)
 print("--- Method 1: Predict with a prediction entry ---")
 
 predictor = PipelineRunner()
-prediction_dataset = DatasetConfigs(['sample_data/regression']) #DatasetConfigs({'X_test': 'sample_data/regression/Xval.csv.gz'})
-
-
+prediction_dataset = DatasetConfigs({'X_test': 'sample_data/regression/Xval.csv.gz'})
 
 # Make predictions using the best prediction entry
 method1_predictions, _ = predictor.predict(best_prediction, prediction_dataset, verbose=1)
 method1_array = method1_predictions[:5].flatten()
 print("Method 1 predictions:", method1_array)
 is_identical = np.allclose(method1_array, reference_predictions)
+assert is_identical, "Method 1 predictions do not match reference!"
 print(f"Method 1 identical to training: {'✅ YES' if is_identical else '❌ NO'}")
 
 print("=" * 80)

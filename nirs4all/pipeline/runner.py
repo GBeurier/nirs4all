@@ -211,6 +211,10 @@ class PipelineRunner:
             self.pp_data = self.orchestrator.pp_data
         self._figure_refs = self.orchestrator._figure_refs
 
+        # Sync saver for export operations
+        if self.orchestrator.last_saver is not None:
+            self.saver = self.orchestrator.last_saver
+
         return run_predictions, dataset_predictions
 
     def predict(
@@ -291,7 +295,7 @@ class PipelineRunner:
         Returns:
             Path to exported file, or None if export failed
         """
-        saver = getattr(self.predictor, 'saver', None) or getattr(self.explainer, 'saver', None)
+        saver = self.saver or getattr(self.predictor, 'saver', None) or getattr(self.explainer, 'saver', None)
         if saver is None:
             raise ValueError("No saver configured. Run a pipeline first.")
 

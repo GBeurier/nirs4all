@@ -85,6 +85,7 @@ method1_predictions, _ = predictor.predict(best_prediction, prediction_dataset, 
 method1_array = method1_predictions[:5].flatten()
 print("Method 1 predictions:", method1_array)
 is_identical = np.allclose(method1_array, reference_predictions)
+assert is_identical, "Method 1 predictions do not match reference!"
 print(f"Method 1 identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")
 
 print("=" * 80)
@@ -101,6 +102,7 @@ method2_predictions, _ = predictor2.predict(model_id, prediction_dataset2, verbo
 method2_array = method2_predictions[:5].flatten()
 print("Method 2 predictions:", method2_array)
 is_identical = np.allclose(method2_array, reference_predictions)
+assert is_identical, "Method 2 predictions do not match reference!"
 print(f"Method 2 identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")
 
 # Method 3: Predict using a model ID (same as Method 2, but showing the Predictions object return)
@@ -125,4 +127,5 @@ for pred in method3_preds_obj.to_dicts():
         method3_array = pred_float[:5].flatten()
         print("Method 3 predictions:", method3_array)
         is_identical = np.allclose(method3_array, reference_predictions)
+        assert is_identical, "Method 3 predictions do not match reference!"
         print(f"Method 3 identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")

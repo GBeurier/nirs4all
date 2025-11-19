@@ -113,10 +113,13 @@ class WorkspaceExporter:
         runs_dir = Path(runs_dir)
 
         # Load global predictions for this dataset
-        predictions_file = self.workspace_path / f"{dataset_name}.json"
+        # Try .meta.parquet first (new format), then .json (legacy)
+        predictions_file = self.workspace_path / f"{dataset_name}.meta.parquet"
         if not predictions_file.exists():
-            print(f"{WARNING} No predictions found for dataset '{dataset_name}'")
-            return None
+            predictions_file = self.workspace_path / f"{dataset_name}.json"
+            if not predictions_file.exists():
+                print(f"{WARNING} No predictions found for dataset '{dataset_name}'")
+                return None
 
         from nirs4all.data.predictions import Predictions
 

@@ -57,17 +57,6 @@ if ($Log) {
     "" | Out-File -FilePath $logFile -Append -Encoding UTF8
 }
 
-# ## PARALLEL
-# foreach ($example in $examples) {
-#     if (Test-Path "$example") {
-#         Start-Process -FilePath "python" -ArgumentList "$example" -NoNewWindow
-#         Write-Output-Dual "Launch: $example"
-#         Write-Output-Dual "########################################"
-#         Write-Output-Dual "Finished running: $example"
-#         Write-Output-Dual "########################################"
-#     }
-# }
-
 # Determine which examples to run based on parameters
 $paramCount = 0
 if ($Index -gt 0) { $paramCount++ }

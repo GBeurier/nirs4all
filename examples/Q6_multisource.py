@@ -139,6 +139,7 @@ reuse_predictions, _ = predictor.predict(model_id, test_dataset_config, verbose=
 reuse_array = reuse_predictions[:5].flatten()
 print("Reuse predictions:", reuse_array)
 is_identical = np.allclose(reuse_array, reference_predictions)
+assert is_identical, "Method predictions do not match reference!"
 print(f"Model reuse identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")
 
 # # Create visualizations
