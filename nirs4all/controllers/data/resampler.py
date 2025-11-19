@@ -165,8 +165,7 @@ class ResamplerController(OperatorController):
         operator_name = operator.__class__.__name__
 
         # Get train and all data as lists of 3D arrays (one per source)
-        train_context = context.copy()
-        train_context["partition"] = "train"
+        train_context = context.with_partition("train")
 
         train_data = dataset.x(train_context, "3d", concat_source=False)
         all_data = dataset.x(context, "3d", concat_source=False)
@@ -190,8 +189,8 @@ class ResamplerController(OperatorController):
             processing_ids = dataset.features_processings(sd_idx)
             source_processings = processing_ids
 
-            if "processing" in context:
-                source_processings = context["processing"][sd_idx]
+            if context.selector.processing:
+                source_processings = context.selector.processing[sd_idx]
 
             # Extract wavelengths for this source
             original_wavelengths = self._extract_wavelengths(dataset, sd_idx)
@@ -285,6 +284,7 @@ class ResamplerController(OperatorController):
             processing_names.append(source_processing_names)
 
         # Update dataset with resampled features
+        new_processing_list = list(context.selector.processing)
         for sd_idx, (source_features, src_new_processing_names, new_headers) in enumerate(
             zip(transformed_features_list, new_processing_names, new_headers_list)
         ):
@@ -296,7 +296,7 @@ class ResamplerController(OperatorController):
                 processings=src_new_processing_names,
                 source=sd_idx
             )
-            context["processing"][sd_idx] = src_new_processing_names
+            new_processing_list[sd_idx] = src_new_processing_names
 
             # Update headers AFTER replacing features (so they don't get reset)
             # Resampler always outputs wavelengths in cm-1
@@ -305,9 +305,9 @@ class ResamplerController(OperatorController):
             if runner.save_files:
                 print(f"Exporting resampled features for dataset '{dataset.name}', source {sd_idx} to CSV...")
                 print(dataset.features_processings(sd_idx))
-                train_context = {"partition": "train"}
+                train_context = context.with_partition("train")
                 train_x_full = dataset.x(train_context, "2d", concat_source=True)
-                test_context = {"partition": "test"}
+                test_context = context.with_partition("test")
                 test_x_full = dataset.x(test_context, "2d", concat_source=True)
                 # save train and test features to CSV for debugging, create folder if needed
                 import os
@@ -316,7 +316,8 @@ class ResamplerController(OperatorController):
                 np.savetxt(f"{root_path}/{dataset.name}/Export_X_train.csv", train_x_full, delimiter=",")
                 np.savetxt(f"{root_path}/{dataset.name}/Export_X_test.csv", test_x_full, delimiter=",")
 
-        context["add_feature"] = False
+        context = context.with_processing(new_processing_list)
+        context = context.with_metadata(add_feature=False)
 
 
 

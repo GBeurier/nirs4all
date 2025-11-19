@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Dict, Tuple, TYPE_CHECKING, List
+from typing import Any, Dict, Tuple, TYPE_CHECKING, List, Union
 import copy
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.pipeline.config.context import ExecutionContext
 
 if TYPE_CHECKING:  # pragma: no cover
     from nirs4all.pipeline.runner import PipelineRunner
@@ -93,7 +94,7 @@ class CrossValidatorController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: "SpectroDataset",
-        context: Dict[str, Any],
+        context: Union[Dict[str, Any], ExecutionContext],
         runner: "PipelineRunner",
         source: int = -1,
         mode: str = "train",
@@ -107,11 +108,14 @@ class CrossValidatorController(OperatorController):
         * Maps local indices back to the global index space.
         * Stores the list of folds into the dataset for subsequent steps.
         """
+        # Ensure context is ExecutionContext
+        if isinstance(context, dict):
+            context = ExecutionContext.from_dict(context)
+
         op = step_info.operator
         # In predict/explain mode, skip fold splitting entirely
         if mode == "predict" or mode == "explain":
-            local_context = copy.deepcopy(context)
-            local_context["partition"] = "train"
+            local_context = context.with_partition("train")
             needs_y, needs_g = _needs(op)
             X = dataset.x(local_context, layout="2d", concat_source=True)
             n_samples = X.shape[0]
@@ -136,8 +140,7 @@ class CrossValidatorController(OperatorController):
                     f"Group column must be a string, got {type(group_column).__name__}"
                 )
 
-        local_context = copy.deepcopy(context)
-        local_context["partition"] = "train"
+        local_context = context.with_partition("train")
         needs_y, needs_g = _needs(op)
         # IMPORTANT: Only split on base samples (exclude augmented) to prevent data leakage
         X = dataset.x(local_context, layout="2d", concat_source=True, include_augmented=False)

@@ -75,7 +75,7 @@ class YTransformerMixinController(OperatorController):
 
         # Naming for the new processing
         operator_name = operator.__class__.__name__
-        current_y_processing = context.get("y", "numeric")
+        current_y_processing = context.state.y_processing
         new_processing_name = f"{current_y_processing}_{operator_name}{runner.next_op()}"
 
         if (mode == "predict" or mode == "explain") and loaded_binaries:
@@ -88,8 +88,7 @@ class YTransformerMixinController(OperatorController):
                 transformer=transformer,
                 mode=mode
             )
-            updated_context = context.copy()
-            updated_context["y"] = new_processing_name
+            updated_context = context.with_y(new_processing_name)
             # print(f">>>>>>> Registered {transformer}")
             # try:
             #     print(transformer.data_min_, transformer.data_max_)
@@ -98,8 +97,7 @@ class YTransformerMixinController(OperatorController):
             return updated_context, []
 
         # Get train and all targets
-        train_context = context.copy()
-        train_context["partition"] = "train"
+        train_context = context.with_partition("train")
         train_data = dataset.y(train_context)
         all_data = dataset.y(context)
 
@@ -124,8 +122,7 @@ class YTransformerMixinController(OperatorController):
         # except AttributeError:
         #     print("Transformer does not have data_min_ or data_max_ attributes")
         # Update context to use the new y processing
-        updated_context = context.copy()
-        updated_context["y"] = new_processing_name
+        updated_context = context.with_y(new_processing_name)
 
         # Persist fitted transformer using new serializer
         if mode == "train":

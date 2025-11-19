@@ -68,13 +68,25 @@ class Indexer:
             "processings": ["raw"],
         }
 
+    def _ensure_selector_dict(self, selector: Any) -> Dict[str, Any]:
+        """Ensure selector is a dictionary."""
+        if selector is None:
+            return {}
+        if hasattr(selector, "to_dict"):
+            return selector.to_dict()
+        if isinstance(selector, dict):
+            return selector
+        return {}
+
     def _apply_filters(self, selector: Selector) -> pl.DataFrame:
         """Apply selector filters and return filtered DataFrame."""
+        selector = self._ensure_selector_dict(selector)
         condition = self._query_builder.build(selector, exclude_columns=["processings"])
         return self._store.query(condition)
 
     def _build_filter_condition(self, selector: Selector) -> pl.Expr:
         """Build a Polars filter expression from selector."""
+        selector = self._ensure_selector_dict(selector)
         return self._query_builder.build(selector, exclude_columns=["processings"])
 
     def x_indices(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
@@ -407,7 +419,7 @@ class Indexer:
                 # Base samples: origin = sample (self-referencing)
                 origins = [int(x) for x in sample_ids]
             else:
-                origins = self._normalize_indices(origin_indices, count, "origin_indices")
+                origins = self._normalize_indices(originIndices, count, "origin_indices")
 
         # Normalize column values
         groups = self._normalize_single_or_list(group, count, "group")

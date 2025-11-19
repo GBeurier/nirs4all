@@ -71,32 +71,38 @@ class PredictionResolver:
         if not self.workspace_path.exists():
             return None
 
+        # Define search paths (workspace root and runs directory)
+        search_paths = [self.workspace_path]
+        if (self.workspace_path / "runs").exists():
+            search_paths.append(self.workspace_path / "runs")
+
         # Search in global prediction databases
-        # Try Parquet files first (new format)
-        for predictions_file in self.workspace_path.glob("*.meta.parquet"):
-            if not predictions_file.is_file():
-                continue
+        for path in search_paths:
+            # Try Parquet files first (new format)
+            for predictions_file in path.glob("*.meta.parquet"):
+                if not predictions_file.is_file():
+                    continue
 
-            try:
-                predictions = Predictions.load_from_file_cls(str(predictions_file))
-                for pred in predictions.filter_predictions(load_arrays=True):
-                    if pred.get('id') == prediction_id:
-                        return pred
-            except Exception:
-                continue
+                try:
+                    predictions = Predictions.load_from_file_cls(str(predictions_file))
+                    for pred in predictions.filter_predictions(load_arrays=True):
+                        if pred.get('id') == prediction_id:
+                            return pred
+                except Exception:
+                    continue
 
-        # Fall back to JSON files (legacy format)
-        for predictions_file in self.workspace_path.glob("*.json"):
-            if not predictions_file.is_file():
-                continue
+            # Fall back to JSON files (legacy format)
+            for predictions_file in path.glob("*.json"):
+                if not predictions_file.is_file():
+                    continue
 
-            try:
-                predictions = Predictions.load_from_file_cls(str(predictions_file))
-                for pred in predictions.filter_predictions(load_arrays=True):
-                    if pred.get('id') == prediction_id:
-                        return pred
-            except Exception:
-                continue
+                try:
+                    predictions = Predictions.load_from_file_cls(str(predictions_file))
+                    for pred in predictions.filter_predictions(load_arrays=True):
+                        if pred.get('id') == prediction_id:
+                            return pred
+                except Exception:
+                    continue
 
         return None
 

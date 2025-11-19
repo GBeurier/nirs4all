@@ -45,24 +45,24 @@ class FeatureAugmentationController(OperatorController):
         op = step_info.operator
 
         try:
-            initial_context = copy.deepcopy(context)
+            initial_context = context.copy()
             # Faire une deepcopy à chaque utilisation pour éviter les modifications
-            original_source_processings = copy.deepcopy(initial_context["processing"])
+            original_source_processings = copy.deepcopy(initial_context.selector.processing)
             all_artifacts = []
 
             for i, operation in enumerate(step_info.original_step["feature_augmentation"]):
                 # Recréer source_processings à chaque itération pour éviter les mutations
                 source_processings = copy.deepcopy(original_source_processings)
-                local_context = copy.deepcopy(initial_context)
+                local_context = initial_context.copy()
                 # print(f"Applying feature augmentation operation {i + 1}/{len(step_info.original_step['feature_augmentation'])}: {operation}")
                 # if i == 0 and operation is None:
                 #     print("Skipping no-op feature augmentation")
                 #     continue
                 # if i > 0:
-                local_context["add_feature"] = True
+                local_context = local_context.with_metadata(add_feature=True)
 
                 # Assigner une nouvelle copie à chaque fois
-                local_context["processing"] = copy.deepcopy(source_processings)
+                local_context = local_context.with_processing(copy.deepcopy(source_processings))
 
                 # Run substep and collect artifacts
                 updated_context, substep_artifacts = runner.run_step(
@@ -71,10 +71,11 @@ class FeatureAugmentationController(OperatorController):
                 )
                 all_artifacts.extend(substep_artifacts)
 
-            context["processing"] = []
+            new_processing = []
             for sdx in range(dataset.n_sources):
                 processing_ids = dataset.features_processings(sdx)
-                context["processing"].append(processing_ids)
+                new_processing.append(processing_ids)
+            context = context.with_processing(new_processing)
             return context, all_artifacts
 
         except Exception as e:

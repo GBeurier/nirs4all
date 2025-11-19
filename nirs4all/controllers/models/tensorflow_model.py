@@ -555,8 +555,7 @@ class TensorFlowModelController(BaseModelController):
             raise ImportError("TensorFlow is not available. Please install tensorflow.")
 
         # Set layout preference for TensorFlow models
-        context = context.copy()
-        context['layout'] = self.get_preferred_layout()
+        context = context.with_layout(self.get_preferred_layout())
 
         # Call parent execute method
         return super().execute(step_info, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
