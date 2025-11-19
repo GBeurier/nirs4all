@@ -13,6 +13,8 @@ import io
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 @register_controller
 class SpectraChartController(OperatorController):
@@ -65,13 +67,13 @@ class SpectraChartController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    ) -> Tuple['ExecutionContext', List[Dict[str, Any]]]:
         """
         Execute spectra visualization for both 2D and 3D plots.
         Skips execution in prediction mode.
@@ -90,9 +92,9 @@ class SpectraChartController(OperatorController):
 
         # Initialize image list to track generated plots
         img_list = []
-        local_context = context.copy()
-        spectra_data = dataset.x(local_context, "3d", False)
-        y = dataset.y(local_context)
+        # Use context directly as it is immutable-ish and we only read from it
+        spectra_data = dataset.x(context.selector, "3d", False)
+        y = dataset.y(context.selector)
 
         if not isinstance(spectra_data, list):
             spectra_data = [spectra_data]

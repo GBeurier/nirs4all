@@ -16,6 +16,7 @@ from nirs4all.utils.emoji import TARGET, ROCKET, TROPHY, CHART, WARNING
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext
 
 try:
     import optuna
@@ -56,7 +57,7 @@ class OptunaManager:
         y_test: Any,
         folds: Optional[List],
         finetune_params: Dict[str, Any],
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         controller: Any  # The model controller instance
     ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """
@@ -129,7 +130,7 @@ class OptunaManager:
         folds: List,
         finetune_params: Dict[str, Any],
         n_trials: int,
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         controller: Any,
         verbose: int
     ) -> List[Dict[str, Any]]:
@@ -173,7 +174,7 @@ class OptunaManager:
         folds: List,
         finetune_params: Dict[str, Any],
         n_trials: int,
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         controller: Any,
         eval_mode: str,
         verbose: int
@@ -199,19 +200,19 @@ class OptunaManager:
                 X_val_fold = X_train[val_indices]
                 y_val_fold = y_train[val_indices]
                 try:
-                    model = controller._get_model_instance(dataset, model_config, force_params=sampled_params)
+                    model = controller._get_model_instance(dataset, model_config, force_params=sampled_params)  # noqa: SLF001
 
                     # Prepare data
-                    X_train_prep, y_train_prep = controller._prepare_data(X_train_fold, y_train_fold, context)
-                    X_val_prep, y_val_prep = controller._prepare_data(X_val_fold, y_val_fold, context)
+                    X_train_prep, y_train_prep = controller._prepare_data(X_train_fold, y_train_fold, context)  # noqa: SLF001
+                    X_val_prep, y_val_prep = controller._prepare_data(X_val_fold, y_val_fold, context)  # noqa: SLF001
 
                     # Train and evaluate - pass train_params from finetune_params
                     train_params_for_trial = finetune_params.get('train_params', {}).copy()
                     # Ensure task_type is passed for models that need it (e.g., TensorFlow)
                     if 'task_type' not in train_params_for_trial:
                         train_params_for_trial['task_type'] = dataset.task_type
-                    trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)
-                    score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep)
+                    trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)  # noqa: SLF001
+                    score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep)  # noqa: SLF001
                     scores.append(score)
 
                 except Exception as e:
@@ -247,7 +248,7 @@ class OptunaManager:
         y_val: Any,
         finetune_params: Dict[str, Any],
         n_trials: int,
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         controller: Any,
         verbose: int
     ) -> Dict[str, Any]:
@@ -268,7 +269,7 @@ class OptunaManager:
         y_val: Any,
         finetune_params: Dict[str, Any],
         n_trials: int,
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         controller: Any,
         verbose: int = 1
     ) -> Dict[str, Any]:
@@ -285,19 +286,19 @@ class OptunaManager:
                 print(f"Trial params: {sampled_params}")
 
             try:
-                model = controller._get_model_instance(dataset, model_config, force_params=sampled_params)
+                model = controller._get_model_instance(dataset, model_config, force_params=sampled_params)  # noqa: SLF001
 
                 # Prepare data
-                X_train_prep, y_train_prep = controller._prepare_data(X_train, y_train, context)
-                X_val_prep, y_val_prep = controller._prepare_data(X_val, y_val, context)
+                X_train_prep, y_train_prep = controller._prepare_data(X_train, y_train, context)  # noqa: SLF001
+                X_val_prep, y_val_prep = controller._prepare_data(X_val, y_val, context)  # noqa: SLF001
 
                 # Train and evaluate - pass train_params from finetune_params
                 train_params_for_trial = finetune_params.get('train_params', {}).copy()
                 # Ensure task_type is passed for models that need it (e.g., TensorFlow)
                 if 'task_type' not in train_params_for_trial:
                     train_params_for_trial['task_type'] = dataset.task_type
-                trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)
-                score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep)
+                trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)  # noqa: SLF001
+                score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep)  # noqa: SLF001
 
                 return score
 
@@ -342,7 +343,7 @@ class OptunaManager:
             # Verify grid is suitable even if explicitly requested
             is_grid_suitable = self._is_grid_search_suitable(finetune_params)
             if not is_grid_suitable:
-                print(f"Warning: Grid sampler requested but parameters are not all categorical. Using TPE sampler instead.")
+                print("Warning: Grid sampler requested but parameters are not all categorical. Using TPE sampler instead.")
                 sampler_type = 'tpe'
 
         # Create sampler instance
@@ -488,18 +489,25 @@ class OptunaManager:
 
         # Legacy support
         if not model_params:
-            model_params = {k: v for k, v in finetune_params.items()
-                          if k not in ['n_trials', 'approach', 'eval_mode', 'sampler', 'sample', 'train_params', 'verbose']}
+            model_params = {
+                k: v for k, v in finetune_params.items()
+                if k not in ['n_trials', 'approach', 'eval_mode', 'sampler', 'sample', 'train_params', 'verbose']
+            }
 
         # Debug: uncomment these lines to debug grid suitability checks
         # print(f"[DEBUG] Checking grid suitability. Model params: {model_params}")
 
-        for param_name, param_config in model_params.items():
+        for _, param_config in model_params.items():
             # Check if this is a range specification disguised as a list (from tuple-to-list conversion)
-            if (isinstance(param_config, list) and len(param_config) == 3 and
-                param_config[0] in ['int', 'float'] and
-                isinstance(param_config[1], (int, float)) and
-                isinstance(param_config[2], (int, float))):
+            is_list = isinstance(param_config, list)
+            has_len_3 = len(param_config) == 3
+            is_type_spec = param_config[0] in ['int', 'float'] if is_list and has_len_3 else False
+            is_min_num = isinstance(param_config[1], (int, float)) if is_list and has_len_3 else False
+            is_max_num = isinstance(param_config[2], (int, float)) if is_list and has_len_3 else False
+
+            is_range_spec = is_list and has_len_3 and is_type_spec and is_min_num and is_max_num
+
+            if is_range_spec:
                 # This is a range specification, not categorical
                 # print(f"[DEBUG] Parameter '{param_name}' is a range spec disguised as list, grid search not suitable")
                 return False
@@ -523,8 +531,10 @@ class OptunaManager:
 
         # Legacy support
         if not model_params:
-            model_params = {k: v for k, v in finetune_params.items()
-                          if k not in ['n_trials', 'approach', 'eval_mode', 'sampler', 'sample', 'train_params', 'verbose']}
+            model_params = {
+                k: v for k, v in finetune_params.items()
+                if k not in ['n_trials', 'approach', 'eval_mode', 'sampler', 'sample', 'train_params', 'verbose']
+            }
 
         search_space = {}
         for param_name, param_config in model_params.items():

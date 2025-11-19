@@ -91,38 +91,37 @@ class TestDataSelector:
         assert selector.include_augmented is False
         assert new_selector.include_augmented is True
 
-    def test_to_dict_conversion(self):
-        """Test conversion to dict format."""
-        selector = DataSelector(
-            partition="train",
-            processing=[["snv"]],
-            layout="3d",
-            concat_source=False,
-            fold_id=2,
-            include_augmented=True
-        )
-        result = selector.to_dict()
-
-        assert result["partition"] == "train"
-        assert result["processing"] == [["snv"]]
-        assert result["layout"] == "3d"
-        assert result["concat_source"] is False
-        assert result["fold_id"] == 2
-        assert result["include_augmented"] is True
-
-    def test_to_dict_without_fold(self):
-        """Test to_dict excludes None fold_id."""
-        selector = DataSelector(partition="train")
-        result = selector.to_dict()
-
-        assert "fold_id" not in result
-
     def test_immutability(self):
         """Test that DataSelector is truly immutable."""
         selector = DataSelector(partition="train")
 
         with pytest.raises(AttributeError):
-            selector.partition = "test"
+            selector.partition = "test"  # type: ignore
+
+    def test_mapping_protocol(self):
+        """Test that DataSelector behaves like a dict."""
+        selector = DataSelector(partition="train", fold_id=1)
+
+        # Test __getitem__
+        assert selector["partition"] == "train"
+        assert selector["fold_id"] == 1
+
+        # Test dict conversion
+        d = dict(selector)
+        assert d["partition"] == "train"
+        assert d["fold_id"] == 1
+        assert "processing" in d  # Default value
+
+        # Test missing key
+        with pytest.raises(KeyError):
+            _ = selector["non_existent"]
+
+        # Test None value exclusion
+        selector_none = DataSelector(fold_id=None)
+        with pytest.raises(KeyError):
+            _ = selector_none["fold_id"]
+
+        assert "fold_id" not in dict(selector_none)
 
 
 class TestPipelineState:
@@ -319,55 +318,6 @@ class TestExecutionContext:
 
         retrieved = context.get_selector()
         assert retrieved.partition == "train"
-
-    def test_to_dict_combines_all_components(self):
-        """Test to_dict combines all context components."""
-        context = ExecutionContext(
-            selector=DataSelector(partition="train", processing=[["snv"]]),
-            state=PipelineState(y_processing="encoded", step_number=3),
-            metadata=StepMetadata(keyword="model", step_id="001"),
-            custom={"custom_key": "custom_value"}
-        )
-
-        result = context.to_dict()
-
-        assert result["partition"] == "train"
-        assert result["processing"] == [["snv"]]
-        assert result["y"] == "encoded"
-        assert result["step_number"] == 3
-        assert result["keyword"] == "model"
-        assert result["step_id"] == "001"
-        assert result["custom_key"] == "custom_value"
-
-    def test_from_dict_reconstruction(self):
-        """Test from_dict correctly reconstructs context."""
-        data = {
-            "partition": "test",
-            "processing": [["snv"], ["savgol"]],
-            "layout": "3d",
-            "y": "encoded_LabelEncoder_001",
-            "step_number": 5,
-            "mode": "predict",
-            "keyword": "model",
-            "step_id": "002",
-            "augment_sample": True,
-            "target_samples": [1, 2, 3],
-            "custom_field": "custom_value"
-        }
-
-        context = ExecutionContext.from_dict(data)
-
-        assert context.selector.partition == "test"
-        assert context.selector.processing == [["snv"], ["savgol"]]
-        assert context.selector.layout == "3d"
-        assert context.state.y_processing == "encoded_LabelEncoder_001"
-        assert context.state.step_number == 5
-        assert context.state.mode == "predict"
-        assert context.metadata.keyword == "model"
-        assert context.metadata.step_id == "002"
-        assert context.metadata.augment_sample is True
-        assert context.metadata.target_samples == [1, 2, 3]
-        assert context.custom == {"custom_field": "custom_value"}
 
     def test_custom_data_extensibility(self):
         """Test custom dict for controller-specific data."""

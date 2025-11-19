@@ -26,6 +26,7 @@ from .factory import ModelFactory
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext
 
 
 @register_controller
@@ -265,7 +266,7 @@ class SklearnModelController(BaseModelController):
         self,
         X: np.ndarray,
         y: np.ndarray,
-        context: Dict[str, Any]
+        context: 'ExecutionContext'
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Prepare data for sklearn (ensure 2D X and 2D y for consistency).
 
@@ -276,7 +277,7 @@ class SklearnModelController(BaseModelController):
         Args:
             X (np.ndarray): Input features, can be 1D, 2D, or higher dimensional.
             y (np.ndarray): Target values, can be None for prediction-only scenarios.
-            context (Dict[str, Any]): Pipeline context (unused in this implementation).
+            context (ExecutionContext): Pipeline context (unused in this implementation).
 
         Returns:
             Tuple[np.ndarray, np.ndarray]: Prepared (X, y) arrays in proper format,
@@ -416,13 +417,13 @@ class SklearnModelController(BaseModelController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
         prediction_store: Optional[Any] = None
-    ) -> Tuple[Dict[str, Any], List[Tuple[str, bytes]]]:
+    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
         """Execute sklearn model controller with score management.
 
         Main entry point for sklearn model execution in the pipeline. Sets the
@@ -431,7 +432,7 @@ class SklearnModelController(BaseModelController):
         Args:
             step_info: Parsed step containing model configuration and operator.
             dataset (SpectroDataset): Dataset containing features and targets.
-            context (Dict[str, Any]): Pipeline execution context with state info.
+            context (ExecutionContext): Pipeline execution context with state info.
             runner (PipelineRunner): Pipeline runner for coordination.
             source (int): Source index for multi-source pipelines. Defaults to -1.
             mode (str): Execution mode ('train' or 'predict'). Defaults to 'train'.
@@ -441,7 +442,7 @@ class SklearnModelController(BaseModelController):
                 Defaults to None.
 
         Returns:
-            Tuple[Dict[str, Any], List[Tuple[str, bytes]]]: Updated context and
+            Tuple[ExecutionContext, List[Tuple[str, bytes]]]: Updated context and
                 list of model binaries (name, serialized_model) for persistence.
 
         Note:

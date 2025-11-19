@@ -13,6 +13,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext
 
 
 class PredictionTransformer:
@@ -36,7 +37,7 @@ class PredictionTransformer:
         self,
         predictions_scaled: np.ndarray,
         dataset: 'SpectroDataset',
-        context: Optional[dict] = None
+        context: Optional['ExecutionContext'] = None
     ) -> np.ndarray:
         """Transform predictions from scaled/processed space to unscaled/numeric space.
 
@@ -60,7 +61,7 @@ class PredictionTransformer:
 
         # For regression, transform back to numeric if currently processed
         if current_y_processing != 'numeric':
-            return dataset._targets.transform_predictions(
+            return dataset._targets.transform_predictions(  # noqa: SLF001
                 predictions_scaled,
                 current_y_processing,
                 'numeric'
@@ -73,7 +74,7 @@ class PredictionTransformer:
         self,
         predictions_dict: dict,
         dataset: 'SpectroDataset',
-        context: Optional[dict] = None
+        context: Optional['ExecutionContext'] = None
     ) -> dict:
         """Transform a dictionary of predictions to unscaled space.
 

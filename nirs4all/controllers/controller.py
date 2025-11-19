@@ -43,7 +43,7 @@ class OperatorController(ABC):
         self,
         step_info: "ParsedStep",
         dataset: SpectroDataset,
-        context: Union[Dict[str, Any], "ExecutionContext"],
+        context: "ExecutionContext",
         runner: "PipelineRunner",
         source: int = -1,
         mode: str = "train",
@@ -56,7 +56,7 @@ class OperatorController(ABC):
         Args:
             step_info: Parsed step containing operator, keyword, and metadata
             dataset: Dataset to operate on
-            context: Pipeline execution context (dict or ExecutionContext)
+            context: Pipeline execution context
             runner: Pipeline runner instance
             source: Data source index
             mode: Execution mode ("train" or "predict")

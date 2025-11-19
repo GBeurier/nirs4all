@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
+    from nirs4all.pipeline.config.context import ExecutionContext
 
 
 @dataclass
@@ -58,7 +59,6 @@ class ModelIdentifierGenerator:
             helper: Deprecated parameter, kept for backwards compatibility.
         """
         # Helper is deprecated - methods are now implemented directly in this class
-        pass
 
     def extract_core_name(self, model_config: Dict[str, Any]) -> str:
         """Extract core name from model configuration.
@@ -190,7 +190,7 @@ class ModelIdentifierGenerator:
         self,
         model_config: Dict[str, Any],
         runner: 'PipelineRunner',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         fold_idx: Optional[int] = None
     ) -> ModelIdentifiers:
         """Generate all model identifiers from configuration and context.

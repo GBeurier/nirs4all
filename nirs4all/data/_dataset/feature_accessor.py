@@ -27,13 +27,7 @@ def _selector_to_dict(selector: Optional[Selector]) -> IndexDict:
     """
     if selector is None:
         return {}
-
-    # Check if it's a DataSelector object (has to_dict method)
-    if hasattr(selector, 'to_dict'):
-        return selector.to_dict()
-
-    # Otherwise assume it's already a dict
-    return selector
+    return dict(selector)
 
 
 class FeatureAccessor:

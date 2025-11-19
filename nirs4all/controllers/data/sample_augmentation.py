@@ -9,6 +9,8 @@ from nirs4all.data.binning import BinningCalculator  # noqa: F401 - used in _exe
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.config.context import ExecutionContext
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 
 @register_controller
@@ -43,13 +45,13 @@ class SampleAugmentationController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[Any] = None,
         prediction_store: Optional[Any] = None
-    ) -> Tuple[Dict[str, Any], List]:
+    ) -> Tuple['ExecutionContext', List]:
         """
         Execute sample augmentation with standard or balanced mode.
 
@@ -132,10 +134,10 @@ class SampleAugmentationController(OperatorController):
         config: Dict,
         transformers: List,
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         loaded_binaries: Optional[Any]
-    ) -> Tuple[Dict[str, Any], List]:
+    ) -> Tuple['ExecutionContext', List]:
         """Execute standard count-based augmentation."""
         count = config.get("count", 1)
         selection = config.get("selection", "random")
@@ -145,7 +147,7 @@ class SampleAugmentationController(OperatorController):
         train_context = context.with_partition("train")
 
         # Get base samples only (exclude augmented)
-        base_samples_idx = dataset._indexer.x_indices(train_context, include_augmented=False)  # noqa: SLF001
+        base_samples_idx = dataset._indexer.x_indices(train_context.selector, include_augmented=False)  # noqa: SLF001
         base_samples = base_samples_idx.tolist() if hasattr(base_samples_idx, 'tolist') else list(base_samples_idx)
 
         if not base_samples:
@@ -177,10 +179,10 @@ class SampleAugmentationController(OperatorController):
         config: Dict,
         transformers: List,
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         loaded_binaries: Optional[Any]
-    ) -> Tuple[Dict[str, Any], List]:
+    ) -> Tuple['ExecutionContext', List]:
         """Execute balanced class-aware augmentation."""
         balance_source = config.get("balance")
         target_size = config.get("target_size", None)
@@ -199,16 +201,16 @@ class SampleAugmentationController(OperatorController):
         # train_context.pop("test_indices", None)
 
         # Get ALL TRAIN samples (base + augmented)
-        all_train_samples = dataset._indexer.x_indices(train_context, include_augmented=True)  # noqa: SLF001
+        all_train_samples = dataset._indexer.x_indices(train_context.selector, include_augmented=True)  # noqa: SLF001
         # Get only BASE TRAIN samples (these have actual data to augment)
-        base_train_samples = dataset._indexer.x_indices(train_context, include_augmented=False)  # noqa: SLF001
+        base_train_samples = dataset._indexer.x_indices(train_context.selector, include_augmented=False)  # noqa: SLF001
 
         if len(base_train_samples) == 0:
             return context, []
 
         # Get labels for ALL TRAIN samples (to calculate target size)
         if balance_source == "y":
-            labels_all_train = dataset.y(train_context, include_augmented=True)
+            labels_all_train = dataset.y(train_context.selector, include_augmented=True)
             # Flatten if necessary
             labels_all_train = labels_all_train.flatten() if labels_all_train.ndim > 1 else labels_all_train
 
@@ -227,7 +229,7 @@ class SampleAugmentationController(OperatorController):
             if not isinstance(balance_source, str):
                 raise ValueError(f"balance source must be 'y' or a metadata column name, got {balance_source}")
             # Get origin indices for all train samples (including augmented mapped to origins)
-            origin_indices = dataset._indexer.y_indices(train_context, include_augmented=True)  # noqa: SLF001
+            origin_indices = dataset._indexer.y_indices(train_context.selector, include_augmented=True)  # noqa: SLF001
             # Get base metadata and index into it using origin indices
             base_metadata = dataset._metadata.get_column(balance_source)  # noqa: SLF001
             labels_all_train = base_metadata[origin_indices]
@@ -317,7 +319,7 @@ class SampleAugmentationController(OperatorController):
         self,
         transformer_to_samples: Dict[int, List[int]],
         transformers: List,
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         dataset: 'SpectroDataset',
         runner: 'PipelineRunner',
         loaded_binaries: Optional[Any]

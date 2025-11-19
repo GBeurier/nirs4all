@@ -1,4 +1,4 @@
-from typing import Dict, List, Union, Any, Optional, overload
+from typing import Dict, List, Union, Any, Optional, overload, Mapping
 import numpy as np
 import polars as pl
 
@@ -72,10 +72,10 @@ class Indexer:
         """Ensure selector is a dictionary."""
         if selector is None:
             return {}
-        if hasattr(selector, "to_dict"):
-            return selector.to_dict()
-        if isinstance(selector, dict):
-            return selector
+
+        if isinstance(selector, Mapping):
+            return dict(selector)
+
         return {}
 
     def _apply_filters(self, selector: Selector) -> pl.DataFrame:
@@ -419,7 +419,7 @@ class Indexer:
                 # Base samples: origin = sample (self-referencing)
                 origins = [int(x) for x in sample_ids]
             else:
-                origins = self._normalize_indices(originIndices, count, "origin_indices")
+                origins = self._normalize_indices(origin_indices, count, "origin_indices")
 
         # Normalize column values
         groups = self._normalize_single_or_list(group, count, "group")
@@ -733,7 +733,6 @@ class Indexer:
         sample_ids = self._normalize_indices(sample_indices, count, "sample_indices")
         condition = self._query_builder.build_sample_filter(sample_ids)
         self._store.update_by_condition(condition, updates)
-
 
     def next_row_index(self) -> int:
         """

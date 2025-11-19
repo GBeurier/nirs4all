@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.steps.parser import ParsedStep
+    from nirs4all.pipeline.config.context import ExecutionContext
 
 
 class BaseModelController(OperatorController, ABC):
@@ -138,7 +139,7 @@ class BaseModelController(OperatorController, ABC):
         pass
 
     @abstractmethod
-    def _prepare_data(self, X: Any, y: Any, context: Dict[str, Any]) -> Tuple[Any, Any]:
+    def _prepare_data(self, X: Any, y: Any, context: 'ExecutionContext') -> Tuple[Any, Any]:
         """Prepare data in framework-specific format (e.g., tensors, DataFrames).
 
         Args:
@@ -213,7 +214,7 @@ class BaseModelController(OperatorController, ABC):
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import load
         return load(filepath)
 
-    def get_xy(self, dataset: 'SpectroDataset', context: Dict[str, Any]) -> Tuple[Any, Any, Any, Any, Any, Any]:
+    def get_xy(self, dataset: 'SpectroDataset', context: 'ExecutionContext') -> Tuple[Any, Any, Any, Any, Any, Any]:
         """Extract train/test splits with scaled and unscaled targets.
 
         For classification tasks, both scaled and unscaled targets are transformed.
@@ -232,16 +233,11 @@ class BaseModelController(OperatorController, ABC):
         layout = self.get_preferred_layout()
 
         # Check if we're in prediction/explain mode
-        mode = context.get('mode', 'train') if isinstance(context, dict) else (context.state.mode if hasattr(context, 'state') else 'train')
+        mode = context.state.mode
 
         if mode in ("predict", "explain"):
             # In prediction mode, use all available data (no partition split)
-            if isinstance(context, dict):
-                pred_context = copy.deepcopy(context)
-                pred_context['partition'] = None
-            else:
-                # ExecutionContext - use with_partition method
-                pred_context = context.with_partition(None)
+            pred_context = context.with_partition(None)
 
             X_all = dataset.x(pred_context, layout=layout)
             y_all = dataset.y(pred_context)
@@ -256,25 +252,14 @@ class BaseModelController(OperatorController, ABC):
             else:
                 # For regression, get numeric (unscaled) targets
                 # Build selector dict for y() call
-                if isinstance(pred_context, dict):
-                    pred_context['y'] = 'numeric'
-                    y_all_unscaled = dataset.y(pred_context)
-                else:
-                    # ExecutionContext - convert to dict for dataset.y()
-                    y_selector = {'partition': None, 'y': 'numeric'}
-                    y_all_unscaled = dataset.y(y_selector)
+                y_selector = {'partition': None, 'y': 'numeric'}
+                y_all_unscaled = dataset.y(y_selector)
 
             return empty_X, empty_y, X_all, y_all, empty_y, y_all_unscaled
 
         # Normal training mode: split into train/test
-        if isinstance(context, dict):
-            train_context = copy.deepcopy(context)
-            train_context['partition'] = 'train'
-            test_context = copy.deepcopy(context)
-            test_context['partition'] = 'test'
-        else:
-            train_context = context.with_partition('train')
-            test_context = context.with_partition('test')
+        train_context = context.with_partition('train')
+        test_context = context.with_partition('test')
 
         X_train = dataset.x(train_context, layout=layout)
         y_train = dataset.y(train_context)
@@ -289,12 +274,8 @@ class BaseModelController(OperatorController, ABC):
             y_test_unscaled = dataset.y(test_context)
         else:
             # Use numeric targets for regression
-            if isinstance(train_context, dict):
-                train_context['y'] = 'numeric'
-                test_context['y'] = 'numeric'
-            else:
-                train_context = train_context.with_y('numeric')
-                test_context = test_context.with_y('numeric')
+            train_context = train_context.with_y('numeric')
+            test_context = test_context.with_y('numeric')
 
             y_train_unscaled = dataset.y(train_context)
             y_test_unscaled = dataset.y(test_context)
@@ -305,13 +286,13 @@ class BaseModelController(OperatorController, ABC):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
         prediction_store: 'Predictions' = None
-    ) -> Tuple[Dict[str, Any], List['ArtifactMeta']]:
+    ) -> Tuple['ExecutionContext', List['ArtifactMeta']]:
         """Execute model training, finetuning, or prediction.
 
         This is the main entry point for model execution. It handles:
@@ -400,7 +381,7 @@ class BaseModelController(OperatorController, ABC):
         folds: Optional[List],
         finetune_params: Dict[str, Any],
         predictions: Dict,
-        context: Dict[str, Any],
+        context: 'ExecutionContext',
         runner: 'PipelineRunner',
     ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """Optimize hyperparameters using Optuna.
@@ -602,8 +583,7 @@ class BaseModelController(OperatorController, ABC):
         # Debug: check identifiers
         if identifiers.step_id == '' or identifiers.step_id == 0:
             print(f"\n⚠️  WARNING in launch_training: step_id={identifiers.step_id}")
-            print(f"   context.get('step_number')={context.get('step_number', 'NOT_FOUND')}")
-            print(f"   context.state.step_number={context.state.step_number if hasattr(context, 'state') else 'NO_STATE'}")
+            print(f"   context.state.step_number={context.state.step_number}")
 
         # === 2. GET OR LOAD MODEL ===
         if mode in ("predict", "explain"):

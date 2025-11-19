@@ -95,42 +95,71 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) 
             return median_absolute_error(y_true, y_pred)
 
         # Classification metrics
-        elif metric in ['accuracy']:
-            return accuracy_score(y_true, y_pred)
-        elif metric in ['precision']:
-            return precision_score(y_true, y_pred, average='weighted', zero_division=0)
-        elif metric in ['recall']:
-            return recall_score(y_true, y_pred, average='weighted', zero_division=0)
-        elif metric in ['f1', 'f1_score']:
-            return f1_score(y_true, y_pred, average='weighted', zero_division=0)
+        elif metric in ['accuracy', 'precision', 'recall', 'f1', 'f1_score',
+                        'precision_micro', 'recall_micro', 'f1_micro',
+                        'precision_macro', 'recall_macro', 'f1_macro',
+                        'balanced_accuracy', 'matthews_corrcoef', 'mcc',
+                        'cohen_kappa', 'jaccard', 'jaccard_score', 'hamming_loss', 'specificity']:
+
+            y_pred_labels = y_pred
+            # Auto-convert probabilities to labels for binary classification
+            if len(np.unique(y_true)) == 2 and np.issubdtype(y_pred.dtype, np.floating):
+                 unique_vals = np.unique(y_pred)
+                 if np.min(y_pred) >= 0 and np.max(y_pred) <= 1 and \
+                   not (len(unique_vals) <= 2 and np.all(np.isin(unique_vals, [0.0, 1.0]))):
+                    y_pred_labels = (y_pred > 0.5).astype(int)
+
+            if metric in ['accuracy']:
+                return accuracy_score(y_true, y_pred_labels)
+            elif metric in ['precision']:
+                return precision_score(y_true, y_pred_labels, average='weighted', zero_division=0)
+            elif metric in ['recall']:
+                return recall_score(y_true, y_pred_labels, average='weighted', zero_division=0)
+            elif metric in ['f1', 'f1_score']:
+                return f1_score(y_true, y_pred_labels, average='weighted', zero_division=0)
+            elif metric in ['precision_micro']:
+                return precision_score(y_true, y_pred_labels, average='micro', zero_division=0)
+            elif metric in ['recall_micro']:
+                return recall_score(y_true, y_pred_labels, average='micro', zero_division=0)
+            elif metric in ['f1_micro']:
+                return f1_score(y_true, y_pred_labels, average='micro', zero_division=0)
+            elif metric in ['precision_macro']:
+                return precision_score(y_true, y_pred_labels, average='macro', zero_division=0)
+            elif metric in ['recall_macro']:
+                return recall_score(y_true, y_pred_labels, average='macro', zero_division=0)
+            elif metric in ['f1_macro']:
+                return f1_score(y_true, y_pred_labels, average='macro', zero_division=0)
+            elif metric in ['balanced_accuracy']:
+                return balanced_accuracy_score(y_true, y_pred_labels)
+            elif metric in ['matthews_corrcoef', 'mcc']:
+                return matthews_corrcoef(y_true, y_pred_labels)
+            elif metric in ['cohen_kappa']:
+                return cohen_kappa_score(y_true, y_pred_labels)
+            elif metric in ['jaccard', 'jaccard_score']:
+                return jaccard_score(y_true, y_pred_labels, average='weighted', zero_division=0)
+            elif metric in ['hamming_loss']:
+                return hamming_loss(y_true, y_pred_labels)
+            elif metric == 'specificity':
+                if len(np.unique(y_true)) == 2:
+                    tn, fp, fn, tp = confusion_matrix(y_true, y_pred_labels).ravel()
+                    return tn / (tn + fp) if (tn + fp) > 0 else 0.0
+                else:
+                    # For multiclass, calculate macro-averaged specificity
+                    cm = confusion_matrix(y_true, y_pred_labels)
+                    specificities = []
+                    for i in range(cm.shape[0]):
+                        tn = np.sum(cm) - (np.sum(cm[i, :]) + np.sum(cm[:, i]) - cm[i, i])
+                        fp = np.sum(cm[:, i]) - cm[i, i]
+                        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+                        specificities.append(specificity)
+                    return np.mean(specificities)
+
         elif metric in ['roc_auc', 'auc']:
             # Handle binary vs multiclass
             if len(np.unique(y_true)) == 2:
                 return roc_auc_score(y_true, y_pred)
             else:
                 return roc_auc_score(y_true, y_pred, multi_class='ovr', average='weighted')
-        elif metric in ['precision_micro']:
-            return precision_score(y_true, y_pred, average='micro', zero_division=0)
-        elif metric in ['recall_micro']:
-            return recall_score(y_true, y_pred, average='micro', zero_division=0)
-        elif metric in ['f1_micro']:
-            return f1_score(y_true, y_pred, average='micro', zero_division=0)
-        elif metric in ['precision_macro']:
-            return precision_score(y_true, y_pred, average='macro', zero_division=0)
-        elif metric in ['recall_macro']:
-            return recall_score(y_true, y_pred, average='macro', zero_division=0)
-        elif metric in ['f1_macro']:
-            return f1_score(y_true, y_pred, average='macro', zero_division=0)
-        elif metric in ['balanced_accuracy']:
-            return balanced_accuracy_score(y_true, y_pred)
-        elif metric in ['matthews_corrcoef', 'mcc']:
-            return matthews_corrcoef(y_true, y_pred)
-        elif metric in ['cohen_kappa']:
-            return cohen_kappa_score(y_true, y_pred)
-        elif metric in ['jaccard', 'jaccard_score']:
-            return jaccard_score(y_true, y_pred, average='weighted', zero_division=0)
-        elif metric in ['hamming_loss']:
-            return hamming_loss(y_true, y_pred)
         elif metric in ['log_loss']:
             # Convert to probabilities if needed
             if np.all(np.isin(y_pred, [0, 1])):
@@ -253,12 +282,22 @@ def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> Dict[s
                     pass
 
         elif task_type == 'binary_classification':
+            # Check if predictions are probabilities (continuous in [0,1])
+            # and convert to labels for metrics that require discrete classes
+            y_pred_labels = y_pred
+            if np.issubdtype(y_pred.dtype, np.floating):
+                # Check if values are probabilities (0-1) but not just 0.0 and 1.0
+                unique_vals = np.unique(y_pred)
+                if np.min(y_pred) >= 0 and np.max(y_pred) <= 1 and \
+                   not (len(unique_vals) <= 2 and np.all(np.isin(unique_vals, [0.0, 1.0]))):
+                    y_pred_labels = (y_pred > 0.5).astype(int)
+
             # Core classification metrics
-            metrics['accuracy'] = eval(y_true, y_pred, 'accuracy')
-            metrics['precision'] = eval(y_true, y_pred, 'precision')
-            metrics['recall'] = eval(y_true, y_pred, 'recall')
-            metrics['f1'] = eval(y_true, y_pred, 'f1')
-            metrics['specificity'] = eval(y_true, y_pred, 'specificity')
+            metrics['accuracy'] = eval(y_true, y_pred_labels, 'accuracy')
+            metrics['precision'] = eval(y_true, y_pred_labels, 'precision')
+            metrics['recall'] = eval(y_true, y_pred_labels, 'recall')
+            metrics['f1'] = eval(y_true, y_pred_labels, 'f1')
+            metrics['specificity'] = eval(y_true, y_pred_labels, 'specificity')
 
             # Binary-specific metrics
             try:
@@ -267,22 +306,22 @@ def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> Dict[s
                 pass
 
             try:
-                metrics['balanced_accuracy'] = eval(y_true, y_pred, 'balanced_accuracy')
+                metrics['balanced_accuracy'] = eval(y_true, y_pred_labels, 'balanced_accuracy')
             except:
                 pass
 
             try:
-                metrics['matthews_corrcoef'] = eval(y_true, y_pred, 'matthews_corrcoef')
+                metrics['matthews_corrcoef'] = eval(y_true, y_pred_labels, 'matthews_corrcoef')
             except:
                 pass
 
             try:
-                metrics['cohen_kappa'] = eval(y_true, y_pred, 'cohen_kappa')
+                metrics['cohen_kappa'] = eval(y_true, y_pred_labels, 'cohen_kappa')
             except:
                 pass
 
             try:
-                metrics['jaccard'] = eval(y_true, y_pred, 'jaccard')
+                metrics['jaccard'] = eval(y_true, y_pred_labels, 'jaccard')
             except:
                 pass
 

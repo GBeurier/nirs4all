@@ -4,10 +4,12 @@ from sklearn.base import TransformerMixin
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.pipeline.config.context import ExecutionContext
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    from nirs4all.pipeline.steps.parser import ParsedStep
 
 import numpy as np
 
@@ -43,7 +45,7 @@ class YTransformerMixinController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: ExecutionContext,
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",

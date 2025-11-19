@@ -24,18 +24,20 @@ Example:
     >>> new_context = context.with_partition("test")
 """
 
-from dataclasses import dataclass, field, replace as dataclass_replace
+from dataclasses import dataclass, field, replace as dataclass_replace, fields
 from typing import Any, Dict, List, Optional
 from copy import deepcopy
+from collections.abc import Mapping
 
 
 @dataclass(frozen=True)
-class DataSelector:
+class DataSelector(Mapping):
     """
     Immutable data selection parameters for dataset operations.
 
     This class replaces the dict-based Selector pattern used by dataset.x() and dataset.y().
     All fields are immutable to ensure data selection consistency.
+    It implements the Mapping protocol, so it can be used as a dictionary.
 
     Processing chains are stored here (not in PipelineState) because:
     - Future flow controllers need processing paths for cache selection
@@ -52,7 +54,9 @@ class DataSelector:
     Example:
         >>> selector = DataSelector(partition="train", processing=[["raw"]])
         >>> train_selector = selector.with_partition("train")
-        >>> test_selector = selector.with_partition("test")
+        >>> # Use as dict
+        >>> print(selector["partition"])
+        >>> print(dict(selector))
     """
 
     partition: str = "all"
@@ -61,6 +65,27 @@ class DataSelector:
     concat_source: bool = True
     fold_id: Optional[int] = None
     include_augmented: bool = False
+
+    def __iter__(self):
+        """Iterate over non-None fields."""
+        for f in fields(self):
+            if getattr(self, f.name) is not None:
+                yield f.name
+
+    def __getitem__(self, key):
+        """Get field value if not None."""
+        try:
+            val = getattr(self, key)
+        except AttributeError as exc:
+            raise KeyError(key) from exc
+
+        if val is None:
+            raise KeyError(key)
+        return val
+
+    def __len__(self):
+        """Count of non-None fields."""
+        return sum(1 for _ in self)
 
     def with_partition(self, partition: str) -> "DataSelector":
         """
@@ -156,33 +181,6 @@ class DataSelector:
             fold_id=self.fold_id,
             include_augmented=include_augmented
         )
-
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Convert to dict format for backward compatibility.
-
-        Omits None values to match original dict-based context behavior.
-
-        Returns:
-            Dict representation of selector (excluding None values)
-        """
-        result = {}
-
-        # Only include non-None values
-        if self.partition is not None:
-            result["partition"] = self.partition
-        if self.processing is not None:
-            result["processing"] = self.processing
-        if self.layout is not None:
-            result["layout"] = self.layout
-        if self.concat_source is not None:
-            result["concat_source"] = self.concat_source
-        if self.include_augmented is not None:
-            result["include_augmented"] = self.include_augmented
-        if self.fold_id is not None:
-            result["fold_id"] = self.fold_id
-
-        return result
 
 
 @dataclass
@@ -455,85 +453,3 @@ class ExecutionContext:
             DataSelector instance
         """
         return self.selector
-
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Convert to dict format for backward compatibility.
-
-        This allows gradual migration from dict-based context.
-
-        Returns:
-            Dict representation combining all components
-        """
-        result = self.selector.to_dict()
-        result["y"] = self.state.y_processing
-        result["step_number"] = self.state.step_number
-        result["mode"] = self.state.mode
-        result["keyword"] = self.metadata.keyword
-        result["step_id"] = self.metadata.step_id
-
-        if self.metadata.augment_sample:
-            result["augment_sample"] = True
-        if self.metadata.add_feature:
-            result["add_feature"] = True
-        if self.metadata.replace_processing:
-            result["replace_processing"] = True
-        if self.metadata.target_samples:
-            result["target_samples"] = self.metadata.target_samples
-        if self.metadata.target_features:
-            result["target_features"] = self.metadata.target_features
-
-        # Include custom data
-        result.update(self.custom)
-
-        return result
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ExecutionContext":
-        """
-        Create ExecutionContext from dict format.
-
-        This supports migration from old dict-based context.
-
-        Args:
-            data: Dict representation of context
-
-        Returns:
-            ExecutionContext instance
-        """
-        # Extract known fields
-        selector = DataSelector(
-            partition=data.get("partition", "all"),
-            processing=data.get("processing", [["raw"]]),
-            layout=data.get("layout", "2d"),
-            concat_source=data.get("concat_source", True),
-            fold_id=data.get("fold_id"),
-            include_augmented=data.get("include_augmented", False)
-        )
-
-        state = PipelineState(
-            y_processing=data.get("y", "numeric"),
-            step_number=data.get("step_number", 0),
-            mode=data.get("mode", "train")
-        )
-
-        metadata = StepMetadata(
-            keyword=data.get("keyword", ""),
-            step_id=data.get("step_id", ""),
-            augment_sample=data.get("augment_sample", False),
-            add_feature=data.get("add_feature", False),
-            replace_processing=data.get("replace_processing", False),
-            target_samples=data.get("target_samples", []),
-            target_features=data.get("target_features", [])
-        )
-
-        # Extract custom data (everything not in known fields)
-        known_fields = {
-            "partition", "processing", "layout", "concat_source", "fold_id",
-            "include_augmented", "y", "step_number", "mode", "keyword", "step_id",
-            "augment_sample", "add_feature", "replace_processing",
-            "target_samples", "target_features"
-        }
-        custom = {k: v for k, v in data.items() if k not in known_fields}
-
-        return cls(selector=selector, state=state, metadata=metadata, custom=custom)
