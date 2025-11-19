@@ -14,6 +14,7 @@ from sklearn.discriminant_analysis import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
 
 # NIRS4All imports
 from nirs4all.data import DatasetConfigs
@@ -46,23 +47,31 @@ data_path = {
     'y_train': 'sample_data/classification/Ytrain.csv',
 }
 
+data_path_2 = 'sample_data/binary'
+
 pipeline = [
-    "chart_2d",
+    # "chart_2d",
     {"feature_augmentation": [
         Detrend, FstDer, SndDer, Gauss,
         StdNorm, SavGol, Haar, MSC
     ]},
+    # "chart_y",
     StandardScaler,
+    "fold_chart",
     SPXYSplitter(0.25),
+    # StratifiedShuffleSplit(n_splits=1, test_size=0.25),
+    "fold_chart",
+    # Use non-stratified split because classification dataset has class 17 with only 1 sample
     ShuffleSplit(n_splits=3, test_size=0.25),
+    "fold_chart",
     RandomForestClassifier(max_depth=40)
 ]
 
 
 
 # Create configuration objects
-pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
-dataset_config = DatasetConfigs(data_path)
+pipeline_config = PipelineConfigs(pipeline)#, "Q1_classification")
+dataset_config = DatasetConfigs([data_path, data_path_2])
 
 # Run the pipeline
 runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
