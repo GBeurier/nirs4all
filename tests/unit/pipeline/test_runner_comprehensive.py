@@ -607,11 +607,14 @@ class TestContextManagement:
         config, name = dataset_config.configs[0]
         dataset = dataset_config.get_dataset(config, name)
 
-        context = {"processing": [["raw"]] * dataset.features_sources(), "y": "numeric"}
+        from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState
+        context = ExecutionContext(
+            selector=DataSelector(processing=[["raw"]] * dataset.features_sources()),
+            state=PipelineState(y_processing="numeric")
+        )
 
-        assert "processing" in context
-        assert "y" in context
-        assert context["y"] == "numeric"
+        assert context.selector.processing == [["raw"]] * dataset.features_sources()
+        assert context.state.y_processing == "numeric"
 
 
 # ============================================================================

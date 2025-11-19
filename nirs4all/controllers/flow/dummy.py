@@ -126,19 +126,27 @@ class DummyController(OperatorController):
 
         return analysis
 
-    def _get_context_info(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    def _get_context_info(self, context: Any) -> Dict[str, Any]:
         """Extract useful information from the pipeline context."""
         context_info = {}
+
+        if hasattr(context, 'to_dict'):
+             # Use to_dict if available (ExecutionContext)
+             context_dict = context.to_dict()
+        elif isinstance(context, dict):
+             context_dict = context
+        else:
+             return {"error": f"Unknown context type: {type(context)}"}
 
         # Key context fields
         important_keys = ['keyword', 'processing', 'partition', 'y', 'layout', 'add_feature']
         for key in important_keys:
-            if key in context:
-                context_info[key] = self._safe_repr(context[key])
+            if key in context_dict:
+                context_info[key] = self._safe_repr(context_dict[key])
 
         # Count total context keys
-        context_info["total_keys"] = len(context)
-        context_info["all_keys"] = list(context.keys())
+        context_info["total_keys"] = len(context_dict)
+        context_info["all_keys"] = list(context_dict.keys())
 
         return context_info
 
@@ -191,7 +199,12 @@ class DummyController(OperatorController):
             print(f"   {key}: {value}")
 
         # Keyword analysis
-        keyword = context.get('keyword', 'unknown')
+        if hasattr(context, 'metadata'):
+             keyword = context.metadata.keyword
+        elif isinstance(context, dict):
+             keyword = context.get('keyword', 'unknown')
+        else:
+             keyword = 'unknown'
         print(f"\n{KEY}Keyword: '{keyword}'")
 
         # Suggestions

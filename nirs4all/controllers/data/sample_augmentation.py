@@ -1,5 +1,4 @@
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
-import copy
 import numpy as np  # noqa: F401
 
 from nirs4all.controllers.controller import OperatorController
@@ -143,8 +142,7 @@ class SampleAugmentationController(OperatorController):
         random_state = config.get("random_state", None)
 
         # Get train samples (base only, no augmented)
-        train_context = copy.deepcopy(context)
-        train_context["partition"] = "train"
+        train_context = context.with_partition("train")
 
         # Get base samples only (exclude augmented)
         base_samples_idx = dataset._indexer.x_indices(train_context, include_augmented=False)  # noqa: SLF001
@@ -196,10 +194,9 @@ class SampleAugmentationController(OperatorController):
         bin_balancing = config.get("bin_balancing", "sample")  # NEW: "sample" or "value"
 
         # Get train samples ONLY (ensure we're in train partition)
-        train_context = copy.deepcopy(context)
-        train_context["partition"] = "train"
-        train_context.pop("train_indices", None)  # Remove any existing indices
-        train_context.pop("test_indices", None)
+        train_context = context.with_partition("train")
+        # train_context.pop("train_indices", None)  # Remove any existing indices
+        # train_context.pop("test_indices", None)
 
         # Get ALL TRAIN samples (base + augmented)
         all_train_samples = dataset._indexer.x_indices(train_context, include_augmented=True)  # noqa: SLF001
@@ -344,10 +341,10 @@ class SampleAugmentationController(OperatorController):
             # print(f"Applying transformer {transformer} to {sample_ids} samples")
 
             # Create context for this transformer's augmentation
-            local_context = copy.deepcopy(context)
-            local_context["augment_sample"] = True  # Signal action (like add_feature)
-            local_context["target_samples"] = sample_ids  # Indices to augment
-            local_context["partition"] = "train"
+            local_context = context.with_metadata(
+                augment_sample=True,
+                target_samples=sample_ids
+            ).with_partition("train")
 
             # ONE run_step per transformer - it handles all target samples
             _, _ = runner.run_step(

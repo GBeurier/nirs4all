@@ -267,10 +267,14 @@ class BaseModelController(OperatorController, ABC):
             return empty_X, empty_y, X_all, y_all, empty_y, y_all_unscaled
 
         # Normal training mode: split into train/test
-        train_context = copy.deepcopy(context)
-        train_context['partition'] = 'train'
-        test_context = copy.deepcopy(context)
-        test_context['partition'] = 'test'
+        if isinstance(context, dict):
+            train_context = copy.deepcopy(context)
+            train_context['partition'] = 'train'
+            test_context = copy.deepcopy(context)
+            test_context['partition'] = 'test'
+        else:
+            train_context = context.with_partition('train')
+            test_context = context.with_partition('test')
 
         X_train = dataset.x(train_context, layout=layout)
         y_train = dataset.y(train_context)
@@ -285,8 +289,13 @@ class BaseModelController(OperatorController, ABC):
             y_test_unscaled = dataset.y(test_context)
         else:
             # Use numeric targets for regression
-            train_context['y'] = 'numeric'
-            test_context['y'] = 'numeric'
+            if isinstance(train_context, dict):
+                train_context['y'] = 'numeric'
+                test_context['y'] = 'numeric'
+            else:
+                train_context = train_context.with_y('numeric')
+                test_context = test_context.with_y('numeric')
+
             y_train_unscaled = dataset.y(train_context)
             y_test_unscaled = dataset.y(test_context)
         return X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled
@@ -1027,7 +1036,7 @@ class BaseModelController(OperatorController, ABC):
             'config_name': runner.saver.pipeline_id,
             'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
             'pipeline_uid': getattr(runner, 'pipeline_uid', None),
-            'step_idx': context.get('step_number', 0),  # Use step_number (int) not step_id (str)
+            'step_idx': context.state.step_number,  # Use step_number (int) not step_id (str)
             'op_counter': op_counter,
             'model_name': model_name,
             'model_classname': str(model_classname),
@@ -1038,7 +1047,7 @@ class BaseModelController(OperatorController, ABC):
             'train_score': scores.train if scores else 0.0,
             'metric': scores.metric if scores else ModelUtils.get_best_score_metric(dataset.task_type)[0],
             'task_type': dataset.task_type,
-            'target_processing': context.get('y', 'numeric'),  # Track which target processing was used
+            'target_processing': context.state.y_processing,  # Track which target processing was used
             'n_features': true_values['train'].shape[1] if len(true_values['train'].shape) > 1 else 1,
             'preprocessings': dataset.short_preprocessings_str(),
             'partitions': partitions,

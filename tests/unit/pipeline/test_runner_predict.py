@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from nirs4all.pipeline.runner import PipelineRunner, init_global_random_state
+from nirs4all.pipeline.config.context import ExecutionContext
 
 
 def test_init_global_random_state_controls_entropy():
@@ -30,7 +31,7 @@ def test_run_steps_with_sequential_execution(monkeypatch):
     """Test that run_steps processes multiple steps sequentially."""
     runner = PipelineRunner(save_files=False, enable_tab_reports=False)
     dataset = MagicMock()
-    context = {"value": 0}
+    context = ExecutionContext(custom={"value": 0})
     steps = [{"model": "a"}, {"model": "b"}]
     call_order = []
 
@@ -38,8 +39,8 @@ def test_run_steps_with_sequential_execution(monkeypatch):
 
     def fake_execute(self, step, dataset, context, runner, loaded_binaries=None, prediction_store=None):
         step_id = step.get("model", "unknown")
-        context["value"] += 1
-        call_order.append((step_id, context["value"]))
+        context.custom["value"] += 1
+        call_order.append((step_id, context.custom["value"]))
         return StepResult(updated_context=context, artifacts=[])
 
     monkeypatch.setattr(StepRunner, "execute", fake_execute)
@@ -47,14 +48,14 @@ def test_run_steps_with_sequential_execution(monkeypatch):
     result = runner.run_steps(steps, dataset, context, execution="sequential")
 
     assert call_order == [("a", 1), ("b", 2)]
-    assert result["value"] == 2
+    assert result.custom["value"] == 2
 
 
 def test_run_step_none_returns_context(tmp_path):
     """Test that run_step with None step returns context unchanged."""
     runner = PipelineRunner(workspace_path=tmp_path / "workspace_none", save_files=False, enable_tab_reports=False)
     dataset = MagicMock()
-    context = {"value": 1}
+    context = ExecutionContext(custom={"value": 1})
 
     from nirs4all.data.predictions import Predictions
     prediction_store = Predictions()

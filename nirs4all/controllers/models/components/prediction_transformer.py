@@ -52,7 +52,7 @@ class PredictionTransformer:
             return predictions_scaled
 
         # Get current y processing mode
-        current_y_processing = context.get('y', 'numeric') if context else 'numeric'
+        current_y_processing = context.state.y_processing if context else 'numeric'
 
         # For classification tasks, keep predictions in transformed space
         if dataset.task_type and 'classification' in dataset.task_type:

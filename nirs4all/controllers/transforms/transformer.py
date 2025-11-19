@@ -1,9 +1,10 @@
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING, Union
 
 from sklearn.base import TransformerMixin
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.pipeline.config.context import ExecutionContext
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -49,7 +50,7 @@ class TransformerMixinController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: Union[Dict[str, Any], ExecutionContext],
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
@@ -57,10 +58,14 @@ class TransformerMixinController(OperatorController):
         prediction_store: Optional[Any] = None
     ):
         """Execute transformer - handles normal, feature augmentation, and sample augmentation modes."""
+        # Ensure context is ExecutionContext
+        if isinstance(context, dict):
+            context = ExecutionContext.from_dict(context)
+
         op = step_info.operator
 
         # Check if we're in sample augmentation mode
-        if context.get("augment_sample", False) and mode not in ["predict", "explain"]:
+        if context.metadata.augment_sample and mode not in ["predict", "explain"]:
             return self._execute_for_sample_augmentation(
                 op, dataset, context, runner, mode, loaded_binaries, prediction_store
             )
@@ -69,8 +74,7 @@ class TransformerMixinController(OperatorController):
         operator_name = op.__class__.__name__
 
         # Get train and all data as lists of 3D arrays (one per source)
-        train_context = context.copy()
-        train_context["partition"] = "train"
+        train_context = context.with_partition("train")
 
         train_data = dataset.x(train_context, "3d", concat_source=False)
         all_data = dataset.x(context, "3d", concat_source=False)
@@ -94,8 +98,8 @@ class TransformerMixinController(OperatorController):
             processing_ids = dataset.features_processings(sd_idx)
             source_processings = processing_ids
             # print("🔹 Processing source", sd_idx, "with processings:", source_processings)
-            if "processing" in context:
-                source_processings = context["processing"][sd_idx]
+            if context.selector.processing:
+                source_processings = context.selector.processing[sd_idx]
 
             source_transformed_features = []
             source_new_processing_names = []
@@ -149,9 +153,12 @@ class TransformerMixinController(OperatorController):
             processing_names.append(source_processing_names)
 
         for sd_idx, (source_features, src_new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names)):
-            if "add_feature" in context and context["add_feature"]:
+            if context.metadata.add_feature:
                 dataset.add_features(source_features, src_new_processing_names, source=sd_idx)
-                context["processing"][sd_idx] = src_new_processing_names
+                # Update processing in context (requires creating new list)
+                new_processing = list(context.selector.processing)
+                new_processing[sd_idx] = src_new_processing_names
+                context = context.with_processing(new_processing)
             else:
                 dataset.replace_features(
                     source_processings=processing_names[sd_idx],
@@ -159,8 +166,11 @@ class TransformerMixinController(OperatorController):
                     processings=src_new_processing_names,
                     source=sd_idx
                 )
-                context["processing"][sd_idx] = src_new_processing_names
-        context["add_feature"] = False
+                # Update processing in context (requires creating new list)
+                new_processing = list(context.selector.processing)
+                new_processing[sd_idx] = src_new_processing_names
+                context = context.with_processing(new_processing)
+        context = context.with_metadata(add_feature=False)
 
         # print(dataset)
         return context, fitted_transformers
@@ -169,21 +179,16 @@ class TransformerMixinController(OperatorController):
         self,
         operator: Any,
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: ExecutionContext,
         runner: 'PipelineRunner',
         mode: str,
         loaded_binaries: Optional[List[Tuple[str, Any]]],
         prediction_store: Optional[Any]
-    ) -> Tuple[Dict[str, Any], List]:
+    ) -> Tuple[ExecutionContext, List]:
         """
         Apply transformer to origin samples and add augmented samples.
-
-        Context contains:
-            - augment_sample: True flag (like add_feature)
-            - target_samples: list of sample_ids to augment
-            - partition: "train" (filtering context)
         """
-        target_sample_ids = context.get("target_samples", [])
+        target_sample_ids = context.metadata.target_samples
         if not target_sample_ids:
             return context, []
 
@@ -191,10 +196,16 @@ class TransformerMixinController(OperatorController):
         fitted_transformers = []
 
         # Get train data for fitting (if not in predict/explain mode)
+        train_data = None
         if mode not in ["predict", "explain"]:
-            train_context = context.copy()
-            train_context["partition"] = "train"
-            train_data = dataset.x(train_context, "3d", concat_source=False, include_augmented=False)
+            train_context = context.with_partition("train")
+            # Note: dataset.x expects context, but we need to ensure include_augmented=False
+            # We can use a temporary selector for this
+            train_selector = train_context.selector.with_augmented(False)
+            train_ctx_for_x = train_context.copy()
+            train_ctx_for_x.selector = train_selector
+
+            train_data = dataset.x(train_ctx_for_x, "3d", concat_source=False)
             if not isinstance(train_data, list):
                 train_data = [train_data]
 
@@ -226,17 +237,22 @@ class TransformerMixinController(OperatorController):
                     else:
                         transformer = clone(operator)
                         # Fit on train data for this source/processing
-                        train_proc_data = train_data[source_idx][:, proc_idx, :]
-                        transformer.fit(train_proc_data)
+                        if train_data:
+                            train_proc_data = train_data[source_idx][:, proc_idx, :]
+                            transformer.fit(train_proc_data)
 
                     transformed_data = transformer.transform(proc_data)
                     source_2d_list.append(transformed_data)
 
                     # Save transformer binary
-                    transformer_binary = pickle.dumps(transformer)
-                    fitted_transformers.append(
-                        (f"{operator_name}_{source_idx}_{proc_idx}_{sample_id}.pkl", transformer_binary)
-                    )
+                    if mode == "train":
+                        artifact = runner.saver.persist_artifact(
+                            step_number=runner.step_number,
+                            name=f"{operator_name}_{source_idx}_{proc_idx}_{sample_id}",
+                            obj=transformer,
+                            format_hint='sklearn'
+                        )
+                        fitted_transformers.append(artifact)
 
                 # Stack back to 3D (1, n_processings, n_features)
                 source_3d = np.stack(source_2d_list, axis=1)

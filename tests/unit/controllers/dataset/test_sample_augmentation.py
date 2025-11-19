@@ -37,6 +37,11 @@ def mock_runner():
     """Mock PipelineRunner."""
     runner = Mock()
     runner.next_op = Mock(side_effect=lambda: f"op_{runner.next_op.call_count}")
+
+    # Configure saver mock to return tuple as expected by controller
+    runner.saver = Mock()
+    runner.saver.persist_artifact = Mock(return_value=("mock_file.pkl", b"mock_content"))
+
     return runner
 
 

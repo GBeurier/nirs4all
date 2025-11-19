@@ -449,8 +449,7 @@ class SklearnModelController(BaseModelController):
             - Inherits full training, evaluation, and prediction logic from BaseModelController
         """
         # Set layout preference for sklearn models
-        context = context.copy()
-        context['layout'] = self.get_preferred_layout()
+        context = context.with_layout(self.get_preferred_layout())
 
         # Call parent execute method
         return super().execute(step_info, dataset, context, runner, source, mode, loaded_binaries, prediction_store)

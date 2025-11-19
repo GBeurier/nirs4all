@@ -391,6 +391,20 @@ class ExecutionContext:
         new_ctx.selector = new_ctx.selector.with_processing(processing)
         return new_ctx
 
+    def with_layout(self, layout: str) -> "ExecutionContext":
+        """
+        Create new context with updated layout.
+
+        Args:
+            layout: New layout value
+
+        Returns:
+            New ExecutionContext with updated layout
+        """
+        new_ctx = self.copy()
+        new_ctx.selector = new_ctx.selector.with_layout(layout)
+        return new_ctx
+
     def with_step_number(self, step_number: int) -> "ExecutionContext":
         """
         Create new context with updated step number.
@@ -403,6 +417,20 @@ class ExecutionContext:
         """
         new_ctx = self.copy()
         new_ctx.state = dataclass_replace(new_ctx.state, step_number=step_number)
+        return new_ctx
+
+    def with_y(self, y_processing: str) -> "ExecutionContext":
+        """
+        Create new context with updated y processing.
+
+        Args:
+            y_processing: New y processing value
+
+        Returns:
+            New ExecutionContext with updated y processing
+        """
+        new_ctx = self.copy()
+        new_ctx.state = dataclass_replace(new_ctx.state, y_processing=y_processing)
         return new_ctx
 
     def with_metadata(self, **kwargs) -> "ExecutionContext":
@@ -509,148 +537,3 @@ class ExecutionContext:
         custom = {k: v for k, v in data.items() if k not in known_fields}
 
         return cls(selector=selector, state=state, metadata=metadata, custom=custom)
-
-    def __getitem__(self, key: str) -> Any:
-        """
-        Dict-like access for backward compatibility.
-
-        Args:
-            key: Key to access
-
-        Returns:
-            Value for key
-
-        Raises:
-            KeyError: If key not found
-        """
-        return self.to_dict()[key]
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        """
-        Dict-like assignment (updates custom data).
-
-        Args:
-            key: Key to set
-            value: Value to set
-        """
-        # Try to update known fields
-        if key == "partition":
-            self.selector = self.selector.with_partition(value)
-        elif key == "processing":
-            self.selector = self.selector.with_processing(value)
-        elif key == "layout":
-            self.selector = self.selector.with_layout(value)
-        elif key == "fold_id":
-            self.selector = self.selector.with_fold(value)
-        elif key == "include_augmented":
-            self.selector = self.selector.with_augmented(value)
-        elif key == "y":
-            self.state.y_processing = value
-        elif key == "step_number":
-            self.state.step_number = value
-        elif key == "mode":
-            self.state.mode = value
-        elif key == "keyword":
-            self.metadata.keyword = value
-        elif key == "step_id":
-            self.metadata.step_id = value
-        elif key == "augment_sample":
-            self.metadata.augment_sample = value
-        elif key == "add_feature":
-            self.metadata.add_feature = value
-        elif key == "replace_processing":
-            self.metadata.replace_processing = value
-        elif key == "target_samples":
-            self.metadata.target_samples = value
-        elif key == "target_features":
-            self.metadata.target_features = value
-        else:
-            # Unknown field goes to custom data
-            self.custom[key] = value
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """
-        Dict-like get with default.
-
-        Args:
-            key: Key to get
-            default: Default value if key not found
-
-        Returns:
-            Value for key or default
-        """
-        try:
-            return self[key]
-        except KeyError:
-            return default
-
-    def __contains__(self, key: str) -> bool:
-        """
-        Dict-like membership test.
-
-        Args:
-            key: Key to check
-
-        Returns:
-            True if key exists
-        """
-        return key in self.to_dict()
-
-    def keys(self):
-        """Get all keys (dict-like interface)."""
-        return self.to_dict().keys()
-
-    def values(self):
-        """Get all values (dict-like interface)."""
-        return self.to_dict().values()
-
-    def items(self):
-        """Get all items (dict-like interface)."""
-        return self.to_dict().items()
-
-    def pop(self, key: str, default: Any = None) -> Any:
-        """
-        Pop a key from the context (dict-like interface).
-
-        For known fields, this resets them to default values.
-        For custom fields, removes them from custom dict.
-
-        Args:
-            key: Key to pop
-            default: Default value if key not found
-
-        Returns:
-            Value that was popped
-        """
-        current_value = self.get(key, default)
-
-        # Remove from custom data if it's there
-        if key in self.custom:
-            del self.custom[key]
-        # For known fields, reset to None/default
-        elif key in ["partition", "processing", "layout", "fold_id", "include_augmented",
-                     "y", "step_number", "mode", "keyword", "step_id",
-                     "augment_sample", "add_feature", "replace_processing",
-                     "target_samples", "target_features"]:
-            # Reset known fields by setting to None/default
-            if key == "partition":
-                self.selector = self.selector.with_partition(None)
-            elif key == "processing":
-                self.selector = self.selector.with_processing(None)
-            elif key == "augment_sample":
-                self.metadata.augment_sample = False
-            elif key == "add_feature":
-                self.metadata.add_feature = False
-            elif key == "replace_processing":
-                self.metadata.replace_processing = False
-            elif key == "target_samples":
-                self.metadata.target_samples = []
-            elif key == "target_features":
-                self.metadata.target_features = []
-            # Other fields are less commonly popped
-
-        return current_value
-
-    def __len__(self) -> int:
-        """Return number of items in context (dict-like interface)."""
-        return len(self.to_dict())

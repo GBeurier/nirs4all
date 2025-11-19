@@ -1,6 +1,6 @@
 """FoldChartController - Visualizes cross-validation folds with y-value color coding."""
 
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Union
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
@@ -9,6 +9,7 @@ import copy
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.utils.emoji import INFO, WARNING
+from nirs4all.pipeline.config.context import ExecutionContext
 import io
 
 if TYPE_CHECKING:
@@ -38,7 +39,7 @@ class FoldChartController(OperatorController):
         self,
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
-        context: Dict[str, Any],
+        context: Union[Dict[str, Any], ExecutionContext],
         runner: 'PipelineRunner',
         source: int = -1,
         mode: str = "train",
@@ -52,6 +53,10 @@ class FoldChartController(OperatorController):
         Returns:
             Tuple of (context, image_list) where image_list contains plot binaries
         """
+        # Ensure context is ExecutionContext
+        if isinstance(context, dict):
+            context = ExecutionContext.from_dict(context)
+
         # Skip execution in prediction mode
         if mode == "predict" or mode == "explain":
             return context, []
@@ -59,7 +64,7 @@ class FoldChartController(OperatorController):
         # print(f"Executing fold charts for step: {step}, keyword: {context.get('keyword', '')}")
 
         # Check if using metadata column for colors (keyword like "chart_columnName")
-        keyword = context.get('keyword', '')
+        keyword = context.metadata.keyword
         metadata_column = None
         if keyword.startswith("fold_") and keyword != "chart_fold" and keyword != "fold_chart":
             metadata_column = keyword[5:]  # Extract column name after "fold_"
@@ -67,14 +72,13 @@ class FoldChartController(OperatorController):
                 print(f"{INFO} Using metadata column '{metadata_column}' for color coding")
 
         # Determine which partition to use (default to train if not specified)
-        partition = context.get("partition", "train")
+        partition = context.selector.partition or "train"
         if partition not in ["train", "test"]:
             print(f"{WARNING}Invalid partition '{partition}'. Using 'train' instead.")
             partition = "train"
 
         # Get data for visualization
-        local_context = copy.deepcopy(context)
-        local_context["partition"] = partition
+        local_context = context.with_partition(partition)
 
         # Get folds from dataset
         folds = dataset.folds
@@ -102,10 +106,8 @@ class FoldChartController(OperatorController):
             # print(f"{INFO}No CV folds found. Creating visualization from train/test partition.")
 
             # Try to get train and test data - INCLUDE AUGMENTED SAMPLES
-            train_context = copy.deepcopy(context)
-            train_context["partition"] = "train"
-            test_context = copy.deepcopy(context)
-            test_context["partition"] = "test"
+            train_context = context.with_partition("train")
+            test_context = context.with_partition("test")
 
             train_indices = dataset._indexer.x_indices(train_context, include_augmented=True)  # noqa: SLF001
             test_indices = dataset._indexer.x_indices(test_context, include_augmented=True)  # noqa: SLF001
@@ -132,15 +134,12 @@ class FoldChartController(OperatorController):
             # Use metadata column for colors
             if dataset.folds:
                 # CV folds mode: need all data including augmented since indices refer to full dataset
-                all_context = copy.deepcopy(context)
-                all_context["partition"] = "all"
+                all_context = context.with_partition("all")
                 color_values = dataset.metadata_column(metadata_column, all_context, include_augmented=True)
 
             else:
-                train_ctx = copy.deepcopy(context)
-                train_ctx["partition"] = "train"
-                test_ctx = copy.deepcopy(context)
-                test_ctx["partition"] = "test"
+                train_ctx = context.with_partition("train")
+                test_ctx = context.with_partition("test")
 
                 # Get metadata using origin mapping (like y() does)
                 train_x_idx = dataset._indexer.x_indices(train_ctx, include_augmented=True)
@@ -164,15 +163,12 @@ class FoldChartController(OperatorController):
             # Use y values for colors (default behavior)
             if dataset.folds:
                 # CV folds mode: need all data including augmented since indices refer to full dataset
-                all_context = copy.deepcopy(context)
-                all_context["partition"] = "all"
+                all_context = context.with_partition("all")
                 color_values = dataset.y(all_context, include_augmented=True)
             else:
                 # Fallback mode: get train and test separately and concatenate
-                train_ctx = copy.deepcopy(context)
-                train_ctx["partition"] = "train"
-                test_ctx = copy.deepcopy(context)
-                test_ctx["partition"] = "test"
+                train_ctx = context.with_partition("train")
+                test_ctx = context.with_partition("test")
 
                 y_train = dataset.y(train_ctx, include_augmented=True)
                 y_test = dataset.y(test_ctx, include_augmented=True)
