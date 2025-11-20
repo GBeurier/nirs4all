@@ -25,7 +25,6 @@
 
 **RELEASE** 0.4.2: Torch & Jax
 
-
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
 > [ReadsTheDoc] regenerate and publish RTD.

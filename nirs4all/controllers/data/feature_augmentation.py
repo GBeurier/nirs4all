@@ -36,7 +36,7 @@ class FeatureAugmentationController(OperatorController):
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
@@ -66,11 +66,15 @@ class FeatureAugmentationController(OperatorController):
                 local_context = local_context.with_processing(copy.deepcopy(source_processings))
 
                 # Run substep and collect artifacts
-                updated_context, substep_artifacts = runner.run_step(
-                    operation, dataset, local_context, prediction_store,
-                    is_substep=True, propagated_binaries=loaded_binaries
-                )
-                all_artifacts.extend(substep_artifacts)
+                if runtime_context.step_runner:
+                    runtime_context.substep_number += 1
+                    result = runtime_context.step_runner.execute(
+                        operation, dataset, local_context, runtime_context,
+                        loaded_binaries=loaded_binaries, prediction_store=prediction_store
+                    )
+                    updated_context = result.updated_context
+                    substep_artifacts = result.artifacts
+                    all_artifacts.extend(substep_artifacts)
 
             new_processing = []
             for sdx in range(dataset.n_sources):

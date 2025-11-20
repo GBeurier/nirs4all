@@ -4,10 +4,9 @@ from sklearn.base import TransformerMixin
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.spectra.spectra_dataset import SpectroDataset
     from nirs4all.pipeline.steps.parser import ParsedStep
 
@@ -51,7 +50,7 @@ class TransformerMixinController(OperatorController):
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: ExecutionContext,
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
@@ -63,7 +62,7 @@ class TransformerMixinController(OperatorController):
         # Check if we're in sample augmentation mode
         if context.metadata.augment_sample and mode not in ["predict", "explain"]:
             return self._execute_for_sample_augmentation(
-                op, dataset, context, runner, mode, loaded_binaries, prediction_store
+                op, dataset, context, runtime_context, mode, loaded_binaries, prediction_store
             )
 
         # Normal or feature augmentation execution (existing code)
@@ -112,7 +111,7 @@ class TransformerMixinController(OperatorController):
                 all_2d = all_x[:, processing_idx, :]      # All data to transform
 
                 # print(f" Processing {processing_name} (idx {processing_idx}): train {train_2d.shape}, all {all_2d.shape}")
-                new_operator_name = f"{operator_name}_{runner.next_op()}"
+                new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
 
                 if loaded_binaries and (mode == "predict" or mode == "explain"):
                     transformer = dict(loaded_binaries).get(f"{new_operator_name}")
@@ -134,8 +133,8 @@ class TransformerMixinController(OperatorController):
 
                 # Persist fitted transformer using new serializer
                 if mode == "train":
-                    artifact = runner.saver.persist_artifact(
-                        step_number=runner.step_number,
+                    artifact = runtime_context.saver.persist_artifact(
+                        step_number=runtime_context.step_number,
                         name=new_operator_name,
                         obj=transformer,
                         format_hint='sklearn'
@@ -176,7 +175,7 @@ class TransformerMixinController(OperatorController):
         operator: Any,
         dataset: 'SpectroDataset',
         context: ExecutionContext,
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         mode: str,
         loaded_binaries: Optional[List[Tuple[str, Any]]],
         prediction_store: Optional[Any]
@@ -240,8 +239,8 @@ class TransformerMixinController(OperatorController):
 
                     # Save transformer binary
                     if mode == "train":
-                        artifact = runner.saver.persist_artifact(
-                            step_number=runner.step_number,
+                        artifact = runtime_context.saver.persist_artifact(
+                            step_number=runtime_context.step_number,
                             name=f"{operator_name}_{source_idx}_{proc_idx}_{sample_id}",
                             obj=transformer,
                             format_hint='sklearn'

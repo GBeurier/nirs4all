@@ -295,7 +295,7 @@ class BaseModelController(OperatorController, ABC):
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
@@ -313,7 +313,7 @@ class BaseModelController(OperatorController, ABC):
             step_info: Parsed step containing model configuration and operator.
             dataset: SpectroDataset with features and targets.
             context: Execution context with step_id, partition info, etc.
-            runner: PipelineRunner managing pipeline execution.
+            runtime_context: Runtime context managing execution state.
             source: Data source index (default: -1).
             mode: Execution mode ('train', 'finetune', 'predict', 'explain').
             loaded_binaries: Optional list of (name, bytes) tuples for prediction mode.
@@ -331,12 +331,12 @@ class BaseModelController(OperatorController, ABC):
         self.verbose = model_config.get('train_params', {}).get('verbose', 0)
 
         # if mode == "predict":
-            # return self._execute_prediction_mode( model_config, dataset, context, runner, loaded_binaries)
+            # return self._execute_prediction_mode( model_config, dataset, context, runtime_context, loaded_binaries)
 
         # In predict/explain mode, restore task_type from target_model if not set
         if mode in ("predict", "explain") and dataset.task_type is None:
-            if hasattr(runner, 'target_model') and runner.target_model:
-                task_type_str = runner.target_model.get('task_type', 'regression')
+            if hasattr(runtime_context, 'target_model') and runtime_context.target_model:
+                task_type_str = runtime_context.target_model.get('task_type', 'regression')
                 dataset.set_task_type(task_type_str)
 
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
@@ -344,7 +344,7 @@ class BaseModelController(OperatorController, ABC):
 
         binaries = []
         finetune_params = model_config.get('finetune_params')
-        if runner.verbose > 0:
+        if self.verbose > 0:
             print(f"{SEARCH} Model config: {model_config}")
 
         if finetune_params:
@@ -355,13 +355,13 @@ class BaseModelController(OperatorController, ABC):
             best_model_params = self.finetune(
                 dataset,
                 model_config, X_train, y_train, X_test, y_test,
-                folds, finetune_params, self.prediction_store, context, runner
+                folds, finetune_params, self.prediction_store, context, runtime_context
             )
             # print("Best model params found:", best_model_params)
             print(f"{CHART} Best parameters: {best_model_params}")
 
             binaries = self.train(
-                dataset, model_config, context, runner, prediction_store,
+                dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
                 loaded_binaries=loaded_binaries, mode="finetune", best_params=best_model_params
             )
@@ -371,7 +371,7 @@ class BaseModelController(OperatorController, ABC):
                 print(f"{WEIGHT_LIFT}Starting training...")
 
             binaries = self.train(
-                dataset, model_config, context, runner, prediction_store,
+                dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
                 loaded_binaries=loaded_binaries, mode=mode
             )
@@ -390,7 +390,7 @@ class BaseModelController(OperatorController, ABC):
         finetune_params: Dict[str, Any],
         predictions: Dict,
         context: 'ExecutionContext',
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
     ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """Optimize hyperparameters using Optuna.
 
@@ -408,7 +408,7 @@ class BaseModelController(OperatorController, ABC):
             finetune_params: Optuna configuration with search space and trials.
             predictions: Prediction storage dictionary.
             context: Execution context.
-            runner: PipelineRunner instance.
+            runtime_context: Runtime context.
 
         Returns:
             Dictionary of optimized parameters (single model) or list of dicts (per-fold).
@@ -434,7 +434,7 @@ class BaseModelController(OperatorController, ABC):
 
     def train(
         self,
-        dataset, model_config, context, runner, prediction_store,
+        dataset, model_config, context, runtime_context, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
         best_params=None, loaded_binaries=None, mode="train"
     ) -> List['ArtifactMeta']:
@@ -451,7 +451,7 @@ class BaseModelController(OperatorController, ABC):
             dataset: SpectroDataset with features and targets.
             model_config: Model configuration dictionary.
             context: Execution context with step_id and preprocessing info.
-            runner: PipelineRunner managing execution.
+            runtime_context: Runtime context.
             prediction_store: External Predictions storage.
             X_train: Training features (all folds).
             y_train: Training targets (scaled).
@@ -496,7 +496,7 @@ class BaseModelController(OperatorController, ABC):
                 else:
                     best_params_fold = best_params
                 model, model_id, score, model_name, prediction_data = self.launch_training(
-                    dataset, model_config, context, runner, prediction_store,
+                    dataset, model_config, context, runtime_context, prediction_store,
                     X_train_fold, y_train_fold, X_val_fold, y_val_fold, X_test,
                     y_train_fold_unscaled, y_val_fold_unscaled, y_test_unscaled,
                     train_indices, val_indices,
@@ -509,7 +509,7 @@ class BaseModelController(OperatorController, ABC):
 
                 # Only persist in train mode, not in predict/explain modes
                 if mode == "train":
-                    artifact = self._persist_model(runner, model, model_id)
+                    artifact = self._persist_model(runtime_context, model, model_id)
                     binaries.append(artifact)
 
                 scores.append(score)
@@ -522,7 +522,7 @@ class BaseModelController(OperatorController, ABC):
             # Create fold averages and get average predictions data
             if dataset.task_type and dataset.task_type.is_regression:
                 avg_predictions, w_avg_predictions = self._create_fold_averages(
-                    base_model_name, dataset, model_config, context, runner, prediction_store, model_classname,
+                    base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
                     folds_models, fold_val_indices, scores,
                     X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode, best_params=best_params
                 )
@@ -535,12 +535,12 @@ class BaseModelController(OperatorController, ABC):
             print(f"\033[91m{WARNING}{WARNING}{WARNING}{WARNING} WARNING: Using test set as validation set (no folds provided) {WARNING}{WARNING}{WARNING}{WARNING}{WARNING}{WARNING}\033[0m")
 
             model, model_id, score, model_name, prediction_data = self.launch_training(
-                dataset, model_config, context, runner, prediction_store,
+                dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, X_test,
                 y_train_unscaled, y_test_unscaled, y_test_unscaled,
                 loaded_binaries=loaded_binaries, mode=mode
             )
-            artifact = self._persist_model(runner, model, model_id)
+            artifact = self._persist_model(runtime_context, model, model_id)
             binaries.append(artifact)
 
             # Add predictions for single model case (no weights)
@@ -551,7 +551,7 @@ class BaseModelController(OperatorController, ABC):
 
     def launch_training(
         self,
-        dataset, model_config, context, runner, prediction_store,
+        dataset, model_config, context, runtime_context, prediction_store,
         X_train, y_train, X_val, y_val, X_test,
         y_train_unscaled, y_val_unscaled, y_test_unscaled,
         train_indices=None, val_indices=None, fold_idx=None, best_params=None,
@@ -570,7 +570,7 @@ class BaseModelController(OperatorController, ABC):
             dataset: SpectroDataset instance
             model_config: Model configuration dictionary
             context: Execution context with step_id, y processing, etc.
-            runner: PipelineRunner instance
+            runtime_context: Runtime context.
             prediction_store: Predictions storage instance
             X_train, y_train: Training data (scaled)
             X_val, y_val: Validation data (scaled)
@@ -586,7 +586,7 @@ class BaseModelController(OperatorController, ABC):
             Tuple of (trained_model, model_id, val_score, model_name, prediction_data)
         """
         # === 1. GENERATE IDENTIFIERS ===
-        identifiers = self.identifier_generator.generate(model_config, runner, context, fold_idx)
+        identifiers = self.identifier_generator.generate(model_config, runtime_context, context, fold_idx)
 
         # Debug: check identifiers
         if identifiers.step_id == '' or identifiers.step_id == 0:
@@ -601,9 +601,9 @@ class BaseModelController(OperatorController, ABC):
             model = self.model_loader.load(identifiers.model_id, loaded_binaries, fold_idx)
 
             # Capture model for SHAP explanation
-            if mode == "explain" and self._should_capture_for_explanation(runner, identifiers):
-                if hasattr(runner, 'explainer') and hasattr(runner.explainer, 'capture_model'):
-                    runner.explainer.capture_model(model, self)
+            if mode == "explain" and self._should_capture_for_explanation(runtime_context, identifiers):
+                if hasattr(runtime_context, 'explainer') and hasattr(runtime_context.explainer, 'capture_model'):
+                    runtime_context.explainer.capture_model(model, self)
 
             trained_model = model
         else:
@@ -691,27 +691,27 @@ class BaseModelController(OperatorController, ABC):
             predictions=predictions_unscaled,
             true_values=true_values,
             indices=indices,
-            runner=runner,
+            runner=runtime_context,
             X_shape=X_train.shape,
             best_params=best_params
         )
 
         return trained_model, identifiers.model_id, partition_scores.val, identifiers.name, prediction_data
 
-    def _should_capture_for_explanation(self, runner, identifiers) -> bool:
+    def _should_capture_for_explanation(self, runtime_context, identifiers) -> bool:
         """Check if current model should be captured for SHAP explanation.
 
         Compares model name and step index with runner's target_model to determine
         if this is the model requiring explanation.
 
         Args:
-            runner: PipelineRunner with target_model info.
+            runtime_context: Runtime context with target_model info.
             identifiers: ModelIdentifiers with name and step_id.
 
         Returns:
             True if model should be captured for explanation, False otherwise.
         """
-        target = runner.target_model
+        target = runtime_context.target_model
         # Convert both to string for comparison to handle int/string mismatch
         target_step = str(target["step_idx"])
         ident_step = str(identifiers.step_id)
@@ -853,7 +853,7 @@ class BaseModelController(OperatorController, ABC):
 
     def _create_fold_averages(
         self,
-        base_model_name, dataset, model_config, context, runner, prediction_store, model_classname,
+        base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
         folds_models, fold_val_indices, scores,
         X_train, X_test, y_train_unscaled, y_test_unscaled,
         mode="train", best_params=None
@@ -871,7 +871,7 @@ class BaseModelController(OperatorController, ABC):
             dataset: SpectroDataset with task type and preprocessing info.
             model_config: Model configuration dictionary.
             context: Execution context.
-            runner: PipelineRunner instance.
+            runtime_context: Runtime context.
             prediction_store: Predictions storage.
             model_classname: Model class name string.
             folds_models: List of (model_id, model, score) tuples from folds.
@@ -929,7 +929,7 @@ class BaseModelController(OperatorController, ABC):
 
         # Weighted average
         metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
-        weights = self._get_fold_weights(scores, higher_is_better, mode, runner)
+        weights = self._get_fold_weights(scores, higher_is_better, mode, runtime_context)
 
         w_avg_preds = {
             'train': np.sum([w * p for w, p in zip(weights, all_train_preds)], axis=0),
@@ -940,17 +940,17 @@ class BaseModelController(OperatorController, ABC):
         w_avg_scores = self.score_calculator.calculate(true_values, w_avg_preds, dataset.task_type) if mode not in ("predict", "explain") else None
 
         # Use prediction_assembler component to create prediction dicts
-        avg_predictions = self._assemble_avg_prediction(dataset, runner, context, base_model_name, model_classname,
+        avg_predictions = self._assemble_avg_prediction(dataset, runtime_context, context, base_model_name, model_classname,
                                                          avg_preds, avg_scores, true_values, all_val_indices,
                                                          "avg", best_params, mode)
 
-        w_avg_predictions = self._assemble_avg_prediction(dataset, runner, context, base_model_name, model_classname,
+        w_avg_predictions = self._assemble_avg_prediction(dataset, runtime_context, context, base_model_name, model_classname,
                                                            w_avg_preds, w_avg_scores, true_values, all_val_indices,
                                                            "w_avg", best_params, mode, weights)
 
         return avg_predictions, w_avg_predictions
 
-    def _get_fold_weights(self, scores, higher_is_better, mode, runner):
+    def _get_fold_weights(self, scores, higher_is_better, mode, runtime_context):
         """Calculate weights for fold averaging based on validation scores.
 
         In prediction/explain modes, restores weights from target model if available.
@@ -960,15 +960,15 @@ class BaseModelController(OperatorController, ABC):
             scores: Array of validation scores for each fold.
             higher_is_better: Whether higher scores are better (True for R², False for RMSE).
             mode: Execution mode.
-            runner: PipelineRunner with target_model info.
+            runtime_context: Runtime context with target_model info.
 
         Returns:
             NumPy array of normalized weights summing to 1.0.
         """
         scores = np.asarray(scores, dtype=float)
 
-        if mode in ("predict", "explain") and "weights" in runner.target_model:
-            weights_from_model = runner.target_model["weights"]
+        if mode in ("predict", "explain") and runtime_context.target_model and "weights" in runtime_context.target_model:
+            weights_from_model = runtime_context.target_model["weights"]
             # Check if weights exist and are not None/empty
             if weights_from_model is not None:
                 if isinstance(weights_from_model, str):
@@ -1104,14 +1104,14 @@ class BaseModelController(OperatorController, ABC):
             if pred_id and mode not in ("predict", "explain"):
                 self._print_prediction_summary(prediction_data, pred_id, mode)
 
-    def _persist_model(self, runner: 'PipelineRunner', model: Any, model_id: str) -> 'ArtifactMeta':
+    def _persist_model(self, runtime_context: 'RuntimeContext', model: Any, model_id: str) -> 'ArtifactMeta':
         """Persist trained model to disk using serializer infrastructure.
 
         Auto-detects model framework (sklearn, tensorflow, pytorch, xgboost, catboost, lightgbm)
         and delegates to appropriate serializer for optimal storage format.
 
         Args:
-            runner: PipelineRunner with saver instance.
+            runtime_context: Runtime context with saver instance.
             model: Trained model to persist.
             model_id: Unique identifier for the model.
 
@@ -1135,8 +1135,8 @@ class BaseModelController(OperatorController, ABC):
         else:
             format_hint = None  # Let serializer auto-detect
 
-        return runner.saver.persist_artifact(
-            step_number=runner.step_number,
+        return runtime_context.saver.persist_artifact(
+            step_number=runtime_context.step_number,
             name=f"{model_id}.pkl",
             obj=model,
             format_hint=format_hint

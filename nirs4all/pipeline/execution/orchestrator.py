@@ -101,7 +101,9 @@ class PipelineOrchestrator:
         pipeline_name: str = "",
         dataset_name: str = "dataset",
         max_generation_count: int = 10000,
-        runner: Any = None  # PipelineRunner reference for backward compatibility
+        binary_loader: Any = None,
+        target_model: Optional[Dict[str, Any]] = None,
+        explainer: Any = None
     ) -> Tuple[Predictions, Dict[str, Any]]:
         """Execute pipeline configurations on dataset configurations.
 
@@ -111,19 +113,22 @@ class PipelineOrchestrator:
             pipeline_name: Optional name for the pipeline
             dataset_name: Optional name for array-based datasets
             max_generation_count: Maximum number of pipeline combinations to generate
-            runner: Optional PipelineRunner reference for compatibility
+            binary_loader: BinaryLoader for predict/explain modes
+            target_model: Target model for predict/explain modes
+            explainer: Explainer instance for explain mode
 
         Returns:
             Tuple of (run_predictions, dataset_predictions)
         """
+        from nirs4all.pipeline.config.context import RuntimeContext
+
         # Normalize inputs
         pipeline_configs = self._normalize_pipeline(
             pipeline,
             name=pipeline_name,
-            max_generation_count=max_generation_count,
-            runner=runner
+            max_generation_count=max_generation_count
         )
-        dataset_configs = self._normalize_dataset(dataset, dataset_name=dataset_name, runner=runner)
+        dataset_configs = self._normalize_dataset(dataset, dataset_name=dataset_name)
 
         # Clear previous figure references
         self._figure_refs.clear()
@@ -147,8 +152,6 @@ class PipelineOrchestrator:
             current_run_dir.mkdir(parents=True, exist_ok=True)
 
             # Build executor using ExecutorBuilder
-            binary_loader = runner.binary_loader if (runner and hasattr(runner, 'binary_loader')) else None
-
             executor = (ExecutorBuilder()
                 .with_run_directory(current_run_dir)
                 .with_verbose(self.verbose)
@@ -157,7 +160,6 @@ class PipelineOrchestrator:
                 .with_continue_on_error(self.continue_on_error)
                 .with_show_spinner(self.show_spinner)
                 .with_binary_loader(binary_loader)
-                .with_runner(runner)
                 .build())
 
             # Get components from executor for compatibility
@@ -186,6 +188,16 @@ class PipelineOrchestrator:
                 # Initialize execution context via executor
                 context = executor.initialize_context(dataset)
 
+                # Create RuntimeContext
+                runtime_context = RuntimeContext(
+                    saver=saver,
+                    manifest_manager=manifest_manager,
+                    binary_loader=binary_loader,
+                    step_runner=executor.step_runner,
+                    target_model=target_model,
+                    explainer=explainer
+                )
+
                 # Execute pipeline
                 config_predictions = Predictions()
                 executor.execute(
@@ -193,7 +205,7 @@ class PipelineOrchestrator:
                     config_name=config_name,
                     dataset=dataset,
                     context=context,
-                    runner=runner,  # Pass runner for compatibility
+                    runtime_context=runtime_context,
                     prediction_store=config_predictions
                 )
 
@@ -233,13 +245,9 @@ class PipelineOrchestrator:
         self,
         pipeline: Union[PipelineConfigs, List[Any], Dict, str],
         name: str = "",
-        max_generation_count: int = 10000,
-        runner: Any = None
+        max_generation_count: int = 10000
     ) -> PipelineConfigs:
         """Normalize pipeline input to PipelineConfigs."""
-        if runner and hasattr(runner, '_normalize_pipeline'):
-            return runner._normalize_pipeline(pipeline, name, max_generation_count)
-
         if isinstance(pipeline, PipelineConfigs):
             return pipeline
 
@@ -252,13 +260,9 @@ class PipelineOrchestrator:
     def _normalize_dataset(
         self,
         dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
-        dataset_name: str = "array_dataset",
-        runner: Any = None
+        dataset_name: str = "array_dataset"
     ) -> DatasetConfigs:
         """Normalize dataset input to DatasetConfigs."""
-        if runner and hasattr(runner, '_normalize_dataset'):
-            return runner._normalize_dataset(dataset, dataset_name)
-
         if isinstance(dataset, DatasetConfigs):
             return dataset
 

@@ -106,7 +106,7 @@ class PipelineExecutor:
         config_name: str,
         dataset: SpectroDataset,
         context: ExecutionContext,
-        runner: Any,  # PipelineRunner reference for compatibility
+        runtime_context: Any,  # RuntimeContext
         prediction_store: Optional[Predictions] = None
     ) -> None:
         """Execute pipeline steps sequentially on dataset.
@@ -116,7 +116,7 @@ class PipelineExecutor:
             config_name: Pipeline configuration name
             dataset: Dataset to process
             context: Initial execution context
-            runner: Runner instance (for compatibility with controllers)
+            runtime_context: Runtime infrastructure context
             prediction_store: Prediction store for accumulating results
 
         Raises:
@@ -148,9 +148,9 @@ class PipelineExecutor:
             if self.saver:
                 self.saver.register(pipeline_uid)
 
-            # Set pipeline_uid on runner for compatibility with controllers
-            if runner:
-                runner.pipeline_uid = pipeline_uid
+            # Set pipeline_uid on runtime_context
+            if runtime_context:
+                runtime_context.pipeline_uid = pipeline_uid
         else:
             # For predict/explain modes, use temporary UID
             pipeline_uid = f"temp_{pipeline_hash}"
@@ -170,7 +170,7 @@ class PipelineExecutor:
                 steps,
                 dataset,
                 context,
-                runner,
+                runtime_context,
                 prediction_store,
                 all_artifacts
             )
@@ -209,7 +209,7 @@ class PipelineExecutor:
         steps: List[Any],
         dataset: SpectroDataset,
         context: ExecutionContext,
-        runner: Any,
+        runtime_context: Any,
         prediction_store: Predictions,
         all_artifacts: List[Any]
     ) -> ExecutionContext:
@@ -219,7 +219,7 @@ class PipelineExecutor:
             steps: List of steps to execute
             dataset: Dataset to process
             context: Current execution context
-            runner: Runner instance for compatibility
+            runtime_context: Runtime infrastructure context
             prediction_store: Prediction store
             all_artifacts: List to accumulate artifacts
 
@@ -231,11 +231,11 @@ class PipelineExecutor:
             self.substep_number = 0
             self.operation_count = 0
 
-            # Sync step number to runner for controller compatibility
-            if runner:
-                runner.step_number = self.step_number
-                runner.substep_number = self.substep_number
-                runner.operation_count = self.operation_count
+            # Sync step number to runtime_context
+            if runtime_context:
+                runtime_context.step_number = self.step_number
+                runtime_context.substep_number = self.substep_number
+                runtime_context.operation_count = self.operation_count
 
             # Update context with current step number
             if isinstance(context, ExecutionContext):
@@ -254,7 +254,7 @@ class PipelineExecutor:
                     step=step,
                     dataset=dataset,
                     context=context,
-                    runner=runner,
+                    runtime_context=runtime_context,
                     loaded_binaries=loaded_binaries,
                     prediction_store=prediction_store
                 )
@@ -267,17 +267,17 @@ class PipelineExecutor:
                 context = step_result.updated_context
                 all_artifacts.extend(step_result.artifacts)
 
-                # Sync operation_count back from runner (controllers may have incremented it)
-                if runner:
-                    self.operation_count = runner.operation_count
+                # Sync operation_count back from runtime_context (controllers may have incremented it)
+                if runtime_context:
+                    self.operation_count = runtime_context.operation_count
 
                 # Append artifacts to manifest if in train mode
                 if (self.mode == "train" and
                     self.manifest_manager and
-                    runner.pipeline_uid and
+                    runtime_context.pipeline_uid and
                     step_result.artifacts):
                     self.manifest_manager.append_artifacts(
-                        runner.pipeline_uid,
+                        runtime_context.pipeline_uid,
                         step_result.artifacts
                     )
                     if self.verbose > 1:

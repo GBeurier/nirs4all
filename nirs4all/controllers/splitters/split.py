@@ -5,10 +5,9 @@ from typing import Any, Dict, Tuple, TYPE_CHECKING, List, Union
 import copy
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 
 if TYPE_CHECKING:  # pragma: no cover
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
 
 
@@ -95,7 +94,7 @@ class CrossValidatorController(OperatorController):
         step_info: 'ParsedStep',
         dataset: "SpectroDataset",
         context: ExecutionContext,
-        runner: "PipelineRunner",
+        runtime_context: "RuntimeContext",
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Any = None,
@@ -251,9 +250,9 @@ class CrossValidatorController(OperatorController):
 
         # Save folds CSV as output in the pipeline directory (not as binary artifact)
         # Handle case where runner is None (e.g., in unit tests)
-        if runner and hasattr(runner, 'saver') and runner.saver:
-            output_path = runner.saver.save_output(
-                step_number=runner.step_number,
+        if runtime_context and hasattr(runtime_context, 'saver') and runtime_context.saver:
+            output_path = runtime_context.saver.save_output(
+                step_number=runtime_context.step_number,
                 name=folds_name.replace('.csv', ''),  # Name without extension
                 data=binary,
                 extension='.csv'

@@ -44,8 +44,8 @@ class ExecutorBuilder:
         self._save_files: bool = True
         self._continue_on_error: bool = False
         self._show_spinner: bool = True
+        self._plots_visible: bool = False
         self._binary_loader: Any = None
-        self._runner: Any = None
 
         # Components (will be created if not provided)
         self._saver: Optional[SimulationSaver] = None
@@ -137,6 +137,18 @@ class ExecutorBuilder:
         self._show_spinner = show_spinner
         return self
 
+    def with_plots_visible(self, plots_visible: bool) -> 'ExecutorBuilder':
+        """Set whether to display plots.
+
+        Args:
+            plots_visible: Whether to display plots
+
+        Returns:
+            Self for method chaining
+        """
+        self._plots_visible = plots_visible
+        return self
+
     def with_binary_loader(self, binary_loader: Any) -> 'ExecutorBuilder':
         """Set binary loader for predict/explain modes.
 
@@ -147,18 +159,6 @@ class ExecutorBuilder:
             Self for method chaining
         """
         self._binary_loader = binary_loader
-        return self
-
-    def with_runner(self, runner: Any) -> 'ExecutorBuilder':
-        """Set runner reference for backward compatibility.
-
-        Args:
-            runner: PipelineRunner instance
-
-        Returns:
-            Self for method chaining
-        """
-        self._runner = runner
         return self
 
     def with_saver(self, saver: SimulationSaver) -> 'ExecutorBuilder':
@@ -250,13 +250,9 @@ class ExecutorBuilder:
                 router=ControllerRouter(),
                 verbose=self._verbose,
                 mode=self._mode,
-                show_spinner=self._show_spinner
+                show_spinner=self._show_spinner,
+                plots_visible=self._plots_visible
             )
-
-        # Update runner attributes if runner is provided (for compatibility)
-        if self._runner:
-            self._runner.saver = self._saver
-            self._runner.manifest_manager = self._manifest_manager
 
         # Build and return executor
         return PipelineExecutor(

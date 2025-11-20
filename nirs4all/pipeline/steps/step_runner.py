@@ -32,7 +32,8 @@ class StepRunner:
         router: Optional[ControllerRouter] = None,
         verbose: int = 0,
         mode: str = "train",
-        show_spinner: bool = True
+        show_spinner: bool = True,
+        plots_visible: bool = False
     ):
         """Initialize step runner.
 
@@ -42,19 +43,22 @@ class StepRunner:
             verbose: Verbosity level
             mode: Execution mode (train/predict/explain)
             show_spinner: Whether to show spinner for long operations
+            plots_visible: Whether to display plots
         """
         self.parser = parser or StepParser()
         self.router = router or ControllerRouter()
         self.verbose = verbose
         self.mode = mode
         self.show_spinner = show_spinner
+        self.plots_visible = plots_visible
+        self._figure_refs = []
 
     def execute(
         self,
         step: Any,
         dataset: SpectroDataset,
         context: ExecutionContext,
-        runner: Any,  # PipelineRunner reference for compatibility
+        runtime_context: Any,  # RuntimeContext
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Predictions] = None
     ) -> StepResult:
@@ -64,7 +68,7 @@ class StepRunner:
             step: Raw step configuration
             dataset: Dataset to process
             context: Execution context
-            runner: Runner instance (for compatibility with controllers)
+            runtime_context: Runtime infrastructure context
             loaded_binaries: Pre-loaded artifacts for this step
             prediction_store: Prediction store for accumulating results
 
@@ -85,17 +89,23 @@ class StepRunner:
 
         # Handle subpipelines (nested lists)
         if parsed_step.step_type == StepType.SUBPIPELINE:
-            # Delegate to runner's run_steps for subpipeline execution
             substeps = parsed_step.metadata["steps"]
-            updated_context, artifacts = runner.run_steps(
-                substeps,
-                dataset,
-                context,
-                execution="sequential",
-                prediction_store=prediction_store,
-                propagated_binaries=loaded_binaries
-            )
-            return StepResult(updated_context=updated_context, artifacts=artifacts)
+            current_context = context
+            all_artifacts = []
+            
+            for substep in substeps:
+                result = self.execute(
+                    step=substep,
+                    dataset=dataset,
+                    context=current_context,
+                    runtime_context=runtime_context,
+                    loaded_binaries=loaded_binaries,
+                    prediction_store=prediction_store
+                )
+                current_context = result.updated_context
+                all_artifacts.extend(result.artifacts)
+                
+            return StepResult(updated_context=current_context, artifacts=all_artifacts)
 
         # Route to controller
         controller = self.router.route(parsed_step, step)
@@ -132,7 +142,7 @@ class StepRunner:
                 step_info=parsed_step,
                 dataset=dataset,
                 context=context,
-                runner=runner,
+                runtime_context=runtime_context,
                 source=-1,
                 mode=self.mode,
                 loaded_binaries=loaded_binaries,

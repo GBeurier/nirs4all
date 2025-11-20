@@ -139,7 +139,7 @@ class ResamplerController(OperatorController):
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
@@ -152,7 +152,7 @@ class ResamplerController(OperatorController):
             step_info: Pipeline step configuration
             dataset: Dataset to operate on
             context: Pipeline execution context
-            runner: Pipeline runner instance
+            runtime_context: Runtime context
             source: Data source index (-1 for all sources)
             mode: Execution mode ("train" or "predict")
             loaded_binaries: Pre-loaded binary objects for prediction mode
@@ -215,7 +215,7 @@ class ResamplerController(OperatorController):
                 train_2d = train_x[:, processing_idx, :]  # Training data
                 all_2d = all_x[:, processing_idx, :]      # All data to transform
 
-                new_operator_name = f"{operator_name}_{runner.next_op()}"
+                new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
 
                 if loaded_binaries and (mode == "predict" or mode == "explain"):
                     # Load pre-fitted resampler from binaries
@@ -259,8 +259,8 @@ class ResamplerController(OperatorController):
 
                 # Persist fitted resampler using new serializer
                 if mode == "train":
-                    artifact = runner.saver.persist_artifact(
-                        step_number=runner.step_number,
+                    artifact = runtime_context.saver.persist_artifact(
+                        step_number=runtime_context.step_number,
                         name=new_operator_name,
                         obj=resampler,
                         format_hint='sklearn'
@@ -302,7 +302,7 @@ class ResamplerController(OperatorController):
             # Resampler always outputs wavelengths in cm-1
             dataset._features.sources[sd_idx].set_headers(new_headers, unit="cm-1")  # noqa: SLF001
 
-            if runner.save_files:
+            if runtime_context.saver.save_files:
                 print(f"Exporting resampled features for dataset '{dataset.name}', source {sd_idx} to CSV...")
                 print(dataset.features_processings(sd_idx))
                 train_context = context.with_partition("train")
@@ -311,7 +311,7 @@ class ResamplerController(OperatorController):
                 test_x_full = dataset.x(test_context.selector, "2d", concat_source=True)
                 # save train and test features to CSV for debugging, create folder if needed
                 import os
-                root_path = runner.saver.base_path
+                root_path = runtime_context.saver.base_path
                 os.makedirs(f"{root_path}/{dataset.name}", exist_ok=True)
                 np.savetxt(f"{root_path}/{dataset.name}/Export_X_train.csv", train_x_full, delimiter=",")
                 np.savetxt(f"{root_path}/{dataset.name}/Export_X_test.csv", test_x_full, delimiter=",")

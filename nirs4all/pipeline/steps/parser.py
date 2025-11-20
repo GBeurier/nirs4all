@@ -45,16 +45,11 @@ class StepParser:
     Normalizes to canonical ParsedStep format for controller execution.
     """
 
-    # Known workflow operators
-    WORKFLOW_OPERATORS = [
-        "sample_augmentation", "feature_augmentation", "branch", "dispatch",
-        "model", "stack", "scope", "cluster", "merge", "uncluster", "unscope",
-        "chart_2d", "chart_3d", "fold_chart", "y_processing", "y_chart",
-        "split", "preprocessing"
-    ]
-
     # Known serialization operators
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
+    
+    # Reserved keywords that are not operators
+    RESERVED_KEYWORDS = ["params", "metadata", "steps"]
 
     def parse(self, step: Any) -> ParsedStep:
         """Parse a pipeline step into normalized format.
@@ -106,19 +101,7 @@ class StepParser:
 
     def _parse_dict_step(self, step: Dict[str, Any]) -> ParsedStep:
         """Parse dictionary step configuration."""
-        # Check for workflow operators
-        for key in self.WORKFLOW_OPERATORS:
-            if key in step:
-                operator = self._deserialize_operator(step[key])
-                return ParsedStep(
-                    operator=operator,
-                    keyword=key,
-                    step_type=StepType.WORKFLOW,
-                    original_step=step,
-                    metadata={"params": step.get("params", {})}
-                )
-
-        # Check for serialization operators
+        # Check for serialization operators first
         for key in self.SERIALIZATION_OPERATORS:
             if key in step:
                 operator = deserialize_component(step)
@@ -129,6 +112,26 @@ class StepParser:
                     original_step=step,
                     metadata={}
                 )
+
+        # Look for potential workflow operators
+        # Heuristic: any key that is not reserved and not a serialization operator
+        candidates = [
+            k for k in step.keys() 
+            if k not in self.RESERVED_KEYWORDS and k not in self.SERIALIZATION_OPERATORS
+        ]
+        
+        if candidates:
+            # If multiple candidates, pick the first one (or prioritize?)
+            # For now, assume the first one is the operator
+            key = candidates[0]
+            operator = self._deserialize_operator(step[key])
+            return ParsedStep(
+                operator=operator,
+                keyword=key,
+                step_type=StepType.WORKFLOW,
+                original_step=step,
+                metadata={"params": step.get("params", {})}
+            )
 
         # No recognized key - try to deserialize the whole dict
         operator = deserialize_component(step)
@@ -142,26 +145,32 @@ class StepParser:
 
     def _parse_string_step(self, step: str) -> ParsedStep:
         """Parse string step configuration."""
-        # Check if string contains a workflow operator keyword
-        for keyword in self.WORKFLOW_OPERATORS:
-            if keyword in step.split():
-                return ParsedStep(
-                    operator=None,
-                    keyword=keyword,
-                    step_type=StepType.WORKFLOW,
-                    original_step=step,
-                    metadata={}
-                )
+        # For strings, we can't easily distinguish between keyword and class path
+        # unless we check against a list. 
+        # But we want to avoid hardcoded lists.
+        # If it looks like a class path (contains dots), treat as serialized.
+        # If it's a single word, treat as keyword/workflow.
+        
+        if "." in step:
+             # Deserialize as a class/function reference
+            operator = deserialize_component(step)
+            return ParsedStep(
+                operator=operator,
+                keyword=step,
+                step_type=StepType.SERIALIZED,
+                original_step=step,
+                metadata={}
+            )
+        else:
+            # Treat as keyword
+            return ParsedStep(
+                operator=None,
+                keyword=step,
+                step_type=StepType.WORKFLOW,
+                original_step=step,
+                metadata={}
+            )
 
-        # Otherwise, deserialize as a class/function reference
-        operator = deserialize_component(step)
-        return ParsedStep(
-            operator=operator,
-            keyword=step,
-            step_type=StepType.SERIALIZED,
-            original_step=step,
-            metadata={}
-        )
 
     def _deserialize_operator(self, value: Any) -> Optional[Any]:
         """Deserialize an operator value if needed."""

@@ -202,7 +202,9 @@ class PipelineRunner:
             pipeline_name=pipeline_name,
             dataset_name=dataset_name,
             max_generation_count=max_generation_count,
-            runner=self
+            binary_loader=self.binary_loader,
+            target_model=self.target_model,
+            explainer=self.explainer
         )
 
         # Sync state
@@ -349,92 +351,3 @@ class PipelineRunner:
         self.operation_count += 1
         return self.operation_count
 
-    def run_step(
-        self,
-        step: Any,
-        dataset: SpectroDataset,
-        context: ExecutionContext,
-        prediction_store: Predictions,
-        is_substep: bool = False,
-        propagated_binaries: Optional[List] = None
-    ) -> Tuple[ExecutionContext, List]:
-        """Execute a single pipeline step (compatibility method).
-
-        Args:
-            step: Pipeline step to execute
-            dataset: Dataset to process
-            context: Execution context
-            prediction_store: Prediction store
-            is_substep: Whether this is a substep execution
-            propagated_binaries: Binaries to propagate to the step
-
-        Returns:
-            Tuple of (updated_context, artifacts)
-        """
-        from nirs4all.pipeline.steps.parser import StepParser
-        from nirs4all.pipeline.steps.router import ControllerRouter
-        from nirs4all.pipeline.steps.step_runner import StepRunner
-
-        # Increment substep number if this is a substep
-        if is_substep:
-            self.substep_number += 1
-
-        # Create step runner if needed
-        step_runner = StepRunner(
-            parser=StepParser(),
-            router=ControllerRouter(),
-            verbose=self.verbose,
-            mode=self.mode,
-            show_spinner=self.show_spinner
-        )
-
-        # Execute step
-        result = step_runner.execute(
-            step=step,
-            dataset=dataset,
-            context=context,
-            runner=self,
-            loaded_binaries=propagated_binaries,
-            prediction_store=prediction_store
-        )
-
-        return result.updated_context, result.artifacts
-
-    def run_steps(
-        self,
-        steps: List[Any],
-        dataset: SpectroDataset,
-        context: ExecutionContext,
-        execution: str = "sequential",
-        prediction_store: Optional[Predictions] = None,
-        propagated_binaries: Optional[List] = None
-    ) -> Tuple[ExecutionContext, List]:
-        """Execute multiple pipeline steps (compatibility method).
-
-        Args:
-            steps: List of pipeline steps
-            dataset: Dataset to process
-            context: Execution context
-            execution: Execution mode (only 'sequential' supported)
-            prediction_store: Prediction store
-            propagated_binaries: Binaries to propagate to steps
-
-        Returns:
-            Tuple of (final_context, all_artifacts)
-        """
-        if prediction_store is None:
-            prediction_store = Predictions()
-
-        current_context = context
-        all_artifacts = []
-        for step in steps:
-            current_context, artifacts = self.run_step(
-                step,
-                dataset,
-                current_context,
-                prediction_store,
-                propagated_binaries=propagated_binaries
-            )
-            all_artifacts.extend(artifacts)
-
-        return current_context, all_artifacts
