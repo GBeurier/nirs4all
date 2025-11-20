@@ -30,7 +30,7 @@ data_path_reg = 'sample_data/regression'
 
 pipeline_reg = [
     StandardScaler,
-    SPXYSplitter(0.25),
+    # SPXYSplitter(0.25),
     ShuffleSplit(n_splits=2, test_size=0.25),
     # Use instance with configured parameters
     {

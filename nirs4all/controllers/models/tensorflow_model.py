@@ -159,17 +159,34 @@ class TensorFlowModelController(BaseModelController):
             return obj.framework == 'tensorflow'
 
         # Check if it's a serialized function dictionary
-        if isinstance(obj, dict) and 'function' in obj:
-            function_path = obj['function']
-            # Try to import the function and check its framework
-            try:
-                mod_name, _, func_name = function_path.rpartition(".")
-                mod = __import__(mod_name, fromlist=[func_name])
-                func = getattr(mod, func_name)
-                return hasattr(func, 'framework') and func.framework == 'tensorflow'
-            except (ImportError, AttributeError):
-                # If we can't import, check the path for tensorflow indicators
-                return 'tensorflow' in function_path.lower() or 'tf' in function_path.lower()
+        if isinstance(obj, dict):
+            # Check for type='function' format
+            if obj.get('type') == 'function' and obj.get('framework') == 'tensorflow':
+                return True
+
+            if 'function' in obj:
+                function_val = obj['function']
+
+                # Case 1: function is a callable object
+                if callable(function_val):
+                    if hasattr(function_val, 'framework'):
+                        return function_val.framework == 'tensorflow'
+                    # Fallback: check module name
+                    module_name = getattr(function_val, '__module__', '')
+                    return 'tensorflow' in module_name or 'keras' in module_name
+
+                # Case 2: function is a string path
+                if isinstance(function_val, str):
+                    function_path = function_val
+                    # Try to import the function and check its framework
+                    try:
+                        mod_name, _, func_name = function_path.rpartition(".")
+                        mod = __import__(mod_name, fromlist=[func_name])
+                        func = getattr(mod, func_name)
+                        return hasattr(func, 'framework') and func.framework == 'tensorflow'
+                    except (ImportError, AttributeError, ValueError):
+                        # If we can't import, check the path for tensorflow indicators
+                        return 'tensorflow' in function_path.lower() or 'tf' in function_path.lower()
 
         return False
 

@@ -39,6 +39,10 @@ except ImportError:
     JAX_AVAILABLE = False
 
 
+class TrainState(train_state.TrainState):
+    batch_stats: Any
+
+
 @register_controller
 class JaxModelController(BaseModelController):
     """Controller for JAX/Flax models."""
@@ -79,7 +83,18 @@ class JaxModelController(BaseModelController):
             return False
 
         try:
-            return isinstance(obj, nn.Module)
+            if isinstance(obj, nn.Module):
+                return True
+
+            # Check for framework attribute (added by @framework decorator)
+            if hasattr(obj, 'framework') and obj.framework == 'jax':
+                return True
+
+            # Check for dict format from deserialize_component
+            if isinstance(obj, dict) and obj.get('type') == 'function' and obj.get('framework') == 'jax':
+                return True
+
+            return False
         except Exception:
             return False
 
@@ -96,10 +111,13 @@ class JaxModelController(BaseModelController):
 
     def _create_train_state(self, rng, model, input_shape, learning_rate):
         """Create initial training state."""
-        params = model.init(rng, jnp.ones(input_shape))['params']
+        variables = model.init(rng, jnp.ones(input_shape))
+        params = variables['params']
+        batch_stats = variables.get('batch_stats')
+
         tx = optax.adam(learning_rate)
-        return train_state.TrainState.create(
-            apply_fn=model.apply, params=params, tx=tx
+        return TrainState.create(
+            apply_fn=model.apply, params=params, tx=tx, batch_stats=batch_stats
         )
 
     def _train_model(
@@ -135,9 +153,27 @@ class JaxModelController(BaseModelController):
         is_classification = task_type and task_type.is_classification
 
         @jax.jit
-        def train_step(state, batch_X, batch_y):
+        def train_step(state, batch_X, batch_y, rng):
+            dropout_rng = rng
+
             def loss_fn(params):
-                logits = state.apply_fn({'params': params}, batch_X)
+                variables = {'params': params}
+                if state.batch_stats is not None:
+                    variables['batch_stats'] = state.batch_stats
+
+                mutable = ['batch_stats'] if state.batch_stats is not None else []
+                rngs = {'dropout': dropout_rng}
+
+                if mutable:
+                    logits, new_model_state = state.apply_fn(
+                        variables, batch_X, train=True, mutable=mutable, rngs=rngs
+                    )
+                else:
+                    logits = state.apply_fn(
+                        variables, batch_X, train=True, rngs=rngs
+                    )
+                    new_model_state = None
+
                 if is_classification:
                     # Handle classification loss
                     if batch_y.ndim == 1 or (batch_y.ndim == 2 and batch_y.shape[1] == 1):
@@ -151,16 +187,25 @@ class JaxModelController(BaseModelController):
                 else:
                     # Simple MSE loss for regression
                     loss = jnp.mean((logits - batch_y) ** 2)
-                return loss
+                return loss, new_model_state
 
-            grad_fn = jax.value_and_grad(loss_fn)
-            loss, grads = grad_fn(state.params)
-            state = state.apply_gradients(grads=grads)
+            grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+            (loss, new_model_state), grads = grad_fn(state.params)
+
+            new_batch_stats = state.batch_stats
+            if new_model_state is not None and 'batch_stats' in new_model_state:
+                new_batch_stats = new_model_state['batch_stats']
+
+            state = state.apply_gradients(grads=grads, batch_stats=new_batch_stats)
             return state, loss
 
         @jax.jit
         def eval_step(state, batch_X, batch_y):
-            logits = state.apply_fn({'params': state.params}, batch_X)
+            variables = {'params': state.params}
+            if state.batch_stats is not None:
+                variables['batch_stats'] = state.batch_stats
+
+            logits = state.apply_fn(variables, batch_X, train=False)
             if is_classification:
                 if batch_y.ndim == 1 or (batch_y.ndim == 2 and batch_y.shape[1] == 1):
                         labels = batch_y.squeeze().astype(jnp.int32)
@@ -178,6 +223,7 @@ class JaxModelController(BaseModelController):
 
         best_val_loss = float('inf')
         best_params = None
+        best_batch_stats = None
         patience = train_params.get('patience', 10)
         patience_counter = 0
 
@@ -193,7 +239,9 @@ class JaxModelController(BaseModelController):
                 batch_idx = slice(i * batch_size, (i + 1) * batch_size)
                 batch_X = X_train_shuffled[batch_idx]
                 batch_y = y_train_shuffled[batch_idx]
-                state, loss = train_step(state, batch_X, batch_y)
+
+                rng, step_rng = jax.random.split(rng)
+                state, loss = train_step(state, batch_X, batch_y, step_rng)
                 epoch_loss += loss
 
             epoch_loss /= steps_per_epoch
@@ -205,6 +253,7 @@ class JaxModelController(BaseModelController):
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     best_params = state.params
+                    best_batch_stats = state.batch_stats
                     patience_counter = 0
                 else:
                     patience_counter += 1
@@ -222,7 +271,7 @@ class JaxModelController(BaseModelController):
 
         # Restore best params
         if best_params is not None:
-            state = state.replace(params=best_params)
+            state = state.replace(params=best_params, batch_stats=best_batch_stats)
 
         # Attach state to model wrapper for prediction
         # Since Flax models are stateless, we need to return a wrapper that holds the state
@@ -232,10 +281,15 @@ class JaxModelController(BaseModelController):
         """Generate predictions with JAX model."""
         if isinstance(model, JaxModelWrapper):
             preds = model.predict(X)
-            # Check if classification (has num_classes)
-            if hasattr(model.model, 'num_classes'):
-                 # It is a classifier, return labels
-                 return np.argmax(preds, axis=-1)
+
+            # Handle multiclass classification (convert logits/probs to labels)
+            if preds.ndim == 2 and preds.shape[1] > 1:
+                 return np.argmax(preds, axis=-1).reshape(-1, 1)
+
+            # Ensure 2D shape for regression/binary
+            if preds.ndim == 1:
+                return preds.reshape(-1, 1)
+
             return preds
         else:
             raise ValueError("Model must be a JaxModelWrapper instance for prediction")
@@ -307,7 +361,11 @@ class JaxModelWrapper:
         self.state = state
 
     def predict(self, X):
-        logits = self.state.apply_fn({'params': self.state.params}, X)
+        variables = {'params': self.state.params}
+        if self.state.batch_stats is not None:
+            variables['batch_stats'] = self.state.batch_stats
+
+        logits = self.state.apply_fn(variables, X, train=False)
         return np.array(logits)
 
     def __getstate__(self):

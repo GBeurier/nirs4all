@@ -234,8 +234,20 @@ def _changed_kwargs(obj):
     sig = inspect.signature(obj.__class__.__init__)
     out = {}
 
+    # Check if object is a Flax module to skip internal fields like 'parent'
+    is_flax_module = False
+    try:
+        import flax.linen as nn
+        if isinstance(obj, nn.Module):
+            is_flax_module = True
+    except ImportError:
+        pass
+
     for name, param in sig.parameters.items():
         if name == "self":
+            continue
+
+        if is_flax_module and name == 'parent':
             continue
 
         default = param.default if param.default is not inspect._empty else None

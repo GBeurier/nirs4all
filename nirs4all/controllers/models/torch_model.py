@@ -79,7 +79,18 @@ class PyTorchModelController(BaseModelController):
             return False
 
         try:
-            return isinstance(obj, nn.Module)
+            if isinstance(obj, nn.Module):
+                return True
+
+            # Check for framework attribute (added by @framework decorator)
+            if hasattr(obj, 'framework') and obj.framework == 'pytorch':
+                return True
+
+            # Check for dict format from deserialize_component
+            if isinstance(obj, dict) and obj.get('type') == 'function' and obj.get('framework') == 'pytorch':
+                return True
+
+            return False
         except Exception:
             return False
 
@@ -239,8 +250,12 @@ class PyTorchModelController(BaseModelController):
             predictions = model(X)
             predictions = predictions.cpu().numpy()
 
-        # Ensure predictions are in the correct shape
-        if predictions.ndim == 1:
+        # Handle multiclass classification (convert logits/probs to labels)
+        if predictions.ndim == 2 and predictions.shape[1] > 1:
+             # Multi-output: likely multiclass classification with softmax/logits
+             # Convert probabilities to class predictions (encoded labels 0-N)
+             predictions = np.argmax(predictions, axis=1).reshape(-1, 1).astype(np.float32)
+        elif predictions.ndim == 1:
             predictions = predictions.reshape(-1, 1)
 
         return predictions
@@ -275,13 +290,10 @@ class PyTorchModelController(BaseModelController):
     def get_preferred_layout(self) -> str:
         """Return the preferred data layout for PyTorch models.
 
-        PyTorch typically expects (samples, channels, features) for 1D convs,
-        or (samples, features) for dense layers.
-        We'll use '3d_transpose' which gives (samples, features, channels) and handle transpose in data prep if needed.
-        Actually, PyTorch Conv1d expects (N, C, L) where C is channels and L is length.
-        Our '3d_transpose' gives (N, L, C). So we need to transpose in prepare_data.
+        PyTorch typically expects (samples, channels, features) for 1D convs.
+        We use '3d' which gives (samples, processings, features) -> (N, C, L).
         """
-        return "3d_transpose"
+        return "3d"
 
     def _clone_model(self, model: nn.Module) -> nn.Module:
         """Clone PyTorch model."""
