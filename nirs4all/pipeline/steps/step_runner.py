@@ -87,14 +87,15 @@ class StepRunner:
         if parsed_step.step_type == StepType.SUBPIPELINE:
             # Delegate to runner's run_steps for subpipeline execution
             substeps = parsed_step.metadata["steps"]
-            updated_context = runner.run_steps(
+            updated_context, artifacts = runner.run_steps(
                 substeps,
                 dataset,
                 context,
                 execution="sequential",
-                prediction_store=prediction_store
+                prediction_store=prediction_store,
+                propagated_binaries=loaded_binaries
             )
-            return StepResult(updated_context=updated_context, artifacts=[])
+            return StepResult(updated_context=updated_context, artifacts=artifacts)
 
         # Route to controller
         controller = self.router.route(parsed_step, step)

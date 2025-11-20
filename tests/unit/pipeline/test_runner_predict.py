@@ -45,7 +45,7 @@ def test_run_steps_with_sequential_execution(monkeypatch):
 
     monkeypatch.setattr(StepRunner, "execute", fake_execute)
 
-    result = runner.run_steps(steps, dataset, context, execution="sequential")
+    result, _ = runner.run_steps(steps, dataset, context, execution="sequential")
 
     assert call_order == [("a", 1), ("b", 2)]
     assert result.custom["value"] == 2
@@ -60,6 +60,7 @@ def test_run_step_none_returns_context(tmp_path):
     from nirs4all.data.predictions import Predictions
     prediction_store = Predictions()
 
-    result = runner.run_step(None, dataset, context, prediction_store)
+    result, artifacts = runner.run_step(None, dataset, context, prediction_store)
 
     assert result is context
+    assert artifacts == []
