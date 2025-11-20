@@ -4,10 +4,9 @@ from sklearn.base import TransformerMixin
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 
 if TYPE_CHECKING:
-    from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.steps.parser import ParsedStep
 
@@ -46,7 +45,7 @@ class YTransformerMixinController(OperatorController):
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: ExecutionContext,
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Any = None,
@@ -61,7 +60,7 @@ class YTransformerMixinController(OperatorController):
             dataset: Dataset to operate on
             dataset: Dataset containing targets to transform
             context: Pipeline context with partition information
-            runner: Pipeline runner instance
+            runtime_context: Runtime context containing infrastructure components
             source: Source index (not used for target processing)
             mode: Execution mode ("train" or "predict")
             loaded_binaries: Pre-loaded binaries (unused)
@@ -78,7 +77,7 @@ class YTransformerMixinController(OperatorController):
         # Naming for the new processing
         operator_name = operator.__class__.__name__
         current_y_processing = context.state.y_processing
-        new_processing_name = f"{current_y_processing}_{operator_name}{runner.next_op()}"
+        new_processing_name = f"{current_y_processing}_{operator_name}{runtime_context.next_op()}"
 
         if (mode == "predict" or mode == "explain") and loaded_binaries:
             transformer = loaded_binaries[0][1] if loaded_binaries else operator
@@ -134,8 +133,8 @@ class YTransformerMixinController(OperatorController):
 
         # Persist fitted transformer using new serializer
         if mode == "train":
-            artifact = runner.saver.persist_artifact(
-                step_number=runner.step_number,
+            artifact = runtime_context.saver.persist_artifact(
+                step_number=runtime_context.step_number,
                 name=f"y_{operator_name}",
                 obj=transformer,
                 format_hint='sklearn'

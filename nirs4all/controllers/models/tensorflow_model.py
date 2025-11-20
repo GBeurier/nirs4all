@@ -91,7 +91,13 @@ class TensorFlowModelController(BaseModelController):
         # Check if step contains a TensorFlow model or function
         if isinstance(step, dict) and 'model' in step:
             model = step['model']
-            return cls._is_tensorflow_model_or_function(model)
+            if cls._is_tensorflow_model_or_function(model):
+                return True
+            # Handle dictionary config for model
+            if isinstance(model, dict) and 'class' in model:
+                class_name = model['class']
+                if isinstance(class_name, str) and ('tensorflow' in class_name or 'keras' in class_name):
+                    return True
 
         # Check direct TensorFlow objects or functions
         if cls._is_tensorflow_model_or_function(step):
@@ -522,7 +528,7 @@ class TensorFlowModelController(BaseModelController):
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: ExecutionContext,
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
@@ -537,7 +543,7 @@ class TensorFlowModelController(BaseModelController):
             step_info: Parsed step containing model configuration and operator.
             dataset: SpectroDataset with features, targets, and fold information.
             context: Execution context with step_id, processing history, partition info.
-            runner: PipelineRunner instance managing the pipeline execution.
+            runtime_context: Runtime context managing execution state.
             source: Data source index (default: -1 for primary source).
             mode: Execution mode - 'train', 'finetune', 'predict', or 'explain'.
             loaded_binaries: Optional list of (name, bytes) tuples for prediction mode,
@@ -560,7 +566,7 @@ class TensorFlowModelController(BaseModelController):
         context = context.with_layout(self.get_preferred_layout())
 
         # Call parent execute method
-        return super().execute(step_info, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
+        return super().execute(step_info, dataset, context, runtime_context, source, mode, loaded_binaries, prediction_store)
 
 
 

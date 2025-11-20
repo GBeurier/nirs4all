@@ -100,7 +100,7 @@ class Explainer:
 
         # Normalize dataset
         dataset_config = self.runner.orchestrator._normalize_dataset(
-            dataset, dataset_name, runner=self.runner
+            dataset, dataset_name
         )
 
         # Enable model capture mode
@@ -147,10 +147,20 @@ class Explainer:
                 .with_binary_loader(self.binary_loader)
                 .with_saver(self.saver)
                 .with_manifest_manager(self.manifest_manager)
-                .with_runner(self.runner)
                 .build())
 
-            executor.execute(steps, "explanation", dataset_obj, context, self.runner, config_predictions)
+            # Create RuntimeContext
+            from nirs4all.pipeline.config.context import RuntimeContext
+            runtime_context = RuntimeContext(
+                saver=self.saver,
+                manifest_manager=self.manifest_manager,
+                binary_loader=self.binary_loader,
+                step_runner=executor.step_runner,
+                target_model=self.target_model,
+                explainer=self.runner.explainer
+            )
+
+            executor.execute(steps, "explanation", dataset_obj, context, runtime_context, config_predictions)
 
             # Extract captured model
             if self.captured_model is None:

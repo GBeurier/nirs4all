@@ -70,6 +70,12 @@ class SklearnModelController(BaseModelController):
                 from sklearn.base import is_regressor, is_classifier
                 return is_regressor(model) or is_classifier(model) or hasattr(model, 'predict')
 
+            # Handle dictionary config for model
+            if isinstance(model, dict) and 'class' in model:
+                class_name = model['class']
+                if isinstance(class_name, str) and 'sklearn' in class_name:
+                    return True
+
         # Check direct sklearn objects
         if isinstance(step, BaseEstimator):
             from sklearn.base import is_regressor, is_classifier
@@ -418,7 +424,7 @@ class SklearnModelController(BaseModelController):
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, bytes]]] = None,
@@ -433,7 +439,7 @@ class SklearnModelController(BaseModelController):
             step_info: Parsed step containing model configuration and operator.
             dataset (SpectroDataset): Dataset containing features and targets.
             context (ExecutionContext): Pipeline execution context with state info.
-            runner (PipelineRunner): Pipeline runner for coordination.
+            runtime_context (RuntimeContext): Runtime context managing execution state.
             source (int): Source index for multi-source pipelines. Defaults to -1.
             mode (str): Execution mode ('train' or 'predict'). Defaults to 'train'.
             loaded_binaries (Optional[List[Tuple[str, bytes]]]): Pre-loaded model
@@ -453,6 +459,6 @@ class SklearnModelController(BaseModelController):
         context = context.with_layout(self.get_preferred_layout())
 
         # Call parent execute method
-        return super().execute(step_info, dataset, context, runner, source, mode, loaded_binaries, prediction_store)
+        return super().execute(step_info, dataset, context, runtime_context, source, mode, loaded_binaries, prediction_store)
 
 

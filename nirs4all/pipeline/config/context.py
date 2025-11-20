@@ -457,3 +457,37 @@ class ExecutionContext:
             DataSelector instance
         """
         return self.selector
+
+
+@dataclass
+class RuntimeContext:
+    """
+    Runtime infrastructure components for pipeline execution.
+
+    This class holds references to infrastructure components that are needed
+    during execution but are not part of the data flow or pipeline state.
+    It replaces the "God Object" pattern of passing the runner everywhere.
+
+    Attributes:
+        saver: SimulationSaver for file operations
+        manifest_manager: ManifestManager for pipeline tracking
+        binary_loader: BinaryLoader for predict/explain modes
+        pipeline_uid: Current pipeline unique identifier
+        step_runner: StepRunner for executing sub-steps
+        operation_count: Counter for operation IDs
+        substep_number: Current substep number
+    """
+    saver: Any = None
+    manifest_manager: Any = None
+    binary_loader: Any = None
+    pipeline_uid: Optional[str] = None
+    step_runner: Any = None
+    operation_count: int = 0
+    substep_number: int = -1
+    target_model: Optional[Dict[str, Any]] = None
+    explainer: Any = None
+
+    def next_op(self) -> int:
+        """Get the next operation ID."""
+        self.operation_count += 1
+        return self.operation_count

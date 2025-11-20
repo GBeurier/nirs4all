@@ -42,7 +42,7 @@ class FoldChartController(OperatorController):
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        runner: 'PipelineRunner',
+        runtime_context: Any,
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Any = None,
@@ -66,7 +66,7 @@ class FoldChartController(OperatorController):
         metadata_column = None
         if keyword.startswith("fold_") and keyword != "chart_fold" and keyword != "fold_chart":
             metadata_column = keyword[5:]  # Extract column name after "fold_"
-            if runner.verbose > 0:
+            if runtime_context.step_runner.verbose > 0:
                 print(f"{INFO} Using metadata column '{metadata_column}' for color coding")
 
         # Determine which partition to use (default to train if not specified)
@@ -202,8 +202,8 @@ class FoldChartController(OperatorController):
         image_name = f"fold_visualization_{fold_suffix}_{partition}{metadata_suffix}.png"
 
         # Save the chart as a human-readable output file
-        output_path = runner.saver.save_output(
-            step_number=runner.step_number,
+        output_path = runtime_context.saver.save_output(
+            step_number=runtime_context.step_number,
             name=image_name.replace('.png', ''),  # Name without extension
             data=img_png_binary,
             extension='.png'
@@ -218,9 +218,9 @@ class FoldChartController(OperatorController):
                 "type": "chart_output"
             })
 
-        if runner.plots_visible:
+        if runtime_context.step_runner.plots_visible:
             # Store figure reference - user will call plt.show() at the end
-            runner._figure_refs.append(fig)
+            runtime_context.step_runner._figure_refs.append(fig)
             plt.show()
         else:
             plt.close(fig)

@@ -68,7 +68,7 @@ class SpectraChartController(OperatorController):
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        runner: 'PipelineRunner',
+        runtime_context: Any,
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Any = None,
@@ -109,7 +109,7 @@ class SpectraChartController(OperatorController):
             n_processings = x.shape[1]
 
             # Debug: print what we got
-            if runner.verbose > 0:
+            if runtime_context.step_runner.verbose > 0:
                 print(f"   Source {sd_idx}: {n_processings} processings: {processing_ids}")
                 print(f"   Data shape: {x.shape}")
 
@@ -150,7 +150,7 @@ class SpectraChartController(OperatorController):
                     # Headers don't match - likely after dimension-changing operation
                     processing_headers = None
 
-                if runner.verbose > 0 and processing_idx == 0:
+                if runtime_context.step_runner.verbose > 0 and processing_idx == 0:
                     print(f"   Headers available: {len(spectra_headers) if spectra_headers else 0}, features: {current_n_features}")
 
                 # Get header unit for this source
@@ -187,8 +187,8 @@ class SpectraChartController(OperatorController):
             image_name += ".png"
 
             # Save the chart as a human-readable output file
-            output_path = runner.saver.save_output(
-                step_number=runner.step_number,
+            output_path = runtime_context.saver.save_output(
+                step_number=runtime_context.step_number,
                 name=image_name.replace('.png', ''),  # Name without extension
                 data=img_png_binary,
                 extension='.png'
@@ -202,9 +202,9 @@ class SpectraChartController(OperatorController):
                     "type": "chart_output"
                 })
 
-            if runner.plots_visible:
+            if runtime_context.step_runner.plots_visible:
                 # Store figure reference - user will call plt.show() at the end
-                runner._figure_refs.append(fig)
+                runtime_context.step_runner._figure_refs.append(fig)
                 plt.show()
             else:
                 plt.close(fig)

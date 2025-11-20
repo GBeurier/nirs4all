@@ -46,7 +46,7 @@ class SampleAugmentationController(OperatorController):
         step_info: 'ParsedStep',
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Optional[Any] = None,
@@ -125,9 +125,9 @@ class SampleAugmentationController(OperatorController):
         is_balanced = "balance" in config
 
         if is_balanced:
-            return self._execute_balanced(config, transformers, dataset, context, runner, loaded_binaries)
+            return self._execute_balanced(config, transformers, dataset, context, runtime_context, loaded_binaries)
         else:
-            return self._execute_standard(config, transformers, dataset, context, runner, loaded_binaries)
+            return self._execute_standard(config, transformers, dataset, context, runtime_context, loaded_binaries)
 
     def _execute_standard(
         self,
@@ -135,7 +135,7 @@ class SampleAugmentationController(OperatorController):
         transformers: List,
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         loaded_binaries: Optional[Any]
     ) -> Tuple['ExecutionContext', List]:
         """Execute standard count-based augmentation."""
@@ -169,7 +169,7 @@ class SampleAugmentationController(OperatorController):
 
         # Emit ONE run_step per transformer
         self._emit_augmentation_steps(
-            transformer_to_samples, transformers, context, dataset, runner, loaded_binaries
+            transformer_to_samples, transformers, context, dataset, runtime_context, loaded_binaries
         )
 
         return context, []
@@ -180,7 +180,7 @@ class SampleAugmentationController(OperatorController):
         transformers: List,
         dataset: 'SpectroDataset',
         context: 'ExecutionContext',
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         loaded_binaries: Optional[Any]
     ) -> Tuple['ExecutionContext', List]:
         """Execute balanced class-aware augmentation."""
@@ -287,7 +287,7 @@ class SampleAugmentationController(OperatorController):
 
         # Emit ONE run_step per transformer-
         self._emit_augmentation_steps(
-            transformer_to_samples, transformers, context, dataset, runner, loaded_binaries
+            transformer_to_samples, transformers, context, dataset, runtime_context, loaded_binaries
         )
 
         return context, []
@@ -321,7 +321,7 @@ class SampleAugmentationController(OperatorController):
         transformers: List,
         context: 'ExecutionContext',
         dataset: 'SpectroDataset',
-        runner: 'PipelineRunner',
+        runtime_context: 'RuntimeContext',
         loaded_binaries: Optional[Any]
     ):
         """
@@ -349,14 +349,16 @@ class SampleAugmentationController(OperatorController):
             ).with_partition("train")
 
             # ONE run_step per transformer - it handles all target samples
-            _, _ = runner.run_step(
-                transformer,
-                dataset,
-                local_context,
-                prediction_store=None,
-                is_substep=True,
-                propagated_binaries=loaded_binaries
-            )
+            if runtime_context.step_runner:
+                runtime_context.substep_number += 1
+                _ = runtime_context.step_runner.execute(
+                    transformer,
+                    dataset,
+                    local_context,
+                    runtime_context,
+                    loaded_binaries=loaded_binaries,
+                    prediction_store=None
+                )
 
     def _cycle_transformers(
         self,
