@@ -8,9 +8,13 @@
 
 > [Imports] import tf and pytorch only when needed, reup backend_utils.
 
+
+
 > [SEED] review and fix definitive logic
 
 > [SHAP] Fix import with new numpy / shap package
+
+
 
 **Bugs**:
 > [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
@@ -34,7 +38,7 @@
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
-> [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline.
+> [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
 
 
 **RELEASE** 0.5.1: Chart and Analyses

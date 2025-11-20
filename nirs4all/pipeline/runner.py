@@ -213,9 +213,21 @@ class PipelineRunner:
             self.pp_data = self.orchestrator.pp_data
         self._figure_refs = self.orchestrator._figure_refs
 
-        # Sync saver for export operations
+        # Sync runtime components from last executed pipeline
         if self.orchestrator.last_saver is not None:
             self.saver = self.orchestrator.last_saver
+        if self.orchestrator.last_pipeline_uid is not None:
+            self.pipeline_uid = self.orchestrator.last_pipeline_uid
+        if self.orchestrator.last_manifest_manager is not None:
+            self.manifest_manager = self.orchestrator.last_manifest_manager
+
+        # Sync execution state from last executor (via orchestrator)
+        # Note: These values come from the last executed pipeline
+        if hasattr(self.orchestrator, 'last_executor'):
+            if self.orchestrator.last_executor:
+                self.step_number = self.orchestrator.last_executor.step_number
+                self.substep_number = self.orchestrator.last_executor.substep_number
+                self.operation_count = self.orchestrator.last_executor.operation_count
 
         return run_predictions, dataset_predictions
 

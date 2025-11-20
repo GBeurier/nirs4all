@@ -16,7 +16,7 @@ from sklearn.model_selection import KFold, GroupKFold, StratifiedKFold
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
-from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
+from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata, RuntimeContext
 
 
 def make_step_info(operator, step=None):
@@ -33,9 +33,14 @@ def make_step_info(operator, step=None):
 
 
 @pytest.fixture
-def mock_runner():
-    """Mock PipelineRunner."""
-    return Mock()
+def mock_runtime_context():
+    """Mock RuntimeContext."""
+    runtime_ctx = RuntimeContext()
+    runtime_ctx.operation_count = 0
+    runtime_ctx.step_number = 1
+    runtime_ctx.substep_number = 0
+    runtime_ctx.saver = Mock()
+    return runtime_ctx
 
 
 @pytest.fixture
@@ -114,7 +119,7 @@ def dataset_with_augmentation_and_groups():
 class TestLeakPrevention:
     """Test that splits exclude augmented samples to prevent data leakage."""
 
-    def test_kfold_excludes_augmented_samples(self, dataset_with_augmentation, mock_runner):
+    def test_kfold_excludes_augmented_samples(self, dataset_with_augmentation, mock_runtime_context):
         """Test that KFold only splits on base samples."""
         controller = CrossValidatorController()
         splitter = KFold(n_splits=3, shuffle=False)
@@ -127,7 +132,7 @@ class TestLeakPrevention:
 
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset_with_augmentation,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Get the folds
@@ -144,7 +149,7 @@ class TestLeakPrevention:
             assert all(idx < 6 for idx in train_idx)
             assert all(idx < 6 for idx in val_idx)
 
-    def test_stratified_kfold_excludes_augmented(self, dataset_with_augmentation, mock_runner):
+    def test_stratified_kfold_excludes_augmented(self, dataset_with_augmentation, mock_runtime_context):
         """Test that StratifiedKFold only uses base samples."""
         controller = CrossValidatorController()
         splitter = StratifiedKFold(n_splits=2, shuffle=False)
@@ -157,7 +162,7 @@ class TestLeakPrevention:
 
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset_with_augmentation,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         folds = dataset_with_augmentation._folds  # noqa: SLF001
@@ -171,7 +176,7 @@ class TestLeakPrevention:
             assert all(idx < 6 for idx in train_idx)
             assert all(idx < 6 for idx in val_idx)
 
-    def test_group_kfold_excludes_augmented(self, dataset_with_augmentation_and_groups, mock_runner):
+    def test_group_kfold_excludes_augmented(self, dataset_with_augmentation_and_groups, mock_runtime_context):
         """Test that GroupKFold only uses base samples."""
         controller = CrossValidatorController()
         splitter = GroupKFold(n_splits=3)
@@ -185,7 +190,7 @@ class TestLeakPrevention:
 
         controller.execute(
             step_info=make_step_info(splitter, step), dataset=dataset_with_augmentation_and_groups,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         folds = dataset_with_augmentation_and_groups._folds  # noqa: SLF001
@@ -203,7 +208,7 @@ class TestLeakPrevention:
 class TestDatasetCounts:
     """Test that correct number of samples are used for splitting."""
 
-    def test_x_shape_reflects_base_samples_only(self, dataset_with_augmentation, mock_runner):
+    def test_x_shape_reflects_base_samples_only(self, dataset_with_augmentation, mock_runtime_context):
         """Test that X used for splitting has only base samples."""
         controller = CrossValidatorController()
         splitter = KFold(n_splits=2, shuffle=False)
@@ -221,7 +226,7 @@ class TestDatasetCounts:
         # Execute split
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset_with_augmentation,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Folds should be based on 6 samples only
@@ -231,7 +236,7 @@ class TestDatasetCounts:
         # Each fold uses all 6 base samples (split differently)
         assert total_samples_in_folds == 12  # 2 folds * 6 samples
 
-    def test_y_shape_matches_base_samples(self, dataset_with_augmentation, mock_runner):
+    def test_y_shape_matches_base_samples(self, dataset_with_augmentation, mock_runtime_context):
         """Test that y used for splitting has only base samples."""
         controller = CrossValidatorController()
         splitter = StratifiedKFold(n_splits=2, shuffle=False)
@@ -245,7 +250,7 @@ class TestDatasetCounts:
         # y should have 6 values (base samples only) when used for splitting
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset_with_augmentation,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         folds = dataset_with_augmentation._folds  # noqa: SLF001
@@ -261,7 +266,7 @@ class TestGroupMetadata:
     """Test group metadata handling with augmented samples."""
 
     def test_groups_extracted_from_base_samples_only(
-        self, dataset_with_augmentation_and_groups, mock_runner
+        self, dataset_with_augmentation_and_groups, mock_runtime_context
     ):
         """Test that groups are extracted only from base samples."""
         controller = CrossValidatorController()
@@ -276,7 +281,7 @@ class TestGroupMetadata:
 
         controller.execute(
             step_info=make_step_info(splitter, step), dataset=dataset_with_augmentation_and_groups,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         folds = dataset_with_augmentation_and_groups._folds  # noqa: SLF001
@@ -291,7 +296,7 @@ class TestGroupMetadata:
             assert len(train_idx) == 4  # Two groups in training
 
     def test_groups_length_matches_base_samples(
-        self, dataset_with_augmentation_and_groups, mock_runner
+        self, dataset_with_augmentation_and_groups, mock_runtime_context
     ):
         """Test that groups array length matches base samples count."""
         controller = CrossValidatorController()
@@ -307,7 +312,7 @@ class TestGroupMetadata:
         # Should not raise error about mismatched lengths
         controller.execute(
             step_info=make_step_info(splitter, step), dataset=dataset_with_augmentation_and_groups,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # If we got here, the groups length matched X.shape[0] correctly
@@ -316,7 +321,7 @@ class TestGroupMetadata:
 class TestIntegration:
     """Integration tests with sample augmentation workflow."""
 
-    def test_split_after_augmentation(self, mock_runner):
+    def test_split_after_augmentation(self, mock_runtime_context):
         """Test splitting after sample augmentation in pipeline."""
         dataset = SpectroDataset("test")
 
@@ -347,7 +352,7 @@ class TestIntegration:
         )
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         folds = dataset._folds  # noqa: SLF001
@@ -360,7 +365,7 @@ class TestIntegration:
             assert len(train_idx) + len(val_idx) == 10
             assert len(val_idx) == 2  # 10 samples / 5 folds
 
-    def test_multiple_augmentations_then_split(self, mock_runner):
+    def test_multiple_augmentations_then_split(self, mock_runtime_context):
         """Test splitting after multiple rounds of augmentation on base samples only."""
         dataset = SpectroDataset("test")
 
@@ -403,7 +408,7 @@ class TestIntegration:
         )
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         folds = dataset._folds  # noqa: SLF001
@@ -418,7 +423,7 @@ class TestIntegration:
 class TestEdgeCases:
     """Test edge cases."""
 
-    def test_split_with_no_augmentation(self, mock_runner):
+    def test_split_with_no_augmentation(self, mock_runtime_context):
         """Test that split works normally when no augmentation present."""
         dataset = SpectroDataset("test")
 
@@ -438,7 +443,7 @@ class TestEdgeCases:
         )
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         folds = dataset._folds  # noqa: SLF001
@@ -448,7 +453,7 @@ class TestEdgeCases:
         for train_idx, val_idx in folds:
             assert len(train_idx) + len(val_idx) == 6
 
-    def test_split_all_samples_augmented(self, mock_runner):
+    def test_split_all_samples_augmented(self, mock_runtime_context):
         """Test split when all samples have augmented versions."""
         dataset = SpectroDataset("test")
 
@@ -483,7 +488,7 @@ class TestEdgeCases:
         )
         controller.execute(
             step_info=make_step_info(splitter), dataset=dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         folds = dataset._folds  # noqa: SLF001

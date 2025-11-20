@@ -91,8 +91,11 @@ class PipelineOrchestrator:
         # Figure references to prevent garbage collection
         self._figure_refs: List[Any] = []
 
-        # Store saver from last executed pipeline for post-run operations
+        # Store last executed pipeline info for post-run operations and syncing
         self.last_saver: Any = None
+        self.last_pipeline_uid: Optional[str] = None
+        self.last_manifest_manager: Any = None
+        self.last_executor: Any = None  # For syncing step_number, substep_number, operation_count
 
     def execute(
         self,
@@ -168,6 +171,7 @@ class PipelineOrchestrator:
 
             # Store saver for post-run operations (e.g., export_best_for_dataset)
             self.last_saver = saver
+            self.last_executor = executor
 
             # Load global predictions from workspace root (dataset_name.meta.parquet)
             dataset_prediction_path = self.workspace_path / f"{name}.meta.parquet"
@@ -208,6 +212,11 @@ class PipelineOrchestrator:
                     runtime_context=runtime_context,
                     prediction_store=config_predictions
                 )
+
+                # Capture last pipeline_uid and manifest_manager for syncing back to runner
+                if runtime_context.pipeline_uid:
+                    self.last_pipeline_uid = runtime_context.pipeline_uid
+                    self.last_manifest_manager = manifest_manager
 
                 # Capture preprocessed data AFTER preprocessing
                 if self.keep_datasets:

@@ -19,7 +19,7 @@ from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
-from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 
 
 def make_step_info(operator, step=None):
@@ -36,11 +36,15 @@ def make_step_info(operator, step=None):
 
 
 @pytest.fixture
-def mock_runner():
-    """Mock PipelineRunner (minimal implementation for split controller)."""
+def mock_runtime_context():
+    """Mock RuntimeContext (minimal implementation for split controller)."""
     from unittest.mock import Mock
-    runner = Mock()
-    return runner
+    runtime_ctx = RuntimeContext()
+    runtime_ctx.operation_count = 0
+    runtime_ctx.step_number = 1
+    runtime_ctx.substep_number = 0
+    runtime_ctx.saver = Mock()
+    return runtime_ctx
 
 
 class TestDatasetAugmentationAPI:
@@ -120,7 +124,7 @@ class TestDatasetAugmentationAPI:
 class TestLeakPreventionIntegration:
     """Test leak prevention in complete pipelines."""
 
-    def test_cv_split_excludes_augmented_samples(self, mock_runner):
+    def test_cv_split_excludes_augmented_samples(self, mock_runtime_context):
         """Verify CV splits only use base samples."""
         dataset = SpectroDataset("test")
 
@@ -151,7 +155,7 @@ class TestLeakPreventionIntegration:
             step_info=make_step_info(splitter),
             dataset=dataset,
             context=ExecutionContext(),
-            runner=mock_runner
+            runtime_context=mock_runtime_context
         )
 
         # Verify all indices in all folds are < 20 (base samples only)
@@ -164,7 +168,7 @@ class TestLeakPreventionIntegration:
             assert len(train_idx) == 16
             assert len(val_idx) == 4
 
-    def test_kfold_with_augmented_samples(self, mock_runner):
+    def test_kfold_with_augmented_samples(self, mock_runtime_context):
         """Test KFold splitting with augmented samples."""
         dataset = SpectroDataset("test")
 
@@ -190,7 +194,7 @@ class TestLeakPreventionIntegration:
             step_info=make_step_info(splitter),
             dataset=dataset,
             context=ExecutionContext(),
-            runner=mock_runner
+            runtime_context=mock_runtime_context
         )
 
         folds = dataset.folds
@@ -201,7 +205,7 @@ class TestLeakPreventionIntegration:
             assert all(idx < 10 for idx in train_idx)
             assert all(idx < 10 for idx in val_idx)
 
-    def test_group_kfold_with_augmented_samples(self, mock_runner):
+    def test_group_kfold_with_augmented_samples(self, mock_runtime_context):
         """Test GroupKFold splitting with augmented samples."""
         dataset = SpectroDataset("test")
 
@@ -232,7 +236,7 @@ class TestLeakPreventionIntegration:
             step_info=make_step_info(splitter, {"group": "group"}),
             dataset=dataset,
             context=ExecutionContext(),
-            runner=mock_runner
+            runtime_context=mock_runtime_context
         )
 
         folds = dataset.folds
@@ -405,7 +409,7 @@ class TestEdgeCases:
         # Total: 4 base + 2 augmented = 6
         assert dataset.x({}, layout="2d", concat_source=True).shape[0] == 6
 
-    def test_split_with_no_augmentation(self, mock_runner):
+    def test_split_with_no_augmentation(self, mock_runtime_context):
         """Test that splits work normally when no augmentation present."""
         dataset = SpectroDataset("test")
 
@@ -422,7 +426,7 @@ class TestEdgeCases:
             step_info=make_step_info(splitter),
             dataset=dataset,
             context=ExecutionContext(),
-            runner=mock_runner
+            runtime_context=mock_runtime_context
         )
 
         folds = dataset.folds
