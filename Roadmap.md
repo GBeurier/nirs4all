@@ -8,7 +8,7 @@
 
 > [Imports] import tf and pytorch only when needed, reup backend_utils.
 
-
+> [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
 
 > [SEED] review and fix definitive logic
 
@@ -155,3 +155,185 @@
 - Charts in 'raw' y for categorical
 - More tunable and explicit generation > inner generation, constraints, etc.
 - Authorize vertical index (col 1 header - vertical header) in csv
+
+
+---
+
+### 1. Core ecosystem / array & data engines
+
+* **pandas / Polars**
+
+  * For tabular data prep, joins, grouping, etc.
+  * Polars in particular for performance and lazy pipelines.
+* **PyArrow**
+
+  * For zero-copy interchange with Parquet, DuckDB, potentially GPU, etc.
+* **DuckDB**
+
+  * For local analytical queries on large datasets (and joining multiple sources before ML).
+
+These three make data management + feature engineering much more powerful and scalable.
+
+---
+
+### 2. Model families that add diversity
+
+You already have gradient boosting and deep nets. I would also cover:
+
+* **Statsmodels**
+
+  * For classical stats, GLM, mixed models, time-series (ARIMA, etc.).
+  * Useful when reviewers/colleagues want “statistical” baselines or interpretable models.
+* **GLM / GAM frameworks**
+
+  * For example: **pyGAM**.
+  * Good middle ground between linear and black-box models.
+* **Probabilistic programming**
+
+  * **PyMC** or **NumPyro** (since you already have JAX).
+  * For Bayesian regression / uncertainty calibration of NIRS models.
+
+You don’t need to go deep, but having wrappers for “probabilistic regression / calibration” is a big plus.
+
+---
+
+### 3. Time series & sequence-specific
+
+Even if NIRS is not time series, you’re clearly doing climate / longitudinal stuff on the side:
+
+* **tsfresh** or **Kats** (or at least some time series feature extraction lib).
+* Optional: a thin integration with **pytorch-forecasting** or **neuralforecast** if you want deep TS models out-of-the-box.
+
+---
+
+### 4. Deep learning tooling around the cores
+
+You have TF / Torch / JAX; I’d add:
+
+* **Hugging Face ecosystem**:
+
+  * `transformers` for generic sequence models (even for 1D spectra, time series, or text annotations).
+  * `datasets` for standardized dataset handling and splits.
+* **Lightning / Keras Tuner / Ignite** (optional)
+
+  * One structured training loop framework can help standardize training, logging, callbacks.
+
+You might not need them deeply if NIRS4ALL already provides its own training loop abstraction, but basic adapters can ease integration of external models.
+
+---
+
+### 5. Explainability & diagnostics beyond SHAP
+
+You have SHAP; I’d also consider:
+
+* **Captum** (for PyTorch)
+
+  * For gradient-based attributions, integrated gradients, etc.
+* **Alibi / Alibi-Detect**
+
+  * For drift detection, outlier detection, and some local explanations.
+* **Fairlearn** (optional)
+
+  * If you ever need fairness metrics / constraints (maybe less central for NIRS but good for “coverage”).
+
+---
+
+### 6. Optimization, search, and experiment tracking
+
+You have Optuna, which is excellent. To “round it out”:
+
+* **Ray Tune** or **skopt** (optional)
+
+  * Only if you want multi-backend HPO or alternative search strategies; Optuna alone is usually enough.
+* **Experiment tracking**
+
+  * Integrate with something: **MLflow**, **Weights & Biases**, or a simple internal tracker.
+  * Even a minimal MLflow integration (params, metrics, artifacts) would greatly help adoption.
+
+---
+
+### 7. Deployment and model serving
+
+Even if NIRS4ALL is mainly research-oriented, having basic deployment support gives good coverage:
+
+* **ONNX / onnxruntime**
+
+  * Export models from sklearn / Torch / TF to a common runtime.
+* **FastAPI** bindings or templates
+
+  * For turning a trained pipeline into a microservice.
+
+---
+
+### 8. Dimensionality reduction & manifold learning
+
+Partly in sklearn, but I’d explicitly support:
+
+* **UMAP-learn**
+
+  * For non-linear embedding, very standard now for visualization + structure discovery.
+* **hdbscan**
+
+  * For density-based clustering in the embedded spaces.
+
+These are standard tools in modern ML exploratory workflows.
+
+---
+
+### 9. Specialized “tabular” / “auto-ML” stacks (optional but nice)
+
+For completeness of tabular ML:
+
+* **TabNet / FT-Transformer** implementations
+
+  * Either via PyTorch / TF implementations or 3rd-party libs.
+* Optional: light integration with **AutoGluon** or **FLAML** if you want a “fast baseline” AutoML passthrough.
+
+---
+
+### 10. Infra/compute helpers around ML
+
+Some are more infra than ML, but directly support ML workflows:
+
+* **Dask / Ray**
+
+  * For scaling up preprocessing and model training to multi-core / multi-node.
+* **numba**
+
+  * For fast custom transforms (spectral transforms, etc.) without full C++.
+
+---
+
+### Minimal “coverage” checklist
+
+If I condense this to what I’d really ensure NIRS4ALL supports nativement (i.e. wrappers, configs, good integration):
+
+1. Data backbone:
+
+   * pandas, Polars, PyArrow, DuckDB
+2. Models:
+
+   * Statsmodels, pyGAM (or equivalent), PyMC/NumPyro (basic Bayesian regression)
+3. Time series:
+
+   * One TS feature extraction lib (tsfresh/Kats) + generic sequence models via Torch/TF
+4. Deep ecosystem:
+
+   * transformers (+ datasets) from Hugging Face
+5. Explainability:
+
+   * Captum, Alibi/Alibi-Detect (basic integration)
+6. Experiment / HPO:
+
+   * MLflow (or W&B) integration on top of Optuna
+7. Embedding & clustering:
+
+   * UMAP-learn, hdbscan
+8. Deployment:
+
+   * ONNX/onnxruntime + one web serving pattern (FastAPI template)
+9. Scaling:
+
+   * Dask or Ray support for parallel preprocessing / training.
+
+With your current stack + the list above, you’d cover almost all modern ML “zones” (classical, gradient boosting, deep, probabilistic, time series, explainability, scaling, deployment) without turning NIRS4ALL into a kitchen sink.

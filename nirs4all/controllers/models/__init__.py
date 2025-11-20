@@ -12,11 +12,13 @@ Controllers follow the operator-controller pattern where:
 from .base_model import BaseModelController
 from .sklearn_model import SklearnModelController
 from .tensorflow_model import TensorFlowModelController
-# from .torch_model import PyTorchModelController
+from .torch_model import PyTorchModelController
+from .jax_model import JaxModelController
 
 __all__ = [
     'BaseModelController',
     'SklearnModelController',
     'TensorFlowModelController',
-    # 'PyTorchModelController',
+    'PyTorchModelController',
+    'JaxModelController',
 ]
