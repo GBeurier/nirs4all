@@ -71,7 +71,7 @@ pipeline = [
 
 # Create configuration objects
 pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
-dataset_config = DatasetConfigs([data_path_2])
+dataset_config = DatasetConfigs([data_path, data_path_2])
 
 # Run the pipeline
 runner = PipelineRunner(save_files=False, verbose=0, plots_visible=args.plots)

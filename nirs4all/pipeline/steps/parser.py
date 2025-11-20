@@ -49,7 +49,16 @@ class StepParser:
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     # Reserved keywords that are not operators
-    RESERVED_KEYWORDS = ["params", "metadata", "steps"]
+    RESERVED_KEYWORDS = ["params", "metadata", "steps", "name", "finetune_params", "train_params"]
+
+    # Priority workflow keywords (ordered by priority, highest first)
+    WORKFLOW_KEYWORDS = [
+        "model",
+        "preprocessing",
+        "feature_augmentation",
+        "y_processing",
+        "sample_augmentation",
+    ]
 
     def parse(self, step: Any) -> ParsedStep:
         """Parse a pipeline step into normalized format.
@@ -114,16 +123,24 @@ class StepParser:
                 )
 
         # Look for potential workflow operators
-        # Heuristic: any key that is not reserved and not a serialization operator
+        # Prioritize known workflow keywords, then fall back to any non-reserved key
         candidates = [
             k for k in step.keys()
             if k not in self.RESERVED_KEYWORDS and k not in self.SERIALIZATION_OPERATORS
         ]
 
         if candidates:
-            # If multiple candidates, pick the first one (or prioritize?)
-            # For now, assume the first one is the operator
-            key = candidates[0]
+            # Prioritize known workflow keywords in order
+            key = None
+            for workflow_key in self.WORKFLOW_KEYWORDS:
+                if workflow_key in candidates:
+                    key = workflow_key
+                    break
+
+            # If no priority keyword found, pick the first candidate
+            if key is None:
+                key = candidates[0]
+
             operator = self._deserialize_operator(step[key])
             return ParsedStep(
                 operator=operator,

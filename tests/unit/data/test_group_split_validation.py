@@ -6,10 +6,11 @@ import pytest
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, KFold
+from unittest.mock import Mock
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
-from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
+from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata, RuntimeContext
 
 
 def make_step_info(operator, step=None):
@@ -23,6 +24,13 @@ def make_step_info(operator, step=None):
         original_step=step,
         metadata={}
     )
+
+
+def make_mock_runtime_context():
+    """Create a mock runtime context without saver."""
+    mock_runtime = Mock()
+    mock_runtime.saver = None  # No saver, so controller will use fallback
+    return mock_runtime
 
 
 class TestGroupSplitSyntax:
@@ -89,7 +97,7 @@ class TestGroupSplitExecution:
 
         context, binaries = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-            context=context, runner=None, mode="train"
+            context=context, runtime_context=make_mock_runtime_context(), mode="train"
         )
 
         # Verify folds created
@@ -120,7 +128,7 @@ class TestGroupSplitExecution:
         # Should use first column (batch) by default
         context, binaries = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-            context=context, runner=None, mode="train"
+            context=context, runtime_context=make_mock_runtime_context(), mode="train"
         )
 
         assert dataset_with_metadata._folds is not None
@@ -138,7 +146,7 @@ class TestGroupSplitExecution:
 
         context, binaries = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-            context=context, runner=None, mode="train"
+            context=context, runtime_context=make_mock_runtime_context(), mode="train"
         )
 
         # Verify folds created
@@ -164,7 +172,7 @@ class TestGroupSplitExecution:
         with pytest.raises(ValueError, match="not found in metadata"):
             controller.execute(
                 step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-                context=context, runner=None, mode="train"
+                context=context, runtime_context=make_mock_runtime_context(), mode="train"
             )
 
     def test_no_metadata_error(self):
@@ -183,7 +191,7 @@ class TestGroupSplitExecution:
 
         with pytest.raises(ValueError, match="no metadata"):
             controller.execute(step_info=make_step_info(step["split"], step), dataset=dataset,
-                             context=context, runner=None, mode="train")
+                             context=context, runtime_context=make_mock_runtime_context(), mode="train")
 
     def test_non_string_group_type(self, dataset_with_metadata):
         """Test error when group is not a string."""
@@ -198,7 +206,7 @@ class TestGroupSplitExecution:
         with pytest.raises(TypeError, match="must be a string"):
             controller.execute(
                 step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-                context=context, runner=None, mode="train"
+                context=context, runtime_context=make_mock_runtime_context(), mode="train"
             )
 
     def test_non_grouped_splitter(self, dataset_with_metadata):
@@ -213,7 +221,7 @@ class TestGroupSplitExecution:
 
         context, binaries = controller.execute(
             step_info=make_step_info(step), dataset=dataset_with_metadata,
-            context=context, runner=None, mode="train"
+            context=context, runtime_context=make_mock_runtime_context(), mode="train"
         )
 
         assert dataset_with_metadata._folds is not None
@@ -231,7 +239,7 @@ class TestGroupSplitExecution:
 
         context, binaries = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
-            context=context, runner=None, mode="predict"
+            context=context, runtime_context=make_mock_runtime_context(), mode="predict"
         )
 
         # Should create dummy folds for prediction mode

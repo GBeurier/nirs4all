@@ -17,7 +17,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from nirs4all.controllers.transforms.transformer import TransformerMixinController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.steps.parser import ParsedStep, StepType
-from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
+from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata, RuntimeContext
 
 
 def make_step_info(operator, step=None):
@@ -34,17 +34,18 @@ def make_step_info(operator, step=None):
 
 
 @pytest.fixture
-def mock_runner():
-    """Mock PipelineRunner."""
-    runner = Mock()
-    runner.next_op = Mock(side_effect=lambda: f"op_{runner.next_op.call_count}")
-    runner.step_number = 1
+def mock_runtime_context():
+    """Mock RuntimeContext."""
+    runtime_ctx = RuntimeContext()
+    runtime_ctx.operation_count = 0
+    runtime_ctx.step_number = 1
+    runtime_ctx.substep_number = 0
 
-    # Configure saver mock to return tuple as expected by controller
-    runner.saver = Mock()
-    runner.saver.persist_artifact = Mock(return_value=("mock_file.pkl", b"mock_content"))
+    # Configure saver mock
+    runtime_ctx.saver = Mock()
+    runtime_ctx.saver.persist_artifact = Mock(return_value=Mock(filename="mock_file.pkl", content=b"mock_content"))
 
-    return runner
+    return runtime_ctx
 
 
 @pytest.fixture
@@ -69,7 +70,7 @@ def simple_dataset():
 class TestAugmentSampleDetection:
     """Test detection of augment_sample flag."""
 
-    def test_normal_execution_when_flag_absent(self, simple_dataset, mock_runner):
+    def test_normal_execution_when_flag_absent(self, simple_dataset, mock_runtime_context):
         """Test that normal execution runs when augment_sample flag is absent."""
         controller = TransformerMixinController()
         transformer = StandardScaler()
@@ -83,14 +84,14 @@ class TestAugmentSampleDetection:
         # Should execute normally (not augmentation mode)
         result_context, binaries = controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Should have processed data normally
         assert result_context is not None
         assert isinstance(binaries, list)
 
-    def test_augmentation_execution_when_flag_true(self, simple_dataset, mock_runner):
+    def test_augmentation_execution_when_flag_true(self, simple_dataset, mock_runtime_context):
         """Test that augmentation mode triggers when flag is True."""
         controller = TransformerMixinController()
         transformer = StandardScaler()
@@ -107,7 +108,7 @@ class TestAugmentSampleDetection:
         # Should execute in augmentation mode
         result_context, binaries = controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Should have added augmented samples
@@ -118,7 +119,7 @@ class TestAugmentSampleDetection:
 class TestSampleAugmentation:
     """Test sample augmentation functionality."""
 
-    def test_augment_single_sample(self, simple_dataset, mock_runner):
+    def test_augment_single_sample(self, simple_dataset, mock_runtime_context):
         """Test augmenting a single sample."""
         controller = TransformerMixinController()
         transformer = MinMaxScaler()  # Simple transformer
@@ -136,14 +137,14 @@ class TestSampleAugmentation:
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Should have added 1 augmented sample
         new_count = simple_dataset.x({"partition": "train"}).shape[0]
         assert new_count == initial_count + 1
 
-    def test_augment_multiple_samples(self, simple_dataset, mock_runner):
+    def test_augment_multiple_samples(self, simple_dataset, mock_runtime_context):
         """Test augmenting multiple samples."""
         controller = TransformerMixinController()
         transformer = MinMaxScaler()
@@ -161,14 +162,14 @@ class TestSampleAugmentation:
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Should have added 3 augmented samples
         new_count = simple_dataset.x({"partition": "train"}).shape[0]
         assert new_count == initial_count + 3
 
-    def test_augmented_samples_have_origin_tracking(self, simple_dataset, mock_runner):
+    def test_augmented_samples_have_origin_tracking(self, simple_dataset, mock_runtime_context):
         """Test that augmented samples track their origin."""
         controller = TransformerMixinController()
         transformer = MinMaxScaler()
@@ -184,7 +185,7 @@ class TestSampleAugmentation:
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Check indexer for origin tracking
@@ -197,7 +198,7 @@ class TestSampleAugmentation:
         origin = simple_dataset._indexer.get_origin_for_sample(last_sample_id)  # noqa: SLF001
         assert origin == 1
 
-    def test_augmented_samples_inherit_group(self, mock_runner):
+    def test_augmented_samples_inherit_group(self, mock_runtime_context):
         """Test that augmented samples can be identified by their origin."""
         dataset = SpectroDataset("test")
 
@@ -221,7 +222,7 @@ class TestSampleAugmentation:
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Check that augmented sample can be tracked back to origin
@@ -241,7 +242,7 @@ class TestSampleAugmentation:
 class TestTransformation:
     """Test that transformations are applied correctly."""
 
-    def test_transformation_applied_to_data(self, simple_dataset, mock_runner):
+    def test_transformation_applied_to_data(self, simple_dataset, mock_runtime_context):
         """Test that transformer actually transforms the data."""
         controller = TransformerMixinController()
 
@@ -262,7 +263,7 @@ class TestTransformation:
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Get augmented sample (last one added)
@@ -272,7 +273,7 @@ class TestTransformation:
         # Transformed data should be different from original
         assert not np.allclose(augmented_data, original_data)
 
-    def test_transformer_fitted_on_train_data(self, simple_dataset, mock_runner):
+    def test_transformer_fitted_on_train_data(self, simple_dataset, mock_runtime_context):
         """Test that transformer is fitted on full training data."""
         controller = TransformerMixinController()
         transformer = StandardScaler()
@@ -289,18 +290,19 @@ class TestTransformation:
         # Execute augmentation
         _, binaries = controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Should have saved transformer binaries
         assert len(binaries) > 0
-        assert all(isinstance(b, tuple) and len(b) == 2 for b in binaries)
+        # Binaries are now ArtifactMeta objects, not tuples
+        assert all(hasattr(b, 'filename') for b in binaries)
 
 
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
-    def test_empty_target_samples_list(self, simple_dataset, mock_runner):
+    def test_empty_target_samples_list(self, simple_dataset, mock_runtime_context):
         """Test with empty target_samples list."""
         controller = TransformerMixinController()
         transformer = MinMaxScaler()
@@ -318,14 +320,14 @@ class TestEdgeCases:
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Should not add any samples
         new_count = simple_dataset.x({"partition": "train"}).shape[0]
         assert new_count == initial_count
 
-    def test_missing_target_samples_key(self, simple_dataset, mock_runner):
+    def test_missing_target_samples_key(self, simple_dataset, mock_runtime_context):
         """Test with missing target_samples key."""
         controller = TransformerMixinController()
         transformer = MinMaxScaler()
@@ -343,14 +345,14 @@ class TestEdgeCases:
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Should not add any samples
         new_count = simple_dataset.x({"partition": "train"}).shape[0]
         assert new_count == initial_count
 
-    def test_augmentation_id_generation(self, simple_dataset, mock_runner):
+    def test_augmentation_id_generation(self, simple_dataset, mock_runtime_context):
         """Test automatic augmentation_id generation."""
         controller = TransformerMixinController()
         transformer = MinMaxScaler()
@@ -366,7 +368,7 @@ class TestEdgeCases:
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Check that augmentation_id was generated
@@ -378,7 +380,7 @@ class TestEdgeCases:
 class TestMultiSource:
     """Test multi-source dataset support."""
 
-    def test_multi_source_augmentation(self, mock_runner):
+    def test_multi_source_augmentation(self, mock_runtime_context):
         """Test augmentation with multi-source dataset."""
         dataset = SpectroDataset("test_multi")
 
@@ -406,7 +408,7 @@ class TestMultiSource:
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Should have added 1 augmented sample
@@ -418,7 +420,7 @@ class TestMultiSource:
 class TestIntegration:
     """Integration tests with delegation pattern."""
 
-    def test_integration_with_sample_augmentation_controller(self, simple_dataset, mock_runner):
+    def test_integration_with_sample_augmentation_controller(self, simple_dataset, mock_runtime_context):
         """Test that context from SampleAugmentationController works correctly."""
         controller = TransformerMixinController()
         transformer = StandardScaler()
@@ -437,7 +439,7 @@ class TestIntegration:
 
         controller.execute(
             step_info=make_step_info(transformer), dataset=simple_dataset,
-            context=context, runner=mock_runner
+            context=context, runtime_context=mock_runtime_context
         )
 
         # Should have added 3 augmented samples
