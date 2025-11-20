@@ -5,6 +5,7 @@ import importlib.util
 
 TF_AVAILABLE = importlib.util.find_spec('tensorflow') is not None
 TORCH_AVAILABLE = importlib.util.find_spec('torch') is not None
+JAX_AVAILABLE = importlib.util.find_spec('jax') is not None
 
 
 def framework(framework_name):

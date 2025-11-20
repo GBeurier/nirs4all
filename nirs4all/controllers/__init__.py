@@ -19,7 +19,8 @@ from .flow.dummy import DummyController
 # Import model controllers (higher priority for supervised models)
 from .models.sklearn_model import SklearnModelController
 from .models.tensorflow_model import TensorFlowModelController
-# from .models.torch_model import PyTorchModelController
+from .models.torch_model import PyTorchModelController
+from .models.jax_model import JaxModelController
 
 # Import transform controllers
 from .transforms.transformer import TransformerMixinController
@@ -55,5 +56,6 @@ __all__ = [
     'YChartController',
     'SklearnModelController',
     'TensorFlowModelController',
-    # 'PyTorchModelController',
+    'PyTorchModelController',
+    'JaxModelController',
 ]

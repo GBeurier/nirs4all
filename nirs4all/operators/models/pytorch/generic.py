@@ -1,34 +1,26 @@
 
-# """
-# PyTorch re‑implementation of ``tf_models.py``.
+"""
+PyTorch re‑implementation of ``tf_models.py``.
 
-# Notes
-# -----
-# * The public API (builder functions) is intentionally unchanged except for the
-#   ``@framework("pytorch")`` decorator.
-# * All functions return *uncompiled* ``torch.nn.Module`` objects.  Compile /
-#   move to device / wrap in `torch.compile` or `lightning` modules as you wish.
-# * The input tensor shape expected by these models is **(batch, seq_len, channels)**
-#   to stay compatible with the original Keras layout.  Internally, we convert to
-#   channel‑first format required by ``nn.Conv1d`` and friends.
-# * Custom layers that exist in Keras but not in core PyTorch have lightweight
-#   equivalents implemented here (``DepthwiseConv1d``, ``SeparableConv1d``,
-#   ``SpatialDropout1d``, ``GlobalAveragePooling1d``).
-# * The external architectures referenced from
-#   ``nirs4all.presets.legacy`` (*VGG*, *Inception*, *ResNetv2*, *SEResNet*) are
-#   assumed to have sibling PyTorch ports living at the same import paths.
-#   If not, you will need to convert those first.
-# """
+Notes
+-----
+* The public API (builder functions) is intentionally unchanged except for the
+  ``@framework("pytorch")`` decorator.
+* All functions return *uncompiled* ``torch.nn.Module`` objects.
+* The input tensor shape expected by these models is **(batch, seq_len, channels)**
+  to stay compatible with the original Keras layout.  Internally, we convert to
+  channel‑first format required by ``nn.Conv1d`` and friends.
+"""
 
-# from __future__ import annotations
-# import math
-# from typing import Tuple, Any, Optional, List
+from __future__ import annotations
+import math
+from typing import Tuple, Any, Optional, List
 
-# import torch
-# import torch.nn as nn
-# import torch.nn.functional as F
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-# from nirs4all.utils import framework
+from nirs4all.utils.backend import framework
 
 
 # # --------------------------------------------------------------------------- #

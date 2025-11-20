@@ -15,7 +15,7 @@ import os
 import importlib
 import inspect
 
-from nirs4all.utils.backend import TF_AVAILABLE, TORCH_AVAILABLE
+from nirs4all.utils.backend import TF_AVAILABLE, TORCH_AVAILABLE, JAX_AVAILABLE
 
 
 class ModelFactory:
@@ -82,7 +82,7 @@ class ModelFactory:
             X = dataset.x(context, layout=layout, concat_source=True)
             if framework in ['sklearn', 'xgboost', 'lightgbm']:
                 return X.shape[1]  # Flat features
-            elif framework in ['tensorflow', 'pytorch']:
+            elif framework in ['tensorflow', 'pytorch', 'jax']:
                 return X.shape[1:]  # Tuple shape for neural networks
             else:
                 return X.shape[1]
@@ -128,9 +128,18 @@ class ModelFactory:
         Raises:
             ValueError: If the model_config format is invalid.
         """
+        # print(f"DEBUG: build_single_model config type: {type(model_config)}")
         if hasattr(dataset, 'is_classification') and dataset.is_classification:
             if hasattr(dataset, 'num_classes'):
                 force_params['num_classes'] = dataset.num_classes
+
+        # Add input_shape/input_dim if not present
+        framework = ModelFactory.detect_framework(model_config)
+        # print(f"DEBUG: detected framework: {framework}")
+        if framework in ['tensorflow', 'pytorch', 'jax']:
+             input_dim = ModelFactory.compute_input_shape(dataset, framework)
+             force_params['input_shape'] = input_dim
+             force_params['input_dim'] = input_dim
 
         if isinstance(model_config, str):
             return ModelFactory._from_string(model_config, force_params)
@@ -139,7 +148,7 @@ class ModelFactory:
             return ModelFactory._from_dict(model_config, dataset, force_params)
 
         elif hasattr(model_config, '__class__') and not inspect.isclass(model_config) and not inspect.isfunction(model_config):
-            return ModelFactory._from_instance(model_config)
+            return ModelFactory._from_instance(model_config, force_params) # Pass force_params!
 
         elif callable(model_config):
             return ModelFactory._from_callable(model_config, dataset, force_params)
@@ -457,6 +466,9 @@ class ModelFactory:
         elif module_name.startswith('torch'):
             if not TORCH_AVAILABLE:
                 raise ImportError("PyTorch is not available but required to load this model.")
+        elif module_name.startswith('jax') or module_name.startswith('flax'):
+            if not JAX_AVAILABLE:
+                raise ImportError("JAX/Flax is not available but required to load this model.")
         module = importlib.import_module(module_name)
         cls = getattr(module, class_name)
         return cls
@@ -481,6 +493,9 @@ class ModelFactory:
         elif module_name.startswith('torch'):
             if not TORCH_AVAILABLE:
                 raise ImportError("PyTorch is not available but required to load this model.")
+        elif module_name.startswith('jax') or module_name.startswith('flax'):
+            if not JAX_AVAILABLE:
+                raise ImportError("JAX/Flax is not available but required to load this model.")
         module = importlib.import_module(module_name)
         obj = getattr(module, object_name)
         return obj
@@ -499,6 +514,22 @@ class ModelFactory:
             String representing the framework ('sklearn', 'tensorflow', 'pytorch',
             'xgboost', 'lightgbm', 'catboost', or 'unknown').
         """
+        # Handle dictionary config
+        if isinstance(model, dict):
+            if 'framework' in model:
+                return model['framework']
+            if 'model_instance' in model:
+                return ModelFactory.detect_framework(model['model_instance'])
+            if 'model' in model:
+                return ModelFactory.detect_framework(model['model'])
+            if 'class' in model and isinstance(model['class'], str):
+                cls_name = model['class']
+                if 'torch' in cls_name: return 'pytorch'
+                if 'tensorflow' in cls_name or 'keras' in cls_name: return 'tensorflow'
+                if 'jax' in cls_name or 'flax' in cls_name: return 'jax'
+                if 'sklearn' in cls_name: return 'sklearn'
+            return 'unknown'
+
         # Special case for mocked objects in tests
         if hasattr(model, '_mock_name') or str(type(model)).startswith("<class 'unittest.mock."):
             return 'sklearn'  # By default, consider mocks as sklearn objects
@@ -507,26 +538,31 @@ class ModelFactory:
         if hasattr(model, 'framework'):
             return model.framework
 
-        # Inspect module path
+        # Check inheritance (MRO) to handle subclasses defined in user code
         if inspect.isclass(model):
-            module = model.__module__
+            mro = inspect.getmro(model)
         else:
-            module = model.__class__.__module__
+            mro = inspect.getmro(model.__class__)
 
-        if 'sklearn' in module:
-            return 'sklearn'
-        elif 'tensorflow' in module or 'keras' in module:
-            return 'tensorflow'
-        elif 'torch' in module:
-            return 'pytorch'
-        elif 'xgboost' in module:
-            return 'xgboost'
-        elif 'lightgbm' in module:
-            return 'lightgbm'
-        elif 'catboost' in module:
-            return 'catboost'
-        else:
-            return 'unknown'
+        for cls in mro:
+            module = cls.__module__
+            if 'sklearn' in module:
+                return 'sklearn'
+            elif 'tensorflow' in module or 'keras' in module:
+                return 'tensorflow'
+            elif 'torch' in module:
+                return 'pytorch'
+            elif 'jax' in module or 'flax' in module:
+                return 'jax'
+            elif 'xgboost' in module:
+                return 'xgboost'
+            elif 'lightgbm' in module:
+                return 'lightgbm'
+            elif 'catboost' in module:
+                return 'catboost'
+
+        # print(f"DEBUG: detect_framework unknown for {model}, mro: {mro}")
+        return 'unknown'
 
     @staticmethod
     def _force_param_on_instance(model, force_params):
@@ -642,6 +678,8 @@ class ModelFactory:
             params = {}
         if force_params is None:
             force_params = {}
+
+        # print(f"DEBUG: reconstruct_object {obj}, force_params: {force_params}")
 
         merged_params = {**params, **force_params}
 
