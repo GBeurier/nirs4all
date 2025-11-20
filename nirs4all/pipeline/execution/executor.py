@@ -181,8 +181,9 @@ class PipelineExecutor:
 
             # Print best result if predictions were generated
             if prediction_store.num_predictions > 0:
+                # Use None for ascending to let ranker infer from metric
                 pipeline_best = prediction_store.get_best(
-                    ascending=True if dataset.is_regression else False
+                    ascending=None
                 )
                 if pipeline_best:
                     print(f"{MEDAL_GOLD}Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")

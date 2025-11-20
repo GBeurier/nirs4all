@@ -400,8 +400,9 @@ class PipelineOrchestrator:
     ):
         """Print and save best predictions for a dataset."""
         if run_dataset_predictions.num_predictions > 0:
+            # Use None for ascending to let ranker infer from metric
             best = run_dataset_predictions.get_best(
-                ascending=True if dataset.is_regression else False
+                ascending=None
             )
             print(f"{TROPHY}Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
 

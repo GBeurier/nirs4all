@@ -382,7 +382,7 @@ class Predictions:
         display_metrics: Optional[List[str]] = None,
         display_partition: str = "test",
         aggregate_partitions: bool = False,
-        ascending: bool = True,
+        ascending: Optional[bool] = None,
         group_by_fold: bool = False,
         **filters
     ) -> PredictionResultsList:
@@ -398,7 +398,9 @@ class Predictions:
             display_metrics: Metrics to compute for display (default: task_type defaults)
             display_partition: Partition to display results from (default: "test")
             aggregate_partitions: If True, add train/val/test nested dicts in results
-            ascending: If True, lower scores rank higher (for error metrics like RMSE)
+            ascending: Sort order. If True, sorts ascending (lower is better).
+                      If False, sorts descending (higher is better).
+                      If None, infers from metric.
             group_by_fold: If True, include fold_id in model identity (rank per fold)
             **filters: Additional filter criteria (dataset_name, config_name, etc.)
 
@@ -420,7 +422,7 @@ class Predictions:
     def get_best(
         self,
         metric: str = "",
-        ascending: bool = True,
+        ascending: Optional[bool] = None,
         aggregate_partitions: bool = False,
         **filters
     ) -> Optional[PredictionResult]:
@@ -431,7 +433,9 @@ class Predictions:
 
         Args:
             metric: Metric to optimize
-            ascending: If True, lower scores are better
+            ascending: Sort order. If True, sorts ascending (lower is better).
+                      If False, sorts descending (higher is better).
+                      If None, infers from metric.
             aggregate_partitions: If True, add partition data
             **filters: Additional filter criteria
 
