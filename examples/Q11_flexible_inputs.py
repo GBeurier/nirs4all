@@ -15,15 +15,22 @@ Key Features:
 - Backward compatible with traditional approach
 """
 
+import argparse
 import numpy as np
 from pathlib import Path
 
 # NIRS4All imports
 from nirs4all.pipeline import PipelineRunner, PipelineConfigs
-from nirs4all.dataset import DatasetConfigs, SpectroDataset
+from nirs4all.data import DatasetConfigs, SpectroDataset
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q11 Flexible Inputs Example')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
+args = parser.parse_args()
 
 print("=" * 100)
 print("Q11: Flexible Input Formats Demo")

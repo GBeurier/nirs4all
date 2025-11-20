@@ -6,6 +6,7 @@ Shows confusion matrix visualization for model performance evaluation.
 """
 
 # Standard library imports
+import argparse
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -13,18 +14,24 @@ from sklearn.discriminant_analysis import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import StratifiedKFold, StratifiedShuffleSplit
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.dataset.predictions import Predictions
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
-from nirs4all.operators.transformations import (
+from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
+from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer, Gaussian as Gauss,
     StandardNormalVariate as StdNorm, SavitzkyGolay as SavGol, Haar, MultiplicativeScatterCorrection as MSC
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter
 
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q1 Classification Example')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
+args = parser.parse_args()
 
 # Configuration variables
 feature_scaler = MinMaxScaler()
@@ -40,18 +47,21 @@ data_path = {
     'y_train': 'sample_data/classification/Ytrain.csv',
 }
 
+data_path_2 = 'sample_data/binary'
+
 pipeline = [
-    # "chart_3d",
     # "chart_2d",
     {"feature_augmentation": [
         Detrend, FstDer, SndDer, Gauss,
         StdNorm, SavGol, Haar, MSC
     ]},
+    # "chart_y",
     StandardScaler,
-    # "chart_2d",
     "fold_chart",
     SPXYSplitter(0.25),
+    # StratifiedShuffleSplit(n_splits=1, test_size=0.25),
     "fold_chart",
+    # Use non-stratified split because classification dataset has class 17 with only 1 sample
     ShuffleSplit(n_splits=3, test_size=0.25),
     "fold_chart",
     RandomForestClassifier(max_depth=40)
@@ -60,11 +70,11 @@ pipeline = [
 
 
 # Create configuration objects
-pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
-dataset_config = DatasetConfigs(data_path)
+pipeline_config = PipelineConfigs(pipeline)#, "Q1_classification")
+dataset_config = DatasetConfigs([data_path, data_path_2])
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization
@@ -80,6 +90,7 @@ for idx, prediction in enumerate(top_models):
 # Create confusion matrix visualization for top models
 analyzer = PredictionAnalyzer(predictions)
 # Rank models by accuracy on val partition, display confusion matrix from test partition
-confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
+confusion_matrix_fig = analyzer.plot_confusion_matrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
 
-# plt.show()
+if args.show:
+    plt.show()

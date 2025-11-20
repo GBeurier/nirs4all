@@ -11,7 +11,7 @@ from .augmentation.splines import (
 )
 from .augmentation.abc_augmenter import Augmenter, IdentityAugmenter
 
-from .transformations import (
+from .transforms import (
     # NIRS transformations
     Haar,
     MultiplicativeScatterCorrection,

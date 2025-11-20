@@ -6,20 +6,27 @@ structure of NIRS data using PCA-based metrics.
 """
 
 # Standard library imports
+import argparse
 import matplotlib.pyplot as plt
 
 # Third-party imports
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.operators.transformations import (
+from nirs4all.data import DatasetConfigs
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, SecondDerivative, Gaussian,
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.utils.emoji import REFRESH, TROPHY, TARGET, CHART, MICROSCOPE
-from nirs4all.utils.PCA_analyzer import PreprocPCAEvaluator
+from nirs4all.visualization.analysis.transfer import PreprocPCAEvaluator
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q9 ACP Spread Example')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
+args = parser.parse_args()
 
 # Configuration variables
 feature_scaler = MinMaxScaler()
@@ -43,7 +50,7 @@ dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
 print(f"{REFRESH}Running preprocessing pipeline...")
-runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=False)
+runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Get datasets (no manual pivot needed - evaluator handles it!)
@@ -180,7 +187,8 @@ else:
 print("\n   📈 7. Within-dataset structure preservation metrics...")
 evaluator.plot_preservation_summary(by="preproc")
 
-# plt.show(block=True)
-
 print("\n✅ Analysis complete!")
 print("="*120)
+
+if args.show:
+    plt.show()

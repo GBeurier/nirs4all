@@ -16,8 +16,8 @@ from sklearn.model_selection import RepeatedKFold
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
+from nirs4all.data import DatasetConfigs
+from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.models import nicon
 
@@ -51,11 +51,11 @@ runner = PipelineRunner(save_files=True, verbose=0)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Get best performing model for prediction testing
-best_prediction = predictions.top_k(1, partition="test")[0]
+best_prediction = predictions.top(n=1, rank_partition="test")[0]
 model_id = best_prediction['id']
 fold_id = best_prediction['fold_id']
 
-print("=== Q4 - Model Persistence and Prediction Example ===")
+print("=== Q5 - Model Persistence and Prediction Example NN ===")
 print("--- Source Model ---")
 print(f"Best model: {best_prediction['model_name']} (id: {model_id})")
 reference_predictions = best_prediction['y_pred'][:5].flatten()
@@ -66,15 +66,14 @@ print("-" * 80)
 print("--- Method 1: Predict with a prediction entry ---")
 
 predictor = PipelineRunner()
-prediction_dataset = DatasetConfigs(['sample_data/regression']) #DatasetConfigs({'X_test': 'sample_data/regression/Xval.csv.gz'})
-
-
+prediction_dataset = DatasetConfigs({'X_test': 'sample_data/regression/Xval.csv.gz'})
 
 # Make predictions using the best prediction entry
 method1_predictions, _ = predictor.predict(best_prediction, prediction_dataset, verbose=1)
 method1_array = method1_predictions[:5].flatten()
 print("Method 1 predictions:", method1_array)
 is_identical = np.allclose(method1_array, reference_predictions)
+assert is_identical, "Method 1 predictions do not match reference!"
 print(f"Method 1 identical to training: {'✅ YES' if is_identical else '❌ NO'}")
 
 print("=" * 80)

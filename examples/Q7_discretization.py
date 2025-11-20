@@ -6,6 +6,7 @@ with Random Forest classifiers and confusion matrix visualization.
 """
 
 # Standard library imports
+import argparse
 import os
 
 # Third-party imports
@@ -15,14 +16,20 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
-from nirs4all.operators.transformations import (
+from nirs4all.data import DatasetConfigs
+from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, SecondDerivative, Gaussian,
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )
-from nirs4all.operators.transformations.targets import RangeDiscretizer
+from nirs4all.operators.transforms.targets import RangeDiscretizer
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q7 Discretization Example')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
+args = parser.parse_args()
 
 # Enable emojis in output
 os.environ['DISABLE_EMOJIS'] = '0'
@@ -76,6 +83,7 @@ predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_confi
 
 # Create confusion matrix visualization for top models
 analyzer = PredictionAnalyzer(predictions)
-confusion_matrix_fig = analyzer.plot_top_k_confusionMatrix(k=3, metric='accuracy', partition='val')
+confusion_matrix_fig = analyzer.plot_confusion_matrix(k=3, metric='accuracy', rank_partition='val', display_partition='val')
 
-# plt.show()
+if args.show:
+    plt.show()

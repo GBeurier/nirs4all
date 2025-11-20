@@ -15,6 +15,7 @@ Key nirs4all APIs demonstrated:
 - Clean filenames: No redundant date/time prefixes
 """
 
+import argparse
 import shutil
 from pathlib import Path
 import json
@@ -22,11 +23,16 @@ from datetime import datetime
 
 from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.dataset.dataset_config import DatasetConfigs
-from nirs4all.dataset.predictions import Predictions
+from nirs4all.data.config import DatasetConfigs
+from nirs4all.data.predictions import Predictions
 from nirs4all.utils.emoji import DISK, TROPHY, SEARCH, ROCKET
 from nirs4all.workspace.library_manager import LibraryManager
 
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q14 Workspace Example')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
+args = parser.parse_args()
 
 def main():
     print("=" * 80)
@@ -131,6 +137,7 @@ def main():
 
     # Load global predictions
     global_predictions_path = workspace_path / "regression.json"
+    global_preds = None  # Initialize variable
     if global_predictions_path.exists():
         global_preds = Predictions.load_from_file_cls(global_predictions_path)
         print(f"\n✓ Loaded {global_preds.num_predictions} predictions from database")
@@ -192,7 +199,7 @@ def main():
     )
     print(f"\n✅ Saved template using LibraryManager: {template_path.name}")
 
-    if global_preds.num_predictions > 0:
+    if global_preds and global_preds.num_predictions > 0:
         best = global_preds.get_best(ascending=True)
 
         # Find the source pipeline and run directories
@@ -278,7 +285,7 @@ def main():
     print("  STEP 6: Querying Global Predictions")
     print("=" * 80)
 
-    if global_preds.num_predictions > 0:
+    if global_preds and global_preds.num_predictions > 0:
         dataset_name = "regression"  # We know this from our setup
         print(f"\n📊 All predictions for dataset '{dataset_name}':")
 

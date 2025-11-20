@@ -1,5 +1,5 @@
 <div align="center">
-<img src="docs/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
+<img src="docs/assets/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
 
 [![PyPI version](https://img.shields.io/pypi/v/nirs4all.svg)](https://pypi.org/project/nirs4all/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-311/)
@@ -11,7 +11,7 @@
 
 NIRS4ALL is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
 
-<!-- <img src="docs/pipeline.jpg" width="700" alt="NIRS4ALL Pipeline"> -->
+<!-- <img src="docs/assets/pipeline.jpg" width="700" alt="NIRS4ALL Pipeline"> -->
 
 ## What is Near-Infrared Spectroscopy (NIRS)?
 
@@ -81,8 +81,8 @@ NIRS4ALL offers a wide range of functionalities:
    - Residual analysis
 
 <div align="center">
-<img src="docs/heatmap.png" width="400" alt="Performance Heatmap">
-<img src="docs/candlestick.png" width="400" alt="Performance Distribution">
+<img src="docs/assets/heatmap.png" width="400" alt="Performance Heatmap">
+<img src="docs/assets/candlestick.png" width="400" alt="Performance Distribution">
 <br><em>Advanced visualization capabilities for model performance analysis</em>
 </div>
 
@@ -151,9 +151,9 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
 
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     StandardNormalVariate, SavitzkyGolay, MultiplicativeScatterCorrection
 )
 
@@ -176,7 +176,7 @@ runner = PipelineRunner(save_files=False, verbose=1)
 predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_config)
 
 # Analyze results
-top_models = predictions.top_k(5, 'rmse')
+top_models = predictions.top(n=5, rank_metric='rmse')
 print("Top 5 models by RMSE:")
 for i, model in enumerate(top_models):
     print(f"{i+1}. {model['model_name']}: RMSE = {model['rmse']:.4f}")
@@ -185,7 +185,7 @@ for i, model in enumerate(top_models):
 ### Advanced Pipeline with Feature Augmentation
 
 ```python
-from nirs4all.operators.transformations import (
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, Gaussian, Haar
 )
 
@@ -223,7 +223,7 @@ predictions, _ = runner.run(pipeline_config, dataset_config)
 ### Neural Network Integration
 
 ```python
-from nirs4all.operators.models.cirad_tf import nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon
 
 # Pipeline with pre-configured neural network
 pipeline = [
@@ -248,7 +248,7 @@ runner = PipelineRunner(save_files=False, verbose=1)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Compare neural network with traditional models
-top_models = predictions.top_k(3, 'rmse')
+top_models = predictions.top(n=3, rank_metric='rmse')
 for i, model in enumerate(top_models):
     print(f"{i+1}. {model['model_name']}: RMSE = {model['rmse']:.4f}")
 ```
@@ -281,14 +281,14 @@ runner = PipelineRunner(save_files=False, verbose=1)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Get the best optimized model
-best_model = predictions.top_k(1, 'rmse')[0]
+best_model = predictions.top(n=1, rank_metric='rmse')[0]
 print(f"Best model: {best_model['model_name']} with RMSE: {best_model['rmse']:.4f}")
 ```
 
 ### Visualization and Analysis
 
 ```python
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
+from nirs4all.data.prediction_analyzer import PredictionAnalyzer
 import matplotlib.pyplot as plt
 
 # Create analyzer for your predictions
@@ -347,12 +347,25 @@ These tutorials demonstrate real-world workflows and best practices for producti
 
 Ready-to-run example scripts demonstrating common NIRS workflows:
 
+### Basic Examples
 - **[Q1_regression.py](examples/Q1_regression.py)** - Basic regression with PLS models and preprocessing combinations
 - **[Q1_classif.py](examples/Q1_classif.py)** - Classification pipeline with Random Forest and preprocessing
+- **[Q1_classif_tf.py](examples/Q1_classif_tf.py)** - Classification with TensorFlow neural networks and confusion matrix visualization
+- **[Q1_groupsplit.py](examples/Q1_groupsplit.py)** - Group-based data splitting for maintaining sample integrity
+
+### Advanced Pipeline Techniques
 - **[Q2_multimodel.py](examples/Q2_multimodel.py)** - Compare multiple model types (PLS, RF, SVM) in one run
 - **[Q3_finetune.py](examples/Q3_finetune.py)** - Hyperparameter optimization with Optuna
 - **[Q4_multidatasets.py](examples/Q4_multidatasets.py)** - Cross-dataset validation and transfer learning
+- **[Q11_flexible_inputs.py](examples/Q11_flexible_inputs.py)** - All possible input formats for PipelineRunner (configs, dicts, arrays, paths)
+- **[Q12_sample_augmentation.py](examples/Q12_sample_augmentation.py)** - Balanced sample augmentation for imbalanced classification datasets
+
+### Model Deployment & Prediction
 - **[Q5_predict.py](examples/Q5_predict.py)** - Load saved models and predict on new data
+- **[Q5_predict_NN.py](examples/Q5_predict_NN.py)** - Prediction methods for neural network models
+- **[Q14_workspace.py](examples/Q14_workspace.py)** - Workspace management, library export, and global predictions database
+
+### Data Processing & Analysis
 - **[Q6_multisource.py](examples/Q6_multisource.py)** - Multi-target regression from single dataset
 - **[Q7_discretization.py](examples/Q7_discretization.py)** - Convert continuous targets to categorical
 - **[Q8_shap.py](examples/Q8_shap.py)** - SHAP analysis for model interpretability
@@ -360,20 +373,51 @@ Ready-to-run example scripts demonstrating common NIRS workflows:
 - **[Q10_resampler.py](examples/Q10_resampler.py)** - Wavelength resampling and interpolation techniques
 - **[Q13_nm_headers.py](examples/Q13_nm_headers.py)** - Working with nanometer (nm) wavelength headers instead of wavenumbers (cm⁻¹)
 
-Run any example with: `python examples/<example_name>.py`
+### Custom Models
+- **[custom_NN.py](examples/custom_NN.py)** - Custom TensorFlow neural network architectures for NIRS
+- **[custom_nicon.py](examples/custom_nicon.py)** - Custom NICON (NIRS Convolutional Network) model implementations
 
+Run any example with: `python examples/<example_name>.py`
+t
 ## Documentation
 
-### Core Documentation
+### User Guide
 
-- **[Preprocessing.md](docs/Preprocessing.md)** - Complete reference of transformers (nirs4all, sklearn, scipy) with usage examples
-- **[CONFIG_FORMAT.md](docs/CONFIG_FORMAT.md)** - Pipeline configuration file format and structure
-- **[NESTED_CROSS_VALIDATION.md](docs/NESTED_CROSS_VALIDATION.md)** - Nested CV for unbiased hyperparameter tuning
-- **[PREDICTION_RESULTS_LIST.md](docs/PREDICTION_RESULTS_LIST.md)** - Understanding prediction results and metrics
-- **[SHAP_EXPLANATION.md](docs/SHAP_EXPLANATION.md)** - Model interpretability with SHAP values
-- **[RESAMPLER.md](docs/RESAMPLER.md)** - Wavelength resampling strategies
-- **[COMBINATION_GENERATOR.md](docs/COMBINATION_GENERATOR.md)** - Feature augmentation and preprocessing combinations
-- **[CROSS_DATASET_METRICS_EXPLANATION.md](docs/CROSS_DATASET_METRICS_EXPLANATION.md)** - Cross-dataset validation metrics
+- **[Preprocessing Guide](docs/user_guide/preprocessing.md)** - Complete reference of transformers (nirs4all, sklearn, scipy) with usage examples
+- **[Preprocessing Cheatsheet](docs/user_guide/preprocessing_cheatsheet.md)** - Quick reference for preprocessing operations
+- **[Sample Augmentation Guide](docs/user_guide/sample_augmentation.md)** - Data augmentation techniques for NIRS
+
+### API Reference
+
+- **[Data Module](docs/api/data.md)** - Dataset handling and data loading APIs
+- **[Pipeline Module](docs/api/pipeline.md)** - Pipeline configuration and execution APIs
+- **[Workspace Module](docs/api/workspace.md)** - Workspace management and organization
+
+### Specifications
+
+- **[Pipeline Syntax](docs/specifications/pipeline_syntax.md)** - Complete pipeline configuration syntax
+- **[Config Format](docs/specifications/config_format.md)** - Pipeline configuration file format and structure
+- **[Metrics](docs/specifications/metrics.md)** - Available metrics and evaluation methods
+- **[Nested Cross-Validation](docs/specifications/nested_cv.md)** - Nested CV for unbiased hyperparameter tuning
+- **[Cross-Dataset Metrics](docs/specifications/cross_dataset_metrics.md)** - Cross-dataset validation metrics
+- **[Group Split](docs/specifications/group_split.md)** - Group-based data splitting strategies
+- **[Serialization](docs/specifications/serialization.md)** - Pipeline serialization and deserialization
+
+### Explanations
+
+- **[SHAP Explanation](docs/explanations/shap.md)** - Model interpretability with SHAP values
+- **[Resampler](docs/explanations/resampler.md)** - Wavelength resampling strategies
+- **[SNV Explanation](docs/explanations/snv.md)** - Standard Normal Variate transformation
+- **[PLS Study](docs/explanations/pls_study.md)** - Partial Least Squares regression analysis
+- **[Metadata Usage](docs/explanations/metadata.md)** - Working with dataset metadata
+
+### Reference
+
+- **[Operator Catalog](docs/reference/operator_catalog.md)** - Complete catalog of available operators
+- **[Combination Generator](docs/reference/combination_generator.md)** - Feature augmentation and preprocessing combinations
+- **[Writing Pipelines](docs/reference/writing_pipelines.md)** - Best practices for pipeline creation
+- **[Outputs vs Artifacts](docs/reference/outputs_vs_artifacts.md)** - Understanding pipeline outputs
+- **[Prediction Results](docs/reference/prediction_results_list.md)** - Understanding prediction results and metrics
 
 Full documentation will be available at [https://nirs4all.readthedocs.io/](https://nirs4all.readthedocs.io/)
 

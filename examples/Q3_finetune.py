@@ -6,6 +6,7 @@ Includes preprocessing augmentation and comprehensive visualization of results.
 """
 
 # Standard library imports
+import argparse
 import matplotlib.pyplot as plt
 
 # Third-party imports
@@ -14,15 +15,21 @@ from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.dataset.predictions import Predictions
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
-from nirs4all.operators.transformations import (
+from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
+from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.operators.transforms import (
     Detrend, FirstDerivative, SecondDerivative, Gaussian,
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.models.cirad_tf import nicon, customizable_nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon, customizable_nicon
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q3 Finetune Example')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
+args = parser.parse_args()
 
 # Configuration variables
 feature_scaler = MinMaxScaler()
@@ -101,7 +108,7 @@ best_model_count = 5
 ranking_metric = 'rmse'  # Options: 'rmse', 'mae', 'r2'
 
 # Display top performing models (including finetuned ones)
-top_models = predictions.top_k(best_model_count, ranking_metric)
+top_models = predictions.top(n=best_model_count, rank_metric=ranking_metric)
 print(f"Top {best_model_count} models by {ranking_metric}:")
 for idx, prediction in enumerate(top_models):
     print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")
@@ -110,28 +117,28 @@ for idx, prediction in enumerate(top_models):
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot comparison of top models
-fig1 = analyzer.plot_top_k_comparison(k=best_model_count, rank_metric='rmse')
+fig1 = analyzer.plot_top_k(k=best_model_count, rank_metric='rmse')
 
 # Plot heatmap of model performance vs preprocessing
-fig2 = analyzer.plot_variable_heatmap(
+fig2 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="preprocessings",
-    metric='rmse',
-    best_only=False
+    rank_metric='rmse'
 )
 
 # Plot simplified heatmap without count display
-fig3 = analyzer.plot_variable_heatmap(
+fig3 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="preprocessings",
-    metric='rmse',
-    display_n=False
+    rank_metric='rmse',
+    show_counts=False
 )
 
 # Plot candlestick chart for model performance distribution
-fig4 = analyzer.plot_variable_candlestick(
-    filters={"partition": "test"},
+fig4 = analyzer.plot_candlestick(
     variable="model_name",
+    partition="test"
 )
 
-# plt.show()
+if args.show:
+    plt.show()
