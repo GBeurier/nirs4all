@@ -70,7 +70,7 @@ class SampleAugmentationController(OperatorController):
             {
                 "sample_augmentation": {
                     "transformers": [...],
-                    "balance": "y" or "metadata_column",
+                    "balance": "y" or "metadata_column",  # Default "y"
                     "target_size": int,  # Fixed target samples per class
                     "selection": "random" or "all",
                     "random_state": int
@@ -184,7 +184,7 @@ class SampleAugmentationController(OperatorController):
         loaded_binaries: Optional[Any]
     ) -> Tuple['ExecutionContext', List]:
         """Execute balanced class-aware augmentation."""
-        balance_source = config.get("balance")
+        balance_source = config.get("balance", "y")
         target_size = config.get("target_size", None)
         max_factor = config.get("max_factor", None)
         ref_percentage = config.get("ref_percentage", None)
