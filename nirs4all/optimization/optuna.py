@@ -189,6 +189,10 @@ class OptunaManager:
             # Sample hyperparameters
             sampled_params = self.sample_hyperparameters(trial, finetune_params)
 
+            # Process parameters if controller supports it
+            if hasattr(controller, 'process_hyperparameters'):
+                sampled_params = controller.process_hyperparameters(sampled_params)
+
             if verbose > 2:
                 print(f"Trial params: {sampled_params}")
 
@@ -208,6 +212,11 @@ class OptunaManager:
 
                     # Train and evaluate - pass train_params from finetune_params
                     train_params_for_trial = finetune_params.get('train_params', {}).copy()
+
+                    # Merge sampled params into train_params
+                    # This ensures 'compile' and 'fit' dicts from processed params are available to _train_model
+                    train_params_for_trial.update(sampled_params)
+
                     # Ensure task_type is passed for models that need it (e.g., TensorFlow)
                     if 'task_type' not in train_params_for_trial:
                         train_params_for_trial['task_type'] = dataset.task_type
@@ -282,6 +291,10 @@ class OptunaManager:
             # Sample hyperparameters
             sampled_params = self.sample_hyperparameters(trial, finetune_params)
 
+            # Process parameters if controller supports it
+            if hasattr(controller, 'process_hyperparameters'):
+                sampled_params = controller.process_hyperparameters(sampled_params)
+
             if verbose > 2:
                 print(f"Trial params: {sampled_params}")
 
@@ -294,6 +307,10 @@ class OptunaManager:
 
                 # Train and evaluate - pass train_params from finetune_params
                 train_params_for_trial = finetune_params.get('train_params', {}).copy()
+
+                # Merge sampled params into train_params
+                train_params_for_trial.update(sampled_params)
+
                 # Ensure task_type is passed for models that need it (e.g., TensorFlow)
                 if 'task_type' not in train_params_for_trial:
                     train_params_for_trial['task_type'] = dataset.task_type

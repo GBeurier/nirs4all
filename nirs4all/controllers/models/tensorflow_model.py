@@ -470,8 +470,8 @@ class TensorFlowModelController(BaseModelController):
     # The base class correctly returns {'model_instance': operator, 'train_params': {...}}
     # and ModelFactory now handles 'model_instance' key properly
 
-    def _sample_hyperparameters(self, trial, finetune_params: Dict[str, Any]) -> Dict[str, Any]:
-        """Sample hyperparameters for TensorFlow model tuning with Optuna.
+    def process_hyperparameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Process hyperparameters for TensorFlow model tuning.
 
         Supports TensorFlow-specific parameter organization:
         - Parameters prefixed with 'compile_' are grouped under 'compile' key
@@ -481,27 +481,12 @@ class TensorFlowModelController(BaseModelController):
         - Other parameters are treated as model architecture parameters
 
         Args:
-            trial: Optuna trial object for sampling parameters.
-            finetune_params: Dictionary containing hyperparameter search space
-                configuration with parameter names as keys and search ranges as values.
+            params: Dictionary of sampled parameters.
 
         Returns:
-            Dictionary of sampled hyperparameters with proper nesting for
+            Dictionary of processed hyperparameters with proper nesting for
             TensorFlow compilation and fitting.
-
-        Note:
-            The actual sampling is handled by the base class or Optuna manager.
-            This method only handles TensorFlow-specific parameter organization.
         """
-        # Start with empty params (parent class may not have this method)
-        params = {}
-
-        # Sample hyperparameters from finetune_params config
-        # This should be handled by the finetune logic in base class or optuna manager
-        # For now, just return the sampled params as is
-
-        # Add TensorFlow-specific parameter handling
-        # Handle nested parameters for compile and fit
         tf_params = {}
 
         for key, value in params.items():
