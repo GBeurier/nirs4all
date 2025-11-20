@@ -1,19 +1,4 @@
-## BUGS CRITICAL ##
-
-
 ## ROADMAP ##
-
-**Bugs**:
-> [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
-- op_fold_charts:
-  lines 140-157 > The op_fold_charts save directly the image with runner saver instead of returning the image to save.
-- op_split:
-  line 250-260 > same problems as op_fold_charts. Save directly instead of returning tuple
-
-- selector_dict = _selector_to_dict(selector)
-  indices = self._indexer.x_indices(selector_dict, include_augmented=True)
-  >> simplify
-
 
 > [BaseModel] review globally the base model and sub models structure > refactoring
 
@@ -26,6 +11,17 @@
 > [SEED] review and fix definitive logic
 
 > [SHAP] Fix import with new numpy / shap package
+
+**Bugs**:
+> [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
+- op_fold_charts:
+  lines 140-157 > The op_fold_charts save directly the image with runner saver instead of returning the image to save.
+- op_split:
+  line 250-260 > same problems as op_fold_charts. Save directly instead of returning tuple
+
+- selector_dict = _selector_to_dict(selector)
+  indices = self._indexer.x_indices(selector_dict, include_augmented=True)
+  >> simplify
 
 **RELEASE** 0.4.2: Torch & Jax
 
