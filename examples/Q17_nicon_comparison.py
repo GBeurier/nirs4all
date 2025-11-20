@@ -40,8 +40,8 @@ print("\n--- Regression Comparison ---")
 data_path_reg = 'sample_data/regression'
 pipeline_reg = [
     StandardScaler,
+    ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
     ShuffleSplit(n_splits=1, test_size=0.25, random_state=42)
-
 ]
 
 for fw, m in models.items():
