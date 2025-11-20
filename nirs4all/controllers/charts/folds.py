@@ -516,12 +516,12 @@ class FoldChartController(OperatorController):
         # Ajouter des séparateurs visuels entre les folds
         for fold_idx in range(1, n_folds):
             separator_pos = fold_idx * (2 + gap_between_folds) - gap_between_folds / 2
-            ax.axvline(x=separator_pos, color='gray', linestyle='--', alpha=0.5)
+            ax.axvline(x=separator_pos, color='gray', linestyle='--', alpha=0.9, linewidth=1)
 
         # Add separator before test partition if present (lighter to distinguish from folds)
         if test_partition_indices:
             separator_pos = n_folds * (2 + gap_between_folds) - gap_between_folds / 2
-            ax.axvline(x=separator_pos, color='gray', linestyle=':', alpha=0.3, linewidth=1)
+            ax.axvline(x=separator_pos, color='gray', linestyle=':', alpha=0.9, linewidth=1)
 
         # Ajouter colorbar
         if metadata_column or is_classification_task:
@@ -611,7 +611,12 @@ class FoldChartController(OperatorController):
         # Créer chaque segment de la barre empilée
         for i, (y_val, y_norm) in enumerate(zip(y_values_sorted, y_normalized)):
             color = colormap(y_norm)
+
+            # Create darker edge color (same hue but darker)
+            rgb = mcolors.to_rgb(color)
+            darker_color = tuple(max(0, c * 0.6) for c in rgb)
+
             ax.bar(position, 1, bottom=i, width=bar_width,
-                  color=color, edgecolor='white', linewidth=0.5)
+                   color=color, edgecolor=darker_color, linewidth=0.5)
 
 
