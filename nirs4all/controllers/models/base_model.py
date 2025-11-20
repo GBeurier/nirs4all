@@ -17,6 +17,8 @@ from tabnanny import verbose
 from typing import Any, Dict, List, Tuple, Optional, Union, TYPE_CHECKING
 import numpy as np
 import copy
+from joblib import Parallel, delayed
+import multiprocessing
 
 from nirs4all.controllers.controller import OperatorController
 from ...optimization.optuna import OptunaManager
@@ -330,9 +332,6 @@ class BaseModelController(OperatorController, ABC):
         model_config = self._extract_model_config(step, operator)
         self.verbose = model_config.get('train_params', {}).get('verbose', 0)
 
-        # if mode == "predict":
-            # return self._execute_prediction_mode( model_config, dataset, context, runtime_context, loaded_binaries)
-
         # In predict/explain mode, restore task_type from target_model if not set
         if mode in ("predict", "explain") and dataset.task_type is None:
             if hasattr(runtime_context, 'target_model') and runtime_context.target_model:
@@ -342,40 +341,80 @@ class BaseModelController(OperatorController, ABC):
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
         folds = dataset.folds
 
-        binaries = []
-        finetune_params = model_config.get('finetune_params')
         if self.verbose > 0:
             print(f"{SEARCH} Model config: {model_config}")
 
-        if finetune_params:
-            self.mode = "finetune"
-            if verbose > 0:
-                print("{TARGET} Starting finetuning...")
+        finetune_params = model_config.get('finetune_params')
 
-            best_model_params = self.finetune(
-                dataset,
-                model_config, X_train, y_train, X_test, y_test,
-                folds, finetune_params, self.prediction_store, context, runtime_context
-            )
-            # print("Best model params found:", best_model_params)
-            print(f"{CHART} Best parameters: {best_model_params}")
-
-            binaries = self.train(
+        if mode == "finetune" or (mode == "train" and finetune_params):
+             return self._execute_finetune(
                 dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-                loaded_binaries=loaded_binaries, mode="finetune", best_params=best_model_params
+                finetune_params, loaded_binaries
+            )
+        elif mode == "train":
+            return self._execute_train(
+                dataset, model_config, context, runtime_context, prediction_store,
+                X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+                loaded_binaries
+            )
+        elif mode in ("predict", "explain"):
+             return self._execute_predict(
+                dataset, model_config, context, runtime_context, prediction_store,
+                X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+                loaded_binaries, mode
             )
         else:
-            # TRAIN PATH
-            if self.verbose > 0:
-                print(f"{WEIGHT_LIFT}Starting training...")
+            raise ValueError(f"Unknown execution mode: {mode}")
 
-            binaries = self.train(
-                dataset, model_config, context, runtime_context, prediction_store,
-                X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-                loaded_binaries=loaded_binaries, mode=mode
-            )
+    def _execute_finetune(
+        self, dataset, model_config, context, runtime_context, prediction_store,
+        X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+        finetune_params, loaded_binaries
+    ):
+        self.mode = "finetune"
+        if self.verbose > 0:
+            print(f"{TARGET} Starting finetuning...")
 
+        best_model_params = self.finetune(
+            dataset,
+            model_config, X_train, y_train, X_test, y_test,
+            folds, finetune_params, self.prediction_store, context, runtime_context
+        )
+        print(f"{CHART} Best parameters: {best_model_params}")
+
+        binaries = self.train(
+            dataset, model_config, context, runtime_context, prediction_store,
+            X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+            loaded_binaries=loaded_binaries, mode="finetune", best_params=best_model_params
+        )
+        return context, binaries
+
+    def _execute_train(
+        self, dataset, model_config, context, runtime_context, prediction_store,
+        X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+        loaded_binaries
+    ):
+        if self.verbose > 0:
+            print(f"{WEIGHT_LIFT}Starting training...")
+
+        binaries = self.train(
+            dataset, model_config, context, runtime_context, prediction_store,
+            X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+            loaded_binaries=loaded_binaries, mode="train"
+        )
+        return context, binaries
+
+    def _execute_predict(
+        self, dataset, model_config, context, runtime_context, prediction_store,
+        X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+        loaded_binaries, mode
+    ):
+        binaries = self.train(
+            dataset, model_config, context, runtime_context, prediction_store,
+            X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+            loaded_binaries=loaded_binaries, mode=mode
+        )
         return context, binaries
 
     def finetune(
@@ -469,6 +508,11 @@ class BaseModelController(OperatorController, ABC):
         """
 
         verbose = model_config.get('train_params', {}).get('verbose', 0)
+        n_jobs = model_config.get('train_params', {}).get('n_jobs', 1)
+
+        # Auto-detect n_jobs if -1
+        if n_jobs == -1:
+            n_jobs = multiprocessing.cpu_count()
 
         binaries = []
         if len(folds) > 0:
@@ -478,10 +522,10 @@ class BaseModelController(OperatorController, ABC):
             all_fold_predictions = []
             base_model_name = ""
             model_classname = ""
-            for fold_idx, (train_indices, val_indices) in enumerate(folds):
 
-                if verbose > 0:
-                    print(f"{FOLDER} Training fold {fold_idx + 1}/{len(folds)}")
+            # Prepare arguments for parallel execution
+            fold_args = []
+            for fold_idx, (train_indices, val_indices) in enumerate(folds):
                 fold_val_indices.append(val_indices)
                 X_train_fold = X_train[train_indices] if X_train.shape[0] > 0 else np.array([])
                 y_train_fold = y_train[train_indices] if y_train.shape[0] > 0 else np.array([])
@@ -490,30 +534,43 @@ class BaseModelController(OperatorController, ABC):
                 y_val_fold = y_train[val_indices] if y_train.shape[0] > 0 else np.array([])
                 y_val_fold_unscaled = y_train_unscaled[val_indices] if y_train_unscaled.shape[0] > 0 else np.array([])
 
-
                 if isinstance(best_params, list):
                     best_params_fold = best_params[fold_idx] if fold_idx < len(best_params) else None
                 else:
                     best_params_fold = best_params
-                model, model_id, score, model_name, prediction_data = self.launch_training(
+
+                fold_args.append((
                     dataset, model_config, context, runtime_context, prediction_store,
                     X_train_fold, y_train_fold, X_val_fold, y_val_fold, X_test,
                     y_train_fold_unscaled, y_val_fold_unscaled, y_test_unscaled,
                     train_indices, val_indices,
-                    fold_idx=fold_idx, best_params= best_params_fold,
-                    loaded_binaries=loaded_binaries, mode=mode
+                    fold_idx, best_params_fold,
+                    loaded_binaries, mode
+                ))
+
+            if verbose > 0:
+                print(f"{FOLDER} Training {len(folds)} folds (n_jobs={n_jobs})...")
+
+            # Execute folds (parallel or sequential)
+            if n_jobs > 1 and mode == "train": # Only parallelize training, not prediction/finetuning for now to avoid complexity
+                results = Parallel(n_jobs=n_jobs)(
+                    delayed(self.launch_training)(*args) for args in fold_args
                 )
+            else:
+                results = [self.launch_training(*args) for args in fold_args]
+
+            # Process results
+            for i, (model, model_id, score, model_name, prediction_data) in enumerate(results):
                 folds_models.append((model_id, model, score))
                 all_fold_predictions.append(prediction_data)
                 base_model_name = model_name
+                scores.append(score)
+                model_classname = model.__class__.__name__
 
                 # Only persist in train mode, not in predict/explain modes
                 if mode == "train":
                     artifact = self._persist_model(runtime_context, model, model_id)
                     binaries.append(artifact)
-
-                scores.append(score)
-                model_classname = model.__class__.__name__
 
             # Compute weights based on scores
             metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
@@ -548,6 +605,18 @@ class BaseModelController(OperatorController, ABC):
 
         return binaries
 
+    def process_hyperparameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Process hyperparameters before use.
+
+        Can be overridden by subclasses to structure parameters (e.g. nesting for TensorFlow).
+
+        Args:
+            params: Flat dictionary of sampled parameters.
+
+        Returns:
+            Processed dictionary of parameters.
+        """
+        return params
 
     def launch_training(
         self,

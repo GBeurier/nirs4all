@@ -26,7 +26,7 @@ class TensorFlowDataPreparation:
             Prepared features array in float32.
         """
         # Convert to float32 for TensorFlow
-        X = X.astype(np.float32)
+        X = X.astype(np.float32, copy=False)
 
         # Handle 2D data: add channel dimension for Conv1D
         # (samples, features) -> (samples, features, 1)
@@ -57,7 +57,7 @@ class TensorFlowDataPreparation:
         if y is None:
             return None
 
-        y = y.astype(np.float32)
+        y = y.astype(np.float32, copy=False)
 
         # Flatten if 2D with single column
         if y.ndim == 2 and y.shape[1] == 1:
