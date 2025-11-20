@@ -36,7 +36,7 @@ jobs:
       - name: Run quick pytest (only on commits / PRs)
         if: "!startsWith(github.ref, 'refs/tags/')"
         run: |
-          python -m pytest -v tests/integration_tests/test_basic_pipeline.py tests/integration_tests/test_classification_integration.py
+          python -m pytest -v tests/integration/pipeline/
 
       - name: Run full pytest + coverage (only on tag push)
         if: "startsWith(github.ref, 'refs/tags/')"
