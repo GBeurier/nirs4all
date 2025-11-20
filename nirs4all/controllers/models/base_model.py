@@ -577,7 +577,7 @@ class BaseModelController(OperatorController, ABC):
             weights = EnsembleUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
 
             # Create fold averages and get average predictions data
-            if dataset.task_type and dataset.task_type.is_regression:
+            if dataset.task_type and dataset.task_type.is_regression and len(folds) > 1:
                 avg_predictions, w_avg_predictions = self._create_fold_averages(
                     base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
                     folds_models, fold_val_indices, scores,

@@ -1,11 +1,5 @@
 ## ROADMAP ##
 
-> [BaseModel] review globally the base model and sub models structure > refactoring
-
-> [Pytorch] controller
-
-> [Jax] controller
-
 > [Imports] import tf and pytorch only when needed, reup backend_utils.
 
 > [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
