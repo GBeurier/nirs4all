@@ -357,7 +357,7 @@ class PipelineRunner:
         prediction_store: Predictions,
         is_substep: bool = False,
         propagated_binaries: Optional[List] = None
-    ) -> Union[Tuple[ExecutionContext, List], ExecutionContext]:
+    ) -> Tuple[ExecutionContext, List]:
         """Execute a single pipeline step (compatibility method).
 
         Args:
@@ -369,8 +369,7 @@ class PipelineRunner:
             propagated_binaries: Binaries to propagate to the step
 
         Returns:
-            If is_substep: Tuple of (updated_context, artifacts)
-            Otherwise: updated_context only
+            Tuple of (updated_context, artifacts)
         """
         from nirs4all.pipeline.steps.parser import StepParser
         from nirs4all.pipeline.steps.router import ControllerRouter
@@ -399,10 +398,7 @@ class PipelineRunner:
             prediction_store=prediction_store
         )
 
-        if is_substep:
-            return result.updated_context, result.artifacts
-        else:
-            return result.updated_context
+        return result.updated_context, result.artifacts
 
     def run_steps(
         self,
@@ -410,8 +406,9 @@ class PipelineRunner:
         dataset: SpectroDataset,
         context: ExecutionContext,
         execution: str = "sequential",
-        prediction_store: Optional[Predictions] = None
-    ) -> ExecutionContext:
+        prediction_store: Optional[Predictions] = None,
+        propagated_binaries: Optional[List] = None
+    ) -> Tuple[ExecutionContext, List]:
         """Execute multiple pipeline steps (compatibility method).
 
         Args:
@@ -420,15 +417,24 @@ class PipelineRunner:
             context: Execution context
             execution: Execution mode (only 'sequential' supported)
             prediction_store: Prediction store
+            propagated_binaries: Binaries to propagate to steps
 
         Returns:
-            Final context after all steps
+            Tuple of (final_context, all_artifacts)
         """
         if prediction_store is None:
             prediction_store = Predictions()
 
         current_context = context
+        all_artifacts = []
         for step in steps:
-            current_context = self.run_step(step, dataset, current_context, prediction_store)
+            current_context, artifacts = self.run_step(
+                step,
+                dataset,
+                current_context,
+                prediction_store,
+                propagated_binaries=propagated_binaries
+            )
+            all_artifacts.extend(artifacts)
 
-        return current_context
+        return current_context, all_artifacts

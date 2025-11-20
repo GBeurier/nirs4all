@@ -259,6 +259,10 @@ class PipelineExecutor:
                     prediction_store=prediction_store
                 )
 
+                if self.verbose > 1:
+                    print(f"✅ Step {self.step_number} completed with {len(step_result.artifacts)} artifacts")
+                    print(dataset)
+
                 # Update context and accumulate artifacts
                 context = step_result.updated_context
                 all_artifacts.extend(step_result.artifacts)

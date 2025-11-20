@@ -1,8 +1,13 @@
 ## BUGS CRITICAL ##
-Q5 tf predict NO
 Q6 reuse predict NO
-Verify sample augmentation per percentage
-X4 7. Testing backward compatible imports... Error with backward compatible import: No module named 'nirs4all.data.feature_source'
+>> predict tag now partition but it transformers are applied on sub partitions. It should one shot the prediction then apply the partitions.
+
+
+selector_dict = _selector_to_dict(selector)
+indices = self._indexer.x_indices(selector_dict, include_augmented=True)
+>> simplify
+
+
 ## ROADMAP ##
 
 > [PipelineRunner] Refactor, modularize, clean, anticipate 0.6.1, authorize list of pipelineconfigs instead of pipelines
@@ -22,6 +27,8 @@ X4 7. Testing backward compatible imports... Error with backward compatible impo
   lines 140-157 > The op_fold_charts save directly the image with runner saver instead of returning the image to save.
 - op_split:
   line 250-260 > same problems as op_fold_charts. Save directly instead of returning tuple
+
+> [BaseModel] review globally the base model and sub models structure > refactoring
 
 > [Pytorch] controller
 
