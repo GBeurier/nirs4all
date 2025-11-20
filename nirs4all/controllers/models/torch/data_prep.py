@@ -6,12 +6,7 @@ This module handles PyTorch-specific data preparation and tensor formatting.
 
 from typing import Any, Optional, Tuple
 import numpy as np
-
-try:
-    import torch
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
+from nirs4all.utils.backend import TORCH_AVAILABLE
 
 class PyTorchDataPreparation:
     """Handles PyTorch-specific data preparation and tensor formatting."""
@@ -33,6 +28,8 @@ class PyTorchDataPreparation:
         """
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not available")
+
+        import torch
 
         # Convert to float32
         X = X.astype(np.float32, copy=False)
@@ -61,6 +58,8 @@ class PyTorchDataPreparation:
         """
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not available")
+
+        import torch
 
         if y is None:
             return None

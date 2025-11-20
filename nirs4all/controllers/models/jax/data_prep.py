@@ -6,12 +6,7 @@ This module handles JAX-specific data preparation and array formatting.
 
 from typing import Any, Optional, Tuple
 import numpy as np
-
-try:
-    import jax.numpy as jnp
-    JAX_AVAILABLE = True
-except ImportError:
-    JAX_AVAILABLE = False
+from nirs4all.utils.backend import JAX_AVAILABLE
 
 class JaxDataPreparation:
     """Handles JAX-specific data preparation and array formatting."""
@@ -32,6 +27,8 @@ class JaxDataPreparation:
         """
         if not JAX_AVAILABLE:
             raise ImportError("JAX is not available")
+
+        import jax.numpy as jnp
 
         # Convert to float32
         X = X.astype(np.float32, copy=False)
@@ -55,6 +52,8 @@ class JaxDataPreparation:
         """
         if not JAX_AVAILABLE:
             raise ImportError("JAX is not available")
+
+        import jax.numpy as jnp
 
         if y is None:
             return None

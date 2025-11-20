@@ -1,7 +1,5 @@
 ## ROADMAP ##
 
-> [Imports] import tf and pytorch only when needed, reup backend_utils.
-
 > [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
 
 > [SEED] review and fix definitive logic
@@ -83,6 +81,10 @@ Warning and no avg when no folds.
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
 > [Pipeline] verify and clean type for input in pipeline
+
+> [Docker] provide a docker, add build and actions
+
+> [Conda] provide a conda, add build and actions
 
 **RELEASE** 0.8: CLI
 

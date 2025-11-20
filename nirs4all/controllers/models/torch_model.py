@@ -21,22 +21,20 @@ from nirs4all.utils.emoji import WARNING
 from .utilities import ModelControllerUtils as ModelUtils
 from .factory import ModelFactory
 from .torch.data_prep import PyTorchDataPreparation
+from nirs4all.utils.backend import TORCH_AVAILABLE, check_backend_available, is_gpu_available
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.config.context import ExecutionContext
     from nirs4all.pipeline.steps.parser import ParsedStep
-
-# Try to import PyTorch
-try:
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torch.utils.data import DataLoader, TensorDataset
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
+    try:
+        import torch
+        import torch.nn as nn
+        import torch.optim as optim
+        from torch.utils.data import DataLoader, TensorDataset
+    except ImportError:
+        pass
 
 
 @register_controller
@@ -79,6 +77,7 @@ class PyTorchModelController(BaseModelController):
             return False
 
         try:
+            import torch.nn as nn
             if isinstance(obj, nn.Module):
                 return True
 
@@ -94,10 +93,9 @@ class PyTorchModelController(BaseModelController):
         except Exception:
             return False
 
-    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> nn.Module:
+    def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> 'nn.Module':
         """Create PyTorch model instance from configuration."""
-        if not TORCH_AVAILABLE:
-            raise ImportError("PyTorch is not available")
+        check_backend_available('torch')
 
         return ModelFactory.build_single_model(
             model_config,
@@ -107,19 +105,25 @@ class PyTorchModelController(BaseModelController):
 
     def _train_model(
         self,
-        model: nn.Module,
+        model: 'nn.Module',
         X_train: Any,
         y_train: Any,
         X_val: Optional[Any] = None,
         y_val: Optional[Any] = None,
         **kwargs
-    ) -> nn.Module:
+    ) -> 'nn.Module':
         """Train PyTorch model with custom training loop."""
-        if not TORCH_AVAILABLE:
-            raise ImportError("PyTorch is not available")
+        check_backend_available('torch')
+        import torch
+        import torch.nn as nn
+        import torch.optim as optim
+        from torch.utils.data import DataLoader, TensorDataset
 
         train_params = kwargs
         verbose = train_params.get('verbose', 0)
+
+        if not is_gpu_available() and verbose > 0:
+            print(f"{WARNING} No GPU detected. Training PyTorch model on CPU may be slow.")
 
         # Setup device
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -235,8 +239,9 @@ class PyTorchModelController(BaseModelController):
 
         return model
 
-    def _predict_model(self, model: nn.Module, X: Any) -> np.ndarray:
+    def _predict_model(self, model: 'nn.Module', X: Any) -> np.ndarray:
         """Generate predictions with PyTorch model."""
+        import torch
         device = next(model.parameters()).device
 
         # Ensure X is a tensor
@@ -269,9 +274,11 @@ class PyTorchModelController(BaseModelController):
         """Prepare data for PyTorch (convert to tensors)."""
         return PyTorchDataPreparation.prepare_data(X, y)
 
-    def _evaluate_model(self, model: nn.Module, X_val: Any, y_val: Any) -> float:
+    def _evaluate_model(self, model: 'nn.Module', X_val: Any, y_val: Any) -> float:
         """Evaluate PyTorch model."""
         try:
+            import torch
+            import torch.nn as nn
             device = next(model.parameters()).device
             X_val = X_val.to(device)
             y_val = y_val.to(device)
@@ -295,7 +302,7 @@ class PyTorchModelController(BaseModelController):
         """
         return "3d"
 
-    def _clone_model(self, model: nn.Module) -> nn.Module:
+    def _clone_model(self, model: 'nn.Module') -> 'nn.Module':
         """Clone PyTorch model."""
         # For PyTorch, we can use deepcopy to get a fresh model with same architecture
         # But we need to reset parameters to ensure fresh weights
@@ -338,8 +345,7 @@ class PyTorchModelController(BaseModelController):
         prediction_store: 'Predictions' = None
     ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
         """Execute PyTorch model controller."""
-        if not TORCH_AVAILABLE:
-            raise ImportError("PyTorch is not available. Please install torch.")
+        check_backend_available('torch')
 
         # Set layout preference
         context = context.with_layout(self.get_preferred_layout())

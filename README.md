@@ -93,12 +93,16 @@ NIRS4ALL offers a wide range of functionalities:
 ```bash
 pip install nirs4all
 ```
-# Install TensorFlow cpu support by default
+This installs the core library with scikit-learn support. Deep learning frameworks are optional.
 
 ### With Additional ML Frameworks
 
 ```bash
+# With TensorFlow support (CPU)
+pip install nirs4all[tensorflow]
 
+# With TensorFlow support (GPU)
+pip install nirs4all[gpu]
 
 # With PyTorch support
 pip install nirs4all[torch]
@@ -111,6 +115,9 @@ pip install nirs4all[jax]
 
 # With all ML frameworks
 pip install nirs4all[all]
+
+# With all ML frameworks and GPU support for TensorFlow
+pip install nirs4all[all-gpu]
 ```
 
 ### Development Installation
