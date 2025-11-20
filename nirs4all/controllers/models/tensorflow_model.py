@@ -31,18 +31,15 @@ from .tensorflow import (
     TensorFlowFitConfig,
     TensorFlowDataPreparation
 )
+from nirs4all.utils.backend import TF_AVAILABLE, check_backend_available, is_gpu_available
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
-
-# Try to import TensorFlow
-try:
-    from tensorflow import keras
-    TF_AVAILABLE = True
-except ImportError:
-    TF_AVAILABLE = False
-
+    try:
+        from tensorflow import keras
+    except ImportError:
+        pass
 
 @register_controller
 class TensorFlowModelController(BaseModelController):
@@ -125,6 +122,7 @@ class TensorFlowModelController(BaseModelController):
             return False
 
         try:
+            from tensorflow import keras
             return (isinstance(obj, keras.Model) or
                    isinstance(obj, keras.Sequential) or
                    hasattr(obj, 'fit') and hasattr(obj, 'predict') and
@@ -213,8 +211,7 @@ class TensorFlowModelController(BaseModelController):
         Raises:
             ImportError: If TensorFlow is not installed.
         """
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow is required but not installed")
+        check_backend_available('tensorflow')
 
         # Delegate entirely to ModelFactory
         model = ModelFactory.build_single_model(
@@ -270,8 +267,7 @@ class TensorFlowModelController(BaseModelController):
         Raises:
             ImportError: If TensorFlow is not installed.
         """
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow is required but not installed")
+        check_backend_available('tensorflow')
 
         train_params = kwargs
         verbose = train_params.get('verbose', 0)
@@ -280,6 +276,9 @@ class TensorFlowModelController(BaseModelController):
         task_type = train_params.get('task_type')
         if task_type is None:
             raise ValueError("task_type must be provided in train_params")
+
+        if not is_gpu_available() and verbose > 0:
+            print(f"{WARNING} No GPU detected. Training TensorFlow model on CPU may be slow.")
 
         # 1. Prepare compilation configuration
         compile_config = TensorFlowCompilationConfig.prepare(train_params, task_type)

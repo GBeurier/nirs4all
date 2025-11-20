@@ -20,27 +20,21 @@ from nirs4all.utils.emoji import WARNING
 from .utilities import ModelControllerUtils as ModelUtils
 from .factory import ModelFactory
 from .jax.data_prep import JaxDataPreparation
+from nirs4all.utils.backend import JAX_AVAILABLE, check_backend_available, is_gpu_available
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.config.context import ExecutionContext
     from nirs4all.pipeline.steps.parser import ParsedStep
-
-# Try to import JAX and Flax
-try:
-    import jax
-    import jax.numpy as jnp
-    import flax.linen as nn
-    import optax
-    from flax.training import train_state
-    JAX_AVAILABLE = True
-except ImportError:
-    JAX_AVAILABLE = False
-
-
-class TrainState(train_state.TrainState):
-    batch_stats: Any
+    try:
+        import jax
+        import jax.numpy as jnp
+        import flax.linen as nn
+        import optax
+        from flax.training import train_state
+    except ImportError:
+        pass
 
 
 @register_controller
@@ -83,6 +77,7 @@ class JaxModelController(BaseModelController):
             return False
 
         try:
+            import flax.linen as nn
             if isinstance(obj, nn.Module):
                 return True
 
@@ -100,8 +95,7 @@ class JaxModelController(BaseModelController):
 
     def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
         """Create JAX model instance from configuration."""
-        if not JAX_AVAILABLE:
-            raise ImportError("JAX/Flax is not available")
+        check_backend_available('jax')
 
         return ModelFactory.build_single_model(
             model_config,
@@ -111,6 +105,13 @@ class JaxModelController(BaseModelController):
 
     def _create_train_state(self, rng, model, input_shape, learning_rate):
         """Create initial training state."""
+        import jax.numpy as jnp
+        import optax
+        from flax.training import train_state
+
+        class TrainState(train_state.TrainState):
+            batch_stats: Any
+
         variables = model.init(rng, jnp.ones(input_shape))
         params = variables['params']
         batch_stats = variables.get('batch_stats')
@@ -130,11 +131,17 @@ class JaxModelController(BaseModelController):
         **kwargs
     ) -> Any:
         """Train JAX model with custom training loop."""
-        if not JAX_AVAILABLE:
-            raise ImportError("JAX is not available")
+        check_backend_available('jax')
+        import jax
+        import jax.numpy as jnp
+        import optax
 
         train_params = kwargs
         verbose = train_params.get('verbose', 0)
+
+        if not is_gpu_available() and verbose > 0:
+            print(f"{WARNING} No GPU detected. Training JAX model on CPU may be slow.")
+
         epochs = train_params.get('epochs', 100)
         batch_size = train_params.get('batch_size', 32)
         learning_rate = train_params.get('lr', train_params.get('learning_rate', 0.001))
@@ -344,8 +351,7 @@ class JaxModelController(BaseModelController):
         prediction_store: 'Predictions' = None
     ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
         """Execute JAX model controller."""
-        if not JAX_AVAILABLE:
-            raise ImportError("JAX is not available. Please install jax flax optax.")
+        check_backend_available('jax')
 
         # Set layout preference
         context = context.with_layout(self.get_preferred_layout())

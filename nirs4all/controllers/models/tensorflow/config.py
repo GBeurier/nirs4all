@@ -7,18 +7,19 @@ This module provides classes for managing TensorFlow model configuration:
 - Callback factory for creating various callbacks
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 import numpy as np
 
 from nirs4all.core.task_type import TaskType
 from ..utilities import ModelControllerUtils as ModelUtils
+from nirs4all.utils.backend import TF_AVAILABLE, check_backend_available
 
-try:
-    import tensorflow as tf
-    from tensorflow import keras
-    TF_AVAILABLE = True
-except ImportError:
-    TF_AVAILABLE = False
+if TYPE_CHECKING:
+    try:
+        import tensorflow as tf
+        from tensorflow import keras
+    except ImportError:
+        pass
 
 
 class TensorFlowCompilationConfig:
@@ -35,8 +36,7 @@ class TensorFlowCompilationConfig:
         Returns:
             Dictionary with 'optimizer', 'loss', and 'metrics' keys.
         """
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow is required but not installed")
+        check_backend_available('tensorflow')
 
         # Start with defaults
         compile_config = {
@@ -108,8 +108,8 @@ class TensorFlowCompilationConfig:
         Returns:
             Configured optimizer instance.
         """
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow is required but not installed")
+        check_backend_available('tensorflow')
+        from tensorflow import keras
 
         optimizer_classes = {
             'adam': keras.optimizers.Adam,
@@ -206,6 +206,8 @@ class TensorFlowCallbackFactory:
         if not TF_AVAILABLE:
             return existing_callbacks
 
+        from tensorflow import keras
+
         callbacks = list(existing_callbacks)
 
         # === EARLY STOPPING ===
@@ -254,8 +256,8 @@ class TensorFlowCallbackFactory:
         Returns:
             EarlyStopping callback instance.
         """
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow is required but not installed")
+        check_backend_available('tensorflow')
+        from tensorflow import keras
 
         early_stopping_params = train_params.get('early_stopping', {})
 
@@ -284,8 +286,8 @@ class TensorFlowCallbackFactory:
         Returns:
             Custom cyclic LR callback instance.
         """
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow is required but not installed")
+        check_backend_available('tensorflow')
+        from tensorflow import keras
 
         cyclic_lr_params = train_params.get('cyclic_lr_params', {})
 
@@ -330,8 +332,8 @@ class TensorFlowCallbackFactory:
         Returns:
             ReduceLROnPlateau callback instance.
         """
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow is required but not installed")
+        check_backend_available('tensorflow')
+        from tensorflow import keras
 
         reduce_lr_params = train_params.get('reduce_lr_on_plateau_params', {})
 
@@ -356,8 +358,8 @@ class TensorFlowCallbackFactory:
         Returns:
             Custom best model memory callback instance.
         """
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow is required but not installed")
+        check_backend_available('tensorflow')
+        from tensorflow import keras
 
         class BestModelMemory(keras.callbacks.Callback):
             def __init__(self, verbose=0):

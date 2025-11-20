@@ -46,7 +46,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gpu = ["tensorflow[and-cuda]>=2.10.0"]  # Explicit GPU version
+tensorflow = ["tensorflow>=2.10.0"]
+gpu = ["tensorflow[and-cuda]>=2.10.0"]
 torch = ["torch>=2.0.0"]
 keras = ["keras>=3.0.0"]
 jax = ["jax>=0.4.10", "jaxlib>=0.4.10"]
