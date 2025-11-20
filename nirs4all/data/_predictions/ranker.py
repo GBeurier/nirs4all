@@ -101,7 +101,7 @@ class PredictionRanker:
         display_metrics: Optional[List[str]] = None,
         display_partition: str = "test",
         aggregate_partitions: bool = False,
-        ascending: bool = True,
+        ascending: Optional[bool] = None,
         group_by_fold: bool = False,
         load_arrays: bool = True,
         **filters
@@ -119,7 +119,9 @@ class PredictionRanker:
             display_metrics: Metrics to compute for display (default: task_type defaults)
             display_partition: Partition to display results from (default: "test")
             aggregate_partitions: If True, add train/val/test nested dicts in results
-            ascending: If True, lower scores rank higher (for error metrics like RMSE)
+            ascending: Sort order. If True, sorts ascending (lower is better).
+                      If False, sorts descending (higher is better).
+                      If None, infers from metric (RMSE->True, Accuracy->False).
             group_by_fold: If True, include fold_id in model identity (rank per fold)
             **filters: Additional filter criteria (dataset_name, config_name, etc.)
 
@@ -209,9 +211,12 @@ class PredictionRanker:
         if rank_metric == "":
             rank_metric = base[0, "metric"]
 
-        # Adjust ascending based on metric direction
-        if EnsembleUtils._is_higher_better(rank_metric):
-            ascending = not ascending  # Reverse for higher is better
+        # Adjust ascending based on metric direction if not specified
+        if ascending is None:
+            if EnsembleUtils._is_higher_better(rank_metric):
+                ascending = False  # Higher is better -> Sort Descending
+            else:
+                ascending = True   # Lower is better -> Sort Ascending
 
         # Model identity key
         KEY = ["config_name", "step_idx", "model_name"]
@@ -407,7 +412,7 @@ class PredictionRanker:
     def get_best(
         self,
         metric: str = "",
-        ascending: bool = True,
+        ascending: Optional[bool] = None,
         aggregate_partitions: bool = False,
         **filters
     ) -> Optional[PredictionResult]:
@@ -418,7 +423,9 @@ class PredictionRanker:
 
         Args:
             metric: Metric to rank by
-            ascending: If True, lower scores rank higher
+            ascending: Sort order. If True, sorts ascending (lower is better).
+                      If False, sorts descending (higher is better).
+                      If None, infers from metric.
             aggregate_partitions: If True, include all partition data
             **filters: Additional filter criteria
 

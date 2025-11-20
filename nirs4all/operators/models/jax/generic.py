@@ -8,7 +8,7 @@ class JaxMLPRegressor(nn.Module):
     input_shape: Optional[Any] = None  # Ignored, but kept for compatibility with factory
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x, train: bool = False):
         # Flatten input if needed (batch, features...) -> (batch, flat_features)
         if x.ndim > 2:
             x = x.reshape((x.shape[0], -1))
@@ -27,7 +27,7 @@ class JaxMLPClassifier(nn.Module):
     input_shape: Optional[Any] = None # Ignored
 
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x, train: bool = False):
         # Flatten input if needed
         if x.ndim > 2:
             x = x.reshape((x.shape[0], -1))
