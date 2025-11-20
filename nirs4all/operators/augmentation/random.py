@@ -74,14 +74,6 @@ class Rotate_Translate(Augmenter):
         ndarray
             Augmented data.
         """
-        # def deformation(x):
-        #     x_range = np.linspace(0, 1, x.shape[-1])
-        #     p2 = self.random_gen.uniform(-self.p_range/5, self.p_range/5)
-        #     p1 = self.random_gen.uniform(-self.p_range/5, self.p_range/5)
-        #     xI = self.random_gen.uniform(0, 1)
-        #     yI = self.random_gen.uniform(0, np.max(x) / self.y_factor)
-        #     distor = v_angle_p(x_range, xI, yI, p1, p2)
-        #     return distor
 
         def deformation(x):
             x_range = np.linspace(0, 1, x.shape[-1])

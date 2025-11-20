@@ -1,44 +1,45 @@
 """
-Operations module for nirs4all package.
+Controllers module for nirs4all package.
 
-This module contains all operation classes for pipeline processing.
+This module contains all controller classes for pipeline operator execution.
+Controllers implement the execution logic for different operator types following
+the operator-controller pattern.
 """
 
-# Import main operation classes that actually exist
-# Note: Archive operations are commented out as they may have compatibility issues
-# from .archives.operation_centroid_propagation import OperationCentroidPropagation
-# from .archives.operation_cluster import OperationCluster
-# from .archives.operation_folds import OperationFolds
-# from .archives.operation_split import OperationSplit
-# from .archives.operation_subpipeline import OperationSubpipeline
-# from .archives.operation_tranformation import OperationTransformation
-# from .archives.op_transformer_mixin import OpTransformerMixin
+# Import base controller class
+from .base import BaseController
 
-# Import working modules
+# Import core controller infrastructure
 from .controller import OperatorController
 from .registry import register_controller, CONTROLLER_REGISTRY
 
-# Import actions FIRST to ensure controllers get registered before anything else uses the registry
-# from . import actions
+# Import flow control controllers
+from .flow.dummy import DummyController
 
-from .log.op_dummy import DummyController
+# Import model controllers (higher priority for supervised models)
+from .models.sklearn_model import SklearnModelController
+from .models.tensorflow_model import TensorFlowModelController
+# from .models.torch_model import PyTorchModelController
 
-# Import model controllers FIRST (higher priority for supervised models)
-from .sklearn.op_model import SklearnModelController
-from .tensorflow.op_model import TensorFlowModelController
-# from .torch.op_model import PyTorchModelController
+# Import transform controllers
+from .transforms.transformer import TransformerMixinController
+from .transforms.y_transformer import YTransformerMixinController
 
-# Then import transformers (lower priority)
-from .sklearn.op_transformermixin import TransformerMixinController
-from .sklearn.op_y_transformermixin import YTransformerMixinController
-from .dataset.op_feature_augmentation import FeatureAugmentationController
-from .dataset.op_sample_augmentation import SampleAugmentationController
-from .dataset.op_resampler import ResamplerController
-from .sklearn.op_split import CrossValidatorController
-from .chart.op_spectra_charts import SpectraChartController
-from .chart.op_fold_charts import FoldChartController
-from .chart.op_y_chart import YChartController
+# Import data manipulation controllers
+from .data.feature_augmentation import FeatureAugmentationController
+from .data.sample_augmentation import SampleAugmentationController
+from .data.resampler import ResamplerController
+
+# Import splitter controllers
+from .splitters.split import CrossValidatorController
+
+# Import chart controllers
+from .charts.spectra import SpectraChartController
+from .charts.folds import FoldChartController
+from .charts.targets import YChartController
+
 __all__ = [
+    'BaseController',
     'OperatorController',
     'register_controller',
     'CONTROLLER_REGISTRY',
@@ -55,5 +56,4 @@ __all__ = [
     'SklearnModelController',
     'TensorFlowModelController',
     # 'PyTorchModelController',
-    # Archived operations not included
 ]

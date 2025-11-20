@@ -11,87 +11,90 @@ The resampler uses scipy interpolation to estimate spectral values at new
 wavelengths based on the original wavelength-intensity relationship.
 """
 
+import argparse
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import ShuffleSplit
 from sklearn.cross_decomposition import PLSRegression
 
-from nirs4all.operators.transformations import Resampler, StandardNormalVariate
+from nirs4all.operators.transforms import Resampler, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 
-def main():
-    """Run resampler example."""
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q10 Resampler Example')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
+args = parser.parse_args()
 
-    print("=" * 70)
-    print("NIRS4ALL - Resampler Example")
-    print("=" * 70)
-    print()
+"""Run resampler example."""
 
-    # Example 1: Resample using wavelengths from another dataset (classification)
-    print("Example 1: Resample using wavelengths from classification dataset")
-    print("-" * 70)
+print("=" * 70)
+print("NIRS4ALL - Resampler Example")
+print("=" * 70)
+print()
 
-    # # Get wavelengths from classification dataset as target
-    classification_config = DatasetConfigs("sample_data/regression_2")
-    ref_dataset = classification_config.iter_datasets().__next__()
-    target_wl_from_other = ref_dataset.float_headers(0)
-    # print(f"Target wavelengths from classification dataset: {len(target_wl_from_other)} points")
-    # print(f"Range: {target_wl_from_other[0]:.1f} to {target_wl_from_other[-1]:.1f} cm-1")
+# Example 1: Resample using wavelengths from another dataset (classification)
+print("Example 1: Resample using wavelengths from classification dataset")
+print("-" * 70)
 
-    pipeline_other = [
-        "chart_2d",
-        Resampler(target_wavelengths=target_wl_from_other, method='linear'),
-        "chart_2d",
-    ]
+# # Get wavelengths from classification dataset as target
+classification_config = DatasetConfigs("sample_data/regression_2")
+ref_dataset = classification_config.iter_datasets().__next__()
+target_wl_from_other = ref_dataset.float_headers(0)
+# print(f"Target wavelengths from classification dataset: {len(target_wl_from_other)} points")
+# print(f"Range: {target_wl_from_other[0]:.1f} to {target_wl_from_other[-1]:.1f} cm-1")
 
-    # Apply to regression dataset
-    dataset_config = DatasetConfigs("sample_data/regression_3")
-    pipeline_config = PipelineConfigs(pipeline_other, name="Other_Dataset_Pipeline")
+pipeline_other = [
+    "chart_2d",
+    Resampler(target_wavelengths=target_wl_from_other, method='linear'),
+    "chart_2d",
+]
 
-    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=False)
-    predictions, _ = runner.run(pipeline_config, dataset_config)
+# Apply to regression dataset
+dataset_config = DatasetConfigs("sample_data/regression_3")
+pipeline_config = PipelineConfigs(pipeline_other, name="Other_Dataset_Pipeline")
 
-    # Example 2: Downsample to fewer points (descending order)
-    print("\nExample 2: Downsample from 125 to 10 wavelengths (descending)")
-    print("-" * 70)
+runner = PipelineRunner(save_files=True, verbose=1, plots_visible=args.plots)
+predictions, _ = runner.run(pipeline_config, dataset_config)
 
-    # Dataset wavelengths: 11012 down to 5966 cm⁻¹ (125 points, descending)
-    # Create 10 evenly spaced points in descending order
-    target_wl_downsample = np.linspace(11012, 5966, 10)  # Descending like original
+# Example 2: Downsample to fewer points (descending order)
+print("\nExample 2: Downsample from 125 to 10 wavelengths (descending)")
+print("-" * 70)
 
-    pipeline_downsample = [
-        "chart_2d",
-        Resampler(target_wavelengths=target_wl_downsample, method='linear'),
-        "chart_2d",
-    ]
+# Dataset wavelengths: 11012 down to 5966 cm⁻¹ (125 points, descending)
+# Create 10 evenly spaced points in descending order
+target_wl_downsample = np.linspace(11012, 5966, 10)  # Descending like original
 
-    pipeline_config = PipelineConfigs(pipeline_downsample, name="Downsample_Pipeline")
-    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=False)
-    predictions, _ = runner.run(pipeline_config, dataset_config)
+pipeline_downsample = [
+    "chart_2d",
+    Resampler(target_wavelengths=target_wl_downsample, method='linear'),
+    "chart_2d",
+]
 
-    # Example 3: Focus on fingerprint region (descending order)
-    print("\nExample 3: Resample to fingerprint region (9500-7000 cm^-1)")
-    print("-" * 70)
+pipeline_config = PipelineConfigs(pipeline_downsample, name="Downsample_Pipeline")
+runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+predictions, _ = runner.run(pipeline_config, dataset_config)
 
-    # Focus on mid-infrared fingerprint region with higher resolution (descending)
-    target_wl_cropped = np.linspace(9500, 7000, 50)  # Descending, 50 points
+# Example 3: Focus on fingerprint region (descending order)
+print("\nExample 3: Resample to fingerprint region (9500-7000 cm^-1)")
+print("-" * 70)
 
-    pipeline_cropped = [
-        'chart_2d',
-        Resampler(
-            target_wavelengths=target_wl_cropped,
-            method='linear'  # Linear interpolation
-        ),
-        'chart_2d',
-    ]
+# Focus on mid-infrared fingerprint region with higher resolution (descending)
+target_wl_cropped = np.linspace(9500, 7000, 50)  # Descending, 50 points
 
-    pipeline_config = PipelineConfigs(pipeline_cropped, name="Cropped_Pipeline")
+pipeline_cropped = [
+    'chart_2d',
+    Resampler(
+        target_wavelengths=target_wl_cropped,
+        method='linear'  # Linear interpolation
+    ),
+    'chart_2d',
+]
 
-    runner = PipelineRunner(plots_visible=False)
+pipeline_config = PipelineConfigs(pipeline_cropped, name="Cropped_Pipeline")
 
-    predictions, _ = runner.run(pipeline_config, dataset_config)
+runner = PipelineRunner(plots_visible=args.plots)
 
+predictions, _ = runner.run(pipeline_config, dataset_config)
 
-if __name__ == "__main__":
-    main()

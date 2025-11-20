@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
+import argparse
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import RepeatedKFold
 from sklearn.preprocessing import MinMaxScaler
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate
+from nirs4all.data import DatasetConfigs
+from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.models.cirad_tf import nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q8 SHAP Example')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
+args = parser.parse_args()
+
 print("Q8 - SHAP Model Explanation Example")
 
 pipeline = [
@@ -25,7 +33,7 @@ print("Training models...")
 runner = PipelineRunner(save_files=True, verbose=0)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
-best_prediction = predictions.top_k(1, metric='rmse', partition="test")[0]
+best_prediction = predictions.top(n=1, rank_metric='rmse', rank_partition="test", display_metrics=['rmse'])[0]
 print(f"Best model: {best_prediction['model_name']} (RMSE: {best_prediction['rmse']:.4f})")
 
 print("Running SHAP analysis...")
@@ -68,4 +76,4 @@ shap_params = {
     }
 }
 
-shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params, plots_visible=False)
+shap_results, output_dir = runner.explain(best_prediction, dataset_config, shap_params=shap_params, plots_visible=args.plots)

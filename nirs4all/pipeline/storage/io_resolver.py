@@ -1,0 +1,154 @@
+"""Prediction target resolver - resolves prediction targets for predict mode."""
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
+
+from nirs4all.data.predictions import Predictions
+
+
+class PredictionResolver:
+    """Resolves prediction targets for predict mode.
+
+    Focused responsibility: Finding and resolving prediction targets.
+    """
+
+    def __init__(self, workspace_path: Path):
+        """Initialize resolver for a workspace.
+
+        Args:
+            workspace_path: Root workspace directory
+        """
+        self.workspace_path = Path(workspace_path)
+
+    def resolve_target(
+        self,
+        prediction_obj: Union[Dict[str, Any], str]
+    ) -> tuple[str, Optional[Dict[str, Any]]]:
+        """Resolve prediction object to config path and model metadata.
+
+        Args:
+            prediction_obj: Either:
+                - Dict with 'config_path' and optional model metadata
+                - String: config path or prediction ID
+
+        Returns:
+            Tuple of (config_path, target_model_metadata)
+
+        Raises:
+            ValueError: If prediction ID not found or invalid input
+        """
+        if isinstance(prediction_obj, dict):
+            config_path = prediction_obj['config_path']
+            target_model = prediction_obj if 'model_name' in prediction_obj else None
+            return config_path, target_model
+
+        elif isinstance(prediction_obj, str):
+            # Check if it's a file path
+            if Path(prediction_obj).exists():
+                config_path = prediction_obj
+                target_model = None
+                return config_path, target_model
+
+            # Otherwise, treat as prediction ID
+            target_model = self.find_prediction_by_id(prediction_obj)
+            if not target_model:
+                raise ValueError(f"Prediction ID not found: {prediction_obj}")
+
+            config_path = target_model['config_path']
+            return config_path, target_model
+
+        else:
+            raise ValueError(f"Invalid prediction_obj type: {type(prediction_obj)}")
+
+    def find_prediction_by_id(self, prediction_id: str) -> Optional[Dict[str, Any]]:
+        """Search for a prediction by ID in global predictions databases.
+
+        Args:
+            prediction_id: Unique prediction identifier
+
+        Returns:
+            Prediction metadata dict, or None if not found
+        """
+        if not self.workspace_path.exists():
+            return None
+
+        # Define search paths (workspace root and runs directory)
+        search_paths = [self.workspace_path]
+        if (self.workspace_path / "runs").exists():
+            search_paths.append(self.workspace_path / "runs")
+
+        # Search in global prediction databases
+        for path in search_paths:
+            # Try Parquet files first (new format)
+            for predictions_file in path.glob("*.meta.parquet"):
+                if not predictions_file.is_file():
+                    continue
+
+                try:
+                    predictions = Predictions.load_from_file_cls(str(predictions_file))
+                    for pred in predictions.filter_predictions(load_arrays=True):
+                        if pred.get('id') == prediction_id:
+                            return pred
+                except Exception:
+                    continue
+
+            # Fall back to JSON files (legacy format)
+            for predictions_file in path.glob("*.json"):
+                if not predictions_file.is_file():
+                    continue
+
+                try:
+                    predictions = Predictions.load_from_file_cls(str(predictions_file))
+                    for pred in predictions.filter_predictions(load_arrays=True):
+                        if pred.get('id') == prediction_id:
+                            return pred
+                except Exception:
+                    continue
+
+        return None
+
+    def find_best_for_config(self, config_path: str) -> Optional[Dict[str, Any]]:
+        """Find the best prediction for a given config path.
+
+        Args:
+            config_path: Path to pipeline configuration
+
+        Returns:
+            Best prediction metadata, or None if not found
+        """
+        # Extract dataset name from path structure
+        # config_path typically: "runs/YYYY-MM-DD_dataset/0001_hash/pipeline.json"
+        path_parts = Path(config_path).parts
+
+        for part in path_parts:
+            if '_' in part and not part.startswith('_'):
+                # Likely the dataset directory
+                dataset_name = part.split('_', 1)[1]  # Remove date prefix
+                break
+        else:
+            return None
+
+        # Load predictions for this dataset
+        predictions_file = self.workspace_path / f"{dataset_name}.json"
+        if not predictions_file.exists():
+            # Try parquet format
+            predictions_file = self.workspace_path / f"{dataset_name}.meta.parquet"
+            if not predictions_file.exists():
+                return None
+
+        try:
+            predictions = Predictions.load_from_file_cls(str(predictions_file))
+
+            # Filter by config path
+            matching = [
+                p for p in predictions.filter_predictions(load_arrays=True)
+                if p.get('config_path') == config_path
+            ]
+
+            if not matching:
+                return None
+
+            # Return best by score (assumes lower is better, adjust as needed)
+            return min(matching, key=lambda p: p.get('test_score', float('inf')))
+
+        except Exception:
+            return None

@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras import layers as L
 
-from nirs4all.utils.backend_utils import framework
+from nirs4all.utils.backend import framework
 
 
 #####################
@@ -970,51 +970,51 @@ def nicon_enhanced(input_shape, params={}):
     """Enhanced nicon with attention and better architecture"""
     from tensorflow.keras.models import Model
     from tensorflow.keras.layers import Input
-    
+
     # Use Functional API to properly handle attention mechanism
     inputs = Input(shape=input_shape)
-    
+
     # Enhanced preprocessing
     x = SpatialDropout1D(params.get('spatial_dropout', 0.1))(inputs)
-    
+
     # Multi-scale feature extraction
     x = Conv1D(filters=32, kernel_size=25, strides=3, padding='same', activation="swish")(x)
     x = BatchNormalization()(x)
     x = Conv1D(filters=64, kernel_size=15, strides=2, padding='same', activation="swish")(x)
     x = BatchNormalization()(x)
     x = Dropout(params.get('dropout_rate', 0.2))(x)
-    
+
     # Channel attention (SENet-like) - properly implemented in Functional API
     channels = x.shape[-1]
     gap = GlobalAveragePooling1D()(x)
     gmp = GlobalMaxPooling1D()(x)
-    
+
     # Shared MLP for attention
     gap_dense = Dense(channels // 8, activation='swish')(gap)
     gmp_dense = Dense(channels // 8, activation='swish')(gmp)
-    
+
     gap_output = Dense(channels, activation='sigmoid')(gap_dense)
     gmp_output = Dense(channels, activation='sigmoid')(gmp_dense)
-    
+
     # Combine and reshape
     attention = Add()([gap_output, gmp_output])
     attention = Reshape((1, channels))(attention)
-    
+
     # Apply attention
     x = Multiply()([x, attention])
-    
+
     x = Conv1D(filters=128, kernel_size=7, strides=2, padding='same', activation="swish")(x)
     x = BatchNormalization()(x)
     x = Conv1D(filters=64, kernel_size=5, strides=1, padding='same', activation="swish")(x)
     x = BatchNormalization()(x)
-    
+
     # Global context
     x = GlobalAveragePooling1D()(x)
     x = Dense(params.get('dense_units', 32), activation="swish")(x)
     x = Dropout(0.3)(x)
     x = Dense(16, activation="swish")(x)
     outputs = Dense(1, activation="sigmoid")(x)
-    
+
     return Model(inputs, outputs, name="NICON_Enhanced")
 
 

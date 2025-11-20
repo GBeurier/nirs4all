@@ -8,6 +8,9 @@ Demonstrates model training, saving, and three different prediction methods:
 Shows how to reuse trained models for new data.
 """
 
+# Standard library imports
+import argparse
+
 # Third-party imports
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
@@ -16,11 +19,17 @@ from sklearn.model_selection import RepeatedKFold
 from sklearn.preprocessing import MinMaxScaler
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.operators.transformations import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
+from nirs4all.data import DatasetConfigs
+from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.models.cirad_tf import nicon
+from nirs4all.operators.models.tensorflow.nicon import nicon
 from nirs4all.utils.emoji import CHECK, CROSS
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q5 Predict Example')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
+args = parser.parse_args()
 
 # Build the pipeline with feature augmentation and model persistence
 pipeline = [
@@ -35,7 +44,7 @@ pipeline = [
     RepeatedKFold(n_splits=2, n_repeats=1, random_state=42),
 
     # Machine learning models
-    {"model": PLSRegression(10), "name": "Q4_PLS_10"},
+    {"model": PLSRegression(10), "name": "Q5_PLS_10"},
     # {"model": PLSRegression(20), "name": "Q4_PLS_20"},
     # {"model": GradientBoostingRegressor(n_estimators=20)},
     # nicon
@@ -50,7 +59,7 @@ runner = PipelineRunner(save_files=True, verbose=0)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Get best performing model for prediction testing
-best_prediction = predictions.top_k(1, partition="test")[0]
+best_prediction = predictions.top(n=1, rank_partition="test")[0]
 model_id = best_prediction['id']
 fold_id = best_prediction['fold_id']
 model_name = best_prediction['model_name']
@@ -76,6 +85,7 @@ method1_predictions, _ = predictor.predict(best_prediction, prediction_dataset, 
 method1_array = method1_predictions[:5].flatten()
 print("Method 1 predictions:", method1_array)
 is_identical = np.allclose(method1_array, reference_predictions)
+assert is_identical, "Method 1 predictions do not match reference!"
 print(f"Method 1 identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")
 
 print("=" * 80)
@@ -92,6 +102,7 @@ method2_predictions, _ = predictor2.predict(model_id, prediction_dataset2, verbo
 method2_array = method2_predictions[:5].flatten()
 print("Method 2 predictions:", method2_array)
 is_identical = np.allclose(method2_array, reference_predictions)
+assert is_identical, "Method 2 predictions do not match reference!"
 print(f"Method 2 identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")
 
 # Method 3: Predict using a model ID (same as Method 2, but showing the Predictions object return)
@@ -116,4 +127,5 @@ for pred in method3_preds_obj.to_dicts():
         method3_array = pred_float[:5].flatten()
         print("Method 3 predictions:", method3_array)
         is_identical = np.allclose(method3_array, reference_predictions)
+        assert is_identical, "Method 3 predictions do not match reference!"
         print(f"Method 3 identical to training: {f'{CHECK}YES' if is_identical else f'{CROSS}NO'}")

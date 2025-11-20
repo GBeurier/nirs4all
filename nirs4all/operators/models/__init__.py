@@ -1,12 +1,19 @@
 """
 Models module for presets.
 
-This module contains model definitions and references.
+This module contains model definitions and references organized by framework.
 """
 
-from .cirad_tf import *
-# from .cirad_torch import *
-from .generic_tf import *
-# from .generic_torch import *
+from .base import BaseModelOperator
 
-__all__ = []
+# Import TensorFlow models
+from .tensorflow.nicon import *
+from .tensorflow.generic import *
+
+# Import PyTorch models (currently commented out)
+# from .pytorch.nicon import *
+# from .pytorch.generic import *
+
+__all__ = [
+    "BaseModelOperator",
+]

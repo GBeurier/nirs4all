@@ -6,6 +6,7 @@ preprocessing combinations and neural network models.
 """
 
 # Standard library imports
+import argparse
 from matplotlib import pyplot as plt
 
 # Third-party imports
@@ -18,16 +19,21 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.svm import SVR
 
 # NIRS4All imports
-from nirs4all.dataset import DatasetConfigs
-from nirs4all.dataset.predictions import Predictions
-from nirs4all.dataset.prediction_analyzer import PredictionAnalyzer
-from nirs4all.operators.models.cirad_tf import nicon
-from nirs4all.operators.transformations import (
+from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
+from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.operators.models.tensorflow.nicon import nicon
+from nirs4all.operators.transforms import (
     Gaussian, SavitzkyGolay, StandardNormalVariate, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.utils.emoji import REFRESH
 
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Q4 Multi-Datasets Example')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots')
+args = parser.parse_args()
 
 # Build the pipeline with feature augmentation
 pipeline = [
@@ -93,28 +99,29 @@ for dataset_name, dataset_prediction in predictions_per_dataset.items():
 
     # Get the Predictions object from the dataset_prediction dictionary
     dataset_predictions = dataset_prediction['run_predictions']
-    top_models = dataset_predictions.top_k(4, 'rmse')
+    top_models = dataset_predictions.top(n=4, rank_metric='rmse')
     print("Top 4 models by RMSE:")
     for idx, model in enumerate(top_models):
         print(f"{idx+1}. {Predictions.pred_long_string(model, metrics=['rmse', 'r2', 'mae'])}")
 
     # Plot comparison for this dataset
     analyzer = PredictionAnalyzer(dataset_predictions)
-    fig = analyzer.plot_top_k_comparison(k=5, rank_metric='rmse')
+    fig = analyzer.plot_top_k(k=5, rank_metric='rmse')
 
 # Overall analysis across all datasets
 analyzer = PredictionAnalyzer(predictions)
 
 # Plot heatmap: models vs datasets
-fig2 = analyzer.plot_variable_heatmap(
+fig2 = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="dataset_name",
 )
 
 # Plot candlestick chart for model performance distribution
-fig3 = analyzer.plot_variable_candlestick(
-    filters={"partition": "test"},
+fig3 = analyzer.plot_candlestick(
     variable="model_name",
+    partition="test"
 )
 
-# plt.show()
+if args.show:
+    plt.show()

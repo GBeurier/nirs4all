@@ -1,82 +1,107 @@
+## BUGS CRITICAL ##
+
+
 ## ROADMAP ##
 
+**RELEASE** 0.4.1: Folder/File structure rc
+
 **Bugs**:
->   - [heatmap v2] NA in pred charts + Pred charts missing in multi datasets
->   - [_or_] with one element fallback on dummy controller
-
-
-> [Cleaning] Modularize/Clean/Refactor: PipelineRunner, Targets, Predictions, BaseModelController, PredictionAnalyzer, Model_builder, Evaluator
-
-> [CI/CD] remove systematic test on github actions - only for tags or a subset of tests.
-
-> [Structure] Update file naming and project tree structure
-
-> [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
-
 > [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
+- op_fold_charts:
+  lines 140-157 > The op_fold_charts save directly the image with runner saver instead of returning the image to save.
+- op_split:
+  line 250-260 > same problems as op_fold_charts. Save directly instead of returning tuple
 
-**RELEASE** 0.4.1
+- selector_dict = _selector_to_dict(selector)
+  indices = self._indexer.x_indices(selector_dict, include_augmented=True)
+  >> simplify
 
-**Bugs**:
->   - [_or_] with one element fallback on dummy controller
+
+> [BaseModel] review globally the base model and sub models structure > refactoring
 
 > [Pytorch] controller
+
+> [Jax] controller
 
 > [Imports] import tf and pytorch only when needed, reup backend_utils.
 
 > [SEED] review and fix definitive logic
 
-**RELEASE** 0.4.2
+> [SHAP] Fix import with new numpy / shap package
 
-> [ReadsTheDoc] minimal subset of signatures + update and export MD
+**RELEASE** 0.4.2: Torch & Jax
 
-**RELEASE** 0.5
 
-> [Chart controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
+> [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
-> **Enhancement**:
-> - Options normalisation in charts (0-1 ou 1-0)
+> [ReadsTheDoc] regenerate and publish RTD.
+
+**RELEASE** 0.5: Documentation
+
+
+> [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
+
+> [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline.
+
+
+**RELEASE** 0.5.1: Chart and Analyses
+
+
+**Bugs**:
+>   - [_or_] with one element fallback on dummy controller
 
 > [Predictions] as a pipeline context.
 
-> [Metrics] uniformize Model_Utils / Evaluator / Predictions and add custom losses
+> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss
+
+> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
 
 **Bugs**:
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
 
-> [Deprec: Model selection] Tools to select "best" predictions | verify if already exists
+**RELEASE** 0.5.2: Data Flow
+
 
 > [Folds] Operator load fold (csv)
 
-> [PLS] implements all PLS (cf. doc.md)
+> [PLS] implements all PLS (cf. doc)
 
-> [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin)
+> [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin) _ add data aug operators en masse.
 
-**RELEASE** 0.6
+**RELEASE** 0.6: Minimal Valuable Controllers
+
 
 > [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
 
 > [Runner] Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
 
-> [Logs] implement feature and update print/log strategy
-
-> [Examples] update, clean and document examples and tutorial notebooks
-
 > [Dummy_Controller] remove totally and manage exceptions
 
-**RELEASE** 0.7: Cli framework
+**RELEASE** 0.6.1: Pipeline logic
+
+
+> [Logs] implement feature and update print/log strategy
+
+> [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
+
+**RELEASE** 0.7: User experience
+
 
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
-**RELEASE** 0.8: SIGNATURE FREEZE
+> [Pipeline] verify and clean type for input in pipeline
+
+**RELEASE** 0.8: CLI
+
 
 > [GLOBAL REVIEW] v1.0 signatures freeze (private pattern _module), Complete tests > Prod coverage (transformations, controllers, predictions, datasets, runner)
 
 > [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
 
-**RELEASE**  0.9 apha: MVP (feature complete)
+**RELEASE**  0.9 alpha: Minimum Viable Product. Signatures frozen.
+
 
 > [Y_pipeline in models]
 
@@ -86,23 +111,31 @@
 
 > [Transformations] Asymetric processings (PCA in pipelines) > auto/optional padding and cropping
 
-**RELEASE** 0.10 beta: GUI version (wync with nirs4all_ui project)
+**RELEASE** 0.10 beta: Operators & Controllers rc
+
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
 
 > [DEPLOY] standalone installer, web installer
 
-**RELEASE** 0.11 rc
+**RELEASE** 0.11 rc - GUI version (cf. nirs4all_ui)
 
-> [REVIEW] Documentation complete, Dead code removed,
 
-**RELEASE** 1.0
+> [REVIEW] Complete documentation (RTD, Tutorial, Examples), remove dead code and #TODOs, validate tests coverage
+
+**RELEASE** 1.0: Release
+
+
 
 **RELEASE** 1.x.x
+
+> [Classification] averaging
 
 > [Pipeline + Optuna] Pipeline as optuna trial. The pp become a choice param. Goal is to stack pp each time score stop progress, select the good ones by feats augmentation and by pp order (1st, 2nd, etc.) and stop once it drops.
 
 > [Transfer] Automate best transfer model
+
+> [Generator] add in-place/internal generation
 
 > [Mid Fusion] Multi head models
 
@@ -110,20 +143,15 @@
 
 > [Clustering Controllers]
 
+> [Analysis] t-sne, umap
+
 > [HugginFace deploy]
 
 > [CLUSTERED COMPUTATION + SERV/CLIENT]
 
-> [Classification] averaging
-
-> [PRINT] optional processings tags on models
-
-> [Generator] add in-place/internal generation
-
-> [Analysis] t-sne, umap
-
-
 #### EXCITERS ####
+- Options normalisation in charts (0-1 ou 1-0)
+- better model naming (with optional pp included) for UX
 - feature_augmentation with first item replacement
 - add NorrisWilliams, Whittaker, BandEnergies, FiniteDiffCentral transformermixin
 - (ui) Clean user interface on datasetConfig/dataset, pipelineConfig/pipeline, predictions
