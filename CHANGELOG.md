@@ -5,49 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.1] - 2025-01-XX
+## [0.4.1] - 2025-11-20
+
+### Major Refactoring and Architecture Improvements
+This release introduces significant architectural changes, refactoring the codebase for better modularity, type safety, and maintainability.
 
 ### Added
-- **Feature Components Architecture**: Complete refactoring of feature management system
-  - New modular component-based architecture for `FeatureSource`
-  - Type-safe enums for layouts (`FeatureLayout`) and header units (`HeaderUnit`)
-  - Six specialized components: `ArrayStorage`, `ProcessingManager`, `HeaderManager`, `LayoutTransformer`, `UpdateStrategy`, `AugmentationHandler`
-  - Comprehensive test suite for feature components (`test_feature_components.py`)
-  - Migration guide documentation (`FEATURE_COMPONENTS_MIGRATION.md`)
-
-- **Predictions Components Architecture**: Complete refactoring of predictions management system
-  - New modular component-based architecture for `Predictions` class
-  - Six specialized components: `PredictionStorage`, `PredictionSerializer`, `PredictionIndexer`, `PredictionRanker`, `PartitionAggregator`, `CatalogQueryEngine`
-  - Reduced main file from 2046 to 895 lines (56% reduction)
-  - Complete refactoring documentation (`predictions_refactoring_completed.md`)
+- **Core Architecture**:
+  - **Folder Structure**: Complete reorganization of `controllers`, `core`, `data`, `tests`, `examples`, and `docs`.
+  - **Context Handling**: Typed `ExecutionContext` and mutable `DataSelector`.
+  - **Dataset**: `SpectroDataset` refactored to use `ArrayRegistry` and split-parquet storage.
+  - **Pipeline**: Refactored execution, step handling, and artifact management.
+  - **Models**: Modularized `BaseModelController`.
+- **Features & Tools**:
+  - `run.ps1` script for unified example execution.
+  - `--show-plots` CLI argument.
+  - `StratifiedKFold` and `StratifiedShuffleSplit` support.
+  - New storage modules for pipeline management.
+- **Feature Components Architecture**:
+  - New modular component-based architecture for `FeatureSource`.
+  - Type-safe enums for layouts and header units.
+  - Six specialized components: `ArrayStorage`, `ProcessingManager`, `HeaderManager`, `LayoutTransformer`, `UpdateStrategy`, `AugmentationHandler`.
+- **Predictions Components Architecture**:
+  - New modular component-based architecture for `Predictions` class.
+  - Six specialized components: `PredictionStorage`, `PredictionSerializer`, `PredictionIndexer`, `PredictionRanker`, `PartitionAggregator`, `CatalogQueryEngine`.
 
 ### Changed
-- `FeatureSource` class moved from `nirs4all/data/feature_source.py` to `nirs4all/data/feature_components/feature_source.py`
-- Internal usage of layouts and header units now uses enums for type safety
-- Improved error messages with enum validation
-- `Predictions` class now uses component-based delegation pattern
+- **Visualization**:
+  - Refactored `FoldChart`, `SpectraChart`, `ConfusionMatrix`.
+  - Improved classification visualization (discrete color mapping).
+  - Reorganized SHAP and PCA analyzers.
+- **Internal**:
+  - Migrated component imports to internal `_*` modules.
+  - Centralized evaluator and serialization logic.
+  - Hardened Optuna sampling and logging.
+- `FeatureSource` class moved to `nirs4all/data/feature_components/feature_source.py`.
 
 ### Fixed
-- **Critical**: Missing `pipeline_uid` in prediction ranker results (was breaking prediction replay functionality)
-- **Critical**: NumPy array weights handling in predictions (`weights or []` causing ValueError)
-- Evaluator import path issues (circular import fix)
-- Header unit preservation when adding samples with existing headers
+- **Critical**: Missing `pipeline_uid` in prediction ranker results.
+- **Critical**: NumPy array weights handling in predictions.
+- Evaluator import path issues.
+- Header unit preservation when adding samples.
 
-### Deprecated
-- Direct import from `nirs4all.data.feature_source` (use `from nirs4all.data import FeatureSource` instead)
+### Documentation & Tests
+- Restructured tests to mirror source code.
+- Added a few architecture reviews, roadmap updates, and developer guides.
+- Removed obsolete or review documents.
 
-### Backward Compatibility
-- ✅ All existing code continues to work without modification
-- ✅ String layouts and header units still accepted (features)
-- ✅ Public API remains unchanged (both features and predictions)
-- ✅ Deprecation warnings for old import paths
-- ✅ Integration tests passing (7/8, 1 pre-existing TensorFlow import issue)
-
-### Developer Notes
-- See `docs/developer/FEATURE_COMPONENTS_MIGRATION.md` for feature refactoring details
-- See `docs/reports/predictions_refactoring_completed.md` for predictions refactoring summary
-- All tests passing with 100% backward compatibility
-- Original monolithic predictions file preserved as `predictions_OLD_BACKUP.py`
-
-## [0.4.0] - Previous Release
-<!-- Previous changelog entries -->

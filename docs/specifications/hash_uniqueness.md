@@ -416,4 +416,3 @@ pipeline_b = [{"model": PLSRegression(n_components=10), "name": "PLS-10"}]
 ---
 
 **Last Updated**: October 14, 2025
-**Version**: 1.0
