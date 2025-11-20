@@ -47,7 +47,7 @@ class StepParser:
 
     # Known serialization operators
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
-    
+
     # Reserved keywords that are not operators
     RESERVED_KEYWORDS = ["params", "metadata", "steps"]
 
@@ -116,10 +116,10 @@ class StepParser:
         # Look for potential workflow operators
         # Heuristic: any key that is not reserved and not a serialization operator
         candidates = [
-            k for k in step.keys() 
+            k for k in step.keys()
             if k not in self.RESERVED_KEYWORDS and k not in self.SERIALIZATION_OPERATORS
         ]
-        
+
         if candidates:
             # If multiple candidates, pick the first one (or prioritize?)
             # For now, assume the first one is the operator
@@ -146,11 +146,11 @@ class StepParser:
     def _parse_string_step(self, step: str) -> ParsedStep:
         """Parse string step configuration."""
         # For strings, we can't easily distinguish between keyword and class path
-        # unless we check against a list. 
+        # unless we check against a list.
         # But we want to avoid hardcoded lists.
         # If it looks like a class path (contains dots), treat as serialized.
         # If it's a single word, treat as keyword/workflow.
-        
+
         if "." in step:
              # Deserialize as a class/function reference
             operator = deserialize_component(step)
