@@ -14,6 +14,8 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter
 from nirs4all.utils.backend import TORCH_AVAILABLE, framework
+from nirs4all.operators.models.pytorch.nicon import nicon
+
 
 if not TORCH_AVAILABLE:
     print("PyTorch is not available. Skipping example.")
@@ -61,14 +63,15 @@ data_path_reg = 'sample_data/regression'
 
 pipeline_reg = [
     StandardScaler,
-    SPXYSplitter(0.25),
+    # SPXYSplitter(0.25),
     ShuffleSplit(n_splits=2, test_size=0.25),
     {
         'model': SimplePyTorchMLP(), # Use instance, ModelFactory will inject input_shape
         'train_params': {
             'verbose': 1
         }
-    }
+    },
+    nicon
 ]
 
 runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)

@@ -76,7 +76,13 @@ class ModelFactory:
 
         context = {'partition': 'train'}
         # Use VOLUME_3D_TRANSPOSE for TensorFlow to match Conv1D layout
-        layout = FeatureLayout.VOLUME_3D_TRANSPOSE.value if framework == 'tensorflow' else FeatureLayout.FLAT_2D.value
+        # Use VOLUME_3D for PyTorch to match (N, C, L) layout
+        if framework == 'tensorflow':
+            layout = FeatureLayout.VOLUME_3D_TRANSPOSE.value
+        elif framework == 'pytorch':
+            layout = FeatureLayout.VOLUME_3D.value
+        else:
+            layout = FeatureLayout.FLAT_2D.value
 
         try:
             X = dataset.x(context, layout=layout, concat_source=True)
@@ -218,6 +224,11 @@ class ModelFactory:
         if 'type' in model_dict and model_dict['type'] == 'function':
             # New format: {"type": "function", "func": <func>, "framework": "tensorflow", "params": {...}}
             callable_model = model_dict['func']
+
+            # Fix for nested dicts (serialized functions)
+            if isinstance(callable_model, dict) and 'func' in callable_model:
+                 callable_model = callable_model['func']
+
             params = model_dict.get('params', {}).copy()
             framework = model_dict.get('framework', None)
 
@@ -687,10 +698,24 @@ class ModelFactory:
         signature = inspect.signature(cls)
         current_params = obj.__dict__.copy()  # This assumes the object stores its state in __dict__
 
+        # Check if object is a Flax module
+        is_flax_module = False
+        if JAX_AVAILABLE:
+            try:
+                import flax.linen as nn
+                if isinstance(obj, nn.Module):
+                    is_flax_module = True
+            except ImportError:
+                pass
+
         final_args = {}
 
         for name, param in signature.parameters.items():
             if name == 'self':  # Skip 'self'
+                continue
+
+            # Skip 'parent' for Flax modules to avoid Type mismatch errors
+            if is_flax_module and name == 'parent':
                 continue
 
             if name in force_params:
