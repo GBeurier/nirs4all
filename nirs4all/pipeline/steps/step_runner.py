@@ -92,7 +92,7 @@ class StepRunner:
             substeps = parsed_step.metadata["steps"]
             current_context = context
             all_artifacts = []
-            
+
             for substep in substeps:
                 result = self.execute(
                     step=substep,
@@ -104,7 +104,7 @@ class StepRunner:
                 )
                 current_context = result.updated_context
                 all_artifacts.extend(result.artifacts)
-                
+
             return StepResult(updated_context=current_context, artifacts=all_artifacts)
 
         # Route to controller
