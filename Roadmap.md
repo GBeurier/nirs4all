@@ -1,23 +1,7 @@
 ## BUGS CRITICAL ##
-Q6 reuse predict NO
->> predict tag now partition but it transformers are applied on sub partitions. It should one shot the prediction then apply the partitions.
-
-
-selector_dict = _selector_to_dict(selector)
-indices = self._indexer.x_indices(selector_dict, include_augmented=True)
->> simplify
 
 
 ## ROADMAP ##
-
-> [PipelineRunner] Refactor, modularize, clean, anticipate 0.6.1, authorize list of pipelineconfigs instead of pipelines
-
-> [Review] pipeline module. Redondancy in serialization, binary_loader, artifact_serialization, io, or reorganization ?
-
-> [Review] data module. bad naming of folders and binning should'nt be there > it's related to augmentation ?
-
-> [Tests] increase indexer coverage, reduce test redondancy. Reduce to around 400 tests maybe
-
 
 **RELEASE** 0.4.1: Folder/File structure rc
 
@@ -27,6 +11,11 @@ indices = self._indexer.x_indices(selector_dict, include_augmented=True)
   lines 140-157 > The op_fold_charts save directly the image with runner saver instead of returning the image to save.
 - op_split:
   line 250-260 > same problems as op_fold_charts. Save directly instead of returning tuple
+
+- selector_dict = _selector_to_dict(selector)
+  indices = self._indexer.x_indices(selector_dict, include_augmented=True)
+  >> simplify
+
 
 > [BaseModel] review globally the base model and sub models structure > refactoring
 
