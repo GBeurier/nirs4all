@@ -95,7 +95,7 @@ class TestGroupSplitExecution:
             metadata=StepMetadata()
         )
 
-        context, binaries = controller.execute(
+        context, step_output = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
             context=context, runtime_context=make_mock_runtime_context(), mode="train"
         )
@@ -112,8 +112,8 @@ class TestGroupSplitExecution:
             assert len(set(train_batches) & set(val_batches)) == 0
 
         # Verify binary filename includes group
-        assert len(binaries) == 1
-        assert "group-batch" in binaries[0][0]
+        assert len(step_output.outputs) == 1
+        assert "group-batch" in step_output.outputs[0][1]
 
     def test_default_group_column(self, dataset_with_metadata):
         """Test default to first metadata column."""
@@ -126,13 +126,13 @@ class TestGroupSplitExecution:
         )
 
         # Should use first column (batch) by default
-        context, binaries = controller.execute(
+        context, step_output = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
             context=context, runtime_context=make_mock_runtime_context(), mode="train"
         )
 
         assert dataset_with_metadata._folds is not None
-        assert "group-batch" in binaries[0][0]
+        assert "group-batch" in step_output.outputs[0][1]
 
     def test_group_shuffle_split(self, dataset_with_metadata):
         """Test GroupShuffleSplit with location column."""
@@ -144,7 +144,7 @@ class TestGroupSplitExecution:
             metadata=StepMetadata()
         )
 
-        context, binaries = controller.execute(
+        context, step_output = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
             context=context, runtime_context=make_mock_runtime_context(), mode="train"
         )
@@ -219,7 +219,7 @@ class TestGroupSplitExecution:
             metadata=StepMetadata()
         )
 
-        context, binaries = controller.execute(
+        context, step_output = controller.execute(
             step_info=make_step_info(step), dataset=dataset_with_metadata,
             context=context, runtime_context=make_mock_runtime_context(), mode="train"
         )
@@ -237,14 +237,14 @@ class TestGroupSplitExecution:
             metadata=StepMetadata()
         )
 
-        context, binaries = controller.execute(
+        context, step_output = controller.execute(
             step_info=make_step_info(step["split"], step), dataset=dataset_with_metadata,
             context=context, runtime_context=make_mock_runtime_context(), mode="predict"
         )
 
         # Should create dummy folds for prediction mode
         assert dataset_with_metadata._folds is not None
-        assert len(binaries) == 0  # No binaries in predict mode
+        assert len(step_output.outputs) == 0  # No binaries in predict mode
 
 
 class TestSerialization:
