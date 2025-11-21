@@ -71,6 +71,10 @@ class SklearnModelController(BaseModelController):
         # Use Factory to detect framework
         framework = ModelFactory.detect_framework(model)
 
+        # If framework is unknown but we have an operator, try to detect from operator
+        if framework == 'unknown' and operator is not None:
+            framework = ModelFactory.detect_framework(operator)
+
         # 1. Safety Net: Explicitly reject other specific frameworks
         # This prevents the controller from "stealing" models if priorities are messed up later
         if framework in ['tensorflow', 'pytorch', 'jax']:
@@ -81,7 +85,12 @@ class SklearnModelController(BaseModelController):
         if framework == 'sklearn':
              # If it's a raw object, it MUST have predict
              if not is_explicit_model:
-                 return hasattr(model, 'predict')
+                 if hasattr(model, 'predict'):
+                     return True
+                 # Also check the operator if available (handles dict steps where operator is instantiated)
+                 if operator is not None and hasattr(operator, 'predict'):
+                     return True
+                 return False
              # If it's explicit {"model": ...}, we accept it
              return True
 
@@ -91,10 +100,6 @@ class SklearnModelController(BaseModelController):
 
         # 4. Accept generic objects with fit/predict methods (Duck Typing)
         if hasattr(model, 'fit') and hasattr(model, 'predict'):
-            return True
-
-        # 5. Aggressive Fallback: Accept any dict with 'model' key
-        if is_explicit_model:
             return True
 
         return False
