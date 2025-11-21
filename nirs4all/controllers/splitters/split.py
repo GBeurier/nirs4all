@@ -107,6 +107,8 @@ class CrossValidatorController(OperatorController):
         * Maps local indices back to the global index space.
         * Stores the list of folds into the dataset for subsequent steps.
         """
+        from nirs4all.pipeline.execution.result import StepOutput
+
         op = step_info.operator
         # In predict/explain mode, skip fold splitting entirely
         if mode == "predict" or mode == "explain":
@@ -124,7 +126,7 @@ class CrossValidatorController(OperatorController):
 
             n_folds = op.get_n_splits(**kwargs) if hasattr(op, "get_n_splits") else 1
             dataset.set_folds([(list(range(n_samples)), [])] * n_folds)
-            return context, []
+            return context, StepOutput()
 
         # Extract group column specification from step dict (train mode only)
         group_column = None
@@ -244,25 +246,16 @@ class CrossValidatorController(OperatorController):
             seed = getattr(op, "random_state")
             if seed is not None:
                 folds_name += f"_seed{seed}"
-        folds_name += ".csv"
+        # folds_name += ".csv" # Extension handled by StepOutput tuple
 
         # print(f"Generated {len(folds)} folds.")
 
-        # Save folds CSV as output in the pipeline directory (not as binary artifact)
-        # Handle case where runner is None (e.g., in unit tests)
-        if runtime_context and hasattr(runtime_context, 'saver') and runtime_context.saver:
-            output_path = runtime_context.saver.save_output(
-                step_number=runtime_context.step_number,
-                name=folds_name.replace('.csv', ''),  # Name without extension
-                data=binary,
-                extension='.csv'
-            )
-            # Return output info instead of artifact
-            if output_path:
-                return context, [{"name": folds_name, "path": str(output_path), "type": "folds_csv"}]
+        # Create StepOutput with the CSV
+        step_output = StepOutput(
+            outputs=[(binary, folds_name, "csv")]
+        )
 
-        # Fallback for tests: return binary directly
-        return context, [(folds_name, binary)]
+        return context, step_output
         # else:
         #     n_folds = operator.get_n_splits(**kwargs) if hasattr(operator, "get_n_splits") else 1
         #     dataset.set_folds([(list(range(n_samples)), [])] * n_folds)

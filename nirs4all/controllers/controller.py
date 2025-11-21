@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Tuple, Optional, Union, TYPE_CHECKING
 
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.pipeline.execution.result import StepOutput
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
@@ -48,7 +49,7 @@ class OperatorController(ABC):
         mode: str = "train",
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Any] = None
-    ):
+    ) -> Tuple["ExecutionContext", Any]:
         """
         Run the operator with the given parameters and context.
 
@@ -61,6 +62,9 @@ class OperatorController(ABC):
             mode: Execution mode ("train" or "predict")
             loaded_binaries: Pre-loaded binary objects for prediction mode
             prediction_store: External prediction store for model predictions
+
+        Returns:
+            Tuple of (updated_context, StepOutput)
         """
         raise NotImplementedError("Subclasses must implement this method.")
 

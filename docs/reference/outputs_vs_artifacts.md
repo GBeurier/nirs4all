@@ -7,13 +7,15 @@ The nirs4all serialization system distinguishes between two types of saved files
 1. **Artifacts** - Internal binary objects (models, transformers, scalers) stored in content-addressed storage
 2. **Outputs** - Human-readable files (charts, reports, CSV) stored in organized directories
 
-## Architecture
+## Architecture: "Return, Don't Save"
+
+To ensure clean separation of concerns and testability, controllers **do not save files directly**. Instead, they return a `StepOutput` object containing the data to be saved. The `PipelineExecutor` handles the actual file I/O.
 
 ### Artifacts (Internal Binary Storage)
 
 **Purpose:** Deduplicated storage of trained models and transformers
 **Location:** `results/artifacts/objects/<hash[:2]>/<hash>.<ext>`
-**Method:** `runner.saver.persist_artifact()`
+**Method:** Return `StepOutput(artifacts={...})`
 **Respects save_files flag:** ✅ YES
 
 **What gets stored as artifacts:**
@@ -31,20 +33,19 @@ The nirs4all serialization system distinguishes between two types of saved files
 **Example:**
 ```python
 # In model controller
-artifact = runner.saver.persist_artifact(
-    step_number=runner.step_number,
-    name="RandomForest_model.joblib",
-    obj=trained_model,
-    format_hint='sklearn_joblib'
+from nirs4all.pipeline.execution.result import StepOutput
+
+return context, StepOutput(
+    artifacts={"model": trained_model}
 )
-# Saved to: results/artifacts/objects/ab/abc123...joblib
+# Executor saves to: results/artifacts/objects/ab/abc123...joblib
 ```
 
 ### Outputs (Human-Readable Files)
 
 **Purpose:** User-accessible files for viewing and sharing
 **Location:** `results/outputs/<dataset>_<pipeline>/<filename>`
-**Method:** `runner.saver.save_output()`
+**Method:** Return `StepOutput(outputs=[...])`
 **Respects save_files flag:** ✅ YES
 
 **What gets stored as outputs:**
@@ -62,13 +63,15 @@ artifact = runner.saver.persist_artifact(
 **Example:**
 ```python
 # In chart controller
-output_path = runner.saver.save_output(
-    step_number=runner.step_number,
-    name="2D_Chart",
-    data=img_png_binary,
-    extension='.png'
+from nirs4all.pipeline.execution.result import StepOutput
+
+# Generate chart data
+img_png_binary = ...
+
+return context, StepOutput(
+    outputs=[(img_png_binary, "2D_Chart", "png")]
 )
-# Saved to: results/outputs/regression_Q1_47be36/2D_Chart.png
+# Executor saves to: results/outputs/regression_Q1_47be36/2D_Chart.png
 ```
 
 ## Directory Structure
@@ -113,8 +116,8 @@ runner = PipelineRunner(save_files=False)
 ```
 
 When `save_files=False`:
-- ✅ **persist_artifact()** returns metadata but doesn't save files
-- ✅ **save_output()** returns None and doesn't create files
+- ✅ **Executor** skips saving artifacts
+- ✅ **Executor** skips saving outputs
 - ✅ Pipeline can still run and generate predictions
 - ✅ No disk space used
 
@@ -123,7 +126,7 @@ When `save_files=False`:
 ### Saving a Chart (Output)
 
 ```python
-def execute(self, step, operator, dataset, context, runner, source, mode, loaded_binaries, prediction_store):
+def execute(self, step_info, dataset, context, runtime_context, ...):
     # Generate chart
     fig, ax = plt.subplots()
     ax.plot(data)
@@ -133,62 +136,40 @@ def execute(self, step, operator, dataset, context, runner, source, mode, loaded
     fig.savefig(img_buffer, format='png', dpi=300)
     img_png_binary = img_buffer.getvalue()
 
-    # Save as human-readable output
-    output_path = runner.saver.save_output(
-        step_number=runner.step_number,
-        name="2D_Chart",
-        data=img_png_binary,
-        extension='.png'
+    # Return StepOutput
+    return context, StepOutput(
+        outputs=[(img_png_binary, "2D_Chart", "png")]
     )
-
-    if output_path:
-        print(f"📊 Chart saved to: {output_path}")
-
-    return context, []
 ```
 
 ### Saving a Model (Artifact)
 
 ```python
-def _save_model(self, model, model_name, runner):
-    artifact = runner.saver.persist_artifact(
-        step_number=runner.step_number,
-        name=f"{model_name}.joblib",
-        obj=model,
-        format_hint='sklearn_joblib'
+def execute(self, step_info, dataset, context, runtime_context, ...):
+    # Train model
+    model.fit(X, y)
+
+    # Return StepOutput
+    return context, StepOutput(
+        artifacts={"model": model}
     )
-
-    # Artifact contains:
-    # {
-    #   "hash": "sha256:abc123...",
-    #   "name": "RandomForest.joblib",
-    #   "path": "objects/ab/abc123...joblib",
-    #   "format": "sklearn_joblib",
-    #   "size": 15360,
-    #   "step": 3
-    # }
-
-    return artifact
 ```
 
 ## Migration Notes
 
 ### Before (Old System)
 
-Charts were saved with `persist_artifact()`:
-- ❌ Stored in content-addressed storage
-- ❌ Hard to find (`objects/ab/abc123...png`)
-- ❌ No human-readable organization
-- ✅ But deduplicated if identical
+Controllers called `saver.save_output()` or `saver.persist_artifact()` directly:
+- ❌ Coupled to file system
+- ❌ Hard to test without mocking I/O
+- ❌ Inconsistent return types
 
 ### After (New System)
 
-Charts are saved with `save_output()`:
-- ✅ Stored in organized directories
-- ✅ Easy to find (`outputs/dataset_pipeline/Chart.png`)
-- ✅ Human-readable names
-- ✅ Respects save_files flag
-- ⚠️ No deduplication (acceptable for outputs)
+Controllers return `StepOutput`:
+- ✅ Decoupled from I/O
+- ✅ Easy to test (check returned object)
+- ✅ Consistent return type (`StepOutput`)
 
 ## Finding Your Files
 
@@ -217,42 +198,39 @@ results/artifacts/objects/cd/cdef456...pkl    # Scaler file
 
 ## Best Practices
 
-1. **For human viewing** (charts, reports) → Use `save_output()`
-2. **For pipeline replay** (models, transformers) → Use `persist_artifact()`
+1. **For human viewing** (charts, reports) → Return in `outputs` list
+2. **For pipeline replay** (models, transformers) → Return in `artifacts` dict
 3. **Disable saving for tests** → Set `save_files=False`
 4. **Check outputs directory** → `results/outputs/<dataset>_<pipeline>/`
 
 ## Implementation Details
 
-### SimulationSaver Class
+### StepOutput Class
 
 ```python
-class SimulationSaver:
-    def __init__(self, base_path, save_files=True):
-        self.save_files = save_files  # ← Controls saving behavior
+@dataclass
+class StepOutput:
+    """Standardized output from a controller execution."""
+    # Internal binaries (models, transformers)
+    artifacts: Dict[str, Any] = field(default_factory=dict)
 
-    def persist_artifact(self, step_number, name, obj, format_hint=None):
-        if not self.save_files:
-            return {"skipped": True, "reason": "save_files=False"}
-        # ... save to artifacts/objects/
-
-    def save_output(self, step_number, name, data, extension):
-        if not self.save_files:
-            return None
-        # ... save to outputs/<dataset>_<pipeline>/
+    # User outputs (charts, reports)
+    # List of tuples: (data_object, filename_hint, type_hint)
+    outputs: List[Tuple[Any, str, str]] = field(default_factory=list)
 ```
 
-### Updated Controllers
+### PipelineExecutor
 
-**Chart Controllers:**
-- `op_spectra_charts.py` - Uses `save_output()` for 2D/3D charts
-- `op_y_chart.py` - Uses `save_output()` for Y distribution charts
-- `op_fold_charts.py` - Uses `save_output()` for fold visualization
+The executor handles the actual saving:
 
-**Model Controllers:**
-- `base_model_controller.py` - Uses `persist_artifact()` for trained models
-- `op_transformermixin.py` - Uses `persist_artifact()` for fitted transformers
-- `op_split.py` - Uses `persist_artifact()` for splitters
+```python
+# In PipelineExecutor._execute_steps
+for output_data, name, ext in step_result.outputs:
+    self.saver.save_output(name=name, data=output_data, extension=ext)
+
+for name, artifact in step_result.artifacts.items():
+    self.saver.persist_artifact(step_number, name, artifact)
+```
 
 ## FAQ
 

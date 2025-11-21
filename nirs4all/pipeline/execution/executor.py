@@ -227,6 +227,8 @@ class PipelineExecutor:
         Returns:
             Updated execution context
         """
+        from nirs4all.pipeline.execution.result import ArtifactMeta
+
         for step in steps:
             self.step_number += 1
             self.substep_number = 0
@@ -264,9 +266,45 @@ class PipelineExecutor:
                     print(f"✅ Step {self.step_number} completed with {len(step_result.artifacts)} artifacts")
                     print(dataset)
 
+                # Process artifacts (persist if needed)
+                processed_artifacts = []
+                for artifact in step_result.artifacts:
+                    if isinstance(artifact, (ArtifactMeta, dict)):
+                        # Legacy: already persisted (ArtifactMeta or dict representation)
+                        processed_artifacts.append(artifact)
+                    elif isinstance(artifact, tuple) and len(artifact) >= 2:
+                        # New: (obj, name, format_hint)
+                        obj, name = artifact[0], artifact[1]
+                        format_hint = artifact[2] if len(artifact) > 2 else None
+
+                        if self.saver:
+                            meta = self.saver.persist_artifact(
+                                step_number=self.step_number,
+                                name=name,
+                                obj=obj,
+                                format_hint=format_hint
+                            )
+                            processed_artifacts.append(meta)
+
+                # Process outputs (save files)
+                for output in step_result.outputs:
+                    if isinstance(output, dict):
+                        # Legacy: already saved
+                        pass
+                    elif isinstance(output, tuple) and len(output) >= 3:
+                        # New: (data, name, type)
+                        data, name, type_hint = output
+                        if self.saver:
+                            self.saver.save_output(
+                                step_number=self.step_number,
+                                name=name,
+                                data=data,
+                                extension=f".{type_hint}" if not type_hint.startswith('.') else type_hint
+                            )
+
                 # Update context and accumulate artifacts
                 context = step_result.updated_context
-                all_artifacts.extend(step_result.artifacts)
+                all_artifacts.extend(processed_artifacts)
 
                 # Sync operation_count back from runtime_context (controllers may have incremented it)
                 if runtime_context:
@@ -276,13 +314,13 @@ class PipelineExecutor:
                 if (self.mode == "train" and
                     self.manifest_manager and
                     runtime_context.pipeline_uid and
-                    step_result.artifacts):
+                    processed_artifacts):
                     self.manifest_manager.append_artifacts(
                         runtime_context.pipeline_uid,
-                        step_result.artifacts
+                        processed_artifacts
                     )
                     if self.verbose > 1:
-                        print(f"📦 Appended {len(step_result.artifacts)} artifacts to manifest")
+                        print(f"📦 Appended {len(processed_artifacts)} artifacts to manifest")
 
             except Exception as e:
                 if self.continue_on_error:

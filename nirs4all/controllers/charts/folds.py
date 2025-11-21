@@ -47,17 +47,19 @@ class FoldChartController(OperatorController):
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
+    ) -> Tuple['ExecutionContext', Any]:
         """
         Execute fold visualization showing train/test splits with y-value color coding.
         Skips execution in prediction mode.
 
         Returns:
-            Tuple of (context, image_list) where image_list contains plot binaries
+            Tuple of (context, StepOutput)
         """
+        from nirs4all.pipeline.execution.result import StepOutput
+
         # Skip execution in prediction mode
         if mode == "predict" or mode == "explain":
-            return context, []
+            return context, StepOutput()
 
         # print(f"Executing fold charts for step: {step}, keyword: {context.metadata.keyword}")
 
@@ -127,7 +129,7 @@ class FoldChartController(OperatorController):
                 print(f"  Only train partition available ({len(train_indices)} samples including augmented).")
             else:
                 print("{WARNING}No data available for visualization.")
-                return context, []
+                return context, StepOutput()
 
         # Get values for color coding (either y or metadata column)
         # For CV folds: get all data for proper indexing
@@ -199,24 +201,12 @@ class FoldChartController(OperatorController):
         # Create filename with partition info
         fold_suffix = f"{len(folds)}folds" if dataset.folds else "traintest_split"
         metadata_suffix = f"_{metadata_column}" if metadata_column else ""
-        image_name = f"fold_visualization_{fold_suffix}_{partition}{metadata_suffix}.png"
+        image_name = f"fold_visualization_{fold_suffix}_{partition}{metadata_suffix}"
 
-        # Save the chart as a human-readable output file
-        output_path = runtime_context.saver.save_output(
-            step_number=runtime_context.step_number,
-            name=image_name.replace('.png', ''),  # Name without extension
-            data=img_png_binary,
-            extension='.png'
+        # Create StepOutput with the chart
+        step_output = StepOutput(
+            outputs=[(img_png_binary, image_name, "png")]
         )
-
-        # Add to image list for tracking (only if saved)
-        img_list = []
-        if output_path:
-            img_list.append({
-                "name": image_name,
-                "path": str(output_path),
-                "type": "chart_output"
-            })
 
         if runtime_context.step_runner.plots_visible:
             # Store figure reference - user will call plt.show() at the end
@@ -225,7 +215,7 @@ class FoldChartController(OperatorController):
         else:
             plt.close(fig)
 
-        return context, img_list
+        return context, step_output
 
     def _create_fold_chart(self, folds: List[Tuple[List[int], List[int]]], y_values: np.ndarray, n_samples: int, partition: str = "train",
                            original_folds: List = None, dataset: 'SpectroDataset' = None, metadata_column: str = None,
