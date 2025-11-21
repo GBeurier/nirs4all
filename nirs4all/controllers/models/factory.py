@@ -557,7 +557,13 @@ class ModelFactory:
 
         for cls in mro:
             module = cls.__module__
-            if 'sklearn' in module:
+            if 'xgboost' in module:
+                return 'xgboost'
+            elif 'lightgbm' in module:
+                return 'lightgbm'
+            elif 'catboost' in module:
+                return 'catboost'
+            elif 'sklearn' in module:
                 return 'sklearn'
             elif 'tensorflow' in module or 'keras' in module:
                 return 'tensorflow'
@@ -565,12 +571,6 @@ class ModelFactory:
                 return 'pytorch'
             elif 'jax' in module or 'flax' in module:
                 return 'jax'
-            elif 'xgboost' in module:
-                return 'xgboost'
-            elif 'lightgbm' in module:
-                return 'lightgbm'
-            elif 'catboost' in module:
-                return 'catboost'
 
         # print(f"DEBUG: detect_framework unknown for {model}, mro: {mro}")
         return 'unknown'

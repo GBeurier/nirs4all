@@ -61,10 +61,10 @@ class TensorFlowModelController(BaseModelController):
     - TensorFlowDataPreparation: Tensor shape formatting
 
     Attributes:
-        priority (int): Controller priority for matching (20, same as sklearn).
+        priority (int): Controller priority for matching (4).
     """
 
-    priority = 20  # Same priority as sklearn
+    priority = 4  # Higher priority than Sklearn (6)
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:

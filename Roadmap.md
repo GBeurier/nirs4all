@@ -56,6 +56,8 @@
 
 > [SHAP] verify shap for tf, torch, jax, Fix imports and np compat
 
+> [Models] extend the scope of custom model fallback (sklearn only for now), to include custom layouts (ie. custom NN without framework and 3D data, spectrograms, etc.)
+
 **RELEASE** 0.6.1: Pipeline logic
 
 

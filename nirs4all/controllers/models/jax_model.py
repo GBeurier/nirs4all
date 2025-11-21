@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 class JaxModelController(BaseModelController):
     """Controller for JAX/Flax models."""
 
-    priority = 20  # Same priority as other ML frameworks
+    priority = 4  # Higher priority than Sklearn (6)
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:

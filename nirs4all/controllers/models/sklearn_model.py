@@ -12,6 +12,7 @@ Matches any sklearn model object (estimators with fit/predict methods).
 
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
+import copy
 from sklearn.base import BaseEstimator
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import mean_squared_error, accuracy_score
@@ -61,30 +62,40 @@ class SklearnModelController(BaseModelController):
             bool: True if the step matches a sklearn estimator (regressor, classifier,
                 or has predict method), False otherwise.
         """
-        # Check if step contains a model key with sklearn object
-        if isinstance(step, dict) and 'model' in step:
-            model = step['model']
+        # Check if it is an explicit model configuration
+        is_explicit_model = isinstance(step, dict) and 'model' in step
 
-            if isinstance(model, BaseEstimator):
-                # Prioritize supervised models (need both X and y) over transformers
-                from sklearn.base import is_regressor, is_classifier
-                return is_regressor(model) or is_classifier(model) or hasattr(model, 'predict')
+        # Extract the model object/config
+        model = step.get('model') if is_explicit_model else step
 
-            # Handle dictionary config for model
-            if isinstance(model, dict) and 'class' in model:
-                class_name = model['class']
-                if isinstance(class_name, str) and 'sklearn' in class_name:
-                    return True
+        # Use Factory to detect framework
+        framework = ModelFactory.detect_framework(model)
 
-        # Check direct sklearn objects
-        if isinstance(step, BaseEstimator):
-            from sklearn.base import is_regressor, is_classifier
-            return is_regressor(step) or is_classifier(step) or hasattr(step, 'predict')
+        # 1. Safety Net: Explicitly reject other specific frameworks
+        # This prevents the controller from "stealing" models if priorities are messed up later
+        if framework in ['tensorflow', 'pytorch', 'jax']:
+            return False
 
-        # Check operator if provided
-        if operator is not None and isinstance(operator, BaseEstimator):
-            from sklearn.base import is_regressor, is_classifier
-            return is_regressor(operator) or is_classifier(operator) or hasattr(operator, 'predict')
+        # 2. Explicitly accept known libraries that follow sklearn API
+        # But for sklearn, we must be strict to avoid transformers
+        if framework == 'sklearn':
+             # If it's a raw object, it MUST have predict
+             if not is_explicit_model:
+                 return hasattr(model, 'predict')
+             # If it's explicit {"model": ...}, we accept it
+             return True
+
+        # 3. For other frameworks (xgboost, etc), accept them
+        if framework in ['xgboost', 'lightgbm', 'catboost']:
+            return True
+
+        # 4. Accept generic objects with fit/predict methods (Duck Typing)
+        if hasattr(model, 'fit') and hasattr(model, 'predict'):
+            return True
+
+        # 5. Aggressive Fallback: Accept any dict with 'model' key
+        if is_explicit_model:
+            return True
 
         return False
 
@@ -114,7 +125,7 @@ class SklearnModelController(BaseModelController):
             model = model_config['model_instance']
 
             # If no force_params and it's already an instance, just return it
-            if force_params is None and isinstance(model, BaseEstimator):
+            if force_params is None:
                 return model
 
             # If we have force_params, we need to get the class and rebuild
@@ -144,7 +155,19 @@ class SklearnModelController(BaseModelController):
             model = ModelFactory.build_single_model(model_class, dataset, model_params)
             return model
 
-        raise ValueError("Could not create model instance from configuration")
+        # Fallback: if model_config itself is a model instance (e.g. XGBRegressor)
+        # This happens when we pass {"model": XGBRegressor()} and _extract_model_config returns it wrapped or unwrapped
+        # Actually, _extract_model_config returns {'model_instance': ...} usually.
+        # But if something slipped through, we can try to use it directly.
+
+        # Check if model_config has 'model' key which is an instance
+        if 'model' in model_config:
+             model = model_config['model']
+             if force_params:
+                 return ModelFactory.build_single_model(model, dataset, force_params)
+             return model
+
+        raise ValueError(f"Could not create model instance from configuration: {model_config.keys()}")
 
     def _train_model(
         self,
@@ -181,8 +204,13 @@ class SklearnModelController(BaseModelController):
             - Training and validation scores are displayed when verbose > 1
         """
 
-        train_params = kwargs
-        verbose = train_params.get('verbose', 0)
+        train_params = kwargs.copy()
+
+        # Extract controller-specific parameters that shouldn't be passed to the model
+        # task_type is injected by launch_training and conflicts with CatBoost's task_type (CPU/GPU)
+        task_type = train_params.pop('task_type', None)
+        # verbose controls controller output, we don't want to force it on the model
+        verbose = train_params.pop('verbose', 0)
 
         # if verbose > 1 and train_params:
             # print(f"🔧 Training {model.__class__.__name__} with params: {train_params}")
@@ -392,6 +420,12 @@ class SklearnModelController(BaseModelController):
         Raises:
             RuntimeError: If sklearn is not available.
         """
+        # For boosting libraries, deepcopy might be safer to preserve all params
+        # especially if they don't perfectly adhere to sklearn API
+        framework = ModelFactory.detect_framework(model)
+        if framework in ['xgboost', 'lightgbm', 'catboost']:
+            return copy.deepcopy(model)
+
         try:
             from sklearn.base import clone as sklearn_clone
             return sklearn_clone(model)
