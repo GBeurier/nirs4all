@@ -11,12 +11,27 @@ from matplotlib import pyplot as plt
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor
 from sklearn.linear_model import ElasticNet
 from sklearn.model_selection import ShuffleSplit
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.svm import SVR
+
+try:
+    from xgboost import XGBRegressor
+except ImportError:
+    XGBRegressor = None
+
+try:
+    from lightgbm import LGBMRegressor
+except ImportError:
+    LGBMRegressor = None
+
+try:
+    from catboost import CatBoostRegressor
+except ImportError:
+    CatBoostRegressor = None
 
 # NIRS4All imports
 from nirs4all.data import DatasetConfigs
@@ -57,15 +72,17 @@ pipeline = [
     # {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1), "name": "SVR_Custom_Model"},
     # {"model": MLPRegressor(hidden_layer_sizes=(20,20), max_iter=50), "name": "MLP_Custom_Model"},
     # {"model": GradientBoostingRegressor(n_estimators=20)},
-    # {
-    #     "model": thin_nicon,
-    #     "train_params": {
-    #         "epochs": 5,
-    #         "patience": 50,
-    #         "verbose": 0  # 0=silent, 1=progress bar, 2=one line per epoch
-    #     },
-    # },
+    {"model": AdaBoostRegressor(n_estimators=5), "name": "AdaBoost"},
 ]
+
+if XGBRegressor:
+    pipeline.append({"model": XGBRegressor(n_estimators=5, verbosity=0), "name": "XGBoost"})
+
+if LGBMRegressor:
+    pipeline.append({"model": LGBMRegressor(n_estimators=20, verbose=-1, verbosity=-1), "name": "LightGBM"})
+
+if CatBoostRegressor:
+    pipeline.append({"model": CatBoostRegressor(iterations=15, verbose=0, allow_writing_files=False), "name": "CatBoost"})
 
 # Create pipeline configuration
 pipeline_config = PipelineConfigs(pipeline, name="Q2")

@@ -243,6 +243,14 @@ def _changed_kwargs(obj):
     except ImportError:
         pass
 
+    # Get params dict if available (standard sklearn API)
+    obj_params = {}
+    if hasattr(obj, 'get_params'):
+        try:
+            obj_params = obj.get_params(deep=False)
+        except Exception:
+            pass
+
     for name, param in sig.parameters.items():
         if name == "self":
             continue
@@ -255,8 +263,12 @@ def _changed_kwargs(obj):
         try:
             current = getattr(obj, name)
         except AttributeError:
-            # fall back to what's in cvargs if it exists
-            current = obj.__dict__.get("cvargs", {}).get(name, default)
+            # Try to get from get_params() if available
+            if name in obj_params:
+                current = obj_params[name]
+            else:
+                # fall back to what's in cvargs if it exists
+                current = obj.__dict__.get("cvargs", {}).get(name, default)
 
         # Handle comparison with numpy arrays and other array-like objects
         try:
