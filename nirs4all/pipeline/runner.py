@@ -23,11 +23,11 @@ from nirs4all.pipeline.explainer import Explainer
 def init_global_random_state(seed: Optional[int] = None):
     """Initialize global random state for reproducibility.
 
-    Sets random seeds for numpy, Python's random module, TensorFlow, and sklearn
+    Sets random seeds for numpy, Python's random module, TensorFlow, PyTorch, and sklearn
     to ensure reproducible results across runs.
 
     Args:
-        seed: Random seed value. If None, uses default seed of 42 for TensorFlow.
+        seed: Random seed value. If None, uses default seed of 42 for TensorFlow and PyTorch.
     """
     import numpy as np
     import random
@@ -41,6 +41,14 @@ def init_global_random_state(seed: Optional[int] = None):
     try:
         import tensorflow as tf
         tf.random.set_seed(seed if seed is not None else 42)
+    except ImportError:
+        pass
+
+    try:
+        import torch
+        torch.manual_seed(seed if seed is not None else 42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed if seed is not None else 42)
     except ImportError:
         pass
 

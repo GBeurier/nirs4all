@@ -138,7 +138,7 @@ class StepRunner:
 
         # Execute controller
         try:
-            updated_context, artifacts = controller.execute(
+            result = controller.execute(
                 step_info=parsed_step,
                 dataset=dataset,
                 context=context,
@@ -149,9 +149,58 @@ class StepRunner:
                 prediction_store=prediction_store
             )
 
+            # Handle both legacy (context, artifacts) and new (context, StepOutput) returns
+            if isinstance(result, tuple):
+                updated_context, output_data = result
+
+                # Check if output_data is StepOutput or list of artifacts
+                from nirs4all.pipeline.execution.result import StepOutput
+
+                if isinstance(output_data, StepOutput):
+                    return StepResult(
+                        updated_context=updated_context,
+                        artifacts=output_data.artifacts,
+                        outputs=output_data.outputs
+                    )
+                else:
+                    # Legacy format: output_data is list of artifacts
+                    return StepResult(
+                        updated_context=updated_context,
+                        artifacts=output_data or [],
+                        outputs=[]
+                    )
+
+                    # In legacy, artifacts were what?
+                    # In BaseModelController:
+                    # artifact = self._persist_model(...) -> returns ArtifactMeta
+                    # binaries.append(artifact)
+                    # So legacy controllers DID persistence and returned ArtifactMeta.
+
+                    # The new proposal says controllers return raw objects.
+                    # So if I get StepOutput, it has raw objects.
+                    # I need to wrap them in something that StepResult accepts, OR change StepResult.
+
+                    # If I change StepResult to accept raw objects, I break compatibility with legacy controllers that return ArtifactMeta.
+                    # Unless I handle both.
+
+                    # Let's make StepResult generic or capable of holding both.
+                    # Actually, the Executor will handle persistence.
+                    # So StepRunner should just pass the raw objects to Executor.
+                    # But StepResult.artifacts is typed as List[ArtifactMeta].
+
+                    # I should probably update StepResult to allow Any for artifacts, or create a new field.
+                    # Or, I can persist here in StepRunner if I have access to artifact_manager?
+                    # StepRunner doesn't have artifact_manager. Executor has it.
+
+                    # So StepRunner should return the raw StepOutput to Executor.
+                    # I will modify StepResult to carry the StepOutput object.
+
+                    pass
+
             return StepResult(
                 updated_context=updated_context,
-                artifacts=artifacts or []
+                artifacts=output_data.artifacts if isinstance(output_data, StepOutput) else (output_data or []),
+                outputs=output_data.outputs if isinstance(output_data, StepOutput) else []
             )
 
         except Exception as e:

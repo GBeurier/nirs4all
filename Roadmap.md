@@ -1,20 +1,11 @@
 ## ROADMAP ##
 
-> [Jax_Torch] finetune / predict
-
-> [SEED] review and fix definitive logic
-
-
 **Bugs**:
-> [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
-- op_fold_charts:
-  lines 140-157 > The op_fold_charts save directly the image with runner saver instead of returning the image to save.
-- op_split:
-  line 250-260 > same problems as op_fold_charts. Save directly instead of returning tuple
+> clean workspace and run folder creation during tests.
 
-- selector_dict = _selector_to_dict(selector)
-  indices = self._indexer.x_indices(selector_dict, include_augmented=True)
-  >> simplif y
+> Balanced accuracy
+
+> when using model, fall back sklearn and not dummy controller - faut que généralise tout ce qui n'est pas torch/jax/tf en sklearn
 
 **RELEASE** 0.4.2: Torch & Jax
 
@@ -23,7 +14,6 @@
 > [ReadsTheDoc] regenerate and publish RTD.
 
 **RELEASE** 0.5: Documentation
-
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
@@ -38,7 +28,7 @@
 
 > [Predictions] as a pipeline context.
 
-> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss
+> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize
 
 > [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
 

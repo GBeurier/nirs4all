@@ -73,20 +73,22 @@ class SpectraChartController(OperatorController):
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple['ExecutionContext', List[Dict[str, Any]]]:
+    ) -> Tuple['ExecutionContext', Any]:
         """
         Execute spectra visualization for both 2D and 3D plots.
         Skips execution in prediction mode.
 
         Returns:
-            Tuple of (context, image_list) where image_list contains plot metadata
+            Tuple of (context, StepOutput)
         """
+        from nirs4all.pipeline.execution.result import StepOutput
+
         # Extract step config for compatibility
         step = step_info.original_step
 
         # Skip execution in prediction mode
         if mode == "predict" or mode == "explain":
-            return context, []
+            return context, StepOutput()
 
         is_3d = (step == "chart_3d") or (step == "3d_chart")
 
@@ -184,23 +186,12 @@ class SpectraChartController(OperatorController):
             image_name += "_Chart"
             if dataset.is_multi_source():
                 image_name += f"_src{sd_idx}"
-            image_name += ".png"
+            # image_name += ".png" # Extension handled by StepOutput tuple
 
-            # Save the chart as a human-readable output file
-            output_path = runtime_context.saver.save_output(
-                step_number=runtime_context.step_number,
-                name=image_name.replace('.png', ''),  # Name without extension
-                data=img_png_binary,
-                extension='.png'
+            # Create StepOutput with the chart
+            step_output = StepOutput(
+                outputs=[(img_png_binary, image_name, "png")]
             )
-
-            # Add to image list for tracking (only if saved)
-            if output_path:
-                img_list.append({
-                    "name": image_name,
-                    "path": str(output_path),
-                    "type": "chart_output"
-                })
 
             if runtime_context.step_runner.plots_visible:
                 # Store figure reference - user will call plt.show() at the end
@@ -209,7 +200,25 @@ class SpectraChartController(OperatorController):
             else:
                 plt.close(fig)
 
-        return context, img_list
+            # Since we iterate over sources, we might have multiple charts.
+            # However, StepOutput currently supports a list of outputs.
+            # But the loop structure here returns after the first source if we just return step_output.
+            # Wait, the original code was iterating but returning `img_list` which accumulated results?
+            # Ah, the original code had `img_list.append` inside the loop, but then returned `img_list` AFTER the loop?
+            # Let's check the original code again.
+
+            # Original code:
+            # for sd_idx, x in enumerate(spectra_data):
+            #    ...
+            #    if output_path: img_list.append(...)
+            #    ...
+            # return context, img_list
+
+            # So I need to accumulate outputs in a list and return one StepOutput at the end.
+
+            img_list.append((img_png_binary, image_name, "png"))
+
+        return context, StepOutput(outputs=img_list)
 
     def _plot_2d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None, header_unit: str = "cm-1", is_classification: bool = False) -> None:
         """Plot 2D spectra on given axis."""

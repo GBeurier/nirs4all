@@ -42,17 +42,19 @@ class YChartController(OperatorController):
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> Tuple['ExecutionContext', List[Dict[str, Any]]]:
+    ) -> Tuple['ExecutionContext', Any]:
         """
         Execute y values histogram visualization with train/test split.
         Skips execution in prediction mode.
 
         Returns:
-            Tuple of (context, image_list) where image_list contains plot metadata
+            Tuple of (context, StepOutput)
         """
+        from nirs4all.pipeline.execution.result import StepOutput
+
         # Skip execution in prediction mode
         if mode == "predict" or mode == "explain":
-            return context, []
+            return context, StepOutput()
 
         # Initialize image list to track generated plots
         img_list = []
@@ -69,7 +71,7 @@ class YChartController(OperatorController):
         # print(len(y), len(y_train), len(y_test))
 
         fig, _ = self._create_bicolor_histogram(y_train, y_test, y)
-        chart_name = "Y_distribution_train_test.png"
+        chart_name = "Y_distribution_train_test"
 
         # Save plot to memory buffer as PNG binary
         img_buffer = io.BytesIO()
@@ -78,21 +80,10 @@ class YChartController(OperatorController):
         img_png_binary = img_buffer.getvalue()
         img_buffer.close()
 
-        # Save the chart as a human-readable output file
-        output_path = runtime_context.saver.save_output(
-            step_number=runtime_context.step_number,
-            name=chart_name.replace('.png', ''),  # Name without extension
-            data=img_png_binary,
-            extension='.png'
+        # Create StepOutput with the chart
+        step_output = StepOutput(
+            outputs=[(img_png_binary, chart_name, "png")]
         )
-
-        # Add to image list for tracking (only if saved)
-        if output_path:
-            img_list.append({
-                "name": chart_name,
-                "path": str(output_path),
-                "type": "chart_output"
-            })
 
         if runtime_context.step_runner.plots_visible:
             # Store figure reference - user will call plt.show() at the end
@@ -101,7 +92,7 @@ class YChartController(OperatorController):
         else:
             plt.close(fig)
 
-        return context, img_list
+        return context, step_output
 
     def _create_bicolor_histogram(self, y_train: np.ndarray, y_test: np.ndarray, y_all: np.ndarray) -> Tuple[Any, Dict[str, Any]]:
         """Create a bicolor histogram showing train/test distribution."""
