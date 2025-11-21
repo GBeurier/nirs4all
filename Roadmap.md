@@ -1,5 +1,7 @@
 ## ROADMAP ##
 
+> [sklearn] BUG ! Stacking model does not work
+
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
 > [ReadsTheDoc] regenerate and publish RTD.

@@ -19,3 +19,5 @@ tensorflow>=2.0.0
 torch>=1.4.0
 nirs4all @ git+https://github.com/GBeurier/nirs4all
 sphinx_rtd_theme
+myst-parser
+sphinx-copybutton
