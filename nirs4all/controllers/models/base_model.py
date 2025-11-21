@@ -386,7 +386,7 @@ class BaseModelController(OperatorController, ABC):
         binaries = self.train(
             dataset, model_config, context, runtime_context, prediction_store,
             X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-            loaded_binaries=loaded_binaries, mode="finetune", best_params=best_model_params
+            loaded_binaries=loaded_binaries, mode="train", best_params=best_model_params
         )
         return context, binaries
 

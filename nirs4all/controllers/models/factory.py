@@ -714,6 +714,10 @@ class ModelFactory:
             if name == 'self':  # Skip 'self'
                 continue
 
+            # Skip *args and **kwargs
+            if param.kind == inspect.Parameter.VAR_POSITIONAL or param.kind == inspect.Parameter.VAR_KEYWORD:
+                continue
+
             # Skip 'parent' for Flax modules to avoid Type mismatch errors
             if is_flax_module and name == 'parent':
                 continue

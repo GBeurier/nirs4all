@@ -5,6 +5,7 @@ Demonstrates NIRS analysis using JAX/Flax models.
 """
 
 import argparse
+import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import ShuffleSplit
@@ -13,6 +14,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYSplitter
 from nirs4all.operators.models.jax import JaxMLPRegressor, JaxMLPClassifier
+from nirs4all.operators.models.jax.nicon import nicon as nicon_jax
 from nirs4all.utils.backend import JAX_AVAILABLE
 
 if not JAX_AVAILABLE:
@@ -33,21 +35,60 @@ pipeline_reg = [
     # SPXYSplitter(0.25),
     ShuffleSplit(n_splits=2, test_size=0.25),
     # Use instance with configured parameters
-    {
-        'model': JaxMLPRegressor(features=[64, 32]),
-        'train_params': {
-            'epochs': 20,
-            'batch_size': 16,
-            'learning_rate': 0.001,
-            'verbose': 1
+    [
+        {
+            'model': JaxMLPRegressor(features=[64, 32]),
+            'finetune_params': {
+                'n_trials': 6,
+                'verbose': 2,
+                'sample': 'tpe',
+                'model_params': {
+                    'features': [[32], [64, 32], [64, 32, 16]],
+                },
+            },
+            'train_params': {
+                'epochs': 20,
+                'batch_size': 16,
+                'learning_rate': 0.001,
+                'verbose': 0
+            }
+        },
+        {
+            'model': nicon_jax,
+            'train_params': {
+                'epochs': 20,
+                'batch_size': 16,
+                'learning_rate': 0.001,
+                'verbose': 0
+            }
         }
-    }
+    ]
 ]
 
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_files=True, verbose=0, plots_visible=args.plots)
 preds_reg, _ = runner.run(PipelineConfigs(pipeline_reg), DatasetConfigs(data_path_reg))
 print("Top Regression Models:")
 print(preds_reg.top(1))
+
+# Prediction Reuse
+print("\n--- JAX Prediction Reuse Example ---")
+best_prediction = preds_reg.top(1)[0]
+model_id = best_prediction['id']
+print(f"Best model: {best_prediction['model_name']} (id: {model_id})")
+reference_predictions = best_prediction['y_pred'][:5].flatten()
+print("Reference predictions:", reference_predictions)
+
+predictor = PipelineRunner()
+# Using Xval for prediction reuse demonstration
+prediction_dataset = DatasetConfigs({'X_test': 'sample_data/regression/Xval.csv.gz'})
+method1_predictions, _ = predictor.predict(best_prediction, prediction_dataset, verbose=0)
+method1_array = method1_predictions[:5].flatten()
+print("Predictions on new data (first 5):")
+print(method1_array)
+
+is_identical = np.allclose(method1_array, reference_predictions)
+assert is_identical, "Method 1 predictions do not match reference!"
+print(f"Method 1 identical to training: {'✅ YES' if is_identical else '❌ NO'}")
 
 # Classification Example
 print("\n--- JAX Classification Example ---")

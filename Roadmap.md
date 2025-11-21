@@ -1,12 +1,9 @@
 ## ROADMAP ##
 
-> [Jax_Torch] finetune
+> [Jax_Torch] finetune / predict
 
 > [SEED] review and fix definitive logic
 
-> [SHAP] Fix import with new numpy / shap package
-
-Warning and no avg when no folds.
 
 **Bugs**:
 > [File saving] Fix bad usage of image saving in op_split and op_fold_charts (currently it use directly the saver in runner instead of returning tuple - bad design for custom controllers/operators)
@@ -67,6 +64,8 @@ Warning and no avg when no folds.
 > [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
 
 > [Dummy_Controller] remove totally and manage exceptions
+
+> [SHAP] verify shap for tf, torch, jax, Fix imports and np compat
 
 **RELEASE** 0.6.1: Pipeline logic
 
