@@ -1,6 +1,6 @@
 ## ROADMAP ##
 
-> [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
+> [Jax_Torch] finetune
 
 > [SEED] review and fix definitive logic
 
@@ -17,7 +17,7 @@ Warning and no avg when no folds.
 
 - selector_dict = _selector_to_dict(selector)
   indices = self._indexer.x_indices(selector_dict, include_augmented=True)
-  >> simplify
+  >> simplif y
 
 **RELEASE** 0.4.2: Torch & Jax
 
@@ -63,6 +63,8 @@ Warning and no avg when no folds.
 > [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
 
 > [Runner] Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
+
+> [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
 
 > [Dummy_Controller] remove totally and manage exceptions
 
