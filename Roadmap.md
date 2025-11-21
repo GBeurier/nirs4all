@@ -1,11 +1,5 @@
 ## ROADMAP ##
 
-**Bugs**:
-
-> when using model, fall back sklearn and not dummy controller - faut que généralise tout ce qui n'est pas torch/jax/tf en sklearn
-
-**RELEASE** 0.4.2: Torch & Jax
-
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
 > [ReadsTheDoc] regenerate and publish RTD.
