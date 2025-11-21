@@ -2,9 +2,11 @@
 
 > [sklearn] BUG ! Stacking model does not work
 
+> [Heatmap] verify heatmap on classification
+
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
-> [ReadsTheDoc] regenerate and publish RTD.
+> [Examples] Orgzanize and optimize the full run
 
 **RELEASE** 0.5: Documentation
 

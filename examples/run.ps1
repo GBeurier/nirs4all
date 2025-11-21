@@ -23,7 +23,6 @@ param(
 
 $examples = @(
     "Q1_classif.py",
-    "Q1_classif_tf.py",
     "Q1_groupsplit.py",
     "Q1_regression.py",
     "Q2_multimodel.py",
