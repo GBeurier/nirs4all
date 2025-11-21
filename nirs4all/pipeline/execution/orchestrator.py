@@ -162,6 +162,7 @@ class PipelineOrchestrator:
                 .with_save_files(self.save_files)
                 .with_continue_on_error(self.continue_on_error)
                 .with_show_spinner(self.show_spinner)
+                .with_plots_visible(self.plots_visible)
                 .with_binary_loader(binary_loader)
                 .build())
 

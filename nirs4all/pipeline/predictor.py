@@ -125,6 +125,7 @@ class Predictor:
                 .with_save_files(self.runner.save_files)
                 .with_continue_on_error(self.runner.continue_on_error)
                 .with_show_spinner(self.runner.show_spinner)
+                .with_plots_visible(self.runner.plots_visible)
                 .with_binary_loader(self.binary_loader)
                 .with_saver(self.saver)
                 .with_manifest_manager(self.manifest_manager)
