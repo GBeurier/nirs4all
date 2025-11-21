@@ -1,9 +1,6 @@
 ## ROADMAP ##
 
 **Bugs**:
-> clean workspace and run folder creation during tests.
-
-> Balanced accuracy
 
 > when using model, fall back sklearn and not dummy controller - faut que généralise tout ce qui n'est pas torch/jax/tf en sklearn
 
@@ -29,6 +26,8 @@
 > [Predictions] as a pipeline context.
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize
+
+> [Classification] averaging
 
 > [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
 
@@ -63,6 +62,8 @@
 > [Logs] implement feature and update print/log strategy
 
 > [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
+
+> [Tests] clean workspace and run folder creation during tests.
 
 **RELEASE** 0.7: User experience
 
@@ -112,8 +113,6 @@
 
 
 **RELEASE** 1.x.x
-
-> [Classification] averaging
 
 > [Pipeline + Optuna] Pipeline as optuna trial. The pp become a choice param. Goal is to stack pp each time score stop progress, select the good ones by feats augmentation and by pp order (1st, 2nd, etc.) and stop once it drops.
 

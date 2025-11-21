@@ -98,7 +98,8 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) 
         elif metric in ['accuracy', 'precision', 'recall', 'f1', 'f1_score',
                         'precision_micro', 'recall_micro', 'f1_micro',
                         'precision_macro', 'recall_macro', 'f1_macro',
-                        'balanced_accuracy', 'matthews_corrcoef', 'mcc',
+                        'balanced_accuracy', 'balanced_precision', 'balanced_recall',
+                        'matthews_corrcoef', 'mcc',
                         'cohen_kappa', 'jaccard', 'jaccard_score', 'hamming_loss', 'specificity']:
 
             y_pred_labels = y_pred
@@ -123,9 +124,9 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) 
                 return recall_score(y_true, y_pred_labels, average='micro', zero_division=0)
             elif metric in ['f1_micro']:
                 return f1_score(y_true, y_pred_labels, average='micro', zero_division=0)
-            elif metric in ['precision_macro']:
+            elif metric in ['precision_macro', 'balanced_precision']:
                 return precision_score(y_true, y_pred_labels, average='macro', zero_division=0)
-            elif metric in ['recall_macro']:
+            elif metric in ['recall_macro', 'balanced_recall']:
                 return recall_score(y_true, y_pred_labels, average='macro', zero_division=0)
             elif metric in ['f1_macro']:
                 return f1_score(y_true, y_pred_labels, average='macro', zero_division=0)
@@ -294,19 +295,17 @@ def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> Dict[s
 
             # Core classification metrics
             metrics['accuracy'] = eval(y_true, y_pred_labels, 'accuracy')
+            metrics['balanced_accuracy'] = eval(y_true, y_pred_labels, 'balanced_accuracy')
             metrics['precision'] = eval(y_true, y_pred_labels, 'precision')
+            metrics['balanced_precision'] = eval(y_true, y_pred_labels, 'balanced_precision')
             metrics['recall'] = eval(y_true, y_pred_labels, 'recall')
+            metrics['balanced_recall'] = eval(y_true, y_pred_labels, 'balanced_recall')
             metrics['f1'] = eval(y_true, y_pred_labels, 'f1')
             metrics['specificity'] = eval(y_true, y_pred_labels, 'specificity')
 
             # Binary-specific metrics
             try:
                 metrics['roc_auc'] = eval(y_true, y_pred, 'roc_auc')
-            except:
-                pass
-
-            try:
-                metrics['balanced_accuracy'] = eval(y_true, y_pred_labels, 'balanced_accuracy')
             except:
                 pass
 
@@ -328,10 +327,13 @@ def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> Dict[s
         elif task_type == 'multiclass_classification':
             # Core classification metrics
             metrics['accuracy'] = eval(y_true, y_pred, 'accuracy')
+            metrics['balanced_accuracy'] = eval(y_true, y_pred, 'balanced_accuracy')
 
             # Weighted averages (default for multiclass)
             metrics['precision'] = eval(y_true, y_pred, 'precision')
+            metrics['balanced_precision'] = eval(y_true, y_pred, 'balanced_precision')
             metrics['recall'] = eval(y_true, y_pred, 'recall')
+            metrics['balanced_recall'] = eval(y_true, y_pred, 'balanced_recall')
             metrics['f1'] = eval(y_true, y_pred, 'f1')
             metrics['specificity'] = eval(y_true, y_pred, 'specificity')
 
@@ -354,11 +356,6 @@ def eval_multi(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> Dict[s
             # Multiclass-specific metrics
             try:
                 metrics['roc_auc'] = eval(y_true, y_pred, 'roc_auc')
-            except:
-                pass
-
-            try:
-                metrics['balanced_accuracy'] = eval(y_true, y_pred, 'balanced_accuracy')
             except:
                 pass
 
@@ -486,14 +483,16 @@ def get_available_metrics(task_type: str) -> list:
         return metrics
 
     elif task_type.lower() == 'binary_classification':
-        return ['accuracy', 'precision', 'recall', 'f1', 'specificity', 'roc_auc',
-                'balanced_accuracy', 'matthews_corrcoef', 'cohen_kappa', 'jaccard']
+        return ['accuracy', 'balanced_accuracy', 'precision', 'balanced_precision',
+                'recall', 'balanced_recall', 'f1', 'specificity', 'roc_auc',
+                'matthews_corrcoef', 'cohen_kappa', 'jaccard']
 
     elif task_type.lower() == 'multiclass_classification':
-        return ['accuracy', 'precision', 'recall', 'f1', 'specificity',
+        return ['accuracy', 'balanced_accuracy', 'precision', 'balanced_precision',
+                'recall', 'balanced_recall', 'f1', 'specificity',
                 'precision_micro', 'recall_micro', 'f1_micro',
                 'precision_macro', 'recall_macro', 'f1_macro',
-                'roc_auc', 'balanced_accuracy', 'matthews_corrcoef',
+                'roc_auc', 'matthews_corrcoef',
                 'cohen_kappa', 'jaccard', 'hamming_loss']
 
     else:
@@ -515,10 +514,10 @@ def get_default_metrics(task_type: str) -> list:
         return ['rmse', 'mae', 'r2']
 
     elif task_type.lower() == 'binary_classification':
-        return ['accuracy', 'precision', 'recall', 'f1']
+        return ['balanced_accuracy', 'accuracy', 'balanced_precision', 'precision', 'balanced_recall', 'recall', 'f1']
 
     elif task_type.lower() == 'multiclass_classification':
-        return ['accuracy', 'precision', 'recall', 'f1']
+        return ['balanced_accuracy', 'accuracy', 'balanced_precision', 'precision', 'balanced_recall', 'recall', 'f1']
 
     else:
         raise ValueError(f"Unsupported task_type: {task_type}")

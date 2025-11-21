@@ -341,8 +341,8 @@ class SklearnModelController(BaseModelController):
         try:
             # Use cross-validation for evaluation
             if is_classifier(model):
-                # For classifiers, use negative accuracy (to minimize)
-                scores = cross_val_score(model, X_val, y_val_1d, cv=3, scoring='accuracy')
+                # For classifiers, use negative balanced accuracy (to minimize)
+                scores = cross_val_score(model, X_val, y_val_1d, cv=3, scoring='balanced_accuracy')
                 return -np.mean(scores)  # Negative because we want to minimize
             elif is_regressor(model):
                 # For regressors, use negative MSE (to minimize)

@@ -806,7 +806,7 @@ class BaseModelController(OperatorController, ABC):
         val_score = prediction_data['val_score']
         test_score = prediction_data['test_score']
         metric = prediction_data['metric']
-        direction = ARROW_UP if metric in ['r2', 'accuracy'] else ARROW_DOWN
+        direction = ARROW_UP if metric in ['r2', 'accuracy', 'balanced_accuracy'] else ARROW_DOWN
 
         summary = f"{CHECK}{model_name} {metric} {direction} [test: {test_score:.4f}], [val: {val_score:.4f}]"
         if fold_id not in [None, 'None', 'avg', 'w_avg']:

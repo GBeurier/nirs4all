@@ -117,9 +117,9 @@ class TabReportManager:
         else:  # Classification
             is_binary = 'roc_auc' in partitions_data.get('val', {}) or 'roc_auc' in partitions_data.get('test', {})
             if is_binary:
-                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Precision', 'Recall', 'F1-score', 'Specificity', 'AUC']
+                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Bal. Acc', 'Precision', 'Bal. Prec', 'Recall', 'Bal. Rec', 'F1-score', 'Specificity', 'AUC']
             else:
-                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Precision', 'Recall', 'F1-score', 'Specificity']
+                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Bal. Acc', 'Precision', 'Bal. Prec', 'Recall', 'Bal. Rec', 'F1-score', 'Specificity']
 
         # Prepare rows
         rows = []
@@ -158,8 +158,11 @@ class TabReportManager:
                     str(data.get('nsample', '')),
                     str(n_features) if n_features > 0 else '',
                     f"{data.get('accuracy', ''):.3f}" if data.get('accuracy') else '',
+                    f"{data.get('balanced_accuracy', ''):.3f}" if data.get('balanced_accuracy') else '',
                     f"{data.get('precision', ''):.3f}" if data.get('precision') else '',
+                    f"{data.get('balanced_precision', ''):.3f}" if data.get('balanced_precision') else '',
                     f"{data.get('recall', ''):.3f}" if data.get('recall') else '',
+                    f"{data.get('balanced_recall', ''):.3f}" if data.get('balanced_recall') else '',
                     f"{data.get('f1', ''):.3f}" if data.get('f1') else '',
                     f"{data.get('specificity', ''):.3f}" if data.get('specificity') else ''
                 ]
@@ -210,9 +213,9 @@ class TabReportManager:
         else:  # Classification
             is_binary = 'roc_auc' in partitions_data.get('val', {}) or 'roc_auc' in partitions_data.get('test', {})
             if is_binary:
-                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Precision', 'Recall', 'F1-score', 'Specificity', 'AUC']
+                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Bal. Acc', 'Precision', 'Bal. Prec', 'Recall', 'Bal. Rec', 'F1-score', 'Specificity', 'AUC']
             else:
-                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Precision', 'Recall', 'F1-score', 'Specificity']
+                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Bal. Acc', 'Precision', 'Bal. Prec', 'Recall', 'Bal. Rec', 'F1-score', 'Specificity']
 
         # Prepare rows
         rows = [headers]
@@ -251,8 +254,11 @@ class TabReportManager:
                     data.get('nsample', ''),
                     n_features if n_features > 0 else '',
                     f"{data.get('accuracy', ''):.3f}" if data.get('accuracy') else '',
+                    f"{data.get('balanced_accuracy', ''):.3f}" if data.get('balanced_accuracy') else '',
                     f"{data.get('precision', ''):.3f}" if data.get('precision') else '',
+                    f"{data.get('balanced_precision', ''):.3f}" if data.get('balanced_precision') else '',
                     f"{data.get('recall', ''):.3f}" if data.get('recall') else '',
+                    f"{data.get('balanced_recall', ''):.3f}" if data.get('balanced_recall') else '',
                     f"{data.get('f1', ''):.3f}" if data.get('f1') else '',
                     f"{data.get('specificity', ''):.3f}" if data.get('specificity') else ''
                 ]
@@ -286,9 +292,9 @@ class TabReportManager:
         if task_type.lower() == 'regression':
             metric_names = ['mse', 'rmse', 'mae', 'r2', 'bias', 'sep', 'rpd']
         elif task_type.lower() == 'binary_classification':
-            metric_names = ['accuracy', 'precision', 'recall', 'f1', 'specificity', 'roc_auc']
+            metric_names = ['accuracy', 'balanced_accuracy', 'precision', 'balanced_precision', 'recall', 'balanced_recall', 'f1', 'specificity', 'roc_auc']
         else:  # multiclass_classification
-            metric_names = ['accuracy', 'precision', 'recall', 'f1', 'specificity']
+            metric_names = ['accuracy', 'balanced_accuracy', 'precision', 'balanced_precision', 'recall', 'balanced_recall', 'f1', 'specificity']
 
         metrics_list = evaluator.eval_list(y_true, y_pred, metric_names)
 

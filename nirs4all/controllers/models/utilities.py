@@ -31,15 +31,15 @@ class ModelControllerUtils:
     # Default metrics by task type
     DEFAULT_METRICS = {
         TaskType.REGRESSION: ["mae", "mse"],
-        TaskType.BINARY_CLASSIFICATION: ["accuracy", "auc"],
-        TaskType.MULTICLASS_CLASSIFICATION: ["accuracy", "categorical_accuracy"]
+        TaskType.BINARY_CLASSIFICATION: ["balanced_accuracy", "accuracy", "auc"],
+        TaskType.MULTICLASS_CLASSIFICATION: ["balanced_accuracy", "accuracy", "categorical_accuracy"]
     }
 
     # Sklearn scoring metrics by task type
     SKLEARN_SCORING = {
         TaskType.REGRESSION: "neg_mean_squared_error",
-        TaskType.BINARY_CLASSIFICATION: "roc_auc",
-        TaskType.MULTICLASS_CLASSIFICATION: "accuracy"
+        TaskType.BINARY_CLASSIFICATION: "balanced_accuracy",
+        TaskType.MULTICLASS_CLASSIFICATION: "balanced_accuracy"
     }
 
     @staticmethod
@@ -109,6 +109,13 @@ class ModelControllerUtils:
                 "categorical_accuracy": "accuracy"
             }
             base_metrics = [sklearn_mapping.get(m, m) for m in base_metrics]
+        elif framework == "tensorflow":
+            # Remove balanced metrics as they are not standard Keras metric strings
+            # Keras will use loss for optimization and we calculate balanced metrics
+            # using sklearn in _log_training_results
+            for metric in ["balanced_accuracy", "balanced_precision", "balanced_recall"]:
+                if metric in base_metrics:
+                    base_metrics.remove(metric)
 
         return base_metrics
 
@@ -173,7 +180,7 @@ class ModelControllerUtils:
         if task_type == TaskType.REGRESSION:
             return "mse", False  # Lower MSE is better
         else:  # Classification
-            return "accuracy", True  # Higher accuracy is better
+            return "balanced_accuracy", True  # Higher balanced accuracy is better
 
     @staticmethod
     def format_scores(scores: Dict[str, float], precision: int = 4) -> str:
