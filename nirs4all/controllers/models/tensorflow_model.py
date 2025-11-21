@@ -475,12 +475,15 @@ class TensorFlowModelController(BaseModelController):
         if callable(model) and hasattr(model, 'framework') and model.framework == 'tensorflow':
             # Don't clone functions - they will be called later with proper input shape
             return model
-        elif TF_AVAILABLE and isinstance(model, (keras.Model, keras.Sequential)):
-            # TensorFlow model instance: use clone_model
-            return keras.models.clone_model(model)
-        else:
-            # Return as is (will be handled by ModelFactory)
-            return model
+
+        if TF_AVAILABLE:
+            from tensorflow import keras
+            if isinstance(model, (keras.Model, keras.Sequential)):
+                # TensorFlow model instance: use clone_model
+                return keras.models.clone_model(model)
+
+        # Return as is (will be handled by ModelFactory)
+        return model
 
     # Remove the _extract_model_config override - use base class implementation
     # The base class correctly returns {'model_instance': operator, 'train_params': {...}}
