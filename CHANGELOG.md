@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - Torch, Jax and sklearn style models - 2025-11-21
+
+### Added
+- **Model Support**: Fixed support for XGBoost, LightGBM, CatBoost models and added support sklearn style models.
+- **Deep Learning**: Added JAX and PyTorch model controllers with data preparation utilities and `JaxModelWrapper` for state management.
+- **Metrics**: Added balanced accuracy metric.
+- **Pipeline**: Reintroduced parallel execution in pipeline steps (ongoing development).
+- **Installation**: Enhanced backend detection and installation instructions (TensorFlow, PyTorch, JAX with GPU).
+- **Inference**: Automatic inference for ranking logic (ascending parameter can be None).
+
+### Changed
+- **Architecture**: Refactored file saving architecture to implement "Return, Don't Save" pattern.
+- **Controllers**: Refactored `BaseModelController` for improved execution flow and parallel training.
+- **Controllers**: Updated `SklearnModelController` to enhance framework detection.
+- **Examples**: Updated JAX and PyTorch model examples for prediction reuse.
+- **Tests**: Refactored tests to use `RuntimeContext`.
+
+### Fixed
+- **Regression**: Ensure fold averages are only created for regression tasks with multiple folds.
+- **Pipeline**: Correct pipeline definition by adding missing ShuffleSplit instance for regression comparison.
+
+### Removed
+- **Examples**: Removed deprecated example scripts for JAX and LightGBM.
+
 ## [0.4.1] - Folder/File structure rc - 2025-11-20
 
 ### Major Refactoring and Architecture Improvements
