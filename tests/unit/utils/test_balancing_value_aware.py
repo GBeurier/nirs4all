@@ -119,7 +119,7 @@ class TestValueAwareBalancing:
         assert class_1_aug == 4
 
     def test_value_aware_with_max_factor(self):
-        """Test value-aware balancing with max_factor."""
+        """Test value-aware balancing with ref_percentage."""
         # 5 samples: 3 with class 0, 2 with class 1
         base_labels = np.array([0, 0, 0, 1, 1])
         base_indices = np.array([0, 1, 2, 3, 4])
@@ -130,7 +130,7 @@ class TestValueAwareBalancing:
 
         counts = BalancingCalculator.calculate_balanced_counts_value_aware(
             base_labels, base_indices, base_values, all_labels, all_indices,
-            max_factor=1.0, random_state=42
+            ref_percentage=1.0, random_state=42
         )
 
         # Class 0 is majority (3), Class 1 needs to reach 3
