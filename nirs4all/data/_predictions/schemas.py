@@ -33,6 +33,7 @@ PREDICTION_SCHEMA = {
     "preprocessings": pl.Utf8,
     "best_params": pl.Utf8,  # JSON serialized
     "metadata": pl.Utf8,  # JSON serialized
+    "scores": pl.Utf8,  # JSON serialized: {"train": {"rmse": 0.1}, "val": ...}
     # Array references (IDs pointing to ArrayRegistry)
     "y_true_id": pl.Utf8,
     "y_pred_id": pl.Utf8,

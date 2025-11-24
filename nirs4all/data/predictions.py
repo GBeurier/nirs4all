@@ -126,7 +126,8 @@ class Predictions:
         n_samples: int = 0,
         n_features: int = 0,
         preprocessings: str = "",
-        best_params: Optional[Dict[str, Any]] = None
+        best_params: Optional[Dict[str, Any]] = None,
+        scores: Optional[Dict[str, Dict[str, float]]] = None
     ) -> str:
         """
         Add a single prediction to storage.
@@ -160,6 +161,7 @@ class Predictions:
             n_features: Number of features
             preprocessings: Preprocessing steps applied
             best_params: Best hyperparameters
+            scores: Dictionary of pre-computed scores per partition
 
         Returns:
             Prediction ID
@@ -191,6 +193,7 @@ class Predictions:
             "n_features": n_features,
             "preprocessings": preprocessings,
             "best_params": best_params if best_params is not None else {},
+            "scores": scores if scores is not None else {},
         }
 
         return self._storage.add_row(row_dict)
@@ -222,7 +225,8 @@ class Predictions:
         n_samples: Union[int, List[int]] = 0,
         n_features: Union[int, List[int]] = 0,
         preprocessings: Union[str, List[str]] = "",
-        best_params: Union[Optional[Dict[str, Any]], List[Optional[Dict[str, Any]]]] = None
+        best_params: Union[Optional[Dict[str, Any]], List[Optional[Dict[str, Any]]]] = None,
+        scores: Union[Optional[Dict[str, Dict[str, float]]], List[Optional[Dict[str, Dict[str, float]]]]] = None
     ) -> None:
         """
         Add multiple predictions to storage (batch operation).
@@ -261,6 +265,7 @@ class Predictions:
             'n_features': n_features,
             'preprocessings': preprocessings,
             'best_params': best_params,
+            'scores': scores,
         }
 
         # Find the maximum length (number of predictions)

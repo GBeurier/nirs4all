@@ -15,6 +15,18 @@ import numpy as np
 import polars as pl
 
 
+class NumpyEncoder(json.JSONEncoder):
+    """Custom encoder for NumPy data types."""
+    def default(self, obj):
+        if isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+            return int(obj)
+        if isinstance(obj, (np.floating, np.float64, np.float32, np.float16)):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyEncoder, self).default(obj)
+
+
 class PredictionSerializer:
     """
     Handles serialization/deserialization for predictions.
@@ -63,21 +75,17 @@ class PredictionSerializer:
             if value is None:
                 # Keep None as None (important for nullable columns in Polars schema)
                 serialized[key] = None
-            elif isinstance(value, np.ndarray):
-                # Convert to JSON string (legacy or non-registry mode)
-                serialized[key] = json.dumps(value.tolist())
-            elif isinstance(value, (list, dict)):
-                # Handle nested numpy arrays in lists
-                if isinstance(value, list) and len(value) > 0:
-                    serialized_list = []
-                    for item in value:
-                        if isinstance(item, np.ndarray):
-                            serialized_list.append(item.tolist())
-                        else:
-                            serialized_list.append(item)
-                    serialized[key] = json.dumps(serialized_list)
+            elif isinstance(value, (np.ndarray, list, dict)):
+                # Convert to JSON string using NumpyEncoder
+                serialized[key] = json.dumps(value, cls=NumpyEncoder)
+            elif isinstance(value, (np.integer, np.floating)):
+                # Handle scalar numpy types
+                if isinstance(value, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+                    serialized[key] = int(value)
+                elif isinstance(value, (np.floating, np.float64, np.float32, np.float16)):
+                    serialized[key] = float(value)
                 else:
-                    serialized[key] = json.dumps(value)
+                    serialized[key] = value
             else:
                 serialized[key] = value
         return serialized
@@ -108,7 +116,7 @@ class PredictionSerializer:
             'array_abc123'
         """
         deserialized = {}
-        json_fields = ['y_true', 'y_pred', 'sample_indices', 'weights', 'metadata', 'best_params']
+        json_fields = ['y_true', 'y_pred', 'sample_indices', 'weights', 'metadata', 'best_params', 'scores']
 
         for key, value in row.items():
             if key in json_fields and isinstance(value, str):

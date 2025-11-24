@@ -238,6 +238,7 @@ class PredictionAnalyzer:
         rank_agg: str = 'best',
         display_agg: str = 'best',
         show_counts: bool = True,
+        local_scale: bool = False,
         **kwargs
     ) -> Figure:
         """Plot performance heatmap across two variables.
@@ -259,6 +260,7 @@ class PredictionAnalyzer:
             rank_agg: Aggregation for ranking ('best', 'worst', 'mean', 'median') (default: 'best').
             display_agg: Aggregation for display scores ('best', 'worst', 'mean', 'median') (default: 'mean').
             show_counts: Show prediction counts in cells (default: True).
+            local_scale: If True, colorbar shows actual metric values; if False, shows 0-1 normalized (default: False).
             **kwargs: Additional filters (dataset_name, model_name, etc.).
 
         Returns:
@@ -301,6 +303,7 @@ class PredictionAnalyzer:
             rank_agg=rank_agg,
             display_agg=display_agg,
             show_counts=show_counts,
+            local_scale=local_scale,
             **kwargs
         )
 

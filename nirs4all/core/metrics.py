@@ -187,6 +187,26 @@ def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) 
             sep = np.std(y_pred - y_true)
             sd = np.std(y_true)
             return sd / sep if sep != 0 else float('inf')
+        elif metric == 'consistency':
+            # Consistency: 1 - (RMSE / std(y_true))
+            rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+            sd = np.std(y_true)
+            return 1 - (rmse / sd) if sd != 0 else 0.0
+        elif metric == 'nrmse':
+            # Normalized RMSE: RMSE / (max - min)
+            rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+            y_range = np.max(y_true) - np.min(y_true)
+            return rmse / y_range if y_range != 0 else float('inf')
+        elif metric == 'nmse':
+            # Normalized MSE: MSE / var(y_true)
+            mse = mean_squared_error(y_true, y_pred)
+            var = np.var(y_true)
+            return mse / var if var != 0 else float('inf')
+        elif metric == 'nmae':
+            # Normalized MAE: MAE / (max - min)
+            mae = mean_absolute_error(y_true, y_pred)
+            y_range = np.max(y_true) - np.min(y_true)
+            return mae / y_range if y_range != 0 else float('inf')
         elif metric == 'specificity':
             if len(np.unique(y_true)) == 2:
                 tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
@@ -511,13 +531,13 @@ def get_default_metrics(task_type: str) -> list:
         List of default metric names
     """
     if task_type.lower() == 'regression':
-        return ['rmse', 'mae', 'r2']
+        return ['r2', 'rmse', 'mse', 'sep', 'mae', 'rpd', 'bias', 'consistency', 'nrmse', 'nmse', 'nmae', 'pearson_r', 'spearman_r']
 
     elif task_type.lower() == 'binary_classification':
-        return ['balanced_accuracy', 'accuracy', 'balanced_precision', 'precision', 'balanced_recall', 'recall', 'f1']
+        return ['accuracy', 'balanced_accuracy', 'precision', 'balanced_precision', 'recall', 'balanced_recall', 'f1', 'specificity', 'roc_auc', 'jaccard']
 
     elif task_type.lower() == 'multiclass_classification':
-        return ['balanced_accuracy', 'accuracy', 'balanced_precision', 'precision', 'balanced_recall', 'recall', 'f1']
+        return ['accuracy', 'balanced_accuracy', 'precision', 'balanced_precision', 'recall', 'balanced_recall', 'f1', 'specificity']
 
     else:
         raise ValueError(f"Unsupported task_type: {task_type}")

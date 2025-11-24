@@ -1,16 +1,16 @@
 ## ROADMAP ##
 
-> [Charts] verify heatmap on classification, uniformize signatures (rank_metric, display_metric, rank_partition, display_partition)
-
-> [sklearn] BUG ! Stacking model does not work
-
 > [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 
 
 **Bugs**:
 >   - Balanced sample augmentation. For that add verbose data after steps.
 
+>   - top_models[0].save_to_csv("regression_best_model.csv")
+
 **RELEASE** 0.5: Documentation
+
+> [sklearn] BUG ! Stacking model does not work
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
