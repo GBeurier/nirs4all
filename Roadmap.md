@@ -1,13 +1,5 @@
 ## ROADMAP ##
 
-> [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
-
-
-**Bugs**:
->   - Balanced sample augmentation. For that add verbose data after steps.
-
->   - top_models[0].save_to_csv("regression_best_model.csv")
-
 **RELEASE** 0.5: Documentation
 
 > [sklearn] BUG ! Stacking model does not work
@@ -65,6 +57,8 @@
 > [Logs] implement feature and update print/log strategy
 
 > [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
+
+> [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 
 > [Tests] clean workspace and run folder creation during tests.
 
