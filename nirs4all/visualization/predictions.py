@@ -335,84 +335,84 @@ class PredictionAnalyzer:
         )
         return chart.render(variable=variable, display_metric=display_metric, display_partition=display_partition, **kwargs)
 
-    # Backward compatibility aliases
-    def plot_top_k_comparison(self, *args, **kwargs):
-        """Alias for plot_top_k() (backward compatibility)."""
-        return self.plot_top_k(*args, **kwargs)
+    # # Backward compatibility aliases
+    # def plot_top_k_comparison(self, *args, **kwargs):
+    #     """Alias for plot_top_k() (backward compatibility)."""
+    #     return self.plot_top_k(*args, **kwargs)
 
-    def plot_top_k_confusionMatrix(self, *args, **kwargs):
-        """Alias for plot_confusion_matrix() (backward compatibility).
+    # def plot_top_k_confusionMatrix(self, *args, **kwargs):
+    #     """Alias for plot_confusion_matrix() (backward compatibility).
 
-        Note: Old 'partition' kwarg is mapped to both 'rank_partition' and 'display_partition'
-        for backward compatibility with the old single-partition behavior.
-        """
-        # Map old 'partition' param if present and new params not specified
-        if 'partition' in kwargs:
-            old_partition = kwargs.pop('partition')
-            if 'rank_partition' not in kwargs:
-                kwargs['rank_partition'] = old_partition
-            if 'display_partition' not in kwargs:
-                kwargs['display_partition'] = old_partition
-        return self.plot_confusion_matrix(*args, **kwargs)
+    #     Note: Old 'partition' kwarg is mapped to both 'rank_partition' and 'display_partition'
+    #     for backward compatibility with the old single-partition behavior.
+    #     """
+    #     # Map old 'partition' param if present and new params not specified
+    #     if 'partition' in kwargs:
+    #         old_partition = kwargs.pop('partition')
+    #         if 'rank_partition' not in kwargs:
+    #             kwargs['rank_partition'] = old_partition
+    #         if 'display_partition' not in kwargs:
+    #             kwargs['display_partition'] = old_partition
+    #     return self.plot_confusion_matrix(*args, **kwargs)
 
-    def plot_score_histogram(self, *args, **kwargs):
-        """Alias for plot_histogram() (backward compatibility)."""
-        return self.plot_histogram(*args, **kwargs)
+    # def plot_score_histogram(self, *args, **kwargs):
+    #     """Alias for plot_histogram() (backward compatibility)."""
+    #     return self.plot_histogram(*args, **kwargs)
 
-    def plot_heatmap_v2(self, *args, **kwargs) -> Figure:
-        """Alias for plot_heatmap() (backward compatibility)."""
-        return self.plot_heatmap(*args, **kwargs)
+    # def plot_heatmap_v2(self, *args, **kwargs) -> Figure:
+    #     """Alias for plot_heatmap() (backward compatibility)."""
+    #     return self.plot_heatmap(*args, **kwargs)
 
-    def plot_variable_heatmap(self, x_var: str, y_var: str, filters: dict = None,
-                              partition: str = 'val', metric: str = 'rmse',
-                              score_partition: str = 'test', score_metric: str = '',
-                              **kwargs) -> Figure:
-        """Alias for plot_heatmap() (backward compatibility).
+    # def plot_variable_heatmap(self, x_var: str, y_var: str, filters: dict = None,
+    #                           partition: str = 'val', metric: str = 'rmse',
+    #                           score_partition: str = 'test', score_metric: str = '',
+    #                           **kwargs) -> Figure:
+    #     """Alias for plot_heatmap() (backward compatibility).
 
-        Maps old parameters to new API:
-        - filters['partition'] -> rank_partition
-        - partition -> rank_partition
-        - metric -> rank_metric
-        - score_partition -> display_partition
-        - score_metric -> display_metric
-        """
-        # Extract filters if provided
-        extra_filters = filters.copy() if filters else {}
+    #     Maps old parameters to new API:
+    #     - filters['partition'] -> rank_partition
+    #     - partition -> rank_partition
+    #     - metric -> rank_metric
+    #     - score_partition -> display_partition
+    #     - score_metric -> display_metric
+    #     """
+    #     # Extract filters if provided
+    #     extra_filters = filters.copy() if filters else {}
 
-        # Map old parameters to new ones
-        rank_partition = extra_filters.pop('partition', partition)
-        rank_metric = metric
-        display_partition = score_partition
-        display_metric = score_metric if score_metric else metric
+    #     # Map old parameters to new ones
+    #     rank_partition = extra_filters.pop('partition', partition)
+    #     rank_metric = metric
+    #     display_partition = score_partition
+    #     display_metric = score_metric if score_metric else metric
 
-        # Merge remaining filters
-        kwargs.update(extra_filters)
+    #     # Merge remaining filters
+    #     kwargs.update(extra_filters)
 
-        return self.plot_heatmap(
-            x_var=x_var,
-            y_var=y_var,
-            rank_metric=rank_metric,
-            rank_partition=rank_partition,
-            display_metric=display_metric,
-            display_partition=display_partition,
-            **kwargs
-        )
+    #     return self.plot_heatmap(
+    #         x_var=x_var,
+    #         y_var=y_var,
+    #         rank_metric=rank_metric,
+    #         rank_partition=rank_partition,
+    #         display_metric=display_metric,
+    #         display_partition=display_partition,
+    #         **kwargs
+    #     )
 
-    def plot_variable_candlestick(self, filters: dict, variable: str,
-                                   metric: str = 'rmse', **kwargs) -> Figure:
-        """Alias for plot_candlestick() (backward compatibility).
+    # def plot_variable_candlestick(self, filters: dict, variable: str,
+    #                                metric: str = 'rmse', **kwargs) -> Figure:
+    #     """Alias for plot_candlestick() (backward compatibility).
 
-        Maps old parameters to new API:
-        - filters -> extracted and passed as kwargs
-        """
-        # Extract filters
-        extra_filters = filters.copy() if filters else {}
-        partition = extra_filters.pop('partition', None)
+    #     Maps old parameters to new API:
+    #     - filters -> extracted and passed as kwargs
+    #     """
+    #     # Extract filters
+    #     extra_filters = filters.copy() if filters else {}
+    #     partition = extra_filters.pop('partition', None)
 
-        # Merge filters
-        if partition:
-            kwargs['partition'] = partition
-        kwargs.update(extra_filters)
+    #     # Merge filters
+    #     if partition:
+    #         kwargs['partition'] = partition
+    #     kwargs.update(extra_filters)
 
-        return self.plot_candlestick(variable=variable, metric=metric, **kwargs)
+    #     return self.plot_candlestick(variable=variable, metric=metric, **kwargs)
 
