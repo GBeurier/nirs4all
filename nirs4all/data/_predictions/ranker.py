@@ -231,27 +231,40 @@ class PredictionRanker:
         # Compute rank scores
         rank_scores = []
         for row in rank_data.to_dicts():
-            if rank_metric == row["metric"]:
-                # Use precomputed score for the rank_partition
-                score_field = f"{rank_partition}_score"
-                score = row.get(score_field)
-            else:
-                # Compute metric from y_true/y_pred
+            # Try to get score from pre-computed scores first
+            scores_json = row.get("scores")
+            score = None
+
+            if scores_json:
                 try:
-                    y_true = self._get_array(row, "y_true")
-                    y_pred = self._get_array(row, "y_pred")
-                    if y_true is not None and y_pred is not None:
-                        score = evaluator.eval(y_true, y_pred, rank_metric)
-                    else:
-                        score = None
-                except Exception:
-                    score = None
+                    scores_dict = json.loads(scores_json)
+                    if rank_partition in scores_dict and rank_metric in scores_dict[rank_partition]:
+                        score = scores_dict[rank_partition][rank_metric]
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # Fallback to legacy methods if score not found
+            if score is None:
+                if rank_metric == row["metric"]:
+                    # Use precomputed score for the rank_partition
+                    score_field = f"{rank_partition}_score"
+                    score = row.get(score_field)
+                else:
+                    # Compute metric from y_true/y_pred (Slow!)
+                    try:
+                        y_true = self._get_array(row, "y_true")
+                        y_pred = self._get_array(row, "y_pred")
+                        if y_true is not None and y_pred is not None:
+                            score = evaluator.eval(y_true, y_pred, rank_metric)
+                    except Exception:
+                        pass
 
             rank_scores.append({
                 **{k: row[k] for k in KEY},
                 "rank_score": score,
                 "id": row["id"],
-                "fold_id": row["fold_id"]
+                "fold_id": row["fold_id"],
+                "scores": scores_json # Pass scores along
             })
 
         # Sort and get top n
@@ -334,16 +347,30 @@ class PredictionRanker:
 
                         # Add display metrics
                         if display_metrics:
+                            # Parse scores for this partition
+                            partition_scores = {}
+                            if row.get("scores"):
+                                try:
+                                    all_scores = json.loads(row.get("scores"))
+                                    partition_scores = all_scores.get(partition, {})
+                                except:
+                                    pass
+
                             for metric in display_metrics:
-                                stored_score_key = f"{partition}_score" if partition != "val" else "val_score"
-                                if metric == row.get("metric"):
-                                    partition_dict[metric] = row.get(stored_score_key)
+                                # Try pre-computed scores first
+                                if metric in partition_scores:
+                                    partition_dict[metric] = partition_scores[metric]
                                 else:
-                                    try:
-                                        score = evaluator.eval(y_true, y_pred, metric)
-                                        partition_dict[metric] = score
-                                    except:
-                                        partition_dict[metric] = None
+                                    # Fallback to legacy
+                                    stored_score_key = f"{partition}_score" if partition != "val" else "val_score"
+                                    if metric == row.get("metric"):
+                                        partition_dict[metric] = row.get(stored_score_key)
+                                    else:
+                                        try:
+                                            score = evaluator.eval(y_true, y_pred, metric)
+                                            partition_dict[metric] = score
+                                        except:
+                                            partition_dict[metric] = None
 
                         # Nest partitions under 'partitions' key
                         if 'partitions' not in result:
@@ -394,16 +421,30 @@ class PredictionRanker:
 
                     # Add display metrics
                     if display_metrics:
+                        # Parse scores for this partition
+                        partition_scores = {}
+                        if row.get("scores"):
+                            try:
+                                all_scores = json.loads(row.get("scores"))
+                                partition_scores = all_scores.get(display_partition, {})
+                            except:
+                                pass
+
                         for metric in display_metrics:
-                            if metric == row.get("metric"):
-                                stored_score_key = f"{display_partition}_score" if display_partition != "val" else "val_score"
-                                result[metric] = row.get(stored_score_key)
+                            # Try pre-computed scores first
+                            if metric in partition_scores:
+                                result[metric] = partition_scores[metric]
                             else:
-                                try:
-                                    score = evaluator.eval(y_true, y_pred, metric)
-                                    result[metric] = score
-                                except:
-                                    result[metric] = None
+                                # Fallback to legacy
+                                if metric == row.get("metric"):
+                                    stored_score_key = f"{display_partition}_score" if display_partition != "val" else "val_score"
+                                    result[metric] = row.get(stored_score_key)
+                                else:
+                                    try:
+                                        score = evaluator.eval(y_true, y_pred, metric)
+                                        result[metric] = score
+                                    except:
+                                        result[metric] = None
 
             results.append(result)
 

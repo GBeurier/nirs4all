@@ -731,6 +731,21 @@ class BaseModelController(OperatorController, ABC):
             dataset.task_type
         )
 
+        # Calculate full metrics for all partitions
+        full_scores = {}
+        for partition in ['train', 'val', 'test']:
+            if len(true_values[partition]) > 0 and len(predictions_unscaled[partition]) > 0:
+                full_scores[partition] = self._calculate_and_print_scores(
+                    true_values[partition],
+                    predictions_unscaled[partition],
+                    dataset.task_type,
+                    partition=partition,
+                    model_name=identifiers.name,
+                    show_detailed_scores=(partition == 'test') # Only show detailed scores for test
+                )
+            else:
+                full_scores[partition] = {}
+
         # === 7. NORMALIZE INDICES ===
         # In predict mode with no y, use X shape to determine sample counts
         n_samples = {
@@ -764,6 +779,9 @@ class BaseModelController(OperatorController, ABC):
             X_shape=X_train.shape,
             best_params=best_params
         )
+
+        # Add full scores to prediction data
+        prediction_data['scores'] = full_scores
 
         return trained_model, identifiers.model_id, partition_scores.val, identifiers.name, prediction_data
 
@@ -849,7 +867,13 @@ class BaseModelController(OperatorController, ABC):
         Returns:
             Dictionary of metric names and scores.
         """
-        scores = evaluator.eval_multi(y_true, y_pred, task_type.value)
+        # Get default metrics for the task type
+        default_metrics = evaluator.get_default_metrics(task_type.value)
+
+        # Calculate all default metrics
+        scores_list = evaluator.eval_list(y_true, y_pred, default_metrics)
+        scores = dict(zip(default_metrics, scores_list))
+
         if scores and show_detailed_scores:
             score_str = ModelUtils.format_scores(scores)
             print(f"{CHART} {model_name} {partition} scores: {score_str}")
@@ -996,6 +1020,22 @@ class BaseModelController(OperatorController, ABC):
         true_values = {'train': y_train_unscaled, 'val': y_val_unscaled, 'test': y_test_unscaled}
         avg_scores = self.score_calculator.calculate(true_values, avg_preds, dataset.task_type) if mode not in ("predict", "explain") else None
 
+        # Calculate full metrics for average predictions
+        avg_full_scores = {}
+        if mode not in ("predict", "explain"):
+            for partition in ['train', 'val', 'test']:
+                if len(true_values[partition]) > 0 and len(avg_preds[partition]) > 0:
+                    avg_full_scores[partition] = self._calculate_and_print_scores(
+                        true_values[partition],
+                        avg_preds[partition],
+                        dataset.task_type,
+                        partition=partition,
+                        model_name=f"{base_model_name}_avg",
+                        show_detailed_scores=False
+                    )
+                else:
+                    avg_full_scores[partition] = {}
+
         # Weighted average
         metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
         weights = self._get_fold_weights(scores, higher_is_better, mode, runtime_context)
@@ -1008,14 +1048,32 @@ class BaseModelController(OperatorController, ABC):
 
         w_avg_scores = self.score_calculator.calculate(true_values, w_avg_preds, dataset.task_type) if mode not in ("predict", "explain") else None
 
+        # Calculate full metrics for weighted average predictions
+        w_avg_full_scores = {}
+        if mode not in ("predict", "explain"):
+            for partition in ['train', 'val', 'test']:
+                if len(true_values[partition]) > 0 and len(w_avg_preds[partition]) > 0:
+                    w_avg_full_scores[partition] = self._calculate_and_print_scores(
+                        true_values[partition],
+                        w_avg_preds[partition],
+                        dataset.task_type,
+                        partition=partition,
+                        model_name=f"{base_model_name}_w_avg",
+                        show_detailed_scores=False
+                    )
+                else:
+                    w_avg_full_scores[partition] = {}
+
         # Use prediction_assembler component to create prediction dicts
         avg_predictions = self._assemble_avg_prediction(dataset, runtime_context, context, base_model_name, model_classname,
                                                          avg_preds, avg_scores, true_values, all_val_indices,
                                                          "avg", best_params, mode)
+        avg_predictions['scores'] = avg_full_scores
 
         w_avg_predictions = self._assemble_avg_prediction(dataset, runtime_context, context, base_model_name, model_classname,
                                                            w_avg_preds, w_avg_scores, true_values, all_val_indices,
                                                            "w_avg", best_params, mode, weights)
+        w_avg_predictions['scores'] = w_avg_full_scores
 
         return avg_predictions, w_avg_predictions
 
@@ -1166,7 +1224,8 @@ class BaseModelController(OperatorController, ABC):
                     n_samples=len(y_true_part),
                     n_features=prediction_data['n_features'],
                     preprocessings=prediction_data['preprocessings'],
-                    best_params=prediction_data['best_params']
+                    best_params=prediction_data['best_params'],
+                    scores=prediction_data.get('scores', {})
                 )
 
             # Print summary (only once per model)

@@ -109,15 +109,46 @@ class BaseChart(ABC):
         Returns:
             'balanced_accuracy' for classification, 'rmse' for regression.
         """
-        # Get task_type from first prediction record
         if self.predictions.num_predictions > 0:
             try:
-                task_type = self.predictions._storage.df['task_type'].iloc[0]
-                if task_type and 'classification' in str(task_type).lower():
+                # Try to get unique task types using public API
+                task_types = self.predictions.get_unique_values('task_type')
+                # Check if ANY task type is classification
+                if any(t and 'classification' in str(t).lower() for t in task_types):
                     return 'balanced_accuracy'
-            except (AttributeError, KeyError, IndexError):
+            except Exception:
                 pass
         return 'rmse'
+
+    def _get_score(self, partition_data: Dict[str, Any], metric: str) -> Optional[float]:
+        """Get score from partition data, computing it if necessary.
+
+        Args:
+            partition_data: Dictionary containing partition data (metrics, y_true, y_pred).
+            metric: Metric name to retrieve.
+
+        Returns:
+            Score value or None if not found/computable.
+        """
+        if not partition_data:
+            return None
+
+        # 1. Try direct access
+        if metric in partition_data:
+            return float(partition_data[metric])
+
+        # 2. Compute from y_true/y_pred
+        y_true = partition_data.get('y_true')
+        y_pred = partition_data.get('y_pred')
+
+        if y_true is not None and y_pred is not None:
+            try:
+                from nirs4all.core import metrics as evaluator
+                return float(evaluator.eval(y_true, y_pred, metric))
+            except Exception:
+                pass
+
+        return None
 
     def _format_score_display(
         self,
@@ -182,22 +213,7 @@ class BaseChart(ABC):
             partition_scores = []
             for partition in partitions:
                 partition_data = partitions_data.get(partition, {})
-                if not partition_data:
-                    continue
-
-                # Try to get pre-computed metric
-                score = partition_data.get(metric)
-
-                # If not found, compute from y_true and y_pred
-                if score is None:
-                    y_true = partition_data.get('y_true')
-                    y_pred = partition_data.get('y_pred')
-                    if y_true is not None and y_pred is not None:
-                        try:
-                            from nirs4all.core import metrics as evaluator
-                            score = evaluator.eval(y_true, y_pred, metric)
-                        except Exception:
-                            continue
+                score = self._get_score(partition_data, metric)
 
                 if score is not None:
                     partition_scores.append(f"{score:.4f} [{partition}]")

@@ -98,10 +98,13 @@ analyzer = PredictionAnalyzer(predictions)
 
 confusion_matrix_fig = analyzer.plot_confusion_matrix(k=4, rank_metric='accuracy', rank_partition='val', display_partition='test')
 
+confusion_matrix_fig_default = analyzer.plot_confusion_matrix(k=8)
+
 candlestick_fig = analyzer.plot_candlestick(
     variable="model_name",
     display_metric='accuracy',
 )
+
 
 heatmap_fig = analyzer.plot_heatmap(
     x_var="model_name",

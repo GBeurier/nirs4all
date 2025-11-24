@@ -58,6 +58,7 @@ class HeatmapChart(BaseChart):
         rank_agg: str = 'best',
         display_agg: str = 'mean',
         show_counts: bool = True,
+        local_scale: bool = False,
         **filters
     ) -> Figure:
         """Render performance heatmap.
@@ -81,6 +82,7 @@ class HeatmapChart(BaseChart):
             rank_agg: Aggregation for ranking ('best', 'worst', 'mean', 'median') (default: 'best').
             display_agg: Aggregation for display ('best', 'worst', 'mean', 'median') (default: 'mean').
             show_counts: Show prediction counts in cells (default: True).
+            local_scale: If True, colorbar shows actual metric values; if False, shows 0-1 normalized (default: False).
             **filters: Additional filters (dataset_name, model_name, etc.).
 
         Returns:
@@ -88,7 +90,10 @@ class HeatmapChart(BaseChart):
         """
         # Auto-detect metric if not provided
         if rank_metric is None:
-            rank_metric = self._get_default_metric()
+            if display_metric:
+                rank_metric = display_metric
+            else:
+                rank_metric = self._get_default_metric()
 
         self.validate_inputs(x_var, y_var, rank_metric)
 
@@ -161,7 +166,7 @@ class HeatmapChart(BaseChart):
             x_labels, y_labels, x_var, y_var,
             rank_metric, rank_partition, rank_agg,
             display_metric, display_partition, display_agg,
-            figsize, normalize, show_counts
+            figsize, normalize, show_counts, local_scale, display_higher_better
         )
 
     def _build_score_dict(
@@ -295,18 +300,10 @@ class HeatmapChart(BaseChart):
         if partitions and partition in partitions:
             partition_data = partitions[partition]
 
-            # Check if metric is already computed
-            if metric in partition_data:
-                return partition_data[metric]
-
-            # Compute from y_true and y_pred
-            y_true = partition_data.get('y_true')
-            y_pred = partition_data.get('y_pred')
-            if y_true is not None and y_pred is not None:
-                try:
-                    return evaluator.eval(y_true, y_pred, metric)
-                except Exception:
-                    pass
+            # Use centralized score extraction
+            score = self._get_score(partition_data, metric)
+            if score is not None:
+                return score
 
         # Fallback: try direct score fields (for single partition case)
         score_field = f'{partition}_score'
@@ -323,16 +320,8 @@ class HeatmapChart(BaseChart):
             if converted is not None:
                 return float(converted)
 
-        # Last resort: compute from arrays
-        y_true = pred.get('y_true')
-        y_pred = pred.get('y_pred')
-        if y_true is not None and y_pred is not None:
-            try:
-                return evaluator.eval(y_true, y_pred, metric)
-            except Exception:
-                pass
-
-        return None
+        # Last resort: use centralized score extraction (checks key or computes from arrays)
+        return self._get_score(pred, metric)
 
     def _convert_metric(self, score: float, from_metric: str, to_metric: str) -> Optional[float]:
         """Convert between compatible metrics."""
@@ -350,7 +339,19 @@ class HeatmapChart(BaseChart):
     @staticmethod
     def _is_higher_better(metric: str) -> bool:
         """Check if metric is higher-is-better."""
-        return metric.lower() in ['r2', 'accuracy', 'f1', 'precision', 'recall', 'auc', 'roc_auc']
+        metric_lower = metric.lower()
+        # Classification metrics (higher is better)
+        higher_is_better = [
+            'accuracy', 'balanced_accuracy',
+            'precision', 'balanced_precision', 'precision_micro', 'precision_macro',
+            'recall', 'balanced_recall', 'recall_micro', 'recall_macro',
+            'f1', 'f1_micro', 'f1_macro',
+            'specificity', 'roc_auc', 'auc',
+            'matthews_corrcoef', 'cohen_kappa', 'jaccard',
+            # Regression metrics (higher is better)
+            'r2', 'r2_score'
+        ]
+        return metric_lower in higher_is_better
 
     def _render_heatmap(
         self,
@@ -369,24 +370,50 @@ class HeatmapChart(BaseChart):
         display_agg: str,
         figsize: tuple,
         normalize: bool,
-        show_counts: bool
+        show_counts: bool,
+        local_scale: bool,
+        display_higher_better: bool
     ) -> Figure:
         """Render the heatmap figure."""
         fig, ax = plt.subplots(figsize=figsize)
 
         # Use normalized matrix for colors (always)
         masked_matrix = np.ma.masked_invalid(normalized_matrix)
+
+        # Determine scaling mode
+        # Force local_scale=True for regression metrics (unbounded) unless explicitly set
+        is_bounded_0_1 = display_metric.lower() in [
+            'accuracy', 'balanced_accuracy', 'precision', 'recall', 'f1',
+            'specificity', 'auc', 'roc_auc', 'jaccard'
+        ] or any(m in display_metric.lower() for m in ['accuracy', 'precision', 'recall', 'f1'])
+
+        use_local_scale = local_scale or not is_bounded_0_1
+
+        masked_raw = np.ma.masked_invalid(matrix)
+
+        if use_local_scale:
+            vmin = np.nanmin(matrix)
+            vmax = np.nanmax(matrix)
+        else:
+            vmin = 0
+            vmax = 1
+
+        # Select colormap based on direction
+        cmap_name = self.config.heatmap_colormap
+        if not display_higher_better:
+            cmap_name += '_r'
+
         im = ax.imshow(
-            masked_matrix,
-            cmap=self.config.heatmap_colormap,
+            masked_raw,
+            cmap=cmap_name,
             aspect='auto',
-            vmin=0,
-            vmax=1
+            vmin=vmin,
+            vmax=vmax
         )
+        cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
 
         # Colorbar
         cbar = plt.colorbar(im, ax=ax, shrink=0.8)
-        cbar_label = f'Normalized {display_metric.upper()}\n(1=best, 0=worst)'
         cbar.set_label(cbar_label, fontsize=self.config.label_fontsize)
 
         # Axis labels
@@ -400,10 +427,11 @@ class HeatmapChart(BaseChart):
         ax.set_xlabel(x_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
         ax.set_ylabel(y_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
 
-        # Title: explicit parameters
+        # Title: Show display aggregation and metric, and add ranking info if different
         title_parts = [f'{display_agg.title()} {display_metric} [{display_partition}]']
 
-        # Add ranking info if different from display
+        # Add ranking score info if different from display (mimic confusion matrix behavior)
+        # Show both the display and ranking configurations in the title
         if rank_partition != display_partition or rank_metric != display_metric or rank_agg != display_agg:
             title_parts.append(f'(rank on {rank_agg} {rank_metric} [{rank_partition}])')
 

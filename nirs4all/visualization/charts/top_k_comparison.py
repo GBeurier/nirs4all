@@ -185,15 +185,28 @@ class TopKComparisonChart(BaseChart):
             ax_scatter.set_xlabel('True Values', fontsize=self.config.label_fontsize)
             ax_scatter.set_ylabel('Predicted Values', fontsize=self.config.label_fontsize)
 
-            # Title with model info and scores
+            # Title with model info and scores for all partitions
+            # By default, show scores for all partitions (train, val, test)
             if show_scores:
+                # Use 'all' mode to show scores for all partitions
+                # If show_scores is True, we default to showing all partitions for TopK
+                score_mode = 'all' if show_scores is True else show_scores
+
                 title_scores = self._format_score_display(
-                    pred, show_scores, rank_metric, rank_partition,
+                    pred, score_mode, rank_metric, rank_partition,
                     display_metric, display_partition
                 )
+
+                # Add ranking info if different from display
+                if rank_metric != display_metric:
+                    rank_score = pred.get('rank_score')
+                    if rank_score is not None:
+                        title_scores += f"\n(Rank: {rank_metric}={rank_score:.4f} [{rank_partition}])"
+
                 title = f'{model_name}\n{title_scores}'
             else:
                 title = model_name
+
             ax_scatter.set_title(title, fontsize=self.config.label_fontsize)
             ax_scatter.legend(fontsize=8)
             ax_scatter.grid(True, alpha=0.3)
@@ -216,32 +229,56 @@ class TopKComparisonChart(BaseChart):
             ax_residuals.set_xlabel('True Values', fontsize=self.config.label_fontsize)
             ax_residuals.set_ylabel('Residuals', fontsize=self.config.label_fontsize)
 
-            # Build residual title with partition info
-            if show_all_partitions:
-                residual_title = 'Residuals [train/val/test]'
+            # Build residual title with scores for all partitions (like obs chart)
+            if show_scores:
+                title_lines = []
+
+                # Add partition label
+                if show_all_partitions:
+                    title_lines.append('Residuals [train/val/test]')
+                else:
+                    title_lines.append(f'Residuals [{display_partition}]')
+
+                # Use 'all' mode to show scores for all partitions
+                score_mode = 'all' if show_scores is True else show_scores
+
+                scores_str = self._format_score_display(
+                    pred, score_mode, rank_metric, rank_partition,
+                    display_metric, display_partition
+                )
+
+                if scores_str:
+                    title_lines.append(scores_str)
+
+                residual_title = '\n'.join(title_lines)
             else:
-                residual_title = f'Residuals [{display_partition}]'
+                # Build residual title with partition info
+                if show_all_partitions:
+                    residual_title = 'Residuals [train/val/test]'
+                else:
+                    residual_title = f'Residuals [{display_partition}]'
+
             ax_residuals.set_title(residual_title, fontsize=self.config.label_fontsize)
             ax_residuals.legend(fontsize=8)
             ax_residuals.grid(True, alpha=0.3)
 
-            # Add partition scores as text annotation
-            scores_text = []
-            for partition in ['train', 'val', 'test']:
-                score_field = f'{partition}_score'
-                score = pred.get(score_field)
-                if score is not None:
-                    scores_text.append(f'{partition}: {score:.4f}')
-
-            if scores_text:
-                scores_str = '\n'.join(scores_text)
-                ax_residuals.text(
-                    0.98, 0.02, scores_str,
-                    transform=ax_residuals.transAxes,
-                    fontsize=8, verticalalignment='bottom',
-                    horizontalalignment='right',
-                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-                )
+            # Commented out: Add partition scores as text annotation (small box)
+            # scores_text = []
+            # for partition in ['train', 'val', 'test']:
+            #     score_field = f'{partition}_score'
+            #     score = pred.get(score_field)
+            #     if score is not None:
+            #         scores_text.append(f'{partition}: {score:.4f}')
+            #
+            # if scores_text:
+            #     scores_str = '\\n'.join(scores_text)
+            #     ax_residuals.text(
+            #         0.98, 0.02, scores_str,
+            #         transform=ax_residuals.transAxes,
+            #         fontsize=8, verticalalignment='bottom',
+            #         horizontalalignment='right',
+            #         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+            #     )
 
         plt.tight_layout()
         return fig

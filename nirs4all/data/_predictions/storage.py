@@ -207,7 +207,7 @@ class PredictionStorage:
             >>> storage1.merge(storage2, deduplicate=True)
         """
         # Merge DataFrames
-        self._df = pl.concat([self._df, other._df])
+        self._df = pl.concat([self._df, other._df], how="diagonal")
 
         if deduplicate:
             # Keep first occurrence of each ID
