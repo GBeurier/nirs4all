@@ -83,7 +83,7 @@ predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_confi
 
 # Create confusion matrix visualization for top models
 analyzer = PredictionAnalyzer(predictions)
-confusion_matrix_fig = analyzer.plot_confusion_matrix(k=3, metric='accuracy', rank_partition='val', display_partition='val')
+confusion_matrix_fig = analyzer.plot_confusion_matrix(k=3, rank_metric='accuracy', rank_partition='val', display_partition='val')
 
 if args.show:
     plt.show()

@@ -59,7 +59,14 @@ print(preds_reg)
 
 # 2. Binary Classification
 print("\n--- Binary Classification Comparison ---")
-data_path_bin = 'sample_data/binary'
+data_path_bin = {
+    'folder': 'sample_data/binary/',
+    'params': {
+        'has_header': False,
+        'delimiter': ';',
+        'decimal_separator': '.'
+    }
+}
 pipeline_bin = []
 pipeline_bin.append(StandardScaler)
 pipeline_bin.append(ShuffleSplit(n_splits=1, test_size=0.25, random_state=42))

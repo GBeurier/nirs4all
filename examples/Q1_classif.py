@@ -51,19 +51,19 @@ pipeline = [
     ShuffleSplit(n_splits=3, test_size=0.25),
     "fold_chart",
     RandomForestClassifier(
-        n_estimators=250,
+        n_estimators=25,
         max_depth=13,
-        verbose=1
+        verbose=0
     ),
     {
         "model": nicon_classification,
         "train_params": {
-            'epochs': 250,
+            'epochs': 25,
             'batch_size': 1024,
-            'verbose': 1
+            'verbose': 0
         }
     },
-    XGBClassifier(n_estimators=250, verbosity=1)
+    XGBClassifier(n_estimators=25, verbosity=0)
 ]
 
 
@@ -96,11 +96,11 @@ for idx, prediction in enumerate(top_models):
 
 analyzer = PredictionAnalyzer(predictions)
 
-confusion_matrix_fig = analyzer.plot_confusion_matrix(k=4, metric='accuracy', rank_partition='val', display_partition='test')
+confusion_matrix_fig = analyzer.plot_confusion_matrix(k=4, rank_metric='accuracy', rank_partition='val', display_partition='test')
 
 candlestick_fig = analyzer.plot_candlestick(
     variable="model_name",
-    metric='accuracy',
+    display_metric='accuracy',
 )
 
 heatmap_fig = analyzer.plot_heatmap(
@@ -110,7 +110,7 @@ heatmap_fig = analyzer.plot_heatmap(
 )
 
 histogram_fig = analyzer.plot_histogram(
-    metric='balanced_recall',
+    display_metric='balanced_recall',
 )
 
 if display_analyzer_plots:

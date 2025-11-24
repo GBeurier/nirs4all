@@ -1,12 +1,14 @@
 ## ROADMAP ##
 
+> [Charts] verify heatmap on classification, uniformize signatures (rank_metric, display_metric, rank_partition, display_partition)
+
 > [sklearn] BUG ! Stacking model does not work
 
-> [Heatmap] verify heatmap on classification
+> [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 
-> [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
-> [Examples] Orgzanize and optimize the full run
+**Bugs**:
+>   - Balanced sample augmentation. For that add verbose data after steps.
 
 **RELEASE** 0.5: Documentation
 
@@ -58,6 +60,7 @@
 
 **RELEASE** 0.6.1: Pipeline logic
 
+> [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
 > [Logs] implement feature and update print/log strategy
 

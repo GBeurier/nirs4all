@@ -120,7 +120,7 @@ fig2 = analyzer.plot_heatmap(
 # Plot candlestick chart for model performance distribution
 fig3 = analyzer.plot_candlestick(
     variable="model_name",
-    partition="test"
+    display_partition="test"
 )
 
 if args.show:

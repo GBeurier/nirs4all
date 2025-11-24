@@ -28,7 +28,7 @@ class TopKComparisonChart(BaseChart):
         super().__init__(predictions, dataset_name_override, config)
         self.adapter = PredictionsAdapter(predictions)
 
-    def validate_inputs(self, k: int, rank_metric: str, **kwargs) -> None:
+    def validate_inputs(self, k: int, rank_metric: Optional[str], **kwargs) -> None:
         """Validate top K comparison inputs.
 
         Args:
@@ -41,11 +41,12 @@ class TopKComparisonChart(BaseChart):
         """
         if not isinstance(k, int) or k <= 0:
             raise ValueError("k must be a positive integer")
-        if not rank_metric or not isinstance(rank_metric, str):
-            raise ValueError("rank_metric must be a non-empty string")
+        if rank_metric and not isinstance(rank_metric, str):
+            raise ValueError("rank_metric must be a string")
 
-    def render(self, k: int = 5, rank_metric: str = 'rmse',
-               rank_partition: str = 'val', display_partition: str = 'all',
+    def render(self, k: int = 5, rank_metric: Optional[str] = None,
+               rank_partition: str = 'val', display_metric: str = '',
+               display_partition: str = 'all', show_scores: bool = True,
                dataset_name: Optional[str] = None,
                figsize: Optional[tuple] = None, **filters) -> Figure:
         """Plot top K models with predicted vs true and residuals.
@@ -55,9 +56,11 @@ class TopKComparisonChart(BaseChart):
 
         Args:
             k: Number of top models to show (default: 5).
-            rank_metric: Metric for ranking models (default: 'rmse').
+            rank_metric: Metric for ranking models (default: auto-detect from task type).
             rank_partition: Partition used for ranking (default: 'val').
+            display_metric: Metric to display in titles (default: same as rank_metric).
             display_partition: Partition(s) to display ('all' for train/val/test, or 'test', 'val', 'train').
+            show_scores: If True, show scores in chart titles (default: True).
             dataset_name: Optional dataset filter.
             figsize: Figure size tuple (default: from config).
             **filters: Additional filters.
@@ -65,6 +68,12 @@ class TopKComparisonChart(BaseChart):
         Returns:
             matplotlib Figure object.
         """
+        # Auto-detect metric if not provided
+        if rank_metric is None:
+            rank_metric = self._get_default_metric()
+        if not display_metric:
+            display_metric = rank_metric
+
         self.validate_inputs(k, rank_metric)
 
         if figsize is None:
@@ -115,7 +124,7 @@ class TopKComparisonChart(BaseChart):
             axes = axes.reshape(1, -1)
 
         # Create figure title
-        fig_title = f'Top {k} Models - Best {rank_metric.upper()} ({rank_partition})'
+        fig_title = f'Top {k} Models Comparison - Ranked by best {rank_metric} [{rank_partition}]'
         if dataset_name:
             fig_title = f'{fig_title}\nDataset: {dataset_name}'
         fig.suptitle(fig_title, fontsize=self.config.title_fontsize, fontweight='bold')
@@ -127,10 +136,6 @@ class TopKComparisonChart(BaseChart):
             ax_residuals = axes[i, 1]
 
             model_name = pred.get('model_name', 'Unknown')
-
-            # Get rank score
-            rank_score_field = f'{rank_partition}_score'
-            rank_score = pred.get(rank_score_field)
 
             # Collect data from partitions
             all_y_true = []
@@ -159,7 +164,6 @@ class TopKComparisonChart(BaseChart):
 
             all_y_true = np.array(all_y_true)
             all_y_pred = np.array(all_y_pred)
-            residuals = all_y_pred - all_y_true
 
             # Scatter plot: Predicted vs True
             for partition in partitions_to_display:
@@ -181,12 +185,15 @@ class TopKComparisonChart(BaseChart):
             ax_scatter.set_xlabel('True Values', fontsize=self.config.label_fontsize)
             ax_scatter.set_ylabel('Predicted Values', fontsize=self.config.label_fontsize)
 
-            # Title with model info
-            if isinstance(rank_score, (int, float)):
-                rank_score_str = f'{rank_score:.4f}'
+            # Title with model info and scores
+            if show_scores:
+                title_scores = self._format_score_display(
+                    pred, show_scores, rank_metric, rank_partition,
+                    display_metric, display_partition
+                )
+                title = f'{model_name}\n{title_scores}'
             else:
-                rank_score_str = str(rank_score)
-            title = f'{model_name}\n{rank_metric.upper()}={rank_score_str} ({rank_partition})'
+                title = model_name
             ax_scatter.set_title(title, fontsize=self.config.label_fontsize)
             ax_scatter.legend(fontsize=8)
             ax_scatter.grid(True, alpha=0.3)
@@ -211,9 +218,9 @@ class TopKComparisonChart(BaseChart):
 
             # Build residual title with partition info
             if show_all_partitions:
-                residual_title = 'Residuals (train/val/test)'
+                residual_title = 'Residuals [train/val/test]'
             else:
-                residual_title = f'Residuals ({display_partition})'
+                residual_title = f'Residuals [{display_partition}]'
             ax_residuals.set_title(residual_title, fontsize=self.config.label_fontsize)
             ax_residuals.legend(fontsize=8)
             ax_residuals.grid(True, alpha=0.3)

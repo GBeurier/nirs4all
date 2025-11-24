@@ -184,20 +184,20 @@ fig8 = analyzer.plot_heatmap(
 
 fig9 = analyzer.plot_candlestick(
     variable="model_name",
-    metric='rmse',
+    display_metric='rmse',
 )
 
 fig10 = analyzer.plot_candlestick(
     variable="fold_id",
-    metric='r2',
+    display_metric='r2',
 )
 
 fig11 = analyzer.plot_histogram(
-    metric='mae',
+    display_metric='mae',
 )
 
 fig12 = analyzer.plot_histogram(
-    metric='mape',
+    display_metric='mape',
 )
 
 if args.show:

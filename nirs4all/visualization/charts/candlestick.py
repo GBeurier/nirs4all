@@ -29,39 +29,43 @@ class CandlestickChart(BaseChart):
         super().__init__(predictions, dataset_name_override, config)
         self.adapter = PredictionsAdapter(predictions)
 
-    def validate_inputs(self, variable: str, metric: str, **kwargs) -> None:
+    def validate_inputs(self, variable: str, display_metric: Optional[str], **kwargs) -> None:
         """Validate candlestick inputs.
 
         Args:
             variable: Variable name to group by.
-            metric: Metric name to analyze.
+            display_metric: Metric name to analyze.
             **kwargs: Additional parameters (ignored).
 
         Raises:
-            ValueError: If variable or metric is invalid.
+            ValueError: If variable or display_metric is invalid.
         """
         if not variable or not isinstance(variable, str):
             raise ValueError("variable must be a non-empty string")
-        if not metric or not isinstance(metric, str):
-            raise ValueError("metric must be a non-empty string")
+        if display_metric and not isinstance(display_metric, str):
+            raise ValueError("display_metric must be a string")
 
-    def render(self, variable: str, metric: str = 'rmse',
-               dataset_name: Optional[str] = None, partition: Optional[str] = None,
+    def render(self, variable: str, display_metric: Optional[str] = None,
+               display_partition: str = 'test', dataset_name: Optional[str] = None,
                figsize: Optional[tuple] = None, **filters) -> Figure:
         """Render candlestick chart showing metric distribution by variable.
 
         Args:
             variable: Variable to group by (e.g., 'model_name', 'preprocessings').
-            metric: Metric to analyze (default: 'rmse').
+            display_metric: Metric to analyze (default: auto-detect from task type).
+            display_partition: Partition to display scores from (default: 'test').
             dataset_name: Optional dataset filter.
-            partition: Partition to display scores from (default: 'test').
             figsize: Figure size tuple (default: from config).
             **filters: Additional filters (config_name, etc.).
 
         Returns:
             matplotlib Figure object.
         """
-        self.validate_inputs(variable, metric)
+        # Auto-detect metric if not provided
+        if display_metric is None:
+            display_metric = self._get_default_metric()
+
+        self.validate_inputs(variable, display_metric)
 
         if figsize is None:
             figsize = self.config.get_figsize('medium')
@@ -69,24 +73,20 @@ class CandlestickChart(BaseChart):
         # Build filters
         if dataset_name:
             filters['dataset_name'] = dataset_name
-        if partition:
-            filters['partition'] = partition
-        else:
-            partition = 'test'
-            filters['partition'] = partition
+        filters['partition'] = display_partition
 
         # Get all predictions
         predictions_list = self.adapter.get_top_models(
             n=self.predictions.num_predictions,
-            rank_metric=metric,
-            rank_partition=partition,
+            rank_metric=display_metric,
+            rank_partition=display_partition,
             **filters
         )
 
         if not predictions_list:
             return self._create_empty_figure(
                 figsize,
-                f'No predictions found for variable={variable}, metric={metric}'
+                f'No predictions found for variable={variable}, metric={display_metric}'
             )
 
         # Group scores by variable
@@ -98,7 +98,7 @@ class CandlestickChart(BaseChart):
                 continue
 
             # Extract score
-            score_field = f'{partition}_score'
+            score_field = f'{display_partition}_score'
             score = pred.get(score_field)
             if score is not None:
                 variable_scores[var_value].append(float(score))
@@ -159,12 +159,10 @@ class CandlestickChart(BaseChart):
                           fontsize=self.config.tick_fontsize)
         ax.set_xlabel(variable.replace('_', ' ').title(),
                      fontsize=self.config.label_fontsize)
-        ax.set_ylabel(f'{metric.upper()} Score',
+        ax.set_ylabel(f'{display_metric} score',
                      fontsize=self.config.label_fontsize)
 
-        title = f'{metric.upper()} Distribution by {variable.replace("_", " ").title()}'
-        if partition:
-            title += f'\n(partition: {partition})'
+        title = f'Candlestick - {display_metric} by {variable.replace("_", " ").title()} [{display_partition}]'
         ax.set_title(title, fontsize=self.config.title_fontsize)
 
         ax.grid(True, alpha=0.3, axis='y')

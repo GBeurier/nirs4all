@@ -29,12 +29,12 @@ class ConfusionMatrixChart(BaseChart):
         super().__init__(predictions, dataset_name_override, config)
         self.adapter = PredictionsAdapter(predictions)
 
-    def validate_inputs(self, k: int, metric: str, **kwargs) -> None:
+    def validate_inputs(self, k: int, rank_metric: Optional[str], **kwargs) -> None:
         """Validate confusion matrix inputs.
 
         Args:
             k: Number of top models.
-            metric: Metric name.
+            rank_metric: Metric name.
             **kwargs: Additional parameters (ignored).
 
         Raises:
@@ -42,11 +42,12 @@ class ConfusionMatrixChart(BaseChart):
         """
         if not isinstance(k, int) or k <= 0:
             raise ValueError("k must be a positive integer")
-        if not metric or not isinstance(metric, str):
-            raise ValueError("metric must be a non-empty string")
+        if rank_metric and not isinstance(rank_metric, str):
+            raise ValueError("rank_metric must be a string")
 
-    def render(self, k: int = 5, metric: str = 'accuracy',
-               rank_partition: str = 'val', display_partition: str = 'test',
+    def render(self, k: int = 5, rank_metric: Optional[str] = None,
+               rank_partition: str = 'val', display_metric: str = '',
+               display_partition: str = 'test', show_scores: bool = True,
                dataset_name: Optional[str] = None,
                figsize: Optional[tuple] = None, **filters) -> Union[Figure, List[Figure]]:
         """Plot confusion matrices for top K classification models per dataset.
@@ -57,9 +58,11 @@ class ConfusionMatrixChart(BaseChart):
 
         Args:
             k: Number of top models to show per dataset (default: 5).
-            metric: Metric for ranking (default: 'accuracy').
+            rank_metric: Metric for ranking (default: auto-detect from task type).
             rank_partition: Partition used for ranking models (default: 'val').
+            display_metric: Metric to display in titles (default: same as rank_metric).
             display_partition: Partition to display confusion matrix from (default: 'test').
+            show_scores: If True, show scores in chart titles (default: True).
             dataset_name: Optional dataset filter. If provided, only shows that dataset.
             figsize: Figure size tuple (default: from config).
             **filters: Additional filters (e.g., config_name="config1").
@@ -67,7 +70,13 @@ class ConfusionMatrixChart(BaseChart):
         Returns:
             Single Figure if one dataset, List[Figure] if multiple datasets.
         """
-        self.validate_inputs(k, metric)
+        # Auto-detect metric if not provided
+        if rank_metric is None:
+            rank_metric = self._get_default_metric()
+        if not display_metric:
+            display_metric = rank_metric
+
+        self.validate_inputs(k, rank_metric)
 
         if figsize is None:
             figsize = self.config.get_figsize('large')
@@ -95,9 +104,9 @@ class ConfusionMatrixChart(BaseChart):
             ds_filters = {**filters, 'dataset_name': ds}
             top_preds = self.predictions.top(
                 n=k,
-                rank_metric=metric,
+                rank_metric=rank_metric,
                 rank_partition=rank_partition,
-                display_metrics=[metric],
+                display_metrics=[display_metric],
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 **ds_filters
@@ -179,16 +188,16 @@ class ConfusionMatrixChart(BaseChart):
                 ax.set_ylabel('True label', fontsize=self.config.label_fontsize)
                 ax.set_xlabel('Predicted label', fontsize=self.config.label_fontsize)
 
-                # Title with model info and score
+                # Title with model info and scores
                 model_name = pred.get('model_name', 'Unknown')
-                score_field = f'{display_partition}_score'
-                score = pred.get(score_field, 'N/A')
-                if isinstance(score, (int, float)):
-                    score_str = f'{score:.4f}'
+                if show_scores:
+                    title_scores = self._format_score_display(
+                        pred, show_scores, rank_metric, rank_partition,
+                        display_metric, display_partition
+                    )
+                    title = f'{model_name}\n{title_scores}'
                 else:
-                    score_str = str(score)
-
-                title = f'{model_name}\n{metric.upper()}={score_str} ({display_partition})'
+                    title = model_name
                 ax.set_title(title, fontsize=self.config.label_fontsize)
 
             # Hide empty subplots
@@ -196,7 +205,7 @@ class ConfusionMatrixChart(BaseChart):
                 axes[i].axis('off')
 
             # Create overall title for this dataset
-            overall_title = f'Dataset: {ds} - Top {k} Models\nConfusion Matrices (ranked by {metric.upper()} on {rank_partition})'
+            overall_title = f'Dataset: {ds} - Top {k} Confusion Matrices\nRanked by best {rank_metric} [{rank_partition}], Displayed: [{display_partition}]'
             fig.suptitle(overall_title, fontsize=self.config.title_fontsize, fontweight='bold')
             plt.tight_layout()
 

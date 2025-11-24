@@ -30,28 +30,28 @@ class ScoreHistogramChart(BaseChart):
         self.adapter = PredictionsAdapter(predictions)
         self.annotator = ChartAnnotator(config)
 
-    def validate_inputs(self, metric: str, **kwargs) -> None:
+    def validate_inputs(self, display_metric: Optional[str], **kwargs) -> None:
         """Validate histogram inputs.
 
         Args:
-            metric: Metric name to plot.
+            display_metric: Metric name to plot.
             **kwargs: Additional parameters (ignored).
 
         Raises:
-            ValueError: If metric is invalid.
+            ValueError: If display_metric is invalid.
         """
-        if not metric or not isinstance(metric, str):
-            raise ValueError("metric must be a non-empty string")
+        if display_metric and not isinstance(display_metric, str):
+            raise ValueError("display_metric must be a string")
 
-    def render(self, metric: str = 'rmse', dataset_name: Optional[str] = None,
-               partition: Optional[str] = None, bins: int = 20,
+    def render(self, display_metric: Optional[str] = None, display_partition: str = 'test',
+               dataset_name: Optional[str] = None, bins: int = 20,
                figsize: Optional[tuple] = None, **filters) -> Figure:
         """Render score distribution histogram.
 
         Args:
-            metric: Metric to plot (default: 'rmse').
+            display_metric: Metric to plot (default: auto-detect from task type).
+            display_partition: Partition to display scores from (default: 'test').
             dataset_name: Optional dataset filter.
-            partition: Partition to display scores from (default: 'test').
             bins: Number of histogram bins (default: 20).
             figsize: Figure size tuple (default: from config).
             **filters: Additional filters (model_name, config_name, etc.).
@@ -59,7 +59,11 @@ class ScoreHistogramChart(BaseChart):
         Returns:
             matplotlib Figure object.
         """
-        self.validate_inputs(metric)
+        # Auto-detect metric if not provided
+        if display_metric is None:
+            display_metric = self._get_default_metric()
+
+        self.validate_inputs(display_metric)
 
         if figsize is None:
             figsize = self.config.get_figsize('small')
@@ -67,33 +71,29 @@ class ScoreHistogramChart(BaseChart):
         # Build filters
         if dataset_name:
             filters['dataset_name'] = dataset_name
-        if partition:
-            filters['partition'] = partition
-        else:
-            partition = 'test'
-            filters['partition'] = partition
+        filters['partition'] = display_partition
 
         # Get all predictions for the specified partition
         predictions_list = self.adapter.get_top_models(
             n=self.predictions.num_predictions,
-            rank_metric=metric,
-            rank_partition=partition,
+            rank_metric=display_metric,
+            rank_partition=display_partition,
             **filters
         )
 
         if not predictions_list:
             return self._create_empty_figure(
                 figsize,
-                f'No predictions found for metric={metric}, partition={partition}'
+                f'No predictions found for metric={display_metric}, partition={display_partition}'
             )
 
         # Extract scores
-        scores = self.adapter.extract_metric_values(predictions_list, metric, partition)
+        scores = self.adapter.extract_metric_values(predictions_list, display_metric, display_partition)
 
         if not scores:
             return self._create_empty_figure(
                 figsize,
-                f'No valid scores found for metric={metric}, partition={partition}'
+                f'No valid scores found for metric={display_metric}, partition={display_partition}'
             )
 
         # Create figure
@@ -102,12 +102,11 @@ class ScoreHistogramChart(BaseChart):
         # Plot histogram
         ax.hist(scores, bins=bins, alpha=self.config.alpha,
                 edgecolor='black', color='#35B779')
-        ax.set_xlabel(f'{metric.upper()} Score', fontsize=self.config.label_fontsize)
+        ax.set_xlabel(f'{display_metric} score', fontsize=self.config.label_fontsize)
         ax.set_ylabel('Frequency', fontsize=self.config.label_fontsize)
 
         # Title
-        partition_label = partition if partition else 'test'
-        title = f'Distribution of {metric.upper()} Scores\n({len(scores)} predictions, partition: {partition_label})'
+        title = f'Score Histogram - {display_metric} [{display_partition}]\n{len(scores)} predictions'
         if dataset_name:
             title = f'{title}\nDataset: {dataset_name}'
         ax.set_title(title, fontsize=self.config.title_fontsize)

@@ -66,9 +66,11 @@ class PredictionAnalyzer:
     def plot_top_k(
         self,
         k: int = 5,
-        rank_metric: str = 'rmse',
+        rank_metric: Optional[str] = None,
         rank_partition: str = 'val',
+        display_metric: str = '',
         display_partition: str = 'all',
+        show_scores: bool = True,
         **kwargs
     ) -> Union[Figure, List[Figure]]:
         """Plot top K model comparison (scatter + residuals).
@@ -81,9 +83,11 @@ class PredictionAnalyzer:
 
         Args:
             k: Number of top models to show (default: 5).
-            rank_metric: Metric for ranking models (default: 'rmse').
+            rank_metric: Metric for ranking models (default: auto-detect from task type).
             rank_partition: Partition used for ranking (default: 'val').
+            display_metric: Metric to display in titles (default: same as rank_metric).
             display_partition: Partition(s) to display ('all' or specific partition).
+            show_scores: If True, show scores in chart titles (default: True).
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
@@ -111,7 +115,9 @@ class PredictionAnalyzer:
                         k=k,
                         rank_metric=rank_metric,
                         rank_partition=rank_partition,
+                        display_metric=display_metric,
                         display_partition=display_partition,
+                        show_scores=show_scores,
                         dataset_name=dataset,
                         **kwargs
                     )
@@ -123,32 +129,38 @@ class PredictionAnalyzer:
             k=k,
             rank_metric=rank_metric,
             rank_partition=rank_partition,
+            display_metric=display_metric,
             display_partition=display_partition,
+            show_scores=show_scores,
             **kwargs
         )
 
     def plot_confusion_matrix(
         self,
         k: int = 5,
-        metric: str = 'accuracy',
+        rank_metric: Optional[str] = None,
         rank_partition: str = 'val',
+        display_metric: str = '',
         display_partition: str = 'test',
+        show_scores: bool = True,
         **kwargs
     ) -> Figure:
         """Plot confusion matrices for top K classification models.
 
         Args:
             k: Number of top models to show (default: 5).
-            metric: Metric for ranking (default: 'accuracy').
+            rank_metric: Metric for ranking (default: auto-detect from task type).
             rank_partition: Partition used for ranking models (default: 'val').
+            display_metric: Metric to display in titles (default: same as rank_metric).
             display_partition: Partition to display confusion matrix from (default: 'test').
+            show_scores: If True, show scores in chart titles (default: True).
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
             matplotlib Figure object.
 
         Example:
-            >>> fig = analyzer.plot_confusion_matrix(k=3, metric='f1')
+            >>> fig = analyzer.plot_confusion_matrix(k=3, rank_metric='f1')
         """
         chart = ConfusionMatrixChart(
             self.predictions,
@@ -157,16 +169,18 @@ class PredictionAnalyzer:
         )
         return chart.render(
             k=k,
-            metric=metric,
+            rank_metric=rank_metric,
             rank_partition=rank_partition,
+            display_metric=display_metric,
             display_partition=display_partition,
+            show_scores=show_scores,
             **kwargs
         )
 
     def plot_histogram(
         self,
-        metric: str = 'rmse',
-        partition: Optional[str] = None,
+        display_metric: Optional[str] = None,
+        display_partition: str = 'test',
         **kwargs
     ) -> Union[Figure, List[Figure]]:
         """Plot score distribution histogram.
@@ -175,15 +189,15 @@ class PredictionAnalyzer:
         creates one figure per dataset.
 
         Args:
-            metric: Metric to plot (default: 'rmse').
-            partition: Partition to display scores from (default: 'test').
+            display_metric: Metric to plot (default: auto-detect from task type).
+            display_partition: Partition to display scores from (default: 'test').
             **kwargs: Additional parameters (dataset_name, bins, figsize, filters).
 
         Returns:
             matplotlib Figure object or list of Figure objects (one per dataset).
 
         Example:
-            >>> fig = analyzer.plot_histogram(metric='r2', partition='val')
+            >>> fig = analyzer.plot_histogram(display_metric='r2', display_partition='val')
         """
         chart = ScoreHistogramChart(
             self.predictions,
@@ -201,8 +215,8 @@ class PredictionAnalyzer:
                 figures = []
                 for dataset in datasets:
                     fig = chart.render(
-                        metric=metric,
-                        partition=partition,
+                        display_metric=display_metric,
+                        display_partition=display_partition,
                         dataset_name=dataset,
                         **kwargs
                     )
@@ -210,13 +224,13 @@ class PredictionAnalyzer:
                 return figures
 
         # Single dataset or dataset_name specified
-        return chart.render(metric=metric, partition=partition, **kwargs)
+        return chart.render(display_metric=display_metric, display_partition=display_partition, **kwargs)
 
     def plot_heatmap(
         self,
         x_var: str,
         y_var: str,
-        rank_metric: str = 'rmse',
+        rank_metric: Optional[str] = None,
         rank_partition: str = 'val',
         display_metric: str = '',
         display_partition: str = 'test',
@@ -237,7 +251,7 @@ class PredictionAnalyzer:
         Args:
             x_var: Variable for x-axis (e.g., 'model_name', 'preprocessings').
             y_var: Variable for y-axis (e.g., 'dataset_name', 'partition').
-            rank_metric: Metric used to rank/select models (default: 'rmse').
+            rank_metric: Metric used to rank/select models (default: auto-detect from task type).
             rank_partition: Partition used for ranking models (default: 'val').
             display_metric: Metric to display in heatmap (default: same as rank_metric).
             display_partition: Partition to display scores from (default: 'test').
@@ -293,28 +307,30 @@ class PredictionAnalyzer:
     def plot_candlestick(
         self,
         variable: str,
-        metric: str = 'rmse',
+        display_metric: Optional[str] = None,
+        display_partition: str = 'test',
         **kwargs
     ) -> Figure:
         """Plot candlestick chart for score distribution by variable.
 
         Args:
             variable: Variable to group by (e.g., 'model_name', 'preprocessings').
-            metric: Metric to analyze (default: 'rmse').
-            **kwargs: Additional parameters (dataset_name, partition, figsize, filters).
+            display_metric: Metric to analyze (default: auto-detect from task type).
+            display_partition: Partition to display scores from (default: 'test').
+            **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
             matplotlib Figure object.
 
         Example:
-            >>> fig = analyzer.plot_candlestick('model_name', metric='rmse')
+            >>> fig = analyzer.plot_candlestick('model_name', display_metric='rmse')
         """
         chart = CandlestickChart(
             self.predictions,
             self.dataset_name_override,
             self.config
         )
-        return chart.render(variable=variable, metric=metric, **kwargs)
+        return chart.render(variable=variable, display_metric=display_metric, display_partition=display_partition, **kwargs)
 
     # Backward compatibility aliases
     def plot_top_k_comparison(self, *args, **kwargs):
