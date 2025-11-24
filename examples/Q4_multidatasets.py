@@ -76,17 +76,12 @@ pipeline = [
     # },
 ]
 
-
-
 # Create pipeline configuration
 pipeline_config = PipelineConfigs(pipeline, name="Q3")
 
 # Multi-dataset configuration
 data_paths = ['sample_data/regression', 'sample_data/regression_2', 'sample_data/regression_3']
-
 dataset_config = DatasetConfigs(data_paths)
-
-
 
 # Run the pipeline across multiple datasets
 runner = PipelineRunner(save_files=True, verbose=0)
