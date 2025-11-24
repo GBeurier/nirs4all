@@ -1,6 +1,7 @@
 """FoldChartController - Visualizes cross-validation folds with y-value color coding."""
 
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Union
+from collections import Counter
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
@@ -186,6 +187,28 @@ class FoldChartController(OperatorController):
                     color_values = y_train
 
         color_values_flat = color_values.flatten() if color_values.ndim > 1 else color_values
+
+        # --- Debug Print ---
+        print("\n--- Fold Chart Class Distribution (Train Partition) ---")
+        # Always fetch train partition for this debug print to compare with sample augmentation
+        train_debug_context = context.with_partition("train")
+
+        if metadata_column:
+            debug_values = dataset.metadata_column(metadata_column, train_debug_context.selector, include_augmented=True)
+        else:
+            debug_values = dataset.y(train_debug_context.selector, include_augmented=True)
+
+        debug_values_flat = debug_values.flatten() if debug_values.ndim > 1 else debug_values
+
+        unique_vals = np.unique(debug_values_flat)
+        if len(unique_vals) < 50:
+            counts = Counter(debug_values_flat)
+            for label, count in sorted(counts.items()):
+                print(f"  Class {label}: {count}")
+        else:
+            print(f"  Continuous values: {len(debug_values_flat)} samples, {len(unique_vals)} unique values.")
+        print("-------------------------------------\n")
+        # -------------------
 
         # Create fold visualization
         # Pass original_folds_for_chart (which is None for simple splits) instead of dataset.folds

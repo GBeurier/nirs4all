@@ -125,11 +125,10 @@ class BalancingCalculator:
 
             # Calculate target for this class
             if max_factor is not None and target_size_per_class is None:
-                # Mode 2: target = majority * max_factor
-                # This interprets max_factor as a multiplier of the majority class size
-                # e.g., max_factor=1.0 → all classes reach majority size
-                #       max_factor=0.5 → all classes reach 50% of majority size
-                class_target = int(majority_size * max_factor)
+                # Mode 2: Multiplier - each class augmented by factor (applied to current size)
+                # capped at majority class size
+                target_from_factor = int(current_total * max_factor)
+                class_target = min(target_from_factor, majority_size)
             else:
                 # Modes 1, 3, or default
                 class_target = target_size_per_class
@@ -249,7 +248,10 @@ class BalancingCalculator:
 
             # Calculate target for this class
             if max_factor is not None and target_size_per_class is None:
-                class_target = int(majority_size * max_factor)
+                # Mode 2: Multiplier - each class augmented by factor (applied to current size)
+                # capped at majority class size
+                target_from_factor = int(current_total * max_factor)
+                class_target = min(target_from_factor, majority_size)
             else:
                 class_target = target_size_per_class
 

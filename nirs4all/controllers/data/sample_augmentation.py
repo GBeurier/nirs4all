@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+from collections import Counter
 import numpy as np  # noqa: F401
 
 from nirs4all.controllers.controller import OperatorController
@@ -268,6 +269,32 @@ class SampleAugmentationController(OperatorController):
                 ref_percentage=ref_percentage,
                 random_state=random_state
             )
+
+        # --- Debug Print ---
+        print("\n--- Sample Augmentation Class Distribution ---")
+        print("Before Augmentation:")
+        before_counts = Counter(labels_all_train)
+        for label, count in sorted(before_counts.items()):
+            print(f"  Class {label}: {count}")
+
+        print("\nPlanned Augmentation:")
+        sample_to_label = {sid: lbl for sid, lbl in zip(base_train_samples, labels_base_train)}
+        added_counts = Counter()
+        for sample_id, count in augmentation_counts.items():
+            if count > 0:
+                lbl = sample_to_label.get(sample_id)
+                if lbl is not None:
+                    added_counts[lbl] += count
+
+        print("After Augmentation (Expected):")
+        all_labels = set(before_counts.keys()) | set(added_counts.keys())
+        for label in sorted(all_labels):
+            before = before_counts[label]
+            added = added_counts[label]
+            total = before + added
+            print(f"  Class {label}: {before} + {added} = {total}")
+        print("----------------------------------------------\n")
+        # -------------------
 
         # Check if any augmentation is needed
         if sum(augmentation_counts.values()) == 0:
