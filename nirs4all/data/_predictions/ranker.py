@@ -219,7 +219,7 @@ class PredictionRanker:
                 ascending = True   # Lower is better -> Sort Ascending
 
         # Model identity key
-        KEY = ["config_name", "step_idx", "model_name"]
+        KEY = ["dataset_name", "config_name", "step_idx", "model_name"]
         if group_by_fold:
             KEY.append("fold_id")
 
