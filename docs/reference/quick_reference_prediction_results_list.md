@@ -105,7 +105,7 @@ print("BEST MODEL PERFORMANCE:")
 print(best.summary())
 
 # Save individual prediction
-best.save_to_csv(force_path="results/best_model.csv")
+best.save_to_csv("results/best_model.csv")
 
 # Access details
 print(f"Model: {best.model_name}")
@@ -144,7 +144,7 @@ class PredictionResultsList(list):
 ```python
 class PredictionResult(dict):
     def summary(self) -> str
-    def save_to_csv(self, path: str = "results", force_path: Optional[str] = None) -> None
+    def save_to_csv(self, path_or_file: str = "results", filename: Optional[str] = None) -> None
     def eval_score(self, metrics: Optional[List[str]] = None) -> Dict[str, Any]
 
     # Properties

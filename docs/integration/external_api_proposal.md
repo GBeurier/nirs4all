@@ -228,7 +228,7 @@ class PredictionResult(dict):
     @property
     def dataset_name(self) -> str
 
-    def save_to_csv(self, path: str = "results", force_path: Optional[str] = None) -> None
+    def save_to_csv(self, path_or_file: str = "results", filename: Optional[str] = None) -> None
 ```
 
 ### Analysis and Visualization

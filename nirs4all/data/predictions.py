@@ -1041,7 +1041,7 @@ class Predictions:
 
         for result in all_results:
             try:
-                result.save_to_csv(path=path)
+                result.save_to_csv(path)
             except Exception as e:
                 model_id = result.get('id', 'unknown')
                 print(f"{WARNING}Failed to save prediction {model_id}: {e}")

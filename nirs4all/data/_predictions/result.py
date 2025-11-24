@@ -79,30 +79,44 @@ class PredictionResult(dict):
         """Get config name."""
         return self.get("config_name", "unknown")
 
-    def save_to_csv(self, path: str = "results", force_path: Optional[str] = None) -> None:
+    def save_to_csv(self, path_or_file: str = "results", filename: Optional[str] = None) -> None:
         """
         Save prediction result to CSV file.
 
         Args:
-            path: Base path for saving (default: "results")
-            force_path: Complete path/filename override (optional)
+            path_or_file: Base path (folder) or complete file path (if ends with .csv)
+            filename: Optional filename (if path_or_file is a folder)
 
         Examples:
-            >>> result.save_to_csv("output")
-            >>> result.save_to_csv(force_path="my_result.csv")
+            >>> result.save_to_csv("output")  # Saves to output/{dataset}/{id}.csv
+            >>> result.save_to_csv("output/my_result.csv")  # Saves to output/my_result.csv
+            >>> result.save_to_csv("output", "my_result.csv")  # Saves to output/my_result.csv
         """
-        if force_path:
-            filepath = Path(force_path)
+        destinations = []
+        path_obj = Path(path_or_file)
+
+        # Check if path_or_file looks like a file (has extension .csv)
+        is_file_1 = path_obj.suffix.lower() == '.csv'
+
+        if is_file_1:
+            destinations.append(path_obj)
+            # If filename is also provided and looks like a file, save there too
+            if filename:
+                file_obj = Path(filename)
+                if file_obj.suffix.lower() == '.csv':
+                    destinations.append(file_obj)
         else:
-            # Generate filename from model information
-            dataset_name = self.get("dataset_name", "unknown")
-            model_id = self.get("id", "unknown")
+            # path_or_file is a directory
+            base_dir = path_obj
 
-            base_path = Path(path)
-            filepath = base_path / dataset_name / f"{model_id}.csv"
-
-        # Create directory if it doesn't exist
-        filepath.parent.mkdir(parents=True, exist_ok=True)
+            if filename:
+                # filename provided
+                destinations.append(base_dir / filename)
+            else:
+                # Auto-generate filename
+                dataset_name = self.get("dataset_name", "unknown")
+                model_id = self.get("id", "unknown")
+                destinations.append(base_dir / dataset_name / f"{model_id}.csv")
 
         # Determine data structure
         csv_data = []
@@ -169,10 +183,14 @@ class PredictionResult(dict):
                 clean_csv_data.append(clean_row)
 
             df_csv = pl.DataFrame(clean_csv_data)
-            df_csv.write_csv(str(filepath))
-            print(f"{DISK}Saved prediction result to {filepath}")
+
+            for filepath in destinations:
+                # Create directory if it doesn't exist
+                filepath.parent.mkdir(parents=True, exist_ok=True)
+                df_csv.write_csv(str(filepath))
+                print(f"{DISK}Saved prediction result to {filepath}")
         else:
-            print(f"{WARNING}No prediction data found to save for {filepath}")
+            print(f"{WARNING}No prediction data found to save")
 
     def eval_score(self, metrics: Optional[List[str]] = None) -> Dict[str, Any]:
         """
