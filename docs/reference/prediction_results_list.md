@@ -13,7 +13,7 @@ The `PredictionResultsList` class is a specialized list container that wraps lis
 
 ### 2. Enhanced PredictionResult
 - **`summary()`**: Generate a formatted tab report with metrics for train/val/test partitions
-- **`save_to_csv(path, force_path)`**: Save individual prediction to CSV (existing functionality)
+- **`save_to_csv(path_or_file, filename)`**: Save individual prediction to CSV (existing functionality)
 - **`eval_score(metrics)`**: Calculate metrics for the prediction (existing functionality)
 
 ## Usage Examples
@@ -176,10 +176,7 @@ for i, prediction in enumerate(top_models, 1):
     print(f"   Rank Score: {prediction.get('rank_score'):.4f}")
 
     # Save individual prediction
-    prediction.save_to_csv(
-        path="results/individual",
-        force_path=f"results/individual/model_{i}.csv"
-    )
+    prediction.save_to_csv(f"results/individual/model_{i}.csv")
 ```
 
 ## API Reference
@@ -208,7 +205,7 @@ for i, prediction in enumerate(top_models, 1):
 
 **Existing Methods:**
 
-- `save_to_csv(path="results", force_path=None)`: Save to individual CSV file
+- `save_to_csv(path_or_file="results", filename=None)`: Save to individual CSV file
 - `eval_score(metrics=None)`: Calculate metrics for this prediction
 
 **Properties:**
