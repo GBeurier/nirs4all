@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - Enhanced Metrics and Visualization - 2025-11-24
+
+### Added
+- **Metrics**: Added new metrics including consistency, NRMSE (Normalized Root Mean Squared Error), NMSE (Normalized Mean Squared Error), and NMAE (Normalized Mean Absolute Error).
+- **Metrics Management**: Implemented full metrics calculation for all partitions in `BaseModelController`.
+- **Predictions**: Added scores management in `Predictions` class with serialization and retrieval support.
+- **Visualization**: Enhanced heatmap and top-k comparison charts to display scores with local scaling options.
+- **Documentation**: Added initial Sphinx documentation with project overview, features, and installation instructions.
+- **Examples**: Changed binary dataset for improved testing scenarios.
+
+### Changed
+- **Architecture**: Refactored chart classes to standardize signatures and support optional metrics validation.
+- **Controllers**: Updated `PredictionRanker` to utilize pre-computed scores with fallback to legacy methods.
+- **Controllers**: Enhanced `PredictionSerializer` to handle serialization of scores.
+- **Balancing**: Updated `BalancingCalculator` methods to fix `ref_percentage` that was equivalent to `max_factor`.
+- **Charts**: Improved `FoldChartController` with better debugging and documentation.
+- **CSV Export**: Updated `save_to_csv` method to accept `path_or_file` and `filename` parameters for better flexibility.
+
+### Fixed
+- **Pipeline**: Plot charts layout and display during pipeline execution.
+- **Tests**: Updated balancing calculator tests to reflect new method signatures.
+
 ## [0.4.2] - Torch, Jax and sklearn style models - 2025-11-21
 
 ### Added

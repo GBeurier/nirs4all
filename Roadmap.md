@@ -1,7 +1,5 @@
 ## ROADMAP ##
 
-**RELEASE** 0.5: Documentation
-
 > [sklearn] BUG ! Stacking model does not work
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
