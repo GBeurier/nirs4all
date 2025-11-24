@@ -49,7 +49,7 @@ class HeatmapChart(BaseChart):
         self,
         x_var: str,
         y_var: str,
-        rank_metric: str = 'rmse',
+        rank_metric: Optional[str] = None,
         rank_partition: str = 'val',
         display_metric: str = '',
         display_partition: str = 'test',
@@ -72,7 +72,7 @@ class HeatmapChart(BaseChart):
         Args:
             x_var: Variable for x-axis (e.g., 'model_name', 'preprocessings').
             y_var: Variable for y-axis (e.g., 'dataset_name', 'partition').
-            rank_metric: Metric used to rank/select models (default: 'rmse').
+            rank_metric: Metric used to rank/select models (default: auto-detect from task type).
             rank_partition: Partition used for ranking models (default: 'val').
             display_metric: Metric to display in heatmap (default: same as rank_metric).
             display_partition: Partition to display scores from (default: 'test').
@@ -86,6 +86,10 @@ class HeatmapChart(BaseChart):
         Returns:
             matplotlib Figure object.
         """
+        # Auto-detect metric if not provided
+        if rank_metric is None:
+            rank_metric = self._get_default_metric()
+
         self.validate_inputs(x_var, y_var, rank_metric)
 
         if figsize is None:
@@ -397,11 +401,11 @@ class HeatmapChart(BaseChart):
         ax.set_ylabel(y_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
 
         # Title: explicit parameters
-        title_parts = [f'{display_agg.title()} {display_metric.upper()} in {display_partition}']
+        title_parts = [f'{display_agg.title()} {display_metric} [{display_partition}]']
 
         # Add ranking info if different from display
         if rank_partition != display_partition or rank_metric != display_metric or rank_agg != display_agg:
-            title_parts.append(f'(rank on {rank_agg} {rank_metric.upper()} in {rank_partition})')
+            title_parts.append(f'(rank on {rank_agg} {rank_metric} [{rank_partition}])')
 
         title = ' '.join(title_parts)
         ax.set_title(title, fontsize=self.config.title_fontsize, pad=10)
