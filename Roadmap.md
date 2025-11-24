@@ -1,39 +1,42 @@
-## ROADMAP ##
+## ROADMAP
 
-> [sklearn] BUG ! Stacking model does not work
+> [sklearn] Integrate sklearn stacking model (serialization )
 
-> [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
-
-> [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
-
-
-**RELEASE** 0.5.1: Chart and Analyses
-
-
-**Bugs**:
->   - [_or_] with one element fallback on dummy controller
-
-> [Predictions] as a pipeline context.
+> [PLS] implements all PLS (cf. doc)
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize
+
+**Bugs**:
+>   - Review R2 computation / Q2 value - GOF (goodness of fit)
+>   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out)
+>   - [_or_] with one element fallback on dummy controller
+
+**RELEASE** 0.5.1: Learning ready
+
 
 > [Classification] averaging
 
 > [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
 
-**Bugs**:
->   - Review R2 computation / Q2 value - GOF (goodness of fit)
+> [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
+
+> [Predictions] as a pipeline context for custom stacking.
+
+> [Transfer] Automate model transfer and retraining. Test
+
 
 **RELEASE** 0.5.2: Data Flow
 
+> [Predictions] Reload and management of predictions (to avoid recomputation and relaunch analysis, just analysis on predictions parquet)
+
+> [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
 > [Folds] Operator load fold (csv)
 
-> [PLS] implements all PLS (cf. doc)
-
-> [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin) _ add data aug operators en masse.
+> [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
 
 **RELEASE** 0.6: Minimal Valuable Controllers
+
 
 
 > [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
@@ -50,6 +53,8 @@
 
 **RELEASE** 0.6.1: Pipeline logic
 
+> [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin) _ add data aug operators en masse.
+
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
 > [Logs] implement feature and update print/log strategy
@@ -60,14 +65,11 @@
 
 > [Tests] clean workspace and run folder creation during tests.
 
-**RELEASE** 0.7: User experience
-
+**RELEASE** 0.7: Tests & Logs ready
 
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
-
-> [Pipeline] verify and clean type for input in pipeline
 
 > [Docker] provide a docker, add build and actions
 
@@ -75,13 +77,11 @@
 
 **RELEASE** 0.8: CLI
 
-
 > [GLOBAL REVIEW] v1.0 signatures freeze (private pattern _module), Complete tests > Prod coverage (transformations, controllers, predictions, datasets, runner)
 
 > [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
 
 **RELEASE**  0.9 alpha: Minimum Viable Product. Signatures frozen.
-
 
 > [Y_pipeline in models]
 
@@ -92,7 +92,6 @@
 > [Transformations] Asymetric processings (PCA in pipelines) > auto/optional padding and cropping
 
 **RELEASE** 0.10 beta: Operators & Controllers rc
-
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
 
@@ -111,7 +110,7 @@
 
 > [Pipeline + Optuna] Pipeline as optuna trial. The pp become a choice param. Goal is to stack pp each time score stop progress, select the good ones by feats augmentation and by pp order (1st, 2nd, etc.) and stop once it drops.
 
-> [Transfer] Automate best transfer model
+> [Transfer] Automate model transfer across machines
 
 > [Generator] add in-place/internal generation
 
@@ -127,8 +126,7 @@
 
 > [CLUSTERED COMPUTATION + SERV/CLIENT]
 
-#### EXCITERS ####
-- Options normalisation in charts (0-1 ou 1-0)
+## EXCITERS
 - better model naming (with optional pp included) for UX
 - feature_augmentation with first item replacement
 - add NorrisWilliams, Whittaker, BandEnergies, FiniteDiffCentral transformermixin
@@ -139,6 +137,8 @@
 
 
 ---
+## POSSIBLE FUTURE INTEGRATION
+
 
 ### 1. Core ecosystem / array & data engines
 
