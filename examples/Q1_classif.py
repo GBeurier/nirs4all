@@ -48,23 +48,22 @@ pipeline = [
         MultiplicativeScatterCorrection
     ]},
     StandardScaler,
-    SPXYSplitter(0.25),
     ShuffleSplit(n_splits=3, test_size=0.25),
     "fold_chart",
     RandomForestClassifier(
-        n_estimators=5,
-        max_depth=3,
-        verbose=0
+        n_estimators=250,
+        max_depth=13,
+        verbose=1
     ),
     {
         "model": nicon_classification,
         "train_params": {
-            'epochs': 5,
+            'epochs': 250,
             'batch_size': 1024,
-            'verbose': 0
+            'verbose': 1
         }
     },
-    XGBClassifier(n_estimators=5, verbosity=0)
+    XGBClassifier(n_estimators=250, verbosity=1)
 ]
 
 
@@ -72,11 +71,18 @@ data_categories = {
     'X_train': 'sample_data/classification/Xtrain.csv',
     'y_train': 'sample_data/classification/Ytrain.csv',
 }
-data_binary = 'sample_data/binary'
+data_binary = {
+    'folder': 'sample_data/binary/',
+    'params': {
+        'has_header': False,
+        'delimiter': ';',
+        'decimal_separator': '.'
+    }
+}
 
 # Create configuration objects
 pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
-dataset_config = DatasetConfigs([data_categories, data_binary])
+dataset_config = DatasetConfigs([data_binary])
 
 # Run the pipeline
 runner = PipelineRunner(save_files=False, verbose=1, plots_visible=display_pipeline_plots)
