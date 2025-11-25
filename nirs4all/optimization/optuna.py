@@ -447,14 +447,14 @@ class OptunaManager:
             # Check if this is actually a type specification that was converted from tuple to list
             # Pattern: ['int'/'float', min, max] from tuple ('int'/'float', min, max)
             if (len(param_config) == 3 and
-                param_config[0] in ['int', 'float'] and
+                param_config[0] in ['int', 'float', 'builtins.int', 'builtins.float'] and
                 isinstance(param_config[1], (int, float)) and
                 isinstance(param_config[2], (int, float))):
                 # This is a range specification, not a categorical list
                 param_type, min_val, max_val = param_config
-                if param_type == 'int':
+                if param_type in ['int', 'builtins.int']:
                     return trial.suggest_int(param_name, int(min_val), int(max_val))
-                elif param_type == 'float':
+                elif param_type in ['float', 'builtins.float']:
                     return trial.suggest_float(param_name, float(min_val), float(max_val))
 
             # Regular categorical parameter: [val1, val2, val3]
@@ -463,9 +463,9 @@ class OptunaManager:
         elif isinstance(param_config, tuple) and len(param_config) == 3:
             # Explicit type tuple: ('type', min, max)
             param_type, min_val, max_val = param_config
-            if param_type == 'int':
+            if param_type in ['int', int]:
                 return trial.suggest_int(param_name, min_val, max_val)
-            elif param_type == 'float':
+            elif param_type in ['float', float]:
                 return trial.suggest_float(param_name, float(min_val), float(max_val))
             else:
                 raise ValueError(f"Unknown parameter type: {param_type}")
@@ -518,7 +518,7 @@ class OptunaManager:
             # Check if this is a range specification disguised as a list (from tuple-to-list conversion)
             is_list = isinstance(param_config, list)
             has_len_3 = len(param_config) == 3
-            is_type_spec = param_config[0] in ['int', 'float'] if is_list and has_len_3 else False
+            is_type_spec = param_config[0] in ['int', 'float', 'builtins.int', 'builtins.float'] if is_list and has_len_3 else False
             is_min_num = isinstance(param_config[1], (int, float)) if is_list and has_len_3 else False
             is_max_num = isinstance(param_config[2], (int, float)) if is_list and has_len_3 else False
 
