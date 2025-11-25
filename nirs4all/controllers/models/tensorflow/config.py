@@ -311,7 +311,7 @@ class TensorFlowCallbackFactory:
                 cycle = np.floor(1 + self.clr_iterations / (2 * self.step_size))
                 x = np.abs(self.clr_iterations / self.step_size - 2 * cycle + 1)
                 lr = self.base_lr + (self.max_lr - self.base_lr) * max(0, (1 - x))
-                keras.backend.set_value(self.model.optimizer.lr, lr)
+                keras.backend.set_value(self.model.optimizer.learning_rate, lr)
 
         return CyclicLR(
             base_lr=cyclic_lr_params.get('base_lr', 0.001),
