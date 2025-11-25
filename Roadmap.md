@@ -8,7 +8,7 @@
 
 > [sklearn] Integrate sklearn stacking model (serialization )
 
-> [Optuna] Add pruner (test BOHB ou successive halving pruner)
+> [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs
 
 **Bugs**:
 >   - [_or_] with one element fallback on dummy controller
