@@ -1,18 +1,18 @@
 ## ROADMAP
 
-> [sklearn] Integrate sklearn stacking model (serialization )
-
 > [PLS] implements all PLS (cf. doc)
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize
 
 **Bugs**:
 >   - Review R2 computation / Q2 value - GOF (goodness of fit)
+>   - run count is false at run start
 >   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out)
 >   - [_or_] with one element fallback on dummy controller
 
-**RELEASE** 0.5.1: Learning ready
+> [sklearn] Integrate sklearn stacking model (serialization )
 
+**RELEASE** 0.5.1: Learning ready
 
 > [Classification] averaging
 
