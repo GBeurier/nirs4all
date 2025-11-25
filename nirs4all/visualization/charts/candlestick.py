@@ -2,12 +2,12 @@
 CandlestickChart - Candlestick/box plot for score distributions by variable.
 """
 import numpy as np
+import polars as pl
+import time
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from typing import Optional, Dict, Any
-from collections import defaultdict
 from nirs4all.visualization.charts.base import BaseChart
-from nirs4all.visualization.chart_utils.predictions_adapter import PredictionsAdapter
 
 
 class CandlestickChart(BaseChart):
@@ -27,7 +27,6 @@ class CandlestickChart(BaseChart):
             config: Optional ChartConfig for customization.
         """
         super().__init__(predictions, dataset_name_override, config)
-        self.adapter = PredictionsAdapter(predictions)
 
     def validate_inputs(self, variable: str, display_metric: Optional[str], **kwargs) -> None:
         """Validate candlestick inputs.
@@ -48,7 +47,7 @@ class CandlestickChart(BaseChart):
     def render(self, variable: str, display_metric: Optional[str] = None,
                display_partition: str = 'test', dataset_name: Optional[str] = None,
                figsize: Optional[tuple] = None, **filters) -> Figure:
-        """Render candlestick chart showing metric distribution by variable.
+        """Render candlestick chart showing metric distribution by variable (Optimized with Polars).
 
         Args:
             variable: Variable to group by (e.g., 'model_name', 'preprocessings').
@@ -61,6 +60,8 @@ class CandlestickChart(BaseChart):
         Returns:
             matplotlib Figure object.
         """
+        t0 = time.time()
+
         # Auto-detect metric if not provided
         if display_metric is None:
             display_metric = self._get_default_metric()
@@ -70,62 +71,75 @@ class CandlestickChart(BaseChart):
         if figsize is None:
             figsize = self.config.get_figsize('medium')
 
+        # --- POLARS OPTIMIZATION START ---
+        df = self.predictions.to_dataframe()
+
         # Build filters
+        all_filters = filters.copy()
         if dataset_name:
-            filters['dataset_name'] = dataset_name
-        filters['partition'] = display_partition
+            all_filters['dataset_name'] = dataset_name
+        all_filters['partition'] = display_partition
 
-        # Get all predictions
-        predictions_list = self.adapter.get_top_models(
-            n=self.predictions.num_predictions,
-            rank_metric=display_metric,
-            rank_partition=display_partition,
-            **filters
-        )
+        # Apply filters
+        for k, v in all_filters.items():
+            if k in df.columns:
+                df = df.filter(pl.col(k) == v)
 
-        if not predictions_list:
+        if df.height == 0:
             return self._create_empty_figure(
                 figsize,
                 f'No predictions found for variable={variable}, metric={display_metric}'
             )
 
-        # Group scores by variable
-        variable_scores = defaultdict(list)
+        # Extract score (Vectorized)
+        # Priority 1: Direct column if metric matches
+        # Priority 2: Regex from scores JSON
+        col_score = f"{display_partition}_score"
+        regex = f'"{display_partition}"\\s*:\\s*\\{{[^}}]*"{display_metric}"\\s*:\\s*([\\d\\.]+)'
 
-        for pred in predictions_list:
-            var_value = pred.get(variable)
-            if var_value is None:
-                continue
+        df = df.with_columns(
+             pl.when(pl.col("metric") == display_metric)
+            .then(pl.col(col_score))
+            .otherwise(
+                pl.col("scores").str.extract(regex, 1).cast(pl.Float64, strict=False)
+            ).alias("score")
+        )
 
-            # Extract score
-            score_field = f'{display_partition}_score'
-            score = pred.get(score_field)
-            if score is not None:
-                variable_scores[var_value].append(float(score))
+        # Filter null scores and ensure variable exists
+        df = df.filter(
+            pl.col("score").is_not_null() &
+            pl.col(variable).is_not_null()
+        )
 
-        if not variable_scores:
+        if df.height == 0:
             return self._create_empty_figure(
                 figsize,
                 f'No valid scores found for variable={variable}'
             )
 
-        # Sort variable values naturally
-        var_values = sorted(variable_scores.keys(), key=self._natural_sort_key)
+        # Group and Aggregate
+        stats_df = df.group_by(variable).agg([
+            pl.col("score").min().alias("min"),
+            pl.col("score").quantile(0.25).alias("q25"),
+            pl.col("score").mean().alias("mean"),
+            pl.col("score").median().alias("median"),
+            pl.col("score").quantile(0.75).alias("q75"),
+            pl.col("score").max().alias("max"),
+            pl.len().alias("n")
+        ])
 
-        # Compute statistics for each variable value
-        stats_data = []
-        for var_val in var_values:
-            scores = variable_scores[var_val]
-            stats = {
-                'min': float(np.min(scores)),
-                'q25': float(np.percentile(scores, 25)),
-                'mean': float(np.mean(scores)),
-                'median': float(np.median(scores)),
-                'q75': float(np.percentile(scores, 75)),
-                'max': float(np.max(scores)),
-                'n': len(scores)
-            }
-            stats_data.append(stats)
+        # Convert to list of dicts for sorting and plotting
+        stats_data = stats_df.to_dicts()
+
+        # Sort by variable value naturally
+        stats_data.sort(key=lambda x: self._natural_sort_key(x[variable]))
+
+        var_values = [d[variable] for d in stats_data]
+
+        t1 = time.time()
+        print(f"Candlestick data wrangling time: {t1 - t0:.4f} seconds")
+
+        # --- POLARS OPTIMIZATION END ---
 
         # Create figure
         fig, ax = plt.subplots(figsize=figsize)
@@ -139,6 +153,10 @@ class CandlestickChart(BaseChart):
 
             # Box from Q25 to Q75
             box_height = stats['q75'] - stats['q25']
+            # Handle case where q75 == q25 (zero height box)
+            if box_height == 0:
+                box_height = 0.00001 # Minimal height to be visible
+
             box = plt.Rectangle((i - 0.2, stats['q25']), 0.4, box_height,
                                 facecolor='lightblue', edgecolor='black', linewidth=1.5)
             ax.add_patch(box)
@@ -169,5 +187,8 @@ class CandlestickChart(BaseChart):
         ax.legend()
 
         plt.tight_layout()
+
+        t2 = time.time()
+        print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
