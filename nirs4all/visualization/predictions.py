@@ -9,6 +9,10 @@ for efficient data access and avoids redundant calculations.
 """
 from matplotlib.figure import Figure
 from typing import Optional, Union, List
+import os
+import re
+import glob
+from pathlib import Path
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.charts import (
     ChartConfig,
@@ -33,6 +37,7 @@ class PredictionAnalyzer:
         predictions: Predictions object containing prediction data.
         dataset_name_override: Optional dataset name override for display.
         config: ChartConfig for customization across all charts.
+        output_dir: Directory to save generated charts.
 
     Example:
         >>> from nirs4all.data.predictions import Predictions
@@ -50,7 +55,8 @@ class PredictionAnalyzer:
         self,
         predictions_obj: Predictions,
         dataset_name_override: Optional[str] = None,
-        config: Optional[ChartConfig] = None
+        config: Optional[ChartConfig] = None,
+        output_dir: Optional[str] = "workspace/figures"
     ):
         """Initialize analyzer with predictions object.
 
@@ -58,10 +64,70 @@ class PredictionAnalyzer:
             predictions_obj: The predictions object containing prediction data.
             dataset_name_override: Optional dataset name override for display.
             config: Optional ChartConfig for customization across all charts.
+            output_dir: Directory to save generated charts. Defaults to "workspace/figures".
         """
         self.predictions = predictions_obj
         self.dataset_name_override = dataset_name_override
         self.config = config or ChartConfig()
+        self.output_dir = output_dir
+
+    def _save_figure(self, fig: Figure, chart_type: str, dataset_name: str = None):
+        """Save figure to disk with versioning.
+
+        Args:
+            fig: Matplotlib Figure to save.
+            chart_type: Type of chart (e.g., 'top_k', 'heatmap').
+            dataset_name: Name of the dataset associated with the chart.
+        """
+        if not self.output_dir:
+            return
+
+        # Ensure output directory exists
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        # Determine dataset name
+        if dataset_name:
+            ds_name = dataset_name
+        elif self.dataset_name_override:
+            ds_name = self.dataset_name_override
+        else:
+            # Try to infer from predictions if single dataset
+            datasets = self.predictions.get_datasets()
+            if len(datasets) == 1:
+                ds_name = datasets[0]
+            else:
+                ds_name = "combined"
+
+        # Sanitize names
+        ds_name = re.sub(r'[^\w\-]', '_', str(ds_name))
+        chart_type = re.sub(r'[^\w\-]', '_', str(chart_type))
+
+        # Base filename pattern
+        base_name = f"{ds_name}_{chart_type}"
+
+        # Find next counter
+        # Escape glob special characters in base_name just in case, though sanitization handles most
+        pattern = os.path.join(self.output_dir, f"{base_name}_*.png")
+        existing_files = glob.glob(pattern)
+
+        max_counter = 0
+        for f in existing_files:
+            # Extract filename from path
+            fname = os.path.basename(f)
+            # Match pattern to extract number
+            match = re.match(rf"{re.escape(base_name)}_(\d+)\.png$", fname)
+            if match:
+                max_counter = max(max_counter, int(match.group(1)))
+
+        next_counter = max_counter + 1
+        filename = f"{base_name}_{next_counter}.png"
+        filepath = os.path.join(self.output_dir, filename)
+
+        try:
+            fig.savefig(filepath, bbox_inches='tight')
+            print(f"Saved chart to {filepath}")
+        except Exception as e:
+            print(f"Failed to save chart to {filepath}: {e}")
 
     def plot_top_k(
         self,
@@ -121,11 +187,12 @@ class PredictionAnalyzer:
                         dataset_name=dataset,
                         **kwargs
                     )
+                    self._save_figure(fig, "top_k", dataset)
                     figures.append(fig)
                 return figures
 
         # Single dataset or dataset_name specified
-        return chart.render(
+        fig = chart.render(
             k=k,
             rank_metric=rank_metric,
             rank_partition=rank_partition,
@@ -134,6 +201,8 @@ class PredictionAnalyzer:
             show_scores=show_scores,
             **kwargs
         )
+        self._save_figure(fig, "top_k", kwargs.get('dataset_name'))
+        return fig
 
     def plot_confusion_matrix(
         self,
@@ -167,7 +236,7 @@ class PredictionAnalyzer:
             self.dataset_name_override,
             self.config
         )
-        return chart.render(
+        fig = chart.render(
             k=k,
             rank_metric=rank_metric,
             rank_partition=rank_partition,
@@ -176,6 +245,8 @@ class PredictionAnalyzer:
             show_scores=show_scores,
             **kwargs
         )
+        self._save_figure(fig, "confusion_matrix", kwargs.get('dataset_name'))
+        return fig
 
     def plot_histogram(
         self,
@@ -220,11 +291,14 @@ class PredictionAnalyzer:
                         dataset_name=dataset,
                         **kwargs
                     )
+                    self._save_figure(fig, "histogram", dataset)
                     figures.append(fig)
                 return figures
 
         # Single dataset or dataset_name specified
-        return chart.render(display_metric=display_metric, display_partition=display_partition, **kwargs)
+        fig = chart.render(display_metric=display_metric, display_partition=display_partition, **kwargs)
+        self._save_figure(fig, "histogram", kwargs.get('dataset_name'))
+        return fig
 
     def plot_heatmap(
         self,
@@ -292,7 +366,7 @@ class PredictionAnalyzer:
             self.dataset_name_override,
             self.config
         )
-        return chart.render(
+        fig = chart.render(
             x_var=x_var,
             y_var=y_var,
             rank_metric=rank_metric,
@@ -306,6 +380,8 @@ class PredictionAnalyzer:
             local_scale=local_scale,
             **kwargs
         )
+        self._save_figure(fig, "heatmap", kwargs.get('dataset_name'))
+        return fig
 
     def plot_candlestick(
         self,
@@ -333,7 +409,9 @@ class PredictionAnalyzer:
             self.dataset_name_override,
             self.config
         )
-        return chart.render(variable=variable, display_metric=display_metric, display_partition=display_partition, **kwargs)
+        fig = chart.render(variable=variable, display_metric=display_metric, display_partition=display_partition, **kwargs)
+        self._save_figure(fig, "candlestick", kwargs.get('dataset_name'))
+        return fig
 
     # # Backward compatibility aliases
     # def plot_top_k_comparison(self, *args, **kwargs):
