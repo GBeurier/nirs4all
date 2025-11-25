@@ -252,10 +252,11 @@ class PredictionRanker:
                 else:
                     # Compute metric from y_true/y_pred (Slow!)
                     try:
-                        y_true = self._get_array(row, "y_true")
-                        y_pred = self._get_array(row, "y_pred")
-                        if y_true is not None and y_pred is not None:
-                            score = evaluator.eval(y_true, y_pred, rank_metric)
+                        if load_arrays:
+                            y_true = self._get_array(row, "y_true")
+                            y_pred = self._get_array(row, "y_pred")
+                            if y_true is not None and y_pred is not None:
+                                score = evaluator.eval(y_true, y_pred, rank_metric)
                     except Exception:
                         pass
 
@@ -302,8 +303,12 @@ class PredictionRanker:
 
                     if partition_data.height > 0:
                         row = partition_data.to_dicts()[0]
-                        y_true = self._get_array(row, "y_true")
-                        y_pred = self._get_array(row, "y_pred")
+
+                        y_true = None
+                        y_pred = None
+                        if load_arrays:
+                            y_true = self._get_array(row, "y_true")
+                            y_pred = self._get_array(row, "y_pred")
 
                         partition_dict = {
                             "y_true": y_true,  # Keep as numpy array
@@ -317,8 +322,11 @@ class PredictionRanker:
                         # Add metadata from test partition
                         if partition == "test":
                             # Get arrays using _get_array method
-                            sample_indices = self._get_array(row, "sample_indices")
-                            weights = self._get_array(row, "weights")
+                            sample_indices = None
+                            weights = None
+                            if load_arrays:
+                                sample_indices = self._get_array(row, "sample_indices")
+                                weights = self._get_array(row, "weights")
 
                             result.update({
                                 "partition": "test",
@@ -367,8 +375,11 @@ class PredictionRanker:
                                         partition_dict[metric] = row.get(stored_score_key)
                                     else:
                                         try:
-                                            score = evaluator.eval(y_true, y_pred, metric)
-                                            partition_dict[metric] = score
+                                            if load_arrays and y_true is not None and y_pred is not None:
+                                                score = evaluator.eval(y_true, y_pred, metric)
+                                                partition_dict[metric] = score
+                                            else:
+                                                partition_dict[metric] = None
                                         except:
                                             partition_dict[metric] = None
 
@@ -387,10 +398,17 @@ class PredictionRanker:
 
                 if display_data.height > 0:
                     row = display_data.to_dicts()[0]
-                    y_true = self._get_array(row, "y_true")
-                    y_pred = self._get_array(row, "y_pred")
-                    sample_indices = self._get_array(row, "sample_indices")
-                    weights = self._get_array(row, "weights")
+
+                    y_true = None
+                    y_pred = None
+                    sample_indices = None
+                    weights = None
+
+                    if load_arrays:
+                        y_true = self._get_array(row, "y_true")
+                        y_pred = self._get_array(row, "y_pred")
+                        sample_indices = self._get_array(row, "sample_indices")
+                        weights = self._get_array(row, "weights")
 
                     result.update({
                         "partition": display_partition,
@@ -441,8 +459,11 @@ class PredictionRanker:
                                     result[metric] = row.get(stored_score_key)
                                 else:
                                     try:
-                                        score = evaluator.eval(y_true, y_pred, metric)
-                                        result[metric] = score
+                                        if load_arrays and y_true is not None and y_pred is not None:
+                                            score = evaluator.eval(y_true, y_pred, metric)
+                                            result[metric] = score
+                                        else:
+                                            result[metric] = None
                                     except:
                                         result[metric] = None
 
