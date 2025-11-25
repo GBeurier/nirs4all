@@ -65,16 +65,17 @@ class TensorFlowCompilationConfig:
             compile_config['metrics'] = ModelUtils.get_default_metrics(task_type, framework='tensorflow')
 
         # Handle optimizer configuration with learning rate
-        compile_config = TensorFlowCompilationConfig._configure_optimizer(compile_config)
+        compile_config = TensorFlowCompilationConfig._configure_optimizer(compile_config, train_params)
 
         return compile_config
 
     @staticmethod
-    def _configure_optimizer(compile_config: Dict[str, Any]) -> Dict[str, Any]:
+    def _configure_optimizer(compile_config: Dict[str, Any], train_params: Dict[str, Any] = None) -> Dict[str, Any]:
         """Configure optimizer with learning rate if provided.
 
         Args:
             compile_config: Configuration dictionary with 'optimizer' and possibly 'learning_rate'.
+            train_params: Training parameters to check for cyclic_lr.
 
         Returns:
             Updated configuration with optimizer instance if learning_rate was provided.
@@ -89,11 +90,21 @@ class TensorFlowCompilationConfig:
         if learning_rate is None:
             learning_rate = compile_config.pop('lr', None)
 
-        # If optimizer is string and we have learning_rate, create optimizer instance
-        if isinstance(optimizer, str) and learning_rate is not None:
-            compile_config['optimizer'] = TensorFlowCompilationConfig.create_optimizer(
-                optimizer, learning_rate
-            )
+        # Check if cyclic_lr is enabled
+        is_cyclic = train_params and train_params.get('cyclic_lr', False)
+
+        # If optimizer is string and (we have learning_rate OR cyclic_lr is enabled), create optimizer instance
+        if isinstance(optimizer, str):
+            if learning_rate is not None:
+                compile_config['optimizer'] = TensorFlowCompilationConfig.create_optimizer(
+                    optimizer, learning_rate
+                )
+            elif is_cyclic:
+                # If cyclic LR is enabled but no initial LR provided, use default (e.g. 0.001)
+                # but explicitly create instance so we have a variable LR
+                compile_config['optimizer'] = TensorFlowCompilationConfig.create_optimizer(
+                    optimizer, 0.001  # Default LR
+                )
 
         return compile_config
 
@@ -311,7 +322,13 @@ class TensorFlowCallbackFactory:
                 cycle = np.floor(1 + self.clr_iterations / (2 * self.step_size))
                 x = np.abs(self.clr_iterations / self.step_size - 2 * cycle + 1)
                 lr = self.base_lr + (self.max_lr - self.base_lr) * max(0, (1 - x))
-                keras.backend.set_value(self.model.optimizer.learning_rate, lr)
+
+                try:
+                    if hasattr(self.model.optimizer, 'learning_rate'):
+                        keras.backend.set_value(self.model.optimizer.learning_rate, lr)
+                except (AttributeError, TypeError) as e:
+                    if self.verbose > 0 and self.clr_iterations == 1:
+                        print(f"   Warning: Could not set learning rate for CyclicLR: {e}")
 
         return CyclicLR(
             base_lr=cyclic_lr_params.get('base_lr', 0.001),
