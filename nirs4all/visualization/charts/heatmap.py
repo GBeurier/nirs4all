@@ -262,7 +262,7 @@ class HeatmapChart(BaseChart):
                 count_matrix[y_map[y_val], x_map[x_val]] = count
 
         t1 = time.time()
-        print(f"Data wrangling time (V2): {t1 - t0:.4f} seconds")
+        print(f"Data wrangling time: {t1 - t0:.4f} seconds")
 
         # --- POLARS OPTIMIZATION END ---
 
