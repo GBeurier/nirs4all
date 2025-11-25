@@ -2,32 +2,35 @@
 
 > [PLS] implements all PLS (cf. doc)
 
-> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize
-
-**Bugs**:
->   - Review R2 computation / Q2 value - GOF (goodness of fit)
->   - run count is false at run start
->   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out)
->   - [_or_] with one element fallback on dummy controller
-
-> [sklearn] Integrate sklearn stacking model (serialization )
-
-**RELEASE** 0.5.1: Learning ready
+> [Predictions] Reload and management of predictions (to avoid recomputation and relaunch analysis, just analysis on predictions parquet)
 
 > [Classification] averaging
 
-> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
+> [sklearn] Integrate sklearn stacking model (serialization )
+
+> [Optuna] Add pruner (test BOHB ou successive halving pruner)
+
+**Bugs**:
+>   - [_or_] with one element fallback on dummy controller
+>   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
+>   - run count is false at run start
 
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 
-> [Predictions] as a pipeline context for custom stacking.
-
 > [Transfer] Automate model transfer and retraining. Test
 
+**RELEASE** 0.5.2: Learning ready
 
-**RELEASE** 0.5.2: Data Flow
+> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
 
-> [Predictions] Reload and management of predictions (to avoid recomputation and relaunch analysis, just analysis on predictions parquet)
+> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
+
+> [Examples] Clean and document
+
+
+**RELEASE** 0.6.0: UI ready
+
+> [Predictions] as a pipeline context for custom stacking.
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
@@ -35,9 +38,7 @@
 
 > [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
 
-**RELEASE** 0.6: Minimal Valuable Controllers
-
-
+**RELEASE** 0.6.1: Minimal Valuable Controllers
 
 > [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
 
@@ -51,7 +52,7 @@
 
 > [Models] extend the scope of custom model fallback (sklearn only for now), to include custom layouts (ie. custom NN without framework and 3D data, spectrograms, etc.)
 
-**RELEASE** 0.6.1: Pipeline logic
+**RELEASE** 0.6.2: Pipeline logic
 
 > [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin) _ add data aug operators en masse.
 
