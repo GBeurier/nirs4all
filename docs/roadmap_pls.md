@@ -849,6 +849,190 @@ small gamma values (0.01-0.1) for RBF kernel. Cross-validation is recommended fo
 
 ---
 
+## Tier 7: Specialized/Advanced PLS Methods 🟠
+
+These methods combine PLS with advanced techniques for specific use cases.
+
+### Story 7.1: OKLM-PLS (Online Koopman Latent-Mode PLS)
+
+**Priority:** P3 - Specialized
+**Status:** ✅ Implemented
+**Difficulty:** High
+
+**Description:**
+Online Koopman Latent-Mode PLS combines Koopman operator theory with PLS for time-series
+regression. It learns latent dynamics T_{t+1} ≈ F @ T_t while simultaneously fitting
+Y_t ≈ T_t @ B. This is useful for spectral data collected over time where temporal
+coherence provides additional predictive information.
+
+**Dependency:** None (pure Python/NumPy, optional JAX for GPU)
+
+**Operator:** `nirs4all/operators/models/sklearn/oklmpls.py`
+
+```python
+from nirs4all.operators.models import OKLMPLS, PolynomialFeaturizer, RBFFeaturizer
+
+# Basic OKLM-PLS with dynamics constraint
+model = OKLMPLS(n_components=10, lambda_dyn=1.0, lambda_reg_y=1.0)
+model.fit(X, y)  # X should be temporally ordered
+y_pred = model.predict(X)
+
+# Without dynamics (equivalent to featurized PLS)
+model_nodyn = OKLMPLS(n_components=10, lambda_dyn=0.0)
+model_nodyn.fit(X, y)
+
+# With polynomial featurizer for nonlinearity
+model_poly = OKLMPLS(
+    n_components=10,
+    featurizer=PolynomialFeaturizer(degree=2),
+    lambda_dyn=1.0
+)
+model_poly.fit(X, y)
+
+# With RBF featurizer
+model_rbf = OKLMPLS(
+    n_components=10,
+    featurizer=RBFFeaturizer(n_components=100, gamma=0.1),
+    lambda_dyn=1.0
+)
+model_rbf.fit(X, y)
+
+# Predict future timesteps using learned dynamics
+future_preds = model.predict_dynamic(X, n_steps=5)
+
+# JAX backend for GPU acceleration
+model_jax = OKLMPLS(n_components=10, lambda_dyn=1.0, backend='jax')
+model_jax.fit(X, y)
+```
+
+**Key Features:**
+- sklearn-compatible API (fit/predict/transform/get_params/set_params)
+- Koopman dynamics constraint for temporal coherence
+- Pluggable featurizers (Identity, Polynomial, RBF)
+- Warm start from standard PLS
+- Dynamic prediction for future timesteps
+- NumPy and JAX backends for CPU/GPU acceleration
+
+**Tasks:**
+- [x] Implement OKLM-PLS algorithm with alternating optimization
+- [x] Create sklearn-compatible class with NumPy backend
+- [x] Add JAX backend for GPU acceleration
+- [x] Implement IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
+- [x] Add predict_dynamic for future predictions
+- [x] Add comprehensive unit tests
+- [x] Add to Q19_pls_test.py example
+- [x] Export from operators/models/__init__.py
+
+**Test:** `examples/Q19_pls_test.py` and `tests/unit/operators/models/test_sklearn_pls.py::TestOKLMPLS`
+
+**Note:** OKLM-PLS is designed for temporally-ordered data. For non-temporal data, set
+lambda_dyn=0 to disable the dynamics constraint.
+
+**Reference:**
+- Brunton et al. (2021) - "Modern Koopman theory for dynamical systems"
+- Williams et al. (2015) - "A data-driven approximation of the Koopman operator"
+
+---
+
+### Story 7.2: FCK-PLS (Fractional Convolutional Kernel PLS)
+
+**Priority:** P3 - Specialized
+**Status:** ✅ Implemented
+**Difficulty:** High
+
+**Description:**
+Fractional Convolutional Kernel PLS builds spectral features by convolving input spectra
+with a bank of fractional order filters, then applies PLS regression. The fractional
+filters capture derivative-like information at various fractional orders (0, 0.5, 1, 1.5, 2),
+which is useful for identifying different spectral signatures in NIRS data.
+
+**Dependency:** None (pure Python/NumPy/SciPy, optional JAX for GPU)
+
+**Operator:** `nirs4all/operators/models/sklearn/fckpls.py`
+
+```python
+from nirs4all.operators.models import FCKPLS, FractionalConvFeaturizer
+
+# Basic FCK-PLS with default fractional orders
+model = FCKPLS(
+    n_components=10,
+    alphas=(0.0, 0.5, 1.0, 1.5, 2.0),  # Fractional orders
+    sigmas=(2.0,),                      # Filter scale
+    kernel_size=15                       # Filter size
+)
+model.fit(X, y)
+y_pred = model.predict(X)
+
+# Custom fractional orders (smoothing + first + second derivative)
+model_custom = FCKPLS(
+    n_components=10,
+    alphas=(0.0, 1.0, 2.0),
+    sigmas=(3.0,),
+    kernel_size=21
+)
+model_custom.fit(X, y)
+
+# Get fractional features for analysis
+X_feat = model.get_fractional_features(X)
+
+# Get filter information
+info = model.get_filter_info()
+print(f"Number of kernels: {info['n_kernels']}")
+
+# Grünwald-Letnikov kernels (more rigorous fractional derivative)
+model_gl = FCKPLS(
+    n_components=10,
+    alphas=(0.0, 1.0),
+    kernel_type='grunwald'
+)
+model_gl.fit(X, y)
+
+# JAX backend for GPU acceleration
+model_jax = FCKPLS(n_components=10, alphas=(0.0, 1.0, 2.0), backend='jax')
+model_jax.fit(X, y)
+```
+
+**Key Features:**
+- sklearn-compatible API (fit/predict/transform/get_params/set_params)
+- Fractional order filter bank for spectral feature extraction
+- Two kernel types: heuristic (Gaussian-modulated) and Grünwald-Letnikov
+- Configurable filter scale (sigma) and size
+- Access to intermediate fractional features
+- NumPy and JAX backends for CPU/GPU acceleration
+
+**Fractional Orders:**
+- α ≈ 0: Smoothing (low-pass filtering)
+- α ≈ 0.5: Half-derivative (intermediate behavior)
+- α ≈ 1: First derivative (highlights slopes)
+- α ≈ 1.5: Between first and second derivative
+- α ≈ 2: Second derivative (highlights peaks/valleys)
+
+**Tasks:**
+- [x] Implement fractional kernel functions (heuristic and Grünwald-Letnikov)
+- [x] Create FractionalConvFeaturizer transformer
+- [x] Create sklearn-compatible FCKPLS class with NumPy backend
+- [x] Add JAX backend for GPU acceleration
+- [x] Add get_fractional_features for feature analysis
+- [x] Add comprehensive unit tests
+- [x] Add to Q19_pls_test.py example
+- [x] Export from operators/models/__init__.py
+
+**Test:** `examples/Q19_pls_test.py` and `tests/unit/operators/models/test_sklearn_pls.py::TestFCKPLS`
+
+**Note:** FCK-PLS can be computationally expensive with many filters and large spectra.
+The sigma parameter controls filter width - larger sigma captures broader features.
+Cross-validation is recommended for tuning alphas and sigmas.
+
+**Aliases:**
+- `FCKPLS` - Main class name
+- `FractionalPLS` - Alias
+
+**Reference:**
+- Podlubny (1999) - "Fractional differential equations"
+- Chen et al. (2009) - "Fractional order control - A tutorial"
+
+---
+
 ## Summary: Integration Priority
 
 | Priority | Story | Method | Difficulty | Package |
@@ -868,6 +1052,8 @@ small gamma values (0.01-0.1) for RBF kernel. Cross-validation is recommended fo
 | P3 | 5.4 | Recursive PLS | ✅ Implemented | Custom |
 | P4 | 6.1 | K-OPLS | ✅ Implemented | Custom |
 | P3 | 6.2 | KernelPLS / NL-PLS | ✅ Implemented | Custom |
+| P3 | 7.1 | OKLM-PLS | ✅ Implemented | Custom |
+| P3 | 7.2 | FCK-PLS | ✅ Implemented | Custom |
 
 ---
 
