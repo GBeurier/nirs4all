@@ -621,7 +621,8 @@ class TestOPLS:
         assert params == {
             'n_components': 2,
             'pls_components': 3,
-            'scale': False
+            'scale': False,
+            'backend': 'numpy'
         }
 
     def test_set_params(self):
@@ -924,7 +925,8 @@ class TestMBPLS:
             'n_components': 8,
             'method': 'SVD',
             'standardize': False,
-            'max_tol': 1e-10
+            'max_tol': 1e-10,
+            'backend': 'numpy'
         }
 
     def test_set_params(self):
@@ -1162,7 +1164,8 @@ class TestSparsePLS:
             'alpha': 0.5,
             'max_iter': 1000,
             'tol': 1e-5,
-            'scale': False
+            'scale': False,
+            'backend': 'numpy'
         }
 
     def test_set_params(self):
@@ -1382,7 +1385,8 @@ class TestLWPLS:
         assert params == {
             'n_components': 8,
             'lambda_in_similarity': 0.5,
-            'scale': False
+            'scale': False,
+            'backend': 'numpy'
         }
 
     def test_set_params(self):

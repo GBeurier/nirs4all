@@ -1,4 +1,5 @@
-"""PLS (Partial Least Squares) model operators for nirs4all.
+
+content = """\"\"\"PLS (Partial Least Squares) model operators for nirs4all.
 
 This module provides PLS-based model operators that are sklearn-compatible
 for use in nirs4all pipelines. Supports both NumPy and JAX backends.
@@ -22,7 +23,7 @@ DiPLS
     Dynamic PLS for time-lagged process data.
 SparsePLS
     Sparse PLS with L1 regularization for variable selection.
-"""
+\"\"\"
 
 # Import all model classes from their new modules for backward compatibility
 from .plsda import PLSDA
@@ -42,3 +43,6 @@ __all__ = [
     "DiPLS",
     "SparsePLS",
 ]
+"""
+with open(r'c:\Workspace\ML\nirs4all\nirs4all\operators\models\sklearn\pls.py', 'w', encoding='utf-8') as f:
+    f.write(content)
