@@ -21,7 +21,7 @@
 >   - [_or_] with one element fallback on dummy controller
 >   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
 >   - run count is false at run start
->   - slow down between model: check dataset copy, ensure cache and reuse
+>   - slow down between models: check dataset copy, ensure cache and reuse.
 
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 

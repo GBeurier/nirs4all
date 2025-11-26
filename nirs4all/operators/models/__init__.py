@@ -13,6 +13,7 @@ from .sklearn.ipls import IntervalPLS
 from .sklearn.robust_pls import RobustPLS
 from .sklearn.recursive_pls import RecursivePLS
 from .sklearn.kopls import KOPLS
+from .sklearn.nlpls import KernelPLS, NLPLS, KPLS
 
 # Import TensorFlow models
 from .tensorflow.nicon import *
@@ -37,4 +38,7 @@ __all__ = [
     "RobustPLS",
     "RecursivePLS",
     "KOPLS",
+    "KernelPLS",
+    "NLPLS",
+    "KPLS",
 ]

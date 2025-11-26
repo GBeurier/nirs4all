@@ -12,6 +12,7 @@ from nirs4all.operators.models.sklearn.ipls import IntervalPLS
 from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
 from nirs4all.operators.models.sklearn.recursive_pls import RecursivePLS
 from nirs4all.operators.models.sklearn.kopls import KOPLS
+from nirs4all.operators.models.sklearn.nlpls import KernelPLS
 
 
 class TestPLSDA:
@@ -4529,3 +4530,418 @@ class TestKOPLSBackendParity:
                                    err_msg="KOPLS transform: NumPy and JAX differ")
 
 
+class TestKernelPLS:
+    """Test suite for KernelPLS (Nonlinear PLS / NL-PLS) regressor."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def multi_target_data(self):
+        """Generate multi-target regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def nonlinear_data(self):
+        """Generate nonlinear regression data."""
+        np.random.seed(42)
+        X = np.random.randn(100, 50)
+        # Nonlinear function of features
+        y = np.sin(X[:, :5].sum(axis=1)) + 0.5 * X[:, 5:10].sum(axis=1) ** 2
+        y += 0.1 * np.random.randn(100)  # Add noise
+        return X, y
+
+    def test_init_default(self):
+        """Test KernelPLS initialization with default parameters."""
+        model = KernelPLS()
+        assert model.n_components == 10
+        assert model.kernel == 'rbf'
+        assert model.gamma is None
+        assert model.degree == 3
+        assert model.coef0 == 1.0
+        assert model.center_kernel is True
+        assert model.scale_y is True
+        assert model.backend == 'numpy'
+
+    def test_init_custom_params(self):
+        """Test KernelPLS initialization with custom parameters."""
+        model = KernelPLS(
+            n_components=5,
+            kernel='poly',
+            gamma=0.5,
+            degree=2,
+            coef0=0.5,
+            center_kernel=False,
+            scale_y=False,
+            backend='numpy'
+        )
+        assert model.n_components == 5
+        assert model.kernel == 'poly'
+        assert model.gamma == 0.5
+        assert model.degree == 2
+        assert model.coef0 == 0.5
+        assert model.center_kernel is False
+        assert model.scale_y is False
+
+    def test_fit_rbf_kernel(self, regression_data):
+        """Test KernelPLS fit with RBF kernel."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=0.1)
+
+        result = model.fit(X, y)
+
+        assert result is model
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'X_train_')
+        assert hasattr(model, 'K_train_')
+        assert hasattr(model, 'x_scores_')
+        assert hasattr(model, 'y_scores_')
+        assert hasattr(model, 'coef_')
+        assert model.n_features_in_ == 50
+        assert model.X_train_.shape == (100, 50)
+        assert model.K_train_.shape == (100, 100)
+        assert model.x_scores_.shape == (100, 5)
+
+    def test_fit_poly_kernel(self, regression_data):
+        """Test KernelPLS fit with polynomial kernel."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='poly', degree=3)
+
+        model.fit(X, y)
+
+        assert model.x_scores_.shape == (100, 5)
+        assert model.coef_.shape == (100, 1)
+
+    def test_fit_sigmoid_kernel(self, regression_data):
+        """Test KernelPLS fit with sigmoid kernel."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='sigmoid', gamma=0.01, coef0=0.5)
+
+        model.fit(X, y)
+
+        assert model.x_scores_.shape == (100, 5)
+
+    def test_fit_linear_kernel(self, regression_data):
+        """Test KernelPLS fit with linear kernel."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='linear')
+
+        model.fit(X, y)
+
+        assert model.x_scores_.shape == (100, 5)
+
+    def test_fit_multi_target(self, multi_target_data):
+        """Test KernelPLS fit on multi-target data."""
+        X, y = multi_target_data
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=0.1)
+
+        model.fit(X, y)
+
+        assert model.coef_.shape == (100, 3)
+        assert model.y_scores_.shape == (100, 5)
+
+    def test_predict_single_target(self, regression_data):
+        """Test KernelPLS predict on single target data."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=0.1)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_multi_target(self, multi_target_data):
+        """Test KernelPLS predict on multi-target data."""
+        X, y = multi_target_data
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=0.1)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_with_n_components(self, regression_data):
+        """Test KernelPLS predict with specific n_components."""
+        X, y = regression_data
+        model = KernelPLS(n_components=10, kernel='rbf', gamma=0.1)
+        model.fit(X, y)
+
+        # Predict with fewer components
+        pred_5 = model.predict(X, n_components=5)
+        pred_10 = model.predict(X, n_components=10)
+
+        assert pred_5.shape == y.shape
+        assert pred_10.shape == y.shape
+        # Different number of components should give different predictions
+        assert not np.allclose(pred_5, pred_10)
+
+    def test_transform(self, regression_data):
+        """Test KernelPLS transform method."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=0.1)
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert isinstance(T, np.ndarray)
+        assert T.shape == (100, 5)
+        assert not np.isnan(T).any()
+
+    def test_transform_new_data(self, regression_data):
+        """Test KernelPLS transform on new data."""
+        X, y = regression_data
+        X_train, X_test = X[:80], X[80:]
+
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=0.1)
+        model.fit(X_train, y[:80])
+
+        T_test = model.transform(X_test)
+
+        assert T_test.shape == (20, 5)
+        assert not np.isnan(T_test).any()
+
+    def test_nonlinear_data_performance(self, nonlinear_data):
+        """Test KernelPLS on nonlinear data captures nonlinearity better."""
+        X, y = nonlinear_data
+
+        from sklearn.cross_decomposition import PLSRegression
+
+        # Linear PLS
+        linear_pls = PLSRegression(n_components=5)
+        linear_pls.fit(X, y)
+        linear_pred = linear_pls.predict(X).ravel()
+        linear_r2 = 1 - np.sum((y - linear_pred) ** 2) / np.sum((y - y.mean()) ** 2)
+
+        # Kernel PLS with RBF
+        kernel_pls = KernelPLS(n_components=5, kernel='rbf', gamma=0.1)
+        kernel_pls.fit(X, y)
+        kernel_pred = kernel_pls.predict(X)
+        kernel_r2 = 1 - np.sum((y - kernel_pred) ** 2) / np.sum((y - y.mean()) ** 2)
+
+        # Kernel PLS should generally perform better on nonlinear data
+        # (not a strict requirement, but should not be much worse)
+        assert kernel_r2 > 0.3  # At least captures some variance
+
+    def test_gamma_none_uses_default(self, regression_data):
+        """Test KernelPLS uses 1/n_features when gamma=None."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=None)
+
+        model.fit(X, y)
+
+        # Should not raise any errors
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_center_kernel_false(self, regression_data):
+        """Test KernelPLS with center_kernel=False."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=0.1, center_kernel=False)
+
+        model.fit(X, y)
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+
+    def test_scale_y_false(self, regression_data):
+        """Test KernelPLS with scale_y=False."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=0.1, scale_y=False)
+
+        model.fit(X, y)
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+
+    def test_get_params(self):
+        """Test KernelPLS get_params method."""
+        model = KernelPLS(n_components=8, kernel='poly', gamma=0.5, degree=2)
+
+        params = model.get_params()
+
+        assert params['n_components'] == 8
+        assert params['kernel'] == 'poly'
+        assert params['gamma'] == 0.5
+        assert params['degree'] == 2
+
+    def test_set_params(self):
+        """Test KernelPLS set_params method."""
+        model = KernelPLS(n_components=5)
+
+        result = model.set_params(n_components=10, gamma=0.5)
+
+        assert result is model
+        assert model.n_components == 10
+        assert model.gamma == 0.5
+
+    def test_sklearn_clone_compatibility(self, regression_data):
+        """Test that KernelPLS works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = KernelPLS(n_components=7, kernel='rbf', gamma=0.2)
+        cloned = clone(model)
+
+        assert cloned.n_components == 7
+        assert cloned.kernel == 'rbf'
+        assert cloned.gamma == 0.2
+        assert cloned is not model
+
+    def test_sklearn_cross_val_score(self, regression_data):
+        """Test that KernelPLS works with sklearn cross_val_score."""
+        from sklearn.model_selection import cross_val_score
+
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=0.1)
+
+        scores = cross_val_score(model, X, y, cv=3, scoring='r2')
+
+        assert len(scores) == 3
+
+    def test_invalid_backend_raises(self, regression_data):
+        """Test that invalid backend raises ValueError."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, backend='invalid')
+
+        with pytest.raises(ValueError, match="backend must be"):
+            model.fit(X, y)
+
+    def test_invalid_kernel_raises(self, regression_data):
+        """Test that invalid kernel raises ValueError."""
+        X, y = regression_data
+        model = KernelPLS(n_components=5, kernel='invalid')
+
+        with pytest.raises(ValueError, match="kernel must be"):
+            model.fit(X, y)
+
+    def test_repr(self):
+        """Test KernelPLS __repr__ method."""
+        model = KernelPLS(n_components=5, kernel='rbf', gamma=0.1)
+
+        repr_str = repr(model)
+
+        assert 'KernelPLS' in repr_str
+        assert 'n_components=5' in repr_str
+        assert "kernel='rbf'" in repr_str
+        assert 'gamma=0.1' in repr_str
+
+    def test_n_components_exceeds_samples(self):
+        """Test KernelPLS handles n_components > n_samples."""
+        X = np.random.randn(20, 50)
+        y = np.random.randn(20)
+
+        model = KernelPLS(n_components=30, kernel='rbf', gamma=0.1)
+        model.fit(X, y)
+
+        # Should limit to n_samples - 1
+        assert model.n_components_ <= 19
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+
+class TestKernelPLSBackendParity:
+    """Test KernelPLS produces identical results with NumPy and JAX backends."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_kernel_pls_backend_parity_linear(self, regression_data):
+        """Test KernelPLS produces identical results with linear kernel."""
+        X, y = regression_data
+
+        model_numpy = KernelPLS(n_components=5, kernel='linear', backend='numpy')
+        model_jax = KernelPLS(n_components=5, kernel='linear', backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
+                                   err_msg="KernelPLS linear: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_kernel_pls_backend_parity_rbf(self, regression_data):
+        """Test KernelPLS produces similar results with RBF kernel."""
+        X, y = regression_data
+
+        model_numpy = KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='numpy')
+        model_jax = KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
+                                   err_msg="KernelPLS RBF: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_kernel_pls_backend_parity_poly(self, regression_data):
+        """Test KernelPLS produces similar results with polynomial kernel."""
+        X, y = regression_data
+
+        model_numpy = KernelPLS(n_components=5, kernel='poly', degree=2, backend='numpy')
+        model_jax = KernelPLS(n_components=5, kernel='poly', degree=2, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
+                                   err_msg="KernelPLS poly: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_kernel_pls_transform_parity(self, regression_data):
+        """Test KernelPLS transform produces identical results."""
+        X, y = regression_data
+
+        model_numpy = KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='numpy')
+        model_jax = KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        T_numpy = model_numpy.transform(X)
+        T_jax = model_jax.transform(X)
+
+        np.testing.assert_allclose(T_numpy, T_jax, rtol=1e-4,
+                                   err_msg="KernelPLS transform: NumPy and JAX differ")
