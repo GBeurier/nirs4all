@@ -14,6 +14,8 @@ from .sklearn.robust_pls import RobustPLS
 from .sklearn.recursive_pls import RecursivePLS
 from .sklearn.kopls import KOPLS
 from .sklearn.nlpls import KernelPLS, NLPLS, KPLS
+from .sklearn.oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
+from .sklearn.fckpls import FCKPLS, FractionalPLS, FractionalConvFeaturizer
 
 # Import TensorFlow models
 from .tensorflow.nicon import *
@@ -41,4 +43,11 @@ __all__ = [
     "KernelPLS",
     "NLPLS",
     "KPLS",
+    "OKLMPLS",
+    "IdentityFeaturizer",
+    "PolynomialFeaturizer",
+    "RBFFeaturizer",
+    "FCKPLS",
+    "FractionalPLS",
+    "FractionalConvFeaturizer",
 ]

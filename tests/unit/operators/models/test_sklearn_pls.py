@@ -4945,3 +4945,819 @@ class TestKernelPLSBackendParity:
 
         np.testing.assert_allclose(T_numpy, T_jax, rtol=1e-4,
                                    err_msg="KernelPLS transform: NumPy and JAX differ")
+
+
+# =============================================================================
+# OKLMPLS Tests
+# =============================================================================
+
+from nirs4all.operators.models.sklearn.oklmpls import (
+    OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
+)
+
+
+class TestOKLMPLS:
+    """Test suite for OKLMPLS (Online Koopman Latent-Mode PLS)."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def time_series_data(self):
+        """Generate time-series-like regression data with temporal structure."""
+        np.random.seed(42)
+        n_samples = 100
+        n_features = 50
+
+        # Create time-correlated features
+        X = np.zeros((n_samples, n_features))
+        X[0] = np.random.randn(n_features)
+        for t in range(1, n_samples):
+            X[t] = 0.8 * X[t-1] + 0.2 * np.random.randn(n_features)
+
+        # Target depends on first few features
+        y = X[:, :5].sum(axis=1) + 0.1 * np.random.randn(n_samples)
+
+        return X, y
+
+    def test_init_default(self):
+        """Test OKLMPLS initialization with default parameters."""
+        model = OKLMPLS()
+        assert model.n_components == 5
+        assert model.lambda_dyn == 1.0
+        assert model.lambda_reg_y == 1.0
+        assert model.max_iter == 50
+        assert model.backend == 'numpy'
+
+    def test_init_custom(self):
+        """Test OKLMPLS initialization with custom parameters."""
+        model = OKLMPLS(
+            n_components=10,
+            lambda_dyn=2.0,
+            lambda_reg_y=0.5,
+            max_iter=100,
+            backend='numpy',
+        )
+        assert model.n_components == 10
+        assert model.lambda_dyn == 2.0
+        assert model.lambda_reg_y == 0.5
+        assert model.max_iter == 100
+
+    def test_fit_basic(self, regression_data):
+        """Test OKLMPLS basic fit."""
+        X, y = regression_data
+        model = OKLMPLS(n_components=5, max_iter=10, backend='numpy')
+
+        result = model.fit(X, y)
+
+        assert result is model
+        assert hasattr(model, 'W_')
+        assert hasattr(model, 'F_')
+        assert hasattr(model, 'B_')
+        assert hasattr(model, 'n_iter_')
+        assert hasattr(model, 'n_features_in_')
+        assert model.n_features_in_ == 50
+
+    def test_fit_with_dynamics(self, time_series_data):
+        """Test OKLMPLS fit with dynamics constraint."""
+        X, y = time_series_data
+        model = OKLMPLS(n_components=5, lambda_dyn=1.0, max_iter=20, backend='numpy')
+
+        model.fit(X, y)
+
+        # Check dynamics matrix is learned
+        assert model.F_.shape == (5, 5)
+        # F should not be identity (learned something)
+        assert not np.allclose(model.F_, np.eye(5))
+
+    def test_fit_no_dynamics(self, regression_data):
+        """Test OKLMPLS fit without dynamics constraint."""
+        X, y = regression_data
+        model = OKLMPLS(n_components=5, lambda_dyn=0.0, max_iter=20, backend='numpy')
+
+        model.fit(X, y)
+
+        # F should remain close to identity
+        assert model.F_.shape == (5, 5)
+
+    def test_predict(self, regression_data):
+        """Test OKLMPLS predict."""
+        X, y = regression_data
+        model = OKLMPLS(n_components=5, max_iter=10, backend='numpy')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_multivariate_y(self, regression_data):
+        """Test OKLMPLS with multivariate Y."""
+        X, _ = regression_data
+        Y = np.random.randn(100, 3)
+
+        model = OKLMPLS(n_components=5, max_iter=10, backend='numpy')
+        model.fit(X, Y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == Y.shape
+
+    def test_transform(self, regression_data):
+        """Test OKLMPLS transform."""
+        X, y = regression_data
+        model = OKLMPLS(n_components=5, max_iter=10, backend='numpy')
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert T.shape == (100, 5)
+        assert not np.isnan(T).any()
+
+    def test_predict_dynamic(self, time_series_data):
+        """Test OKLMPLS predict_dynamic for future predictions."""
+        X, y = time_series_data
+        model = OKLMPLS(n_components=5, lambda_dyn=1.0, max_iter=20, backend='numpy')
+        model.fit(X, y)
+
+        future_preds = model.predict_dynamic(X, n_steps=5)
+
+        assert future_preds.shape == (5,)
+        assert not np.isnan(future_preds).any()
+
+    def test_with_polynomial_featurizer(self, regression_data):
+        """Test OKLMPLS with polynomial featurizer."""
+        X, y = regression_data
+        featurizer = PolynomialFeaturizer(degree=2)
+        model = OKLMPLS(n_components=5, featurizer=featurizer, max_iter=10)
+
+        model.fit(X, y)
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+
+    def test_with_rbf_featurizer(self, regression_data):
+        """Test OKLMPLS with RBF featurizer."""
+        X, y = regression_data
+        featurizer = RBFFeaturizer(n_components=50, gamma=0.1, random_state=42)
+        model = OKLMPLS(n_components=5, featurizer=featurizer, max_iter=10)
+
+        model.fit(X, y)
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+
+    def test_warm_start_pls(self, regression_data):
+        """Test OKLMPLS with warm start from PLS."""
+        X, y = regression_data
+
+        model_cold = OKLMPLS(n_components=5, warm_start_pls=False, max_iter=10)
+        model_warm = OKLMPLS(n_components=5, warm_start_pls=True, max_iter=10)
+
+        model_cold.fit(X, y)
+        model_warm.fit(X, y)
+
+        # Both should produce valid predictions
+        pred_cold = model_cold.predict(X)
+        pred_warm = model_warm.predict(X)
+
+        assert pred_cold.shape == y.shape
+        assert pred_warm.shape == y.shape
+
+    def test_standardize_false(self, regression_data):
+        """Test OKLMPLS without standardization."""
+        X, y = regression_data
+        model = OKLMPLS(n_components=5, standardize=False, max_iter=10)
+
+        model.fit(X, y)
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+
+    def test_get_params(self):
+        """Test OKLMPLS get_params."""
+        model = OKLMPLS(n_components=10, lambda_dyn=2.0, backend='numpy')
+
+        params = model.get_params()
+
+        assert params['n_components'] == 10
+        assert params['lambda_dyn'] == 2.0
+        assert params['backend'] == 'numpy'
+
+    def test_set_params(self):
+        """Test OKLMPLS set_params."""
+        model = OKLMPLS(n_components=5)
+
+        result = model.set_params(n_components=10, lambda_dyn=2.0)
+
+        assert result is model
+        assert model.n_components == 10
+        assert model.lambda_dyn == 2.0
+
+    def test_sklearn_clone_compatibility(self, regression_data):
+        """Test that OKLMPLS works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = OKLMPLS(n_components=7, lambda_dyn=1.5)
+        cloned = clone(model)
+
+        assert cloned.n_components == 7
+        assert cloned.lambda_dyn == 1.5
+        assert cloned is not model
+
+    def test_sklearn_cross_val_score(self, regression_data):
+        """Test that OKLMPLS works with sklearn cross_val_score."""
+        from sklearn.model_selection import cross_val_score
+
+        X, y = regression_data
+        model = OKLMPLS(n_components=5, max_iter=10, backend='numpy')
+
+        scores = cross_val_score(model, X, y, cv=3, scoring='r2')
+
+        assert len(scores) == 3
+
+    def test_invalid_backend_raises(self, regression_data):
+        """Test that invalid backend raises ValueError."""
+        X, y = regression_data
+        model = OKLMPLS(n_components=5, backend='invalid')
+
+        with pytest.raises(ValueError, match="backend must be"):
+            model.fit(X, y)
+
+    def test_repr(self):
+        """Test OKLMPLS __repr__ method."""
+        model = OKLMPLS(n_components=5, lambda_dyn=1.0, lambda_reg_y=1.0)
+
+        repr_str = repr(model)
+
+        assert 'OKLMPLS' in repr_str
+        assert 'n_components=5' in repr_str
+        assert 'lambda_dyn=1.0' in repr_str
+
+
+class TestIdentityFeaturizer:
+    """Test suite for IdentityFeaturizer."""
+
+    def test_fit_transform(self):
+        """Test IdentityFeaturizer fit and transform."""
+        X = np.random.randn(50, 20)
+        featurizer = IdentityFeaturizer()
+
+        result = featurizer.fit_transform(X)
+
+        np.testing.assert_array_equal(result, X)
+
+    def test_transform_only(self):
+        """Test IdentityFeaturizer transform without fit."""
+        X = np.random.randn(50, 20)
+        featurizer = IdentityFeaturizer()
+        featurizer.fit(X)
+
+        result = featurizer.transform(X)
+
+        np.testing.assert_array_equal(result, X)
+
+
+class TestPolynomialFeaturizer:
+    """Test suite for PolynomialFeaturizer."""
+
+    def test_degree_2_include_original(self):
+        """Test PolynomialFeaturizer with degree=2."""
+        X = np.random.randn(50, 10)
+        featurizer = PolynomialFeaturizer(degree=2, include_original=True)
+
+        result = featurizer.fit_transform(X)
+
+        # Original + squared = 2 * n_features
+        assert result.shape == (50, 20)
+
+    def test_degree_3(self):
+        """Test PolynomialFeaturizer with degree=3."""
+        X = np.random.randn(50, 10)
+        featurizer = PolynomialFeaturizer(degree=3, include_original=True)
+
+        result = featurizer.fit_transform(X)
+
+        # Original + squared + cubed = 3 * n_features
+        assert result.shape == (50, 30)
+
+    def test_without_original(self):
+        """Test PolynomialFeaturizer without original features."""
+        X = np.random.randn(50, 10)
+        featurizer = PolynomialFeaturizer(degree=2, include_original=False)
+
+        result = featurizer.fit_transform(X)
+
+        # Only squared = n_features
+        assert result.shape == (50, 10)
+        np.testing.assert_array_equal(result, X ** 2)
+
+
+class TestRBFFeaturizer:
+    """Test suite for RBFFeaturizer."""
+
+    def test_fit_transform(self):
+        """Test RBFFeaturizer fit and transform."""
+        X = np.random.randn(50, 20)
+        featurizer = RBFFeaturizer(n_components=100, gamma=0.1, random_state=42)
+
+        result = featurizer.fit_transform(X)
+
+        assert result.shape == (50, 100)
+        assert not np.isnan(result).any()
+
+    def test_random_state_reproducibility(self):
+        """Test RBFFeaturizer reproducibility with random_state."""
+        X = np.random.randn(50, 20)
+
+        featurizer1 = RBFFeaturizer(n_components=50, random_state=42)
+        featurizer2 = RBFFeaturizer(n_components=50, random_state=42)
+
+        result1 = featurizer1.fit_transform(X)
+        result2 = featurizer2.fit_transform(X)
+
+        np.testing.assert_array_equal(result1, result2)
+
+
+class TestOKLMPLSBackendParity:
+    """Test OKLMPLS produces similar results with NumPy and JAX backends."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_oklmpls_backend_parity(self, regression_data):
+        """Test OKLMPLS produces similar results with both backends."""
+        X, y = regression_data
+
+        model_numpy = OKLMPLS(n_components=5, max_iter=20, backend='numpy')
+        model_jax = OKLMPLS(n_components=5, max_iter=20, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        # Predictions should be similar (not identical due to different optimization paths)
+        corr = np.corrcoef(pred_numpy, pred_jax)[0, 1]
+        assert corr > 0.9, f"OKLMPLS: Low correlation between backends: {corr}"
+
+
+# =============================================================================
+# FCKPLS Tests
+# =============================================================================
+
+from nirs4all.operators.models.sklearn.fckpls import (
+    FCKPLS, FractionalPLS, FractionalConvFeaturizer,
+    fractional_kernel_1d, fractional_kernel_grrunwald_letnikov
+)
+
+
+class TestFractionalKernels:
+    """Test suite for fractional kernel functions."""
+
+    def test_fractional_kernel_1d_alpha_0(self):
+        """Test fractional kernel with alpha=0 (smoothing)."""
+        h = fractional_kernel_1d(0.0, 2.0, 15)
+
+        assert h.shape == (15,)
+        assert not np.isnan(h).any()
+        assert np.sum(np.abs(h)) > 0  # Non-trivial
+
+    def test_fractional_kernel_1d_alpha_1(self):
+        """Test fractional kernel with alpha=1 (first derivative)."""
+        h = fractional_kernel_1d(1.0, 2.0, 15)
+
+        assert h.shape == (15,)
+        assert not np.isnan(h).any()
+        # Should be antisymmetric (derivative-like)
+        assert np.abs(h.mean()) < 0.1  # Near zero mean
+
+    def test_fractional_kernel_1d_alpha_2(self):
+        """Test fractional kernel with alpha=2 (second derivative)."""
+        h = fractional_kernel_1d(2.0, 2.0, 15)
+
+        assert h.shape == (15,)
+        assert not np.isnan(h).any()
+
+    def test_fractional_kernel_1d_fractional(self):
+        """Test fractional kernel with fractional alpha."""
+        h = fractional_kernel_1d(0.5, 2.0, 15)
+
+        assert h.shape == (15,)
+        assert not np.isnan(h).any()
+
+    def test_grunwald_letnikov_kernel(self):
+        """Test Grünwald-Letnikov kernel."""
+        h = fractional_kernel_grrunwald_letnikov(1.0, 15)
+
+        assert h.shape == (15,)
+        assert not np.isnan(h).any()
+
+    def test_grunwald_letnikov_fractional(self):
+        """Test Grünwald-Letnikov kernel with fractional alpha."""
+        h = fractional_kernel_grrunwald_letnikov(0.5, 15)
+
+        assert h.shape == (15,)
+        assert not np.isnan(h).any()
+
+
+class TestFractionalConvFeaturizer:
+    """Test suite for FractionalConvFeaturizer."""
+
+    def test_fit_transform_same_mode(self):
+        """Test FractionalConvFeaturizer with 'same' mode."""
+        X = np.random.randn(50, 100)
+        featurizer = FractionalConvFeaturizer(
+            alphas=(0.0, 1.0, 2.0),
+            sigmas=(2.0,),
+            kernel_size=15,
+            mode='same'
+        )
+
+        result = featurizer.fit_transform(X)
+
+        # 3 kernels * 100 features = 300
+        assert result.shape == (50, 300)
+        assert not np.isnan(result).any()
+
+    def test_fit_transform_valid_mode(self):
+        """Test FractionalConvFeaturizer with 'valid' mode."""
+        X = np.random.randn(50, 100)
+        featurizer = FractionalConvFeaturizer(
+            alphas=(0.0, 1.0),
+            sigmas=(2.0,),
+            kernel_size=15,
+            mode='valid'
+        )
+
+        result = featurizer.fit_transform(X)
+
+        # 2 kernels * (100 - 15 + 1) = 2 * 86 = 172
+        assert result.shape == (50, 172)
+
+    def test_different_sigmas(self):
+        """Test FractionalConvFeaturizer with different sigmas per alpha."""
+        X = np.random.randn(50, 100)
+        featurizer = FractionalConvFeaturizer(
+            alphas=(0.0, 1.0, 2.0),
+            sigmas=(1.0, 2.0, 3.0),
+            kernel_size=15,
+            mode='same'
+        )
+
+        result = featurizer.fit_transform(X)
+
+        assert result.shape == (50, 300)
+
+    def test_grunwald_kernel_type(self):
+        """Test FractionalConvFeaturizer with Grünwald-Letnikov kernels."""
+        X = np.random.randn(50, 100)
+        featurizer = FractionalConvFeaturizer(
+            alphas=(0.0, 1.0),
+            sigmas=(2.0,),
+            kernel_size=15,
+            kernel_type='grunwald'
+        )
+
+        result = featurizer.fit_transform(X)
+
+        assert result.shape == (50, 200)
+        assert not np.isnan(result).any()
+
+    def test_even_kernel_size_raises(self):
+        """Test that even kernel_size raises ValueError."""
+        featurizer = FractionalConvFeaturizer(
+            alphas=(0.0, 1.0),
+            sigmas=(2.0,),
+            kernel_size=14  # Even!
+        )
+
+        X = np.random.randn(50, 100)
+        with pytest.raises(ValueError, match="kernel_size must be odd"):
+            featurizer.fit(X)
+
+    def test_mismatched_sigmas_raises(self):
+        """Test that mismatched sigmas length raises ValueError."""
+        featurizer = FractionalConvFeaturizer(
+            alphas=(0.0, 1.0, 2.0),
+            sigmas=(1.0, 2.0),  # 2 sigmas for 3 alphas
+            kernel_size=15
+        )
+
+        X = np.random.randn(50, 100)
+        with pytest.raises(ValueError, match="sigmas must have length"):
+            featurizer.fit(X)
+
+    def test_get_kernel_info(self):
+        """Test FractionalConvFeaturizer get_kernel_info."""
+        X = np.random.randn(50, 100)
+        featurizer = FractionalConvFeaturizer(
+            alphas=(0.0, 1.0, 2.0),
+            sigmas=(2.0,),
+            kernel_size=15
+        )
+        featurizer.fit(X)
+
+        info = featurizer.get_kernel_info()
+
+        assert info['n_kernels'] == 3
+        assert info['alphas'] == [0.0, 1.0, 2.0]
+        assert info['kernel_size'] == 15
+
+
+class TestFCKPLS:
+    """Test suite for FCKPLS (Fractional Convolutional Kernel PLS)."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data with spectral-like features."""
+        np.random.seed(42)
+        n_samples = 100
+        n_features = 200  # Spectral wavelengths
+
+        # Simulate spectral data
+        wavelengths = np.linspace(900, 2500, n_features)
+        X = np.zeros((n_samples, n_features))
+        for i in range(n_samples):
+            # Base spectrum with peaks
+            X[i] = np.sin(wavelengths / 200) + 0.5 * np.sin(wavelengths / 100)
+            X[i] += 0.1 * np.random.randn(n_features)
+
+        # Target depends on specific spectral regions
+        y = X[:, 50:60].mean(axis=1) - X[:, 150:160].mean(axis=1)
+        y += 0.1 * np.random.randn(n_samples)
+
+        return X, y
+
+    def test_init_default(self):
+        """Test FCKPLS initialization with default parameters."""
+        model = FCKPLS()
+        assert model.n_components == 10
+        assert model.alphas == (0.0, 0.5, 1.0, 1.5, 2.0)
+        assert model.kernel_size == 15
+        assert model.backend == 'numpy'
+
+    def test_init_custom(self):
+        """Test FCKPLS initialization with custom parameters."""
+        model = FCKPLS(
+            n_components=5,
+            alphas=(0.0, 1.0, 2.0),
+            sigmas=(3.0,),
+            kernel_size=21,
+            mode='same',
+        )
+        assert model.n_components == 5
+        assert model.alphas == (0.0, 1.0, 2.0)
+        assert model.kernel_size == 21
+
+    def test_fit_basic(self, regression_data):
+        """Test FCKPLS basic fit."""
+        X, y = regression_data
+        model = FCKPLS(n_components=5, alphas=(0.0, 1.0), backend='numpy')
+
+        result = model.fit(X, y)
+
+        assert result is model
+        assert hasattr(model, 'featurizer_')
+        assert hasattr(model, 'pls_')
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'n_features_out_')
+        assert model.n_features_in_ == 200
+
+    def test_fit_predict(self, regression_data):
+        """Test FCKPLS fit and predict."""
+        X, y = regression_data
+        model = FCKPLS(n_components=5, alphas=(0.0, 1.0), backend='numpy')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_multivariate_y(self, regression_data):
+        """Test FCKPLS with multivariate Y."""
+        X, _ = regression_data
+        Y = np.random.randn(100, 3)
+
+        model = FCKPLS(n_components=5, alphas=(0.0, 1.0), backend='numpy')
+        model.fit(X, Y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == Y.shape
+
+    def test_transform(self, regression_data):
+        """Test FCKPLS transform."""
+        X, y = regression_data
+        model = FCKPLS(n_components=5, alphas=(0.0, 1.0), backend='numpy')
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert T.shape == (100, 5)
+        assert not np.isnan(T).any()
+
+    def test_get_fractional_features(self, regression_data):
+        """Test FCKPLS get_fractional_features."""
+        X, y = regression_data
+        model = FCKPLS(n_components=5, alphas=(0.0, 1.0), backend='numpy')
+        model.fit(X, y)
+
+        X_feat = model.get_fractional_features(X)
+
+        assert X_feat.shape == (100, model.n_features_out_)
+        assert not np.isnan(X_feat).any()
+
+    def test_get_filter_info(self, regression_data):
+        """Test FCKPLS get_filter_info."""
+        X, y = regression_data
+        model = FCKPLS(n_components=5, alphas=(0.0, 1.0, 2.0), backend='numpy')
+        model.fit(X, y)
+
+        info = model.get_filter_info()
+
+        assert info['n_kernels'] == 3
+        assert info['alphas'] == [0.0, 1.0, 2.0]
+
+    def test_different_kernel_types(self, regression_data):
+        """Test FCKPLS with different kernel types."""
+        X, y = regression_data
+
+        model_heuristic = FCKPLS(
+            n_components=5, alphas=(0.0, 1.0),
+            kernel_type='heuristic', backend='numpy'
+        )
+        model_grunwald = FCKPLS(
+            n_components=5, alphas=(0.0, 1.0),
+            kernel_type='grunwald', backend='numpy'
+        )
+
+        model_heuristic.fit(X, y)
+        model_grunwald.fit(X, y)
+
+        pred_h = model_heuristic.predict(X)
+        pred_g = model_grunwald.predict(X)
+
+        assert pred_h.shape == y.shape
+        assert pred_g.shape == y.shape
+
+    def test_valid_mode(self, regression_data):
+        """Test FCKPLS with 'valid' convolution mode."""
+        X, y = regression_data
+        model = FCKPLS(
+            n_components=5, alphas=(0.0, 1.0),
+            mode='valid', backend='numpy'
+        )
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+
+    def test_standardize_false(self, regression_data):
+        """Test FCKPLS without standardization."""
+        X, y = regression_data
+        model = FCKPLS(n_components=5, standardize=False, backend='numpy')
+
+        model.fit(X, y)
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+
+    def test_get_params(self):
+        """Test FCKPLS get_params."""
+        model = FCKPLS(n_components=10, alphas=(0.0, 1.0), sigmas=(3.0,))
+
+        params = model.get_params()
+
+        assert params['n_components'] == 10
+        assert params['alphas'] == (0.0, 1.0)
+        assert params['sigmas'] == (3.0,)
+
+    def test_set_params(self):
+        """Test FCKPLS set_params."""
+        model = FCKPLS(n_components=5)
+
+        result = model.set_params(n_components=10, alphas=(0.0, 2.0))
+
+        assert result is model
+        assert model.n_components == 10
+        assert model.alphas == (0.0, 2.0)
+
+    def test_sklearn_clone_compatibility(self, regression_data):
+        """Test that FCKPLS works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = FCKPLS(n_components=7, alphas=(0.0, 1.0))
+        cloned = clone(model)
+
+        assert cloned.n_components == 7
+        assert cloned.alphas == (0.0, 1.0)
+        assert cloned is not model
+
+    def test_sklearn_cross_val_score(self, regression_data):
+        """Test that FCKPLS works with sklearn cross_val_score."""
+        from sklearn.model_selection import cross_val_score
+
+        X, y = regression_data
+        model = FCKPLS(n_components=5, alphas=(0.0, 1.0), backend='numpy')
+
+        scores = cross_val_score(model, X, y, cv=3, scoring='r2')
+
+        assert len(scores) == 3
+
+    def test_invalid_backend_raises(self, regression_data):
+        """Test that invalid backend raises ValueError."""
+        X, y = regression_data
+        model = FCKPLS(n_components=5, backend='invalid')
+
+        with pytest.raises(ValueError, match="backend must be"):
+            model.fit(X, y)
+
+    def test_repr(self):
+        """Test FCKPLS __repr__ method."""
+        model = FCKPLS(n_components=5, alphas=(0.0, 1.0, 2.0))
+
+        repr_str = repr(model)
+
+        assert 'FCKPLS' in repr_str
+        assert 'n_components=5' in repr_str
+        assert '0.0' in repr_str
+
+    def test_alias_fractional_pls(self, regression_data):
+        """Test that FractionalPLS is an alias for FCKPLS."""
+        X, y = regression_data
+
+        model = FractionalPLS(n_components=5, alphas=(0.0, 1.0), backend='numpy')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+
+
+class TestFCKPLSBackendParity:
+    """Test FCKPLS produces similar results with NumPy and JAX backends."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        np.random.seed(42)
+        X = np.random.randn(100, 100)
+        y = X[:, :10].sum(axis=1) + 0.1 * np.random.randn(100)
+        return X, y
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_fckpls_backend_parity(self, regression_data):
+        """Test FCKPLS produces similar results with both backends."""
+        X, y = regression_data
+
+        model_numpy = FCKPLS(n_components=5, alphas=(0.0, 1.0), backend='numpy')
+        model_jax = FCKPLS(n_components=5, alphas=(0.0, 1.0), backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        # Predictions should be very similar
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
+                                   err_msg="FCKPLS: NumPy and JAX predictions differ")

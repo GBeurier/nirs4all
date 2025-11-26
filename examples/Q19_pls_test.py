@@ -45,6 +45,8 @@ from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
 from nirs4all.operators.models.sklearn.recursive_pls import RecursivePLS
 from nirs4all.operators.models.sklearn.kopls import KOPLS
 from nirs4all.operators.models.sklearn.nlpls import KernelPLS
+from nirs4all.operators.models.sklearn.oklmpls import OKLMPLS, PolynomialFeaturizer
+from nirs4all.operators.models.sklearn.fckpls import FCKPLS
 
 # Check if JAX is available for GPU-accelerated models
 try:
@@ -64,7 +66,7 @@ except ImportError:
 ###############
 
 print("=" * 60)
-print("REGRESSION TEST - PLSRegression + IKPLS + OPLS + MBPLS + SparsePLS + LWPLS + SIMPLS + IntervalPLS + RobustPLS + RecursivePLS + KOPLS + KernelPLS")
+print("REGRESSION TEST - PLSRegression + IKPLS + OPLS + MBPLS + SparsePLS + LWPLS + SIMPLS + IntervalPLS + RobustPLS + RecursivePLS + KOPLS + KernelPLS + OKLMPLS + FCKPLS")
 print("=" * 60)
 
 # Build regression pipeline
@@ -120,6 +122,16 @@ regression_models = [
     KernelPLS(n_components=5, kernel='rbf', gamma=1.0, backend='numpy'),
     KernelPLS(n_components=5, kernel='linear', backend='numpy'),
 
+    # Tier 7: OKLMPLS (Online Koopman Latent-Mode PLS - dynamics-aware PLS)
+    OKLMPLS(n_components=5, lambda_dyn=0.0, lambda_reg_y=1.0, max_iter=20, backend='numpy'),
+    OKLMPLS(n_components=5, lambda_dyn=1.0, lambda_reg_y=1.0, max_iter=20, backend='numpy'),
+    OKLMPLS(n_components=5, lambda_dyn=0.5, lambda_reg_y=1.0, max_iter=20, backend='numpy'),
+
+    # Tier 7: FCKPLS (Fractional Convolutional Kernel PLS - spectral derivative features)
+    FCKPLS(n_components=5, alphas=(0.0, 1.0, 2.0), sigmas=(2.0,), kernel_size=15, backend='numpy'),
+    FCKPLS(n_components=5, alphas=(0.0, 0.5, 1.0, 1.5, 2.0), sigmas=(2.0,), kernel_size=15, backend='numpy'),
+    FCKPLS(n_components=5, alphas=(1.0, 2.0), sigmas=(3.0,), kernel_size=21, backend='numpy'),
+
     # Tier 3: LWPLS (Locally-Weighted PLS - local models for nonlinearity) # COMMENTED because very slow
     # LWPLS(n_components=5, lambda_in_similarity=0.5, backend='numpy'),
     # LWPLS(n_components=10, lambda_in_similarity=1.0, backend='numpy'),
@@ -169,6 +181,14 @@ if JAX_AVAILABLE:
         {"model": KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='jax'), "name": "KernelPLS_JAX_rbf_g01"},
         {"model": KernelPLS(n_components=5, kernel='rbf', gamma=1.0, backend='jax'), "name": "KernelPLS_JAX_rbf_g10"},
         {"model": KernelPLS(n_components=5, kernel='linear', backend='jax'), "name": "KernelPLS_JAX_linear"},
+
+        # OKLMPLS with JAX backend (Koopman dynamics-aware PLS)
+        {"model": OKLMPLS(n_components=5, lambda_dyn=0.0, lambda_reg_y=1.0, max_iter=20, backend='jax'), "name": "OKLMPLS_JAX_nodyn"},
+        {"model": OKLMPLS(n_components=5, lambda_dyn=1.0, lambda_reg_y=1.0, max_iter=20, backend='jax'), "name": "OKLMPLS_JAX_dyn"},
+
+        # FCKPLS with JAX backend (Fractional Convolutional PLS)
+        {"model": FCKPLS(n_components=5, alphas=(0.0, 1.0, 2.0), sigmas=(2.0,), kernel_size=15, backend='jax'), "name": "FCKPLS_JAX_012"},
+        {"model": FCKPLS(n_components=5, alphas=(0.0, 0.5, 1.0, 1.5, 2.0), sigmas=(2.0,), kernel_size=15, backend='jax'), "name": "FCKPLS_JAX_full"},
 
         # LWPLS with JAX backend
         {"model": LWPLS(n_components=5, lambda_in_similarity=0.5, backend='jax'), "name": "LWPLS_JAX_5"},
