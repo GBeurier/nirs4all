@@ -13,7 +13,7 @@ Matches any sklearn model object (estimators with fit/predict methods).
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 import copy
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 from sklearn.model_selection import cross_val_score
 from sklearn.metrics import mean_squared_error, accuracy_score
 from sklearn.base import is_classifier, is_regressor
@@ -373,11 +373,16 @@ class SklearnModelController(BaseModelController):
 
         try:
             # Use cross-validation for evaluation
-            if is_classifier(model):
+            # Note: is_classifier/is_regressor may fail for custom models that don't
+            # implement __sklearn_tags__. Fall back to isinstance checks with Mixin classes.
+            is_clf = is_classifier(model) or isinstance(model, ClassifierMixin)
+            is_reg = is_regressor(model) or isinstance(model, RegressorMixin)
+
+            if is_clf:
                 # For classifiers, use negative balanced accuracy (to minimize)
                 scores = cross_val_score(model, X_val, y_val_1d, cv=3, scoring='balanced_accuracy')
                 return -np.mean(scores)  # Negative because we want to minimize
-            elif is_regressor(model):
+            elif is_reg:
                 # For regressors, use negative MSE (to minimize)
                 scores = cross_val_score(model, X_val, y_val_1d, cv=3, scoring='neg_mean_squared_error')
                 return -np.mean(scores)  # Already negative, so negate to get positive MSE
