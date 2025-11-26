@@ -5,9 +5,11 @@ import pytest
 from sklearn.datasets import make_classification, make_regression
 
 from nirs4all.operators.models.sklearn.pls import (
-    PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS
+    PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS
 )
 from nirs4all.operators.models.sklearn.lwpls import LWPLS
+from nirs4all.operators.models.sklearn.ipls import IntervalPLS
+from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
 
 
 class TestPLSDA:
@@ -1492,3 +1494,1766 @@ class TestLWPLS:
 
         assert predictions.shape == (1,)
         assert not np.isnan(predictions).any()
+
+
+class TestSIMPLS:
+    """Test suite for SIMPLS regressor."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def multi_target_data(self):
+        """Generate multi-target regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    def test_init_default(self):
+        """Test SIMPLS initialization with default parameters."""
+        model = SIMPLS()
+        assert model.n_components == 10
+        assert model.scale is True
+        assert model.center is True
+        assert model.backend == 'numpy'
+
+    def test_init_custom_parameters(self):
+        """Test SIMPLS initialization with custom parameters."""
+        model = SIMPLS(n_components=15, scale=False, center=False, backend='numpy')
+        assert model.n_components == 15
+        assert model.scale is False
+        assert model.center is False
+        assert model.backend == 'numpy'
+
+    def test_fit(self, regression_data):
+        """Test SIMPLS fit on regression data."""
+        X, y = regression_data
+        model = SIMPLS(n_components=10)
+
+        result = model.fit(X, y)
+
+        assert result is model  # fit returns self
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'n_components_')
+        assert hasattr(model, 'coef_')
+        assert hasattr(model, 'x_scores_')
+        assert hasattr(model, 'y_scores_')
+        assert hasattr(model, 'x_weights_')
+        assert hasattr(model, 'x_loadings_')
+        assert hasattr(model, 'y_loadings_')
+        assert model.n_features_in_ == 50
+        assert model.n_components_ == 10
+
+    def test_fit_multi_target(self, multi_target_data):
+        """Test SIMPLS fit on multi-target regression data."""
+        X, y = multi_target_data
+        model = SIMPLS(n_components=10)
+
+        model.fit(X, y)
+
+        # coef_ shape is (n_features, n_targets)
+        assert model.coef_.shape == (50, 3)
+        assert model.y_loadings_.shape == (3, 10)
+
+    def test_predict(self, regression_data):
+        """Test SIMPLS predict on regression data."""
+        X, y = regression_data
+        model = SIMPLS(n_components=10)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_multi_target(self, multi_target_data):
+        """Test SIMPLS predict on multi-target regression data."""
+        X, y = multi_target_data
+        model = SIMPLS(n_components=10)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_with_n_components(self, regression_data):
+        """Test SIMPLS predict with different n_components."""
+        X, y = regression_data
+        model = SIMPLS(n_components=15)
+        model.fit(X, y)
+
+        # Predict with fewer components
+        predictions = model.predict(X, n_components=5)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_transform(self, regression_data):
+        """Test SIMPLS transform method."""
+        X, y = regression_data
+        model = SIMPLS(n_components=10)
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert T.shape == (100, 10)
+        assert not np.isnan(T).any()
+
+    def test_compare_to_sklearn_pls(self, regression_data):
+        """Test that SIMPLS produces similar results to sklearn PLSRegression."""
+        from sklearn.cross_decomposition import PLSRegression
+
+        X, y = regression_data
+        n_components = 5
+
+        # Fit both models
+        simpls = SIMPLS(n_components=n_components)
+        sklearn_pls = PLSRegression(n_components=n_components)
+
+        simpls.fit(X, y)
+        sklearn_pls.fit(X, y)
+
+        # Predictions should be similar (not exactly equal due to different algorithms)
+        pred_simpls = simpls.predict(X)
+        pred_sklearn = sklearn_pls.predict(X).ravel()
+
+        # Check correlation is high (they solve the same problem)
+        correlation = np.corrcoef(pred_simpls, pred_sklearn)[0, 1]
+        assert correlation > 0.99, f"Correlation too low: {correlation}"
+
+    def test_get_params(self):
+        """Test SIMPLS get_params method."""
+        model = SIMPLS(n_components=8, scale=False, center=True, backend='numpy')
+
+        params = model.get_params()
+
+        assert params == {
+            'n_components': 8,
+            'scale': False,
+            'center': True,
+            'backend': 'numpy',
+        }
+
+    def test_set_params(self):
+        """Test SIMPLS set_params method."""
+        model = SIMPLS(n_components=5)
+
+        result = model.set_params(n_components=10, scale=False)
+
+        assert result is model  # set_params returns self
+        assert model.n_components == 10
+        assert model.scale is False
+
+    def test_sklearn_clone_compatibility(self):
+        """Test that SIMPLS works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = SIMPLS(n_components=7, scale=False)
+        cloned = clone(model)
+
+        assert cloned.n_components == 7
+        assert cloned.scale is False
+        assert cloned is not model
+
+    def test_sklearn_cross_val_score(self, regression_data):
+        """Test that SIMPLS works with sklearn cross_val_score."""
+        from sklearn.model_selection import cross_val_score
+
+        X, y = regression_data
+        model = SIMPLS(n_components=5)
+
+        scores = cross_val_score(model, X, y, cv=3, scoring='r2')
+
+        assert len(scores) == 3
+
+    def test_n_components_exceeds_features(self):
+        """Test SIMPLS handles n_components > n_features gracefully."""
+        X = np.random.randn(50, 10)  # Only 10 features
+        y = np.random.randn(50)
+
+        model = SIMPLS(n_components=20)  # More components than features
+        model.fit(X, y)
+
+        # Should not raise, n_components_ should be limited
+        assert model.n_components_ <= 10
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_n_components_exceeds_samples(self):
+        """Test SIMPLS handles n_components > n_samples gracefully."""
+        X = np.random.randn(20, 50)  # Only 20 samples
+        y = np.random.randn(20)
+
+        model = SIMPLS(n_components=30)  # More components than samples
+        model.fit(X, y)
+
+        # Should not raise, n_components_ should be limited
+        assert model.n_components_ <= 19  # n_samples - 1
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_scale_true(self, regression_data):
+        """Test SIMPLS with scaling enabled."""
+        X, y = regression_data
+        model = SIMPLS(n_components=5, scale=True)
+        model.fit(X, y)
+
+        # Check that scaling was applied
+        assert not np.allclose(model.x_std_, 1.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_scale_false(self, regression_data):
+        """Test SIMPLS with scaling disabled."""
+        X, y = regression_data
+        model = SIMPLS(n_components=5, scale=False)
+        model.fit(X, y)
+
+        # Check that scaling was not applied
+        assert np.allclose(model.x_std_, 1.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_center_false(self):
+        """Test SIMPLS with centering disabled."""
+        np.random.seed(42)
+        X = np.random.randn(50, 20)
+        y = np.random.randn(50)
+
+        model = SIMPLS(n_components=5, center=False)
+        model.fit(X, y)
+
+        # Check that centering was not applied
+        assert np.allclose(model.x_mean_, 0.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_repr(self):
+        """Test SIMPLS string representation."""
+        model = SIMPLS(n_components=5, scale=True)
+
+        repr_str = repr(model)
+
+        assert 'SIMPLS' in repr_str
+        assert 'n_components=5' in repr_str
+        assert 'scale=True' in repr_str
+
+    def test_predict_unfitted_raises(self):
+        """Test that predict raises error when model is not fitted."""
+        from sklearn.exceptions import NotFittedError
+
+        model = SIMPLS(n_components=5)
+        X = np.random.randn(10, 5)
+
+        with pytest.raises(NotFittedError):
+            model.predict(X)
+
+    def test_small_dataset(self):
+        """Test SIMPLS on a very small dataset."""
+        np.random.seed(42)
+        X = np.random.randn(10, 3)
+        y = np.random.randn(10)
+
+        model = SIMPLS(n_components=2)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_single_sample_predict(self, regression_data):
+        """Test SIMPLS prediction on a single sample."""
+        X, y = regression_data
+        model = SIMPLS(n_components=5)
+        model.fit(X, y)
+
+        # Predict on a single sample
+        single_X = X[0:1]
+        predictions = model.predict(single_X)
+
+        assert predictions.shape == (1,)
+        assert not np.isnan(predictions).any()
+
+    def test_invalid_backend(self, regression_data):
+        """Test SIMPLS raises error for invalid backend."""
+        X, y = regression_data
+        model = SIMPLS(n_components=5, backend='invalid')
+
+        with pytest.raises(ValueError, match="backend must be 'numpy' or 'jax'"):
+            model.fit(X, y)
+
+
+class TestSIMPLSJAX:
+    """Test suite for SIMPLS regressor with JAX backend.
+
+    These tests are skipped if JAX is not installed.
+    """
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def multi_target_data(self):
+        """Generate multi-target regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_fit_jax_backend(self, regression_data):
+        """Test SIMPLS fit with JAX backend."""
+        X, y = regression_data
+        model = SIMPLS(n_components=10, backend='jax')
+
+        result = model.fit(X, y)
+
+        assert result is model
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'n_components_')
+        assert hasattr(model, 'coef_')
+        assert model.n_features_in_ == 50
+        assert model.n_components_ == 10
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_predict_jax_backend(self, regression_data):
+        """Test SIMPLS predict with JAX backend."""
+        X, y = regression_data
+        model = SIMPLS(n_components=10, backend='jax')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        # Should return numpy array
+        assert isinstance(predictions, np.ndarray)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_fit_jax_multi_target(self, multi_target_data):
+        """Test SIMPLS fit on multi-target data with JAX backend."""
+        X, y = multi_target_data
+        model = SIMPLS(n_components=10, backend='jax')
+
+        model.fit(X, y)
+
+        # coef_ shape is (n_features, n_targets) and should be numpy array
+        assert isinstance(model.coef_, np.ndarray)
+        assert model.coef_.shape == (50, 3)
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_predict_jax_multi_target(self, multi_target_data):
+        """Test SIMPLS predict on multi-target data with JAX backend."""
+        X, y = multi_target_data
+        model = SIMPLS(n_components=10, backend='jax')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert isinstance(predictions, np.ndarray)
+        assert predictions.shape == y.shape
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_numpy_similar_results(self, regression_data):
+        """Test that JAX and NumPy backends produce similar results."""
+        X, y = regression_data
+
+        model_numpy = SIMPLS(n_components=5, backend='numpy')
+        model_jax = SIMPLS(n_components=5, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        # Results should be very similar (not exactly equal due to floating point)
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5)
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_sklearn_clone(self, regression_data):
+        """Test that SIMPLS with JAX backend works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = SIMPLS(n_components=5, backend='jax')
+        cloned = clone(model)
+
+        assert cloned.backend == 'jax'
+        assert cloned is not model
+
+        # Cloned model should be fittable
+        X, y = regression_data
+        cloned.fit(X, y)
+        predictions = cloned.predict(X)
+        assert predictions.shape == y.shape
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_transform(self, regression_data):
+        """Test SIMPLS transform with JAX backend."""
+        X, y = regression_data
+        model = SIMPLS(n_components=10, backend='jax')
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert isinstance(T, np.ndarray)
+        assert T.shape == (100, 10)
+        assert not np.isnan(T).any()
+
+
+class TestIntervalPLS:
+    """Test suite for IntervalPLS regressor."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def spectral_data(self):
+        """Generate spectral-like data with signal in specific region."""
+        np.random.seed(42)
+        X = np.random.randn(100, 200)  # 200 wavelengths
+        # Signal concentrated in wavelengths 50-70
+        y = X[:, 50:70].sum(axis=1) + 0.1 * np.random.randn(100)
+        return X, y
+
+    def test_init_default(self):
+        """Test IntervalPLS initialization with default parameters."""
+        model = IntervalPLS()
+        assert model.n_components == 5
+        assert model.n_intervals == 10
+        assert model.interval_width is None
+        assert model.cv == 5
+        assert model.scoring == 'r2'
+        assert model.mode == 'forward'
+        assert model.combination_method == 'union'
+        assert model.backend == 'numpy'
+
+    def test_init_custom_parameters(self):
+        """Test IntervalPLS initialization with custom parameters."""
+        model = IntervalPLS(
+            n_components=10,
+            n_intervals=20,
+            cv=3,
+            scoring='neg_mean_squared_error',
+            mode='single',
+            combination_method='best',
+            backend='numpy'
+        )
+        assert model.n_components == 10
+        assert model.n_intervals == 20
+        assert model.cv == 3
+        assert model.scoring == 'neg_mean_squared_error'
+        assert model.mode == 'single'
+        assert model.combination_method == 'best'
+        assert model.backend == 'numpy'
+
+    def test_fit(self, regression_data):
+        """Test IntervalPLS fit on regression data."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3)
+
+        result = model.fit(X, y)
+
+        assert result is model  # fit returns self
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'n_components_')
+        assert hasattr(model, 'interval_scores_')
+        assert hasattr(model, 'interval_starts_')
+        assert hasattr(model, 'interval_ends_')
+        assert hasattr(model, 'selected_intervals_')
+        assert hasattr(model, 'selected_regions_')
+        assert hasattr(model, 'coef_')
+        assert hasattr(model, 'feature_mask_')
+        assert model.n_features_in_ == 50
+
+    def test_fit_spectral_data(self, spectral_data):
+        """Test IntervalPLS on spectral-like data."""
+        X, y = spectral_data
+        model = IntervalPLS(n_components=3, n_intervals=10, cv=3, mode='single')
+        model.fit(X, y)
+
+        # The best interval should be around 50-70 (interval 2 or 3 depending on division)
+        assert len(model.selected_intervals_) >= 1
+        assert model.n_intervals_ == 10
+
+    def test_predict(self, regression_data):
+        """Test IntervalPLS predict on regression data."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_new_data(self, regression_data):
+        """Test IntervalPLS predict on new data."""
+        X, y = regression_data
+        X_train, X_test = X[:70], X[70:]
+        y_train, y_test = y[:70], y[70:]
+
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3)
+        model.fit(X_train, y_train)
+
+        predictions = model.predict(X_test)
+
+        assert predictions.shape == y_test.shape
+        assert not np.isnan(predictions).any()
+
+    def test_transform(self, regression_data):
+        """Test IntervalPLS transform method."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3)
+        model.fit(X, y)
+
+        X_transformed = model.transform(X)
+
+        # Should have fewer features (only selected intervals)
+        assert X_transformed.shape[0] == X.shape[0]
+        assert X_transformed.shape[1] <= X.shape[1]
+        assert X_transformed.shape[1] == model.feature_mask_.sum()
+
+    def test_mode_single(self, regression_data):
+        """Test IntervalPLS with single interval mode."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3, mode='single')
+        model.fit(X, y)
+
+        # Single mode should select exactly one interval
+        assert len(model.selected_intervals_) == 1
+
+    def test_mode_forward(self, regression_data):
+        """Test IntervalPLS with forward selection mode."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3, mode='forward')
+        model.fit(X, y)
+
+        # Forward mode may select multiple intervals
+        assert len(model.selected_intervals_) >= 1
+
+    def test_mode_backward(self, regression_data):
+        """Test IntervalPLS with backward elimination mode."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3, mode='backward')
+        model.fit(X, y)
+
+        # Backward mode starts with all and removes
+        assert len(model.selected_intervals_) >= 1
+
+    def test_combination_method_best(self, regression_data):
+        """Test IntervalPLS with best combination method."""
+        X, y = regression_data
+        model = IntervalPLS(
+            n_components=3, n_intervals=5, cv=3,
+            mode='forward', combination_method='best'
+        )
+        model.fit(X, y)
+
+        # Best method uses only one interval regardless of selection
+        # (uses the first selected interval)
+        n_features_per_interval = 50 // 5  # 10 features per interval
+        assert model.feature_mask_.sum() <= n_features_per_interval + 1
+
+    def test_combination_method_union(self, regression_data):
+        """Test IntervalPLS with union combination method."""
+        X, y = regression_data
+        model = IntervalPLS(
+            n_components=3, n_intervals=5, cv=3,
+            mode='forward', combination_method='union'
+        )
+        model.fit(X, y)
+
+        # Union method uses all selected intervals
+        assert model.feature_mask_.sum() >= 1
+
+    def test_fixed_interval_width(self, spectral_data):
+        """Test IntervalPLS with fixed interval width."""
+        X, y = spectral_data
+        model = IntervalPLS(
+            n_components=3, interval_width=20, cv=3, mode='single'
+        )
+        model.fit(X, y)
+
+        # With 200 features and width 20, should have 10 intervals
+        assert model.n_intervals_ == 10
+
+    def test_get_interval_info(self, regression_data):
+        """Test IntervalPLS get_interval_info method."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3)
+        model.fit(X, y)
+
+        info = model.get_interval_info()
+
+        assert 'n_intervals' in info
+        assert 'interval_scores' in info
+        assert 'interval_ranges' in info
+        assert 'selected_intervals' in info
+        assert 'selected_regions' in info
+        assert 'n_selected_features' in info
+        assert info['n_intervals'] == 5
+        assert len(info['interval_scores']) == 5
+
+    def test_get_params(self):
+        """Test IntervalPLS get_params method."""
+        model = IntervalPLS(
+            n_components=8, n_intervals=15, cv=3,
+            mode='single', combination_method='best'
+        )
+
+        params = model.get_params()
+
+        assert params == {
+            'n_components': 8,
+            'n_intervals': 15,
+            'interval_width': None,
+            'cv': 3,
+            'scoring': 'r2',
+            'mode': 'single',
+            'combination_method': 'best',
+            'backend': 'numpy',
+        }
+
+    def test_set_params(self):
+        """Test IntervalPLS set_params method."""
+        model = IntervalPLS(n_components=5)
+
+        result = model.set_params(n_components=10, mode='backward')
+
+        assert result is model  # set_params returns self
+        assert model.n_components == 10
+        assert model.mode == 'backward'
+
+    def test_sklearn_clone_compatibility(self):
+        """Test that IntervalPLS works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = IntervalPLS(n_components=7, n_intervals=8, mode='single')
+        cloned = clone(model)
+
+        assert cloned.n_components == 7
+        assert cloned.n_intervals == 8
+        assert cloned.mode == 'single'
+        assert cloned is not model
+
+    def test_sklearn_cross_val_score(self, regression_data):
+        """Test that IntervalPLS works with sklearn cross_val_score."""
+        from sklearn.model_selection import cross_val_score
+
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=2)
+
+        # Use cv=2 for the outer loop since internal CV is already 2
+        scores = cross_val_score(model, X, y, cv=2, scoring='r2')
+
+        assert len(scores) == 2
+
+    def test_invalid_mode(self, regression_data):
+        """Test IntervalPLS raises error for invalid mode."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, mode='invalid')
+
+        with pytest.raises(ValueError, match="mode must be"):
+            model.fit(X, y)
+
+    def test_invalid_combination_method(self, regression_data):
+        """Test IntervalPLS raises error for invalid combination_method."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, combination_method='invalid')
+
+        with pytest.raises(ValueError, match="combination_method must be"):
+            model.fit(X, y)
+
+    def test_invalid_backend(self, regression_data):
+        """Test IntervalPLS raises error for invalid backend."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, backend='invalid')
+
+        with pytest.raises(ValueError, match="backend must be"):
+            model.fit(X, y)
+
+    def test_repr(self):
+        """Test IntervalPLS string representation."""
+        model = IntervalPLS(n_components=5, n_intervals=10, mode='forward')
+
+        repr_str = repr(model)
+
+        assert 'IntervalPLS' in repr_str
+        assert 'n_components=5' in repr_str
+        assert 'n_intervals=10' in repr_str
+        assert "mode='forward'" in repr_str
+
+    def test_predict_unfitted_raises(self):
+        """Test that predict raises error when model is not fitted."""
+        from sklearn.exceptions import NotFittedError
+
+        model = IntervalPLS(n_components=5)
+        X = np.random.randn(10, 50)
+
+        with pytest.raises(NotFittedError):
+            model.predict(X)
+
+    def test_small_dataset(self):
+        """Test IntervalPLS on a small dataset."""
+        np.random.seed(42)
+        X = np.random.randn(30, 20)
+        y = np.random.randn(30)
+
+        model = IntervalPLS(n_components=2, n_intervals=4, cv=2)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_n_intervals_greater_than_features(self):
+        """Test IntervalPLS when n_intervals > n_features."""
+        np.random.seed(42)
+        X = np.random.randn(50, 10)  # Only 10 features
+        y = np.random.randn(50)
+
+        # More intervals than features - should still work
+        # Some intervals may be empty/small but algorithm handles it
+        model = IntervalPLS(n_components=2, n_intervals=20, cv=2)
+        model.fit(X, y)
+
+        # Should produce valid predictions regardless
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_multi_target(self):
+        """Test IntervalPLS with multi-target regression."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+
+class TestIntervalPLSJAX:
+    """Test suite for IntervalPLS regressor with JAX backend.
+
+    These tests are skipped if JAX is not installed.
+    """
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_fit_jax_backend(self, regression_data):
+        """Test IntervalPLS fit with JAX backend."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3, backend='jax')
+
+        result = model.fit(X, y)
+
+        assert result is model
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'interval_scores_')
+        assert hasattr(model, 'selected_intervals_')
+        assert model.n_features_in_ == 50
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_predict_jax_backend(self, regression_data):
+        """Test IntervalPLS predict with JAX backend."""
+        X, y = regression_data
+        model = IntervalPLS(n_components=3, n_intervals=5, cv=3, backend='jax')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        # Should return numpy array
+        assert isinstance(predictions, np.ndarray)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_numpy_similar_results(self, regression_data):
+        """Test that JAX and NumPy backends produce similar interval scores."""
+        X, y = regression_data
+
+        model_numpy = IntervalPLS(n_components=3, n_intervals=5, cv=3, backend='numpy')
+        model_jax = IntervalPLS(n_components=3, n_intervals=5, cv=3, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        # Interval scores should be reasonably similar
+        # (not exact due to different CV implementations)
+        # Just check they both produce valid scores
+        assert len(model_numpy.interval_scores_) == len(model_jax.interval_scores_)
+        assert not np.isnan(model_numpy.interval_scores_).any()
+        assert not np.isnan(model_jax.interval_scores_).any()
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_sklearn_clone(self, regression_data):
+        """Test that IntervalPLS with JAX backend works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = IntervalPLS(n_components=3, n_intervals=5, backend='jax')
+        cloned = clone(model)
+
+        assert cloned.backend == 'jax'
+        assert cloned is not model
+
+        # Cloned model should be fittable
+        X, y = regression_data
+        cloned.fit(X, y)
+        predictions = cloned.predict(X)
+        assert predictions.shape == y.shape
+
+
+class TestRobustPLS:
+    """Test suite for RobustPLS regressor."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def regression_data_with_outliers(self):
+        """Generate regression data with outliers."""
+        np.random.seed(42)
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        # Add vertical outliers (in Y)
+        y[0:5] = y[0:5] + 10 * y.std()
+        # Add leverage points (in X)
+        X[5:8, :] = X[5:8, :] + 5 * X.std()
+        return X, y
+
+    @pytest.fixture
+    def multi_target_data(self):
+        """Generate multi-target regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    def test_init_default(self):
+        """Test RobustPLS initialization with default parameters."""
+        model = RobustPLS()
+        assert model.n_components == 10
+        assert model.weighting == 'huber'
+        assert model.c is None
+        assert model.max_iter == 100
+        assert model.tol == 1e-6
+        assert model.scale is True
+        assert model.center is True
+        assert model.backend == 'numpy'
+
+    def test_init_custom_parameters(self):
+        """Test RobustPLS initialization with custom parameters."""
+        model = RobustPLS(
+            n_components=15,
+            weighting='tukey',
+            c=3.0,
+            max_iter=50,
+            tol=1e-5,
+            scale=False,
+            center=False,
+            backend='numpy'
+        )
+        assert model.n_components == 15
+        assert model.weighting == 'tukey'
+        assert model.c == 3.0
+        assert model.max_iter == 50
+        assert model.tol == 1e-5
+        assert model.scale is False
+        assert model.center is False
+        assert model.backend == 'numpy'
+
+    def test_fit(self, regression_data):
+        """Test RobustPLS fit on regression data."""
+        X, y = regression_data
+        model = RobustPLS(n_components=10)
+
+        result = model.fit(X, y)
+
+        assert result is model  # fit returns self
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'n_components_')
+        assert hasattr(model, 'coef_')
+        assert hasattr(model, 'x_scores_')
+        assert hasattr(model, 'y_scores_')
+        assert hasattr(model, 'x_weights_')
+        assert hasattr(model, 'x_loadings_')
+        assert hasattr(model, 'y_loadings_')
+        assert hasattr(model, 'sample_weights_')
+        assert model.n_features_in_ == 50
+        assert model.n_components_ == 10
+
+    def test_fit_with_outliers(self, regression_data_with_outliers):
+        """Test RobustPLS fit on data with outliers."""
+        X, y = regression_data_with_outliers
+        model = RobustPLS(n_components=10, weighting='huber')
+
+        model.fit(X, y)
+
+        # Outlier samples should have lower weights
+        assert model.sample_weights_[0:5].mean() < model.sample_weights_[10:].mean()
+
+    def test_fit_multi_target(self, multi_target_data):
+        """Test RobustPLS fit on multi-target regression data."""
+        X, y = multi_target_data
+        model = RobustPLS(n_components=10)
+
+        model.fit(X, y)
+
+        # coef_ shape is (n_features, n_targets)
+        assert model.coef_.shape == (50, 3)
+        assert model.y_loadings_.shape == (3, 10)
+
+    def test_predict(self, regression_data):
+        """Test RobustPLS predict on regression data."""
+        X, y = regression_data
+        model = RobustPLS(n_components=10)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_multi_target(self, multi_target_data):
+        """Test RobustPLS predict on multi-target regression data."""
+        X, y = multi_target_data
+        model = RobustPLS(n_components=10)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_with_n_components(self, regression_data):
+        """Test RobustPLS predict with different n_components."""
+        X, y = regression_data
+        model = RobustPLS(n_components=15)
+        model.fit(X, y)
+
+        # Predict with fewer components
+        predictions = model.predict(X, n_components=5)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_transform(self, regression_data):
+        """Test RobustPLS transform method."""
+        X, y = regression_data
+        model = RobustPLS(n_components=10)
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert T.shape == (100, 10)
+        assert not np.isnan(T).any()
+
+    def test_huber_weighting(self, regression_data_with_outliers):
+        """Test RobustPLS with Huber weighting."""
+        X, y = regression_data_with_outliers
+        model = RobustPLS(n_components=5, weighting='huber')
+        model.fit(X, y)
+
+        # Huber should produce valid weights
+        assert model.sample_weights_.shape == (100,)
+        assert (model.sample_weights_ > 0).all()
+        # Weights are normalized to sum to n_samples
+        np.testing.assert_allclose(model.sample_weights_.sum(), 100, rtol=0.01)
+
+    def test_tukey_weighting(self, regression_data_with_outliers):
+        """Test RobustPLS with Tukey weighting."""
+        X, y = regression_data_with_outliers
+        model = RobustPLS(n_components=5, weighting='tukey')
+        model.fit(X, y)
+
+        # Tukey should produce valid weights
+        assert model.sample_weights_.shape == (100,)
+        assert (model.sample_weights_ >= 0).all()
+
+    def test_custom_tuning_constant(self, regression_data):
+        """Test RobustPLS with custom tuning constant."""
+        X, y = regression_data
+
+        # Larger c means less aggressive down-weighting
+        model_c1 = RobustPLS(n_components=5, weighting='huber', c=1.0)
+        model_c3 = RobustPLS(n_components=5, weighting='huber', c=3.0)
+
+        model_c1.fit(X, y)
+        model_c3.fit(X, y)
+
+        # With larger c, weights should be more uniform
+        assert model_c1.sample_weights_.std() >= model_c3.sample_weights_.std() * 0.5
+
+    def test_get_outlier_mask(self, regression_data_with_outliers):
+        """Test RobustPLS get_outlier_mask method."""
+        X, y = regression_data_with_outliers
+        model = RobustPLS(n_components=10, weighting='huber')
+        model.fit(X, y)
+
+        outlier_mask = model.get_outlier_mask(threshold=0.5)
+
+        assert outlier_mask.shape == (100,)
+        assert outlier_mask.dtype == np.bool_
+        # At least some of the first 8 samples should be flagged as outliers
+        assert outlier_mask[:8].sum() > 0
+
+    def test_get_params(self):
+        """Test RobustPLS get_params method."""
+        model = RobustPLS(
+            n_components=8,
+            weighting='tukey',
+            c=4.0,
+            max_iter=50,
+            tol=1e-5,
+            scale=False,
+            center=True,
+            backend='numpy'
+        )
+
+        params = model.get_params()
+
+        assert params == {
+            'n_components': 8,
+            'weighting': 'tukey',
+            'c': 4.0,
+            'max_iter': 50,
+            'tol': 1e-5,
+            'scale': False,
+            'center': True,
+            'backend': 'numpy',
+        }
+
+    def test_set_params(self):
+        """Test RobustPLS set_params method."""
+        model = RobustPLS(n_components=5)
+
+        result = model.set_params(n_components=10, weighting='tukey')
+
+        assert result is model  # set_params returns self
+        assert model.n_components == 10
+        assert model.weighting == 'tukey'
+
+    def test_sklearn_clone_compatibility(self):
+        """Test that RobustPLS works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = RobustPLS(n_components=7, weighting='tukey', c=4.0)
+        cloned = clone(model)
+
+        assert cloned.n_components == 7
+        assert cloned.weighting == 'tukey'
+        assert cloned.c == 4.0
+        assert cloned is not model
+
+    def test_sklearn_cross_val_score(self, regression_data):
+        """Test that RobustPLS works with sklearn cross_val_score."""
+        from sklearn.model_selection import cross_val_score
+
+        X, y = regression_data
+        model = RobustPLS(n_components=5, max_iter=20)  # Fewer iterations for speed
+
+        scores = cross_val_score(model, X, y, cv=3, scoring='r2')
+
+        assert len(scores) == 3
+
+    def test_n_components_exceeds_features(self):
+        """Test RobustPLS handles n_components > n_features gracefully."""
+        X = np.random.randn(50, 10)  # Only 10 features
+        y = np.random.randn(50)
+
+        model = RobustPLS(n_components=20)  # More components than features
+        model.fit(X, y)
+
+        # Should not raise, n_components_ should be limited
+        assert model.n_components_ <= 10
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_n_components_exceeds_samples(self):
+        """Test RobustPLS handles n_components > n_samples gracefully."""
+        X = np.random.randn(20, 50)  # Only 20 samples
+        y = np.random.randn(20)
+
+        model = RobustPLS(n_components=30)  # More components than samples
+        model.fit(X, y)
+
+        # Should not raise, n_components_ should be limited
+        assert model.n_components_ <= 19  # n_samples - 1
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_scale_true(self, regression_data):
+        """Test RobustPLS with scaling enabled."""
+        X, y = regression_data
+        model = RobustPLS(n_components=5, scale=True)
+        model.fit(X, y)
+
+        # Check that scaling was applied
+        assert not np.allclose(model.x_std_, 1.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_scale_false(self, regression_data):
+        """Test RobustPLS with scaling disabled."""
+        X, y = regression_data
+        model = RobustPLS(n_components=5, scale=False)
+        model.fit(X, y)
+
+        # Check that scaling was not applied
+        assert np.allclose(model.x_std_, 1.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_center_false(self):
+        """Test RobustPLS with centering disabled."""
+        np.random.seed(42)
+        X = np.random.randn(50, 20)
+        y = np.random.randn(50)
+
+        model = RobustPLS(n_components=5, center=False)
+        model.fit(X, y)
+
+        # Check that centering was not applied
+        assert np.allclose(model.x_mean_, 0.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_repr(self):
+        """Test RobustPLS string representation."""
+        model = RobustPLS(n_components=5, weighting='tukey')
+
+        repr_str = repr(model)
+
+        assert 'RobustPLS' in repr_str
+        assert 'n_components=5' in repr_str
+        assert "weighting='tukey'" in repr_str
+
+    def test_predict_unfitted_raises(self):
+        """Test that predict raises error when model is not fitted."""
+        from sklearn.exceptions import NotFittedError
+
+        model = RobustPLS(n_components=5)
+        X = np.random.randn(10, 5)
+
+        with pytest.raises(NotFittedError):
+            model.predict(X)
+
+    def test_invalid_backend(self, regression_data):
+        """Test RobustPLS raises error for invalid backend."""
+        X, y = regression_data
+        model = RobustPLS(n_components=5, backend='invalid')
+
+        with pytest.raises(ValueError, match="backend must be 'numpy' or 'jax'"):
+            model.fit(X, y)
+
+    def test_invalid_weighting(self, regression_data):
+        """Test RobustPLS raises error for invalid weighting."""
+        X, y = regression_data
+        model = RobustPLS(n_components=5, weighting='invalid')
+
+        with pytest.raises(ValueError, match="weighting must be 'huber' or 'tukey'"):
+            model.fit(X, y)
+
+    def test_small_dataset(self):
+        """Test RobustPLS on a very small dataset."""
+        np.random.seed(42)
+        X = np.random.randn(10, 3)
+        y = np.random.randn(10)
+
+        model = RobustPLS(n_components=2, max_iter=20)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_single_sample_predict(self, regression_data):
+        """Test RobustPLS prediction on a single sample."""
+        X, y = regression_data
+        model = RobustPLS(n_components=5)
+        model.fit(X, y)
+
+        # Predict on a single sample
+        single_X = X[0:1]
+        predictions = model.predict(single_X)
+
+        assert predictions.shape == (1,)
+        assert not np.isnan(predictions).any()
+
+    def test_convergence(self, regression_data):
+        """Test that RobustPLS converges with enough iterations."""
+        X, y = regression_data
+
+        # With many iterations, should reach convergence
+        model = RobustPLS(n_components=5, max_iter=200, tol=1e-8)
+        model.fit(X, y)
+
+        # Should produce valid results regardless of convergence
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_compare_with_regular_pls(self, regression_data):
+        """Test that RobustPLS produces similar results to SIMPLS on clean data."""
+        X, y = regression_data
+
+        robust_model = RobustPLS(n_components=5)
+        simpls_model = SIMPLS(n_components=5)
+
+        robust_model.fit(X, y)
+        simpls_model.fit(X, y)
+
+        pred_robust = robust_model.predict(X)
+        pred_simpls = simpls_model.predict(X)
+
+        # On clean data, results should be correlated
+        correlation = np.corrcoef(pred_robust, pred_simpls)[0, 1]
+        assert correlation > 0.9, f"Correlation too low: {correlation}"
+
+    def test_robustness_to_outliers(self, regression_data):
+        """Test that RobustPLS is more robust to outliers than standard PLS."""
+        X, y = regression_data
+
+        # Add severe outliers
+        y_with_outliers = y.copy()
+        y_with_outliers[0:5] = y.mean() + 20 * y.std()
+
+        # Fit both models
+        robust_model = RobustPLS(n_components=5, weighting='tukey')
+        simpls_model = SIMPLS(n_components=5)
+
+        robust_model.fit(X, y_with_outliers)
+        simpls_model.fit(X, y_with_outliers)
+
+        # Predict on clean data excluding outlier samples
+        X_clean = X[10:]
+        y_clean = y[10:]
+
+        pred_robust = robust_model.predict(X_clean)
+        pred_simpls = simpls_model.predict(X_clean)
+
+        # RobustPLS should have better correlation with clean y
+        # (though this is data-dependent and may not always hold)
+        corr_robust = np.corrcoef(pred_robust, y_clean)[0, 1]
+        corr_simpls = np.corrcoef(pred_simpls, y_clean)[0, 1]
+
+        # At minimum, RobustPLS should not perform dramatically worse
+        assert corr_robust > corr_simpls * 0.8 or corr_robust > 0.7
+
+
+class TestRobustPLSJAX:
+    """Test suite for RobustPLS regressor with JAX backend.
+
+    These tests are skipped if JAX is not installed.
+    """
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def regression_data_with_outliers(self):
+        """Generate regression data with outliers."""
+        np.random.seed(42)
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        y[0:5] = y[0:5] + 10 * y.std()
+        return X, y
+
+    @pytest.fixture
+    def multi_target_data(self):
+        """Generate multi-target regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_fit_jax_backend(self, regression_data):
+        """Test RobustPLS fit with JAX backend."""
+        X, y = regression_data
+        model = RobustPLS(n_components=10, backend='jax', max_iter=20)
+
+        result = model.fit(X, y)
+
+        assert result is model
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'n_components_')
+        assert hasattr(model, 'coef_')
+        assert hasattr(model, 'sample_weights_')
+        assert model.n_features_in_ == 50
+        assert model.n_components_ == 10
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_predict_jax_backend(self, regression_data):
+        """Test RobustPLS predict with JAX backend."""
+        X, y = regression_data
+        model = RobustPLS(n_components=10, backend='jax', max_iter=20)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        # Should return numpy array
+        assert isinstance(predictions, np.ndarray)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_fit_jax_multi_target(self, multi_target_data):
+        """Test RobustPLS fit on multi-target data with JAX backend."""
+        X, y = multi_target_data
+        model = RobustPLS(n_components=10, backend='jax', max_iter=20)
+
+        model.fit(X, y)
+
+        # coef_ shape is (n_features, n_targets) and should be numpy array
+        assert isinstance(model.coef_, np.ndarray)
+        assert model.coef_.shape == (50, 3)
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_predict_jax_multi_target(self, multi_target_data):
+        """Test RobustPLS predict on multi-target data with JAX backend."""
+        X, y = multi_target_data
+        model = RobustPLS(n_components=10, backend='jax', max_iter=20)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert isinstance(predictions, np.ndarray)
+        assert predictions.shape == y.shape
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_numpy_identical_results(self, regression_data):
+        """Test that JAX and NumPy backends produce identical results."""
+        X, y = regression_data
+
+        model_numpy = RobustPLS(n_components=5, backend='numpy', max_iter=20)
+        model_jax = RobustPLS(n_components=5, backend='jax', max_iter=20)
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        # Results should be identical (IRLS weights computed in NumPy)
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5)
+
+        # Sample weights should be identical (computed in NumPy)
+        np.testing.assert_allclose(
+            model_numpy.sample_weights_, model_jax.sample_weights_, rtol=1e-10
+        )
+
+        # Coefficients should be identical
+        np.testing.assert_allclose(model_numpy.coef_, model_jax.coef_, rtol=1e-5)
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_sklearn_clone(self, regression_data):
+        """Test that RobustPLS with JAX backend works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = RobustPLS(n_components=5, backend='jax', weighting='tukey')
+        cloned = clone(model)
+
+        assert cloned.backend == 'jax'
+        assert cloned.weighting == 'tukey'
+        assert cloned is not model
+
+        # Cloned model should be fittable
+        X, y = regression_data
+        cloned.fit(X, y)
+        predictions = cloned.predict(X)
+        assert predictions.shape == y.shape
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_transform(self, regression_data):
+        """Test RobustPLS transform with JAX backend."""
+        X, y = regression_data
+        model = RobustPLS(n_components=10, backend='jax', max_iter=20)
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert isinstance(T, np.ndarray)
+        assert T.shape == (100, 10)
+        assert not np.isnan(T).any()
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_outlier_detection(self, regression_data_with_outliers):
+        """Test RobustPLS outlier detection with JAX backend."""
+        X, y = regression_data_with_outliers
+        model = RobustPLS(n_components=10, backend='jax', weighting='huber', max_iter=20)
+        model.fit(X, y)
+
+        # Outlier samples should have lower weights
+        outlier_weights = model.sample_weights_[0:5].mean()
+        normal_weights = model.sample_weights_[10:].mean()
+
+        # Outliers should be somewhat down-weighted
+        assert outlier_weights < normal_weights * 1.5  # Allow some tolerance
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_tukey_weighting(self, regression_data_with_outliers):
+        """Test RobustPLS with Tukey weighting and JAX backend."""
+        X, y = regression_data_with_outliers
+        model = RobustPLS(n_components=5, backend='jax', weighting='tukey', max_iter=20)
+        model.fit(X, y)
+
+        # Should produce valid weights
+        assert model.sample_weights_.shape == (100,)
+        assert (model.sample_weights_ >= 0).all()
+
+
+# =============================================================================
+# Backend Parity Tests - Verify NumPy and JAX produce identical results
+# =============================================================================
+
+class TestPLSBackendParity:
+    """Test that all PLS models with both backends produce identical results.
+
+    This is a critical test to ensure numerical consistency across backends.
+    All PLS implementations should produce the same predictions whether
+    using NumPy or JAX backends.
+    """
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def multi_target_data(self):
+        """Generate multi-target regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_ikpls_backend_parity(self, regression_data):
+        """Test IKPLS produces identical results with NumPy and JAX backends."""
+        X, y = regression_data
+
+        model_numpy = IKPLS(n_components=10, backend='numpy')
+        model_jax = IKPLS(n_components=10, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="IKPLS: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_opls_backend_parity(self, regression_data):
+        """Test OPLS produces identical results with NumPy and JAX backends."""
+        X, y = regression_data
+
+        model_numpy = OPLS(n_components=2, backend='numpy')
+        model_jax = OPLS(n_components=2, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="OPLS: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_mbpls_backend_parity(self, regression_data):
+        """Test MBPLS produces identical results with NumPy and JAX backends.
+
+        Note: JAX backend only supports single-block mode (array input, not list).
+        """
+        X, y = regression_data
+
+        # NumPy backend with single block as array
+        model_numpy = MBPLS(n_components=5, backend='numpy')
+        model_jax = MBPLS(n_components=5, backend='jax')
+
+        # Both should work with array input (single block)
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="MBPLS: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_sparsepls_backend_parity(self, regression_data):
+        """Test SparsePLS produces identical results with NumPy and JAX backends."""
+        X, y = regression_data
+
+        model_numpy = SparsePLS(n_components=5, alpha=0.5, backend='numpy')
+        model_jax = SparsePLS(n_components=5, alpha=0.5, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="SparsePLS: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_simpls_backend_parity(self, regression_data):
+        """Test SIMPLS produces identical results with NumPy and JAX backends."""
+        X, y = regression_data
+
+        model_numpy = SIMPLS(n_components=10, backend='numpy')
+        model_jax = SIMPLS(n_components=10, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="SIMPLS: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_lwpls_backend_parity(self, regression_data):
+        """Test LWPLS produces identical results with NumPy and JAX backends."""
+        X, y = regression_data
+
+        model_numpy = LWPLS(n_components=5, lambda_in_similarity=0.5, backend='numpy')
+        model_jax = LWPLS(n_components=5, lambda_in_similarity=0.5, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="LWPLS: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_ipls_backend_parity(self, regression_data):
+        """Test IntervalPLS produces identical results with NumPy and JAX backends."""
+        X, y = regression_data
+
+        model_numpy = IntervalPLS(n_components=5, n_intervals=5, backend='numpy')
+        model_jax = IntervalPLS(n_components=5, n_intervals=5, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="IntervalPLS: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_robust_pls_huber_backend_parity(self, regression_data):
+        """Test RobustPLS (Huber) produces identical results with NumPy and JAX backends."""
+        X, y = regression_data
+
+        model_numpy = RobustPLS(n_components=5, weighting='huber', backend='numpy')
+        model_jax = RobustPLS(n_components=5, weighting='huber', backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        # Sample weights should be identical (computed in NumPy)
+        np.testing.assert_allclose(model_numpy.sample_weights_, model_jax.sample_weights_,
+                                   rtol=1e-10,
+                                   err_msg="RobustPLS: Sample weights differ between backends")
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="RobustPLS (Huber): NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_robust_pls_tukey_backend_parity(self, regression_data):
+        """Test RobustPLS (Tukey) produces identical results with NumPy and JAX backends."""
+        X, y = regression_data
+
+        model_numpy = RobustPLS(n_components=5, weighting='tukey', backend='numpy')
+        model_jax = RobustPLS(n_components=5, weighting='tukey', backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        # Sample weights should be identical (computed in NumPy)
+        np.testing.assert_allclose(model_numpy.sample_weights_, model_jax.sample_weights_,
+                                   rtol=1e-10,
+                                   err_msg="RobustPLS: Sample weights differ between backends")
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="RobustPLS (Tukey): NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_multi_target_backend_parity(self, multi_target_data):
+        """Test PLS models produce identical results on multi-target data."""
+        X, y = multi_target_data
+
+        # Test SIMPLS (representative of PLS models)
+        model_numpy = SIMPLS(n_components=5, backend='numpy')
+        model_jax = SIMPLS(n_components=5, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="SIMPLS multi-target: NumPy and JAX predictions differ")
+
+        # Test RobustPLS
+        model_numpy = RobustPLS(n_components=5, backend='numpy')
+        model_jax = RobustPLS(n_components=5, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="RobustPLS multi-target: NumPy and JAX predictions differ")

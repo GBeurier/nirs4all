@@ -497,10 +497,10 @@ class SIMPLS(BaseEstimator, RegressorMixin):
 ```
 
 **Tasks:**
-- [ ] Implement SIMPLS algorithm from de Jong 1993 paper
-- [ ] Create sklearn-compatible class
-- [ ] Add unit tests comparing to PLSRegression
-- [ ] Benchmark performance
+- [x] Implement SIMPLS algorithm from de Jong 1993 paper
+- [x] Create sklearn-compatible class
+- [x] Add unit tests comparing to PLSRegression
+- [x] Benchmark performance
 
 **Test:** Add to `examples/Q19_pls_test.py`
 
@@ -509,94 +509,115 @@ class SIMPLS(BaseEstimator, RegressorMixin):
 ### Story 5.2: iPLS (Interval PLS)
 
 **Priority:** P2 - High Value for NIRS
-**Status:** 🟠 Hard
+**Status:** ✅ Implemented
 **Difficulty:** Medium
 
 **Description:**
 Grid or heuristic search over contiguous wavelength windows with local PLS models.
+Identifies optimal spectral regions for prediction in NIRS data.
 
 **Dependency:** None (uses sklearn internally)
 
-**Implementation Plan:**
-1. Slice X by intervals
-2. Fit PLSRegression per window
-3. Select best by CV or stack as ensemble
-4. Optionally combine with CARS for interval seeds
+**Implementation:**
+Full implementation with NumPy and JAX backends. Supports three selection modes
+(single, forward, backward) and two combination methods (best, union).
 
 **Operator:** `nirs4all/operators/models/sklearn/ipls.py`
+
 ```python
-from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.model_selection import cross_val_score
-import numpy as np
+from nirs4all.operators.models import IntervalPLS
 
-class IntervalPLS(BaseEstimator, RegressorMixin):
-    def __init__(self, n_components=5, n_intervals=10, interval_width=None):
-        self.n_components = n_components
-        self.n_intervals = n_intervals
-        self.interval_width = interval_width
+# Single interval mode - select best single interval
+model_single = IntervalPLS(n_components=5, n_intervals=10, mode='single')
+model_single.fit(X, y)
+y_pred = model_single.predict(X_val)
 
-    def fit(self, X, y):
-        # Evaluate each interval
-        # Select best or combine
-        ...
-        return self
+# Forward selection mode - iteratively add intervals
+model_forward = IntervalPLS(n_components=5, n_intervals=10, mode='forward')
+model_forward.fit(X, y)
+print(f"Selected intervals: {model_forward.selected_intervals_}")
+print(f"Selected regions: {model_forward.selected_regions_}")
 
-    def predict(self, X):
-        ...
+# Get interval evaluation info
+info = model_forward.get_interval_info()
+print(f"Interval scores: {info['interval_scores']}")
+
+# JAX backend for GPU acceleration
+model_jax = IntervalPLS(n_components=5, n_intervals=10, backend='jax')
+model_jax.fit(X, y)
 ```
 
 **Tasks:**
-- [ ] Implement interval grid search logic
-- [ ] Support forward/backward interval selection
-- [ ] Support ensemble mode
-- [ ] Add unit tests
-- [ ] Benchmark on NIRS data
+- [x] Implement interval grid search logic
+- [x] Support forward/backward interval selection
+- [x] Support single interval mode
+- [x] Support union/best combination methods
+- [x] Add NumPy backend implementation
+- [x] Add JAX backend implementation
+- [x] Add comprehensive unit tests
+- [x] Add to Q19_pls_test.py example
+- [x] Export from operators/models/__init__.py
 
-**Test:** Add to `examples/Q19_pls_test.py`
+**Test:** `examples/Q19_pls_test.py` and `tests/unit/operators/models/test_sklearn_pls.py::TestIntervalPLS`
 
 ---
 
 ### Story 5.3: Robust PLS / RSIMPLS
 
 **Priority:** P3 - Specialized
-**Status:** 🟠 Hard
+**Status:** ✅ Implemented
 **Difficulty:** High
 
 **Description:**
-Down-weight outliers using robust covariance estimation.
+Down-weight outliers using robust covariance estimation. Uses RSIMPLS algorithm with
+Iteratively Reweighted Least Squares (IRLS) and SIMPLS-style deflation.
 
-**Dependency:** None (pure Python/NumPy/scipy)
+**Dependency:** None (pure Python/NumPy implementation, optional JAX for GPU)
 
-**Implementation Plan:**
-1. Iterate PLS with robust weights (Huber/Tukey) on X and residuals
-2. Compute robust covariance in SIMPLS loop
-3. Reweight until convergence
-4. Cross-validate weight tuning
+**Implementation:**
+Full implementation with NumPy and JAX backends. Supports two robust weighting schemes:
+- **Huber** (default, c=1.345): Smooth transition between L1/L2, gentle outlier downweighting
+- **Tukey bisquare** (c=4.685): Hard outlier rejection, zero weight for extreme outliers
+
+Uses Median Absolute Deviation (MAD) for robust scale estimation.
 
 **Operator:** `nirs4all/operators/models/sklearn/robust_pls.py`
+
 ```python
-from sklearn.base import BaseEstimator, RegressorMixin
+from nirs4all.operators.models import RobustPLS
 
-class RobustPLS(BaseEstimator, RegressorMixin):
-    def __init__(self, n_components=5, weighting='huber', max_iter=100):
-        self.n_components = n_components
-        self.weighting = weighting
-        self.max_iter = max_iter
+# Huber weighting (default) - NumPy backend
+model_huber = RobustPLS(n_components=10, weighting='huber', c=1.345)
+model_huber.fit(X, y)
+y_pred = model_huber.predict(X_val)
 
-    def fit(self, X, y):
-        # Implement robust PLS
-        ...
-        return self
+# Tukey bisquare weighting - more aggressive outlier rejection
+model_tukey = RobustPLS(n_components=10, weighting='tukey', c=4.685)
+model_tukey.fit(X, y)
+y_pred = model_tukey.predict(X_val)
+
+# Outlier detection
+outlier_mask = model_huber.get_outlier_mask(threshold=0.5)
+print(f"Samples with low weights: {outlier_mask.sum()}")
+print(f"Sample weights: {model_huber.sample_weights_}")
+
+# JAX backend for GPU acceleration
+model_jax = RobustPLS(n_components=10, weighting='huber', backend='jax')
+model_jax.fit(X, y)
 ```
 
 **Tasks:**
-- [ ] Research RSIMPLS algorithm details
-- [ ] Implement robust weighting schemes
-- [ ] Create sklearn-compatible class
-- [ ] Add unit tests
+- [x] Research RSIMPLS algorithm details
+- [x] Implement Huber and Tukey robust weighting schemes
+- [x] Implement MAD robust scale estimation
+- [x] Create sklearn-compatible class with NumPy backend
+- [x] Add JAX backend for GPU acceleration
+- [x] Add get_outlier_mask() method for outlier detection
+- [x] Expose sample_weights_ attribute
+- [x] Add comprehensive unit tests (31 tests)
+- [x] Add to Q19_pls_test.py example
 
-**Test:** Add to `examples/Q19_pls_test.py`
+**Test:** `examples/Q19_pls_test.py` and `tests/unit/operators/models/test_sklearn_pls.py::TestRobustPLS`
 
 ---
 
@@ -674,11 +695,11 @@ Would require porting MATLAB/R implementations to Python with proper kernel hand
 | P2 | 2.3 | MB-PLS | 🟢 Low | mbpls |
 | P2 | 2.5 | Sparse PLS | 🟢 Low | py-ddspls |
 | P2 | 4.1-4.4 | VIP/MCUVE/CARS/SPA | 🟡 Medium | auswahl |
-| P2 | 5.2 | iPLS | 🟠 Hard | Custom |
+| P2 | 5.2 | iPLS | ✅ Implemented | Custom |
 | P3 | 2.4 | DiPLS | 🟢 Low | trendfitter |
 | P3 | 3.1 | LW-PLS | ✅ Implemented | Vendored (MIT) |
-| P3 | 5.1 | SIMPLS | 🟠 Hard | Custom |
-| P3 | 5.3 | Robust PLS | 🟠 Hard | Custom |
+| P3 | 5.1 | SIMPLS | ✅ Implemented | Custom |
+| P3 | 5.3 | Robust PLS | ✅ Implemented | Custom |
 | P3 | 5.4 | Recursive PLS | 🟠 Hard | Custom |
 | P4 | 6.1 | K-OPLS | 🔴 Very Hard | Custom |
 

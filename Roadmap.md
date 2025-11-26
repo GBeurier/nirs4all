@@ -13,7 +13,7 @@
 > [Model] How to force params from self best_params
 
 **Bugs**:
->   - [MB-PLS] test on multi-source
+>   - [MB-PLS] test on multi-source/block
 >   - [_or_] with one element fallback on dummy controller
 >   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
 >   - run count is false at run start

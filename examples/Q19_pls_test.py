@@ -37,9 +37,11 @@ from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # PLS operators
 from nirs4all.operators.models.sklearn.pls import (
-    PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS
+    PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS
 )
 from nirs4all.operators.models.sklearn.lwpls import LWPLS
+from nirs4all.operators.models.sklearn.ipls import IntervalPLS
+from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
 
 # Check if JAX is available for GPU-accelerated models
 try:
@@ -59,7 +61,7 @@ except ImportError:
 ###############
 
 print("=" * 60)
-print("REGRESSION TEST - PLSRegression + IKPLS + OPLS + MBPLS + SparsePLS + LWPLS")
+print("REGRESSION TEST - PLSRegression + IKPLS + OPLS + MBPLS + SparsePLS + LWPLS + SIMPLS + IntervalPLS + RobustPLS")
 print("=" * 60)
 
 # Build regression pipeline
@@ -89,6 +91,18 @@ regression_models = [
     SparsePLS(n_components=5, alpha=0.5, backend='numpy'),
     SparsePLS(n_components=5, alpha=1.0, backend='numpy'),
 
+    # Tier 5: SIMPLS (de Jong 1993 algorithm)
+    SIMPLS(n_components=10, backend='numpy'),
+    SIMPLS(n_components=15, backend='numpy'),
+
+    # Tier 5: IntervalPLS (iPLS - wavelength interval selection)
+    IntervalPLS(n_components=5, n_intervals=10, mode='single', backend='numpy'),
+    IntervalPLS(n_components=5, n_intervals=10, mode='forward', backend='numpy'),
+
+    # Tier 5: RobustPLS (Robust PLS - outlier-resistant)
+    RobustPLS(n_components=10, weighting='huber', max_iter=50, backend='numpy'),
+    RobustPLS(n_components=10, weighting='tukey', max_iter=50, backend='numpy'),
+
     # Tier 3: LWPLS (Locally-Weighted PLS - local models for nonlinearity) # COMMENTED because very slow
     # LWPLS(n_components=5, lambda_in_similarity=0.5, backend='numpy'),
     # LWPLS(n_components=10, lambda_in_similarity=1.0, backend='numpy'),
@@ -112,6 +126,18 @@ if JAX_AVAILABLE:
         # SparsePLS with JAX backend
         {"model": SparsePLS(n_components=5, alpha=0.5, backend='jax'), "name": "SparsePLS_JAX_5_a05"},
         {"model": SparsePLS(n_components=5, alpha=1.0, backend='jax'), "name": "SparsePLS_JAX_5_a10"},
+
+        # SIMPLS with JAX backend
+        {"model": SIMPLS(n_components=10, backend='jax'), "name": "SIMPLS_JAX_10"},
+        {"model": SIMPLS(n_components=15, backend='jax'), "name": "SIMPLS_JAX_15"},
+
+        # IntervalPLS with JAX backend
+        {"model": IntervalPLS(n_components=5, n_intervals=10, mode='single', backend='jax'), "name": "iPLS_JAX_single"},
+        {"model": IntervalPLS(n_components=5, n_intervals=10, mode='forward', backend='jax'), "name": "iPLS_JAX_forward"},
+
+        # RobustPLS with JAX backend
+        {"model": RobustPLS(n_components=10, weighting='huber', max_iter=50, backend='jax'), "name": "RobustPLS_JAX_huber"},
+        {"model": RobustPLS(n_components=10, weighting='tukey', max_iter=50, backend='jax'), "name": "RobustPLS_JAX_tukey"},
 
         # LWPLS with JAX backend
         {"model": LWPLS(n_components=5, lambda_in_similarity=0.5, backend='jax'), "name": "LWPLS_JAX_5"},
