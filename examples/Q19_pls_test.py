@@ -89,7 +89,7 @@ regression_models = [
     SparsePLS(n_components=5, alpha=0.5, backend='numpy'),
     SparsePLS(n_components=5, alpha=1.0, backend='numpy'),
 
-    # Tier 3: LWPLS (Locally-Weighted PLS - local models for nonlinearity)
+    # Tier 3: LWPLS (Locally-Weighted PLS - local models for nonlinearity) # COMMENTED because very slow
     # LWPLS(n_components=5, lambda_in_similarity=0.5, backend='numpy'),
     # LWPLS(n_components=10, lambda_in_similarity=1.0, backend='numpy'),
 ]

@@ -90,7 +90,7 @@ import numpy as np
 # or use the PLSDA operator (see Story 1.2b)
 ```
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_tests.py
 
 ---
 
@@ -118,7 +118,6 @@ Fast PLS with NumPy and JAX backends. Supports GPU acceleration and orders-of-ma
 jax = ["jax>=0.4.10", "jaxlib>=0.4.10", "ikpls>=1.0.0"]
 ```
 
-**Operator:** `nirs4all/operators/models/sklearn/pls.py`
 ```python
 from nirs4all.operators.models.sklearn.pls import IKPLS
 
@@ -161,7 +160,6 @@ Removes Y-orthogonal X-variation to sharpen interpretability. Standard in metabo
 "pyopls>=0.1.0"
 ```
 
-**Operator:** `nirs4all/operators/models/sklearn/pls.py`
 ```python
 from pyopls import OPLS
 from sklearn.cross_decomposition import PLSRegression
@@ -177,7 +175,7 @@ model = PLSRegression(n_components=1).fit(Z, y)
 - [x] Create `OPLSDA` classifier wrapper
 - [x] Add tests
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -197,7 +195,7 @@ Fuse multiple X blocks (e.g., different preprocessing variants, multiple sensors
 "mbpls>=1.0.0"
 ```
 
-**Operator:** `nirs4all/operators/models/sklearn/pls.py`
+
 ```python
 from mbpls.mbpls import MBPLS
 
@@ -211,7 +209,7 @@ y_pred = model.predict([X_raw_val, X_snv_val])
 - [x] Create special handling in pipeline for multi-block inputs
 - [x] Add tests
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -231,7 +229,7 @@ Handle time-lagged process/NIR streams via Hankelization. Useful for process ana
 "trendfitter>=0.1.0"
 ```
 
-**Operator:** `nirs4all/operators/models/sklearn/pls.py`
+
 ```python
 from trendfitter import DiPLS
 
@@ -244,7 +242,7 @@ y_pred = model.predict(X_time_val)
 - [x] Create `DiPLSOperator` wrapper
 - [x] Add tests
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -264,7 +262,7 @@ Joint prediction and variable selection via penalized loadings. Useful with many
 "py-ddspls>=0.1.0"
 ```
 
-**Operator:** `nirs4all/operators/models/sklearn/pls.py`
+
 ```python
 from ddspls import ddsPLS
 
@@ -277,7 +275,7 @@ y_pred = model.predict(X_val)
 - [x] Create `SparsePLSOperator` wrapper
 - [x] Add tests
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -358,7 +356,7 @@ X_selected = X[:, selector.get_support(indices=True)]
 - [ ] Create `VIPSelector` transformer
 - [ ] Add tests
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -390,7 +388,7 @@ X_selected = X[:, selector.get_support()]
 - [ ] Add tests for MCUVE
 - [ ] Document usage
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -422,7 +420,7 @@ X_selected = X[:, selector.get_support(indices=True)]
 - [ ] Add tests for CARS
 - [ ] Document usage
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -454,7 +452,7 @@ X_selected = X[:, selector.get_support(indices=True)]
 - [ ] Add tests for SPA
 - [ ] Document usage
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -504,7 +502,7 @@ class SIMPLS(BaseEstimator, RegressorMixin):
 - [ ] Add unit tests comparing to PLSRegression
 - [ ] Benchmark performance
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -555,7 +553,7 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
 - [ ] Add unit tests
 - [ ] Benchmark on NIRS data
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -598,7 +596,7 @@ class RobustPLS(BaseEstimator, RegressorMixin):
 - [ ] Create sklearn-compatible class
 - [ ] Add unit tests
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 
@@ -641,7 +639,7 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
 - [ ] Add unit tests
 - [ ] Test on streaming data
 
-**Test:** Add to `examples/Q18_pls_methods.py`
+**Test:** Add to `examples/Q19_pls_test.py`
 
 ---
 

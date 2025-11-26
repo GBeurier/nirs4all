@@ -1,6 +1,6 @@
 ## ROADMAP
 
-> [PLS] implements all PLS (cf. doc)
+> [PLS] implements all PLS (cf. doc) + LW_PLS_DA ?
 
 > [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
 
