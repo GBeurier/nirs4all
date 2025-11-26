@@ -2,24 +2,29 @@
 
 > [PLS] implements all PLS (cf. doc)
 
-> [Predictions] Reload and management of predictions (to avoid recomputation and relaunch analysis, just analysis on predictions parquet)
+> [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
 
-> [Classification] averaging
+> [Predictions] Reload and management of predictions (to avoid recomputation and relaunch analysis, just analysis on predictions parquet)
 
 > [sklearn] Integrate sklearn stacking model (serialization )
 
-> [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs
+> [Classification] averaging
+
+> [Model] How to force params from self best_params
 
 **Bugs**:
+>   - [MB-PLS] test on multi-source
 >   - [_or_] with one element fallback on dummy controller
 >   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
 >   - run count is false at run start
+>   - slow down between model: check dataset copy, ensure cache and reuse
 
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 
 > [Transfer] Automate model transfer and retraining. Test
 
 **RELEASE** 0.5.2: Learning ready
+
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
 

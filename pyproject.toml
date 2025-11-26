@@ -51,19 +51,30 @@ gpu = ["tensorflow[and-cuda]>=2.10.0"]
 torch = ["torch>=2.0.0"]
 keras = ["keras>=3.0.0"]
 jax = ["jax>=0.4.10", "jaxlib>=0.4.10"]
+pls = ["ikpls>=1.0.0", "pyopls>=20.0", "mbpls>=1.0.0", "trendfitter>=0.0.6", "sparse-pls>=0.1.0"]
 all = [
     "tensorflow>=2.10.0",
     "torch>=2.0.0",
     "keras>=3.0.0",
     "jax>=0.4.10",
-    "jaxlib>=0.4.10"
+    "jaxlib>=0.4.10",
+    "ikpls>=1.0.0",
+    "pyopls>=20.0",
+    "mbpls>=1.0.0",
+    "trendfitter>=0.0.6",
+    "sparse-pls>=0.1.0"
 ]
 all-gpu = [
     "tensorflow[and-cuda]>=2.10.0",
     "torch>=2.0.0",
     "keras>=3.0.0",
     "jax>=0.4.10",
-    "jaxlib>=0.4.10"
+    "jaxlib>=0.4.10",
+    "ikpls>=1.0.0",
+    "pyopls>=20.0",
+    "mbpls>=1.0.0",
+    "trendfitter>=0.0.6",
+    "sparse-pls>=0.1.0"
 ]
 
 dev = [

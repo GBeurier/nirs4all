@@ -4,7 +4,16 @@ This module provides wrappers and utilities for using scikit-learn models
 as operators in nirs4all pipelines.
 """
 
-# Sklearn models are typically used directly from sklearn
-# This module serves as a placeholder for any sklearn-specific wrappers
+from .pls import PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS
+from .lwpls import LWPLS
 
-__all__ = []
+__all__ = [
+    "PLSDA",
+    "IKPLS",
+    "OPLS",
+    "OPLSDA",
+    "MBPLS",
+    "DiPLS",
+    "SparsePLS",
+    "LWPLS",
+]
