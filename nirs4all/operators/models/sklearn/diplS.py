@@ -6,17 +6,93 @@ import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
 def _check_trendfitter_available():
+    """Check if trendfitter package is available."""
     try:
-        from trendfitter.models import DiPLS as _DiPLS
+        import trendfitter
         return True
     except ImportError:
         return False
 
 class DiPLS(BaseEstimator, RegressorMixin):
     """Dynamic PLS (DiPLS) regressor.
-    (See pls.py for full docstring)
+
+    DiPLS extends PLS to handle dynamic systems by including time-lagged
+    variables. It uses the `trendfitter` package.
+
+    Parameters
+    ----------
+    n_components : int, default=5
+        Number of latent variables to extract.
+    lags : int, default=1
+        Number of time lags to consider (s parameter in DiPLS).
+    cv_splits : int, default=7
+        Number of cross-validation splits for automatic component selection.
+    tol : float, default=1e-8
+        Convergence tolerance.
+    max_iter : int, default=1000
+        Maximum number of iterations.
+
+    Attributes
+    ----------
+    n_features_in_ : int
+        Number of features seen during fit.
+    n_components_ : int
+        Actual number of components used.
+
+    Examples
+    --------
+    >>> from nirs4all.operators.models.sklearn.pls import DiPLS
+    >>> import numpy as np
+    >>> X = np.random.randn(100, 50)
+    >>> y = np.random.randn(100)
+    >>> model = DiPLS(n_components=5, lags=2)
+    >>> model.fit(X, y)
+    DiPLS(n_components=5, lags=2)
+    >>> predictions = model.predict(X)
+
+    Notes
+    -----
+    Requires the `trendfitter` package: ``pip install trendfitter``
+
+    DiPLS is particularly useful for:
+    - Process monitoring with temporal dependencies
+    - NIR data collected over time
+    - Batch process analytics
+
+    See Also
+    --------
+    sklearn.cross_decomposition.PLSRegression : Standard PLS without dynamics.
+
+    References
+    ----------
+    .. [1] Dong, Y., & Qin, S. J. (2018). A novel dynamic PLS soft sensor
+           based on moving-window modeling. Chemical Engineering Research
+           and Design, 131, 509-519.
     """
-    def __init__(self, n_components: int = 5, lags: int = 1, cv_splits: int = 7, tol: float = 1e-8, max_iter: int = 1000):
+
+    def __init__(
+        self,
+        n_components: int = 5,
+        lags: int = 1,
+        cv_splits: int = 7,
+        tol: float = 1e-8,
+        max_iter: int = 1000,
+    ):
+        """Initialize DiPLS regressor.
+
+        Parameters
+        ----------
+        n_components : int, default=5
+            Number of latent variables to extract.
+        lags : int, default=1
+            Number of time lags to consider.
+        cv_splits : int, default=7
+            Number of cross-validation splits.
+        tol : float, default=1e-8
+            Convergence tolerance.
+        max_iter : int, default=1000
+            Maximum number of iterations.
+        """
         self.n_components = n_components
         self.lags = lags
         self.cv_splits = cv_splits
@@ -24,26 +100,117 @@ class DiPLS(BaseEstimator, RegressorMixin):
         self.max_iter = max_iter
 
     def fit(self, X, y):
+        """Fit the DiPLS model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data (time-ordered measurements).
+        y : array-like of shape (n_samples,) or (n_samples, n_targets)
+            Target values.
+
+        Returns
+        -------
+        self : DiPLS
+            Fitted estimator.
+
+        Raises
+        ------
+        ImportError
+            If trendfitter package is not installed.
+        """
         if not _check_trendfitter_available():
-            raise ImportError("trendfitter package is required for DiPLS. Install with 'pip install trendfitter'.")
-        from trendfitter.models import DiPLS as _DiPLS
+            raise ImportError(
+                "trendfitter package is required for DiPLS. "
+                "Install it with: pip install trendfitter"
+            )
+
+        from trendfitter.models import DiPLS as TFDiPLS
+
         X = np.asarray(X)
         y = np.asarray(y)
+
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
+
         self.n_features_in_ = X.shape[1]
-        n_comp = min(self.n_components, X.shape[1], X.shape[0] - 1)
-        self.model_ = _DiPLS(n_components=n_comp, lags=self.lags, cv_splits=self.cv_splits, tol=self.tol, max_iter=self.max_iter)
-        self.model_.fit(X, y)
-        self.n_components_ = self.model_.n_components_
+
+        # Create and fit trendfitter DiPLS
+        self._model = TFDiPLS(
+            cv_splits_number=self.cv_splits,
+            tol=self.tol,
+            loop_limit=self.max_iter,
+        )
+
+        # Fit with specified components and lags
+        self._model.fit(
+            X, y,
+            latent_variables=self.n_components,
+            s=self.lags,
+        )
+
+        self.n_components_ = self.n_components
+
         return self
 
     def predict(self, X):
+        """Predict using the DiPLS model.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Samples to predict.
+
+        Returns
+        -------
+        y_pred : ndarray of shape (n_samples,) or (n_samples, n_targets)
+            Predicted values.
+        """
         X = np.asarray(X)
-        return self.model_.predict(X)
+
+        y_pred = self._model.predict(X)
+
+        # Flatten if single target
+        if y_pred.ndim > 1 and y_pred.shape[1] == 1:
+            y_pred = y_pred.ravel()
+
+        return y_pred
 
     def get_params(self, deep=True):
-        return {"n_components": self.n_components, "lags": self.lags, "cv_splits": self.cv_splits, "tol": self.tol, "max_iter": self.max_iter}
+        """Get parameters for this estimator.
+
+        Parameters
+        ----------
+        deep : bool, default=True
+            If True, will return the parameters for this estimator and
+            contained subobjects that are estimators.
+
+        Returns
+        -------
+        params : dict
+            Parameter names mapped to their values.
+        """
+        return {
+            'n_components': self.n_components,
+            'lags': self.lags,
+            'cv_splits': self.cv_splits,
+            'tol': self.tol,
+            'max_iter': self.max_iter,
+        }
 
     def set_params(self, **params):
+        """Set the parameters of this estimator.
+
+        Parameters
+        ----------
+        **params : dict
+            Estimator parameters.
+
+        Returns
+        -------
+        self : DiPLS
+            Estimator instance.
+        """
         for key, value in params.items():
             setattr(self, key, value)
         return self
