@@ -4,6 +4,15 @@
 
 This report analyzes the nirs4all feature management system and proposes design changes to support variable selection methods (VIP, MCUVE, CARS, SPA from `auswahl`) that reduce feature dimensionality.
 
+**Key Finding**: The system already supports dimension-changing transformations through:
+1. `CropTransformer` / `ResampleTransformer` - change feature count
+2. `Resampler` with `ResamplerController` - specialized handling for wavelength resampling
+3. `resize_features()` mechanism - works when ALL processings are replaced with same new dimension
+
+**Recommended Approach**: Simple "Resize or Pad" strategy:
+- **Sequential application** → resize all processings to new dimension
+- **Feature augmentation** → pad smaller processings with zeros to match largest
+
 ---
 
 ## 1. Current Status and Architecture Overview
@@ -44,69 +53,41 @@ The `LayoutTransformer` supports four output formats:
 | `3d` | (samples, processings, features) | DL models (CNN, LSTM) |
 | `3d_transpose` | (samples, features, processings) | DL models (channels-last) |
 
-### 1.4 Multi-Source Support
+### 1.4 Existing Dimension-Changing Operators
 
-nirs4all supports multiple data sources (e.g., multiple sensors, multi-block PLS):
+nirs4all already has operators that change feature dimensions:
 
+#### 1.4.1 CropTransformer
 ```python
-Features
-  └── sources[0]: FeatureSource  # NIR sensor 1 (n_samples, n_processings_0, n_features_0)
-  └── sources[1]: FeatureSource  # NIR sensor 2 (n_samples, n_processings_1, n_features_1)
+class CropTransformer(BaseEstimator, TransformerMixin):
+    """Crops features to a range [start:end]."""
+    def transform(self, X):
+        return X[:, self.start:self.end]  # Output has fewer features
 ```
 
-Each source can have **independent feature dimensions and processing chains**.
-
-### 1.5 Preprocessing Pipeline (TransformerMixinController)
-
-When a `TransformerMixin` operator is applied in the pipeline:
-
-1. Data is extracted in 3D format: `(samples, processings, features)`
-2. Each processing slice `(samples, features)` is transformed **independently**
-3. Results are stored as new processings (feature augmentation) or replace existing ones
-4. The transformer is cloned for each processing to allow different fits
-
-**Current flow**:
-```
-Train 3D → For each processing_idx:
-              train_2d = X[:, processing_idx, :]
-              transformer.fit(train_2d)
-              transformed = transformer.transform(all_2d)
-           → Store results
-```
-
-### 1.6 Padding Mechanism (Existing)
-
-`ArrayStorage` already supports **padding for smaller features**:
-
+#### 1.4.2 ResampleTransformer
 ```python
-class ArrayStorage:
-    def __init__(self, padding: bool = True, pad_value: float = 0.0):
-        self.padding = padding
-        self.pad_value = pad_value
-
-    def _prepare_data_for_storage(self, data: np.ndarray) -> np.ndarray:
-        if self.padding and data.shape[1] < self.num_features:
-            padded_data = np.full((data.shape[0], self.num_features), self.pad_value, ...)
-            padded_data[:, :data.shape[1]] = data
-            return padded_data
+class ResampleTransformer(BaseEstimator, TransformerMixin):
+    """Resamples features to a target count using interpolation."""
+    def transform(self, X):
+        # Uses scipy.interpolate.interp1d to resample
+        # Output: (n_samples, num_samples) - different from input!
 ```
 
-However, this padding is **only applied when adding new samples**, not when updating processings with different feature counts.
+#### 1.4.3 Resampler with ResamplerController
+The `Resampler` operator has a **dedicated controller** that:
+1. Extracts wavelengths from dataset headers
+2. Transforms to target wavelength grid
+3. **Calls `replace_features()` which triggers `resize_features()`**
+4. **Updates headers** after dimension change
 
-### 1.7 Feature Resize Mechanism (Existing but Limited)
+### 1.5 How Dimension Change Currently Works
 
-`UpdateStrategy.should_resize_features()` checks if all processings are being replaced with a new dimension:
-
-```python
-def should_resize_features(replacements, additions, current_num_features):
-    if replacements and not additions:
-        new_feature_dims = [op.new_data.shape[1] for op in replacements]
-        if len(set(new_feature_dims)) == 1 and new_feature_dims[0] != current_num_features:
-            return True, new_feature_dims[0]
-    return False, current_num_features
-```
-
-This resize **clears headers** and is only used when ALL processings are replaced with the same new dimension.
+When `update_features()` is called, `should_resize_features()` checks:
+- ✅ Replacing ALL processings with same new dimension → works (triggers resize)
+- ❌ Adding a new processing with different dimension → fails
+- ❌ Replacing only SOME processings with different dimension → fails
+- ❌ Mixed dimensions in same update → fails
 
 ---
 
@@ -118,461 +99,324 @@ Methods like VIP, MCUVE, CARS, SPA are `TransformerMixin` that:
 1. **Fit**: Analyze feature importance using training data
 2. **Transform**: Return a **reduced-dimension** subset of features
 
-Example:
 ```python
-from auswahl import VIP, CARS, SPA, MCUVE
-
-# Input: X shape (100, 500)  → 500 wavelengths
+from auswahl import VIP
 selector = VIP(pls_kwargs=dict(n_components=8)).fit(X_train, y_train)
-X_selected = selector.transform(X)
-# Output: X_selected shape (100, 50)  → 50 selected wavelengths
+X_selected = selector.transform(X)  # (100, 500) → (100, 50)
 ```
 
-### 2.2 Core Problem
+### 2.2 The Challenge
 
-**Variable selection produces outputs with different feature dimensions** than inputs:
+**Sequential application** (like Resampler) already works - all processings get transformed.
 
+**Feature augmentation** is the problem:
+```python
+pipeline = [
+    {"feature_augmentation": [SNV(), CropTransformer(start=0, end=50)]}
+]
+# Result: raw(500), SNV(500), Crop(50) → mixed dimensions!
 ```
-Processing "raw":        (samples, 500)  ← Original wavelengths
-Processing "VIP_sel":    (samples, 50)   ← Selected wavelengths
-```
-
-This violates the current constraint that all processings must have the same feature count.
-
-### 2.3 Cascade Effects
-
-| Component | Current Behavior | Issue with Variable Selection |
-|-----------|------------------|------------------------------|
-| `ArrayStorage` | Fixed feature dimension for all processings | Cannot store mixed-dimension processings |
-| `LayoutTransformer` | Assumes uniform `num_features` | `2d` concatenation produces wrong shapes |
-| `HeaderManager` | Single header list | Selected features have subset of headers |
-| `TransformerMixinController` | Stores results with same shape | Would crash or produce wrong results |
-| `3d` layouts | Stacked along axis 1 | Requires all slices same shape |
-
-### 2.4 ML vs DL Layout Implications
-
-| Layout | Variable Selection Impact |
-|--------|---------------------------|
-| **2D (ML)** | Works if we handle concatenation of different sizes or use only selected features |
-| **2D Interleaved** | Same as above, different order |
-| **3D (DL)** | **Cannot stack** different-sized processings without padding |
-| **3D Transpose** | Same issue as 3D |
 
 ---
 
-## 3. Design Proposals
+## 3. Recommended Design: Resize or Pad Strategy
 
-### 3.1 Approach A: Per-Processing Feature Dimensions (Recommended)
+### 3.0 Overview
 
-**Concept**: Allow each processing to have its own feature dimension, stored as a **list of 2D arrays** or **dictionary of arrays** instead of a single 3D array.
+Keep the existing 3D array structure with uniform feature dimension. Handle dimension-changing transformations with two simple rules:
 
-**Implementation**:
+| Context | Behavior |
+|---------|----------|
+| **Sequential** (replace all) | Resize entire 3D array to new dimension |
+| **Feature Augmentation** (add new) | Pad smaller processings to match largest |
+
+### 3.1 Rule 1: Sequential Application → Resize All
+
+When a dimension-changing preprocessing is applied **sequentially**, it transforms ALL existing processings and the entire 3D array resizes.
 
 ```python
-class FlexibleArrayStorage:
-    """New storage that supports variable feature dimensions per processing."""
-    
-    def __init__(self):
-        # Dict: processing_name -> 2D array (samples, features_for_this_processing)
-        self._arrays: Dict[str, np.ndarray] = {}
-        self._processing_order: List[str] = []
-    
-    @property
-    def feature_dims(self) -> Dict[str, int]:
-        """Return feature dimension for each processing."""
-        return {name: arr.shape[1] for name, arr in self._arrays.items()}
-    
-    def get_2d(self, processing_name: str, sample_indices: np.ndarray) -> np.ndarray:
-        return self._arrays[processing_name][sample_indices]
-    
-    def get_3d_padded(self, sample_indices: np.ndarray, pad_value: float = 0.0) -> np.ndarray:
-        """For DL: pad to max feature dim and stack."""
-        max_features = max(arr.shape[1] for arr in self._arrays.values())
-        stacked = []
-        for name in self._processing_order:
-            arr = self._arrays[name][sample_indices]
-            if arr.shape[1] < max_features:
-                padded = np.full((len(sample_indices), max_features), pad_value)
-                padded[:, :arr.shape[1]] = arr
-                arr = padded
-            stacked.append(arr)
-        return np.stack(stacked, axis=1)
+# Example: Dataset with Raw(500), Haar(500), SNV(500)
+pipeline = [
+    Haar(),                    # raw(500) → raw(500), Haar(500)
+    StandardNormalVariate(),   # → raw(500), Haar(500), SNV(500)
+    VIPSelector(n_features=20) # Apply to ALL → VIP_raw(20), VIP_Haar(20), VIP_SNV(20)
+]
+# Result: 3D array shape (samples, 3, 20) - all resized to 20
 ```
 
-**Pros**:
-- Most flexible, no data loss
-- Each processing can have natural dimension
-- Headers can be per-processing
-- Backward compatible for uniform dimensions
+**This already works** via existing `resize_features()` mechanism.
 
-**Cons**:
-- More complex implementation
-- Memory overhead for metadata
-- Need to handle padding masks for DL
+### 3.2 Rule 2: Feature Augmentation → Pad Smaller to Largest
 
-### 3.2 Approach B: Preprocessing Groups with Uniform Dimensions
-
-**Concept**: Group processings by feature dimension. Each group is a 3D array. The layout selector chooses which group(s) to use.
+When a dimension-changing preprocessing is added as **feature augmentation**, the 3D array keeps the size of the **largest** processing, and smaller ones are **padded with zeros**.
 
 ```python
-class GroupedArrayStorage:
-    """Groups processings by feature dimension."""
-    
-    def __init__(self):
-        # Dict: feature_dim -> (3D array, processing_names)
-        self._groups: Dict[int, Tuple[np.ndarray, List[str]]] = {}
+# Example: Feature augmentation with mixed dimensions
+pipeline = [
+    {"feature_augmentation": [SNV(), MSC(), CropTransformer(start=0, end=50)]}
+]
+# Processings: raw(500), SNV(500), MSC(500), Crop(50)
+# 3D array shape: (samples, 4, 500)
+# - raw:  [values...500]
+# - SNV:  [values...500]
+# - MSC:  [values...500]
+# - Crop: [values...50, 0, 0, 0, ...450 zeros]  ← padded
 ```
 
-**Pros**:
-- Maintains 3D structure for DL
-- Clear separation of dimension groups
+**Padding configuration**:
+- **Position**: Configurable (left/right/center), default = **left** (values at start, zeros at end)
+- **Value**: 0.0 (configurable)
 
-**Cons**:
-- Less flexible
-- Complexity in managing groups
-- Which group to use for model input?
+### 3.3 Implementation Changes Required
 
-### 3.3 Approach C: Variable Selection as Terminal Transformation
-
-**Concept**: Variable selection is applied **only for model input**, not stored as a processing. The selection mask is stored separately.
+#### 3.3.1 Update `ArrayStorage` for Padding on Processing Updates
 
 ```python
-class FeatureSelector:
-    """Wraps variable selection for model input only."""
-    
-    def __init__(self, selector: TransformerMixin):
-        self.selector = selector
-        self.selected_indices_: np.ndarray = None
-    
-    def fit(self, X, y):
-        self.selector.fit(X, y)
-        self.selected_indices_ = self.selector.get_support(indices=True)
-        return self
-    
-    def transform(self, X):
-        # Returns reduced X, but NOT stored in dataset
-        return X[:, self.selected_indices_]
-```
-
-The `TransformerMixinController` would detect this type and:
-1. Store the selector but NOT add to dataset processings
-2. Apply selection at model training/prediction time
-
-**Pros**:
-- Minimal architecture changes
-- No storage of reduced data
-- Headers/features remain intact
-
-**Cons**:
-- Variable selection not visible in dataset preprocessing
-- Selection applied dynamically each time
-- More complex controller logic
-
-### 3.4 Approach D: Hybrid - Tracked Selection with Optional Storage
-
-**Concept**: Combine A and C. Store selection masks/indices, optionally store reduced data.
-
-```python
-class FeatureSource:
-    def __init__(self):
-        self._storage = ArrayStorage()  # Main storage (uniform dim)
-        self._selections: Dict[str, SelectionInfo] = {}  # Selection masks
-        
-@dataclass
-class SelectionInfo:
-    source_processing: str           # Which processing was selected from
-    selected_indices: np.ndarray     # Feature indices that were selected
-    selected_headers: List[str]      # Subset of headers
-    stored_data: Optional[np.ndarray] = None  # Optional: actual reduced data
-```
-
-**Pros**:
-- Flexible storage decisions
-- Maintains selection provenance
-- Can reconstruct full data if needed
-
-**Cons**:
-- Most complex implementation
-- Two parallel tracking systems
-
----
-
-## 4. Recommended Design: Approach A with Enhancements
-
-### 4.1 Core Changes
-
-#### 4.1.1 New `FlexibleArrayStorage`
-
-Replace or extend `ArrayStorage` to support per-processing dimensions:
-
-```python
-class FlexibleArrayStorage:
-    """Supports variable feature dimensions per processing."""
-    
-    def __init__(self, padding: bool = True, pad_value: float = 0.0):
+class ArrayStorage:
+    def __init__(self, padding: bool = True, pad_value: float = 0.0, pad_position: str = 'left'):
         self.padding = padding
         self.pad_value = pad_value
-        self._arrays: Dict[str, np.ndarray] = {}  # name -> (samples, features)
-        self._processing_order: List[str] = ["raw"]
-        self._arrays["raw"] = np.empty((0, 0), dtype=np.float32)
-    
-    @property
-    def num_samples(self) -> int:
-        if not self._arrays:
-            return 0
-        return next(iter(self._arrays.values())).shape[0]
-    
-    @property
-    def max_features(self) -> int:
-        if not self._arrays:
-            return 0
-        return max(arr.shape[1] for arr in self._arrays.values())
-    
-    @property
-    def feature_dims(self) -> Dict[str, int]:
-        return {name: arr.shape[1] for name, arr in self._arrays.items()}
-    
-    def add_processing(self, name: str, data: np.ndarray) -> None:
-        """Add processing with any feature dimension."""
-        if name in self._arrays:
-            raise ValueError(f"Processing '{name}' already exists")
-        self._arrays[name] = data.astype(np.float32)
-        self._processing_order.append(name)
-    
-    def get_data(self, sample_indices: np.ndarray, 
-                 processings: Optional[List[str]] = None) -> Dict[str, np.ndarray]:
-        """Get data for specific processings."""
-        if processings is None:
-            processings = self._processing_order
-        return {name: self._arrays[name][sample_indices] for name in processings}
-    
-    def get_3d_padded(self, sample_indices: np.ndarray,
-                      processings: Optional[List[str]] = None) -> np.ndarray:
-        """Get 3D array with padding for DL models."""
-        data = self.get_data(sample_indices, processings)
-        max_feat = max(arr.shape[1] for arr in data.values())
-        
-        result = []
-        for name in (processings or self._processing_order):
-            arr = data[name]
-            if arr.shape[1] < max_feat:
-                padded = np.full((arr.shape[0], max_feat), self.pad_value)
-                padded[:, :arr.shape[1]] = arr
-                result.append(padded)
-            else:
-                result.append(arr)
-        
-        return np.stack(result, axis=1)  # (samples, processings, max_features)
-    
-    def get_2d_concat(self, sample_indices: np.ndarray,
-                      processings: Optional[List[str]] = None) -> np.ndarray:
-        """Get 2D concatenated array for ML models."""
-        data = self.get_data(sample_indices, processings)
-        return np.concatenate([data[name] for name in (processings or self._processing_order)], axis=1)
+        self.pad_position = pad_position  # 'left', 'right', 'center'
+
+    def _prepare_data_for_storage(self, data: np.ndarray) -> np.ndarray:
+        """Prepare data for storage, padding if smaller than current feature dimension."""
+        if self.num_samples == 0:
+            return data
+
+        if data.shape[1] < self.num_features:
+            # Pad smaller data to match current size
+            if not self.padding:
+                raise ValueError(f"Feature dimension mismatch: expected {self.num_features}, got {data.shape[1]}")
+
+            padded = np.full((data.shape[0], self.num_features), self.pad_value, dtype=self._array.dtype)
+
+            if self.pad_position == 'left':
+                padded[:, :data.shape[1]] = data  # Values at start, zeros at end
+            elif self.pad_position == 'right':
+                padded[:, -data.shape[1]:] = data  # Zeros at start, values at end
+            elif self.pad_position == 'center':
+                start = (self.num_features - data.shape[1]) // 2
+                padded[:, start:start + data.shape[1]] = data
+
+            return padded
+
+        elif data.shape[1] > self.num_features:
+            # New data is LARGER - expand array and pad existing processings
+            self._expand_features(data.shape[1])
+
+        return data.astype(self._array.dtype)
+
+    def _expand_features(self, new_num_features: int) -> None:
+        """Expand feature dimension to accommodate larger processing."""
+        if new_num_features <= self.num_features:
+            return
+
+        new_shape = (self.num_samples, self.num_processings, new_num_features)
+        new_array = np.full(new_shape, self.pad_value, dtype=self._array.dtype)
+
+        # Copy existing data based on pad position
+        if self.pad_position == 'left':
+            new_array[:, :, :self.num_features] = self._array
+        elif self.pad_position == 'right':
+            new_array[:, :, -self.num_features:] = self._array
+        elif self.pad_position == 'center':
+            start = (new_num_features - self.num_features) // 2
+            new_array[:, :, start:start + self.num_features] = self._array
+
+        self._array = new_array
 ```
 
-#### 4.1.2 Per-Processing Headers
-
-Extend `HeaderManager` to support per-processing headers:
+#### 3.3.2 Update `UpdateStrategy` to Handle Mixed Dimensions
 
 ```python
-class FlexibleHeaderManager:
-    """Manages headers per processing."""
-    
+def should_resize_features(replacements, additions, current_num_features):
+    """Determine resize behavior for feature updates."""
+
+    all_new_dims = []
+    if replacements:
+        all_new_dims.extend([op.new_data.shape[1] for op in replacements])
+    if additions:
+        all_new_dims.extend([op.new_data.shape[1] for op in additions])
+
+    if not all_new_dims:
+        return False, current_num_features
+
+    max_new_dim = max(all_new_dims)
+
+    # Case 1: Pure replacement with uniform dimensions → resize to new dim
+    if replacements and not additions:
+        if len(set(all_new_dims)) == 1 and all_new_dims[0] != current_num_features:
+            return True, all_new_dims[0]
+
+    # Case 2: Additions or mixed → expand to max if larger
+    if max_new_dim > current_num_features:
+        return True, max_new_dim
+
+    # Case 3: All new dims <= current → no resize, pad smaller ones
+    return False, current_num_features
+```
+
+#### 3.3.3 Optional: Track Actual Feature Counts Per Processing
+
+For future 2D trimming optimization:
+
+```python
+class ProcessingManager:
     def __init__(self):
-        self._headers: Dict[str, List[str]] = {}  # processing_name -> headers
-        self._header_units: Dict[str, HeaderUnit] = {}
-    
-    def set_headers(self, processing: str, headers: List[str], unit: str = "cm-1"):
-        self._headers[processing] = headers
-        self._header_units[processing] = normalize_header_unit(unit)
-    
-    def get_headers(self, processing: str) -> Optional[List[str]]:
-        return self._headers.get(processing)
-    
-    def derive_headers(self, source_processing: str, 
-                       target_processing: str, 
-                       selected_indices: np.ndarray) -> None:
-        """Create headers for selected features from source processing."""
-        source_headers = self._headers.get(source_processing)
-        if source_headers:
-            self._headers[target_processing] = [source_headers[i] for i in selected_indices]
-            self._header_units[target_processing] = self._header_units.get(
-                source_processing, HeaderUnit.INDEX
-            )
+        self._processing_ids: List[str] = [DEFAULT_PROCESSING]
+        self._processing_id_to_index: Dict[str, int] = {DEFAULT_PROCESSING: 0}
+        self._feature_counts: Dict[str, int] = {}  # Actual feature count per processing
+
+    def set_feature_count(self, processing_id: str, count: int) -> None:
+        self._feature_counts[processing_id] = count
+
+    def get_feature_count(self, processing_id: str) -> Optional[int]:
+        return self._feature_counts.get(processing_id)
 ```
 
-#### 4.1.3 Updated LayoutTransformer
+### 3.4 Example Scenarios
+
+**Scenario A: Sequential VIP (works today)**
+```python
+pipeline = [
+    StandardNormalVariate(),     # raw(500), SNV(500)
+    VIPSelector(n_features=20),  # Both → 20 features
+]
+# Result: 3D shape (samples, 2, 20)
+# Headers: updated to selected wavelengths
+```
+
+**Scenario B: Feature Augmentation with Crop (NEW - with padding)**
+```python
+pipeline = [
+    {"feature_augmentation": [SNV(), CropTransformer(start=100, end=200)]}
+]
+# Result: 3D shape (samples, 3, 500)
+# - raw:  [v0, v1, ..., v499]          (500 real values)
+# - SNV:  [v0, v1, ..., v499]          (500 real values)
+# - Crop: [v100..v199, 0, 0, ..., 0]   (100 real + 400 zeros)
+```
+
+**Scenario C: Feature Augmentation with VIP (NEW - with padding)**
+```python
+pipeline = [
+    StandardNormalVariate(),  # raw(500), SNV(500)
+    {"feature_augmentation": VIPSelector(n_features=50)}
+]
+# Result: 3D shape (samples, 4, 500)
+# - raw:      [v0..v499]
+# - SNV:      [v0..v499]
+# - VIP_raw:  [50 selected values, 450 zeros]
+# - VIP_SNV:  [50 selected values, 450 zeros]
+```
+
+### 3.5 Advantages
+
+- **Simple**: Works within existing 3D array structure
+- **No new storage classes**: Modify existing `ArrayStorage` and `UpdateStrategy`
+- **Backward compatible**: Existing pipelines work unchanged
+- **DL-friendly**: 3D arrays remain stackable (padded with zeros)
+- **ML-friendly**: 2D concatenation works (includes padding, but models handle zeros)
+
+### 3.6 Limitations
+
+- **Memory**: Padded arrays use more memory than strictly necessary
+- **Sparsity**: Zero-padded values may slightly affect some models
+- **2D optimization**: Could trim padding when extracting 2D, but adds complexity
+
+### 3.7 Future Enhancement: 2D Trimming (Optional)
+
+For 2D extraction, could optionally trim padding by tracking actual feature counts:
 
 ```python
-class FlexibleLayoutTransformer:
-    """Transforms with support for variable feature dimensions."""
-    
-    @staticmethod
-    def transform(storage: FlexibleArrayStorage, 
-                  sample_indices: np.ndarray,
-                  layout: LayoutType,
-                  processings: Optional[List[str]] = None,
-                  pad_value: float = 0.0) -> np.ndarray:
-        
-        layout_enum = normalize_layout(layout)
-        
-        if layout_enum == FeatureLayout.FLAT_2D:
-            # Concatenate all processings (different sizes OK)
-            return storage.get_2d_concat(sample_indices, processings)
-        
-        elif layout_enum == FeatureLayout.VOLUME_3D:
-            # Pad to uniform size for 3D stacking
-            return storage.get_3d_padded(sample_indices, processings)
-        
-        elif layout_enum == FeatureLayout.VOLUME_3D_TRANSPOSE:
-            data_3d = storage.get_3d_padded(sample_indices, processings)
-            return np.transpose(data_3d, (0, 2, 1))
-        
-        # ... other layouts
+def get_2d_trimmed(self, sample_indices, processings):
+    """Get 2D data with padding trimmed per processing."""
+    result = []
+    for proc in processings:
+        data = self._array[sample_indices, self._get_proc_idx(proc), :]
+        actual_count = self._processing_mgr.get_feature_count(proc)
+        if actual_count:
+            data = data[:, :actual_count]  # Trim to actual size
+        result.append(data)
+    return np.concatenate(result, axis=1)
 ```
 
-### 4.2 TransformerMixinController Updates
+This is optional - zeros in ML models are usually not problematic.
 
-```python
-class TransformerMixinController(OperatorController):
-    
-    def execute(self, step_info, dataset, context, runtime_context, ...):
-        op = step_info.operator
-        
-        # Detect if this is a variable selector
-        is_selector = hasattr(op, 'get_support') or hasattr(op, 'selected_indices_')
-        
-        for sd_idx, (train_x, all_x) in enumerate(zip(train_data, all_data)):
-            for processing_idx in range(train_x.shape[1]):
-                # ... existing fit/transform logic ...
-                transformed_2d = transformer.transform(all_2d)
-                
-                # If dimensions differ, handle appropriately
-                if is_selector and transformed_2d.shape[1] != train_2d.shape[1]:
-                    # Store selected indices for header derivation
-                    selected_indices = transformer.get_support(indices=True)
-                    
-                    # Derive headers from source processing
-                    dataset._features.sources[sd_idx]._header_mgr.derive_headers(
-                        source_processing=processing_name,
-                        target_processing=new_processing_name,
-                        selected_indices=selected_indices
-                    )
-```
+---
 
-### 4.3 Sparsity and Padding Masks
+## 4. Alternative Approaches (For Reference)
 
-For DL models using 3D layouts with padded data, add mask support:
+### 4.1 Follow Resampler Pattern (Simpler but No Feature Augmentation)
 
-```python
-class FlexibleArrayStorage:
-    
-    def get_3d_with_mask(self, sample_indices: np.ndarray,
-                         processings: Optional[List[str]] = None) -> Tuple[np.ndarray, np.ndarray]:
-        """Get 3D padded data with validity mask."""
-        data = self.get_data(sample_indices, processings)
-        max_feat = max(arr.shape[1] for arr in data.values())
-        
-        result = []
-        mask = []  # 1 = valid, 0 = padding
-        
-        for name in (processings or self._processing_order):
-            arr = data[name]
-            n_feat = arr.shape[1]
-            
-            if n_feat < max_feat:
-                padded = np.full((arr.shape[0], max_feat), self.pad_value)
-                padded[:, :n_feat] = arr
-                result.append(padded)
-                
-                m = np.zeros((arr.shape[0], max_feat))
-                m[:, :n_feat] = 1
-                mask.append(m)
-            else:
-                result.append(arr)
-                mask.append(np.ones((arr.shape[0], max_feat)))
-        
-        return np.stack(result, axis=1), np.stack(mask, axis=1)
-```
+Create `VariableSelectionController` that replaces ALL processings:
+- Uses existing `resize_features()` mechanism
+- **Limitation**: Does not support feature augmentation with mixed dimensions
 
-### 4.4 Backward Compatibility
+### 4.2 Per-Processing Feature Dimensions (Overkill)
 
-To maintain backward compatibility:
+Store each processing as separate 2D array with its own dimension:
+- Most flexible, but complex implementation
+- Unnecessary given the padding approach
 
-1. Keep `ArrayStorage` as legacy class
-2. `FeatureSource` detects mixed dimensions and switches to flexible storage
-3. Default behavior unchanged for uniform dimensions
-4. Add deprecation warning for legacy mode
+### 4.3 Variable Selection as Terminal Transformation
 
-```python
-class FeatureSource:
-    def __init__(self, flexible: bool = False, ...):
-        if flexible:
-            self._storage = FlexibleArrayStorage(...)
-        else:
-            self._storage = ArrayStorage(...)
-        self._is_flexible = flexible
-    
-    def update_features(self, ...):
-        # Check if we need to upgrade to flexible storage
-        new_dim = features[0].shape[1]
-        if not self._is_flexible and new_dim != self._storage.num_features:
-            self._upgrade_to_flexible_storage()
-```
+Apply selection only at model input time, don't store in dataset:
+- Selection not visible in dataset preprocessing
+- More complex controller logic
 
 ---
 
 ## 5. Implementation Roadmap
 
-### Phase 1: Foundation (MVP)
-1. Implement `FlexibleArrayStorage`
-2. Extend `HeaderManager` to per-processing headers
-3. Update `LayoutTransformer` for mixed dimensions
-4. Add backward-compatible `FeatureSource` with auto-upgrade
+### Phase 1: Core Padding Support
+1. Update `ArrayStorage._prepare_data_for_storage()` to pad on processing updates
+2. Add `_expand_features()` method for when new data is larger
+3. Add `pad_position` configuration parameter
+4. Update `UpdateStrategy.should_resize_features()` for mixed dimensions
+5. Add unit tests for padding scenarios
 
-### Phase 2: Controller Integration
-1. Update `TransformerMixinController` for variable selectors
-2. Add `get_support()` detection
-3. Implement header derivation for selected features
-4. Add padding mask support for 3D layouts
+**Effort**: Medium
+**Result**: Feature augmentation with mixed dimensions works
 
-### Phase 3: Variable Selection Operators
-1. Create `nirs4all/operators/transforms/feature_selection.py`
-2. Wrap `auswahl` selectors (VIP, MCUVE, CARS, SPA)
-3. Add unit tests
+### Phase 2: Variable Selection Operators
+1. Create wrapper operators for `auswahl` (VIP, MCUVE, CARS, SPA)
+2. Add to `nirs4all/operators/transforms/feature_selection.py`
+3. Update `__init__.py` exports
 4. Add to Q19 example
 
-### Phase 4: Testing & Documentation
-1. Comprehensive unit tests for flexible storage
-2. Integration tests with variable selection in pipelines
-3. Update documentation
-4. Add examples showing variable selection usage
+**Effort**: Low
+**Result**: Working variable selection in pipelines
+
+### Phase 3: Enhanced Features (Optional)
+1. Track actual feature counts per processing
+2. Add 2D trimming option
+3. Per-processing header tracking
+4. Visualization support for selected wavelengths
+
+**Effort**: Medium
+**Result**: Better memory efficiency and interpretability
 
 ---
 
 ## 6. Open Questions
 
-1. **Padding strategy for DL**: Should padding be at start, end, or center? Should it use zeros or other values (mean, edge)?
+1. **Default padding position**: Left (values at start) seems most intuitive for spectral data. Confirm?
 
-2. **Header preservation**: When variable selection is applied, should we keep original headers as metadata for visualization/interpretation?
+2. **Header handling for padded processings**: Should headers reflect padded size or actual size?
 
-3. **Processing chain**: Should variable selection outputs be treated as derived processings (can be replaced) or final outputs?
+3. **Sparsity masks**: For DL models, should we provide a mask indicating valid vs padded values?
 
-4. **Multi-source variable selection**: If selecting features from multiple sources, should selections be synchronized or independent?
-
-5. **Serialization**: How to serialize flexible storage with per-processing dimensions efficiently?
+4. **Memory optimization**: Is 2D trimming worth the complexity?
 
 ---
 
 ## 7. Conclusion
 
-The nirs4all feature management system is well-architected but constrained by the uniform feature dimension assumption. Variable selection methods violate this constraint.
+The recommended **"Resize or Pad"** strategy is:
+- **Simple**: Minimal changes to existing architecture
+- **Pragmatic**: Uses padding which ML/DL models handle well
+- **Backward compatible**: Existing pipelines unchanged
+- **Extensible**: Can add trimming/masks later if needed
 
-**Recommended approach**: Implement `FlexibleArrayStorage` with per-processing dimensions, supporting:
-- Per-processing headers derived from selections
-- Automatic padding for 3D DL layouts with mask support
-- Concatenation for 2D ML layouts
-- Backward compatibility for uniform dimensions
-
-This approach provides the most flexibility while maintaining the existing API and supporting both ML (2D) and DL (3D) layouts.
+Implementation requires modifying `ArrayStorage` and `UpdateStrategy` - no new classes needed.

@@ -44,6 +44,7 @@ from nirs4all.operators.models.sklearn.ipls import IntervalPLS
 from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
 from nirs4all.operators.models.sklearn.recursive_pls import RecursivePLS
 from nirs4all.operators.models.sklearn.kopls import KOPLS
+from nirs4all.operators.models.sklearn.nlpls import KernelPLS
 
 # Check if JAX is available for GPU-accelerated models
 try:
@@ -63,7 +64,7 @@ except ImportError:
 ###############
 
 print("=" * 60)
-print("REGRESSION TEST - PLSRegression + IKPLS + OPLS + MBPLS + SparsePLS + LWPLS + SIMPLS + IntervalPLS + RobustPLS + RecursivePLS + KOPLS")
+print("REGRESSION TEST - PLSRegression + IKPLS + OPLS + MBPLS + SparsePLS + LWPLS + SIMPLS + IntervalPLS + RobustPLS + RecursivePLS + KOPLS + KernelPLS")
 print("=" * 60)
 
 # Build regression pipeline
@@ -114,6 +115,11 @@ regression_models = [
     KOPLS(n_components=5, n_ortho_components=2, kernel='rbf', backend='numpy'),
     KOPLS(n_components=5, n_ortho_components=1, kernel='poly', degree=2, backend='numpy'),
 
+    # Tier 6: KernelPLS (Nonlinear PLS using kernel methods - NL-PLS)
+    KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='numpy'),
+    KernelPLS(n_components=5, kernel='rbf', gamma=1.0, backend='numpy'),
+    KernelPLS(n_components=5, kernel='linear', backend='numpy'),
+
     # Tier 3: LWPLS (Locally-Weighted PLS - local models for nonlinearity) # COMMENTED because very slow
     # LWPLS(n_components=5, lambda_in_similarity=0.5, backend='numpy'),
     # LWPLS(n_components=10, lambda_in_similarity=1.0, backend='numpy'),
@@ -158,6 +164,11 @@ if JAX_AVAILABLE:
         {"model": KOPLS(n_components=5, n_ortho_components=1, kernel='linear', backend='jax'), "name": "KOPLS_JAX_linear"},
         {"model": KOPLS(n_components=5, n_ortho_components=2, kernel='rbf', backend='jax'), "name": "KOPLS_JAX_rbf"},
         {"model": KOPLS(n_components=5, n_ortho_components=1, kernel='poly', degree=2, backend='jax'), "name": "KOPLS_JAX_poly"},
+
+        # KernelPLS with JAX backend (Nonlinear PLS / NL-PLS)
+        {"model": KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='jax'), "name": "KernelPLS_JAX_rbf_g01"},
+        {"model": KernelPLS(n_components=5, kernel='rbf', gamma=1.0, backend='jax'), "name": "KernelPLS_JAX_rbf_g10"},
+        {"model": KernelPLS(n_components=5, kernel='linear', backend='jax'), "name": "KernelPLS_JAX_linear"},
 
         # LWPLS with JAX backend
         {"model": LWPLS(n_components=5, lambda_in_similarity=0.5, backend='jax'), "name": "LWPLS_JAX_5"},

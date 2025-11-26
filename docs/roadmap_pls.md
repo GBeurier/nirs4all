@@ -754,6 +754,101 @@ optimal for all datasets - grid search or cross-validation is recommended.
 
 ---
 
+### Story 6.2: KernelPLS / NL-PLS (Nonlinear PLS via Kernel Methods)
+
+**Priority:** P3 - Specialized
+**Status:** ✅ Implemented
+**Difficulty:** Medium
+
+**Description:**
+Kernel PLS (also known as NL-PLS) maps the input data X into a higher-dimensional feature
+space using a kernel function (RBF, polynomial, sigmoid) and then fits a PLS model on the
+kernel matrix K(X, X). This allows capturing nonlinear relationships between X and Y
+while retaining the interpretability of PLS.
+
+**Algorithm:**
+1. Compute kernel matrix K = kernel(X_train, X_train)
+2. Center the kernel matrix
+3. Fit SIMPLS-style PLS on K with target Y
+4. For prediction: K_test = kernel(X_test, X_train), center, predict
+
+This is the simple and effective approach described in the user-provided code snippet:
+```python
+def npls(X_train, y_train, X_test, n_components=2, gamma=1.0):
+    K_train = rbf_kernel(X_train, gamma=gamma)
+    K_test = rbf_kernel(X_test, X_train, gamma=gamma)
+    pls = PLSRegression(n_components=n_components)
+    pls.fit(K_train, y_train)
+    y_pred = pls.predict(K_test)
+    return y_pred.ravel()
+```
+
+**Dependency:** None (pure Python/NumPy, optional JAX for GPU)
+
+**Operator:** `nirs4all/operators/models/sklearn/nlpls.py`
+
+```python
+from nirs4all.operators.models import KernelPLS
+
+# RBF kernel (default) - NumPy backend
+model_rbf = KernelPLS(n_components=10, kernel='rbf', gamma=0.1)
+model_rbf.fit(X, y)
+y_pred = model_rbf.predict(X_val)
+
+# Polynomial kernel
+model_poly = KernelPLS(n_components=10, kernel='poly', degree=3, gamma=0.1)
+model_poly.fit(X, y)
+
+# Sigmoid kernel
+model_sigmoid = KernelPLS(n_components=10, kernel='sigmoid', gamma=0.01)
+model_sigmoid.fit(X, y)
+
+# Linear kernel (equivalent to standard PLS)
+model_linear = KernelPLS(n_components=10, kernel='linear')
+model_linear.fit(X, y)
+
+# Transform to kernel PLS score space
+T = model_rbf.transform(X)
+
+# JAX backend for GPU acceleration
+model_jax = KernelPLS(n_components=10, kernel='rbf', gamma=0.1, backend='jax')
+model_jax.fit(X, y)
+```
+
+**Key Features:**
+- sklearn-compatible API (fit/predict/transform/get_params/set_params)
+- Multiple kernel functions: rbf, poly, sigmoid, linear
+- Automatic kernel parameter defaults (gamma = 1/n_features)
+- Optional kernel centering and Y scaling
+- NumPy and JAX backends for CPU/GPU acceleration
+- Exposes x_scores_, y_scores_, coef_ for interpretability
+
+**Aliases:**
+- `KernelPLS` - Main class name
+- `NLPLS` - Alias for Nonlinear PLS
+- `KPLS` - Alias for Kernel PLS
+
+**Tasks:**
+- [x] Implement Kernel PLS algorithm with SIMPLS on kernel matrix
+- [x] Create sklearn-compatible class with NumPy backend
+- [x] Add JAX backend with JIT compilation
+- [x] Support rbf, poly, sigmoid, and linear kernels
+- [x] Add kernel centering for training and prediction
+- [x] Add comprehensive unit tests
+- [x] Add to Q19_pls_test.py example
+- [x] Export from operators/models/__init__.py
+
+**Test:** `examples/Q19_pls_test.py` and `tests/unit/operators/models/test_sklearn_pls.py::TestKernelPLS`
+
+**Note:** The gamma parameter significantly affects performance. For NIRS data, start with
+small gamma values (0.01-0.1) for RBF kernel. Cross-validation is recommended for tuning.
+
+**Reference:**
+- Rosipal & Trejo (2001) - "Kernel partial least squares regression in RKHS"
+- Zheng et al. (2024) - "A non-linear PLS based on monotonic inner relation" (MIR-PLS variant)
+
+---
+
 ## Summary: Integration Priority
 
 | Priority | Story | Method | Difficulty | Package |
@@ -772,6 +867,7 @@ optimal for all datasets - grid search or cross-validation is recommended.
 | P3 | 5.3 | Robust PLS | ✅ Implemented | Custom |
 | P3 | 5.4 | Recursive PLS | ✅ Implemented | Custom |
 | P4 | 6.1 | K-OPLS | ✅ Implemented | Custom |
+| P3 | 6.2 | KernelPLS / NL-PLS | ✅ Implemented | Custom |
 
 ---
 
