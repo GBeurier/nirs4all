@@ -11,6 +11,8 @@ from .sklearn.pls import PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SI
 from .sklearn.lwpls import LWPLS
 from .sklearn.ipls import IntervalPLS
 from .sklearn.robust_pls import RobustPLS
+from .sklearn.recursive_pls import RecursivePLS
+from .sklearn.kopls import KOPLS
 
 # Import TensorFlow models
 from .tensorflow.nicon import *
@@ -33,4 +35,6 @@ __all__ = [
     "SIMPLS",
     "IntervalPLS",
     "RobustPLS",
+    "RecursivePLS",
+    "KOPLS",
 ]
