@@ -42,6 +42,7 @@ $examples = @(
     "Q15_jax_models.py",
     "Q16_pytorch_models.py",
     "Q17_nicon_comparison.py",
+    "Q19_pls_methods.py",
     "X1_metadata.py",
     "X2_sample_augmentation.py",
     "X4_features.py"

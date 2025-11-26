@@ -27,7 +27,7 @@ from nirs4all.data.ensemble_utils import EnsembleUtils
 from nirs4all.core.task_type import TaskType
 from .utilities import ModelControllerUtils as ModelUtils
 from nirs4all.core import metrics as evaluator
-from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING
+from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING, TARGET
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
 from .components import (
     ModelIdentifierGenerator,
@@ -741,7 +741,7 @@ class BaseModelController(OperatorController, ABC):
                     dataset.task_type,
                     partition=partition,
                     model_name=identifiers.name,
-                    show_detailed_scores=(partition == 'test') # Only show detailed scores for test
+                    show_detailed_scores=False  # (partition == 'test') # Only show detailed scores for test
                 )
             else:
                 full_scores[partition] = {}

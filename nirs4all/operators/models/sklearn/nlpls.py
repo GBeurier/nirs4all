@@ -623,13 +623,19 @@ class KernelPLS(BaseEstimator, RegressorMixin):
     ----------
     n_components : int, default=10
         Number of PLS components to extract.
-    kernel : {'rbf', 'linear'}, default='rbf'
+    kernel : {'rbf', 'linear', 'poly', 'sigmoid'}, default='rbf'
         Kernel function to use:
         - 'rbf': Radial basis function K(x,y) = exp(-gamma ||x-y||^2)
         - 'linear': Linear kernel K(x,y) = x^T y (equivalent to standard PLS)
+        - 'poly': Polynomial kernel K(x,y) = (gamma * x^T y + coef0)^degree
+        - 'sigmoid': Sigmoid kernel K(x,y) = tanh(gamma * x^T y + coef0)
     gamma : float, optional
-        Kernel coefficient for 'rbf' kernel.
+        Kernel coefficient for 'rbf', 'poly', and 'sigmoid' kernels.
         If None, defaults to 1/n_features.
+    degree : int, default=3
+        Degree for polynomial kernel.
+    coef0 : float, default=1.0
+        Independent term in polynomial and sigmoid kernels.
     center_kernel : bool, default=True
         Whether to center the kernel matrix. Recommended for most cases.
     scale_y : bool, default=True
@@ -703,8 +709,10 @@ class KernelPLS(BaseEstimator, RegressorMixin):
     def __init__(
         self,
         n_components: int = 10,
-        kernel: Literal['rbf', 'linear'] = 'rbf',
+        kernel: Literal['rbf', 'linear', 'poly', 'sigmoid'] = 'rbf',
         gamma: float | None = None,
+        degree: int = 3,
+        coef0: float = 1.0,
         center_kernel: bool = True,
         scale_y: bool = True,
         backend: str = 'numpy',
@@ -713,6 +721,8 @@ class KernelPLS(BaseEstimator, RegressorMixin):
         self.n_components = n_components
         self.kernel = kernel
         self.gamma = gamma
+        self.degree = degree
+        self.coef0 = coef0
         self.center_kernel = center_kernel
         self.scale_y = scale_y
         self.backend = backend
@@ -752,6 +762,10 @@ class KernelPLS(BaseEstimator, RegressorMixin):
                 K = jax_funcs['linear_kernel'](X_jax, Y_jax)
             elif self.kernel == 'rbf':
                 K = jax_funcs['rbf_kernel'](X_jax, Y_jax, gamma)
+            elif self.kernel == 'poly':
+                K = jax_funcs['poly_kernel'](X_jax, Y_jax, self.degree, gamma, self.coef0)
+            elif self.kernel == 'sigmoid':
+                K = jax_funcs['sigmoid_kernel'](X_jax, Y_jax, gamma, self.coef0)
             else:
                 raise ValueError(f"Unknown kernel '{self.kernel}'")
 
@@ -761,6 +775,10 @@ class KernelPLS(BaseEstimator, RegressorMixin):
                 return _linear_kernel(X, Y)
             elif self.kernel == 'rbf':
                 return _rbf_kernel(X, Y, gamma)
+            elif self.kernel == 'poly':
+                return _polynomial_kernel(X, Y, self.degree, gamma, self.coef0)
+            elif self.kernel == 'sigmoid':
+                return _sigmoid_kernel(X, Y, gamma, self.coef0)
             else:
                 raise ValueError(f"Unknown kernel '{self.kernel}'")
 
@@ -797,9 +815,9 @@ class KernelPLS(BaseEstimator, RegressorMixin):
                 f"backend must be 'numpy' or 'jax', got '{self.backend}'"
             )
 
-        if self.kernel not in ('rbf', 'linear'):
+        if self.kernel not in ('rbf', 'linear', 'poly', 'sigmoid'):
             raise ValueError(
-                f"kernel must be 'rbf' or 'linear', got '{self.kernel}'"
+                f"kernel must be 'rbf', 'linear', 'poly', or 'sigmoid', got '{self.kernel}'"
             )
 
         if self.backend == 'jax' and not _check_jax_available():
@@ -1016,6 +1034,8 @@ class KernelPLS(BaseEstimator, RegressorMixin):
             'n_components': self.n_components,
             'kernel': self.kernel,
             'gamma': self.gamma,
+            'degree': self.degree,
+            'coef0': self.coef0,
             'center_kernel': self.center_kernel,
             'scale_y': self.scale_y,
             'backend': self.backend,
@@ -1043,6 +1063,7 @@ class KernelPLS(BaseEstimator, RegressorMixin):
         return (
             f"KernelPLS(n_components={self.n_components}, "
             f"kernel='{self.kernel}', gamma={self.gamma}, "
+            f"degree={self.degree}, coef0={self.coef0}, "
             f"center_kernel={self.center_kernel}, "
             f"scale_y={self.scale_y}, "
             f"backend='{self.backend}')"
