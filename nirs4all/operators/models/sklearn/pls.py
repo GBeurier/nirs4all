@@ -22,6 +22,8 @@ DiPLS
     Dynamic PLS for time-lagged process data.
 SparsePLS
     Sparse PLS with L1 regularization for variable selection.
+SIMPLS
+    SIMPLS algorithm for PLS regression (de Jong 1993).
 """
 
 # Import all model classes from their new modules for backward compatibility
@@ -32,6 +34,7 @@ from .oplsda import OPLSDA
 from .mbpls import MBPLS
 from .diplS import DiPLS
 from .sparsepls import SparsePLS
+from .simpls import SIMPLS
 
 __all__ = [
     "PLSDA",
@@ -41,4 +44,5 @@ __all__ = [
     "MBPLS",
     "DiPLS",
     "SparsePLS",
+    "SIMPLS",
 ]
