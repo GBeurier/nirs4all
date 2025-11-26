@@ -52,10 +52,14 @@ def _lwpls_predict(
     max_component_number: int,
     lambda_in_similarity: float,
 ) -> NDArray[np.floating]:
-    """Core LWPLS prediction algorithm.
+    """Core LWPLS prediction algorithm (memory-optimized).
 
     Builds a locally-weighted PLS model for each test sample using
     Gaussian kernel weights based on Euclidean distance.
+
+    This implementation avoids creating O(n²) diagonal matrices by using
+    element-wise weighted operations instead of matrix multiplications
+    with diagonal similarity matrices.
 
     Parameters
     ----------
@@ -85,6 +89,11 @@ def _lwpls_predict(
     3. Compute weighted mean of X and Y
     4. Build weighted PLS components iteratively
     5. Predict Y by accumulating component contributions
+
+    Memory optimization: Instead of creating (n_train, n_train) diagonal
+    matrices for weighted operations, we use element-wise multiplication:
+    - X.T @ diag(w) @ y  →  X.T @ (w[:, None] * y)  [O(n*p) vs O(n²)]
+    - t.T @ diag(w) @ t  →  sum(w * t²)  [O(n) vs O(n²)]
     """
     x_train = np.asarray(x_train, dtype=np.float64)
     y_train = np.asarray(y_train, dtype=np.float64)
@@ -98,6 +107,7 @@ def _lwpls_predict(
     estimated_y_test = np.zeros((n_test, max_component_number))
 
     # Precompute distance matrix for efficiency
+    # Shape: (n_train, n_test) - acceptable memory usage
     distance_matrix = cdist(x_train, x_test, metric='euclidean')
 
     for test_idx in range(n_test):
@@ -107,64 +117,64 @@ def _lwpls_predict(
         distance = distance_matrix[:, test_idx]
         distance_std = distance.std(ddof=1) if distance.std(ddof=1) > 0 else 1.0
 
-        # Gaussian kernel weights
-        similarity_weights = np.exp(-distance / distance_std / lambda_in_similarity)
-        similarity = np.diag(similarity_weights)
-        similarity_sum = similarity_weights.sum()
+        # Gaussian kernel weights - 1D array, NOT a diagonal matrix
+        w = np.exp(-distance / distance_std / lambda_in_similarity)
+        w_sum = w.sum()
 
-        if similarity_sum < 1e-10:
+        if w_sum < 1e-10:
             # All samples too far away; use uniform weights
-            similarity_weights = np.ones(n_train) / n_train
-            similarity = np.diag(similarity_weights)
-            similarity_sum = 1.0
+            w = np.ones(n_train) / n_train
+            w_sum = 1.0
 
-        # Weighted means - use diagonal of similarity matrix
-        similarity_diag = np.diag(similarity)  # Extract diagonal as 1D array
-        y_w = (y_train.T @ similarity_diag / similarity_sum).reshape(1, 1)
-        x_w = (x_train.T @ similarity_diag / similarity_sum).reshape(1, n_features)
+        # Weighted means using element-wise operations (O(n) not O(n²))
+        y_w = np.dot(w, y_train[:, 0]) / w_sum
+        x_w = (w @ x_train) / w_sum  # shape: (n_features,)
 
         # Center data
-        centered_y = y_train - y_w
-        centered_x = x_train - np.ones((n_train, 1)) @ x_w
-        centered_query_x_test = query_x_test - x_w
+        centered_y = y_train[:, 0] - y_w  # 1D array (n_train,)
+        centered_x = x_train - x_w  # shape: (n_train, n_features)
+        centered_query = query_x_test[0] - x_w  # 1D array (n_features,)
 
         # Initialize prediction with weighted mean
-        estimated_y_test[test_idx, :] += y_w.ravel()[0]
+        estimated_y_test[test_idx, :] = y_w
 
         # Build PLS components
         for comp_num in range(max_component_number):
-            # Weighted loading direction
-            numerator = centered_x.T @ similarity @ centered_y
+            # Weighted loading direction: X.T @ diag(w) @ y = X.T @ (w * y)
+            # Equivalent to sum of (x_i * w_i * y_i) for each feature
+            numerator = centered_x.T @ (w * centered_y)  # O(n*p)
             norm_val = np.linalg.norm(numerator)
 
             if norm_val < 1e-10:
                 # Degenerate case - no more variance to explain
                 break
 
-            w_a = numerator / norm_val
+            w_a = numerator / norm_val  # Loading weight vector
 
-            # Scores
-            t_a = centered_x @ w_a
+            # Scores: t = X @ w_a
+            t_a = centered_x @ w_a  # shape: (n_train,)
 
-            # Loadings
-            denom = t_a.T @ similarity @ t_a
+            # Weighted denominator: t.T @ diag(w) @ t = sum(w * t²)
+            denom = np.dot(w * t_a, t_a)  # O(n)
             if denom < 1e-10:
                 break
 
-            p_a = (centered_x.T @ similarity @ t_a) / denom
-            q_a = (centered_y.T @ similarity @ t_a) / denom
+            # Loadings: p = (X.T @ diag(w) @ t) / denom
+            p_a = (centered_x.T @ (w * t_a)) / denom  # O(n*p)
+            # q = (y.T @ diag(w) @ t) / denom
+            q_a = np.dot(w * centered_y, t_a) / denom  # O(n)
 
             # Query score
-            t_q_a = centered_query_x_test @ w_a
+            t_q_a = np.dot(centered_query, w_a)  # scalar
 
             # Accumulate prediction for this and all subsequent components
-            estimated_y_test[test_idx, comp_num:] += (t_q_a * q_a).ravel()[0]
+            estimated_y_test[test_idx, comp_num:] += t_q_a * q_a
 
             # Deflate for next component
             if comp_num < max_component_number - 1:
-                centered_x = centered_x - t_a @ p_a.T
-                centered_y = centered_y - t_a * q_a
-                centered_query_x_test = centered_query_x_test - t_q_a @ p_a.T
+                centered_x = centered_x - np.outer(t_a, p_a)  # O(n*p)
+                centered_y = centered_y - t_a * q_a  # O(n)
+                centered_query = centered_query - t_q_a * p_a  # O(p)
 
     return estimated_y_test
 
@@ -182,7 +192,7 @@ def _get_jax_lwpls_functions():
     Returns
     -------
     lwpls_predict_jax : callable
-        JAX-accelerated LWPLS prediction function.
+        JAX-accelerated LWPLS prediction function with batching support.
     """
     import jax
     import jax.numpy as jnp
@@ -323,14 +333,46 @@ def _get_jax_lwpls_functions():
     )
 
     @partial(jax.jit, static_argnums=(3,))
-    def lwpls_predict_jax(
+    def _lwpls_predict_batch_jit(
         x_train: jax.Array,
         y_train: jax.Array,
         x_test: jax.Array,
         max_components: int,
         lambda_sim: float,
     ) -> jax.Array:
-        """JIT-compiled LWPLS prediction for batch of test samples.
+        """JIT-compiled LWPLS prediction for a batch of test samples.
+
+        Parameters
+        ----------
+        x_train : jax.Array of shape (n_train, n_features)
+            Training X data.
+        y_train : jax.Array of shape (n_train, 1)
+            Training y data.
+        x_test : jax.Array of shape (batch_size, n_features)
+            Batch of test samples.
+        max_components : int
+            Maximum number of PLS components.
+        lambda_sim : float
+            Kernel width parameter.
+
+        Returns
+        -------
+        predictions : jax.Array of shape (batch_size, max_components)
+            Predictions for each test sample in the batch.
+        """
+        return _lwpls_batch(x_train, y_train, x_test, max_components, lambda_sim)
+
+    def lwpls_predict_jax(
+        x_train: jax.Array,
+        y_train: jax.Array,
+        x_test: jax.Array,
+        max_components: int,
+        lambda_sim: float,
+        batch_size: int = 64,
+    ) -> jax.Array:
+        """Batched LWPLS prediction to control memory usage.
+
+        Processes test samples in batches to avoid OOM on large datasets.
 
         Parameters
         ----------
@@ -344,13 +386,33 @@ def _get_jax_lwpls_functions():
             Maximum number of PLS components.
         lambda_sim : float
             Kernel width parameter.
+        batch_size : int, default=64
+            Number of test samples to process at once.
 
         Returns
         -------
         predictions : jax.Array of shape (n_test, max_components)
             Predictions for each test sample and number of components.
         """
-        return _lwpls_batch(x_train, y_train, x_test, max_components, lambda_sim)
+        n_test = x_test.shape[0]
+
+        if n_test <= batch_size:
+            # Small enough to process in one go
+            return _lwpls_predict_batch_jit(
+                x_train, y_train, x_test, max_components, lambda_sim
+            )
+
+        # Process in batches to control memory
+        results = []
+        for start_idx in range(0, n_test, batch_size):
+            end_idx = min(start_idx + batch_size, n_test)
+            batch = x_test[start_idx:end_idx]
+            batch_pred = _lwpls_predict_batch_jit(
+                x_train, y_train, batch, max_components, lambda_sim
+            )
+            results.append(batch_pred)
+
+        return jnp.concatenate(results, axis=0)
 
     return lwpls_predict_jax
 
@@ -365,10 +427,12 @@ def _lwpls_predict_jax(
     x_test: NDArray[np.floating],
     max_component_number: int,
     lambda_in_similarity: float,
+    batch_size: int = 64,
 ) -> NDArray[np.floating]:
-    """JAX-accelerated LWPLS prediction.
+    """JAX-accelerated LWPLS prediction with batching.
 
     Same interface as _lwpls_predict but uses JAX for GPU/TPU acceleration.
+    Processes test samples in batches to avoid OOM on large datasets.
 
     Parameters
     ----------
@@ -382,6 +446,9 @@ def _lwpls_predict_jax(
         Maximum number of PLS components to extract.
     lambda_in_similarity : float
         Parameter controlling the kernel width.
+    batch_size : int, default=64
+        Number of test samples to process per batch.
+        Reduce this if running out of memory.
 
     Returns
     -------
@@ -402,13 +469,14 @@ def _lwpls_predict_jax(
         y_train_jax = y_train_jax.reshape(-1, 1)
     x_test_jax = jnp.asarray(x_test, dtype=jnp.float64)
 
-    # Run JAX prediction
+    # Run JAX prediction with batching
     predictions_jax = _JAX_LWPLS_FUNC(
         x_train_jax,
         y_train_jax,
         x_test_jax,
         max_component_number,
         lambda_in_similarity,
+        batch_size,
     )
 
     # Convert back to NumPy
@@ -446,6 +514,10 @@ class LWPLS(BaseEstimator, RegressorMixin):
         - 'jax': JAX backend (supports GPU/TPU acceleration).
         JAX backend requires JAX to be installed: ``pip install jax``
         For GPU support: ``pip install jax[cuda12]``
+    batch_size : int, default=64
+        Number of test samples to process per batch (JAX backend only).
+        Reduce this if running out of GPU memory on large datasets.
+        Ignored for NumPy backend.
 
     Attributes
     ----------
@@ -518,6 +590,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
         lambda_in_similarity: float = 1.0,
         scale: bool = True,
         backend: str = 'numpy',
+        batch_size: int = 64,
     ):
         """Initialize LWPLS regressor.
 
@@ -531,11 +604,14 @@ class LWPLS(BaseEstimator, RegressorMixin):
             Whether to standardize X and y.
         backend : str, default='numpy'
             Computational backend ('numpy' or 'jax').
+        batch_size : int, default=64
+            Batch size for JAX backend to control memory usage.
         """
         self.n_components = n_components
         self.lambda_in_similarity = lambda_in_similarity
         self.scale = scale
         self.backend = backend
+        self.batch_size = batch_size
 
     def fit(
         self,
@@ -650,6 +726,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
                 X_scaled,
                 n_components,
                 self.lambda_in_similarity,
+                self.batch_size,
             )
         else:
             all_predictions = _lwpls_predict(
@@ -710,6 +787,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
                 X_scaled,
                 self.n_components_,
                 self.lambda_in_similarity,
+                self.batch_size,
             )
         else:
             all_predictions = _lwpls_predict(
@@ -752,6 +830,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
             'lambda_in_similarity': self.lambda_in_similarity,
             'scale': self.scale,
             'backend': self.backend,
+            'batch_size': self.batch_size,
         }
 
     def set_params(self, **params) -> "LWPLS":
@@ -776,5 +855,6 @@ class LWPLS(BaseEstimator, RegressorMixin):
         return (
             f"LWPLS(n_components={self.n_components}, "
             f"lambda_in_similarity={self.lambda_in_similarity}, "
-            f"scale={self.scale}, backend='{self.backend}')"
+            f"scale={self.scale}, backend='{self.backend}', "
+            f"batch_size={self.batch_size})"
         )
