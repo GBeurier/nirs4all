@@ -7,12 +7,7 @@ This module contains model definitions and references organized by framework.
 from .base import BaseModelOperator
 
 # Import sklearn models
-from .sklearn.pls import PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS
-from .sklearn.lwpls import LWPLS
-from .sklearn.ipls import IntervalPLS
-from .sklearn.robust_pls import RobustPLS
-from .sklearn.recursive_pls import RecursivePLS
-from .sklearn.kopls import KOPLS
+from .sklearn import PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS, LWPLS, IntervalPLS, RobustPLS, RecursivePLS, KOPLS
 from .sklearn.nlpls import KernelPLS, NLPLS, KPLS
 from .sklearn.oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
 from .sklearn.fckpls import FCKPLS, FractionalPLS, FractionalConvFeaturizer

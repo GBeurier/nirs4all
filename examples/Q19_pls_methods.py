@@ -36,7 +36,7 @@ from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization.predictions import PredictionAnalyzer
 
 # PLS operators
-from nirs4all.operators.models.sklearn.pls import (
+from nirs4all.operators.models.sklearn import (
     PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS
 )
 from nirs4all.operators.models.sklearn.lwpls import LWPLS
@@ -218,8 +218,8 @@ regression_config = PipelineConfigs(regression_pipeline, "Q19_regression")
 runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
 reg_predictions, _ = runner.run(regression_config, regression_dataset)
 
-print("\nTop 5 regression models:")
-for idx, pred in enumerate(reg_predictions.top(5, 'rmse')):
+print("\nTop 50 regression models:")
+for idx, pred in enumerate(reg_predictions.top(50, 'rmse', rank_partition='test')):
     print(f"{idx+1}. {Predictions.pred_short_string(pred, metrics=['rmse', 'r2'])}")
 
 
@@ -227,79 +227,79 @@ for idx, pred in enumerate(reg_predictions.top(5, 'rmse')):
 ### CLASSIFICATION PIPELINE ##
 ###############
 
-# print("\n" + "=" * 60)
-# print("CLASSIFICATION TEST - PLSDA + OPLSDA")
-# print("=" * 60)
+print("\n" + "=" * 60)
+print("CLASSIFICATION TEST - PLSDA + OPLSDA")
+print("=" * 60)
 
-# classification_pipeline = [
-#     StandardScaler(),
-#     {"feature_augmentation": [FirstDerivative, StandardNormalVariate]},
-#     ShuffleSplit(n_splits=3, test_size=0.25),
+classification_pipeline = [
+    StandardScaler(),
+    {"feature_augmentation": [FirstDerivative, StandardNormalVariate]},
+    ShuffleSplit(n_splits=3, test_size=0.25),
 
-#     # Tier 1: PLSDA (PLS Discriminant Analysis)
-#     PLSDA(n_components=5),
-#     PLSDA(n_components=10),
+    # Tier 1: PLSDA (PLS Discriminant Analysis)
+    PLSDA(n_components=5),
+    PLSDA(n_components=10),
 
-#     # Tier 2: OPLSDA (Orthogonal PLS-DA)
-#     OPLSDA(n_components=1, pls_components=5),
-#     OPLSDA(n_components=2, pls_components=5),
-# ]
-
-
-# ###############
-# ### CLASSIFICATION DATA ######
-# ###############
-
-# classification_data = {
-#     'folder': 'sample_data/binary/',
-#     'params': {
-#         'has_header': False,
-#         'delimiter': ';',
-#         'decimal_separator': '.'
-#     }
-# }
-# classification_dataset = DatasetConfigs([classification_data])
+    # Tier 2: OPLSDA (Orthogonal PLS-DA)
+    OPLSDA(n_components=1, pls_components=5),
+    OPLSDA(n_components=2, pls_components=5),
+]
 
 
-# ###############
-# ### CLASSIFICATION RUN #######
-# ###############
+###############
+### CLASSIFICATION DATA ######
+###############
 
-# classification_config = PipelineConfigs(classification_pipeline, "Q19_classification")
-# runner_cls = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
-# cls_predictions, _ = runner_cls.run(classification_config, classification_dataset)
-
-# print("\nTop 5 classification models:")
-# for idx, pred in enumerate(cls_predictions.top(5, 'accuracy')):
-#     print(f"{idx+1}. {Predictions.pred_short_string(pred, metrics=['accuracy', 'balanced_accuracy'])}")
-
-
-# ###############
-# ### SUMMARY ###
-# ###############
-
-# print("\n" + "=" * 60)
-# print("SUMMARY")
-# print("=" * 60)
-# print(f"Regression models evaluated:     {len(reg_predictions)}")
-# print(f"Classification models evaluated: {len(cls_predictions)}")
+classification_data = {
+    'folder': 'sample_data/binary/',
+    'params': {
+        'has_header': False,
+        'delimiter': ';',
+        'decimal_separator': '.'
+    }
+}
+classification_dataset = DatasetConfigs([classification_data])
 
 
-# ###############
-# ### VISUALIZATION ###
-# ###############
+###############
+### CLASSIFICATION RUN #######
+###############
 
-# if args.show:
-#     print("\nGenerating plots...")
+classification_config = PipelineConfigs(classification_pipeline, "Q19_classification")
+runner_cls = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+cls_predictions, _ = runner_cls.run(classification_config, classification_dataset)
 
-#     # Regression plots
-#     reg_analyzer = PredictionAnalyzer(reg_predictions)
-#     reg_analyzer.plot_top_k(k=3, rank_metric='rmse')
-#     reg_analyzer.plot_candlestick(variable="model_name")
+print("\nTop 5 classification models:")
+for idx, pred in enumerate(cls_predictions.top(5, 'accuracy')):
+    print(f"{idx+1}. {Predictions.pred_short_string(pred, metrics=['accuracy', 'balanced_accuracy'])}")
 
-#     # Classification plots
-#     cls_analyzer = PredictionAnalyzer(cls_predictions)
-#     cls_analyzer.plot_top_k(k=3, rank_metric='accuracy')
-#     cls_analyzer.plot_candlestick(variable="model_name", display_metric='accuracy')
 
-#     plt.show()
+###############
+### SUMMARY ###
+###############
+
+print("\n" + "=" * 60)
+print("SUMMARY")
+print("=" * 60)
+print(f"Regression models evaluated:     {len(reg_predictions)}")
+print(f"Classification models evaluated: {len(cls_predictions)}")
+
+
+###############
+### VISUALIZATION ###
+###############
+
+if args.show:
+    print("\nGenerating plots...")
+
+    # Regression plots
+    reg_analyzer = PredictionAnalyzer(reg_predictions)
+    reg_analyzer.plot_top_k(k=3, rank_metric='rmse')
+    reg_analyzer.plot_candlestick(variable="model_name")
+
+    # Classification plots
+    cls_analyzer = PredictionAnalyzer(cls_predictions)
+    cls_analyzer.plot_top_k(k=3, rank_metric='accuracy')
+    cls_analyzer.plot_candlestick(variable="model_name", display_metric='accuracy')
+
+    plt.show()

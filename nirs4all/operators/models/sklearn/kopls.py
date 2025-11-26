@@ -742,8 +742,10 @@ class KOPLS(BaseEstimator, RegressorMixin):
         self.n_features_in_ = n_features
         self.X_train_ = X.copy()
 
-        # Limit components
-        max_components = min(n_samples - 1, n_targets)
+        # Limit components - n_components should not be limited by n_targets for the API
+        # The internal algorithm limits A = min(n_components, max(n_targets-1, 1))
+        # but externally we store the user's requested value (limited by n_samples)
+        max_components = n_samples - 1
         self.n_components_ = min(self.n_components, max(max_components, 1))
         self.n_ortho_components_ = min(self.n_ortho_components, n_samples - self.n_components_ - 1)
         self.n_ortho_components_ = max(0, self.n_ortho_components_)
@@ -776,6 +778,11 @@ class KOPLS(BaseEstimator, RegressorMixin):
         self.y_scores_ = model['Up']
         self.y_loadings_ = model['Cp']
         self.ortho_scores_ = model['scoresO']
+        # Create ortho_loadings_ from co list (each co[i] is (A, 1) array)
+        if self.n_ortho_components_ > 0 and model['co']:
+            self.ortho_loadings_ = np.hstack(model['co'])  # (A, n_ortho_components)
+        else:
+            self.ortho_loadings_ = None
 
         return self
 

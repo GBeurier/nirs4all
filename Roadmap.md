@@ -1,6 +1,6 @@
 ## ROADMAP
 
-> [PLS] implements all PLS (cf. doc) + LW_PLS_DA ?
+> [PLS] Implement variable selection methods, document
 
 > [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
 
@@ -22,6 +22,7 @@
 >   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
 >   - run count is false at run start
 >   - slow down between models: check dataset copy, ensure cache and reuse.
+>   - remove print scores in base model (bug in predict)
 
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 
