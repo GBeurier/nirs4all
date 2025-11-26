@@ -10,6 +10,8 @@ from nirs4all.operators.models.sklearn.pls import (
 from nirs4all.operators.models.sklearn.lwpls import LWPLS
 from nirs4all.operators.models.sklearn.ipls import IntervalPLS
 from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
+from nirs4all.operators.models.sklearn.recursive_pls import RecursivePLS
+from nirs4all.operators.models.sklearn.kopls import KOPLS
 
 
 class TestPLSDA:
@@ -3257,3 +3259,1273 @@ class TestPLSBackendParity:
 
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
                                    err_msg="RobustPLS multi-target: NumPy and JAX predictions differ")
+
+
+# =============================================================================
+# RecursivePLS Tests
+# =============================================================================
+
+class TestRecursivePLS:
+    """Test suite for RecursivePLS (Recursive PLS) regressor."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def multi_target_data(self):
+        """Generate multi-target regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def streaming_data(self):
+        """Generate data for streaming/online learning tests."""
+        np.random.seed(42)
+        # Initial batch
+        X_init = np.random.randn(50, 20)
+        y_init = X_init[:, :5].sum(axis=1) + 0.1 * np.random.randn(50)
+        # New batches for partial_fit
+        X_new1 = np.random.randn(10, 20)
+        y_new1 = X_new1[:, :5].sum(axis=1) + 0.1 * np.random.randn(10)
+        X_new2 = np.random.randn(15, 20)
+        y_new2 = X_new2[:, :5].sum(axis=1) + 0.1 * np.random.randn(15)
+        return X_init, y_init, X_new1, y_new1, X_new2, y_new2
+
+    def test_init_default(self):
+        """Test RecursivePLS initialization with default parameters."""
+        model = RecursivePLS()
+        assert model.n_components == 10
+        assert model.forgetting_factor == 0.99
+        assert model.scale is True
+        assert model.center is True
+        assert model.backend == 'numpy'
+
+    def test_init_custom_parameters(self):
+        """Test RecursivePLS initialization with custom parameters."""
+        model = RecursivePLS(
+            n_components=15,
+            forgetting_factor=0.95,
+            scale=False,
+            center=False,
+            backend='numpy'
+        )
+        assert model.n_components == 15
+        assert model.forgetting_factor == 0.95
+        assert model.scale is False
+        assert model.center is False
+        assert model.backend == 'numpy'
+
+    def test_fit(self, regression_data):
+        """Test RecursivePLS fit on regression data."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=10)
+
+        result = model.fit(X, y)
+
+        assert result is model  # fit returns self
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'n_components_')
+        assert hasattr(model, 'n_samples_seen_')
+        assert hasattr(model, 'coef_')
+        assert hasattr(model, 'x_weights_')
+        assert hasattr(model, 'x_loadings_')
+        assert hasattr(model, 'y_loadings_')
+        assert hasattr(model, '_Cov_X')
+        assert hasattr(model, '_Cov_XY')
+        assert model.n_features_in_ == 50
+        assert model.n_components_ == 10
+        assert model.n_samples_seen_ == 100
+
+    def test_fit_multi_target(self, multi_target_data):
+        """Test RecursivePLS fit on multi-target regression data."""
+        X, y = multi_target_data
+        model = RecursivePLS(n_components=10)
+
+        model.fit(X, y)
+
+        # coef_ shape is (n_features, n_targets)
+        assert model.coef_.shape == (50, 3)
+        assert model.y_loadings_.shape == (3, 10)
+
+    def test_predict(self, regression_data):
+        """Test RecursivePLS predict on regression data."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=10)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_multi_target(self, multi_target_data):
+        """Test RecursivePLS predict on multi-target regression data."""
+        X, y = multi_target_data
+        model = RecursivePLS(n_components=10)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_partial_fit(self, streaming_data):
+        """Test RecursivePLS partial_fit for online learning."""
+        X_init, y_init, X_new1, y_new1, X_new2, y_new2 = streaming_data
+
+        model = RecursivePLS(n_components=5, forgetting_factor=0.99)
+        model.fit(X_init, y_init)
+
+        initial_samples_seen = model.n_samples_seen_
+        assert initial_samples_seen == 50
+
+        # First partial fit
+        model.partial_fit(X_new1, y_new1)
+        assert model.n_samples_seen_ == 60
+
+        # Second partial fit
+        model.partial_fit(X_new2, y_new2)
+        assert model.n_samples_seen_ == 75
+
+        # Model should still predict correctly
+        predictions = model.predict(X_new2)
+        assert predictions.shape == y_new2.shape
+        assert not np.isnan(predictions).any()
+
+    def test_partial_fit_updates_model(self, streaming_data):
+        """Test that partial_fit actually updates the model."""
+        X_init, y_init, X_new1, y_new1, X_new2, y_new2 = streaming_data
+
+        model = RecursivePLS(n_components=5, forgetting_factor=0.95)
+        model.fit(X_init, y_init)
+
+        coef_before = model.coef_.copy()
+
+        # Partial fit with new data
+        model.partial_fit(X_new1, y_new1)
+
+        coef_after = model.coef_
+
+        # Coefficients should change
+        assert not np.allclose(coef_before, coef_after)
+
+    def test_forgetting_factor_effect(self, streaming_data):
+        """Test that different forgetting factors produce different models."""
+        X_init, y_init, X_new1, y_new1, _, _ = streaming_data
+
+        # High forgetting factor (slow adaptation)
+        model_slow = RecursivePLS(n_components=5, forgetting_factor=0.999)
+        model_slow.fit(X_init, y_init)
+        model_slow.partial_fit(X_new1, y_new1)
+
+        # Low forgetting factor (fast adaptation)
+        model_fast = RecursivePLS(n_components=5, forgetting_factor=0.9)
+        model_fast.fit(X_init, y_init)
+        model_fast.partial_fit(X_new1, y_new1)
+
+        # Coefficients should differ
+        assert not np.allclose(model_slow.coef_, model_fast.coef_)
+
+    def test_forgetting_factor_one(self, regression_data):
+        """Test RecursivePLS with forgetting_factor=1 (no forgetting)."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=10, forgetting_factor=1.0)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_invalid_forgetting_factor(self, regression_data):
+        """Test RecursivePLS raises error for invalid forgetting_factor."""
+        X, y = regression_data
+
+        model = RecursivePLS(n_components=5, forgetting_factor=0)
+        with pytest.raises(ValueError, match="forgetting_factor must be in \\(0, 1\\]"):
+            model.fit(X, y)
+
+        model = RecursivePLS(n_components=5, forgetting_factor=1.5)
+        with pytest.raises(ValueError, match="forgetting_factor must be in \\(0, 1\\]"):
+            model.fit(X, y)
+
+        model = RecursivePLS(n_components=5, forgetting_factor=-0.1)
+        with pytest.raises(ValueError, match="forgetting_factor must be in \\(0, 1\\]"):
+            model.fit(X, y)
+
+    def test_transform(self, regression_data):
+        """Test RecursivePLS transform method."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=10)
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert T.shape == (100, 10)
+        assert not np.isnan(T).any()
+
+    def test_get_params(self):
+        """Test RecursivePLS get_params method."""
+        model = RecursivePLS(
+            n_components=8,
+            forgetting_factor=0.95,
+            scale=False,
+            center=True,
+            backend='numpy'
+        )
+
+        params = model.get_params()
+
+        assert params == {
+            'n_components': 8,
+            'forgetting_factor': 0.95,
+            'scale': False,
+            'center': True,
+            'backend': 'numpy',
+        }
+
+    def test_set_params(self):
+        """Test RecursivePLS set_params method."""
+        model = RecursivePLS(n_components=5)
+
+        result = model.set_params(n_components=10, forgetting_factor=0.95)
+
+        assert result is model
+        assert model.n_components == 10
+        assert model.forgetting_factor == 0.95
+
+    def test_sklearn_clone_compatibility(self):
+        """Test that RecursivePLS works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = RecursivePLS(n_components=7, forgetting_factor=0.95)
+        cloned = clone(model)
+
+        assert cloned.n_components == 7
+        assert cloned.forgetting_factor == 0.95
+        assert cloned is not model
+
+    def test_sklearn_cross_val_score(self, regression_data):
+        """Test that RecursivePLS works with sklearn cross_val_score."""
+        from sklearn.model_selection import cross_val_score
+
+        X, y = regression_data
+        model = RecursivePLS(n_components=5)
+
+        scores = cross_val_score(model, X, y, cv=3, scoring='r2')
+
+        assert len(scores) == 3
+
+    def test_n_components_exceeds_features(self):
+        """Test RecursivePLS handles n_components > n_features gracefully."""
+        X = np.random.randn(50, 10)  # Only 10 features
+        y = np.random.randn(50)
+
+        model = RecursivePLS(n_components=20)
+        model.fit(X, y)
+
+        assert model.n_components_ <= 10
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_n_components_exceeds_samples(self):
+        """Test RecursivePLS handles n_components > n_samples gracefully."""
+        X = np.random.randn(20, 50)  # Only 20 samples
+        y = np.random.randn(20)
+
+        model = RecursivePLS(n_components=30)
+        model.fit(X, y)
+
+        assert model.n_components_ <= 19  # n_samples - 1
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_scale_true(self, regression_data):
+        """Test RecursivePLS with scaling enabled."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=5, scale=True)
+        model.fit(X, y)
+
+        assert not np.allclose(model.x_std_, 1.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_scale_false(self, regression_data):
+        """Test RecursivePLS with scaling disabled."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=5, scale=False)
+        model.fit(X, y)
+
+        assert np.allclose(model.x_std_, 1.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_center_false(self):
+        """Test RecursivePLS with centering disabled."""
+        np.random.seed(42)
+        X = np.random.randn(50, 20)
+        y = np.random.randn(50)
+
+        model = RecursivePLS(n_components=5, center=False)
+        model.fit(X, y)
+
+        assert np.allclose(model.x_mean_, 0.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_repr(self):
+        """Test RecursivePLS string representation."""
+        model = RecursivePLS(n_components=5, forgetting_factor=0.95)
+
+        repr_str = repr(model)
+
+        assert 'RecursivePLS' in repr_str
+        assert 'n_components=5' in repr_str
+        assert 'forgetting_factor=0.95' in repr_str
+
+    def test_predict_unfitted_raises(self):
+        """Test that predict raises error when model is not fitted."""
+        from sklearn.exceptions import NotFittedError
+
+        model = RecursivePLS(n_components=5)
+        X = np.random.randn(10, 5)
+
+        with pytest.raises(NotFittedError):
+            model.predict(X)
+
+    def test_partial_fit_unfitted_raises(self):
+        """Test that partial_fit raises error when model is not fitted."""
+        from sklearn.exceptions import NotFittedError
+
+        model = RecursivePLS(n_components=5)
+        X = np.random.randn(10, 5)
+        y = np.random.randn(10)
+
+        with pytest.raises(NotFittedError):
+            model.partial_fit(X, y)
+
+    def test_small_dataset(self):
+        """Test RecursivePLS on a very small dataset."""
+        np.random.seed(42)
+        X = np.random.randn(10, 3)
+        y = np.random.randn(10)
+
+        model = RecursivePLS(n_components=2)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_single_sample_predict(self, regression_data):
+        """Test RecursivePLS prediction on a single sample."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=5)
+        model.fit(X, y)
+
+        single_X = X[0:1]
+        predictions = model.predict(single_X)
+
+        assert predictions.shape == (1,)
+        assert not np.isnan(predictions).any()
+
+    def test_invalid_backend(self, regression_data):
+        """Test RecursivePLS raises error for invalid backend."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=5, backend='invalid')
+
+        with pytest.raises(ValueError, match="backend must be 'numpy' or 'jax'"):
+            model.fit(X, y)
+
+
+class TestRecursivePLSJAX:
+    """Test suite for RecursivePLS regressor with JAX backend.
+
+    These tests are skipped if JAX is not installed.
+    """
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def multi_target_data(self):
+        """Generate multi-target regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def streaming_data(self):
+        """Generate data for streaming/online learning tests."""
+        np.random.seed(42)
+        X_init = np.random.randn(50, 20)
+        y_init = X_init[:, :5].sum(axis=1) + 0.1 * np.random.randn(50)
+        X_new = np.random.randn(10, 20)
+        y_new = X_new[:, :5].sum(axis=1) + 0.1 * np.random.randn(10)
+        return X_init, y_init, X_new, y_new
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_fit_jax_backend(self, regression_data):
+        """Test RecursivePLS fit with JAX backend."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=10, backend='jax')
+
+        result = model.fit(X, y)
+
+        assert result is model
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'n_components_')
+        assert hasattr(model, 'coef_')
+        assert model.n_features_in_ == 50
+        assert model.n_components_ == 10
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_predict_jax_backend(self, regression_data):
+        """Test RecursivePLS predict with JAX backend."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=10, backend='jax')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert isinstance(predictions, np.ndarray)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_fit_jax_multi_target(self, multi_target_data):
+        """Test RecursivePLS fit on multi-target data with JAX backend."""
+        X, y = multi_target_data
+        model = RecursivePLS(n_components=10, backend='jax')
+
+        model.fit(X, y)
+
+        assert isinstance(model.coef_, np.ndarray)
+        assert model.coef_.shape == (50, 3)
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_predict_jax_multi_target(self, multi_target_data):
+        """Test RecursivePLS predict on multi-target data with JAX backend."""
+        X, y = multi_target_data
+        model = RecursivePLS(n_components=10, backend='jax')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert isinstance(predictions, np.ndarray)
+        assert predictions.shape == y.shape
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_partial_fit_jax_backend(self, streaming_data):
+        """Test RecursivePLS partial_fit with JAX backend."""
+        X_init, y_init, X_new, y_new = streaming_data
+
+        model = RecursivePLS(n_components=5, forgetting_factor=0.99, backend='jax')
+        model.fit(X_init, y_init)
+
+        assert model.n_samples_seen_ == 50
+
+        model.partial_fit(X_new, y_new)
+        assert model.n_samples_seen_ == 60
+
+        predictions = model.predict(X_new)
+        assert isinstance(predictions, np.ndarray)
+        assert predictions.shape == y_new.shape
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_numpy_similar_results(self, regression_data):
+        """Test that JAX and NumPy backends produce similar results."""
+        X, y = regression_data
+
+        model_numpy = RecursivePLS(n_components=5, backend='numpy')
+        model_jax = RecursivePLS(n_components=5, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5)
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_sklearn_clone(self, regression_data):
+        """Test that RecursivePLS with JAX backend works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = RecursivePLS(n_components=5, backend='jax')
+        cloned = clone(model)
+
+        assert cloned.backend == 'jax'
+        assert cloned is not model
+
+        X, y = regression_data
+        cloned.fit(X, y)
+        predictions = cloned.predict(X)
+        assert predictions.shape == y.shape
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_transform(self, regression_data):
+        """Test RecursivePLS transform with JAX backend."""
+        X, y = regression_data
+        model = RecursivePLS(n_components=10, backend='jax')
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert isinstance(T, np.ndarray)
+        assert T.shape == (100, 10)
+        assert not np.isnan(T).any()
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_partial_fit_updates_model(self, streaming_data):
+        """Test that partial_fit with JAX backend updates the model."""
+        X_init, y_init, X_new, y_new = streaming_data
+
+        model = RecursivePLS(n_components=5, forgetting_factor=0.95, backend='jax')
+        model.fit(X_init, y_init)
+
+        coef_before = model.coef_.copy()
+        model.partial_fit(X_new, y_new)
+        coef_after = model.coef_
+
+        assert not np.allclose(coef_before, coef_after)
+
+
+# Add RecursivePLS to backend parity tests
+class TestRecursivePLSBackendParity:
+    """Test RecursivePLS produces identical results with NumPy and JAX backends."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def streaming_data(self):
+        """Generate data for streaming tests."""
+        np.random.seed(42)
+        X_init = np.random.randn(50, 20)
+        y_init = X_init[:, :5].sum(axis=1) + 0.1 * np.random.randn(50)
+        X_new = np.random.randn(10, 20)
+        y_new = X_new[:, :5].sum(axis=1) + 0.1 * np.random.randn(10)
+        return X_init, y_init, X_new, y_new
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_recursive_pls_backend_parity(self, regression_data):
+        """Test RecursivePLS produces identical results with NumPy and JAX backends."""
+        X, y = regression_data
+
+        model_numpy = RecursivePLS(n_components=10, backend='numpy')
+        model_jax = RecursivePLS(n_components=10, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="RecursivePLS: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_recursive_pls_partial_fit_parity(self, streaming_data):
+        """Test RecursivePLS partial_fit produces identical results."""
+        X_init, y_init, X_new, y_new = streaming_data
+
+        model_numpy = RecursivePLS(n_components=5, forgetting_factor=0.95, backend='numpy')
+        model_jax = RecursivePLS(n_components=5, forgetting_factor=0.95, backend='jax')
+
+        model_numpy.fit(X_init, y_init)
+        model_jax.fit(X_init, y_init)
+
+        # After initial fit
+        pred_numpy_init = model_numpy.predict(X_new)
+        pred_jax_init = model_jax.predict(X_new)
+        np.testing.assert_allclose(pred_numpy_init, pred_jax_init, rtol=1e-5)
+
+        # After partial fit
+        model_numpy.partial_fit(X_new, y_new)
+        model_jax.partial_fit(X_new, y_new)
+
+        pred_numpy = model_numpy.predict(X_new)
+        pred_jax = model_jax.predict(X_new)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5,
+                                   err_msg="RecursivePLS partial_fit: NumPy and JAX predictions differ")
+
+
+class TestKOPLS:
+    """Test suite for KOPLS (Kernel OPLS) regressor."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def multi_target_data(self):
+        """Generate multi-target regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def nonlinear_data(self):
+        """Generate nonlinear data where KOPLS should excel."""
+        np.random.seed(42)
+        X = np.random.randn(100, 20)
+        # Nonlinear relationship
+        y = np.sin(X[:, :3].sum(axis=1)) + 0.5 * (X[:, 3:6].sum(axis=1)) ** 2 + 0.1 * np.random.randn(100)
+        return X, y
+
+    def test_init_default(self):
+        """Test KOPLS initialization with default parameters."""
+        model = KOPLS()
+        assert model.n_components == 5
+        assert model.n_ortho_components == 1
+        assert model.kernel == 'rbf'
+        assert model.gamma is None
+        assert model.degree == 3
+        assert model.coef0 == 1.0
+        assert model.center is True
+        assert model.scale is True
+        assert model.backend == 'numpy'
+
+    def test_init_custom_parameters(self):
+        """Test KOPLS initialization with custom parameters."""
+        model = KOPLS(
+            n_components=10,
+            n_ortho_components=3,
+            kernel='poly',
+            gamma=0.1,
+            degree=2,
+            coef0=0.5,
+            center=False,
+            scale=False,
+            backend='numpy'
+        )
+        assert model.n_components == 10
+        assert model.n_ortho_components == 3
+        assert model.kernel == 'poly'
+        assert model.gamma == 0.1
+        assert model.degree == 2
+        assert model.coef0 == 0.5
+        assert model.center is False
+        assert model.scale is False
+        assert model.backend == 'numpy'
+
+    def test_fit(self, regression_data):
+        """Test KOPLS fit on regression data."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, n_ortho_components=2)
+
+        result = model.fit(X, y)
+
+        assert result is model  # fit returns self
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'n_components_')
+        assert hasattr(model, 'n_ortho_components_')
+        assert hasattr(model, 'X_train_')
+        assert hasattr(model, 'y_mean_')
+        assert hasattr(model, 'y_std_')
+        assert hasattr(model, 'x_scores_')
+        assert hasattr(model, 'y_scores_')
+        assert hasattr(model, 'y_loadings_')
+        assert hasattr(model, 'ortho_scores_')
+        assert hasattr(model, 'ortho_loadings_')
+        assert model.n_features_in_ == 50
+        assert model.n_components_ == 5
+
+    def test_fit_multi_target(self, multi_target_data):
+        """Test KOPLS fit on multi-target regression data."""
+        X, y = multi_target_data
+        model = KOPLS(n_components=5, n_ortho_components=2)
+
+        model.fit(X, y)
+
+        # y_loadings_ shape is (n_targets, n_components)
+        assert model.y_loadings_.shape == (3, 5)
+
+    def test_predict(self, regression_data):
+        """Test KOPLS predict on regression data."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, n_ortho_components=2)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_multi_target(self, multi_target_data):
+        """Test KOPLS predict on multi-target regression data."""
+        X, y = multi_target_data
+        model = KOPLS(n_components=5, n_ortho_components=2)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_predict_new_data(self, regression_data):
+        """Test KOPLS predict on new data."""
+        X, y = regression_data
+        X_train, X_test = X[:70], X[70:]
+        y_train, y_test = y[:70], y[70:]
+
+        model = KOPLS(n_components=5, n_ortho_components=2)
+        model.fit(X_train, y_train)
+
+        predictions = model.predict(X_test)
+
+        assert predictions.shape == y_test.shape
+        assert not np.isnan(predictions).any()
+
+    def test_transform(self, regression_data):
+        """Test KOPLS transform method."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, n_ortho_components=2)
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert T.shape == (100, 5)
+        assert not np.isnan(T).any()
+
+    def test_transform_new_data(self, regression_data):
+        """Test KOPLS transform on new data."""
+        X, y = regression_data
+        X_train, X_test = X[:70], X[70:]
+        y_train = y[:70]
+
+        model = KOPLS(n_components=5, n_ortho_components=2)
+        model.fit(X_train, y_train)
+
+        T = model.transform(X_test)
+
+        assert T.shape == (30, 5)
+        assert not np.isnan(T).any()
+
+    def test_linear_kernel(self, regression_data):
+        """Test KOPLS with linear kernel."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, n_ortho_components=2, kernel='linear')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_rbf_kernel(self, regression_data):
+        """Test KOPLS with RBF kernel."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, n_ortho_components=2, kernel='rbf', gamma=0.1)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_poly_kernel(self, regression_data):
+        """Test KOPLS with polynomial kernel."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, n_ortho_components=2, kernel='poly', degree=2)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_nonlinear_data(self, nonlinear_data):
+        """Test KOPLS on nonlinear data where it should perform better than linear methods."""
+        X, y = nonlinear_data
+        X_train, X_test = X[:70], X[70:]
+        y_train, y_test = y[:70], y[70:]
+
+        model = KOPLS(n_components=5, n_ortho_components=2, kernel='rbf')
+        model.fit(X_train, y_train)
+
+        predictions = model.predict(X_test)
+        assert predictions.shape == y_test.shape
+        assert not np.isnan(predictions).any()
+        # Check predictions are not constant
+        assert predictions.std() > 0
+
+    def test_different_ortho_components(self, regression_data):
+        """Test KOPLS with different numbers of orthogonal components."""
+        X, y = regression_data
+
+        for n_ortho in [1, 2, 3]:
+            model = KOPLS(n_components=5, n_ortho_components=n_ortho)
+            model.fit(X, y)
+            predictions = model.predict(X)
+            assert predictions.shape == y.shape
+            assert not np.isnan(predictions).any()
+
+    def test_get_params(self):
+        """Test KOPLS get_params method."""
+        model = KOPLS(
+            n_components=8,
+            n_ortho_components=3,
+            kernel='poly',
+            gamma=0.1,
+            degree=2,
+            coef0=0.5,
+            center=False,
+            scale=True,
+            backend='numpy'
+        )
+
+        params = model.get_params()
+
+        assert params == {
+            'n_components': 8,
+            'n_ortho_components': 3,
+            'kernel': 'poly',
+            'gamma': 0.1,
+            'degree': 2,
+            'coef0': 0.5,
+            'center': False,
+            'scale': True,
+            'backend': 'numpy',
+        }
+
+    def test_set_params(self):
+        """Test KOPLS set_params method."""
+        model = KOPLS(n_components=5)
+
+        result = model.set_params(n_components=10, kernel='poly')
+
+        assert result is model  # set_params returns self
+        assert model.n_components == 10
+        assert model.kernel == 'poly'
+
+    def test_sklearn_clone_compatibility(self):
+        """Test that KOPLS works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = KOPLS(n_components=7, n_ortho_components=2, kernel='rbf')
+        cloned = clone(model)
+
+        assert cloned.n_components == 7
+        assert cloned.n_ortho_components == 2
+        assert cloned.kernel == 'rbf'
+        assert cloned is not model
+
+    def test_sklearn_cross_val_score(self, regression_data):
+        """Test that KOPLS works with sklearn cross_val_score."""
+        from sklearn.model_selection import cross_val_score
+
+        X, y = regression_data
+        model = KOPLS(n_components=3, n_ortho_components=1)
+
+        scores = cross_val_score(model, X, y, cv=3, scoring='r2')
+
+        assert len(scores) == 3
+
+    def test_n_components_exceeds_samples(self):
+        """Test KOPLS handles n_components > n_samples gracefully."""
+        X = np.random.randn(20, 50)  # Only 20 samples
+        y = np.random.randn(20)
+
+        model = KOPLS(n_components=30)  # More components than samples
+        model.fit(X, y)
+
+        # Should not raise, n_components_ should be limited
+        assert model.n_components_ <= 19  # n_samples - 1
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_scale_true(self, regression_data):
+        """Test KOPLS with scaling enabled."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, scale=True)
+        model.fit(X, y)
+
+        # Check that scaling was applied
+        assert not np.allclose(model.y_std_, 1.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_scale_false(self, regression_data):
+        """Test KOPLS with scaling disabled."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, scale=False)
+        model.fit(X, y)
+
+        # Check that scaling was not applied
+        assert np.allclose(model.y_std_, 1.0)
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_center_false(self, regression_data):
+        """Test KOPLS with centering disabled."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, center=False)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+
+    def test_repr(self):
+        """Test KOPLS string representation."""
+        model = KOPLS(n_components=5, kernel='rbf')
+
+        repr_str = repr(model)
+
+        assert 'KOPLS' in repr_str
+        assert 'n_components=5' in repr_str
+        assert "kernel='rbf'" in repr_str
+
+    def test_predict_unfitted_raises(self):
+        """Test that predict raises error when model is not fitted."""
+        from sklearn.exceptions import NotFittedError
+
+        model = KOPLS(n_components=5)
+        X = np.random.randn(10, 5)
+
+        with pytest.raises(NotFittedError):
+            model.predict(X)
+
+    def test_transform_unfitted_raises(self):
+        """Test that transform raises error when model is not fitted."""
+        from sklearn.exceptions import NotFittedError
+
+        model = KOPLS(n_components=5)
+        X = np.random.randn(10, 5)
+
+        with pytest.raises(NotFittedError):
+            model.transform(X)
+
+    def test_invalid_backend(self, regression_data):
+        """Test KOPLS raises error for invalid backend."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, backend='invalid')
+
+        with pytest.raises(ValueError, match="backend must be 'numpy' or 'jax'"):
+            model.fit(X, y)
+
+    def test_invalid_kernel(self, regression_data):
+        """Test KOPLS raises error for invalid kernel."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, kernel='invalid')
+
+        with pytest.raises(ValueError, match="kernel must be 'linear', 'rbf', or 'poly'"):
+            model.fit(X, y)
+
+    def test_small_dataset(self):
+        """Test KOPLS on a very small dataset."""
+        np.random.seed(42)
+        X = np.random.randn(15, 5)
+        y = np.random.randn(15)
+
+        model = KOPLS(n_components=3, n_ortho_components=1)
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    def test_single_sample_predict(self, regression_data):
+        """Test KOPLS prediction on a single sample."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, n_ortho_components=2)
+        model.fit(X, y)
+
+        # Predict on a single sample
+        single_X = X[0:1]
+        predictions = model.predict(single_X)
+
+        assert predictions.shape == (1,)
+        assert not np.isnan(predictions).any()
+
+
+class TestKOPLSJAX:
+    """Test suite for KOPLS regressor with JAX backend.
+
+    These tests are skipped if JAX is not installed.
+    """
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @pytest.fixture
+    def multi_target_data(self):
+        """Generate multi-target regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_targets=3,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_fit_jax_backend(self, regression_data):
+        """Test KOPLS fit with JAX backend."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, n_ortho_components=2, backend='jax')
+
+        result = model.fit(X, y)
+
+        assert result is model
+        assert hasattr(model, 'n_features_in_')
+        assert hasattr(model, 'n_components_')
+        assert hasattr(model, 'x_scores_')
+        assert model.n_features_in_ == 50
+        assert model.n_components_ == 5
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_predict_jax_backend(self, regression_data):
+        """Test KOPLS predict with JAX backend."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, n_ortho_components=2, backend='jax')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        # Should return numpy array
+        assert isinstance(predictions, np.ndarray)
+        assert predictions.shape == y.shape
+        assert not np.isnan(predictions).any()
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_fit_jax_multi_target(self, multi_target_data):
+        """Test KOPLS fit on multi-target data with JAX backend."""
+        X, y = multi_target_data
+        model = KOPLS(n_components=5, n_ortho_components=2, backend='jax')
+
+        model.fit(X, y)
+
+        # y_loadings_ shape is (n_targets, n_components) and should be numpy array
+        assert isinstance(model.y_loadings_, np.ndarray)
+        assert model.y_loadings_.shape == (3, 5)
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_predict_jax_multi_target(self, multi_target_data):
+        """Test KOPLS predict on multi-target data with JAX backend."""
+        X, y = multi_target_data
+        model = KOPLS(n_components=5, n_ortho_components=2, backend='jax')
+        model.fit(X, y)
+
+        predictions = model.predict(X)
+
+        assert isinstance(predictions, np.ndarray)
+        assert predictions.shape == y.shape
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_different_kernels(self, regression_data):
+        """Test KOPLS with different kernels using JAX backend."""
+        X, y = regression_data
+
+        for kernel in ['linear', 'rbf', 'poly']:
+            model = KOPLS(n_components=5, n_ortho_components=2, kernel=kernel, backend='jax')
+            model.fit(X, y)
+
+            predictions = model.predict(X)
+            assert predictions.shape == y.shape
+            assert not np.isnan(predictions).any()
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_numpy_similar_results(self, regression_data):
+        """Test that JAX and NumPy backends produce similar results."""
+        X, y = regression_data
+
+        model_numpy = KOPLS(n_components=5, n_ortho_components=2, kernel='linear', backend='numpy')
+        model_jax = KOPLS(n_components=5, n_ortho_components=2, kernel='linear', backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        # Results should be similar (not exactly equal due to floating point)
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4)
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_sklearn_clone(self, regression_data):
+        """Test that KOPLS with JAX backend works with sklearn clone."""
+        from sklearn.base import clone
+
+        model = KOPLS(n_components=5, n_ortho_components=2, backend='jax')
+        cloned = clone(model)
+
+        assert cloned.backend == 'jax'
+        assert cloned is not model
+
+        # Cloned model should be fittable
+        X, y = regression_data
+        cloned.fit(X, y)
+        predictions = cloned.predict(X)
+        assert predictions.shape == y.shape
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_jax_transform(self, regression_data):
+        """Test KOPLS transform with JAX backend."""
+        X, y = regression_data
+        model = KOPLS(n_components=5, n_ortho_components=2, backend='jax')
+        model.fit(X, y)
+
+        T = model.transform(X)
+
+        assert isinstance(T, np.ndarray)
+        assert T.shape == (100, 5)
+        assert not np.isnan(T).any()
+
+
+class TestKOPLSBackendParity:
+    """Test KOPLS produces identical results with NumPy and JAX backends."""
+
+    @pytest.fixture
+    def regression_data(self):
+        """Generate regression data."""
+        X, y = make_regression(
+            n_samples=100,
+            n_features=50,
+            n_informative=10,
+            random_state=42
+        )
+        return X, y
+
+    @staticmethod
+    def _jax_available():
+        """Check if JAX is available."""
+        try:
+            import jax
+            return True
+        except ImportError:
+            return False
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_kopls_backend_parity_linear(self, regression_data):
+        """Test KOPLS produces identical results with linear kernel."""
+        X, y = regression_data
+
+        model_numpy = KOPLS(n_components=5, n_ortho_components=2, kernel='linear', backend='numpy')
+        model_jax = KOPLS(n_components=5, n_ortho_components=2, kernel='linear', backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
+                                   err_msg="KOPLS linear: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_kopls_backend_parity_rbf(self, regression_data):
+        """Test KOPLS produces similar results with RBF kernel."""
+        X, y = regression_data
+
+        model_numpy = KOPLS(n_components=5, n_ortho_components=2, kernel='rbf', gamma=0.1, backend='numpy')
+        model_jax = KOPLS(n_components=5, n_ortho_components=2, kernel='rbf', gamma=0.1, backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        pred_numpy = model_numpy.predict(X)
+        pred_jax = model_jax.predict(X)
+
+        np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-4,
+                                   err_msg="KOPLS RBF: NumPy and JAX predictions differ")
+
+    @pytest.mark.skipif(not _jax_available.__func__(), reason="JAX not installed")
+    def test_kopls_transform_parity(self, regression_data):
+        """Test KOPLS transform produces identical results."""
+        X, y = regression_data
+
+        model_numpy = KOPLS(n_components=5, n_ortho_components=2, kernel='linear', backend='numpy')
+        model_jax = KOPLS(n_components=5, n_ortho_components=2, kernel='linear', backend='jax')
+
+        model_numpy.fit(X, y)
+        model_jax.fit(X, y)
+
+        T_numpy = model_numpy.transform(X)
+        T_jax = model_jax.transform(X)
+
+        np.testing.assert_allclose(T_numpy, T_jax, rtol=1e-4,
+                                   err_msg="KOPLS transform: NumPy and JAX differ")
+
+

@@ -42,6 +42,8 @@ from nirs4all.operators.models.sklearn.pls import (
 from nirs4all.operators.models.sklearn.lwpls import LWPLS
 from nirs4all.operators.models.sklearn.ipls import IntervalPLS
 from nirs4all.operators.models.sklearn.robust_pls import RobustPLS
+from nirs4all.operators.models.sklearn.recursive_pls import RecursivePLS
+from nirs4all.operators.models.sklearn.kopls import KOPLS
 
 # Check if JAX is available for GPU-accelerated models
 try:
@@ -61,7 +63,7 @@ except ImportError:
 ###############
 
 print("=" * 60)
-print("REGRESSION TEST - PLSRegression + IKPLS + OPLS + MBPLS + SparsePLS + LWPLS + SIMPLS + IntervalPLS + RobustPLS")
+print("REGRESSION TEST - PLSRegression + IKPLS + OPLS + MBPLS + SparsePLS + LWPLS + SIMPLS + IntervalPLS + RobustPLS + RecursivePLS + KOPLS")
 print("=" * 60)
 
 # Build regression pipeline
@@ -103,6 +105,15 @@ regression_models = [
     RobustPLS(n_components=10, weighting='huber', max_iter=50, backend='numpy'),
     RobustPLS(n_components=10, weighting='tukey', max_iter=50, backend='numpy'),
 
+    # Tier 5: RecursivePLS (Recursive PLS - online learning for drifting processes)
+    RecursivePLS(n_components=10, forgetting_factor=0.99, backend='numpy'),
+    RecursivePLS(n_components=10, forgetting_factor=0.95, backend='numpy'),
+
+    # Tier 6: KOPLS (Kernel OPLS - nonlinear OPLS using kernel methods)
+    KOPLS(n_components=5, n_ortho_components=1, kernel='linear', backend='numpy'),
+    KOPLS(n_components=5, n_ortho_components=2, kernel='rbf', backend='numpy'),
+    KOPLS(n_components=5, n_ortho_components=1, kernel='poly', degree=2, backend='numpy'),
+
     # Tier 3: LWPLS (Locally-Weighted PLS - local models for nonlinearity) # COMMENTED because very slow
     # LWPLS(n_components=5, lambda_in_similarity=0.5, backend='numpy'),
     # LWPLS(n_components=10, lambda_in_similarity=1.0, backend='numpy'),
@@ -138,6 +149,15 @@ if JAX_AVAILABLE:
         # RobustPLS with JAX backend
         {"model": RobustPLS(n_components=10, weighting='huber', max_iter=50, backend='jax'), "name": "RobustPLS_JAX_huber"},
         {"model": RobustPLS(n_components=10, weighting='tukey', max_iter=50, backend='jax'), "name": "RobustPLS_JAX_tukey"},
+
+        # RecursivePLS with JAX backend
+        {"model": RecursivePLS(n_components=10, forgetting_factor=0.99, backend='jax'), "name": "RecursivePLS_JAX_ff099"},
+        {"model": RecursivePLS(n_components=10, forgetting_factor=0.95, backend='jax'), "name": "RecursivePLS_JAX_ff095"},
+
+        # KOPLS with JAX backend
+        {"model": KOPLS(n_components=5, n_ortho_components=1, kernel='linear', backend='jax'), "name": "KOPLS_JAX_linear"},
+        {"model": KOPLS(n_components=5, n_ortho_components=2, kernel='rbf', backend='jax'), "name": "KOPLS_JAX_rbf"},
+        {"model": KOPLS(n_components=5, n_ortho_components=1, kernel='poly', degree=2, backend='jax'), "name": "KOPLS_JAX_poly"},
 
         # LWPLS with JAX backend
         {"model": LWPLS(n_components=5, lambda_in_similarity=0.5, backend='jax'), "name": "LWPLS_JAX_5"},

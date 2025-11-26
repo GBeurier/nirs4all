@@ -8,6 +8,8 @@ from .pls import PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS
 from .lwpls import LWPLS
 from .ipls import IntervalPLS
 from .robust_pls import RobustPLS
+from .recursive_pls import RecursivePLS
+from .kopls import KOPLS
 
 __all__ = [
     "PLSDA",
@@ -21,4 +23,6 @@ __all__ = [
     "SIMPLS",
     "IntervalPLS",
     "RobustPLS",
+    "RecursivePLS",
+    "KOPLS",
 ]

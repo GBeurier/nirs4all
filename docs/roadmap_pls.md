@@ -624,63 +624,133 @@ model_jax.fit(X, y)
 ### Story 5.4: Recursive PLS (RPLS)
 
 **Priority:** P3 - Specialized
-**Status:** 🟠 Hard
+**Status:** ✅ Implemented
 **Difficulty:** Medium-High
 
 **Description:**
-Online model updates for drifting processes. Useful for process monitoring.
+Online model updates for drifting processes using exponentially weighted recursive least squares.
+Useful for process monitoring and adaptation to instrument drift.
 
-**Dependency:** None (pure Python/NumPy)
+**Dependency:** None (pure Python/NumPy, optional JAX for GPU)
 
-**Implementation Plan:**
-1. Implement online PLS update equations
-2. Support forgetting factor for drift adaptation
-3. Maintain running statistics
+**Implementation:**
+Full implementation with NumPy and JAX backends. Uses SIMPLS-style deflation for initial fit
+and exponentially weighted covariance updates for partial_fit. Supports forgetting factor
+(0-1] for controlling adaptation rate.
 
 **Operator:** `nirs4all/operators/models/sklearn/recursive_pls.py`
+
 ```python
-from sklearn.base import BaseEstimator, RegressorMixin
+from nirs4all.operators.models import RecursivePLS
 
-class RecursivePLS(BaseEstimator, RegressorMixin):
-    def __init__(self, n_components=5, forgetting_factor=0.99):
-        self.n_components = n_components
-        self.forgetting_factor = forgetting_factor
+# NumPy backend (default)
+model = RecursivePLS(n_components=5, forgetting_factor=0.99)
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
 
-    def fit(self, X, y):
-        ...
+# Online updates with partial_fit
+for X_batch, y_batch in streaming_data:
+    model.partial_fit(X_batch, y_batch)
+    y_pred = model.predict(X_new)
 
-    def partial_fit(self, X, y):
-        # Online update
-        ...
+# Lower forgetting factor for faster adaptation to drift
+model_fast_adapt = RecursivePLS(n_components=5, forgetting_factor=0.95)
+
+# JAX backend for GPU acceleration
+model_jax = RecursivePLS(n_components=5, forgetting_factor=0.99, backend='jax')
+model_jax.fit(X_train, y_train)
+y_pred = model_jax.predict(X_test)
 ```
 
 **Tasks:**
-- [ ] Implement recursive update algorithm
-- [ ] Add partial_fit support
-- [ ] Add unit tests
-- [ ] Test on streaming data
+- [x] Implement recursive update algorithm using exponential weighting
+- [x] Add partial_fit support for online learning
+- [x] Add NumPy backend implementation
+- [x] Add JAX backend with JIT compilation
+- [x] Add comprehensive unit tests (38 tests)
+- [x] Add to Q19_pls_test.py example
+- [x] Export from operators/models/__init__.py
 
-**Test:** Add to `examples/Q19_pls_test.py`
+**Test:** `examples/Q19_pls_test.py` and `tests/unit/operators/models/test_sklearn_pls.py::TestRecursivePLS`
 
 ---
 
-## Tier 6: No Python Implementation 🔴
+## Tier 6: Kernel-Based Methods 🔴
 
-These methods have no maintained Python package and require significant effort.
+These methods combine kernel techniques with PLS for nonlinear modeling.
 
 ### Story 6.1: K-OPLS (Kernel OPLS)
 
-**Priority:** P4 - Low Priority
-**Status:** 🔴 Very Hard
+**Priority:** P4 - Specialized
+**Status:** ✅ Implemented
 **Difficulty:** Very High
 
 **Description:**
-Kernelized OPLS. Benefit over KPLS for NIRS is uncertain.
+Kernel-based Orthogonal Partial Least Squares. Combines kernel methods with OPLS for
+nonlinear regression. Uses SIMPLS-style deflation in kernel space with orthogonal
+filtering of Y-uncorrelated variation.
 
-**Recommendation:** Skip unless specific need arises. Prefer KPLS or OPLS separately.
+**Dependency:** None (pure Python/NumPy, optional JAX for GPU)
 
-**Implementation Notes:**
-Would require porting MATLAB/R implementations to Python with proper kernel handling.
+**Implementation:**
+Full implementation with NumPy and JAX backends. Supports three kernel functions:
+- **linear**: K(x,y) = x^T y (equivalent to linear PLS with centering)
+- **rbf** (default): K(x,y) = exp(-gamma ||x-y||^2) for nonlinear relationships
+- **poly**: K(x,y) = (gamma x^T y + coef0)^degree for polynomial relationships
+
+Uses kernel centering for both training and prediction. Extracts orthogonal components
+to filter Y-uncorrelated variation before fitting kernel PLS.
+
+**Operator:** `nirs4all/operators/models/sklearn/kopls.py`
+
+```python
+from nirs4all.operators.models import KOPLS
+
+# RBF kernel (default) - NumPy backend
+model_rbf = KOPLS(n_components=5, n_ortho_components=2, kernel='rbf', gamma=0.1)
+model_rbf.fit(X, y)
+y_pred = model_rbf.predict(X_val)
+
+# Polynomial kernel
+model_poly = KOPLS(n_components=5, kernel='poly', degree=3, gamma=0.1, coef0=1.0)
+model_poly.fit(X, y)
+
+# Linear kernel (comparable to linear OPLS)
+model_linear = KOPLS(n_components=5, kernel='linear')
+model_linear.fit(X, y)
+
+# Transform to scores
+T_ortho = model_rbf.transform(X)  # Returns orthogonal scores
+T_pred = model_rbf.transform_predictive(X)  # Returns predictive scores
+
+# JAX backend for GPU acceleration
+model_jax = KOPLS(n_components=5, kernel='rbf', gamma=0.1, backend='jax')
+model_jax.fit(X, y)
+```
+
+**Key Features:**
+- sklearn-compatible API (fit/predict/transform/get_params/set_params)
+- Automatic kernel parameter defaults (gamma = 1/n_features)
+- Optional scaling and centering of input data
+- Exposes orthogonal scores, loadings, and kernel regression coefficients
+
+**Tasks:**
+- [x] Implement K-OPLS algorithm from Rantalainen et al. 2007
+- [x] Create sklearn-compatible class with NumPy backend
+- [x] Add JAX backend with JIT compilation
+- [x] Support linear, RBF, and polynomial kernels
+- [x] Add kernel centering for training and prediction
+- [x] Add comprehensive unit tests (40 tests)
+- [x] Add to Q19_pls_test.py example
+- [x] Export from operators/models/__init__.py
+
+**Test:** `examples/Q19_pls_test.py` and `tests/unit/operators/models/test_sklearn_pls.py::TestKOPLS`
+
+**Note:** K-OPLS requires careful hyperparameter tuning (kernel type, gamma, n_components,
+n_ortho_components) for optimal performance on NIRS data. Default parameters may not be
+optimal for all datasets - grid search or cross-validation is recommended.
+
+**Reference:** Rantalainen et al. 2007 - "Kernel-based orthogonal projections to latent structures"
 
 ---
 
@@ -700,8 +770,8 @@ Would require porting MATLAB/R implementations to Python with proper kernel hand
 | P3 | 3.1 | LW-PLS | ✅ Implemented | Vendored (MIT) |
 | P3 | 5.1 | SIMPLS | ✅ Implemented | Custom |
 | P3 | 5.3 | Robust PLS | ✅ Implemented | Custom |
-| P3 | 5.4 | Recursive PLS | 🟠 Hard | Custom |
-| P4 | 6.1 | K-OPLS | 🔴 Very Hard | Custom |
+| P3 | 5.4 | Recursive PLS | ✅ Implemented | Custom |
+| P4 | 6.1 | K-OPLS | ✅ Implemented | Custom |
 
 ---
 
