@@ -58,6 +58,12 @@ from nirs4all.operators.transforms.nirs import (
 )
 
 import jax
+import os
+
+# Configure JAX memory settings to prevent OOM errors
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.75'
+os.environ['XLA_PYTHON_CLIENT_ALLOCATOR'] = 'platform'
 
 # Check if JAX is available for GPU-accelerated models
 
@@ -70,144 +76,134 @@ import jax
 ###############
 # Build regression pipeline
 pipeline = [
+    MinMaxScaler(),
     {"y_processing": MinMaxScaler()},
 
-    {"feature_augmentation": {
-        "_or_": [Detrend, FstDer, SndDer, Gauss, SNV, SavGol, Haar, MSC, Derivate, RSNV, LSNV, Wavelet, AreaNormalization, EMSC],
-        "size": [(1, 3), (1, 2)],
-        "count": 50}
-     },  # Generate combinations of preprocessing techniques
-    MinMaxScaler(),
+    # {"feature_augmentation": {
+    #     "_or_": [Detrend, FstDer, SndDer, Gauss, SNV, SavGol, Haar, MSC, Derivate, RSNV, LSNV, Wavelet, AreaNormalization, EMSC],
+    #     "size": [(1, 3), (1, 2)],
+    #     "count": 50}
+    #  },  # Generate combinations of preprocessing techniques
 
     {"split": GroupKFold(n_splits=3, shuffle=True, random_state=42), "group": "ID"},
+    # {
+    #     "model": PLSRegression(n_components=10),
+    #     "name": "PLS-Finetuned",
+    #     "finetune_params": {
+    #         "n_trials": 30,
+    #         "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
+    #         "approach": "single",                                  # "grouped", "individual", or "single"
+    #         "eval_mode": "best",                    # "best" or "avg" (for grouped approach)
+    #         "sample": "grid",                       # "random", "grid", "bayes", "hyperband", "skopt", "tpe", "cmaes"
+    #         "model_params": {
+    #             'n_components': ('int', 1, 30),
+    #             'algorithm': 1,
+    #             "backend": 'jax'
+    #         },
+    #     }
+    # },
 
+    # {
+    #     "model": IKPLS(n_components=10, backend='jax', algorithm=1),
+    #     "name": "PLS-Finetuned",
+    #     "finetune_params": {
+    #         "n_trials": 30,
+    #         "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
+    #         "approach": "single",                                  # "grouped", "individual", or "single"
+    #         "eval_mode": "best",                    # "best" or "avg" (for grouped approach)
+    #         "sample": "grid",                       # "random", "grid", "bayes", "hyperband", "skopt", "tpe", "cmaes"
+    #         "model_params": {
+    #             'n_components': ('int', 1, 30),
+    #             'algorithm': 1,
+    #             "backend": 'numpy'
+    #         },
+    #     }
+    # },
+    # {
+    #     "model": LWPLS(n_components=10, lambda_in_similarity=0.5, backend='numpy'),
+    #     "name": "LWPLS-Finetuned",
+    #     "finetune_params": {
+    #         "n_trials": 60,
+    #         "verbose": 2,
+    #         "sample": "tpe",
+    #         "approach": "single",
+    #         "model_params": {
+    #             "n_components": ('int', 1, 30),
+    #             "lambda_in_similarity": (0.0, 1.0),
+    #             "backend": 'numpy'
+    #         }
+    #     }
+    # },
+    # {
+    #     "model": MBPLS(n_components=10, backend='numpy'),
+    #     "name": "MBPLS-Finetuned",
+    #     "finetune_params": {
+    #         "n_trials": 30,
+    #         "verbose": 2,
+    #         "sample": "grid",
+    #         "approach": "single",
+    #         "model_params": {
+    #             "n_components": ('int', 1, 30),
+    #             "backend": 'numpy'
+    #         }
+    #     }
+    # },
+    # {
+    #     "model": SIMPLS(n_components=15, backend='numpy'),
+    #     "name": "SIMPLS-Finetuned",
+    #     "finetune_params": {
+    #         "n_trials": 30,
+    #         "verbose": 2,
+    #         "sample": "hyperband",
+    #         "approach": "single",
+    #         "model_params": {
+    #             "n_components": ('int', 1, 30),
+    #             "backend": 'numpy'
+    #         }
+    #     }
+    # },
+    # {
+    #     "model": IntervalPLS(n_components=5, n_intervals=10, mode='forward', backend='numpy'),
+    #     "name": "iPLS-Finetuned",
+    #     "finetune_params": {
+    #         "n_trials": 50,
+    #         "verbose": 2,
+    #         "sample": "tpe",
+    #         "approach": "single",
+    #         "model_params": {
+    #             "n_components": ('int', 1, 30),
+    #             "n_intervals": ('int', 5, 20),
+    #             "mode": ['forward', 'backward'],
+    #             "backend": 'numpy'
+    #         }
+    #     }
+    # },
     {
-        "model": PLSRegression(n_components=10),
-        "name": "PLS-Finetuned",
-        "finetune_params": {
-            "n_trials": 30,
-            "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
-            "approach": "single",                                  # "grouped", "individual", or "single"
-            "eval_mode": "best",                    # "best" or "avg" (for grouped approach)
-            "sample": "grid",                       # "random", "grid", "bayes", "hyperband", "skopt", "tpe", "cmaes"
-            "model_params": {
-                'n_components': ('int', 1, 30),
-                'algorithm': 1,
-                "backend": 'jax'
-            },
-        }
-    },
-
-    {
-        "model": IKPLS(n_components=10, backend='jax', algorithm=1),
-        "name": "PLS-Finetuned",
-        "finetune_params": {
-            "n_trials": 30,
-            "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
-            "approach": "single",                                  # "grouped", "individual", or "single"
-            "eval_mode": "best",                    # "best" or "avg" (for grouped approach)
-            "sample": "grid",                       # "random", "grid", "bayes", "hyperband", "skopt", "tpe", "cmaes"
-            "model_params": {
-                'n_components': ('int', 1, 30),
-                'algorithm': 1,
-                "backend": 'jax'
-            },
-        }
-    },
-    {
-        "model": IKPLS(n_components=10, backend='jax', algorithm=1),
-        "name": "PLS-Finetuned",
-        "finetune_params": {
-            "n_trials": 30,
-            "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
-            "approach": "single",                                  # "grouped", "individual", or "single"
-            "eval_mode": "best",                    # "best" or "avg" (for grouped approach)
-            "sample": "grid",                       # "random", "grid", "bayes", "hyperband", "skopt", "tpe", "cmaes"
-            "model_params": {
-                'n_components': ('int', 1, 30),
-                'algorithm': 2,
-                "backend": 'jax'
-            },
-        }
-    },
-    {
-        "model": LWPLS(n_components=10, lambda_in_similarity=0.5, backend='jax'),
-        "name": "LWPLS-Finetuned",
-        "finetune_params": {
-            "n_trials": 60,
-            "verbose": 2,
-            "sample": "tpe",
-            "approach": "single",
-            "model_params": {
-                "n_components": ('int', 1, 30),
-                "lambda_in_similarity": (0.0, 1.0),
-                "backend": 'jax'
-            }
-        }
-    },
-    {
-        "model": MBPLS(n_components=10, backend='jax'),
-        "name": "MBPLS-Finetuned",
-        "finetune_params": {
-            "n_trials": 30,
-            "verbose": 2,
-            "sample": "grid",
-            "approach": "single",
-            "model_params": {
-                "n_components": ('int', 1, 30),
-                "backend": 'jax'
-            }
-        }
-    },
-    {
-        "model": SIMPLS(n_components=15, backend='jax'),
-        "name": "SIMPLS-Finetuned",
-        "finetune_params": {
-            "n_trials": 30,
-            "verbose": 2,
-            "sample": "hyperband",
-            "approach": "single",
-            "model_params": {
-                "n_components": ('int', 1, 30),
-                "backend": 'jax'
-            }
-        }
-    },
-    {
-        "model": IntervalPLS(n_components=5, n_intervals=10, mode='forward', backend='jax'),
-        "name": "iPLS-Finetuned",
-        "finetune_params": {
-            "n_trials": 50,
-            "verbose": 2,
-            "sample": "tpe",
-            "approach": "single",
-            "model_params": {
-                "n_components": ('int', 1, 30),
-                "n_intervals": ('int', 5, 20),
-                "mode": ['forward', 'backward'],
-                "backend": 'jax'
-            }
-        }
-    },
-    {
-        "model": FCKPLS(n_components=5, alphas=(0.0, 1.0, 2.0), sigmas=(2.0,), kernel_size=15, backend='jax'),
+        "model": FCKPLS(n_components=5, alphas=(0.0, 1.0, 2.0), sigmas=(2.0,), kernel_size=15, backend='numpy'),
         "name": "FCKPLS-Finetuned",
         "finetune_params": {
-            "n_trials": 50,
+            "n_trials": 20,
             "verbose": 2,
-            "sample": "grid",
+            "sample": "tpe",
             "approach": "single",
             "model_params": {
                 "n_components": ('int', 1, 30),
-                "alphas": [(0.0, 1.0, 2.0)],
-                "sigmas": [(2.0,)],
                 "kernel_size": ('int', 5, 30),
-                "backend": 'jax'
+            },
+            "train_params": {
+                "alphas": (0.0, 1.0, 2.0),
+                "sigmas": (2.0,),
             }
         }
     }
 ]
-
+# for i in range(3, 35, 1):
+#     pipeline.append(
+#         {
+#             "model": LWPLS(n_components=i, lambda_in_similarity=0.5, backend='numpy'),
+#             "name": f"LWPLS_Random_{i+1}",
+#         }
+#     )
 
 regression_data = ['nitro_regression/Digestibility_0.8', 'nitro_regression/Hardness_0.8', 'nitro_regression/Tannin_0.8']
 regression_dataset = DatasetConfigs(regression_data)

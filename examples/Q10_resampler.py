@@ -81,7 +81,7 @@ print("\nExample 3: Resample to fingerprint region (9500-7000 cm^-1)")
 print("-" * 70)
 
 # Focus on mid-infrared fingerprint region with higher resolution (descending)
-target_wl_cropped = np.linspace(9500, 7000, 50)  # Descending, 50 points
+target_wl_cropped = np.linspace(9500, 7000, 20)  # Descending, 50 points
 
 pipeline_cropped = [
     'chart_2d',

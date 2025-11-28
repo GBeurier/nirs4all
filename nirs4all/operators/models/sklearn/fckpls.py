@@ -171,7 +171,10 @@ def fractional_kernel_1d(
     else:
         # Fractional power modulation with sign preservation
         sign = np.sign(idx)
-        frac = np.abs(idx) ** alpha
+        # Clamp indices to avoid extreme values with large alpha
+        # This prevents numerical overflow when alpha is large
+        idx_clamped = np.clip(np.abs(idx), 0, sigma_safe * 3)
+        frac = idx_clamped ** alpha
         frac[np.abs(idx) < 1e-10] = 0.0  # Handle center point
 
         # Combine: Gaussian envelope * signed fractional power
@@ -181,10 +184,16 @@ def fractional_kernel_1d(
     if alpha > 0.1:
         h = h - h.mean()
 
-    # L1 normalization for stability
-    norm = np.sum(np.abs(h))
+    # L2 normalization for better numerical stability
+    norm = np.linalg.norm(h)
     if norm > 1e-12:
         h = h / norm
+    else:
+        # Fallback: return uniform kernel if normalization fails
+        h = np.ones(k) / k
+
+    # Final safety check for any remaining inf/nan
+    h = np.nan_to_num(h, nan=0.0, posinf=0.0, neginf=0.0)
 
     return h
 
@@ -332,9 +341,10 @@ class FractionalConvFeaturizer(BaseEstimator, TransformerMixin):
         -------
         self : FractionalConvFeaturizer
         """
-        # Ensure odd kernel size
-        if self.kernel_size % 2 == 0:
-            raise ValueError("kernel_size must be odd")
+        # Ensure odd kernel size (auto-adjust if even)
+        kernel_size = self.kernel_size
+        if kernel_size % 2 == 0:
+            kernel_size += 1  # Make it odd by adding 1
 
         # Handle sigma broadcasting
         if len(self.sigmas) == 1 and len(self.alphas) > 1:
@@ -350,11 +360,12 @@ class FractionalConvFeaturizer(BaseEstimator, TransformerMixin):
 
         # Build kernels
         self.kernels_ = []
+        self.kernel_size_ = kernel_size  # Store actual kernel size used
         for alpha, sigma in zip(self.alphas, sigmas):
             if self.kernel_type == 'heuristic':
-                h = fractional_kernel_1d(alpha, sigma, self.kernel_size)
+                h = fractional_kernel_1d(alpha, sigma, kernel_size)
             elif self.kernel_type == 'grunwald':
-                h = fractional_kernel_grrunwald_letnikov(alpha, self.kernel_size)
+                h = fractional_kernel_grrunwald_letnikov(alpha, kernel_size)
             else:
                 raise ValueError(
                     f"kernel_type must be 'heuristic' or 'grunwald', "
@@ -386,15 +397,18 @@ class FractionalConvFeaturizer(BaseEstimator, TransformerMixin):
         X = np.asarray(X, dtype=np.float64)
         n_samples, n_features = X.shape
 
+        # Use actual kernel size used during fit
+        kernel_size = getattr(self, 'kernel_size_', self.kernel_size)
+
         # Compute output length
         if self.mode == 'same':
             out_len = n_features
         elif self.mode == 'valid':
-            out_len = n_features - self.kernel_size + 1
+            out_len = n_features - kernel_size + 1
             if out_len <= 0:
                 raise ValueError(
                     f"Input has {n_features} features but kernel_size "
-                    f"is {self.kernel_size}. Use smaller kernel or 'same' mode."
+                    f"is {kernel_size}. Use smaller kernel or 'same' mode."
                 )
         else:
             raise ValueError(f"mode must be 'same' or 'valid', got '{self.mode}'")
@@ -414,6 +428,14 @@ class FractionalConvFeaturizer(BaseEstimator, TransformerMixin):
                 feats.append(conv)
             X_feat[i, :] = np.concatenate(feats)
 
+        # Clip extreme values to prevent inf in downstream computations
+        # Use a large but finite threshold
+        max_val = 1e15  # Safe threshold that won't overflow in PLS
+        X_feat = np.clip(X_feat, -max_val, max_val)
+
+        # Replace any remaining inf/nan with 0
+        X_feat = np.nan_to_num(X_feat, nan=0.0, posinf=max_val, neginf=-max_val)
+
         return X_feat
 
     def get_kernel_info(self) -> dict:
@@ -426,12 +448,14 @@ class FractionalConvFeaturizer(BaseEstimator, TransformerMixin):
         """
         check_is_fitted(self, ['kernels_'])
 
+        kernel_size = getattr(self, 'kernel_size_', self.kernel_size)
+
         return {
             'n_kernels': self.n_kernels_,
             'alphas': self.alphas,
             'sigmas': self.sigmas if len(self.sigmas) == len(self.alphas)
                      else [self.sigmas[0]] * len(self.alphas),
-            'kernel_size': self.kernel_size,
+            'kernel_size': kernel_size,
             'kernel_type': self.kernel_type,
             'mode': self.mode,
         }

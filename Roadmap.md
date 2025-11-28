@@ -8,38 +8,58 @@
 
 > [Predictions] Reload and management of predictions (to avoid recomputation and relaunch analysis, just analysis on predictions parquet)
 
-> [sklearn] Integrate sklearn stacking model (serialization )
-
 > [Classification] averaging
 
-> [Model] How to force params from self best_params
+> [Predictions] > metada embed for grouping, avg...
 
-> [Expand] possible augmentations
+> [Analyzer] -> plot charts > accept dict[dataset/predict] or predict > auto list behavior
+
+> [Model] How to force params from self best_params / doc and schema and document model transfer
+> [Transfer] Automate model transfer and retraining. Test
+
+> [Expand] possible augmentations - add old transformerMixin
+
+> [sklearn] Integrate sklearn stacking model (serialization) ! (If easy)
+
+> [Runner] Remettre l'override de task_type en params
+
+> [Splitters] Add new splitters. Clean pp selection and splitter selection analysis (with nirs4all loading)
 
 **Bugs**:
 >   - [MB-PLS] test on multi-source/block
->   - [Kernel-PLS] poly and linear are crap
->   - [_or_] with one element fallback on dummy controller
+>   - [_or_] with count one element fallback on dummy controller
 >   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
->   - run count is false at run start
->   - slow down between models: check dataset copy, ensure cache and reuse.
->   - remove print scores in base model (bug in predict)
+>   - run count is false at run start -
+>   - !! slow down between models: check dataset copy, ensure cache and reuse !!
+>   - remove print scores in base model (bug in predict) (DONE)
+>   - Infer pandas type on train(X_train, y_train) -
 
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
-
-> [Transfer] Automate model transfer and retraining. Test
 
 **RELEASE** 0.5.2: Learning ready
 
 
-> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
+> [Logs] implement feature and update print/log strategy + version NIRS4ALL - DATASET 1/3 PRETRAITEMENT 35/75 MODEL X/Y -
 
-> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
+> [Layout] review layouts (tests)
 
 > [Examples] Clean and document
 
+> [visu] Spectra ultimate charts (distances t 2 hoteling ???) > Opus
 
 **RELEASE** 0.6.0: UI ready
+
+
+
+
+> [Layout] add operators params; be careful of hidden transpose or dataset transformations
+
+> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
+
+> [JIT] pour RF and SVR and XGB (what does it means to do JIT ???)
+
+**Bugs**:
+>   - [Kernel-PLS] poly and linear are crap
 
 > [Predictions] as a pipeline context for custom stacking.
 
@@ -50,6 +70,7 @@
 > [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
 
 **RELEASE** 0.6.1: Minimal Valuable Controllers
+
 
 > [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
 
@@ -65,11 +86,11 @@
 
 **RELEASE** 0.6.2: Pipeline logic
 
+
 > [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin) _ add data aug operators en masse.
 
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
-> [Logs] implement feature and update print/log strategy
 
 > [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
 
@@ -78,6 +99,7 @@
 > [Tests] clean workspace and run folder creation during tests.
 
 **RELEASE** 0.7: Tests & Logs ready
+
 
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 
@@ -89,9 +111,11 @@
 
 **RELEASE** 0.8: CLI
 
+
 > [GLOBAL REVIEW] v1.0 signatures freeze (private pattern _module), Complete tests > Prod coverage (transformations, controllers, predictions, datasets, runner)
 
 > [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
+
 
 **RELEASE**  0.9 alpha: Minimum Viable Product. Signatures frozen.
 
@@ -102,6 +126,7 @@
 > [Workflow Operators] branch, merge, split_src, scope
 
 > [Transformations] Asymetric processings (PCA in pipelines) > auto/optional padding and cropping
+
 
 **RELEASE** 0.10 beta: Operators & Controllers rc
 
