@@ -310,13 +310,20 @@ class SPXYSplitter(CustomSplitter):
         n_samples = _num_samples(X)
         n_train, _ = _validate_shuffle_split(n_samples, self.test_size, None)
 
+        # Reshape y for distance computation
+        y_reshaped = y.reshape(-1, 1) if y.ndim == 1 else y
+
         if self.pca_components is not None:
             pca = PCA(self.pca_components, random_state=self.random_state)
             X_transformed = pca.fit_transform(X)
-            y_transformed = pca.fit_transform(y.reshape(-1, 1)) if y.ndim == 1 else pca.fit_transform(y)
+            # Only apply PCA to y if it has more features than requested components
+            if y_reshaped.shape[1] > self.pca_components:
+                y_transformed = PCA(self.pca_components, random_state=self.random_state).fit_transform(y_reshaped)
+            else:
+                y_transformed = y_reshaped
         else:
             X_transformed = X
-            y_transformed = y
+            y_transformed = y_reshaped
 
         if n_train < 2:
             raise ValueError("Train sample size should be at least 2.")

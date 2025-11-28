@@ -113,3 +113,13 @@ examples/nitro_classif/Tannin_custom3/Xtest.csv
 examples/nitro_classif/Tannin_custom3/Xtrain.csv
 examples/nitro_classif/Tannin_custom3/Ytest.csv
 examples/nitro_classif/Tannin_custom3/Ytrain.csv
+examples/selection/splitter_selection_enhanced/figures/bootstrap_confidence.png
+examples/selection/splitter_selection_enhanced/figures/comparison_comprehensive.png
+examples/selection/splitter_selection_enhanced/figures/cv_distribution.png
+examples/selection/splitter_selection_enhanced/figures/model_comparison.png
+examples/selection/splitter_selection_enhanced/figures/predictions_top6.png
+examples/selection/splitter_selection_enhanced/figures/representativeness.png
+examples/selection/splitter_selection_enhanced/best_strategies_enhanced.json
+examples/selection/splitter_selection_enhanced/detailed_results_enhanced.json
+examples/selection/splitter_selection_enhanced/strategy_comparison_enhanced.csv
+examples/selection/splitter_selection_enhanced/SUMMARY_REPORT_ENHANCED.txt

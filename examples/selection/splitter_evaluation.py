@@ -232,7 +232,7 @@ def evaluate_strategy(
         print(f"\n  Test set: {len(y_test)} samples from {len(test_ids)} unique IDs")
 
     # Train on each fold
-    n_folds = fold_df[fold_df['split'] != 'test']['fold'].max() + 1
+    n_folds = int(fold_df[fold_df['split'] != 'test']['fold'].max() + 1)
     fold_results = []
     fold_models = []
 

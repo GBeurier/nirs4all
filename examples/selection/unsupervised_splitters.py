@@ -501,15 +501,25 @@ class ShenkWestSplitter(BaseSplitter):
             current_trues = d[:, idx]
 
             if d_sum.max() == 1:
+                # Add remaining samples if we haven't reached n_select
+                remaining_needed = n_select - len(model)
+                if remaining_needed > 0 and len(current_n_vector) > 0:
+                    model.extend([int(x) for x in current_n_vector[:remaining_needed]])
                 break
 
-            model.append(current_n_vector[idx])
+            model.append(int(current_n_vector[idx]))
             knn = np.where(current_trues)[0]
             keep_mask = ~current_trues
             current_n_vector = current_n_vector[keep_mask]
             d = d[keep_mask][:, keep_mask]
 
-        return np.array(model)
+        # If we still don't have enough samples, add remaining ones
+        if len(model) < n_select:
+            remaining_indices = [i for i in range(n_samples) if i not in model]
+            remaining_needed = n_select - len(model)
+            model.extend(remaining_indices[:remaining_needed])
+
+        return np.array(model, dtype=int)
 
     def split(
         self,
