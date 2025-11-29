@@ -265,6 +265,50 @@ class PyTorchModelController(BaseModelController):
 
         return predictions
 
+    def _predict_proba_model(self, model: 'nn.Module', X: Any) -> Optional[np.ndarray]:
+        """Get class probabilities from PyTorch classification model.
+
+        Returns softmax probabilities for classification models.
+        For binary classification with single output, converts to 2-column format.
+
+        Args:
+            model: Trained PyTorch model.
+            X: Input features.
+
+        Returns:
+            Class probabilities as (n_samples, n_classes) array,
+            or None for regression models.
+        """
+        import torch
+        import torch.nn.functional as F
+        device = next(model.parameters()).device
+
+        # Ensure X is a tensor
+        if not isinstance(X, torch.Tensor):
+            X = PyTorchDataPreparation.prepare_features(X, device)
+        else:
+            X = X.to(device)
+
+        model.eval()
+        with torch.no_grad():
+            logits = model(X)
+            logits = logits.cpu()
+
+            # Check if this looks like classification output
+            if logits.ndim == 1:
+                logits = logits.unsqueeze(1)
+
+            if logits.shape[1] == 1:
+                # Binary classification with single output (sigmoid)
+                # Check if values are in logit range or already probabilities
+                probs = torch.sigmoid(logits)
+                probs = probs.numpy()
+                return np.column_stack([1 - probs, probs])
+            else:
+                # Multiclass: apply softmax to get probabilities
+                probs = F.softmax(logits, dim=1)
+                return probs.numpy()
+
     def _prepare_data(
         self,
         X: np.ndarray,

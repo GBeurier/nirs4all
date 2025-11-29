@@ -386,6 +386,42 @@ class TensorFlowModelController(BaseModelController):
 
         return predictions
 
+    def _predict_proba_model(self, model: Any, X: np.ndarray) -> Optional[np.ndarray]:
+        """Get class probabilities from TensorFlow classification model.
+
+        Returns raw softmax/sigmoid outputs before argmax conversion.
+        For binary classification with single sigmoid output, converts to
+        2-column format [1-p, p].
+
+        Args:
+            model: Trained TensorFlow/Keras model.
+            X: Input features as numpy array.
+
+        Returns:
+            Class probabilities as (n_samples, n_classes) array,
+            or None for regression models.
+        """
+        # Prepare data to ensure correct shape for model
+        X_prepared, _ = self._prepare_data(X, None, {})
+
+        predictions = model.predict(X_prepared, verbose=0)
+
+        # For regression (single output), return None
+        if predictions.ndim == 1:
+            predictions = predictions.reshape(-1, 1)
+
+        if predictions.shape[1] == 1:
+            # Binary classification with sigmoid: convert to 2-column format
+            # Or could be regression - check if values are in [0, 1] range
+            if np.all((predictions >= 0) & (predictions <= 1)):
+                return np.column_stack([1 - predictions, predictions])
+            else:
+                # Regression output, not probabilities
+                return None
+
+        # Multiclass: already has probability distribution
+        return predictions
+
     def _prepare_data(
         self,
         X: np.ndarray,
