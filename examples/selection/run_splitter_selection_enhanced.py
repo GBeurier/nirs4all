@@ -49,7 +49,8 @@ from splitter_strategies import (
     ShenkWestSplitter,
     HonigsSplitter,
     HierarchicalClusteringSplitter,
-    KMedoidsSplitter
+    KMedoidsSplitter,
+    SplitResult
 )
 from splitter_evaluation_enhanced import (
     evaluate_strategy_enhanced,
@@ -514,6 +515,96 @@ def save_enhanced_results(
     print(f"\nResults saved to: {output_dir}")
 
 
+def export_best_split_regression(
+    X: np.ndarray,
+    y: np.ndarray,
+    metadata: pd.DataFrame,
+    best_result: EnhancedStrategyResult,
+    best_split: SplitResult,
+    sample_ids: np.ndarray,
+    output_dir: Path
+) -> None:
+    """
+    Export the best split data to CSV files for regression.
+
+    Creates:
+        - X_train.csv, X_test.csv (spectra)
+        - Y_train.csv, Y_test.csv (targets)
+        - M_train.csv, M_test.csv (metadata)
+        - split_info.json (split configuration and metrics)
+    """
+    export_dir = output_dir / 'best_split_export'
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    # Get train/test masks
+    train_mask = np.isin(sample_ids, best_split.train_ids)
+    test_mask = np.isin(sample_ids, best_split.test_ids)
+
+    # Export X
+    X_train_df = pd.DataFrame(X[train_mask])
+    X_test_df = pd.DataFrame(X[test_mask])
+    X_train_df.to_csv(export_dir / 'X_train.csv', sep=';', index=False)
+    X_test_df.to_csv(export_dir / 'X_test.csv', sep=';', index=False)
+
+    # Export Y
+    Y_train_df = pd.DataFrame({'y': y[train_mask]})
+    Y_test_df = pd.DataFrame({'y': y[test_mask]})
+    Y_train_df.to_csv(export_dir / 'Y_train.csv', index=False)
+    Y_test_df.to_csv(export_dir / 'Y_test.csv', index=False)
+
+    # Export M
+    M_train = metadata.iloc[np.where(train_mask)[0]].copy()
+    M_test = metadata.iloc[np.where(test_mask)[0]].copy()
+    M_train['split'] = 'train'
+    M_test['split'] = 'test'
+    M_train.to_csv(export_dir / 'M_train.csv', sep=';', index=False)
+    M_test.to_csv(export_dir / 'M_test.csv', sep=';', index=False)
+
+    # Export fold assignments
+    best_split.fold_assignments.to_csv(export_dir / 'fold_assignments.csv', index=False)
+
+    # Export split info
+    split_info = {
+        'strategy_key': best_result.strategy_key,
+        'strategy_name': best_result.strategy_name,
+        'category': best_result.category,
+        'n_train': int(train_mask.sum()),
+        'n_test': int(test_mask.sum()),
+        'n_train_ids': len(best_split.train_ids),
+        'n_test_ids': len(best_split.test_ids),
+        'test_rmse': best_result.test_rmse,
+        'test_rmse_ci': [
+            best_result.bootstrap_metrics.rmse_ci_lower,
+            best_result.bootstrap_metrics.rmse_ci_upper
+        ],
+        'test_r2': best_result.test_r2,
+        'test_r2_ci': [
+            best_result.bootstrap_metrics.r2_ci_lower,
+            best_result.bootstrap_metrics.r2_ci_upper
+        ],
+        'cv_rmse_mean': best_result.cv_rmse_mean,
+        'cv_rmse_std': best_result.cv_rmse_std,
+        'generalization_gap': best_result.generalization_gap,
+        'spectral_coverage': best_result.representativeness.spectral_coverage,
+        'target_wasserstein': best_result.representativeness.target_wasserstein,
+        'n_high_leverage': best_result.representativeness.n_high_leverage,
+        'strategy_info': best_result.strategy_info
+    }
+
+    with open(export_dir / 'split_info.json', 'w') as f:
+        json.dump(split_info, f, indent=2, default=str)
+
+    print(f"\n📁 Best split exported to: {export_dir}")
+    print(f"   - X_train.csv: {X_train_df.shape}")
+    print(f"   - X_test.csv: {X_test_df.shape}")
+    print(f"   - Y_train.csv: {Y_train_df.shape}")
+    print(f"   - Y_test.csv: {Y_test_df.shape}")
+    print(f"   - M_train.csv: {M_train.shape}")
+    print(f"   - M_test.csv: {M_test.shape}")
+    print(f"   - fold_assignments.csv")
+    print(f"   - split_info.json")
+
+
 def main(
     data_dir: str,
     output_dir: str = None,
@@ -605,6 +696,21 @@ def main(
     # Save results
     save_enhanced_results(results, comparison_df, best_strategies, output_path)
 
+    # Export best split data
+    print("\n" + "=" * 80)
+    print("EXPORTING BEST SPLIT DATA")
+    print("=" * 80)
+
+    best_strategy_key = comparison_df.iloc[0]['strategy_key']
+    best_result = results[0]  # Already sorted by test_rmse ascending
+    best_split = split_results[best_strategy_key]
+
+    export_best_split_regression(
+        X, y, metadata,
+        best_result, best_split, sample_ids,
+        output_path
+    )
+
     # Generate visualizations
     print("\n" + "=" * 80)
     print("GENERATING VISUALIZATIONS")
@@ -679,6 +785,7 @@ def main(
     print(f"  High Leverage Samples: {best['n_high_leverage']}")
 
     print(f"\n📁 All results saved to: {output_path}")
+    print(f"📁 Best split exported to: {output_path / 'best_split_export'}")
 
     return {
         'best_strategy': best['strategy'],
