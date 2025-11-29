@@ -185,6 +185,26 @@ class BaseModelController(OperatorController, ABC):
         """
         pass
 
+    def _predict_proba_model(self, model: Any, X: Any) -> Optional[np.ndarray]:
+        """Get class probabilities for classification models.
+
+        Returns probability distributions for each sample. Used for soft voting
+        in fold averaging for classification tasks.
+
+        Args:
+            model: Trained model instance.
+            X: Input features for prediction.
+
+        Returns:
+            NumPy array of shape (n_samples, n_classes) with class probabilities,
+            or None if the model doesn't support probability predictions.
+
+        Note:
+            Default implementation returns None. Subclasses should override
+            this method for classification support.
+        """
+        return None
+
     def save_model(self, model: Any, filepath: str) -> None:
         """Optional: Save model in framework-specific format.
 
@@ -577,7 +597,7 @@ class BaseModelController(OperatorController, ABC):
             weights = EnsembleUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
 
             # Create fold averages and get average predictions data
-            if dataset.task_type and dataset.task_type.is_regression and len(folds) > 1:
+            if len(folds) > 1:
                 avg_predictions, w_avg_predictions = self._create_fold_averages(
                     base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
                     folds_models, fold_val_indices, scores,
@@ -957,7 +977,9 @@ class BaseModelController(OperatorController, ABC):
             1. Simple average: Equal weight to all folds
             2. Weighted average: Weights based on validation scores
 
-        Uses modular components for prediction transformation and score calculation.
+        For regression: Uses arithmetic mean of predictions.
+        For classification: Uses soft voting (average probabilities, then argmax).
+                           Falls back to hard voting if probabilities unavailable.
 
         Args:
             base_model_name: Base name for averaged models.
@@ -980,13 +1002,102 @@ class BaseModelController(OperatorController, ABC):
         Returns:
             Tuple of (avg_prediction_dict, weighted_avg_prediction_dict).
         """
+        is_classification = dataset.task_type and dataset.task_type.is_classification
 
         # Prepare validation data
         X_val = np.vstack([X_train[val_idx] for val_idx in fold_val_indices])
         y_val_unscaled = np.vstack([y_train_unscaled[val_idx] for val_idx in fold_val_indices])
         all_val_indices = np.hstack(fold_val_indices)
 
-        # Collect predictions from all folds (using prediction_transformer component)
+        # Calculate weights based on scores
+        metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
+        weights = self._get_fold_weights(scores, higher_is_better, mode, runtime_context)
+
+        if is_classification:
+            # Use classification-specific averaging (soft or hard voting)
+            avg_preds, w_avg_preds = self._create_classification_fold_averages(
+                folds_models, X_train, X_val, X_test, weights, mode
+            )
+        else:
+            # Use regression averaging (arithmetic mean)
+            avg_preds, w_avg_preds = self._create_regression_fold_averages(
+                folds_models, X_train, X_val, X_test, weights, dataset, context, mode
+            )
+
+        # Calculate scores for averaged predictions
+        true_values = {'train': y_train_unscaled, 'val': y_val_unscaled, 'test': y_test_unscaled}
+
+        avg_scores = self.score_calculator.calculate(
+            true_values, avg_preds, dataset.task_type
+        ) if mode not in ("predict", "explain") else None
+
+        w_avg_scores = self.score_calculator.calculate(
+            true_values, w_avg_preds, dataset.task_type
+        ) if mode not in ("predict", "explain") else None
+
+        # Calculate full metrics for average predictions
+        avg_full_scores = {}
+        w_avg_full_scores = {}
+        if mode not in ("predict", "explain"):
+            for partition in ['train', 'val', 'test']:
+                if len(true_values[partition]) > 0 and len(avg_preds[partition]) > 0:
+                    avg_full_scores[partition] = self._calculate_and_print_scores(
+                        true_values[partition],
+                        avg_preds[partition],
+                        dataset.task_type,
+                        partition=partition,
+                        model_name=f"{base_model_name}_avg",
+                        show_detailed_scores=False
+                    )
+                else:
+                    avg_full_scores[partition] = {}
+
+                if len(true_values[partition]) > 0 and len(w_avg_preds[partition]) > 0:
+                    w_avg_full_scores[partition] = self._calculate_and_print_scores(
+                        true_values[partition],
+                        w_avg_preds[partition],
+                        dataset.task_type,
+                        partition=partition,
+                        model_name=f"{base_model_name}_w_avg",
+                        show_detailed_scores=False
+                    )
+                else:
+                    w_avg_full_scores[partition] = {}
+
+        # Use prediction_assembler component to create prediction dicts
+        avg_predictions = self._assemble_avg_prediction(
+            dataset, runtime_context, context, base_model_name, model_classname,
+            avg_preds, avg_scores, true_values, all_val_indices,
+            "avg", best_params, mode
+        )
+        avg_predictions['scores'] = avg_full_scores
+
+        w_avg_predictions = self._assemble_avg_prediction(
+            dataset, runtime_context, context, base_model_name, model_classname,
+            w_avg_preds, w_avg_scores, true_values, all_val_indices,
+            "w_avg", best_params, mode, weights
+        )
+        w_avg_predictions['scores'] = w_avg_full_scores
+
+        return avg_predictions, w_avg_predictions
+
+    def _create_regression_fold_averages(
+        self,
+        folds_models, X_train, X_val, X_test, weights, dataset, context, mode
+    ) -> Tuple[Dict, Dict]:
+        """Create fold-averaged predictions for regression using arithmetic mean.
+
+        Args:
+            folds_models: List of (model_id, model, score) tuples.
+            X_train, X_val, X_test: Feature arrays for each partition.
+            weights: Fold weights for weighted averaging.
+            dataset: SpectroDataset for prediction transformation.
+            context: Execution context.
+            mode: Execution mode.
+
+        Returns:
+            Tuple of (simple_avg_preds, weighted_avg_preds) dictionaries.
+        """
         all_train_preds = []
         all_val_preds = []
         all_test_preds = []
@@ -1016,66 +1127,177 @@ class BaseModelController(OperatorController, ABC):
             'test': np.mean(all_test_preds, axis=0)
         }
 
-        # Use score_calculator component
-        true_values = {'train': y_train_unscaled, 'val': y_val_unscaled, 'test': y_test_unscaled}
-        avg_scores = self.score_calculator.calculate(true_values, avg_preds, dataset.task_type) if mode not in ("predict", "explain") else None
-
-        # Calculate full metrics for average predictions
-        avg_full_scores = {}
-        if mode not in ("predict", "explain"):
-            for partition in ['train', 'val', 'test']:
-                if len(true_values[partition]) > 0 and len(avg_preds[partition]) > 0:
-                    avg_full_scores[partition] = self._calculate_and_print_scores(
-                        true_values[partition],
-                        avg_preds[partition],
-                        dataset.task_type,
-                        partition=partition,
-                        model_name=f"{base_model_name}_avg",
-                        show_detailed_scores=False
-                    )
-                else:
-                    avg_full_scores[partition] = {}
-
         # Weighted average
-        metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
-        weights = self._get_fold_weights(scores, higher_is_better, mode, runtime_context)
-
         w_avg_preds = {
             'train': np.sum([w * p for w, p in zip(weights, all_train_preds)], axis=0),
             'val': np.sum([w * p for w, p in zip(weights, all_val_preds)], axis=0) if mode not in ("predict", "explain") else np.array([]),
             'test': np.sum([w * p for w, p in zip(weights, all_test_preds)], axis=0)
         }
 
-        w_avg_scores = self.score_calculator.calculate(true_values, w_avg_preds, dataset.task_type) if mode not in ("predict", "explain") else None
+        return avg_preds, w_avg_preds
 
-        # Calculate full metrics for weighted average predictions
-        w_avg_full_scores = {}
-        if mode not in ("predict", "explain"):
-            for partition in ['train', 'val', 'test']:
-                if len(true_values[partition]) > 0 and len(w_avg_preds[partition]) > 0:
-                    w_avg_full_scores[partition] = self._calculate_and_print_scores(
-                        true_values[partition],
-                        w_avg_preds[partition],
-                        dataset.task_type,
-                        partition=partition,
-                        model_name=f"{base_model_name}_w_avg",
-                        show_detailed_scores=False
-                    )
-                else:
-                    w_avg_full_scores[partition] = {}
+    def _create_classification_fold_averages(
+        self,
+        folds_models, X_train, X_val, X_test, weights, mode
+    ) -> Tuple[Dict, Dict]:
+        """Create fold-averaged predictions for classification using soft voting.
 
-        # Use prediction_assembler component to create prediction dicts
-        avg_predictions = self._assemble_avg_prediction(dataset, runtime_context, context, base_model_name, model_classname,
-                                                         avg_preds, avg_scores, true_values, all_val_indices,
-                                                         "avg", best_params, mode)
-        avg_predictions['scores'] = avg_full_scores
+        Uses probability averaging (soft voting) when probabilities are available,
+        otherwise falls back to hard voting (majority vote).
 
-        w_avg_predictions = self._assemble_avg_prediction(dataset, runtime_context, context, base_model_name, model_classname,
-                                                           w_avg_preds, w_avg_scores, true_values, all_val_indices,
-                                                           "w_avg", best_params, mode, weights)
-        w_avg_predictions['scores'] = w_avg_full_scores
+        Args:
+            folds_models: List of (model_id, model, score) tuples.
+            X_train, X_val, X_test: Feature arrays for each partition.
+            weights: Fold weights for weighted voting.
+            mode: Execution mode.
 
-        return avg_predictions, w_avg_predictions
+        Returns:
+            Tuple of (simple_avg_preds, weighted_avg_preds) dictionaries.
+        """
+        # Collect probabilities or class predictions from all folds
+        all_train_probs = []
+        all_val_probs = []
+        all_test_probs = []
+        all_train_preds = []
+        all_val_preds = []
+        all_test_preds = []
+        use_soft_voting = True
+
+        for _, fold_model, _ in folds_models:
+            # Try to get probabilities first
+            train_probs = self._predict_proba_model(fold_model, X_train) if X_train.shape[0] > 0 else None
+            val_probs = self._predict_proba_model(fold_model, X_val) if X_val.shape[0] > 0 else None
+            test_probs = self._predict_proba_model(fold_model, X_test) if X_test.shape[0] > 0 else None
+
+            if train_probs is None or test_probs is None:
+                # Model doesn't support probabilities, use hard voting
+                use_soft_voting = False
+                all_train_preds.append(
+                    self._predict_model(fold_model, X_train) if X_train.shape[0] > 0 else np.array([])
+                )
+                all_val_preds.append(
+                    self._predict_model(fold_model, X_val) if X_val.shape[0] > 0 else np.array([])
+                )
+                all_test_preds.append(
+                    self._predict_model(fold_model, X_test) if X_test.shape[0] > 0 else np.array([])
+                )
+            else:
+                all_train_probs.append(train_probs)
+                all_val_probs.append(val_probs if val_probs is not None else np.array([]))
+                all_test_probs.append(test_probs)
+                # Also collect class predictions for potential fallback
+                all_train_preds.append(
+                    self._predict_model(fold_model, X_train) if X_train.shape[0] > 0 else np.array([])
+                )
+                all_val_preds.append(
+                    self._predict_model(fold_model, X_val) if X_val.shape[0] > 0 else np.array([])
+                )
+                all_test_preds.append(
+                    self._predict_model(fold_model, X_test) if X_test.shape[0] > 0 else np.array([])
+                )
+
+        if use_soft_voting and all_train_probs:
+            # Soft voting: average probabilities, then argmax
+            # avg: simple average of probabilities
+            # w_avg: uses fold weights AND confidence weighting for meaningful differences
+            avg_preds = self._soft_vote_partitions(
+                all_train_probs, all_val_probs, all_test_probs,
+                weights=None, mode=mode, use_confidence_weighting=False
+            )
+            w_avg_preds = self._soft_vote_partitions(
+                all_train_probs, all_val_probs, all_test_probs,
+                weights=weights, mode=mode, use_confidence_weighting=True
+            )
+        else:
+            # Hard voting: majority vote on class predictions
+            avg_preds = self._hard_vote_partitions(
+                all_train_preds, all_val_preds, all_test_preds, weights=None, mode=mode
+            )
+            w_avg_preds = self._hard_vote_partitions(
+                all_train_preds, all_val_preds, all_test_preds, weights=weights, mode=mode
+            )
+
+        return avg_preds, w_avg_preds
+
+    def _soft_vote_partitions(
+        self,
+        all_train_probs, all_val_probs, all_test_probs, weights, mode,
+        use_confidence_weighting: bool = False
+    ) -> Dict[str, np.ndarray]:
+        """Apply soft voting to each partition.
+
+        Args:
+            all_*_probs: Lists of probability arrays from each fold.
+            weights: Optional fold weights.
+            mode: Execution mode.
+            use_confidence_weighting: If True, weight by prediction confidence.
+
+        Returns:
+            Dictionary with averaged predictions for each partition.
+        """
+        result = {}
+
+        # Train partition
+        if all_train_probs and all_train_probs[0].size > 0:
+            result['train'], _ = EnsembleUtils.compute_soft_voting_average(
+                all_train_probs, weights, use_confidence_weighting
+            )
+        else:
+            result['train'] = np.array([])
+
+        # Validation partition
+        if mode not in ("predict", "explain") and all_val_probs and all_val_probs[0].size > 0:
+            result['val'], _ = EnsembleUtils.compute_soft_voting_average(
+                all_val_probs, weights, use_confidence_weighting
+            )
+        else:
+            result['val'] = np.array([])
+
+        # Test partition
+        if all_test_probs and all_test_probs[0].size > 0:
+            result['test'], _ = EnsembleUtils.compute_soft_voting_average(
+                all_test_probs, weights, use_confidence_weighting
+            )
+        else:
+            result['test'] = np.array([])
+
+        return result
+
+    def _hard_vote_partitions(
+        self,
+        all_train_preds, all_val_preds, all_test_preds, weights, mode
+    ) -> Dict[str, np.ndarray]:
+        """Apply hard voting (majority vote) to each partition.
+
+        Args:
+            all_*_preds: Lists of class prediction arrays from each fold.
+            weights: Optional fold weights.
+            mode: Execution mode.
+
+        Returns:
+            Dictionary with voted predictions for each partition.
+        """
+        result = {}
+
+        # Train partition
+        if all_train_preds and all_train_preds[0].size > 0:
+            result['train'] = EnsembleUtils.compute_hard_voting(all_train_preds, weights)
+        else:
+            result['train'] = np.array([])
+
+        # Validation partition
+        if mode not in ("predict", "explain") and all_val_preds and all_val_preds[0].size > 0:
+            result['val'] = EnsembleUtils.compute_hard_voting(all_val_preds, weights)
+        else:
+            result['val'] = np.array([])
+
+        # Test partition
+        if all_test_preds and all_test_preds[0].size > 0:
+            result['test'] = EnsembleUtils.compute_hard_voting(all_test_preds, weights)
+        else:
+            result['test'] = np.array([])
+
+        return result
 
     def _get_fold_weights(self, scores, higher_is_better, mode, runtime_context):
         """Calculate weights for fold averaging based on validation scores.

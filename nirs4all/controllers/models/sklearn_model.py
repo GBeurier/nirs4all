@@ -301,6 +301,35 @@ class SklearnModelController(BaseModelController):
 
         return predictions
 
+    def _predict_proba_model(self, model: BaseEstimator, X: np.ndarray) -> Optional[np.ndarray]:
+        """Get class probabilities for sklearn classification models.
+
+        Supports all sklearn classifiers with predict_proba, plus XGBoost,
+        LightGBM, and CatBoost classifiers.
+
+        Args:
+            model (BaseEstimator): Trained sklearn classifier.
+            X (np.ndarray): Input features, shape (n_samples, n_features).
+
+        Returns:
+            np.ndarray: Class probabilities, shape (n_samples, n_classes),
+                or None if model doesn't support probability predictions.
+        """
+        if not hasattr(model, 'predict_proba'):
+            return None
+
+        try:
+            proba = model.predict_proba(X)
+
+            # Ensure 2D array (some models return 1D for binary classification)
+            if proba.ndim == 1:
+                proba = np.column_stack([1 - proba, proba])
+
+            return proba
+        except Exception:
+            # Some models may have predict_proba but fail (e.g., SVC without probability=True)
+            return None
+
     def _prepare_data(
         self,
         X: np.ndarray,

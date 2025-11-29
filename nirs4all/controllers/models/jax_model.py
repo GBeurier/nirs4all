@@ -302,6 +302,41 @@ class JaxModelController(BaseModelController):
         else:
             raise ValueError("Model must be a JaxModelWrapper instance for prediction")
 
+    def _predict_proba_model(self, model: Any, X: Any) -> Optional[np.ndarray]:
+        """Get class probabilities from JAX classification model.
+
+        Returns softmax probabilities for classification models.
+
+        Args:
+            model: Trained JAX model (JaxModelWrapper).
+            X: Input features.
+
+        Returns:
+            Class probabilities as (n_samples, n_classes) array,
+            or None for regression models.
+        """
+        import jax.nn as jnn
+
+        if not isinstance(model, JaxModelWrapper):
+            return None
+
+        # Get raw model outputs (logits)
+        preds = model.predict(X)
+
+        if preds.ndim == 1:
+            preds = preds.reshape(-1, 1)
+
+        if preds.shape[1] == 1:
+            # Binary classification with single output
+            # Apply sigmoid and convert to 2-column format
+            probs = jnn.sigmoid(preds)
+            probs = np.asarray(probs)
+            return np.column_stack([1 - probs, probs])
+        else:
+            # Multiclass: apply softmax
+            probs = jnn.softmax(preds, axis=-1)
+            return np.asarray(probs)
+
     def _prepare_data(
         self,
         X: np.ndarray,

@@ -4,14 +4,154 @@ Ensemble Prediction Utilities - Weighted averaging for ensemble predictions
 This module provides utilities for combining predictions from multiple models
 using weighted averaging based on their scores. Relocated from utils/model_utils.py
 to be with data/prediction modules.
+
+Supports both regression (numeric averaging) and classification (soft/hard voting).
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 
 
 class EnsembleUtils:
-    """Utilities for ensemble prediction with weighted averaging."""
+    """Utilities for ensemble prediction with weighted averaging and voting."""
+
+    # =========================================================================
+    # Classification Ensemble Methods (Soft/Hard Voting)
+    # =========================================================================
+
+    @staticmethod
+    def compute_soft_voting_average(
+        probability_arrays: List[np.ndarray],
+        weights: Optional[np.ndarray] = None,
+        use_confidence_weighting: bool = False
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute soft voting average of class probabilities.
+
+        Averages probability distributions from multiple models (weighted or simple),
+        then takes argmax to get final class predictions.
+
+        Args:
+            probability_arrays: List of probability arrays, each shape (n_samples, n_classes).
+            weights: Optional weights for each model (fold weights based on validation scores).
+                    If None, uses uniform weights.
+            use_confidence_weighting: If True, additionally weight each fold's contribution
+                    per-sample by its prediction confidence (max probability).
+                    This gives more influence to confident predictions.
+
+        Returns:
+            Tuple of:
+                - class_predictions: Class labels as (n_samples, 1) array
+                - averaged_probabilities: Averaged probabilities (n_samples, n_classes)
+
+        Raises:
+            ValueError: If probability_arrays is empty or shapes don't match.
+        """
+        if not probability_arrays:
+            raise ValueError("probability_arrays cannot be empty")
+
+        # Validate shapes
+        base_shape = probability_arrays[0].shape
+        for i, arr in enumerate(probability_arrays):
+            if arr.shape != base_shape:
+                raise ValueError(f"Array {i} has shape {arr.shape}, expected {base_shape}")
+
+        n_models = len(probability_arrays)
+        n_samples = base_shape[0]
+
+        # Default to uniform fold weights
+        if weights is None:
+            fold_weights = np.ones(n_models) / n_models
+        else:
+            fold_weights = np.asarray(weights, dtype=float)
+            # Normalize weights to sum to 1
+            fold_weights = fold_weights / np.sum(fold_weights)
+
+        if use_confidence_weighting:
+            # Confidence-weighted averaging: each sample gets per-fold weights
+            # based on prediction confidence (max probability)
+            averaged_probs = np.zeros_like(probability_arrays[0], dtype=float)
+
+            for sample_idx in range(n_samples):
+                # Compute confidence for each fold at this sample
+                confidences = np.array([
+                    np.max(probs[sample_idx]) for probs in probability_arrays
+                ])
+
+                # Combine fold weights with confidence weights
+                combined_weights = fold_weights * confidences
+                combined_weights = combined_weights / np.sum(combined_weights)  # Normalize
+
+                # Weighted average for this sample
+                for fold_idx, probs in enumerate(probability_arrays):
+                    averaged_probs[sample_idx] += combined_weights[fold_idx] * probs[sample_idx]
+        else:
+            # Standard weighted average of probabilities
+            averaged_probs = np.zeros_like(probability_arrays[0], dtype=float)
+            for probs, w in zip(probability_arrays, fold_weights):
+                averaged_probs += w * probs
+
+        # Get class predictions via argmax
+        class_predictions = np.argmax(averaged_probs, axis=1).reshape(-1, 1).astype(float)
+
+        return class_predictions, averaged_probs
+
+    @staticmethod
+    def compute_hard_voting(
+        class_predictions: List[np.ndarray],
+        weights: Optional[np.ndarray] = None,
+        n_classes: Optional[int] = None
+    ) -> np.ndarray:
+        """Compute hard voting (majority vote) from class predictions.
+
+        Each model votes for a class, and the class with most votes wins.
+        Supports weighted voting where each model's vote is weighted.
+
+        Args:
+            class_predictions: List of class prediction arrays, each shape (n_samples,) or (n_samples, 1).
+            weights: Optional weights for each model's vote.
+                    If None, uses uniform weights (standard majority vote).
+            n_classes: Number of classes. If None, inferred from predictions.
+
+        Returns:
+            Final class predictions as (n_samples, 1) array.
+
+        Raises:
+            ValueError: If class_predictions is empty.
+        """
+        if not class_predictions:
+            raise ValueError("class_predictions cannot be empty")
+
+        n_models = len(class_predictions)
+        n_samples = class_predictions[0].shape[0]
+
+        # Flatten all predictions to 1D
+        predictions = [np.asarray(p).flatten().astype(int) for p in class_predictions]
+
+        # Infer n_classes if not provided
+        if n_classes is None:
+            n_classes = max(p.max() for p in predictions) + 1
+
+        # Default to uniform weights
+        if weights is None:
+            weights = np.ones(n_models)
+        else:
+            weights = np.asarray(weights, dtype=float)
+
+        # Count weighted votes for each class per sample
+        vote_counts = np.zeros((n_samples, n_classes), dtype=float)
+        for pred, w in zip(predictions, weights):
+            for sample_idx in range(n_samples):
+                class_idx = pred[sample_idx]
+                vote_counts[sample_idx, class_idx] += w
+
+        # Get winning class (most votes)
+        final_predictions = np.argmax(vote_counts, axis=1).reshape(-1, 1).astype(float)
+
+        return final_predictions
+
+    # =========================================================================
+    # Regression Ensemble Methods (Weighted Averaging)
+    # =========================================================================
 
     @staticmethod
     def compute_weighted_average(
