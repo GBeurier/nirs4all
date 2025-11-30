@@ -1,16 +1,10 @@
 ## ROADMAP
 
-> [PLS] Implement variable selection methods, document and -
-
-> [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
+> [sklearn] Integrate optuna finetuning
 
 > [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
 
 > [Predictions] Reload and management of predictions (to avoid recomputation and relaunch analysis, just analysis on predictions parquet)
-
-> [sklearn] Integrate sklearn stacking model (serialization )
-
-> [Classification] averaging
 
 > [Model] How to force params from self best_params
 
@@ -28,6 +22,10 @@
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 
 > [Transfer] Automate model transfer and retraining. Test
+
+> [PLS] Implement variable selection methods, document and -
+
+> [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
 
 **RELEASE** 0.5.2: Learning ready
 
