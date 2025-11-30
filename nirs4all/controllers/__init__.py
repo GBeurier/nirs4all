@@ -38,6 +38,7 @@ from .splitters.split import CrossValidatorController
 from .charts.spectra import SpectraChartController
 from .charts.folds import FoldChartController
 from .charts.targets import YChartController
+from .charts.augmentation import AugmentationChartController
 
 __all__ = [
     'BaseController',
@@ -54,6 +55,7 @@ __all__ = [
     'SpectraChartController',
     'FoldChartController',
     'YChartController',
+    'AugmentationChartController',
     'SklearnModelController',
     'TensorFlowModelController',
     'PyTorchModelController',
