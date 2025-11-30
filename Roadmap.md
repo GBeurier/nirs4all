@@ -8,7 +8,7 @@
 
 > [Model] How to force params from self best_params
 
-> [Expand] possible augmentations
+> [Expand] possible augmentations (cf llm report)
 
 **Bugs**:
 >   - [MB-PLS] test on multi-source/block
@@ -21,7 +21,7 @@
 
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 
-> [Transfer] Automate model transfer and retraining. Test
+> [Transfer] Automate model transfer and retraining. Test. Basically, file in pipeline "model".
 
 > [PLS] Implement variable selection methods, document and -
 
@@ -36,10 +36,13 @@
 
 > [Examples] Clean and document
 
+> [Predict] Verify predict from model, pipeline, folder, file, pred, ...
 
 **RELEASE** 0.6.0: UI ready
 
 > [Predictions] as a pipeline context for custom stacking.
+
+> [Stacking] Use prediction as X for stacking.
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
@@ -94,8 +97,6 @@
 **RELEASE**  0.9 alpha: Minimum Viable Product. Signatures frozen.
 
 > [Y_pipeline in models]
-
-> [Stacking]
 
 > [Workflow Operators] branch, merge, split_src, scope
 
