@@ -182,6 +182,12 @@ class TransformerMixinController(OperatorController):
     ) -> Tuple[ExecutionContext, List]:
         """
         Apply transformer to origin samples and add augmented samples.
+
+        Optimized implementation:
+        - Batch data fetching: fetches all target samples in one call
+        - Single transformer fit: fits transformer once on train data, reuses for all samples
+        - Batch transform: transforms all samples at once per processing
+        - Bulk insert: adds all augmented samples in a loop but with pre-fitted transformer
         """
         target_sample_ids = context.metadata.target_samples
         if not target_sample_ids:
@@ -189,15 +195,141 @@ class TransformerMixinController(OperatorController):
 
         operator_name = operator.__class__.__name__
         fitted_transformers = []
+        n_targets = len(target_sample_ids)
+
+        # Get train data for fitting (if not in predict/explain mode) - once for all samples
+        train_data = None
+        fitted_transformers_cache = {}  # Cache fitted transformers per source/processing
+
+        if mode not in ["predict", "explain"]:
+            train_context = context.with_partition("train")
+            train_selector = train_context.selector.with_augmented(False)
+            train_data = dataset.x(train_selector, "3d", concat_source=False)
+            if not isinstance(train_data, list):
+                train_data = [train_data]
+
+        # Batch fetch all target samples at once
+        batch_selector = {"sample": list(target_sample_ids)}
+        all_origin_data = dataset.x(batch_selector, "3d", concat_source=False, include_augmented=False)
+
+        if not isinstance(all_origin_data, list):
+            all_origin_data = [all_origin_data]
+
+        # Determine dimensions - use actual data shape, not target_sample_ids length
+        n_sources = len(all_origin_data)
+        n_actual_samples = all_origin_data[0].shape[0] if n_sources > 0 else 0
+        n_processings = all_origin_data[0].shape[1] if n_sources > 0 else 0
+
+        # Ensure we have the expected number of samples
+        if n_actual_samples != n_targets:
+            # If mismatch, fallback to original sample-by-sample approach
+            # This can happen if some target_sample_ids don't exist or are filtered out
+            return self._execute_for_sample_augmentation_sequential(
+                operator, dataset, context, runtime_context, mode, loaded_binaries, prediction_store
+            )
+
+        # Pre-fit and cache transformers for each source/processing combination (once!)
+        if mode not in ["predict", "explain"] and train_data:
+            for source_idx in range(n_sources):
+                for proc_idx in range(n_processings):
+                    cache_key = (source_idx, proc_idx)
+                    transformer = clone(operator)
+                    train_proc_data = train_data[source_idx][:, proc_idx, :]
+                    transformer.fit(train_proc_data)
+                    fitted_transformers_cache[cache_key] = transformer
+
+                    # Save a single transformer binary per source/processing (not per sample)
+                    if mode == "train":
+                        artifact = runtime_context.saver.persist_artifact(
+                            step_number=runtime_context.step_number,
+                            name=f"{operator_name}_{source_idx}_{proc_idx}",
+                            obj=transformer,
+                            format_hint='sklearn'
+                        )
+                        fitted_transformers.append(artifact)
+
+        # Batch transform all samples per source/processing
+        # all_origin_data[source_idx] shape: (n_samples, n_processings, n_features)
+        all_transformed = []  # List[List[ndarray]]: [source][processing] -> (n_samples, n_features)
+
+        for source_idx in range(n_sources):
+            source_transformed = []
+            source_data = all_origin_data[source_idx]  # (n_samples, n_processings, n_features)
+
+            for proc_idx in range(n_processings):
+                proc_data = source_data[:, proc_idx, :]  # (n_samples, n_features)
+
+                if loaded_binaries and mode in ["predict", "explain"]:
+                    # For predict mode, use cached binaries
+                    transformer = dict(loaded_binaries).get(f"{operator_name}_{source_idx}_{proc_idx}")
+                    if transformer is None:
+                        raise ValueError(f"Binary for {operator_name}_{source_idx}_{proc_idx} not found")
+                else:
+                    # Use pre-fitted transformer from cache
+                    cache_key = (source_idx, proc_idx)
+                    transformer = fitted_transformers_cache[cache_key]
+
+                # Batch transform all samples at once
+                transformed_data = transformer.transform(proc_data)  # (n_samples, n_features)
+                source_transformed.append(transformed_data)
+
+            all_transformed.append(source_transformed)
+
+        # OPTIMIZED: Collect all augmented samples, then batch insert
+        # Build 3D arrays for batch insertion: (n_samples, n_processings, n_features)
+        if n_sources == 1:
+            # Single source: stack transformed data into 3D array
+            # all_transformed[0] is list of (n_samples, n_features) arrays, one per processing
+            batch_data = np.stack(all_transformed[0], axis=1)  # (n_samples, n_processings, n_features)
+        else:
+            # Multi-source: create list of 3D arrays
+            batch_data = []
+            for source_idx in range(n_sources):
+                source_3d = np.stack(all_transformed[source_idx], axis=1)
+                batch_data.append(source_3d)
+
+        # Build index dictionaries for all samples
+        indexes_list = [
+            {
+                "partition": "train",
+                "origin": sample_id,
+                "augmentation": operator_name
+            }
+            for sample_id in target_sample_ids
+        ]
+
+        # Single batch insert - O(N) instead of O(N²)
+        dataset.add_samples_batch(data=batch_data, indexes_list=indexes_list)
+
+        return context, fitted_transformers
+
+    def _execute_for_sample_augmentation_sequential(
+        self,
+        operator: Any,
+        dataset: 'SpectroDataset',
+        context: ExecutionContext,
+        runtime_context: 'RuntimeContext',
+        mode: str,
+        loaded_binaries: Optional[List[Tuple[str, Any]]],
+        prediction_store: Optional[Any]
+    ) -> Tuple[ExecutionContext, List]:
+        """
+        Fallback sequential implementation for sample augmentation.
+        Used when batch processing is not possible due to data shape mismatches.
+        """
+        target_sample_ids = context.metadata.target_samples
+        if not target_sample_ids:
+            return context, []
+
+        operator_name = operator.__class__.__name__
+        fitted_transformers = []
+        fitted_transformers_cache = {}
 
         # Get train data for fitting (if not in predict/explain mode)
         train_data = None
         if mode not in ["predict", "explain"]:
             train_context = context.with_partition("train")
-            # Note: dataset.x expects context, but we need to ensure include_augmented=False
-            # We can use a temporary selector for this
             train_selector = train_context.selector.with_augmented(False)
-
             train_data = dataset.x(train_selector, "3d", concat_source=False)
             if not isinstance(train_data, list):
                 train_data = [train_data]
@@ -208,7 +340,6 @@ class TransformerMixinController(OperatorController):
             origin_selector = {"sample": [sample_id]}
             origin_data = dataset.x(origin_selector, "3d", concat_source=False, include_augmented=False)
 
-            # Ensure list format for multi-source
             if not isinstance(origin_data, list):
                 origin_data = [origin_data]
 
@@ -216,66 +347,55 @@ class TransformerMixinController(OperatorController):
             transformed_sources = []
 
             for source_idx, source_data in enumerate(origin_data):
-                # source_data shape: (1, n_processings, n_features) for single sample
                 source_2d_list = []
 
                 for proc_idx in range(source_data.shape[1]):
-                    proc_data = source_data[:, proc_idx, :]  # (1, n_features)
+                    proc_data = source_data[:, proc_idx, :]
 
-                    # Apply transformer
+                    cache_key = (source_idx, proc_idx)
+
                     if loaded_binaries and mode in ["predict", "explain"]:
-                        transformer = dict(loaded_binaries).get(f"{operator_name}_{source_idx}_{proc_idx}_{sample_id}")
+                        transformer = dict(loaded_binaries).get(f"{operator_name}_{source_idx}_{proc_idx}")
                         if transformer is None:
                             raise ValueError(f"Binary for {operator_name} not found")
+                    elif cache_key in fitted_transformers_cache:
+                        # Reuse already fitted transformer
+                        transformer = fitted_transformers_cache[cache_key]
                     else:
                         transformer = clone(operator)
-                        # Fit on train data for this source/processing
                         if train_data:
                             train_proc_data = train_data[source_idx][:, proc_idx, :]
                             transformer.fit(train_proc_data)
+                        fitted_transformers_cache[cache_key] = transformer
+
+                        # Save transformer binary once
+                        if mode == "train":
+                            artifact = runtime_context.saver.persist_artifact(
+                                step_number=runtime_context.step_number,
+                                name=f"{operator_name}_{source_idx}_{proc_idx}",
+                                obj=transformer,
+                                format_hint='sklearn'
+                            )
+                            fitted_transformers.append(artifact)
 
                     transformed_data = transformer.transform(proc_data)
                     source_2d_list.append(transformed_data)
 
-                    # Save transformer binary
-                    if mode == "train":
-                        artifact = runtime_context.saver.persist_artifact(
-                            step_number=runtime_context.step_number,
-                            name=f"{operator_name}_{source_idx}_{proc_idx}_{sample_id}",
-                            obj=transformer,
-                            format_hint='sklearn'
-                        )
-                        fitted_transformers.append(artifact)
-
-                # Stack back to 3D (1, n_processings, n_features)
                 source_3d = np.stack(source_2d_list, axis=1)
                 transformed_sources.append(source_3d)
-
-            # Add augmented sample to dataset using add_samples with proper indexing
-            # Use only the transformer name for augmentation column (like processings)
 
             # Build index dictionary for the augmented sample
             index_dict = {
                 "partition": "train",
-                "origin": sample_id,  # Track origin
-                "augmentation": operator_name  # Transformer name only
+                "origin": sample_id,
+                "augmentation": operator_name
             }
 
-            # Note: Metadata copying is handled by the indexer, not here
-            # The indexer's add_samples_dict will set origin and augmentation columns
-
-            # Add augmented sample (transformed_sources is list of 3D arrays, one per source)
-            # Need to convert to format expected by add_samples
             if len(transformed_sources) == 1:
-                # Single source: pass 2D array (squeeze out sample dimension)
-                data_to_add = transformed_sources[0][0, :, :]  # (n_processings, n_features)
+                data_to_add = transformed_sources[0][0, :, :]
             else:
-                # Multi-source: pass list of 2D arrays
                 data_to_add = [src[0, :, :] for src in transformed_sources]
 
-            dataset.add_samples(
-                data=data_to_add,
-                indexes=index_dict
-            )
+            dataset.add_samples(data=data_to_add, indexes=index_dict)
 
         return context, fitted_transformers

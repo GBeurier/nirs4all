@@ -144,6 +144,29 @@ class SpectroDataset:
         """
         self._feature_accessor.add_samples(data, indexes, headers, header_unit)
 
+    def add_samples_batch(self,
+                          data: Union[np.ndarray, List[np.ndarray]],
+                          indexes_list: List[IndexDict]) -> None:
+        """
+        Add multiple samples in a single batch operation - O(N) instead of O(N²).
+
+        This method is optimized for bulk insertion of augmented samples. It performs
+        only one array concatenation and one indexer append, making it dramatically
+        faster than calling add_samples() in a loop.
+
+        Args:
+            data: 3D array of shape (n_samples, n_processings, n_features) for single source,
+                  or list of 3D arrays for multi-source datasets.
+            indexes_list: List of index dictionaries, one per sample.
+
+        Example:
+            >>> # Batch add 100 augmented samples
+            >>> data = np.random.rand(100, 2, 500)
+            >>> indexes = [{"partition": "train", "origin": i, "augmentation": "noise"} for i in range(100)]
+            >>> dataset.add_samples_batch(data, indexes)
+        """
+        self._feature_accessor.add_samples_batch(data, indexes_list)
+
     def add_features(self,
                      features: InputFeatures,
                      processings: ProcessingList,

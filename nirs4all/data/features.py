@@ -79,6 +79,34 @@ class Features:
             if hdr is not None and unit is not None:
                 src.set_headers(hdr, unit=unit)
 
+    def add_samples_batch_3d(self, data: Union[np.ndarray, List[np.ndarray]]) -> None:
+        """Add multiple samples with 3D data in a single operation - O(N) instead of O(N²).
+
+        This method is optimized for bulk insertion of augmented samples where
+        each sample may have multiple processings. Much faster than calling
+        add_samples() in a loop.
+
+        Args:
+            data: Single 3D array of shape (n_samples, n_processings, n_features)
+                  or list of 3D arrays for multi-source datasets.
+
+        Raises:
+            ValueError: If number of data arrays doesn't match existing sources,
+                or if data dimensions don't match.
+        """
+        if isinstance(data, np.ndarray):
+            data = [data]
+
+        n_sources = len(data)
+        if not self.sources:
+            raise ValueError("Cannot add samples to empty feature block - add initial samples first")
+        if len(self.sources) != n_sources:
+            raise ValueError(f"Expected {len(self.sources)} sources, got {n_sources}")
+
+        # Add samples to each source using batch method
+        for src, arr in zip(self.sources, data):
+            src.add_samples_batch_3d(arr)
+
     def update_features(self, source_processings: ProcessingList, features: InputFeatures, processings: ProcessingList, source: int = -1) -> None:
         """Update or add new feature processings to a specific source.
 

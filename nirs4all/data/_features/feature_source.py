@@ -171,6 +171,23 @@ class FeatureSource:
             current_unit = self._header_mgr.header_unit
             self._header_mgr.set_headers(headers, unit=current_unit)
 
+    def add_samples_batch_3d(self, data: np.ndarray) -> None:
+        """Add multiple samples with 3D data in a single operation - O(N) instead of O(N²).
+
+        This method is optimized for bulk insertion of augmented samples where
+        each sample may have multiple processings.
+
+        Args:
+            data: 3D array of shape (n_samples, n_processings, n_features).
+
+        Raises:
+            ValueError: If data dimensions don't match existing processings/features.
+        """
+        if data.ndim != 3:
+            raise ValueError(f"data must be a 3D array, got {data.ndim} dimensions")
+
+        self._storage.add_samples_batch(data)
+
     def set_headers(self, headers: Optional[List[str]], unit: str = "cm-1") -> None:
         """Set feature headers with unit metadata.
 

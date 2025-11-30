@@ -110,6 +110,57 @@ class ArrayStorage:
             new_data_3d = prepared_data[:, None, :]
             self._array = np.concatenate((self._array, new_data_3d), axis=0)
 
+    def add_samples_batch(self, data: np.ndarray) -> None:
+        """Add multiple new samples in a single operation - O(N) instead of O(N²).
+
+        This is much more efficient than calling add_samples() in a loop because
+        it performs only one array concatenation for all samples.
+
+        Args:
+            data: 3D array of shape (n_samples, n_processings, n_features).
+                  For single processing, use shape (n_samples, 1, n_features).
+
+        Raises:
+            ValueError: If data dimensions don't match or are invalid.
+        """
+        if data.ndim != 3:
+            raise ValueError(f"data must be a 3D array, got {data.ndim} dimensions")
+
+        n_new_samples = data.shape[0]
+        if n_new_samples == 0:
+            return
+
+        if self.num_samples == 0:
+            # Initialize with the batch data
+            self._array = data.astype(np.float32)
+        else:
+            # Validate dimensions
+            if data.shape[1] != self.num_processings:
+                raise ValueError(
+                    f"Processing dimension mismatch: expected {self.num_processings}, "
+                    f"got {data.shape[1]}"
+                )
+
+            # Handle feature padding if needed
+            if self.padding and data.shape[2] < self.num_features:
+                padded_data = np.full(
+                    (n_new_samples, self.num_processings, self.num_features),
+                    self.pad_value,
+                    dtype=self._array.dtype
+                )
+                padded_data[:, :, :data.shape[2]] = data
+                data = padded_data
+            elif not self.padding and data.shape[2] != self.num_features:
+                raise ValueError(
+                    f"Feature dimension mismatch: expected {self.num_features}, "
+                    f"got {data.shape[2]}"
+                )
+            else:
+                data = data.astype(self._array.dtype)
+
+            # Single concatenation for all samples - O(N) instead of O(N²)
+            self._array = np.concatenate((self._array, data), axis=0)
+
     def _prepare_data_for_storage(self, data: np.ndarray) -> np.ndarray:
         """Prepare data for storage by handling padding and dimension matching.
 
