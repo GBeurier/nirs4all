@@ -450,6 +450,10 @@ class SklearnModelController(BaseModelController):
         parameters but without fitted attributes. This is the recommended way
         to clone sklearn estimators.
 
+        For meta-estimators (StackingRegressor, VotingClassifier, etc.) and
+        boosting libraries (XGBoost, LightGBM, CatBoost), deepcopy is used
+        to preserve all nested structures properly.
+
         Args:
             model (BaseEstimator): Sklearn model instance to clone.
 
@@ -463,6 +467,10 @@ class SklearnModelController(BaseModelController):
         # especially if they don't perfectly adhere to sklearn API
         framework = ModelFactory.detect_framework(model)
         if framework in ['xgboost', 'lightgbm', 'catboost']:
+            return copy.deepcopy(model)
+
+        # Meta-estimators (stacking/voting) need deepcopy to preserve nested estimators
+        if ModelFactory.is_meta_estimator(model):
             return copy.deepcopy(model)
 
         try:

@@ -8,6 +8,118 @@ build_aliases = {
     # Add common aliases here if needed
 }
 
+
+def _is_meta_estimator(obj) -> bool:
+    """Check if object is a stacking/voting meta-estimator.
+
+    Args:
+        obj: Object to check.
+
+    Returns:
+        True if object is a meta-estimator (has estimators and final_estimator).
+    """
+    try:
+        from sklearn.ensemble import (
+            StackingRegressor, StackingClassifier,
+            VotingRegressor, VotingClassifier
+        )
+        meta_types = (StackingRegressor, StackingClassifier,
+                      VotingRegressor, VotingClassifier)
+        return isinstance(obj, meta_types)
+    except ImportError:
+        return False
+
+
+def _is_meta_estimator_class(cls) -> bool:
+    """Check if class is a meta-estimator type.
+
+    Args:
+        cls: Class to check.
+
+    Returns:
+        True if class is a meta-estimator type.
+    """
+    try:
+        from sklearn.ensemble import (
+            StackingRegressor, StackingClassifier,
+            VotingRegressor, VotingClassifier
+        )
+        return cls in (StackingRegressor, StackingClassifier,
+                       VotingRegressor, VotingClassifier)
+    except ImportError:
+        return False
+
+
+def _serialize_meta_estimator(obj) -> dict:
+    """Serialize a stacking/voting meta-estimator with nested estimators.
+
+    Handles StackingRegressor, StackingClassifier, VotingRegressor, VotingClassifier
+    by recursively serializing their base estimators and final_estimator.
+
+    Args:
+        obj: Meta-estimator instance to serialize.
+
+    Returns:
+        Dictionary with class path, estimators, final_estimator, and other params.
+    """
+    result = {
+        "class": f"{obj.__class__.__module__}.{obj.__class__.__qualname__}",
+        "params": {}
+    }
+
+    # Serialize each base estimator as (name, serialized_estimator) pairs
+    if hasattr(obj, 'estimators') and obj.estimators is not None:
+        result["params"]["estimators"] = [
+            [name, serialize_component(est)]
+            for name, est in obj.estimators
+        ]
+
+    # Serialize final_estimator (for stacking models)
+    if hasattr(obj, 'final_estimator') and obj.final_estimator is not None:
+        result["params"]["final_estimator"] = serialize_component(obj.final_estimator)
+
+    # Add other changed params (cv, n_jobs, passthrough, etc.)
+    other_params = _changed_kwargs(obj)
+    for key in ['estimators', 'final_estimator']:
+        other_params.pop(key, None)  # Already handled above
+    if other_params:
+        result["params"].update(serialize_component(other_params))
+
+    return result
+
+
+def _deserialize_meta_estimator(cls, params: dict) -> Any:
+    """Reconstruct a meta-estimator with nested estimators.
+
+    Args:
+        cls: Meta-estimator class (StackingRegressor, etc.).
+        params: Serialized parameters including estimators and final_estimator.
+
+    Returns:
+        Instantiated meta-estimator with deserialized nested estimators.
+    """
+    deserialized_params = {}
+
+    # Handle estimators list of [name, estimator_config] tuples
+    if "estimators" in params:
+        deserialized_params["estimators"] = [
+            (name, deserialize_component(est_config))
+            for name, est_config in params["estimators"]
+        ]
+
+    # Handle final_estimator
+    if "final_estimator" in params:
+        deserialized_params["final_estimator"] = deserialize_component(
+            params["final_estimator"]
+        )
+
+    # Deserialize other params normally
+    for key, value in params.items():
+        if key not in ["estimators", "final_estimator"]:
+            deserialized_params[key] = deserialize_component(value)
+
+    return cls(**deserialized_params)
+
 def serialize_component(obj: Any) -> Any:
     """
     Return something that json.dumps can handle.
@@ -45,6 +157,11 @@ def serialize_component(obj: Any) -> Any:
 
     if inspect.isclass(obj):
         return f"{obj.__module__}.{obj.__qualname__}"
+
+    # Special handling for stacking/ensemble meta-estimators
+    # Must be checked BEFORE generic instance serialization
+    if _is_meta_estimator(obj):
+        return _serialize_meta_estimator(obj)
 
     # Handle numpy arrays and other array-like objects
     # Convert to list for JSON/YAML serialization
@@ -170,6 +287,11 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
             except (ImportError, AttributeError):
                 print(f"Failed to import {blob[key]}")
                 return blob
+
+            # Special handling for meta-estimators (stacking/voting)
+            # Must deserialize nested estimators properly
+            if key == "class" and _is_meta_estimator_class(cls_or_func) and "params" in blob:
+                return _deserialize_meta_estimator(cls_or_func, blob["params"])
 
             params = {}
             if "params" in blob:

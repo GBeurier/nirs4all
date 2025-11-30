@@ -18,6 +18,28 @@ import inspect
 from nirs4all.utils.backend import TF_AVAILABLE, TORCH_AVAILABLE, JAX_AVAILABLE
 
 
+# Meta-estimator types for detection
+META_ESTIMATOR_TYPES = None  # Lazy loaded
+
+
+def _get_meta_estimator_types():
+    """Lazy load meta-estimator types to avoid import overhead."""
+    global META_ESTIMATOR_TYPES
+    if META_ESTIMATOR_TYPES is None:
+        try:
+            from sklearn.ensemble import (
+                StackingRegressor, StackingClassifier,
+                VotingRegressor, VotingClassifier
+            )
+            META_ESTIMATOR_TYPES = (
+                StackingRegressor, StackingClassifier,
+                VotingRegressor, VotingClassifier
+            )
+        except ImportError:
+            META_ESTIMATOR_TYPES = ()
+    return META_ESTIMATOR_TYPES
+
+
 class ModelFactory:
     """Factory class for building machine learning models from various configurations.
 
@@ -200,9 +222,38 @@ class ModelFactory:
         Returns:
             The model instance, possibly reconstructed with force_params.
         """
-        if force_params is not None:
-            model_instance = ModelFactory.reconstruct_object(model_instance, force_params)
-        return model_instance
+        if force_params is None or not force_params:
+            return model_instance
+
+        # Meta-estimators need special handling to preserve nested structure
+        if ModelFactory.is_meta_estimator(model_instance):
+            return ModelFactory._rebuild_meta_estimator(model_instance, force_params)
+
+        return ModelFactory.reconstruct_object(model_instance, force_params)
+
+    @staticmethod
+    def _rebuild_meta_estimator(model, force_params):
+        """Rebuild a meta-estimator with force_params while preserving nested estimators.
+
+        Handles StackingRegressor, StackingClassifier, VotingRegressor, VotingClassifier
+        by getting current params via get_params() and merging with force_params.
+
+        Args:
+            model: Meta-estimator instance to rebuild.
+            force_params: Parameters to override.
+
+        Returns:
+            New meta-estimator instance with merged parameters.
+        """
+        model_class = type(model)
+
+        # Use sklearn's get_params to get current configuration (excludes fitted attributes)
+        current_params = model.get_params(deep=False)
+
+        # Merge with force_params (force_params takes precedence)
+        merged = {**current_params, **force_params}
+
+        return model_class(**merged)
 
     @staticmethod
     def _from_dict(model_dict, dataset, force_params=None):
@@ -574,6 +625,53 @@ class ModelFactory:
 
         # print(f"DEBUG: detect_framework unknown for {model}, mro: {mro}")
         return 'unknown'
+
+    @staticmethod
+    def is_meta_estimator(model) -> bool:
+        """Check if model is a stacking/voting/ensemble meta-estimator.
+
+        Meta-estimators contain nested estimators (base learners) and typically
+        a final_estimator (meta-learner). These require special handling for
+        serialization, cloning, and building.
+
+        Args:
+            model: Model instance, class, or configuration dict to check.
+
+        Returns:
+            True if model is a meta-estimator type (StackingRegressor,
+            StackingClassifier, VotingRegressor, VotingClassifier), False otherwise.
+        """
+        if model is None:
+            return False
+
+        # Handle dict config
+        if isinstance(model, dict):
+            if 'model_instance' in model:
+                return ModelFactory.is_meta_estimator(model['model_instance'])
+            if 'model' in model:
+                return ModelFactory.is_meta_estimator(model['model'])
+            # Check if serialized form has estimators key
+            if 'params' in model and 'estimators' in model.get('params', {}):
+                return True
+            return False
+
+        meta_types = _get_meta_estimator_types()
+        if not meta_types:
+            return False
+
+        # Check if it's an instance of meta-estimator types
+        if isinstance(model, meta_types):
+            return True
+
+        # Check if it's a class that is a meta-estimator type
+        if inspect.isclass(model) and issubclass(model, meta_types):
+            return True
+
+        # Duck typing: check for estimators and final_estimator attributes
+        if hasattr(model, 'estimators') and hasattr(model, 'final_estimator'):
+            return True
+
+        return False
 
     @staticmethod
     def _force_param_on_instance(model, force_params):
