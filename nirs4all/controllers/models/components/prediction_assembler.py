@@ -106,10 +106,18 @@ class PredictionDataAssembler:
             'n_features': X_shape[1] if len(X_shape) > 1 else 1,
             'preprocessings': dataset.short_preprocessings_str(),
             'best_params': best_params if best_params is not None else {},
-            'partitions': []
+            'partitions': [],
+            'partition_metadata': {}  # Store metadata per partition for aggregation
         }
 
-        # Add partition data
+        # Cache train metadata since val samples come from train partition
+        train_meta_df = None
+        try:
+            train_meta_df = dataset.metadata({"partition": "train"})
+        except (KeyError, AttributeError, ValueError, TypeError):
+            pass
+
+        # Add partition data with metadata
         for partition in ['train', 'val', 'test']:
             if partition in predictions:
                 prediction_data['partitions'].append((
@@ -118,6 +126,41 @@ class PredictionDataAssembler:
                     true_values[partition],
                     predictions[partition]
                 ))
+                # Extract metadata for this partition if available
+                # Note: For 'val' partition in CV, samples come from train partition
+                # so we use train metadata with val indices to select the right rows
+                try:
+                    if partition == 'val':
+                        # Validation samples are from train partition
+                        partition_metadata = train_meta_df
+                    elif partition == 'train':
+                        partition_metadata = train_meta_df
+                    else:  # test
+                        partition_metadata = dataset.metadata({"partition": partition})
+
+                    if partition_metadata is not None and len(partition_metadata) > 0:
+                        # Get the sample indices for this partition's predictions
+                        partition_indices = indices.get(partition, [])
+
+                        # Convert to dictionary with column names as keys and arrays as values
+                        metadata_dict = {}
+                        for col in partition_metadata.columns:
+                            col_data = partition_metadata[col].to_numpy()
+
+                            # If we have indices and they're within bounds, use them to select metadata
+                            if len(partition_indices) > 0 and max(partition_indices) < len(col_data):
+                                # Select metadata rows corresponding to prediction indices
+                                selected_data = col_data[partition_indices]
+                                metadata_dict[col] = selected_data.tolist()
+                            elif len(col_data) == len(predictions[partition]):
+                                # Direct match - use as-is
+                                metadata_dict[col] = col_data.tolist()
+
+                        if metadata_dict:
+                            prediction_data['partition_metadata'][partition] = metadata_dict
+                except (KeyError, AttributeError, ValueError, TypeError, IndexError):
+                    # If metadata extraction fails, continue without it
+                    pass
 
         return prediction_data
 

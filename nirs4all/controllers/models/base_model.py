@@ -1402,6 +1402,55 @@ class BaseModelController(OperatorController, ABC):
             partitions.append(("val", val_indices.tolist(), true_values['val'], predictions['val']))
         partitions.append(("test", list(range(len(true_values['test']))), true_values['test'], predictions['test']))
 
+        # Extract metadata for each partition
+        # Note: For 'val' partition in CV, samples come from train partition
+        # so we use train metadata with val_indices to select the right rows
+        partition_metadata = {}
+
+        # Cache train metadata since val samples come from train
+        train_meta_df = None
+        try:
+            train_meta_df = dataset.metadata({"partition": "train"})
+        except (KeyError, AttributeError, ValueError, TypeError):
+            pass
+
+        for partition_name in ['train', 'val', 'test']:
+            if partition_name in predictions:
+                try:
+                    pred_len = len(predictions[partition_name])
+
+                    if partition_name == 'val':
+                        # Validation samples are from train partition - use val_indices
+                        meta_df = train_meta_df
+                        indices_to_use = val_indices.tolist() if hasattr(val_indices, 'tolist') else list(val_indices)
+                    elif partition_name == 'train':
+                        meta_df = train_meta_df
+                        indices_to_use = None  # Use all rows
+                    else:  # test
+                        meta_df = dataset.metadata({"partition": partition_name})
+                        indices_to_use = None  # Use all rows
+
+                    if meta_df is not None and len(meta_df) > 0:
+                        metadata_dict = {}
+                        for col in meta_df.columns:
+                            col_data = meta_df[col].to_numpy()
+
+                            if indices_to_use is not None:
+                                # Select specific rows for validation
+                                if len(indices_to_use) > 0 and max(indices_to_use) < len(col_data):
+                                    selected_data = col_data[indices_to_use]
+                                    if len(selected_data) == pred_len:
+                                        metadata_dict[col] = selected_data.tolist()
+                            else:
+                                # Direct match for train/test
+                                if len(col_data) == pred_len:
+                                    metadata_dict[col] = col_data.tolist()
+
+                        if metadata_dict:
+                            partition_metadata[partition_name] = metadata_dict
+                except (KeyError, AttributeError, ValueError, TypeError, IndexError):
+                    pass
+
         result = {
             'dataset_name': dataset.name,
             'dataset_path': dataset.name,
@@ -1423,6 +1472,7 @@ class BaseModelController(OperatorController, ABC):
             'n_features': X_shape[1] if len(X_shape) > 1 else 1,
             'preprocessings': dataset.short_preprocessings_str(),
             'partitions': partitions,
+            'partition_metadata': partition_metadata,
             'best_params': best_params if best_params else {}
         }
 
@@ -1449,6 +1499,7 @@ class BaseModelController(OperatorController, ABC):
 
             partitions = prediction_data.get('partitions', [])
             probabilities = prediction_data.get('probabilities', {})
+            partition_metadata = prediction_data.get('partition_metadata', {})
 
             # Add each partition's predictions
             pred_id = None
@@ -1458,6 +1509,9 @@ class BaseModelController(OperatorController, ABC):
 
                 # Get probabilities for this partition if available
                 y_proba_part = probabilities.get(partition_name) if probabilities else None
+
+                # Get metadata for this partition (for aggregation support)
+                metadata = partition_metadata.get(partition_name, {})
 
                 pred_id = prediction_store.add_prediction(
                     dataset_name=prediction_data['dataset_name'],
@@ -1473,7 +1527,7 @@ class BaseModelController(OperatorController, ABC):
                     fold_id=prediction_data['fold_id'],
                     sample_indices=indices,
                     weights=weights,
-                    metadata={},
+                    metadata=metadata,
                     partition=partition_name,
                     y_true=y_true_part,
                     y_pred=y_pred_part,
