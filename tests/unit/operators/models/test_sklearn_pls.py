@@ -1397,7 +1397,8 @@ class TestLWPLS:
             'n_components': 8,
             'lambda_in_similarity': 0.5,
             'scale': False,
-            'backend': 'numpy'
+            'backend': 'numpy',
+            'batch_size': 64
         }
 
     def test_set_params(self):
