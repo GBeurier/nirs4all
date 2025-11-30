@@ -210,6 +210,8 @@ class ConfusionMatrixChart(BaseChart):
 
             # Create overall title for this dataset
             overall_title = f'Dataset: {ds} - Top {k} Confusion Matrices\nRanked by best {rank_metric} [{rank_partition}], Displayed: [{display_partition}]'
+            if aggregate:
+                overall_title += f' [aggregated by {aggregate}]'
             fig.suptitle(overall_title, fontsize=self.config.title_fontsize, fontweight='bold')
             plt.tight_layout()
 

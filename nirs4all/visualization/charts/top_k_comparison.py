@@ -129,6 +129,8 @@ class TopKComparisonChart(BaseChart):
 
         # Create figure title
         fig_title = f'Top {k} Models Comparison - Ranked by best {rank_metric} [{rank_partition}]'
+        if aggregate:
+            fig_title += f' [aggregated by {aggregate}]'
         if dataset_name:
             fig_title = f'{fig_title}\nDataset: {dataset_name}'
         fig.suptitle(fig_title, fontsize=self.config.title_fontsize, fontweight='bold')
