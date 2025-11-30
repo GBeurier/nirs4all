@@ -58,11 +58,13 @@ class HeatmapChart(BaseChart):
         display_agg: str = 'mean',
         show_counts: bool = True,
         local_scale: bool = False,
+        aggregate: Optional[str] = None,
         **filters
     ) -> Figure:
         """Render performance heatmap (Optimized with Polars).
 
         Uses vectorized operations for 20x+ speedup.
+        When aggregate is provided, uses the slower but accurate aggregation path.
         """
         t0 = time.time()
 
@@ -81,6 +83,25 @@ class HeatmapChart(BaseChart):
         if not display_metric:
             display_metric = rank_metric
 
+        # If aggregation is requested, use the slower but accurate path
+        if aggregate is not None:
+            return self._render_with_aggregation(
+                x_var=x_var,
+                y_var=y_var,
+                rank_metric=rank_metric,
+                rank_partition=rank_partition,
+                display_metric=display_metric,
+                display_partition=display_partition,
+                figsize=figsize,
+                normalize=normalize,
+                rank_agg=rank_agg,
+                display_agg=display_agg,
+                show_counts=show_counts,
+                local_scale=local_scale,
+                aggregate=aggregate,
+                **filters
+            )
+
         # Determine if partition or dataset_name is used as a grouping variable
         is_partition_grouped = (x_var == 'partition' or y_var == 'partition')
         is_dataset_grouped = (x_var == 'dataset_name' or y_var == 'dataset_name')
@@ -93,7 +114,7 @@ class HeatmapChart(BaseChart):
             all_filters.pop('dataset_name', None)
 
         # Remove internal parameters
-        for k in ['aggregation', 'rank_agg', 'display_agg', 'show_counts', 'figsize']:
+        for k in ['aggregation', 'rank_agg', 'display_agg', 'show_counts', 'figsize', 'aggregate']:
             all_filters.pop(k, None)
 
         # --- POLARS OPTIMIZATION START ---
@@ -391,6 +412,247 @@ class HeatmapChart(BaseChart):
 
         # Cell annotations
         # Use normalized matrix if normalize=True, otherwise use raw matrix
+        display_matrix = normalized_matrix if normalize else matrix
+        self.annotator.add_heatmap_annotations(
+            ax, display_matrix, normalized_matrix, count_matrix,
+            x_labels, y_labels, show_counts
+        )
+
+        plt.tight_layout()
+        return fig
+
+    def _render_with_aggregation(
+        self,
+        x_var: str,
+        y_var: str,
+        rank_metric: str,
+        rank_partition: str,
+        display_metric: str,
+        display_partition: str,
+        figsize: tuple,
+        normalize: bool,
+        rank_agg: str,
+        display_agg: str,
+        show_counts: bool,
+        local_scale: bool,
+        aggregate: str,
+        **filters
+    ) -> Figure:
+        """Render heatmap with aggregation support.
+
+        This is slower than the default render because it needs to load arrays
+        and recalculate metrics after aggregation.
+        """
+        t0 = time.time()
+
+        # Determine if partition or dataset_name is used as a grouping variable
+        is_dataset_grouped = (x_var == 'dataset_name' or y_var == 'dataset_name')
+
+        # Remove internal parameters from filters
+        all_filters = dict(filters)
+        for k in ['aggregation', 'rank_agg', 'display_agg', 'show_counts', 'figsize', 'aggregate']:
+            all_filters.pop(k, None)
+
+        df = self.predictions.to_dataframe()
+
+        # Apply filters
+        for k, v in all_filters.items():
+            if k in df.columns:
+                df = df.filter(pl.col(k) == v)
+
+        if df.height == 0:
+            raise ValueError(f"No predictions found with filters: {all_filters}")
+
+        # Get unique combinations of x_var and y_var
+        # Filter to display_partition for the actual data
+        display_df = df.filter(pl.col("partition") == display_partition)
+
+        if display_df.height == 0:
+            raise ValueError(f"No predictions found for partition: {display_partition}")
+
+        # Get unique x and y values
+        x_labels = sorted([str(x) for x in display_df[x_var].unique().to_list()], key=self._natural_sort_key)
+        y_labels = sorted([str(y) for y in display_df[y_var].unique().to_list()], key=self._natural_sort_key)
+
+        # Create mappings
+        x_map = {x: i for i, x in enumerate(x_labels)}
+        y_map = {y: i for i, y in enumerate(y_labels)}
+
+        matrix = np.full((len(y_labels), len(x_labels)), np.nan)
+        count_matrix = np.zeros((len(y_labels), len(x_labels)), dtype=int)
+
+        # Get unique (x_var, y_var) combinations
+        unique_combinations = display_df.select([x_var, y_var]).unique().to_dicts()
+
+        # Process each unique cell - get predictions with aggregation using top()
+        for combo in unique_combinations:
+            x_val = str(combo[x_var])
+            y_val = str(combo[y_var])
+
+            if x_val not in x_map or y_val not in y_map:
+                continue
+
+            x_idx = x_map[x_val]
+            y_idx = y_map[y_val]
+
+            # Skip if already processed
+            if not np.isnan(matrix[y_idx, x_idx]):
+                continue
+
+            # Get aggregated predictions for this cell
+            cell_filters = {**all_filters, x_var: combo[x_var], y_var: combo[y_var]}
+
+            try:
+                # Use top(1) with aggregation to get the best model for this cell
+                top_preds = self.predictions.top(
+                    n=1,
+                    rank_metric=rank_metric,
+                    rank_partition=rank_partition,
+                    display_metrics=[display_metric],
+                    display_partition=display_partition,
+                    aggregate_partitions=True,
+                    aggregate=aggregate,
+                    **cell_filters
+                )
+
+                if top_preds:
+                    pred = top_preds[0]
+                    # Get the score from the display partition
+                    partitions = pred.get('partitions', {})
+                    display_data = partitions.get(display_partition, {})
+                    score = display_data.get(display_metric)
+
+                    if score is None:
+                        # Try y_true/y_pred calculation
+                        y_true = display_data.get('y_true')
+                        y_pred = display_data.get('y_pred')
+                        if y_true is not None and y_pred is not None:
+                            try:
+                                score = evaluator.eval(y_true, y_pred, display_metric)
+                            except Exception:
+                                pass
+
+                    if score is not None:
+                        matrix[y_idx, x_idx] = score
+                        # Count aggregated samples
+                        y_pred = display_data.get('y_pred')
+                        if y_pred is not None:
+                            count_matrix[y_idx, x_idx] = len(y_pred)
+                        else:
+                            count_matrix[y_idx, x_idx] = 1
+            except Exception:
+                pass
+
+        t1 = time.time()
+        print(f"Data wrangling time (with aggregation): {t1 - t0:.4f} seconds")
+
+        # Normalize for colors
+        display_higher_better = self._is_higher_better(display_metric)
+        normalize_per_row = is_dataset_grouped and (y_var == 'dataset_name')
+        normalized_matrix = self.normalizer.normalize(
+            matrix, display_higher_better, per_row=normalize_per_row
+        )
+
+        # Render with aggregation note in title
+        fig = self._render_heatmap_aggregated(
+            matrix, normalized_matrix, count_matrix,
+            x_labels, y_labels, x_var, y_var,
+            rank_metric, rank_partition, rank_agg,
+            display_metric, display_partition, display_agg,
+            figsize, normalize, show_counts, local_scale, display_higher_better,
+            aggregate
+        )
+
+        t2 = time.time()
+        print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
+
+        return fig
+
+    def _render_heatmap_aggregated(
+        self,
+        matrix: np.ndarray,
+        normalized_matrix: np.ndarray,
+        count_matrix: np.ndarray,
+        x_labels: List[str],
+        y_labels: List[str],
+        x_var: str,
+        y_var: str,
+        rank_metric: str,
+        rank_partition: str,
+        rank_agg: str,
+        display_metric: str,
+        display_partition: str,
+        display_agg: str,
+        figsize: tuple,
+        normalize: bool,
+        show_counts: bool,
+        local_scale: bool,
+        display_higher_better: bool,
+        aggregate: str
+    ) -> Figure:
+        """Render the heatmap figure with aggregation note."""
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Use normalized matrix for colors (always)
+        masked_matrix = np.ma.masked_invalid(normalized_matrix)
+
+        # Determine scaling mode
+        is_bounded_0_1 = display_metric.lower() in [
+            'accuracy', 'balanced_accuracy', 'precision', 'recall', 'f1',
+            'specificity', 'auc', 'roc_auc', 'jaccard'
+        ] or any(m in display_metric.lower() for m in ['accuracy', 'precision', 'recall', 'f1'])
+
+        use_local_scale = local_scale or not is_bounded_0_1
+
+        masked_raw = np.ma.masked_invalid(matrix)
+
+        if use_local_scale:
+            vmin = np.nanmin(matrix)
+            vmax = np.nanmax(matrix)
+        else:
+            vmin = 0
+            vmax = 1
+
+        # Select colormap based on direction
+        cmap_name = self.config.heatmap_colormap
+        if not display_higher_better:
+            cmap_name += '_r'
+
+        im = ax.imshow(
+            masked_raw,
+            cmap=cmap_name,
+            aspect='auto',
+            vmin=vmin,
+            vmax=vmax
+        )
+        cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
+
+        # Colorbar
+        cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+        cbar.set_label(cbar_label, fontsize=self.config.label_fontsize)
+
+        # Axis labels
+        x_labels_display = [str(lbl)[:25] + '...' if len(str(lbl)) > 25 else str(lbl) for lbl in x_labels]
+        y_labels_display = [str(lbl)[:25] + '...' if len(str(lbl)) > 25 else str(lbl) for lbl in y_labels]
+
+        ax.set_xticks(range(len(x_labels)))
+        ax.set_yticks(range(len(y_labels)))
+        ax.set_xticklabels(x_labels_display, rotation=45, ha='right', fontsize=self.config.tick_fontsize)
+        ax.set_yticklabels(y_labels_display, fontsize=self.config.tick_fontsize)
+        ax.set_xlabel(x_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
+        ax.set_ylabel(y_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
+
+        # Title with aggregation info
+        title_parts = [f'{display_agg.title()} {display_metric} [{display_partition}]']
+        title_parts.append(f'[aggregated by {aggregate}]')
+
+        if rank_partition != display_partition or rank_metric != display_metric or rank_agg != display_agg:
+            title_parts.append(f'(rank on {rank_agg} {rank_metric} [{rank_partition}])')
+
+        title = ' '.join(title_parts)
+        ax.set_title(title, fontsize=self.config.title_fontsize, pad=10)
+
+        # Cell annotations
         display_matrix = normalized_matrix if normalize else matrix
         self.annotator.add_heatmap_annotations(
             ax, display_matrix, normalized_matrix, count_matrix,

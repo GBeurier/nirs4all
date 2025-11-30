@@ -354,6 +354,7 @@ class PredictionAnalyzer:
         display_agg: str = 'best',
         show_counts: bool = True,
         local_scale: bool = False,
+        aggregate: Optional[str] = None,
         **kwargs
     ) -> Figure:
         """Plot performance heatmap across two variables.
@@ -376,6 +377,7 @@ class PredictionAnalyzer:
             display_agg: Aggregation for display scores ('best', 'worst', 'mean', 'median') (default: 'mean').
             show_counts: Show prediction counts in cells (default: True).
             local_scale: If True, colorbar shows actual metric values; if False, shows 0-1 normalized (default: False).
+            aggregate: If provided, aggregate predictions by this metadata column (e.g., 'ID').
             **kwargs: Additional filters (dataset_name, model_name, etc.).
 
         Returns:
@@ -419,6 +421,7 @@ class PredictionAnalyzer:
             display_agg=display_agg,
             show_counts=show_counts,
             local_scale=local_scale,
+            aggregate=aggregate,
             **kwargs
         )
         self._save_figure(fig, "heatmap", kwargs.get('dataset_name'))
