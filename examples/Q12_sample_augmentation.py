@@ -10,13 +10,22 @@ Scenarios covered:
 4. Classification - Balanced (Ref Percentage)
 5. Regression - Balanced (Binning: Equal Width)
 6. Regression - Balanced (Binning: Quantile)
+7. Augmentation Charts - Visual comparison of augmentation effects
+8. Multiple Augmenters - Comparison of different augmentation operators
 """
 
 import os
 os.environ['DISABLE_EMOJIS'] = '1'
 
 from nirs4all.data import DatasetConfigs
-from nirs4all.operators.transforms import Rotate_Translate
+from nirs4all.operators.transforms import (
+    Rotate_Translate,
+    Random_X_Operation,
+    Spline_Y_Perturbations,
+    Spline_X_Perturbations,
+    Spline_X_Simplification,
+    Spline_Curve_Simplification,
+)
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from sklearn.model_selection import GroupKFold
 
@@ -24,7 +33,7 @@ from sklearn.model_selection import GroupKFold
 import argparse
 
 # Parse command-line arguments
-parser = argparse.ArgumentParser(description='Q1 Classification Example')
+parser = argparse.ArgumentParser(description='Q12 Sample Augmentation Example')
 parser.add_argument('--plots', action='store_true', help='Show plots interactively')
 parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
@@ -53,12 +62,96 @@ split_step = {"split": GroupKFold(n_splits=2), "group": "Sample_ID"}
 # Using a classification dataset
 classif_data = 'sample_data/classification'
 
-# 1. Classification - Standard (Unbalanced)
+# # 1. Classification - Standard (Unbalanced)
+# run_scenario(
+#     "Classification - Standard",
+#     classif_data,
+#     [
+#         "fold_chart",
+#         {
+#             "sample_augmentation": {
+#                 "transformers": [Rotate_Translate(p_range=2, y_factor=3)],
+#                 "count": 2,
+#                 "selection": "random",
+#                 "random_state": 42
+#             }
+#         },
+#         "fold_chart",
+#         split_step
+#     ],
+#     "Standard augmentation: Adds 2 augmented samples for every original sample regardless of class."
+# )
+
+# # 2. Classification - Balanced (Fixed Target Size)
+# run_scenario(
+#     "Classification - Balanced (Target Size)",
+#     classif_data,
+#     [
+#         "fold_chart",
+#         {
+#             "sample_augmentation": {
+#                 "transformers": [Rotate_Translate],
+#                 "balance": "y",
+#                 "target_size": 50,  # Target 50 samples per class
+#                 "selection": "random",
+#                 "random_state": 42
+#             }
+#         },
+#         "fold_chart",
+#         split_step
+#     ],
+#     "Balanced augmentation: Each class augmented to reach exactly 50 samples."
+# )
+
+# # 3. Classification - Balanced (Max Factor)
+# run_scenario(
+#     "Classification - Balanced (Max Factor)",
+#     classif_data,
+#     [
+#         "fold_chart",
+#         {
+#             "sample_augmentation": {
+#                 "transformers": [Rotate_Translate],
+#                 "balance": "y",
+#                 "max_factor": 2.0,  # Max 2x augmentation
+#                 "selection": "random",
+#                 "random_state": 42
+#             }
+#         },
+#         "fold_chart",
+#         split_step
+#     ],
+#     "Balanced augmentation: Classes augmented up to majority size, but capped at 2x original size."
+# )
+
+# # 4. Classification - Balanced (Ref Percentage)
+# run_scenario(
+#     "Classification - Balanced (Ref Percentage)",
+#     classif_data,
+#     [
+#         "fold_chart",
+#         {
+#             "sample_augmentation": {
+#                 "transformers": [Rotate_Translate],
+#                 "balance": "y",
+#                 "ref_percentage": 0.8,  # Target 100% of majority class
+#                 "selection": "random",
+#                 "random_state": 42
+#             }
+#         },
+#         "fold_chart",
+#         split_step
+#     ],
+#     "Balanced augmentation: Classes augmented to match the size of the majority class (100%)."
+# )
+
+# --- AUGMENTATION VISUALIZATION SCENARIOS ---
+
+# 7. Augmentation Chart - Overlay visualization (Original vs Augmented)
 run_scenario(
-    "Classification - Standard",
+    "Augmentation Chart - Overlay",
     classif_data,
     [
-        "fold_chart",
         {
             "sample_augmentation": {
                 "transformers": [Rotate_Translate(p_range=2, y_factor=3)],
@@ -67,73 +160,56 @@ run_scenario(
                 "random_state": 42
             }
         },
-        "fold_chart",
+        "augment_chart",  # Shows original (blue) vs augmented (orange) overlaid
         split_step
     ],
-    "Standard augmentation: Adds 2 augmented samples for every original sample regardless of class."
+    "Visualization: Overlay chart showing original samples in blue and augmented samples in orange."
 )
 
-# 2. Classification - Balanced (Fixed Target Size)
+# 8. Multiple Augmenters - Compare different augmentation operators
 run_scenario(
-    "Classification - Balanced (Target Size)",
+    "Multiple Augmenters Comparison",
     classif_data,
     [
-        "fold_chart",
         {
             "sample_augmentation": {
-                "transformers": [Rotate_Translate],
-                "balance": "y",
-                "target_size": 50,  # Target 50 samples per class
+                "transformers": [
+                    Rotate_Translate(p_range=2, y_factor=3),
+                    Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
+                    Random_X_Operation(operator_range=(0.995, 1.005)),
+                ],
+                "count": 2,
                 "selection": "random",
                 "random_state": 42
             }
         },
-        "fold_chart",
+        "augment_details_chart",  # Shows each transformer's effect separately
         split_step
     ],
-    "Balanced augmentation: Each class augmented to reach exactly 50 samples."
+    "Visualization: Details chart showing each augmentation type separately (Original + each transformer)."
 )
 
-# 3. Classification - Balanced (Max Factor)
+# 9. Spline-based Augmenters Demo
 run_scenario(
-    "Classification - Balanced (Max Factor)",
+    "Spline Augmenters Demo",
     classif_data,
     [
-        "fold_chart",
         {
             "sample_augmentation": {
-                "transformers": [Rotate_Translate],
-                "balance": "y",
-                "max_factor": 2.0,  # Max 2x augmentation
-                "selection": "random",
+                "transformers": [
+                    Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
+                    Spline_X_Perturbations(perturbation_density=0.05, perturbation_range=(-5, 5)),
+                    Spline_X_Simplification(spline_points=50, uniform=True),
+                ],
+                "count": 1,
+                "selection": "all",  # Apply all transformers to each sample
                 "random_state": 42
             }
         },
-        "fold_chart",
+        "augment_details_chart",
         split_step
     ],
-    "Balanced augmentation: Classes augmented up to majority size, but capped at 2x original size."
-)
-
-# 4. Classification - Balanced (Ref Percentage)
-run_scenario(
-    "Classification - Balanced (Ref Percentage)",
-    classif_data,
-    [
-        "fold_chart",
-        {
-            "sample_augmentation": {
-                "transformers": [Rotate_Translate],
-                "balance": "y",
-                "ref_percentage": 0.8,  # Target 100% of majority class
-                "selection": "random",
-                "random_state": 42
-            }
-        },
-        "fold_chart",
-        split_step
-    ],
-    "Balanced augmentation: Classes augmented to match the size of the majority class (100%)."
+    "Spline-based augmenters: Y-perturbations, X-perturbations, and X-simplification effects."
 )
 
 
