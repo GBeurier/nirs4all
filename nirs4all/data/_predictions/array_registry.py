@@ -22,7 +22,8 @@ ARRAY_SCHEMA = {
     "array_data": pl.List(pl.Float64),  # Native Parquet list type
     "array_hash": pl.Utf8,
     "array_size": pl.Int64,
-    "array_type": pl.Utf8,  # "y_true" | "y_pred" | "indices" | "weights"
+    "array_shape": pl.Utf8,  # JSON-encoded shape tuple (e.g., "[2, 3]" for 2D)
+    "array_type": pl.Utf8,  # "y_true" | "y_pred" | "y_proba" | "indices" | "weights"
 }
 
 
@@ -66,9 +67,11 @@ class ArrayRegistry:
         If an identical array (by content hash) already exists,
         returns the existing array_id instead of storing duplicate.
 
+        Preserves array shape for multi-dimensional arrays (e.g., y_proba).
+
         Args:
-            array: NumPy array to store
-            array_type: Type label for array ("y_true", "y_pred", "indices", "weights")
+            array: NumPy array to store (1D or 2D)
+            array_type: Type label for array ("y_true", "y_pred", "y_proba", "indices", "weights")
 
         Returns:
             array_id: Unique identifier for this array
@@ -80,12 +83,16 @@ class ArrayRegistry:
             >>> id2 = registry.add_array(arr, "y_true")  # Same content
             >>> assert id1 == id2  # Deduplication works
         """
-        # Ensure 1D array
-        if array.ndim != 1:
-            array = array.flatten()
+        import json
+
+        # Store original shape for reconstruction
+        original_shape = array.shape
+
+        # Flatten array for storage
+        flat_array = array.flatten()
 
         # Compute content hash for deduplication
-        array_hash = self._hash_array(array)
+        array_hash = self._hash_array(flat_array)
 
         # Check if array already exists (deduplication)
         if array_hash in self._hash_cache:
@@ -96,9 +103,10 @@ class ArrayRegistry:
 
         new_row = {
             "array_id": array_id,
-            "array_data": array.tolist(),  # Polars converts to List[Float64]
+            "array_data": flat_array.tolist(),  # Polars converts to List[Float64]
             "array_hash": array_hash,
-            "array_size": len(array),
+            "array_size": len(flat_array),
+            "array_shape": json.dumps(original_shape),  # Store shape as JSON string
             "array_type": array_type
         }
 
@@ -136,6 +144,8 @@ class ArrayRegistry:
             >>> ids = registry.add_arrays_batch(arrays)
             >>> assert len(ids) == 2
         """
+        import json
+
         if not arrays:
             return []
 
@@ -148,12 +158,14 @@ class ArrayRegistry:
         new_rows = []
 
         for array, array_type in zip(arrays, array_types):
-            # Ensure 1D
-            if array.ndim != 1:
-                array = array.flatten()
+            # Store original shape
+            original_shape = array.shape
+
+            # Flatten for storage
+            flat_array = array.flatten()
 
             # Compute hash
-            array_hash = self._hash_array(array)
+            array_hash = self._hash_array(flat_array)
 
             # Check if already exists
             if array_hash in self._hash_cache:
@@ -166,9 +178,10 @@ class ArrayRegistry:
 
             new_rows.append({
                 "array_id": array_id,
-                "array_data": array.tolist(),
+                "array_data": flat_array.tolist(),
                 "array_hash": array_hash,
-                "array_size": len(array),
+                "array_size": len(flat_array),
+                "array_shape": json.dumps(original_shape),
                 "array_type": array_type
             })
 
@@ -187,11 +200,13 @@ class ArrayRegistry:
         """
         Retrieve array by ID.
 
+        Restores original array shape for multi-dimensional arrays.
+
         Args:
             array_id: Unique identifier of array
 
         Returns:
-            NumPy array
+            NumPy array with original shape
 
         Raises:
             KeyError: If array_id not found
@@ -203,6 +218,8 @@ class ArrayRegistry:
             >>> retrieved = registry.get_array(array_id)
             >>> np.testing.assert_array_equal(arr, retrieved)
         """
+        import json
+
         if array_id not in self._id_cache:
             raise KeyError(f"Array {array_id} not found in registry")
 
@@ -213,7 +230,15 @@ class ArrayRegistry:
 
         # Extract List[Float64] and convert to NumPy
         array_data = row[0, "array_data"]
-        return np.array(array_data, dtype=np.float64)
+        array = np.array(array_data, dtype=np.float64)
+
+        # Restore original shape if stored
+        shape_str = row[0, "array_shape"]
+        if shape_str is not None:
+            original_shape = tuple(json.loads(shape_str))
+            array = array.reshape(original_shape)
+
+        return array
 
     def get_arrays_batch(
         self,
@@ -223,13 +248,13 @@ class ArrayRegistry:
         Retrieve multiple arrays in batch for performance.
 
         More efficient than repeated get_array() calls as it uses
-        a single DataFrame filter operation.
+        a single DataFrame filter operation. Restores original shapes.
 
         Args:
             array_ids: List of array IDs to retrieve
 
         Returns:
-            Dictionary mapping array_id to NumPy array
+            Dictionary mapping array_id to NumPy array (with original shapes)
 
         Example:
             >>> registry = ArrayRegistry()
@@ -240,6 +265,8 @@ class ArrayRegistry:
             >>> batch = registry.get_arrays_batch([id1, id2])
             >>> assert len(batch) == 2
         """
+        import json
+
         if not array_ids:
             return {}
 
@@ -248,12 +275,21 @@ class ArrayRegistry:
             pl.col("array_id").is_in(array_ids)
         )
 
-        # Convert to dict
+        # Convert to dict with shape restoration
         result = {}
         for row in filtered_df.iter_rows(named=True):
             array_id = row["array_id"]
             array_data = row["array_data"]
-            result[array_id] = np.array(array_data, dtype=np.float64)
+            shape_str = row.get("array_shape")
+
+            array = np.array(array_data, dtype=np.float64)
+
+            # Restore original shape if stored
+            if shape_str is not None:
+                original_shape = tuple(json.loads(shape_str))
+                array = array.reshape(original_shape)
+
+            result[array_id] = array
 
         return result
 
@@ -483,9 +519,10 @@ class ArrayRegistry:
 
         Does not check for deduplication - assumes the array_id is unique.
         Used internally when merging registries.
+        Preserves original array shape for multi-dimensional arrays.
 
         Args:
-            array: NumPy array to store
+            array: NumPy array to store (1D or 2D)
             array_type: Type label for array
             array_id: Specific ID to use
 
@@ -498,18 +535,23 @@ class ArrayRegistry:
             >>> registry.add_array_with_id(arr, "y_true", "my_custom_id")
             'my_custom_id'
         """
-        # Ensure 1D array
-        if array.ndim != 1:
-            array = array.flatten()
+        import json
+
+        # Store original shape
+        original_shape = array.shape
+
+        # Flatten for storage
+        flat_array = array.flatten()
 
         # Compute content hash
-        array_hash = self._hash_array(array)
+        array_hash = self._hash_array(flat_array)
 
         new_row = {
             "array_id": array_id,
-            "array_data": array.tolist(),
+            "array_data": flat_array.tolist(),
             "array_hash": array_hash,
-            "array_size": len(array),
+            "array_size": len(flat_array),
+            "array_shape": json.dumps(original_shape),
             "array_type": array_type
         }
 

@@ -323,6 +323,7 @@ class PredictionStorage:
         array_fields = {
             'y_true': 'y_true',
             'y_pred': 'y_pred',
+            'y_proba': 'y_proba',  # Class probabilities for classification
             'sample_indices': 'indices',
             'weights': 'weights'
         }
@@ -369,7 +370,7 @@ class PredictionStorage:
         row_dict = row_dict.copy()
 
         # Array ID fields to hydrate
-        array_id_fields = ['y_true_id', 'y_pred_id', 'sample_indices_id', 'weights_id']
+        array_id_fields = ['y_true_id', 'y_pred_id', 'y_proba_id', 'sample_indices_id', 'weights_id']
 
         for field in array_id_fields:
             if field in row_dict and row_dict[field]:

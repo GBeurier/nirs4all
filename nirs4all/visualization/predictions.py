@@ -137,6 +137,7 @@ class PredictionAnalyzer:
         display_metric: str = '',
         display_partition: str = 'all',
         show_scores: bool = True,
+        aggregate: Optional[str] = None,
         **kwargs
     ) -> Union[Figure, List[Figure]]:
         """Plot top K model comparison (scatter + residuals).
@@ -154,6 +155,10 @@ class PredictionAnalyzer:
             display_metric: Metric to display in titles (default: same as rank_metric).
             display_partition: Partition(s) to display ('all' or specific partition).
             show_scores: If True, show scores in chart titles (default: True).
+            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+                      When 'y', groups by y_true values.
+                      When a column name (e.g., 'ID'), groups by that metadata column.
+                      Aggregated predictions have recalculated metrics.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
@@ -161,6 +166,7 @@ class PredictionAnalyzer:
 
         Example:
             >>> fig = analyzer.plot_top_k(k=3, rank_metric='r2')
+            >>> fig = analyzer.plot_top_k(k=3, aggregate='ID')  # Aggregated by ID
         """
         chart = TopKComparisonChart(
             self.predictions,
@@ -184,6 +190,7 @@ class PredictionAnalyzer:
                         display_metric=display_metric,
                         display_partition=display_partition,
                         show_scores=show_scores,
+                        aggregate=aggregate,
                         dataset_name=dataset,
                         **kwargs
                     )
@@ -199,6 +206,7 @@ class PredictionAnalyzer:
             display_metric=display_metric,
             display_partition=display_partition,
             show_scores=show_scores,
+            aggregate=aggregate,
             **kwargs
         )
         self._save_figure(fig, "top_k", kwargs.get('dataset_name'))
@@ -212,6 +220,7 @@ class PredictionAnalyzer:
         display_metric: str = '',
         display_partition: str = 'test',
         show_scores: bool = True,
+        aggregate: Optional[str] = None,
         **kwargs
     ) -> Union[Figure, List[Figure]]:
         """Plot confusion matrices for top K classification models.
@@ -226,6 +235,7 @@ class PredictionAnalyzer:
             display_metric: Metric to display in titles (default: same as rank_metric).
             display_partition: Partition to display confusion matrix from (default: 'test').
             show_scores: If True, show scores in chart titles (default: True).
+            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
@@ -233,6 +243,7 @@ class PredictionAnalyzer:
 
         Example:
             >>> fig = analyzer.plot_confusion_matrix(k=3, rank_metric='f1')
+            >>> fig = analyzer.plot_confusion_matrix(k=3, aggregate='ID')
         """
         chart = ConfusionMatrixChart(
             self.predictions,
@@ -256,6 +267,7 @@ class PredictionAnalyzer:
                         display_metric=display_metric,
                         display_partition=display_partition,
                         show_scores=show_scores,
+                        aggregate=aggregate,
                         dataset_name=dataset,
                         **kwargs
                     )
@@ -271,6 +283,7 @@ class PredictionAnalyzer:
             display_metric=display_metric,
             display_partition=display_partition,
             show_scores=show_scores,
+            aggregate=aggregate,
             **kwargs
         )
         self._save_figure(fig, "confusion_matrix", kwargs.get('dataset_name'))

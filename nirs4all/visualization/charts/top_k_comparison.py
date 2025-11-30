@@ -48,7 +48,9 @@ class TopKComparisonChart(BaseChart):
                rank_partition: str = 'val', display_metric: str = '',
                display_partition: str = 'all', show_scores: bool = True,
                dataset_name: Optional[str] = None,
-               figsize: Optional[tuple] = None, **filters) -> Figure:
+               figsize: Optional[tuple] = None,
+               aggregate: Optional[str] = None,
+               **filters) -> Figure:
         """Plot top K models with predicted vs true and residuals.
 
         Uses the top() method to rank models by a metric on rank_partition,
@@ -63,6 +65,7 @@ class TopKComparisonChart(BaseChart):
             show_scores: If True, show scores in chart titles (default: True).
             dataset_name: Optional dataset filter.
             figsize: Figure size tuple (default: from config).
+            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
             **filters: Additional filters.
 
         Returns:
@@ -101,6 +104,7 @@ class TopKComparisonChart(BaseChart):
             display_partition='test',  # Ignored when aggregate_partitions=True
             ascending=ascending,
             aggregate_partitions=True,
+            aggregate=aggregate,
             **filters
         )
 

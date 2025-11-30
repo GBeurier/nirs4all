@@ -37,6 +37,7 @@ PREDICTION_SCHEMA = {
     # Array references (IDs pointing to ArrayRegistry)
     "y_true_id": pl.Utf8,
     "y_pred_id": pl.Utf8,
+    "y_proba_id": pl.Utf8,  # Class probabilities for classification tasks
     "sample_indices_id": pl.Utf8,
     "weights_id": pl.Utf8,
 }

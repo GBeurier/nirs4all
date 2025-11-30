@@ -737,6 +737,16 @@ class BaseModelController(OperatorController, ABC):
             'test': self._predict_model(trained_model, X_test_prep) if X_test_prep.shape[0] > 0 else np.array([])
         }
 
+        # === 4b. GENERATE PROBABILITIES FOR CLASSIFICATION ===
+        is_classification = dataset.task_type and dataset.task_type.is_classification
+        probabilities = {'train': None, 'val': None, 'test': None}
+        if is_classification:
+            probabilities = {
+                'train': self._predict_proba_model(trained_model, X_train_prep) if X_train_prep.shape[0] > 0 else None,
+                'val': self._predict_proba_model(trained_model, X_val_prep) if X_val_prep.shape[0] > 0 else None,
+                'test': self._predict_proba_model(trained_model, X_test_prep) if X_test_prep.shape[0] > 0 else None
+            }
+
         # === 5. TRANSFORM PREDICTIONS TO UNSCALED ===
         predictions_unscaled = {
             'train': self.prediction_transformer.transform_to_unscaled(predictions_scaled['train'], dataset, context),
@@ -808,6 +818,9 @@ class BaseModelController(OperatorController, ABC):
 
         # Add full scores to prediction data
         prediction_data['scores'] = full_scores
+
+        # Add probabilities for classification tasks
+        prediction_data['probabilities'] = probabilities
 
         return trained_model, identifiers.model_id, partition_scores.val, identifiers.name, prediction_data
 
@@ -1019,9 +1032,13 @@ class BaseModelController(OperatorController, ABC):
         metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
         weights = self._get_fold_weights(scores, higher_is_better, mode, runtime_context)
 
+        # Initialize probabilities (will be set for classification with soft voting)
+        avg_probs = {'train': None, 'val': None, 'test': None}
+        w_avg_probs = {'train': None, 'val': None, 'test': None}
+
         if is_classification:
             # Use classification-specific averaging (soft or hard voting)
-            avg_preds, w_avg_preds = self._create_classification_fold_averages(
+            avg_preds, w_avg_preds, avg_probs, w_avg_probs = self._create_classification_fold_averages(
                 folds_models, X_train, X_val, X_test, weights, mode
             )
         else:
@@ -1077,6 +1094,7 @@ class BaseModelController(OperatorController, ABC):
             "avg", best_params, mode, X_train.shape
         )
         avg_predictions['scores'] = avg_full_scores
+        avg_predictions['probabilities'] = avg_probs
 
         w_avg_predictions = self._assemble_avg_prediction(
             dataset, runtime_context, context, base_model_name, model_classname,
@@ -1084,6 +1102,7 @@ class BaseModelController(OperatorController, ABC):
             "w_avg", best_params, mode, X_train.shape, weights
         )
         w_avg_predictions['scores'] = w_avg_full_scores
+        w_avg_predictions['probabilities'] = w_avg_probs
 
         return avg_predictions, w_avg_predictions
 
@@ -1206,11 +1225,11 @@ class BaseModelController(OperatorController, ABC):
             # Soft voting: average probabilities, then argmax
             # avg: simple average of probabilities
             # w_avg: uses fold weights AND confidence weighting for meaningful differences
-            avg_preds = self._soft_vote_partitions(
+            avg_preds, avg_probs = self._soft_vote_partitions(
                 all_train_probs, all_val_probs, all_test_probs,
                 weights=None, mode=mode, use_confidence_weighting=False
             )
-            w_avg_preds = self._soft_vote_partitions(
+            w_avg_preds, w_avg_probs = self._soft_vote_partitions(
                 all_train_probs, all_val_probs, all_test_probs,
                 weights=weights, mode=mode, use_confidence_weighting=True
             )
@@ -1222,14 +1241,17 @@ class BaseModelController(OperatorController, ABC):
             w_avg_preds = self._hard_vote_partitions(
                 all_train_preds, all_val_preds, all_test_preds, weights=weights, mode=mode
             )
+            # No probabilities for hard voting
+            avg_probs = {'train': None, 'val': None, 'test': None}
+            w_avg_probs = {'train': None, 'val': None, 'test': None}
 
-        return avg_preds, w_avg_preds
+        return avg_preds, w_avg_preds, avg_probs, w_avg_probs
 
     def _soft_vote_partitions(
         self,
         all_train_probs, all_val_probs, all_test_probs, weights, mode,
         use_confidence_weighting: bool = False
-    ) -> Dict[str, np.ndarray]:
+    ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:
         """Apply soft voting to each partition.
 
         Args:
@@ -1239,35 +1261,41 @@ class BaseModelController(OperatorController, ABC):
             use_confidence_weighting: If True, weight by prediction confidence.
 
         Returns:
-            Dictionary with averaged predictions for each partition.
+            Tuple of:
+                - predictions: Dictionary with class predictions for each partition.
+                - probabilities: Dictionary with averaged probabilities for each partition.
         """
-        result = {}
+        predictions = {}
+        probabilities = {}
 
         # Train partition
         if all_train_probs and all_train_probs[0].size > 0:
-            result['train'], _ = EnsembleUtils.compute_soft_voting_average(
+            predictions['train'], probabilities['train'] = EnsembleUtils.compute_soft_voting_average(
                 all_train_probs, weights, use_confidence_weighting
             )
         else:
-            result['train'] = np.array([])
+            predictions['train'] = np.array([])
+            probabilities['train'] = None
 
         # Validation partition
         if mode not in ("predict", "explain") and all_val_probs and all_val_probs[0].size > 0:
-            result['val'], _ = EnsembleUtils.compute_soft_voting_average(
+            predictions['val'], probabilities['val'] = EnsembleUtils.compute_soft_voting_average(
                 all_val_probs, weights, use_confidence_weighting
             )
         else:
-            result['val'] = np.array([])
+            predictions['val'] = np.array([])
+            probabilities['val'] = None
 
         # Test partition
         if all_test_probs and all_test_probs[0].size > 0:
-            result['test'], _ = EnsembleUtils.compute_soft_voting_average(
+            predictions['test'], probabilities['test'] = EnsembleUtils.compute_soft_voting_average(
                 all_test_probs, weights, use_confidence_weighting
             )
         else:
-            result['test'] = np.array([])
+            predictions['test'] = np.array([])
+            probabilities['test'] = None
 
-        return result
+        return predictions, probabilities
 
     def _hard_vote_partitions(
         self,
@@ -1420,12 +1448,16 @@ class BaseModelController(OperatorController, ABC):
                 continue
 
             partitions = prediction_data.get('partitions', [])
+            probabilities = prediction_data.get('probabilities', {})
 
             # Add each partition's predictions
             pred_id = None
             for partition_name, indices, y_true_part, y_pred_part in partitions:
                 if len(indices) == 0:
                     continue
+
+                # Get probabilities for this partition if available
+                y_proba_part = probabilities.get(partition_name) if probabilities else None
 
                 pred_id = prediction_store.add_prediction(
                     dataset_name=prediction_data['dataset_name'],
@@ -1445,6 +1477,7 @@ class BaseModelController(OperatorController, ABC):
                     partition=partition_name,
                     y_true=y_true_part,
                     y_pred=y_pred_part,
+                    y_proba=y_proba_part,
                     val_score=prediction_data['val_score'],
                     test_score=prediction_data['test_score'],
                     train_score=prediction_data['train_score'],

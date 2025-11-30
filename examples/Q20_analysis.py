@@ -54,6 +54,32 @@ except ImportError:
     CatBoostClassifier = None
 
 # NIRS4All imports
+from nirs4all.operators.transforms import (
+    Rotate_Translate,
+    Random_X_Operation,
+    Spline_Y_Perturbations,
+    Spline_X_Perturbations,
+    Spline_X_Simplification,
+    Spline_Curve_Simplification,
+    GaussianAdditiveNoise,
+    MultiplicativeNoise,
+    LinearBaselineDrift,
+    PolynomialBaselineDrift,
+    WavelengthShift,
+    WavelengthStretch,
+    LocalWavelengthWarp,
+    SmoothMagnitudeWarp,
+    BandPerturbation,
+    GaussianSmoothingJitter,
+    UnsharpSpectralMask,
+    BandMasking,
+    ChannelDropout,
+    SpikeNoise,
+    LocalClipping,
+    MixupAugmenter,
+    LocalMixupAugmenter,
+    ScatterSimulationMSC,
+)
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
@@ -61,7 +87,9 @@ from nirs4all.operators.transforms import (
     Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer,
     Gaussian, StandardNormalVariate as SNV, SavitzkyGolay as SavGol,
     Haar, MultiplicativeScatterCorrection as MSC, Derivate,
-    RobustStandardNormalVariate as RSNV, LocalStandardNormalVariate as LSNV, Wavelet
+    RobustStandardNormalVariate as RSNV, LocalStandardNormalVariate as LSNV, Wavelet,
+    CARS,
+    MCUVE
 )
 from nirs4all.operators.transforms.nirs import (
     AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
@@ -86,9 +114,9 @@ print("=" * 80)
 # ============================================================================
 # All classification datasets
 data_paths = [
-    'selection/nitro_classif_unmerged/Digestibility_custom2',
+    # 'selection/nitro_classif_unmerged/Digestibility_custom2',
     'selection/nitro_classif_unmerged/Digestibility_custom3',
-    'selection/nitro_classif_unmerged/Digestibility_custom5',
+    # 'selection/nitro_classif_unmerged/Digestibility_custom5',
     # 'selection/nitro_classif_unmerged/Hardness_custom2',
     # 'selection/nitro_classif_unmerged/Hardness_custom4',
     # 'selection/nitro_classif_unmerged/Tannin_custom2',
@@ -129,17 +157,34 @@ stacking_classifier = StackingClassifier(
 # ============================================================================
 pipeline = [
     # Cross-validation setup (stratified for classification)
-    "fold_chart",
-    {
-        "sample_augmentation": {
-            "transformers": [Rotate_Translate],
-            "balance": "y",
-            "ref_percentage": 0.8,  # Target 100% of majority class
-            "selection": "random",
-            "random_state": 42
-        }
-    },
-    "fold_chart",
+    # "fold_chart",
+    # {
+    #     "sample_augmentation": {
+    #         "transformers": [
+    #             Rotate_Translate(p_range=2, y_factor=3),
+    #             Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
+    #             Spline_X_Simplification(spline_points=50, uniform=True),
+    #             GaussianAdditiveNoise(sigma=0.01),
+    #             MultiplicativeNoise(sigma_gain=0.05),
+    #             LinearBaselineDrift(),
+    #             PolynomialBaselineDrift(),
+    #             WavelengthShift(),
+    #             WavelengthStretch(),
+    #             LocalWavelengthWarp(),
+    #             SmoothMagnitudeWarp(),
+    #             GaussianSmoothingJitter(),
+    #             UnsharpSpectralMask(),
+    #             ChannelDropout(),
+    #             MixupAugmenter(),
+    #             ScatterSimulationMSC(),
+    #         ],
+    #         "balance": "y",
+    #         "ref_percentage": 2.0,  # Target 200% of majority class
+    #         "selection": "random",
+    #         "random_state": 42
+    #     }
+    # },
+    # "fold_chart",
 
     # Comprehensive feature augmentation with many preprocessing combinations
     {"feature_augmentation": [
@@ -152,15 +197,22 @@ pipeline = [
         [EMSC, FstDer],  # MSC first to reduce noise in derivative
         [SNV, SndDer],  # or [MSC, SavGol(deriv=2)]
     ]},
+    CARS(
+        n_components=10,            # PLS components for internal model
+        n_sampling_runs=50,         # Number of Monte-Carlo runs
+        n_variables_ratio_end=0.2,  # Final ratio of variables to keep
+        cv_folds=5,                 # Cross-validation folds
+        random_state=42             # For reproducibility
+    ),
     {"split": StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42), "group": "ID"},
-    "fold_chart",
+    # "fold_chart",
     # 'chart_2d',  # 2D Visualization of augmented features
     # Feature scaling (StandardScaler often better for classification)
     MinMaxScaler(),
 
     {
         "model": OPLSDA,
-        "name": "OPLSDA-Finetuned",
+        "name": "OPLSDA",
         # "finetune_params": {
         #     "n_trials": 50,
         #     "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
@@ -248,6 +300,58 @@ for dataset_name, dataset_prediction in predictions_per_dataset.items():
         print(f"  {idx+1}. {Predictions.pred_short_string(model, metrics=['accuracy', 'f1'], partition=['val', 'test'])}")
 
 # ============================================================================
+# SAMPLE AGGREGATION EXAMPLE
+# ============================================================================
+# When you have multiple measurements per sample (e.g., 4 spectra per sample ID),
+# you can aggregate predictions to get one prediction per sample.
+print("\n" + "=" * 80)
+print("SAMPLE AGGREGATION EXAMPLE")
+print("=" * 80)
+
+# Check if the dataset has an 'ID' column for aggregation
+for dataset_name, dataset_prediction in predictions_per_dataset.items():
+    dataset_predictions = dataset_prediction['run_predictions']
+
+    # Get the first prediction to check metadata
+    sample_pred = dataset_predictions.filter_predictions(partition='test', load_arrays=True)
+    if sample_pred:
+        metadata = sample_pred[0].get('metadata', {})
+        if 'ID' in metadata:
+            print(f"\nDataset '{dataset_name}' has 'ID' column - showing aggregated results:")
+
+            # Compare non-aggregated vs aggregated top models
+            print("\n  Non-aggregated Top 3 by Accuracy (test):")
+            top_regular = dataset_predictions.top(n=3, rank_metric='accuracy', rank_partition='test')
+            for idx, model in enumerate(top_regular):
+                print(f"    {idx+1}. {Predictions.pred_short_string(model, metrics=['accuracy', 'balanced_accuracy'])}")
+
+            print("\n  Aggregated by 'ID' Top 3 by Accuracy (test):")
+            top_aggregated = dataset_predictions.top(
+                n=3,
+                rank_metric='accuracy',
+                rank_partition='test',
+                aggregate='ID'  # Aggregate predictions by sample ID
+            )
+            for idx, model in enumerate(top_aggregated):
+                n_samples = model.get('n_samples', '?')
+                agg_flag = " [aggregated]" if model.get('aggregated') else ""
+                print(f"    {idx+1}. {Predictions.pred_short_string(model, metrics=['accuracy', 'balanced_accuracy'])} (n={n_samples}){agg_flag}")
+
+            # Show one detailed example with aggregation
+            if top_aggregated:
+                best_agg = top_aggregated[0]
+                y_true = best_agg.get('y_true')
+                y_pred = best_agg.get('y_pred')
+                if y_true is not None and y_pred is not None:
+                    print(f"\n  Best aggregated model details:")
+                    print(f"    Model: {best_agg.get('model_name')}")
+                    print(f"    Samples after aggregation: {len(y_pred)}")
+        else:
+            print(f"\nDataset '{dataset_name}' does not have 'ID' column for aggregation")
+    else:
+        print(f"\nNo test predictions found for dataset '{dataset_name}'")
+
+# ============================================================================
 # VISUALIZATIONS
 # ============================================================================
 print("\n" + "=" * 80)
@@ -286,6 +390,28 @@ fig_heatmap_model_dataset = analyzer.plot_heatmap(
     rank_metric='balanced_accuracy',
     display_metric='balanced_accuracy',
 )
+
+# ============================================================================
+# AGGREGATED VISUALIZATIONS
+# ============================================================================
+# When the dataset has an 'ID' column, you can create visualizations with
+# aggregated predictions (one prediction per sample ID instead of per spectrum).
+#
+# Example: Confusion matrix with aggregated predictions by sample ID
+# fig_confusion_agg = analyzer.plot_confusion_matrix(
+#     k=5,
+#     rank_metric='balanced_accuracy',
+#     rank_partition='val',
+#     display_partition='test',
+#     aggregate='ID'  # Aggregate by sample ID
+# )
+#
+# Example: Top-K comparison with aggregated predictions
+# fig_top_agg = analyzer.plot_top_k(
+#     k=5,
+#     rank_metric='balanced_accuracy',
+#     aggregate='ID'
+# )
 
 # fig_heatmap_model_dataset_f1 = analyzer.plot_heatmap(
 #     x_var="model_name",
