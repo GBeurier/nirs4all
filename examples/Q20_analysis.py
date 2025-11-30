@@ -114,13 +114,13 @@ print("=" * 80)
 # ============================================================================
 # All classification datasets
 data_paths = [
-    # 'selection/nitro_classif_unmerged/Digestibility_custom2',
+    'selection/nitro_classif_unmerged/Digestibility_custom2',
     'selection/nitro_classif_unmerged/Digestibility_custom3',
-    # 'selection/nitro_classif_unmerged/Digestibility_custom5',
-    # 'selection/nitro_classif_unmerged/Hardness_custom2',
-    # 'selection/nitro_classif_unmerged/Hardness_custom4',
-    # 'selection/nitro_classif_unmerged/Tannin_custom2',
-    # 'selection/nitro_classif_unmerged/Tannin_custom3',
+    'selection/nitro_classif_unmerged/Digestibility_custom5',
+    'selection/nitro_classif_unmerged/Hardness_custom2',
+    'selection/nitro_classif_unmerged/Hardness_custom4',
+    'selection/nitro_classif_unmerged/Tannin_custom2',
+    'selection/nitro_classif_unmerged/Tannin_custom3',
 ]
 
 # ============================================================================
@@ -130,7 +130,19 @@ data_paths = [
 base_estimators = [
     ('plsda_5', PLSDA(n_components=5)),
     ('plsda_7', PLSDA(n_components=7)),
+    ('plsda_14', PLSDA(n_components=14)),
     ('plsda_15', PLSDA(n_components=15)),
+    ('plsda_16', PLSDA(n_components=16)),
+    ('oplsda_1_12', OPLSDA(n_components=1, pls_components=12)),
+    ('oplsda_2_12', OPLSDA(n_components=2, pls_components=12)),
+    ('oplsda_1_13', OPLSDA(n_components=1, pls_components=13)),
+    ('oplsda_2_13', OPLSDA(n_components=2, pls_components=13)),
+    ('oplsda_1_14', OPLSDA(n_components=1, pls_components=14)),
+    ('oplsda_2_14', OPLSDA(n_components=2, pls_components=14)),
+    ('oplsda_1_15', OPLSDA(n_components=1, pls_components=15)),
+    ('oplsda_2_15', OPLSDA(n_components=2, pls_components=15)),
+    ('oplsda_1_16', OPLSDA(n_components=1, pls_components=16)),
+    ('oplsda_2_16', OPLSDA(n_components=2, pls_components=16)),
     ('logistic', LogisticRegression(max_iter=1000, random_state=42)),
     ('catboost', CatBoostClassifier(iterations=400, depth=8, learning_rate=0.1, random_state=42, verbose=0, allow_writing_files=False)),
     ('xgboost', XGBClassifier(n_estimators=400, max_depth=8, learning_rate=0.1, random_state=42, verbosity=0, use_label_encoder=False, eval_metric='mlogloss')),
@@ -140,6 +152,7 @@ base_estimators = [
     ('knn', KNeighborsClassifier(n_neighbors=5)),
     ("mlp_32_8_64", MLPClassifier(hidden_layer_sizes=(32, 8, 64), max_iter=500, random_state=42)),
     ("mlp_32_128_64", MLPClassifier(hidden_layer_sizes=(32, 128, 64), max_iter=500, random_state=42)),
+    ("mlp_128_32_16_64", MLPClassifier(hidden_layer_sizes=(128, 32, 16, 64), max_iter=500, random_state=42)),
     ("extratrees", ExtraTreesClassifier(n_estimators=200, max_depth=10, random_state=42)),
 ]
 
@@ -157,75 +170,93 @@ stacking_classifier = StackingClassifier(
 # ============================================================================
 pipeline = [
     # Cross-validation setup (stratified for classification)
+    {
+        "sample_augmentation": {
+            "transformers": [
+                Rotate_Translate(p_range=2, y_factor=3),
+                Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
+                Spline_X_Simplification(spline_points=50, uniform=True),
+                GaussianAdditiveNoise(sigma=0.01),
+                MultiplicativeNoise(sigma_gain=0.05),
+                LinearBaselineDrift(),
+                PolynomialBaselineDrift(),
+                WavelengthShift(),
+                WavelengthStretch(),
+                LocalWavelengthWarp(),
+                SmoothMagnitudeWarp(),
+                GaussianSmoothingJitter(),
+                UnsharpSpectralMask(),
+                ChannelDropout(),
+                MixupAugmenter(),
+                ScatterSimulationMSC(),
+            ],
+            "balance": "y",
+            "ref_percentage": 8.0,  # Target 200% of majority class
+            "selection": "random",
+            "random_state": 42
+        }
+    },
     # "fold_chart",
-    # {
-    #     "sample_augmentation": {
-    #         "transformers": [
-    #             Rotate_Translate(p_range=2, y_factor=3),
-    #             Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
-    #             Spline_X_Simplification(spline_points=50, uniform=True),
-    #             GaussianAdditiveNoise(sigma=0.01),
-    #             MultiplicativeNoise(sigma_gain=0.05),
-    #             LinearBaselineDrift(),
-    #             PolynomialBaselineDrift(),
-    #             WavelengthShift(),
-    #             WavelengthStretch(),
-    #             LocalWavelengthWarp(),
-    #             SmoothMagnitudeWarp(),
-    #             GaussianSmoothingJitter(),
-    #             UnsharpSpectralMask(),
-    #             ChannelDropout(),
-    #             MixupAugmenter(),
-    #             ScatterSimulationMSC(),
-    #         ],
-    #         "balance": "y",
-    #         "ref_percentage": 2.0,  # Target 200% of majority class
-    #         "selection": "random",
-    #         "random_state": 42
-    #     }
-    # },
-    # "fold_chart",
-
+    # "augment_details_chart",
     # Comprehensive feature augmentation with many preprocessing combinations
-    {"feature_augmentation": [
-        [MSC(scale=False), EMSC, AreaNormalization],
-        [MSC(scale=False), EMSC, SNV],
-        [EMSC, Gaussian(order=1, sigma=2), RSNV],
-        EMSC,  # or EMSC if you have it
-        SNV,
-        Haar,
-        [EMSC, FstDer],  # MSC first to reduce noise in derivative
-        [SNV, SndDer],  # or [MSC, SavGol(deriv=2)]
-    ]},
-    CARS(
-        n_components=10,            # PLS components for internal model
-        n_sampling_runs=50,         # Number of Monte-Carlo runs
-        n_variables_ratio_end=0.2,  # Final ratio of variables to keep
-        cv_folds=5,                 # Cross-validation folds
-        random_state=42             # For reproducibility
-    ),
+    # {"feature_augmentation": [
+    #     [MSC(scale=False), EMSC, AreaNormalization],
+    #     [MSC(scale=False), EMSC, SNV],
+    #     [EMSC, Gaussian(order=1, sigma=2), RSNV],
+    #     # EMSC,
+    #     SNV,
+    #     Haar,
+    #     # [EMSC, FstDer],
+    #     [SNV, SndDer],
+    # ]},
+    # "chart_2d",
+    # CARS(
+    #     n_components=12,            # PLS components for internal model
+    #     n_sampling_runs=50,         # Number of Monte-Carlo runs
+    #     n_variables_ratio_end=0.2,  # Final ratio of variables to keep
+    #     cv_folds=3,                 # Cross-validation folds
+    #     random_state=42             # For reproducibility
+    # ),
+    # "chart_2d",
     {"split": StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42), "group": "ID"},
+
     # "fold_chart",
     # 'chart_2d',  # 2D Visualization of augmented features
-    # Feature scaling (StandardScaler often better for classification)
+
     MinMaxScaler(),
+    # StandardScaler(),
 
-    {
-        "model": OPLSDA,
-        "name": "OPLSDA",
-        # "finetune_params": {
-        #     "n_trials": 50,
-        #     "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
-        #     "model_params": {
-        #         'n_components': ('int', 1, 10),
-        #         'pls_components': ('int', 1, 25),
-        #     },
-        # }
-    },
+    # {
+    #     "model": OPLSDA(n_components=10, pls_components=10),
+    #     "name": "OPLSDA",
+    #     # "finetune_params": {
+    #     #     "n_trials": 50,
+    #     #     "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
+    #     #     "model_params": {
+    #     #         'n_components': ('int', 1, 10),
+    #     #         'pls_components': ('int', 1, 25),
+    #     #     },
+    #     # }
+    # },
 
-    # OPLSDA(n_components=1, pls_components=5),
-    # OPLSDA(n_components=2, pls_components=5),
-    # OPLSDA(n_components=3, pls_components=5),
+    {"model": OPLSDA(n_components=1, pls_components=11), "name": "OPLSDA_1_11"},
+    {"model": OPLSDA(n_components=2, pls_components=11), "name": "OPLSDA_2_11"},
+    # {"model": OPLSDA(n_components=3, pls_components=11), "name": "OPLSDA_3_11"},
+    {"model": OPLSDA(n_components=1, pls_components=12), "name": "OPLSDA_1_12"},
+    {"model": OPLSDA(n_components=2, pls_components=12), "name": "OPLSDA_2_12"},
+    # {"model": OPLSDA(n_components=3, pls_components=12), "name": "OPLSDA_3_12"},
+    {"model": OPLSDA(n_components=1, pls_components=13), "name": "OPLSDA_1_13"},
+    {"model": OPLSDA(n_components=2, pls_components=13), "name": "OPLSDA_2_13"},
+    # {"model": OPLSDA(n_components=3, pls_components=13), "name": "OPLSDA_3_13"},
+    {"model": OPLSDA(n_components=1, pls_components=14), "name": "OPLSDA_1_14"},
+    {"model": OPLSDA(n_components=2, pls_components=14), "name": "OPLSDA_2_14"},
+    # {"model": OPLSDA(n_components=3, pls_components=14), "name": "OPLSDA_3_14"},
+    {"model": OPLSDA(n_components=1, pls_components=15), "name": "OPLSDA_1_15"},
+    {"model": OPLSDA(n_components=2, pls_components=15), "name": "OPLSDA_2_15"},
+    # {"model": OPLSDA(n_components=3, pls_components=15), "name": "OPLSDA_3_15"},
+    {"model": OPLSDA(n_components=1, pls_components=16), "name": "OPLSDA_1_16"},
+    {"model": OPLSDA(n_components=2, pls_components=16), "name": "OPLSDA_2_16"},
+    # {"model": OPLSDA(n_components=3, pls_components=16), "name": "OPLSDA_3_16"},
 
     # SpectralTransformer - Modern transformer for NIR spectral classification
     # Designed for ~4k samples with binary, 3-class, and 5-class targets
@@ -383,12 +414,32 @@ fig_confusion_matrix_val = analyzer.plot_confusion_matrix(
     rank_metric='balanced_accuracy', rank_partition='val', display_partition='test'
 )
 
+fig_confusion_matrix_val = analyzer.plot_confusion_matrix(
+    k=10,
+    rank_metric='balanced_accuracy', rank_partition='val', display_partition='test', aggregate='ID'
+)
+
+fig_confusion_matrix_val = analyzer.plot_confusion_matrix(
+    k=10,
+    rank_metric='accuracy', display_metric='accuracy', rank_partition='val', display_partition='test', aggregate='ID'
+)
+
+
+# # Heatmaps
+# fig_heatmap_model_dataset = analyzer.plot_heatmap(
+#     x_var="model_name",
+#     y_var="dataset_name",
+#     rank_metric='balanced_accuracy',
+#     display_metric='balanced_accuracy',
+# )
+
 # Heatmaps
 fig_heatmap_model_dataset = analyzer.plot_heatmap(
     x_var="model_name",
     y_var="dataset_name",
     rank_metric='balanced_accuracy',
     display_metric='balanced_accuracy',
+    aggregate='ID'
 )
 
 # ============================================================================

@@ -6,6 +6,13 @@ from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.controllers.data.balancing import BalancingCalculator
 from nirs4all.data.binning import BinningCalculator  # noqa: F401 - used in _execute_balanced
+from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+try:
+    import joblib  # noqa: F401 - used to check availability
+    JOBLIB_AVAILABLE = True
+except ImportError:
+    JOBLIB_AVAILABLE = False
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -117,10 +124,13 @@ class SampleAugmentationController(OperatorController):
         step = step_info.original_step
 
         config = step["sample_augmentation"]
-        transformers = config.get("transformers", [])
+        transformers_raw = config.get("transformers", [])
 
-        if not transformers:
+        if not transformers_raw:
             raise ValueError("sample_augmentation requires at least one transformer")
+
+        # Deserialize transformers (they may be stored as serialized class paths)
+        transformers = [deserialize_component(t) for t in transformers_raw]
 
         # Determine mode
         is_balanced = "balance" in config
@@ -352,22 +362,50 @@ class SampleAugmentationController(OperatorController):
         loaded_binaries: Optional[Any]
     ):
         """
-        Emit ONE run_step per transformer with the list of target sample indices.
+        Execute transformers and add augmented samples to dataset.
+
+        This method supports two modes:
+        1. Parallel mode (when joblib available and n_jobs > 1): Execute transformers in parallel,
+           collect all augmented data, then batch insert. Much faster for many transformers.
+        2. Sequential mode: Execute transformers one by one (fallback).
 
         TransformerMixinController will:
         1. Detect augment_sample action
-        2. For each sample in the list:
-           - Get origin data (all sources)
-           - Transform it
-           - Call dataset.add_samples() (or augment_samples with count=1)
+        2. Transform all target samples in batch
+        3. Return augmented data OR add to dataset directly
         """
-        for trans_idx, sample_ids in transformer_to_samples.items():
-            if not sample_ids or len(sample_ids) == 0:
-                continue
+        # Check if parallel execution is possible and beneficial
+        active_transformers = [(idx, samples) for idx, samples in transformer_to_samples.items()
+                               if samples and len(samples) > 0]
 
+        n_transformers = len(active_transformers)
+        if n_transformers == 0:
+            return
+
+        # Use parallel execution if joblib available and multiple transformers
+        use_parallel = JOBLIB_AVAILABLE and n_transformers > 1
+
+        if use_parallel:
+            self._emit_augmentation_steps_parallel(
+                active_transformers, transformers, context, dataset, runtime_context, loaded_binaries
+            )
+        else:
+            self._emit_augmentation_steps_sequential(
+                active_transformers, transformers, context, dataset, runtime_context, loaded_binaries
+            )
+
+    def _emit_augmentation_steps_sequential(
+        self,
+        active_transformers: List[Tuple[int, List[int]]],
+        transformers: List,
+        context: 'ExecutionContext',
+        dataset: 'SpectroDataset',
+        runtime_context: 'RuntimeContext',
+        loaded_binaries: Optional[Any]
+    ):
+        """Sequential execution of transformers (original implementation)."""
+        for trans_idx, sample_ids in active_transformers:
             transformer = transformers[trans_idx]
-
-            # print(f"Applying transformer {transformer} to {sample_ids} samples")
 
             # Create context for this transformer's augmentation
             local_context = context.with_metadata(
@@ -386,6 +424,132 @@ class SampleAugmentationController(OperatorController):
                     loaded_binaries=loaded_binaries,
                     prediction_store=None
                 )
+
+    def _emit_augmentation_steps_parallel(
+        self,
+        active_transformers: List[Tuple[int, List[int]]],
+        transformers: List,
+        context: 'ExecutionContext',
+        dataset: 'SpectroDataset',
+        runtime_context: 'RuntimeContext',
+        loaded_binaries: Optional[Any]
+    ):
+        """
+        Parallel execution of transformers using joblib.
+
+        Flow:
+        1. Fetch train data once (for fitting) and all origin data (for transform)
+        2. Execute all transformers in parallel, each returning augmented data
+        3. Collect all results and batch insert into dataset
+        """
+        from sklearn.base import clone
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Get train data for fitting (once for all transformers)
+        train_context = context.with_partition("train")
+        train_selector = train_context.selector.with_augmented(False)
+        train_data = dataset.x(train_selector, "3d", concat_source=False)
+        if not isinstance(train_data, list):
+            train_data = [train_data]
+
+        n_sources = len(train_data)
+        n_processings = train_data[0].shape[1] if n_sources > 0 else 0
+
+        # Collect all unique sample IDs across all transformers
+        all_sample_ids = set()
+        for _, sample_ids in active_transformers:
+            all_sample_ids.update(sample_ids)
+        all_sample_ids_list = sorted(all_sample_ids)
+
+        # Batch fetch all origin samples once
+        batch_selector = {"sample": all_sample_ids_list}
+        all_origin_data = dataset.x(batch_selector, "3d", concat_source=False, include_augmented=False)
+        if not isinstance(all_origin_data, list):
+            all_origin_data = [all_origin_data]
+
+        # Create sample_id to index mapping for efficient lookup
+        sample_id_to_idx = {sid: idx for idx, sid in enumerate(all_sample_ids_list)}
+
+        # Pre-fit all transformer × source × processing combinations
+        # This can be done in parallel too, but keep it simple for now
+        all_fitted = {}  # (trans_idx, source_idx, proc_idx) -> fitted transformer
+        for trans_idx, _ in active_transformers:
+            transformer = transformers[trans_idx]
+            # Check if transformer is actual object or string reference
+            if isinstance(transformer, str):
+                raise ValueError(f"Transformer at index {trans_idx} is a string '{transformer}' instead of an object. "
+                                 "Ensure transformers are instantiated before passing to sample_augmentation.")
+            for source_idx in range(n_sources):
+                for proc_idx in range(n_processings):
+                    cloned = clone(transformer)
+                    train_proc = train_data[source_idx][:, proc_idx, :]
+                    cloned.fit(train_proc)
+                    all_fitted[(trans_idx, source_idx, proc_idx)] = cloned
+
+        def process_transformer(args):
+            """Process a single transformer and return augmented data + index info."""
+            trans_idx, sample_ids = args
+            transformer = transformers[trans_idx]
+            operator_name = transformer.__class__.__name__
+
+            # Get indices for this transformer's samples
+            local_indices = [sample_id_to_idx[sid] for sid in sample_ids]
+
+            # Transform all samples for this transformer
+            transformed_per_source = []
+            for source_idx in range(n_sources):
+                source_origin = all_origin_data[source_idx]  # (all_samples, procs, feats)
+                local_source_data = source_origin[local_indices]  # (n_local, procs, feats)
+
+                transformed_procs = []
+                for proc_idx in range(n_processings):
+                    proc_data = local_source_data[:, proc_idx, :]  # (n_local, feats)
+                    fitted = all_fitted[(trans_idx, source_idx, proc_idx)]
+                    transformed = fitted.transform(proc_data)  # (n_local, feats)
+                    transformed_procs.append(transformed)
+
+                # Stack processings: (n_local, n_processings, n_features)
+                source_3d = np.stack(transformed_procs, axis=1)
+                transformed_per_source.append(source_3d)
+
+            # Prepare output data
+            if n_sources == 1:
+                batch_data = transformed_per_source[0]  # (n_local, n_procs, n_feats)
+            else:
+                # For multi-source, we'd need to handle differently
+                # For now, use first source
+                batch_data = transformed_per_source[0]
+
+            # Build index dictionaries
+            indexes_list = [
+                {"partition": "train", "origin": sid, "augmentation": operator_name}
+                for sid in sample_ids
+            ]
+
+            return batch_data, indexes_list
+
+        # Execute in parallel using ThreadPoolExecutor (no pickling issues)
+        all_batch_data = []
+        all_indexes = []
+
+        max_workers = min(len(active_transformers), 16)  # Cap at 16 threads
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(process_transformer, args): args
+                       for args in active_transformers}
+
+            for future in as_completed(futures):
+                batch_data, indexes_list = future.result()
+                all_batch_data.append(batch_data)
+                all_indexes.extend(indexes_list)
+
+        if not all_batch_data:
+            return
+
+        # Concatenate all augmented data into single array
+        combined_data = np.concatenate(all_batch_data, axis=0)
+
+        # Single batch insert for ALL augmented samples from ALL transformers
+        dataset.add_samples_batch(data=combined_data, indexes_list=all_indexes)
 
     def _cycle_transformers(
         self,

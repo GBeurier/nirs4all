@@ -161,6 +161,84 @@ class FeatureAccessor:
         self._indexer.add_samples_dict(num_samples, indexes)
         self._block.add_samples(data, headers, header_unit)
 
+    def add_samples_batch(
+        self,
+        data: Union[np.ndarray, List[np.ndarray]],
+        indexes_list: List[IndexDict]
+    ) -> None:
+        """Add multiple samples in a single batch operation - O(N) instead of O(N²).
+
+        This method is optimized for bulk insertion of augmented samples. It performs
+        only one array concatenation and one indexer append, making it dramatically
+        faster than calling add_samples() in a loop.
+
+        Args:
+            data: 3D array of shape (n_samples, n_processings, n_features) for single source,
+                  or list of 3D arrays for multi-source datasets.
+            indexes_list: List of index dictionaries, one per sample. Each dict can contain:
+                - partition: "train", "test", "val"
+                - origin: original sample ID (for augmented samples)
+                - augmentation: augmentation type identifier
+                - group, branch, etc.
+
+        Raises:
+            ValueError: If data and indexes_list lengths don't match.
+
+        Example:
+            >>> # Batch add 100 augmented samples
+            >>> data = np.random.rand(100, 2, 500)  # 100 samples, 2 processings, 500 features
+            >>> indexes = [{"partition": "train", "origin": i, "augmentation": "noise"} for i in range(100)]
+            >>> dataset.add_samples_batch(data, indexes)
+        """
+        # Determine number of samples from data
+        if isinstance(data, list):
+            n_samples = data[0].shape[0]
+        else:
+            n_samples = data.shape[0]
+
+        if n_samples != len(indexes_list):
+            raise ValueError(
+                f"Data has {n_samples} samples but got {len(indexes_list)} index entries"
+            )
+
+        if n_samples == 0:
+            return
+
+        # Extract common fields for batch indexer insert
+        # Group indexes by field for efficient batch processing
+        partitions = []
+        origins = []
+        augmentations = []
+        groups = []
+        branches = []
+
+        for idx_dict in indexes_list:
+            partitions.append(idx_dict.get("partition", "train"))
+            origins.append(idx_dict.get("origin"))
+            augmentations.append(idx_dict.get("augmentation"))
+            groups.append(idx_dict.get("group"))
+            branches.append(idx_dict.get("branch"))
+
+        # Check if all partitions are the same (common case)
+        unique_partitions = set(partitions)
+        if len(unique_partitions) == 1:
+            partition = partitions[0]
+        else:
+            partition = partitions  # Will be handled by indexer
+
+        # Single batch add to indexer
+        self._indexer.add_samples(
+            count=n_samples,
+            partition=partition,
+            origin_indices=origins,
+            augmentation=augmentations,
+            group=groups if any(g is not None for g in groups) else None,
+            branch=branches if any(b is not None for b in branches) else None
+        )
+
+        # Single batch add to feature storage
+        self._block.add_samples_batch_3d(data)
+
     def add_features(self,
                      features: InputFeatures,
                      processings: ProcessingList,

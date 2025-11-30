@@ -1,43 +1,14 @@
 import numpy as np
-# import random
 import operator
-# from ast import operator
 
 from .abc_augmenter import Augmenter
-
-
-def angle_p(x, xI, yI, p1, p2):
-    """
-    Helper function to calculate the angle for rotation and translation.
-
-    Parameters
-    ----------
-    x : float
-        Input value.
-    xI : float
-        Reference point.
-    yI : float
-        Initial value.
-    p1 : float
-        Slope 1.
-    p2 : float
-        Slope 2.
-
-    Returns
-    -------
-    float
-        Calculated angle.
-    """
-    mask = x <= xI
-    return np.where(mask, p1 * (x - xI) + yI, p2 * (x - xI) + yI)
-
-
-v_angle_p = np.vectorize(angle_p)
 
 
 class Rotate_Translate(Augmenter):
     """
     Class for rotating and translating data augmentation.
+
+    Vectorized implementation that processes all samples in batch.
 
     Parameters
     ----------
@@ -62,10 +33,12 @@ class Rotate_Translate(Augmenter):
         """
         Augment the data by rotating and translating the signal.
 
+        Vectorized implementation using NumPy broadcasting.
+
         Parameters
         ----------
         X : ndarray
-            Input data to be augmented.
+            Input data to be augmented, shape (n_samples, n_features).
         apply_on : str, optional
             Apply augmentation on "samples" or "global" data. Default is "samples".
 
@@ -74,25 +47,58 @@ class Rotate_Translate(Augmenter):
         ndarray
             Augmented data.
         """
+        n_samples, n_features = X.shape
 
-        def deformation(x):
-            x_range = np.linspace(0, 1, x.shape[-1])
-            p2 = self.random_gen.uniform(-self.p_range/5, self.p_range/5)
-            p1 = self.random_gen.uniform(-self.p_range/5, self.p_range/5)
-            xI = self.random_gen.uniform(0, 1)
-            yI = self.random_gen.uniform(0, max(0, np.max(x) / self.y_factor))  # Ensure yI range is valid
-            distor = v_angle_p(x_range, xI, yI, p1, p2)
-            return distor
-
+        # Pre-compute x_range once for all samples
+        x_range = np.linspace(0, 1, n_features)  # (n_features,)
 
         if apply_on == "global":
-            increment = deformation(X) * np.std(X)
+            # Single deformation for all samples
+            p1 = self.random_gen.uniform(-self.p_range / 5, self.p_range / 5)
+            p2 = self.random_gen.uniform(-self.p_range / 5, self.p_range / 5)
+            xI = self.random_gen.uniform(0, 1)
+            yI = self.random_gen.uniform(0, max(0, np.max(X) / self.y_factor))
+
+            # Vectorized angle computation
+            mask = x_range <= xI  # (n_features,)
+            distor = np.where(mask, p1 * (x_range - xI) + yI, p2 * (x_range - xI) + yI)
+            increment = distor * np.std(X)  # (n_features,)
         else:
-            increment = np.array([deformation(x) * np.std(x) for x in X])
+            # Generate all random parameters at once for all samples
+            p1 = self.random_gen.uniform(-self.p_range / 5, self.p_range / 5, n_samples)  # (n_samples,)
+            p2 = self.random_gen.uniform(-self.p_range / 5, self.p_range / 5, n_samples)  # (n_samples,)
+            xI = self.random_gen.uniform(0, 1, n_samples)  # (n_samples,)
 
-        new_X = X + increment
+            # Compute yI for each sample based on max values
+            max_vals = np.max(X, axis=1)  # (n_samples,)
+            yI_upper = np.maximum(0, max_vals / self.y_factor)
+            yI = self.random_gen.uniform(0, 1, n_samples) * yI_upper  # (n_samples,)
 
-        return new_X
+            # Vectorized computation using broadcasting
+            # x_range: (n_features,), xI: (n_samples,) -> broadcast to (n_samples, n_features)
+            x_expanded = x_range[np.newaxis, :]  # (1, n_features)
+            xI_expanded = xI[:, np.newaxis]  # (n_samples, 1)
+
+            # Compute mask for each sample
+            mask = x_expanded <= xI_expanded  # (n_samples, n_features)
+
+            # Compute slopes for both branches using broadcasting
+            p1_expanded = p1[:, np.newaxis]  # (n_samples, 1)
+            p2_expanded = p2[:, np.newaxis]  # (n_samples, 1)
+            yI_expanded = yI[:, np.newaxis]  # (n_samples, 1)
+
+            # Vectorized angle computation for all samples at once
+            distor = np.where(
+                mask,
+                p1_expanded * (x_expanded - xI_expanded) + yI_expanded,
+                p2_expanded * (x_expanded - xI_expanded) + yI_expanded
+            )  # (n_samples, n_features)
+
+            # Multiply by per-sample std
+            stds = np.std(X, axis=1, keepdims=True)  # (n_samples, 1)
+            increment = distor * stds  # (n_samples, n_features)
+
+        return X + increment
 
 
 class Random_X_Operation(Augmenter):
@@ -141,7 +147,6 @@ class Random_X_Operation(Augmenter):
             increment = self.random_gen.random(X.shape[-1]) * interval + min_val
         else:
             increment = self.random_gen.random(X.shape) * interval + min_val
-
 
         new_X = self.operator_func(X, increment)
         # Clip the augmented data within the float32 range
