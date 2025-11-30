@@ -44,6 +44,7 @@ from .scalers import (
 from .signal import Baseline, Detrend, Gaussian, baseline, detrend, gaussian
 from .features import CropTransformer, ResampleTransformer
 from .resampler import Resampler
+from .feature_selection import CARS, MCUVE
 from .presets import (
     id_preprocessing,
     savgol_only,
@@ -120,6 +121,11 @@ __all__ = [
 
     # Wavelength resampling
     "Resampler",
+
+    # Feature selection
+    "CARS",
+    "MCUVE",
+
     # Targets / discretizers
     "IntegerKBinsDiscretizer",
     "RangeDiscretizer",

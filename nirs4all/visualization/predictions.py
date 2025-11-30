@@ -213,8 +213,11 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         show_scores: bool = True,
         **kwargs
-    ) -> Figure:
+    ) -> Union[Figure, List[Figure]]:
         """Plot confusion matrices for top K classification models.
+
+        When multiple datasets are present and no dataset_name is specified,
+        creates one figure per dataset.
 
         Args:
             k: Number of top models to show (default: 5).
@@ -226,7 +229,7 @@ class PredictionAnalyzer:
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
-            matplotlib Figure object.
+            matplotlib Figure object or list of Figure objects (one per dataset).
 
         Example:
             >>> fig = analyzer.plot_confusion_matrix(k=3, rank_metric='f1')
@@ -236,6 +239,31 @@ class PredictionAnalyzer:
             self.dataset_name_override,
             self.config
         )
+
+        # Check if dataset_name is specified in kwargs
+        if 'dataset_name' not in kwargs:
+            # Get all datasets
+            datasets = self.predictions.get_datasets()
+
+            # If multiple datasets, create one figure per dataset
+            if len(datasets) > 1:
+                figures = []
+                for dataset in datasets:
+                    fig = chart.render(
+                        k=k,
+                        rank_metric=rank_metric,
+                        rank_partition=rank_partition,
+                        display_metric=display_metric,
+                        display_partition=display_partition,
+                        show_scores=show_scores,
+                        dataset_name=dataset,
+                        **kwargs
+                    )
+                    self._save_figure(fig, "confusion_matrix", dataset)
+                    figures.append(fig)
+                return figures
+
+        # Single dataset or dataset_name specified
         fig = chart.render(
             k=k,
             rank_metric=rank_metric,

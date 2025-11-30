@@ -355,29 +355,35 @@ class SpectralTransformer(nn.Module):
         num_classes: int,
         dropout: float
     ) -> nn.Module:
-        """Build the output head based on task type."""
+        """Build the output head based on task type.
+
+        Uses same output conventions as existing nirs4all models:
+        - Regression: linear output
+        - Binary (num_classes=2): single sigmoid output
+        - Multi-class (num_classes>2): softmax output
+        """
         if num_classes == 1:
-            # Regression
+            # Regression - linear output
             return nn.Sequential(
                 nn.Linear(embed_dim, embed_dim // 2),
-                nn.GELU(),
+                nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(embed_dim // 2, 1)
             )
         elif num_classes == 2:
-            # Binary classification with sigmoid
+            # Binary classification - single sigmoid output (matches nicon.py convention)
             return nn.Sequential(
                 nn.Linear(embed_dim, embed_dim // 2),
-                nn.GELU(),
+                nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(embed_dim // 2, 1),
                 nn.Sigmoid()
             )
         else:
-            # Multi-class classification
+            # Multi-class classification - softmax output (matches nicon.py convention)
             return nn.Sequential(
                 nn.Linear(embed_dim, embed_dim // 2),
-                nn.GELU(),
+                nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(embed_dim // 2, num_classes),
                 nn.Softmax(dim=-1)
@@ -456,19 +462,20 @@ def _build_spectral_transformer(
     c, seq_len = input_shape
 
     # Auto-adjust patch size based on sequence length
-    default_patch_size = max(8, min(32, seq_len // 32))
+    # Smaller patches preserve more spectral resolution
+    default_patch_size = max(4, min(16, seq_len // 64))
 
     return SpectralTransformer(
         input_shape=input_shape,
         num_classes=num_classes,
         embed_dim=params.get('embed_dim', 64),
-        depth=params.get('depth', 4),
+        depth=params.get('depth', 3),
         num_heads=params.get('num_heads', 4),
-        patch_size=params.get('patch_size', default_patch_size),
-        ff_mult=params.get('ff_mult', 4.0),
-        dropout=params.get('dropout', 0.15),
-        drop_path=params.get('drop_path', 0.1),
-        pool=params.get('pool', 'cls')
+        patch_size=params.get('patch_size', 10),
+        ff_mult=params.get('ff_mult', 2.0),  # Reduced from 4.0 for smaller datasets
+        dropout=params.get('dropout', 0.1),  # Reduced from 0.15
+        drop_path=params.get('drop_path', 0.0),  # Disabled by default for learning stability
+        pool=params.get('pool', 'mean')  # Mean pooling often works better for spectral data
     )
 
 

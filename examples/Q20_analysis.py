@@ -1,0 +1,299 @@
+"""
+Batch Classification Analysis - Comprehensive Pipeline for Multiple Datasets
+=============================================================================
+Runs complex classification analysis on all datasets in the classif/ folder.
+Includes ML models, DL models, and various preprocessing combinations.
+Generates confusion matrices, heatmaps, candlestick plots, and histograms.
+"""
+
+# Standard library imports
+import argparse
+import os
+os.environ['DISABLE_EMOJIS'] = '0'
+
+from matplotlib import pyplot as plt
+
+# Third-party imports - ML Models
+from sklearn.ensemble import (
+    RandomForestClassifier, GradientBoostingClassifier,
+    AdaBoostClassifier, ExtraTreesClassifier, BaggingClassifier,
+    StackingClassifier
+)
+from sklearn.linear_model import (
+    LogisticRegression, RidgeClassifier, SGDClassifier
+)
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neural_network import MLPClassifier
+from sklearn.discriminant_analysis import (
+    LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
+)
+from sklearn.model_selection import ShuffleSplit, KFold, RepeatedKFold, StratifiedKFold, StratifiedGroupKFold
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
+
+from nirs4all.operators.models.sklearn import (
+    PLSDA, IKPLS, OPLS, OPLSDA, MBPLS, DiPLS, SparsePLS, SIMPLS
+)
+from nirs4all.operators.transforms import Rotate_Translate
+
+# Optional boosting libraries
+try:
+    from xgboost import XGBClassifier
+except ImportError:
+    XGBClassifier = None
+
+try:
+    from lightgbm import LGBMClassifier
+except ImportError:
+    LGBMClassifier = None
+
+try:
+    from catboost import CatBoostClassifier
+except ImportError:
+    CatBoostClassifier = None
+
+# NIRS4All imports
+from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
+from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.operators.transforms import (
+    Detrend, FirstDerivative as FstDer, SecondDerivative as SndDer,
+    Gaussian, StandardNormalVariate as SNV, SavitzkyGolay as SavGol,
+    Haar, MultiplicativeScatterCorrection as MSC, Derivate,
+    RobustStandardNormalVariate as RSNV, LocalStandardNormalVariate as LSNV, Wavelet
+)
+from nirs4all.operators.transforms.nirs import (
+    AreaNormalization, ExtendedMultiplicativeScatterCorrection as EMSC
+)
+from nirs4all.operators.models.pytorch.spectral_transformer import (
+    spectral_transformer_classification
+)
+from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description='Batch Classification Analysis')
+parser.add_argument('--plots', action='store_true', help='Show plots interactively')
+parser.add_argument('--show', action='store_true', help='Show all plots at the end')
+args = parser.parse_args()
+
+print("=" * 80)
+print("BATCH CLASSIFICATION ANALYSIS")
+print("=" * 80)
+
+# ============================================================================
+# DATASET CONFIGURATION
+# ============================================================================
+# All classification datasets
+data_paths = [
+    'selection/nitro_classif_unmerged/Digestibility_custom2',
+    'selection/nitro_classif_unmerged/Digestibility_custom3',
+    'selection/nitro_classif_unmerged/Digestibility_custom5',
+    # 'selection/nitro_classif_unmerged/Hardness_custom2',
+    # 'selection/nitro_classif_unmerged/Hardness_custom4',
+    # 'selection/nitro_classif_unmerged/Tannin_custom2',
+    # 'selection/nitro_classif_unmerged/Tannin_custom3',
+]
+
+# ============================================================================
+# STACKING CONFIGURATION
+# ============================================================================
+# Define base estimators for classification stacking
+base_estimators = [
+    ('plsda_5', PLSDA(n_components=5)),
+    ('plsda_7', PLSDA(n_components=7)),
+    ('plsda_15', PLSDA(n_components=15)),
+    ('logistic', LogisticRegression(max_iter=1000, random_state=42)),
+    ('catboost', CatBoostClassifier(iterations=400, depth=8, learning_rate=0.1, random_state=42, verbose=0, allow_writing_files=False)),
+    ('xgboost', XGBClassifier(n_estimators=400, max_depth=8, learning_rate=0.1, random_state=42, verbosity=0, use_label_encoder=False, eval_metric='mlogloss')),
+    ('rf', RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42)),
+    ('svc', SVC(kernel='rbf', probability=True, random_state=42)),
+    ('lgbm', LGBMClassifier(n_estimators=250, max_depth=8, learning_rate=0.1, random_state=42)),
+    ('knn', KNeighborsClassifier(n_neighbors=5)),
+    ("mlp_32_8_64", MLPClassifier(hidden_layer_sizes=(32, 8, 64), max_iter=500, random_state=42)),
+    ("mlp_32_128_64", MLPClassifier(hidden_layer_sizes=(32, 128, 64), max_iter=500, random_state=42)),
+    ("extratrees", ExtraTreesClassifier(n_estimators=200, max_depth=10, random_state=42)),
+]
+
+# Create Stacking Classifier with Logistic Regression as meta-learner
+stacking_classifier = StackingClassifier(
+    estimators=base_estimators,
+    final_estimator=LogisticRegression(max_iter=1000, random_state=42),
+    cv=3,
+    passthrough=False,
+    n_jobs=-1
+)
+
+# ============================================================================
+# PIPELINE CONFIGURATION
+# ============================================================================
+pipeline = [
+    # Cross-validation setup (stratified for classification)
+    "fold_chart",
+    {
+        "sample_augmentation": {
+            "transformers": [Rotate_Translate],
+            "balance": "y",
+            "ref_percentage": 0.8,  # Target 100% of majority class
+            "selection": "random",
+            "random_state": 42
+        }
+    },
+    "fold_chart",
+
+    # Comprehensive feature augmentation with many preprocessing combinations
+    {"feature_augmentation": [
+        [MSC(scale=False), EMSC, AreaNormalization],
+        [MSC(scale=False), EMSC, SNV],
+        [EMSC, Gaussian(order=1, sigma=2), RSNV],
+        EMSC,  # or EMSC if you have it
+        SNV,
+        Haar,
+        [EMSC, FstDer],  # MSC first to reduce noise in derivative
+        [SNV, SndDer],  # or [MSC, SavGol(deriv=2)]
+    ]},
+    {"split": StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42), "group": "ID"},
+    "fold_chart",
+    # 'chart_2d',  # 2D Visualization of augmented features
+    # Feature scaling (StandardScaler often better for classification)
+    MinMaxScaler(),
+
+    {
+        "model": OPLSDA,
+        "name": "OPLSDA-Finetuned",
+        # "finetune_params": {
+        #     "n_trials": 50,
+        #     "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
+        #     "model_params": {
+        #         'n_components': ('int', 1, 10),
+        #         'pls_components': ('int', 1, 25),
+        #     },
+        # }
+    },
+
+    # OPLSDA(n_components=1, pls_components=5),
+    # OPLSDA(n_components=2, pls_components=5),
+    # OPLSDA(n_components=3, pls_components=5),
+
+    # SpectralTransformer - Modern transformer for NIR spectral classification
+    # Designed for ~4k samples with binary, 3-class, and 5-class targets
+    # {
+    #     "model": spectral_transformer_classification,
+    #     "name": "SpectralTransformer",
+    #     "train_params": {
+    #         "epochs": 200,
+    #         "batch_size": 32,
+    #         "learning_rate": 0.001,
+    #         "patience": 30,
+    #         "verbose": 1,
+    #         "loss": "MSELoss",  # Works with sigmoid/softmax outputs
+    #         "optimizer": "Adam",
+    #     },
+        # "model_params": {
+        #     "embed_dim": 64,
+        #     "depth": 3,
+        #     "num_heads": 4,
+        #     "patch_size": 8,
+        #     "dropout": 0.1,
+        #     "drop_path": 0.0,
+        #     "pool": "mean",
+        # }
+    # },
+]
+
+
+# ============================================================================
+# RUN PIPELINE
+# ============================================================================
+pipeline_config = PipelineConfigs(pipeline, name="BatchClassification")
+dataset_config = DatasetConfigs(data_paths)
+
+runner = PipelineRunner(save_files=True, verbose=1, plots_visible=args.plots)
+predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
+
+# ============================================================================
+# RESULTS ANALYSIS
+# ============================================================================
+print("\n" + "=" * 80)
+print("RESULTS ANALYSIS")
+print("=" * 80)
+
+best_model_count = 20
+ranking_metric = 'balanced_accuracy'
+
+# Display top models overall
+top_models = predictions.top(best_model_count, ranking_metric)
+print(f"\nTop {best_model_count} models overall by {ranking_metric}:")
+for idx, prediction in enumerate(top_models):
+    print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=['accuracy', 'balanced_accuracy', 'f1'])} - {prediction['preprocessings']}")
+
+# Per-dataset analysis
+for dataset_name, dataset_prediction in predictions_per_dataset.items():
+    print(f"\n{'='*80}")
+    print(f"Dataset: {dataset_name}")
+    print(f"{'='*80}")
+
+    dataset_predictions = dataset_prediction['run_predictions']
+
+    # Top by Accuracy
+    top_accuracy = dataset_predictions.top(n=5, rank_metric='accuracy', rank_partition='test')
+    print("\nTop 5 by Accuracy (test):")
+    for idx, model in enumerate(top_accuracy):
+        print(f"  {idx+1}. {Predictions.pred_short_string(model, metrics=['accuracy', 'balanced_accuracy'], partition=['val', 'test'])}")
+
+    # Top by F1
+    top_f1 = dataset_predictions.top(n=5, rank_metric='f1', rank_partition='test')
+    print("\nTop 5 by F1 (test):")
+    for idx, model in enumerate(top_f1):
+        print(f"  {idx+1}. {Predictions.pred_short_string(model, metrics=['accuracy', 'f1'], partition=['val', 'test'])}")
+
+# ============================================================================
+# VISUALIZATIONS
+# ============================================================================
+print("\n" + "=" * 80)
+print("GENERATING VISUALIZATIONS")
+print("=" * 80)
+
+analyzer = PredictionAnalyzer(predictions)
+
+# fig_top_b = analyzer.plot_top_k(
+#     k=10,
+#     rank_metric='balanced_accuracy',
+#     rank_partition='val'
+# )
+
+# fig_top = analyzer.plot_top_k(
+#     k=10,
+#     rank_metric='accuracy',
+#     rank_partition='val'
+# )
+
+# # Confusion matrices for top models
+# fig_confusion_matrix = analyzer.plot_confusion_matrix(
+#     k=10,
+#     rank_metric='accuracy', rank_partition='val', display_partition='test'
+# )
+
+fig_confusion_matrix_val = analyzer.plot_confusion_matrix(
+    k=10,
+    rank_metric='balanced_accuracy', rank_partition='val', display_partition='test'
+)
+
+# Heatmaps
+fig_heatmap_model_dataset = analyzer.plot_heatmap(
+    x_var="model_name",
+    y_var="dataset_name",
+    rank_metric='balanced_accuracy',
+    display_metric='balanced_accuracy',
+)
+
+# fig_heatmap_model_dataset_f1 = analyzer.plot_heatmap(
+#     x_var="model_name",
+#     y_var="dataset_name",
+#     rank_metric='f1',
+#     display_metric='f1',
+# )
+
+
+if args.show:
+    plt.show()

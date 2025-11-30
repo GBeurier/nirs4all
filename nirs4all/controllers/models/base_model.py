@@ -710,6 +710,12 @@ class BaseModelController(OperatorController, ABC):
             X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context or {})
             X_test_prep, _ = self._prepare_data(X_test, None, context or {})
 
+            # Log data shapes before training
+            if self.verbose > 0:
+                print(f"📊 Training data shapes - X_train: {X_train_prep.shape}, y_train: {y_train_prep.shape if y_train_prep is not None else 'None'}, "
+                      f"X_val: {X_val_prep.shape}, y_val: {y_val_prep.shape if y_val_prep is not None else 'None'}, "
+                      f"X_test: {X_test_prep.shape}")
+
             # Pass task_type to train_model
             train_params = model_config.get('train_params', {}).copy()
             train_params['task_type'] = dataset.task_type
@@ -1068,14 +1074,14 @@ class BaseModelController(OperatorController, ABC):
         avg_predictions = self._assemble_avg_prediction(
             dataset, runtime_context, context, base_model_name, model_classname,
             avg_preds, avg_scores, true_values, all_val_indices,
-            "avg", best_params, mode
+            "avg", best_params, mode, X_train.shape
         )
         avg_predictions['scores'] = avg_full_scores
 
         w_avg_predictions = self._assemble_avg_prediction(
             dataset, runtime_context, context, base_model_name, model_classname,
             w_avg_preds, w_avg_scores, true_values, all_val_indices,
-            "w_avg", best_params, mode, weights
+            "w_avg", best_params, mode, X_train.shape, weights
         )
         w_avg_predictions['scores'] = w_avg_full_scores
 
@@ -1334,7 +1340,7 @@ class BaseModelController(OperatorController, ABC):
         return EnsembleUtils._scores_to_weights(scores, higher_is_better=higher_is_better)
 
     def _assemble_avg_prediction(self, dataset, runner, context, model_name, model_classname,
-                                  predictions, scores, true_values, val_indices, fold_id, best_params, mode, weights=None):
+                                  predictions, scores, true_values, val_indices, fold_id, best_params, mode, X_shape, weights=None):
         """Assemble prediction dictionary for averaged model.
 
         Creates a complete prediction record with all metadata, scores, and partition data
@@ -1353,6 +1359,7 @@ class BaseModelController(OperatorController, ABC):
             fold_id: Fold identifier ('avg' or 'w_avg').
             best_params: Optional hyperparameters dictionary.
             mode: Execution mode.
+            X_shape: Shape of input features (for n_features).
             weights: Optional array of fold weights.
 
         Returns:
@@ -1385,7 +1392,7 @@ class BaseModelController(OperatorController, ABC):
             'metric': scores.metric if scores else ModelUtils.get_best_score_metric(dataset.task_type)[0],
             'task_type': dataset.task_type,
             'target_processing': context.state.y_processing,  # Track which target processing was used
-            'n_features': true_values['train'].shape[1] if len(true_values['train'].shape) > 1 else 1,
+            'n_features': X_shape[1] if len(X_shape) > 1 else 1,
             'preprocessings': dataset.short_preprocessings_str(),
             'partitions': partitions,
             'best_params': best_params if best_params else {}
