@@ -44,6 +44,8 @@ $examples = @(
     "Q17_nicon_comparison.py",
     "Q18_stacking.py",
     "Q19_pls_methods.py",
+    "Q20_analysis.py",
+    "Q21_feature_selection.py",
     "X1_metadata.py",
     "X2_sample_augmentation.py",
     "X4_features.py"
