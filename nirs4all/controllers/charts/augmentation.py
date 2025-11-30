@@ -247,7 +247,7 @@ class AugmentationChartController(OperatorController):
                 ]
                 ax.legend(handles=legend_elements, loc='upper right', fontsize=8)
 
-        plt.tight_layout(rect=(0, 0, 1, 0.96))  # type: ignore[arg-type]
+        plt.tight_layout(rect=(0, 0, 1, 0.92), h_pad=4.0)  # type: ignore[arg-type]
         return fig
 
     def _create_details_chart(
@@ -373,7 +373,7 @@ class AugmentationChartController(OperatorController):
             ax.set_ylabel('Intensity', fontsize=9)
             ax.set_title(f"{transformer_name} ({len(aug_indices)} samples)", fontsize=10)
 
-        plt.tight_layout(rect=(0, 0, 1, 0.96))  # type: ignore[arg-type]
+        plt.tight_layout(rect=(0, 0, 1, 0.95), h_pad=3.0)  # type: ignore[arg-type]
         return fig
 
     def _group_augmented_by_transformer(

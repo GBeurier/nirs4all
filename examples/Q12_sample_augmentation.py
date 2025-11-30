@@ -25,6 +25,24 @@ from nirs4all.operators.transforms import (
     Spline_X_Perturbations,
     Spline_X_Simplification,
     Spline_Curve_Simplification,
+    GaussianAdditiveNoise,
+    MultiplicativeNoise,
+    LinearBaselineDrift,
+    PolynomialBaselineDrift,
+    WavelengthShift,
+    WavelengthStretch,
+    LocalWavelengthWarp,
+    SmoothMagnitudeWarp,
+    BandPerturbation,
+    GaussianSmoothingJitter,
+    UnsharpSpectralMask,
+    BandMasking,
+    ChannelDropout,
+    SpikeNoise,
+    LocalClipping,
+    MixupAugmenter,
+    LocalMixupAugmenter,
+    ScatterSimulationMSC,
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from sklearn.model_selection import GroupKFold
@@ -147,69 +165,108 @@ classif_data = 'sample_data/classification'
 
 # --- AUGMENTATION VISUALIZATION SCENARIOS ---
 
-# 7. Augmentation Chart - Overlay visualization (Original vs Augmented)
-run_scenario(
-    "Augmentation Chart - Overlay",
-    classif_data,
-    [
-        {
-            "sample_augmentation": {
-                "transformers": [Rotate_Translate(p_range=2, y_factor=3)],
-                "count": 2,
-                "selection": "random",
-                "random_state": 42
-            }
-        },
-        "augment_chart",  # Shows original (blue) vs augmented (orange) overlaid
-        split_step
-    ],
-    "Visualization: Overlay chart showing original samples in blue and augmented samples in orange."
-)
+# # 7. Augmentation Chart - Overlay visualization (Original vs Augmented)
+# run_scenario(
+#     "Augmentation Chart - Overlay",
+#     classif_data,
+#     [
+#         {
+#             "sample_augmentation": {
+#                 "transformers": [Rotate_Translate(p_range=2, y_factor=3)],
+#                 "count": 2,
+#                 "selection": "random",
+#                 "random_state": 42
+#             }
+#         },
+#         "augment_chart",  # Shows original (blue) vs augmented (orange) overlaid
+#         split_step
+#     ],
+#     "Visualization: Overlay chart showing original samples in blue and augmented samples in orange."
+# )
 
-# 8. Multiple Augmenters - Compare different augmentation operators
+# # 8. Multiple Augmenters - Compare different augmentation operators
+# run_scenario(
+#     "Multiple Augmenters Comparison",
+#     classif_data,
+#     [
+#         {
+#             "sample_augmentation": {
+#                 "transformers": [
+#                     Rotate_Translate(p_range=2, y_factor=3),
+#                     Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
+#                     Random_X_Operation(operator_range=(0.995, 1.005)),
+#                 ],
+#                 "count": 2,
+#                 "selection": "random",
+#                 "random_state": 42
+#             }
+#         },
+#         "augment_details_chart",  # Shows each transformer's effect separately
+#         split_step
+#     ],
+#     "Visualization: Details chart showing each augmentation type separately (Original + each transformer)."
+# )
+
+# # 9. Spline-based Augmenters Demo
+# run_scenario(
+#     "Spline Augmenters Demo",
+#     classif_data,
+#     [
+#         {
+#             "sample_augmentation": {
+#                 "transformers": [
+#                     Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
+#                     Spline_X_Perturbations(perturbation_density=0.05, perturbation_range=(-5, 5)),
+#                     Spline_X_Simplification(spline_points=50, uniform=True),
+#                 ],
+#                 "count": 1,
+#                 "selection": "all",  # Apply all transformers to each sample
+#                 "random_state": 42
+#             }
+#         },
+#         "augment_details_chart",
+#         split_step
+#     ],
+#     "Spline-based augmenters: Y-perturbations, X-perturbations, and X-simplification effects."
+# )
+
+# 10. All New Augmenters Demo
 run_scenario(
-    "Multiple Augmenters Comparison",
+    "All New Augmenters Demo",
     classif_data,
     [
         {
             "sample_augmentation": {
                 "transformers": [
-                    Rotate_Translate(p_range=2, y_factor=3),
-                    Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
-                    Random_X_Operation(operator_range=(0.995, 1.005)),
+                    GaussianAdditiveNoise(sigma=0.01),
+                    MultiplicativeNoise(sigma_gain=0.05),
+                    LinearBaselineDrift(),
+                    PolynomialBaselineDrift(),
+                    WavelengthShift(),
+                    WavelengthStretch(),
+                    LocalWavelengthWarp(),
+                    SmoothMagnitudeWarp(),
+                    BandPerturbation(),
+                    GaussianSmoothingJitter(),
+                    UnsharpSpectralMask(),
+                    BandMasking(),
+                    ChannelDropout(),
+                    SpikeNoise(),
+                    LocalClipping(),
+                    MixupAugmenter(),
+                    LocalMixupAugmenter(),
+                    ScatterSimulationMSC(),
                 ],
-                "count": 2,
-                "selection": "random",
+                "count": 4,
+                "selection": "random",  # Apply all transformers to each sample
                 "random_state": 42
             }
         },
-        "augment_details_chart",  # Shows each transformer's effect separately
-        split_step
-    ],
-    "Visualization: Details chart showing each augmentation type separately (Original + each transformer)."
-)
-
-# 9. Spline-based Augmenters Demo
-run_scenario(
-    "Spline Augmenters Demo",
-    classif_data,
-    [
-        {
-            "sample_augmentation": {
-                "transformers": [
-                    Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
-                    Spline_X_Perturbations(perturbation_density=0.05, perturbation_range=(-5, 5)),
-                    Spline_X_Simplification(spline_points=50, uniform=True),
-                ],
-                "count": 1,
-                "selection": "all",  # Apply all transformers to each sample
-                "random_state": 42
-            }
-        },
+        "augment_chart",
         "augment_details_chart",
         split_step
     ],
-    "Spline-based augmenters: Y-perturbations, X-perturbations, and X-simplification effects."
+    "Demonstration of all new spectral augmentations."
 )
 
 

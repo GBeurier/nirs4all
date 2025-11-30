@@ -9,6 +9,26 @@ from ..augmentation.splines import (
     Spline_X_Perturbations,
     Spline_Smoothing,
 )
+from ..augmentation.spectral import (
+    GaussianAdditiveNoise,
+    MultiplicativeNoise,
+    LinearBaselineDrift,
+    PolynomialBaselineDrift,
+    WavelengthShift,
+    WavelengthStretch,
+    LocalWavelengthWarp,
+    SmoothMagnitudeWarp,
+    BandPerturbation,
+    GaussianSmoothingJitter,
+    UnsharpSpectralMask,
+    BandMasking,
+    ChannelDropout,
+    SpikeNoise,
+    LocalClipping,
+    MixupAugmenter,
+    LocalMixupAugmenter,
+    ScatterSimulationMSC,
+)
 from ..augmentation.abc_augmenter import Augmenter, IdentityAugmenter
 
 from .nirs import (
@@ -77,6 +97,24 @@ __all__ = [
     "Random_X_Operation",
     "Augmenter",
     "IdentityAugmenter",
+    "GaussianAdditiveNoise",
+    "MultiplicativeNoise",
+    "LinearBaselineDrift",
+    "PolynomialBaselineDrift",
+    "WavelengthShift",
+    "WavelengthStretch",
+    "LocalWavelengthWarp",
+    "SmoothMagnitudeWarp",
+    "BandPerturbation",
+    "GaussianSmoothingJitter",
+    "UnsharpSpectralMask",
+    "BandMasking",
+    "ChannelDropout",
+    "SpikeNoise",
+    "LocalClipping",
+    "MixupAugmenter",
+    "LocalMixupAugmenter",
+    "ScatterSimulationMSC",
 
     # Sklearn aliases
     "IdentityTransformer",  # sklearn.preprocessing.FunctionTransformer alias
