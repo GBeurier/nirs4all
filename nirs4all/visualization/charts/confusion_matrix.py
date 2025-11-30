@@ -49,7 +49,9 @@ class ConfusionMatrixChart(BaseChart):
                rank_partition: str = 'val', display_metric: str = '',
                display_partition: str = 'test', show_scores: bool = True,
                dataset_name: Optional[str] = None,
-               figsize: Optional[tuple] = None, **filters) -> Union[Figure, List[Figure]]:
+               figsize: Optional[tuple] = None,
+               aggregate: Optional[str] = None,
+               **filters) -> Union[Figure, List[Figure]]:
         """Plot confusion matrices for top K classification models per dataset.
 
         Models are ranked by the metric on rank_partition, then confusion matrices
@@ -65,6 +67,7 @@ class ConfusionMatrixChart(BaseChart):
             show_scores: If True, show scores in chart titles (default: True).
             dataset_name: Optional dataset filter. If provided, only shows that dataset.
             figsize: Figure size tuple (default: from config).
+            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
             **filters: Additional filters (e.g., config_name="config1").
 
         Returns:
@@ -109,6 +112,7 @@ class ConfusionMatrixChart(BaseChart):
                 display_metrics=[display_metric],
                 display_partition=display_partition,
                 aggregate_partitions=True,
+                aggregate=aggregate,
                 **ds_filters
             )
 

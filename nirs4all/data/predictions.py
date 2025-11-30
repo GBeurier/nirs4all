@@ -118,6 +118,7 @@ class Predictions:
         partition: str = "",
         y_true: Optional[np.ndarray] = None,
         y_pred: Optional[np.ndarray] = None,
+        y_proba: Optional[np.ndarray] = None,
         val_score: Optional[float] = None,
         test_score: Optional[float] = None,
         train_score: Optional[float] = None,
@@ -152,6 +153,7 @@ class Predictions:
             partition: Data partition (train/val/test)
             y_true: True labels
             y_pred: Predicted labels
+            y_proba: Class probabilities for classification (shape: n_samples x n_classes)
             val_score: Validation score
             test_score: Test score
             train_score: Training score
@@ -184,6 +186,7 @@ class Predictions:
             "partition": partition,
             "y_true": y_true if y_true is not None else np.array([]),
             "y_pred": y_pred if y_pred is not None else np.array([]),
+            "y_proba": y_proba if y_proba is not None else np.array([]),
             "val_score": val_score,
             "test_score": test_score,
             "train_score": train_score,
@@ -389,6 +392,7 @@ class Predictions:
         aggregate_partitions: bool = False,
         ascending: Optional[bool] = None,
         group_by_fold: bool = False,
+        aggregate: Optional[str] = None,
         **filters
     ) -> PredictionResultsList:
         """
@@ -407,6 +411,10 @@ class Predictions:
                       If False, sorts descending (higher is better).
                       If None, infers from metric.
             group_by_fold: If True, include fold_id in model identity (rank per fold)
+            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+                      When 'y', groups by y_true values.
+                      When a column name (e.g., 'ID'), groups by that metadata column.
+                      Aggregated predictions have recalculated metrics.
             **filters: Additional filter criteria (dataset_name, config_name, etc.)
 
         Returns:
@@ -421,6 +429,7 @@ class Predictions:
             aggregate_partitions=aggregate_partitions,
             ascending=ascending,
             group_by_fold=group_by_fold,
+            aggregate=aggregate,
             **filters
         )
 
@@ -1151,6 +1160,159 @@ class Predictions:
                 res[partition] = None
 
         return res
+
+    # =========================================================================
+    # AGGREGATION METHODS
+    # =========================================================================
+
+    @staticmethod
+    def aggregate(
+        y_pred: np.ndarray,
+        group_ids: np.ndarray,
+        y_proba: Optional[np.ndarray] = None,
+        y_true: Optional[np.ndarray] = None,
+        method: str = 'mean'
+    ) -> Dict[str, Any]:
+        """
+        Aggregate predictions by group (e.g., same sample ID with multiple measurements).
+
+        For datasets with multiple samples per target (e.g., 4 measurements for each sample ID),
+        this function averages predictions within each group to produce one prediction per group.
+
+        For regression: averages y_pred values within each group.
+        For classification: averages y_proba (if available) then takes argmax,
+                           or uses majority voting on y_pred if no probabilities.
+
+        Args:
+            y_pred: Predicted values array (n_samples,) or (n_samples, 1)
+            group_ids: Group identifiers array (n_samples,) - samples with same ID are grouped
+            y_proba: Optional class probabilities array (n_samples, n_classes) for classification
+            y_true: Optional true values array (n_samples,) for computing aggregated ground truth
+            method: Aggregation method - 'mean' (default), 'median', 'vote' (for classification)
+
+        Returns:
+            Dictionary containing:
+                - 'y_pred': Aggregated predictions (n_groups,)
+                - 'y_proba': Aggregated probabilities (n_groups, n_classes) if input had y_proba
+                - 'y_true': Aggregated true values (n_groups,) if input had y_true
+                - 'group_ids': Unique group identifiers (n_groups,)
+                - 'group_sizes': Number of samples per group (n_groups,)
+
+        Examples:
+            >>> # Aggregate 4 samples per ID for regression
+            >>> result = Predictions.aggregate(y_pred, sample_ids)
+            >>> aggregated_pred = result['y_pred']  # One prediction per unique ID
+
+            >>> # Aggregate for classification with probabilities
+            >>> result = Predictions.aggregate(y_pred, sample_ids, y_proba=proba)
+            >>> aggregated_proba = result['y_proba']  # Averaged probabilities
+        """
+        # Ensure arrays are 1D for predictions
+        y_pred = np.asarray(y_pred).flatten()
+        group_ids = np.asarray(group_ids).flatten()
+
+        if len(y_pred) != len(group_ids):
+            raise ValueError(
+                f"Length mismatch: y_pred ({len(y_pred)}) != group_ids ({len(group_ids)})"
+            )
+
+        # Get unique groups and their indices
+        unique_groups, inverse_indices = np.unique(group_ids, return_inverse=True)
+        n_groups = len(unique_groups)
+
+        # Initialize result arrays
+        aggregated_pred = np.zeros(n_groups)
+        group_sizes = np.zeros(n_groups, dtype=int)
+
+        # Count group sizes
+        for idx in inverse_indices:
+            group_sizes[idx] += 1
+
+        # Check if this is classification (has probabilities)
+        is_classification = y_proba is not None and y_proba.size > 0
+
+        if is_classification:
+            y_proba = np.asarray(y_proba)
+            if y_proba.ndim == 1:
+                # Binary classification with single column
+                y_proba = np.column_stack([1 - y_proba, y_proba])
+
+            n_classes = y_proba.shape[1]
+            aggregated_proba = np.zeros((n_groups, n_classes))
+
+            # Aggregate probabilities by group
+            for i, (group_idx, proba) in enumerate(zip(inverse_indices, y_proba)):
+                aggregated_proba[group_idx] += proba
+
+            # Average probabilities
+            for g in range(n_groups):
+                if group_sizes[g] > 0:
+                    aggregated_proba[g] /= group_sizes[g]
+
+            # Get class predictions from averaged probabilities
+            aggregated_pred = np.argmax(aggregated_proba, axis=1).astype(float)
+
+        else:
+            # Regression or classification without probabilities
+            if method == 'vote':
+                # Majority voting for classification
+                from scipy import stats
+                for g in range(n_groups):
+                    mask = inverse_indices == g
+                    group_preds = y_pred[mask]
+                    mode_result = stats.mode(group_preds, keepdims=True)
+                    aggregated_pred[g] = mode_result.mode[0]
+            elif method == 'median':
+                for g in range(n_groups):
+                    mask = inverse_indices == g
+                    aggregated_pred[g] = np.median(y_pred[mask])
+            else:  # 'mean'
+                # Sum predictions by group then divide by count
+                for i, (group_idx, pred) in enumerate(zip(inverse_indices, y_pred)):
+                    aggregated_pred[group_idx] += pred
+
+                for g in range(n_groups):
+                    if group_sizes[g] > 0:
+                        aggregated_pred[g] /= group_sizes[g]
+
+            aggregated_proba = None
+
+        # Aggregate true values if provided
+        aggregated_true = None
+        if y_true is not None:
+            y_true = np.asarray(y_true).flatten()
+            aggregated_true = np.zeros(n_groups)
+
+            if is_classification:
+                # For classification, use mode (most frequent value)
+                from scipy import stats
+                for g in range(n_groups):
+                    mask = inverse_indices == g
+                    group_true = y_true[mask]
+                    mode_result = stats.mode(group_true, keepdims=True)
+                    aggregated_true[g] = mode_result.mode[0]
+            else:
+                # For regression, use mean
+                for i, (group_idx, true_val) in enumerate(zip(inverse_indices, y_true)):
+                    aggregated_true[group_idx] += true_val
+
+                for g in range(n_groups):
+                    if group_sizes[g] > 0:
+                        aggregated_true[g] /= group_sizes[g]
+
+        result = {
+            'y_pred': aggregated_pred,
+            'group_ids': unique_groups,
+            'group_sizes': group_sizes,
+        }
+
+        if aggregated_proba is not None:
+            result['y_proba'] = aggregated_proba
+
+        if aggregated_true is not None:
+            result['y_true'] = aggregated_true
+
+        return result
 
     # =========================================================================
     # CONVERSION METHODS

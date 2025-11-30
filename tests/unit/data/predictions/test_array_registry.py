@@ -241,16 +241,17 @@ class TestBatchOperations:
 class TestArrayManipulation:
     """Test array manipulation operations."""
 
-    def test_flatten_multidimensional_array(self):
-        """Test multidimensional arrays are flattened."""
+    def test_preserve_multidimensional_array_shape(self):
+        """Test multidimensional arrays preserve their original shape."""
         registry = ArrayRegistry()
         array_2d = np.array([[1.0, 2.0], [3.0, 4.0]])
 
         array_id = registry.add_array(array_2d)
         retrieved = registry.get_array(array_id)
 
-        assert retrieved.ndim == 1
-        np.testing.assert_array_equal(retrieved, np.array([1.0, 2.0, 3.0, 4.0]))
+        assert retrieved.ndim == 2
+        assert retrieved.shape == array_2d.shape
+        np.testing.assert_array_equal(retrieved, array_2d)
 
     def test_remove_array(self):
         """Test removing array from registry."""

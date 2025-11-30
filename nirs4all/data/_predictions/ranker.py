@@ -93,6 +93,60 @@ class PredictionRanker:
 
         return None
 
+    def _apply_aggregation(
+        self,
+        y_true: Optional[np.ndarray],
+        y_pred: Optional[np.ndarray],
+        y_proba: Optional[np.ndarray],
+        metadata: Dict[str, Any],
+        aggregate: str
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Apply aggregation to predictions by a group column.
+
+        Args:
+            y_true: True values array
+            y_pred: Predicted values array
+            y_proba: Optional class probabilities array
+            metadata: Metadata dictionary containing group column
+            aggregate: Group column name or 'y' to group by y_true
+
+        Returns:
+            Tuple of (aggregated_y_true, aggregated_y_pred, aggregated_y_proba)
+        """
+        from nirs4all.data.predictions import Predictions
+
+        if y_pred is None:
+            return y_true, y_pred, y_proba
+
+        # Determine group IDs
+        if aggregate == 'y':
+            if y_true is None:
+                return y_true, y_pred, y_proba
+            group_ids = y_true
+        else:
+            # Get group IDs from metadata
+            if aggregate not in metadata:
+                return y_true, y_pred, y_proba
+            group_ids = np.asarray(metadata[aggregate])
+
+        if len(group_ids) != len(y_pred):
+            return y_true, y_pred, y_proba
+
+        # Apply aggregation
+        result = Predictions.aggregate(
+            y_pred=y_pred,
+            group_ids=group_ids,
+            y_proba=y_proba,
+            y_true=y_true
+        )
+
+        return (
+            result.get('y_true'),
+            result.get('y_pred'),
+            result.get('y_proba')
+        )
+
     def top(
         self,
         n: int,
@@ -104,6 +158,7 @@ class PredictionRanker:
         ascending: Optional[bool] = None,
         group_by_fold: bool = False,
         load_arrays: bool = True,
+        aggregate: Optional[str] = None,
         **filters
     ) -> PredictionResultsList:
         """
@@ -123,6 +178,10 @@ class PredictionRanker:
                       If False, sorts descending (higher is better).
                       If None, infers from metric (RMSE->True, Accuracy->False).
             group_by_fold: If True, include fold_id in model identity (rank per fold)
+            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+                      When 'y', groups by y_true values.
+                      When a column name (e.g., 'ID'), groups by that metadata column.
+                      Aggregated predictions have recalculated metrics.
             **filters: Additional filter criteria (dataset_name, config_name, etc.)
 
         Returns:
@@ -149,6 +208,13 @@ class PredictionRanker:
             ...     rank_partition="val",
             ...     aggregate_partitions=True,
             ...     ascending=False  # Higher R² is better
+            ... )
+            >>>
+            >>> # Get top 5 with predictions aggregated by sample ID
+            >>> top_5_by_id = ranker.top(
+            ...     n=5,
+            ...     rank_metric="rmse",
+            ...     aggregate='ID'  # Aggregate by metadata 'ID' column
             ... )
 
         Notes:
@@ -306,17 +372,28 @@ class PredictionRanker:
 
                         y_true = None
                         y_pred = None
+                        y_proba = None
                         if load_arrays:
                             y_true = self._get_array(row, "y_true")
                             y_pred = self._get_array(row, "y_pred")
+                            y_proba = self._get_array(row, "y_proba")
+
+                        # Apply aggregation if requested
+                        if aggregate and y_pred is not None:
+                            metadata = json.loads(row.get("metadata", "{}"))
+                            y_true, y_pred, y_proba = self._apply_aggregation(
+                                y_true, y_pred, y_proba, metadata, aggregate
+                            )
 
                         partition_dict = {
                             "y_true": y_true,  # Keep as numpy array
                             "y_pred": y_pred,  # Keep as numpy array
+                            "y_proba": y_proba,  # Keep as numpy array
                             "train_score": row.get("train_score"),
                             "val_score": row.get("val_score"),
                             "test_score": row.get("test_score"),
-                            "fold_id": row.get("fold_id")
+                            "fold_id": row.get("fold_id"),
+                            "aggregated": aggregate is not None
                         }
 
                         # Add metadata from test partition
@@ -343,30 +420,47 @@ class PredictionRanker:
                                 "metadata": json.loads(row.get("metadata", "{}")),
                                 "metric": row.get("metric"),
                                 "task_type": row.get("task_type", "regression"),
-                                "n_samples": row.get("n_samples"),
+                                "n_samples": len(y_pred) if y_pred is not None else row.get("n_samples"),
                                 "n_features": row.get("n_features"),
                                 "preprocessings": row.get("preprocessings"),
                                 "best_params": json.loads(row.get("best_params", "{}")),
                                 "train_score": row.get("train_score"),
                                 "val_score": row.get("val_score"),
-                                "test_score": row.get("test_score")
+                                "test_score": row.get("test_score"),
+                                "aggregated": aggregate is not None
                             })
                             result["id"] = result["rank_id"]
 
+                        # Recalculate metrics if aggregated
+                        if aggregate and y_true is not None and y_pred is not None:
+                            try:
+                                agg_score = evaluator.eval(y_true, y_pred, row.get("metric", rank_metric))
+                                # Store recalculated score in partition_dict
+                                partition_dict[f"{partition}_score_aggregated"] = agg_score
+                            except Exception:
+                                pass
+
                         # Add display metrics
                         if display_metrics:
-                            # Parse scores for this partition
+                            # Parse scores for this partition (only used if not aggregated)
                             partition_scores = {}
-                            if row.get("scores"):
+                            if not aggregate and row.get("scores"):
                                 try:
                                     all_scores = json.loads(row.get("scores"))
                                     partition_scores = all_scores.get(partition, {})
-                                except:
+                                except Exception:
                                     pass
 
                             for metric in display_metrics:
+                                # If aggregated, always recalculate metrics
+                                if aggregate and y_true is not None and y_pred is not None:
+                                    try:
+                                        score = evaluator.eval(y_true, y_pred, metric)
+                                        partition_dict[metric] = score
+                                    except Exception:
+                                        partition_dict[metric] = None
                                 # Try pre-computed scores first
-                                if metric in partition_scores:
+                                elif metric in partition_scores:
                                     partition_dict[metric] = partition_scores[metric]
                                 else:
                                     # Fallback to legacy
@@ -380,7 +474,7 @@ class PredictionRanker:
                                                 partition_dict[metric] = score
                                             else:
                                                 partition_dict[metric] = None
-                                        except:
+                                        except Exception:
                                             partition_dict[metric] = None
 
                         # Nest partitions under 'partitions' key
@@ -401,14 +495,25 @@ class PredictionRanker:
 
                     y_true = None
                     y_pred = None
+                    y_proba = None
                     sample_indices = None
                     weights = None
 
                     if load_arrays:
                         y_true = self._get_array(row, "y_true")
                         y_pred = self._get_array(row, "y_pred")
+                        y_proba = self._get_array(row, "y_proba")
                         sample_indices = self._get_array(row, "sample_indices")
                         weights = self._get_array(row, "weights")
+
+                    # Get metadata for aggregation
+                    metadata = json.loads(row.get("metadata", "{}"))
+
+                    # Apply aggregation if requested
+                    if aggregate and y_pred is not None:
+                        y_true, y_pred, y_proba = self._apply_aggregation(
+                            y_true, y_pred, y_proba, metadata, aggregate
+                        )
 
                     result.update({
                         "partition": display_partition,
@@ -422,35 +527,58 @@ class PredictionRanker:
                         "op_counter": row.get("op_counter"),
                         "sample_indices": sample_indices if sample_indices is not None else np.array([]),
                         "weights": weights if weights is not None else np.array([]),
-                        "metadata": json.loads(row.get("metadata", "{}")),
+                        "metadata": metadata,
                         "metric": row.get("metric"),
                         "task_type": row.get("task_type", "regression"),
-                        "n_samples": row.get("n_samples"),
+                        "n_samples": len(y_pred) if y_pred is not None else row.get("n_samples"),
                         "n_features": row.get("n_features"),
                         "preprocessings": row.get("preprocessings"),
                         "best_params": json.loads(row.get("best_params", "{}")),
                         "y_true": y_true,  # Keep as numpy array
                         "y_pred": y_pred,  # Keep as numpy array
+                        "y_proba": y_proba,  # Keep as numpy array
                         "train_score": row.get("train_score"),
                         "val_score": row.get("val_score"),
-                        "test_score": row.get("test_score")
+                        "test_score": row.get("test_score"),
+                        "aggregated": aggregate is not None
                     })
                     result["id"] = result["rank_id"]
 
+                    # Recalculate metrics if aggregated
+                    if aggregate and y_true is not None and y_pred is not None:
+                        # Store original scores for reference
+                        result["original_test_score"] = row.get("test_score")
+                        result["original_val_score"] = row.get("val_score")
+                        result["original_train_score"] = row.get("train_score")
+
+                        # Recalculate main metric on aggregated data
+                        try:
+                            agg_score = evaluator.eval(y_true, y_pred, row.get("metric", rank_metric))
+                            result["test_score"] = agg_score
+                        except Exception:
+                            pass
+
                     # Add display metrics
                     if display_metrics:
-                        # Parse scores for this partition
+                        # Parse scores for this partition (only used if not aggregated)
                         partition_scores = {}
-                        if row.get("scores"):
+                        if not aggregate and row.get("scores"):
                             try:
                                 all_scores = json.loads(row.get("scores"))
                                 partition_scores = all_scores.get(display_partition, {})
-                            except:
+                            except Exception:
                                 pass
 
                         for metric in display_metrics:
+                            # If aggregated, always recalculate metrics
+                            if aggregate and y_true is not None and y_pred is not None:
+                                try:
+                                    score = evaluator.eval(y_true, y_pred, metric)
+                                    result[metric] = score
+                                except Exception:
+                                    result[metric] = None
                             # Try pre-computed scores first
-                            if metric in partition_scores:
+                            elif metric in partition_scores:
                                 result[metric] = partition_scores[metric]
                             else:
                                 # Fallback to legacy
@@ -464,7 +592,7 @@ class PredictionRanker:
                                             result[metric] = score
                                         else:
                                             result[metric] = None
-                                    except:
+                                    except Exception:
                                         result[metric] = None
 
             results.append(result)
