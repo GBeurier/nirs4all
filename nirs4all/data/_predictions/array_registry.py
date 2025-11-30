@@ -96,7 +96,26 @@ class ArrayRegistry:
 
         # Check if array already exists (deduplication)
         if array_hash in self._hash_cache:
-            return self._hash_cache[array_hash]
+            existing_id = self._hash_cache[array_hash]
+
+            # If the new shape is multi-dimensional but stored shape is 1D,
+            # update the stored shape (handles backward compatibility for y_proba)
+            if len(original_shape) > 1:
+                existing_row = self._arrays_df.filter(pl.col("array_id") == existing_id)
+                if existing_row.height > 0:
+                    stored_shape_str = existing_row[0, "array_shape"]
+                    if stored_shape_str:
+                        stored_shape = tuple(json.loads(stored_shape_str))
+                        if len(stored_shape) == 1 and stored_shape != original_shape:
+                            # Update the shape to the multi-dimensional version
+                            self._arrays_df = self._arrays_df.with_columns(
+                                pl.when(pl.col("array_id") == existing_id)
+                                .then(pl.lit(json.dumps(original_shape)))
+                                .otherwise(pl.col("array_shape"))
+                                .alias("array_shape")
+                            )
+
+            return existing_id
 
         # New array - store it
         array_id = f"array_{uuid4().hex[:12]}"
@@ -371,6 +390,9 @@ class ArrayRegistry:
         """
         Load arrays from Parquet file.
 
+        Handles backward compatibility with older schema versions
+        (e.g., files without array_shape column).
+
         Args:
             filepath: Path to Parquet file
 
@@ -386,6 +408,18 @@ class ArrayRegistry:
             raise FileNotFoundError(f"Array registry file not found: {filepath}")
 
         self._arrays_df = pl.read_parquet(filepath, use_pyarrow=True)
+
+        # Handle backward compatibility: add missing columns from schema
+        for col_name, col_type in ARRAY_SCHEMA.items():
+            if col_name not in self._arrays_df.columns:
+                # Add missing column with null values
+                self._arrays_df = self._arrays_df.with_columns(
+                    pl.lit(None).cast(col_type).alias(col_name)
+                )
+
+        # Ensure column order matches schema
+        self._arrays_df = self._arrays_df.select(list(ARRAY_SCHEMA.keys()))
+
         self._rebuild_caches()
 
     def get_stats(self) -> Dict[str, Any]:
@@ -493,6 +527,7 @@ class ArrayRegistry:
 
         Returns:
             Dictionary mapping array_id → (array_data, array_type)
+            Arrays are returned with their original shapes restored.
 
         Example:
             >>> registry = ArrayRegistry()
@@ -500,11 +535,23 @@ class ArrayRegistry:
             >>> all_arrays = registry.get_all_arrays()
             >>> assert arr_id in all_arrays
         """
+        import json
+
         result = {}
         for row in self._arrays_df.iter_rows(named=True):
             array_id = row["array_id"]
             array_data = np.array(row["array_data"], dtype=np.float64)
             array_type = row["array_type"]
+
+            # Restore original shape if stored
+            shape_str = row.get("array_shape")
+            if shape_str is not None:
+                try:
+                    original_shape = tuple(json.loads(shape_str))
+                    array_data = array_data.reshape(original_shape)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
             result[array_id] = (array_data, array_type)
         return result
 

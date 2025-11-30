@@ -1254,7 +1254,19 @@ class Predictions:
 
         else:
             # Regression or classification without probabilities
-            if method == 'vote':
+            # Auto-detect classification: if predictions are integers or close to integers
+            unique_preds = np.unique(y_pred)
+            is_likely_classification = (
+                len(unique_preds) <= 20 and  # Few unique values
+                np.allclose(y_pred, np.round(y_pred))  # Values are integer-like
+            )
+
+            # Use voting for classification, mean/median for regression
+            effective_method = method
+            if is_likely_classification and method == 'mean':
+                effective_method = 'vote'  # Override mean with vote for classification
+
+            if effective_method == 'vote':
                 # Majority voting for classification
                 from scipy import stats
                 for g in range(n_groups):
@@ -1262,11 +1274,11 @@ class Predictions:
                     group_preds = y_pred[mask]
                     mode_result = stats.mode(group_preds, keepdims=True)
                     aggregated_pred[g] = mode_result.mode[0]
-            elif method == 'median':
+            elif effective_method == 'median':
                 for g in range(n_groups):
                     mask = inverse_indices == g
                     aggregated_pred[g] = np.median(y_pred[mask])
-            else:  # 'mean'
+            else:  # 'mean' - only used for regression now
                 # Sum predictions by group then divide by count
                 for i, (group_idx, pred) in enumerate(zip(inverse_indices, y_pred)):
                     aggregated_pred[group_idx] += pred
@@ -1274,6 +1286,9 @@ class Predictions:
                 for g in range(n_groups):
                     if group_sizes[g] > 0:
                         aggregated_pred[g] /= group_sizes[g]
+
+            # Set is_classification for y_true aggregation
+            is_classification = is_likely_classification
 
             aggregated_proba = None
 
