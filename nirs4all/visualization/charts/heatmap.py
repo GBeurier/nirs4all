@@ -20,6 +20,7 @@ from nirs4all.visualization.chart_utils.normalizer import ScoreNormalizer
 from nirs4all.visualization.chart_utils.annotator import ChartAnnotator
 from nirs4all.visualization.chart_utils.matrix_builder import MatrixBuilder
 from nirs4all.core import metrics as evaluator
+from nirs4all.core.metrics import abbreviate_metric
 
 
 class HeatmapChart(BaseChart):
@@ -124,6 +125,203 @@ class HeatmapChart(BaseChart):
 
         return filtered_matrix, filtered_labels, selected_indices
 
+    def _compute_ranks_per_column(self, matrix: np.ndarray, higher_better: bool) -> np.ndarray:
+        """Compute per-column ranks (1 = best, n = worst).
+
+        Args:
+            matrix: Score matrix of shape (n_models, n_columns).
+            higher_better: If True, higher scores are better.
+
+        Returns:
+            Rank matrix of same shape (1 = best, n = worst, NaN gets n).
+        """
+        n_models, n_cols = matrix.shape
+        ranks = np.zeros_like(matrix)
+
+        for j in range(n_cols):
+            col = matrix[:, j].copy()
+            valid_mask = ~np.isnan(col)
+            n_valid = valid_mask.sum()
+
+            if n_valid == 0:
+                ranks[:, j] = n_models
+                continue
+
+            if higher_better:
+                order = np.argsort(-col)
+            else:
+                order = np.argsort(col)
+
+            for rank_pos, idx in enumerate(order):
+                if valid_mask[idx]:
+                    ranks[idx, j] = rank_pos + 1
+                else:
+                    ranks[idx, j] = n_models
+
+        return ranks
+
+    def _sort_by_method(
+        self,
+        matrix: np.ndarray,
+        count_matrix: np.ndarray,
+        y_labels: List[str],
+        x_labels: List[str],
+        rank_partition: str,
+        higher_better: bool,
+        method: str = 'value'
+    ) -> tuple:
+        """Sort matrix rows by specified ranking method.
+
+        Args:
+            matrix: Score matrix of shape (n_models, n_columns).
+            count_matrix: Count matrix of shape (n_models, n_columns).
+            y_labels: List of model names (rows).
+            x_labels: List of x-axis labels (columns).
+            rank_partition: Partition to use for 'value' sorting.
+            higher_better: If True, higher scores are better.
+            method: Sorting method - one of:
+                - 'value': Sort by ranking score on rank_partition column.
+                - 'mean': Sort by mean score across all columns.
+                - 'median': Sort by median score across all columns.
+                - 'borda': Sort by Borda count (sum of ranks, lower = better).
+                - 'condorcet': Sort by pairwise wins (Copeland score).
+                - 'consensus': Sort by consensus (product of normalized ranks).
+
+        Returns:
+            Tuple of (sorted_matrix, sorted_count_matrix, sorted_y_labels).
+        """
+        n_models = matrix.shape[0]
+
+        if method == 'value':
+            # Original behavior: sort by single column
+            if rank_partition in x_labels:
+                rank_col_idx = x_labels.index(rank_partition)
+            else:
+                rank_col_idx = 0
+
+            rank_scores = matrix[:, rank_col_idx]
+            sort_scores = np.where(
+                np.isnan(rank_scores),
+                float('-inf') if higher_better else float('inf'),
+                rank_scores
+            )
+
+            if higher_better:
+                sorted_indices = np.argsort(-sort_scores)
+            else:
+                sorted_indices = np.argsort(sort_scores)
+
+        elif method == 'mean':
+            # Mean score across all columns
+            mean_scores = np.nanmean(matrix, axis=1)
+            sort_scores = np.where(
+                np.isnan(mean_scores),
+                float('-inf') if higher_better else float('inf'),
+                mean_scores
+            )
+            if higher_better:
+                sorted_indices = np.argsort(-sort_scores)
+            else:
+                sorted_indices = np.argsort(sort_scores)
+
+        elif method == 'median':
+            # Median score across all columns
+            median_scores = np.nanmedian(matrix, axis=1)
+            sort_scores = np.where(
+                np.isnan(median_scores),
+                float('-inf') if higher_better else float('inf'),
+                median_scores
+            )
+            if higher_better:
+                sorted_indices = np.argsort(-sort_scores)
+            else:
+                sorted_indices = np.argsort(sort_scores)
+
+        elif method == 'borda':
+            # Borda count: sum of ranks (lower = better)
+            ranks = self._compute_ranks_per_column(matrix, higher_better)
+            borda_scores = np.nansum(ranks, axis=1)
+            # Handle all-NaN rows
+            borda_scores = np.where(
+                np.all(np.isnan(matrix), axis=1),
+                float('inf'),
+                borda_scores
+            )
+            sorted_indices = np.argsort(borda_scores)  # Lower is better
+
+        elif method == 'condorcet':
+            # Condorcet/Copeland: count pairwise wins
+            # For each pair of models, compare across all columns
+            wins = np.zeros(n_models)
+
+            for i in range(n_models):
+                for j in range(i + 1, n_models):
+                    # Compare model i vs model j across all columns
+                    i_scores = matrix[i, :]
+                    j_scores = matrix[j, :]
+
+                    # Count columns where i beats j (handling NaN)
+                    valid_mask = ~np.isnan(i_scores) & ~np.isnan(j_scores)
+                    if not valid_mask.any():
+                        continue
+
+                    if higher_better:
+                        i_wins = np.sum(i_scores[valid_mask] > j_scores[valid_mask])
+                        j_wins = np.sum(j_scores[valid_mask] > i_scores[valid_mask])
+                    else:
+                        i_wins = np.sum(i_scores[valid_mask] < j_scores[valid_mask])
+                        j_wins = np.sum(j_scores[valid_mask] < i_scores[valid_mask])
+
+                    if i_wins > j_wins:
+                        wins[i] += 1
+                    elif j_wins > i_wins:
+                        wins[j] += 1
+                    # Ties: no points awarded
+
+            # Handle all-NaN rows
+            wins = np.where(
+                np.all(np.isnan(matrix), axis=1),
+                float('-inf'),
+                wins
+            )
+            sorted_indices = np.argsort(-wins)  # Higher wins = better
+
+        elif method == 'consensus':
+            # Consensus: geometric mean of normalized ranks
+            # Models that consistently rank well get higher scores
+            ranks = self._compute_ranks_per_column(matrix, higher_better)
+            n_cols = matrix.shape[1]
+
+            # Normalize ranks to [0, 1] where 1 = best
+            normalized_ranks = 1 - (ranks - 1) / max(n_models - 1, 1)
+
+            # Geometric mean (product ^ (1/n))
+            # Use log-sum for numerical stability
+            with np.errstate(divide='ignore'):
+                log_ranks = np.log(normalized_ranks + 1e-10)
+            consensus_scores = np.exp(np.nanmean(log_ranks, axis=1))
+
+            # Handle all-NaN rows
+            consensus_scores = np.where(
+                np.all(np.isnan(matrix), axis=1),
+                float('-inf'),
+                consensus_scores
+            )
+            sorted_indices = np.argsort(-consensus_scores)  # Higher = better
+
+        else:
+            raise ValueError(
+                f"Unknown sort method: {method}. "
+                f"Use 'value', 'mean', 'median', 'borda', 'condorcet', or 'consensus'."
+            )
+
+        # Reorder everything
+        sorted_matrix = matrix[sorted_indices, :]
+        sorted_count_matrix = count_matrix[sorted_indices, :]
+        sorted_y_labels = [y_labels[i] for i in sorted_indices]
+
+        return sorted_matrix, sorted_count_matrix, sorted_y_labels
+
     def validate_inputs(self, x_var: str, y_var: str, rank_metric: str, **kwargs) -> None:
         """Validate inputs."""
         if not x_var or not isinstance(x_var, str):
@@ -150,6 +348,8 @@ class HeatmapChart(BaseChart):
         column_scale: bool = False,
         aggregate: Optional[str] = None,
         top_k: Optional[int] = None,
+        sort_by_value: bool = False,
+        sort_by: Optional[str] = None,
         **filters
     ) -> Figure:
         """Render performance heatmap (Optimized with Polars).
@@ -175,6 +375,17 @@ class HeatmapChart(BaseChart):
             aggregate: Aggregation column for sample-level aggregation.
             top_k: If provided, show only top K models. Selection uses Borda count:
                    first keeps top-1 per column, then ranks by Borda count.
+            sort_by_value: If True, sort Y-axis by ranking score (best first) instead
+                          of alphabetically. Uses rank_metric on rank_partition.
+                          Deprecated: use sort_by='value' instead.
+            sort_by: Sorting method for Y-axis (rows). Options:
+                - None: Alphabetical sorting (default).
+                - 'value': Sort by ranking score on rank_partition column.
+                - 'mean': Sort by mean score across all columns.
+                - 'median': Sort by median score across all columns.
+                - 'borda': Sort by Borda count (sum of ranks across columns).
+                - 'condorcet': Sort by pairwise wins (Copeland method).
+                - 'consensus': Sort by consensus (geometric mean of normalized ranks).
             **filters: Additional filters for predictions.
 
         Returns:
@@ -197,6 +408,11 @@ class HeatmapChart(BaseChart):
         if not display_metric:
             display_metric = rank_metric
 
+        # Handle sort_by_value deprecation (backward compatibility)
+        effective_sort_by = sort_by
+        if sort_by_value and sort_by is None:
+            effective_sort_by = 'value'
+
         # If aggregation is requested, use the slower but accurate path
         if aggregate is not None:
             return self._render_with_aggregation(
@@ -215,6 +431,7 @@ class HeatmapChart(BaseChart):
                 column_scale=column_scale,
                 aggregate=aggregate,
                 top_k=top_k,
+                sort_by=effective_sort_by,
                 **filters
             )
 
@@ -235,6 +452,10 @@ class HeatmapChart(BaseChart):
 
         # --- POLARS OPTIMIZATION START ---
         df = self.predictions.to_dataframe()
+
+        # Normalize model_name to lowercase to merge case-insensitive duplicates
+        if 'model_name' in df.columns:
+            df = df.with_columns(pl.col('model_name').str.to_lowercase())
 
         # 1. Apply Filters
         for k, v in all_filters.items():
@@ -391,8 +612,16 @@ class HeatmapChart(BaseChart):
 
         # --- POLARS OPTIMIZATION END ---
 
-        # Determine if higher is better for display metric
+        # Determine if higher is better for display/ranking metric
         display_higher_better = self._is_higher_better(display_metric)
+        rank_higher_better = self._is_higher_better(rank_metric)
+
+        # Sort by specified method if requested (before top_k filtering)
+        if effective_sort_by:
+            matrix, count_matrix, y_labels = self._sort_by_method(
+                matrix, count_matrix, y_labels, x_labels,
+                rank_partition, rank_higher_better, effective_sort_by
+            )
 
         # Apply top_k filtering if requested
         if top_k is not None and top_k > 0:
@@ -425,7 +654,7 @@ class HeatmapChart(BaseChart):
             rank_metric, rank_partition, rank_agg,
             display_metric, display_partition, display_agg,
             figsize, normalize, show_counts, local_scale, display_higher_better,
-            column_scale, top_k
+            column_scale, top_k, effective_sort_by
         )
 
         t2 = time.time()
@@ -462,6 +691,90 @@ class HeatmapChart(BaseChart):
         max_width = 30
 
         return (min(required_width, max_width), min(required_height, max_height))
+
+    def _build_heatmap_title(
+        self,
+        display_agg: str,
+        display_metric: str,
+        display_partition: str,
+        rank_agg: str,
+        rank_metric: str,
+        rank_partition: str,
+        column_scale: bool = False,
+        top_k: Optional[int] = None,
+        sort_by: Optional[str] = None,
+        aggregate: Optional[str] = None
+    ) -> tuple:
+        """Build compact heatmap title with optional two-line layout.
+
+        Uses metric abbreviations and short indicators to keep titles readable.
+        Splits into two lines if content is too long.
+
+        Args:
+            display_agg: Display aggregation method.
+            display_metric: Display metric name.
+            display_partition: Display partition name.
+            rank_agg: Ranking aggregation method.
+            rank_metric: Ranking metric name.
+            rank_partition: Ranking partition name.
+            column_scale: Whether column scaling is enabled.
+            top_k: Number of top models shown (if any).
+            sort_by: Sorting method (if any).
+            aggregate: Aggregation column (if any).
+
+        Returns:
+            Tuple of (title_string, fontsize).
+        """
+        # Use abbreviated metric names
+        display_abbrev = abbreviate_metric(display_metric)
+        rank_abbrev = abbreviate_metric(rank_metric)
+
+        # Abbreviate aggregation methods
+        agg_abbrev = {'best': 'Best', 'worst': 'Worst', 'mean': 'Mean', 'median': 'Med'}
+        display_agg_short = agg_abbrev.get(display_agg, display_agg.title())
+        rank_agg_short = agg_abbrev.get(rank_agg, rank_agg.title())
+
+        # Build main title part: "Mean RMSE [test]"
+        main_title = f"{display_agg_short} {display_abbrev} [{display_partition}]"
+
+        # Build modifiers (short form)
+        modifiers = []
+        if top_k is not None and top_k > 0:
+            modifiers.append(f"Top{top_k}")
+        if aggregate:
+            modifiers.append(f"agg:{aggregate}")
+        if column_scale:
+            modifiers.append("col-norm")
+        if sort_by and sort_by != 'value':
+            modifiers.append(f"sort:{sort_by}")
+
+        # Build ranking info if different from display
+        rank_info = ""
+        if rank_partition != display_partition or rank_metric != display_metric or rank_agg != display_agg:
+            rank_info = f"(rank: {rank_agg_short} {rank_abbrev} [{rank_partition}])"
+
+        # Combine parts
+        if modifiers:
+            modifier_str = " ".join(modifiers)
+            line1 = f"{main_title} [{modifier_str}]"
+        else:
+            line1 = main_title
+
+        # Determine if we need two lines
+        full_title = f"{line1} {rank_info}".strip() if rank_info else line1
+        title_fontsize = self.config.title_fontsize
+
+        # If title is too long, use two lines and reduce font
+        if len(full_title) > 60:
+            if rank_info:
+                title = f"{line1}\n{rank_info}"
+            else:
+                title = line1
+            title_fontsize = self.config.title_fontsize - 2
+        else:
+            title = full_title
+
+        return title, title_fontsize
 
     @staticmethod
     def _is_higher_better(metric: str) -> bool:
@@ -501,7 +814,8 @@ class HeatmapChart(BaseChart):
         local_scale: bool,
         display_higher_better: bool,
         column_scale: bool = False,
-        top_k: Optional[int] = None
+        top_k: Optional[int] = None,
+        sort_by: Optional[str] = None
     ) -> Figure:
         """Render the heatmap figure."""
         fig, ax = plt.subplots(figsize=figsize)
@@ -571,26 +885,20 @@ class HeatmapChart(BaseChart):
         ax.set_xlabel(x_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
         ax.set_ylabel(y_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
 
-        # Title: Show display aggregation and metric, and add ranking info if different
-        title_parts = []
-
-        # Add top_k indicator first if applicable
-        if top_k is not None and top_k > 0:
-            title_parts.append(f'Top {top_k}:')
-
-        title_parts.append(f'{display_agg.title()} {display_metric} [{display_partition}]')
-
-        # Add column_scale indicator
-        if column_scale:
-            title_parts.append('[column normalized]')
-
-        # Add ranking score info if different from display (mimic confusion matrix behavior)
-        # Show both the display and ranking configurations in the title
-        if rank_partition != display_partition or rank_metric != display_metric or rank_agg != display_agg:
-            title_parts.append(f'(rank on {rank_agg} {rank_metric} [{rank_partition}])')
-
-        title = ' '.join(title_parts)
-        ax.set_title(title, fontsize=self.config.title_fontsize, pad=10)
+        # Build title using helper method
+        title, title_fontsize = self._build_heatmap_title(
+            display_agg=display_agg,
+            display_metric=display_metric,
+            display_partition=display_partition,
+            rank_agg=rank_agg,
+            rank_metric=rank_metric,
+            rank_partition=rank_partition,
+            column_scale=column_scale,
+            top_k=top_k,
+            sort_by=sort_by,
+            aggregate=None
+        )
+        ax.set_title(title, fontsize=title_fontsize, pad=10)
 
         # Cell annotations
         # Use normalized matrix if normalize=True, otherwise use raw matrix
@@ -620,6 +928,7 @@ class HeatmapChart(BaseChart):
         column_scale: bool,
         aggregate: str,
         top_k: Optional[int] = None,
+        sort_by: Optional[str] = None,
         **filters
     ) -> Figure:
         """Render heatmap with aggregation support.
@@ -639,6 +948,10 @@ class HeatmapChart(BaseChart):
             all_filters.pop(k, None)
 
         df = self.predictions.to_dataframe()
+
+        # Normalize model_name to lowercase to merge case-insensitive duplicates
+        if 'model_name' in df.columns:
+            df = df.with_columns(pl.col('model_name').str.to_lowercase())
 
         # Apply filters
         for k, v in all_filters.items():
@@ -742,8 +1055,16 @@ class HeatmapChart(BaseChart):
         t1 = time.time()
         print(f"Data wrangling time (with aggregation): {t1 - t0:.4f} seconds")
 
-        # Determine if higher is better for display metric
+        # Determine if higher is better for display/ranking metric
         display_higher_better = self._is_higher_better(display_metric)
+        rank_higher_better = self._is_higher_better(rank_metric)
+
+        # Sort by specified method if requested (before top_k filtering)
+        if sort_by:
+            matrix, count_matrix, y_labels = self._sort_by_method(
+                matrix, count_matrix, y_labels, x_labels,
+                rank_partition, rank_higher_better, sort_by
+            )
 
         # Apply top_k filtering if requested
         if top_k is not None and top_k > 0:
@@ -776,7 +1097,7 @@ class HeatmapChart(BaseChart):
             rank_metric, rank_partition, rank_agg,
             display_metric, display_partition, display_agg,
             figsize, normalize, show_counts, local_scale, display_higher_better,
-            aggregate, column_scale, top_k
+            aggregate, column_scale, top_k, sort_by
         )
 
         t2 = time.time()
@@ -806,7 +1127,8 @@ class HeatmapChart(BaseChart):
         display_higher_better: bool,
         aggregate: str,
         column_scale: bool = False,
-        top_k: Optional[int] = None
+        top_k: Optional[int] = None,
+        sort_by: Optional[str] = None
     ) -> Figure:
         """Render the heatmap figure with aggregation note."""
         fig, ax = plt.subplots(figsize=figsize)
@@ -878,25 +1200,20 @@ class HeatmapChart(BaseChart):
         ax.set_xlabel(x_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
         ax.set_ylabel(y_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
 
-        # Title with aggregation info
-        title_parts = []
-
-        # Add top_k indicator first if applicable
-        if top_k is not None and top_k > 0:
-            title_parts.append(f'Top {top_k}:')
-
-        title_parts.append(f'{display_agg.title()} {display_metric} [{display_partition}]')
-        title_parts.append(f'[aggregated by {aggregate}]')
-
-        # Add column_scale indicator
-        if column_scale:
-            title_parts.append('[column normalized]')
-
-        if rank_partition != display_partition or rank_metric != display_metric or rank_agg != display_agg:
-            title_parts.append(f'(rank on {rank_agg} {rank_metric} [{rank_partition}])')
-
-        title = ' '.join(title_parts)
-        ax.set_title(title, fontsize=self.config.title_fontsize, pad=10)
+        # Build title using helper method
+        title, title_fontsize = self._build_heatmap_title(
+            display_agg=display_agg,
+            display_metric=display_metric,
+            display_partition=display_partition,
+            rank_agg=rank_agg,
+            rank_metric=rank_metric,
+            rank_partition=rank_partition,
+            column_scale=column_scale,
+            top_k=top_k,
+            sort_by=sort_by,
+            aggregate=aggregate
+        )
+        ax.set_title(title, fontsize=title_fontsize, pad=10)
 
         # Cell annotations
         display_matrix = normalized_matrix if normalize else matrix

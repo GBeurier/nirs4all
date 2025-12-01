@@ -301,6 +301,7 @@ class PredictionAnalyzer:
         self,
         display_metric: Optional[str] = None,
         display_partition: str = 'test',
+        aggregate: Optional[str] = None,
         **kwargs
     ) -> Union[Figure, List[Figure]]:
         """Plot score distribution histogram.
@@ -311,6 +312,10 @@ class PredictionAnalyzer:
         Args:
             display_metric: Metric to plot (default: auto-detect from task type).
             display_partition: Partition to display scores from (default: 'test').
+            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+                      When 'y', groups by y_true values.
+                      When a column name (e.g., 'ID'), groups by that metadata column.
+                      Aggregated predictions have recalculated metrics.
             **kwargs: Additional parameters (dataset_name, bins, figsize, filters).
 
         Returns:
@@ -318,6 +323,7 @@ class PredictionAnalyzer:
 
         Example:
             >>> fig = analyzer.plot_histogram(display_metric='r2', display_partition='val')
+            >>> fig = analyzer.plot_histogram(display_metric='rmse', aggregate='ID')
         """
         chart = ScoreHistogramChart(
             self.predictions,
@@ -337,6 +343,7 @@ class PredictionAnalyzer:
                     fig = chart.render(
                         display_metric=display_metric,
                         display_partition=display_partition,
+                        aggregate=aggregate,
                         dataset_name=dataset,
                         **kwargs
                     )
@@ -345,7 +352,12 @@ class PredictionAnalyzer:
                 return figures
 
         # Single dataset or dataset_name specified
-        fig = chart.render(display_metric=display_metric, display_partition=display_partition, **kwargs)
+        fig = chart.render(
+            display_metric=display_metric,
+            display_partition=display_partition,
+            aggregate=aggregate,
+            **kwargs
+        )
         self._save_figure(fig, "histogram", kwargs.get('dataset_name'))
         return fig
 
@@ -365,6 +377,8 @@ class PredictionAnalyzer:
         column_scale: bool = False,
         aggregate: Optional[str] = None,
         top_k: Optional[int] = None,
+        sort_by_value: bool = False,
+        sort_by: Optional[str] = None,
         **kwargs
     ) -> Figure:
         """Plot performance heatmap across two variables.
@@ -392,6 +406,17 @@ class PredictionAnalyzer:
             aggregate: If provided, aggregate predictions by this metadata column (e.g., 'ID').
             top_k: If provided, show only top K models. Selection uses Borda count:
                    first keeps top-1 per column, then ranks by Borda count.
+            sort_by_value: If True, sort Y-axis by ranking score (best first) instead
+                          of alphabetically. Uses rank_metric on rank_partition.
+                          Deprecated: use sort_by='value' instead.
+            sort_by: Sorting method for Y-axis (rows). Options:
+                - None: Alphabetical sorting (default).
+                - 'value': Sort by ranking score on rank_partition column.
+                - 'mean': Sort by mean score across all columns.
+                - 'median': Sort by median score across all columns.
+                - 'borda': Sort by Borda count (sum of ranks across columns).
+                - 'condorcet': Sort by pairwise wins (Copeland method).
+                - 'consensus': Sort by consensus (geometric mean of normalized ranks).
             **kwargs: Additional filters (dataset_name, model_name, etc.).
 
         Returns:
@@ -444,6 +469,8 @@ class PredictionAnalyzer:
             column_scale=column_scale,
             aggregate=aggregate,
             top_k=top_k,
+            sort_by_value=sort_by_value,
+            sort_by=sort_by,
             **kwargs
         )
         self._save_figure(fig, "heatmap", kwargs.get('dataset_name'))
@@ -454,6 +481,7 @@ class PredictionAnalyzer:
         variable: str,
         display_metric: Optional[str] = None,
         display_partition: str = 'test',
+        aggregate: Optional[str] = None,
         **kwargs
     ) -> Figure:
         """Plot candlestick chart for score distribution by variable.
@@ -462,6 +490,10 @@ class PredictionAnalyzer:
             variable: Variable to group by (e.g., 'model_name', 'preprocessings').
             display_metric: Metric to analyze (default: auto-detect from task type).
             display_partition: Partition to display scores from (default: 'test').
+            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+                      When 'y', groups by y_true values.
+                      When a column name (e.g., 'ID'), groups by that metadata column.
+                      Aggregated predictions have recalculated metrics.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
@@ -469,13 +501,20 @@ class PredictionAnalyzer:
 
         Example:
             >>> fig = analyzer.plot_candlestick('model_name', display_metric='rmse')
+            >>> fig = analyzer.plot_candlestick('model_name', display_metric='rmse', aggregate='ID')
         """
         chart = CandlestickChart(
             self.predictions,
             self.dataset_name_override,
             self.config
         )
-        fig = chart.render(variable=variable, display_metric=display_metric, display_partition=display_partition, **kwargs)
+        fig = chart.render(
+            variable=variable,
+            display_metric=display_metric,
+            display_partition=display_partition,
+            aggregate=aggregate,
+            **kwargs
+        )
         self._save_figure(fig, "candlestick", kwargs.get('dataset_name'))
         return fig
 
