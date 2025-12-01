@@ -296,6 +296,15 @@ class SPXYSplitter(CustomSplitter):
     """
 
     def __init__(self, test_size, random_state=None, pca_components=None, metric="euclidean"):
+        """
+        metric : str or callable, optional
+            The distance metric to use. If a string, the distance function can be
+            'braycurtis', 'canberra', 'chebyshev', 'cityblock', 'correlation',
+            'cosine', 'dice', 'euclidean', 'hamming', 'jaccard', 'jensenshannon',
+            'kulczynski1', 'mahalanobis', 'matching', 'minkowski',
+            'rogerstanimoto', 'russellrao', 'seuclidean', 'sokalmichener',
+            'sokalsneath', 'sqeuclidean', 'yule'.
+        """
         super().__init__()
         self.test_size = test_size
         self.random_state = random_state
@@ -380,4 +389,451 @@ class SPlitSplitter(CustomSplitter):
         yield index_train, index_test
 
     def get_n_splits(self, X=None, y=None, groups=None):
+        return self.n_splits
+
+
+class SPXYGFold(CustomSplitter):
+    """
+    SPXY-based K-Fold splitter with group awareness.
+
+    Combines:
+    - SPXY (joint X-Y distance) or Kennard-Stone (X-only) selection
+    - Group constraints (samples in same group stay together)
+    - K-fold cross-validation
+
+    This splitter extends the SPXY algorithm to support:
+    1. Classification tasks (using appropriate distance metrics for categorical y)
+    2. Group-aware splitting (treating groups as atomic units)
+    3. K-fold cross-validation (not just single train/test split)
+
+    The algorithm ensures uniform coverage of the feature space (and optionally
+    target space) across all folds, which is particularly useful for spectroscopy
+    data where sample distribution matters for model generalization.
+
+    Parameters
+    ----------
+    n_splits : int, default=5
+        Number of folds for cross-validation. Use 1 for single train/test split.
+        Must be at least 2 for cross-validation.
+
+    test_size : float, default=None
+        Proportion of samples for test set. Only used when n_splits=1.
+        If None with n_splits=1, defaults to 0.25.
+
+    metric : str, default="euclidean"
+        Distance metric for X-space. Any metric supported by scipy.spatial.distance.cdist:
+        'braycurtis', 'canberra', 'chebyshev', 'cityblock', 'correlation',
+        'cosine', 'dice', 'euclidean', 'hamming', 'jaccard', 'jensenshannon',
+        'mahalanobis', 'minkowski', 'rogerstanimoto', 'russellrao',
+        'seuclidean', 'sokalmichener', 'sokalsneath', 'sqeuclidean', 'yule'.
+
+    y_metric : str or None, default="euclidean"
+        Distance metric for Y-space.
+        - "euclidean": For regression (continuous y) - default SPXY behavior
+        - "hamming": For classification (categorical y) - treats all class
+          differences equally
+        - None: Ignore Y (pure Kennard-Stone, X-only selection)
+
+    aggregation : str, default="mean"
+        Method for group aggregation when groups are provided:
+        - "mean": Use group centroid (mean of all samples in group)
+        - "median": Use group median (robust to outliers)
+
+    pca_components : int or None, default=None
+        If provided, apply PCA to reduce X dimensionality before distance
+        computation. Useful for high-dimensional spectral data.
+
+    random_state : int or None, default=None
+        Random state for reproducibility. Only used for tie-breaking when
+        multiple samples have equal distances.
+
+    Examples
+    --------
+    Basic K-Fold with SPXY:
+
+    >>> from nirs4all.operators.splitters import SPXYGFold
+    >>> splitter = SPXYGFold(n_splits=5)
+    >>> for train_idx, test_idx in splitter.split(X, y):
+    ...     X_train, X_test = X[train_idx], X[test_idx]
+
+    Single train/test split (backward compatible with SPXYSplitter):
+
+    >>> splitter = SPXYGFold(n_splits=1, test_size=0.25)
+    >>> train_idx, test_idx = next(splitter.split(X, y))
+
+    Classification with Hamming distance for y:
+
+    >>> splitter = SPXYGFold(n_splits=5, y_metric="hamming")
+    >>> for train_idx, test_idx in splitter.split(X, y_class):
+    ...     pass
+
+    Group-aware splitting:
+
+    >>> splitter = SPXYGFold(n_splits=5)
+    >>> for train_idx, test_idx in splitter.split(X, y, groups=sample_ids):
+    ...     pass  # Samples with same group stay together
+
+    Pure Kennard-Stone (X-only):
+
+    >>> splitter = SPXYGFold(n_splits=5, y_metric=None)
+    >>> for train_idx, test_idx in splitter.split(X):
+    ...     pass
+
+    References
+    ----------
+    .. [1] Kennard, R.W. & Stone, L.A. (1969). "Computer Aided Design of
+       Experiments." Technometrics, 11(1), 137-148.
+
+    .. [2] Galvão, R.K.H., et al. (2005). "A method for calibration and
+       validation subset partitioning." Talanta, 67(4), 736-740.
+    """
+
+    def __init__(
+        self,
+        n_splits=5,
+        test_size=None,
+        metric="euclidean",
+        y_metric="euclidean",
+        aggregation="mean",
+        pca_components=None,
+        random_state=None
+    ):
+        super().__init__()
+        self.n_splits = n_splits
+        self.test_size = test_size
+        self.metric = metric
+        self.y_metric = y_metric
+        self.aggregation = aggregation
+        self.pca_components = pca_components
+        self.random_state = random_state
+
+        # Validate parameters
+        if n_splits < 1:
+            raise ValueError(f"n_splits must be at least 1, got {n_splits}")
+        if aggregation not in ("mean", "median"):
+            raise ValueError(f"aggregation must be 'mean' or 'median', got {aggregation}")
+
+    def _aggregate_groups(self, X, y, groups):
+        """Aggregate samples by group, returning representatives and index mapping.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Feature matrix.
+        y : ndarray of shape (n_samples,) or (n_samples, n_outputs) or None
+            Target values.
+        groups : array-like of shape (n_samples,)
+            Group labels for each sample.
+
+        Returns
+        -------
+        X_rep : ndarray of shape (n_groups, n_features)
+            Representative features for each group.
+        y_rep : ndarray of shape (n_groups,) or (n_groups, n_outputs) or None
+            Representative targets for each group.
+        group_indices : list of lists
+            For each group, the list of sample indices belonging to it.
+        unique_groups : ndarray
+            Unique group labels in order.
+        """
+        groups = np.asarray(groups)
+        unique_groups = np.unique(groups)
+        n_groups = len(unique_groups)
+
+        # Compute group representatives for X
+        X_rep = np.zeros((n_groups, X.shape[1]))
+        group_indices = []
+
+        for i, g in enumerate(unique_groups):
+            mask = groups == g
+            indices = np.where(mask)[0].tolist()
+            group_indices.append(indices)
+
+            if self.aggregation == "mean":
+                X_rep[i] = X[mask].mean(axis=0)
+            else:  # median
+                X_rep[i] = np.median(X[mask], axis=0)
+
+        # Compute group representatives for y
+        y_rep = None
+        if y is not None:
+            y = np.atleast_1d(y)
+            if y.ndim == 1:
+                y = y.reshape(-1, 1)
+
+            y_rep = np.zeros((n_groups, y.shape[1]))
+            for i, g in enumerate(unique_groups):
+                mask = groups == g
+                if self.y_metric == "hamming":
+                    # For classification: use mode (most common value)
+                    from scipy import stats
+                    for j in range(y.shape[1]):
+                        mode_result = stats.mode(y[mask, j], keepdims=True)
+                        y_rep[i, j] = mode_result.mode[0]
+                else:
+                    # For regression: use mean/median
+                    if self.aggregation == "mean":
+                        y_rep[i] = y[mask].mean(axis=0)
+                    else:
+                        y_rep[i] = np.median(y[mask], axis=0)
+
+        return X_rep, y_rep, group_indices, unique_groups
+
+    def _compute_distance_matrix(self, X, y):
+        """Compute combined X+Y distance matrix.
+
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Feature matrix.
+        y : ndarray of shape (n_samples,) or (n_samples, n_outputs) or None
+            Target values.
+
+        Returns
+        -------
+        D : ndarray of shape (n_samples, n_samples)
+            Combined distance matrix.
+        """
+        # Apply PCA if requested
+        if self.pca_components is not None:
+            pca = PCA(self.pca_components, random_state=self.random_state)
+            X = pca.fit_transform(X)
+
+        # Compute X distance
+        D_X = cdist(X, X, metric=self.metric)
+        max_D_X = D_X.max()
+        if max_D_X > 0:
+            D_X = D_X / max_D_X
+
+        # Compute Y distance if requested
+        if y is not None and self.y_metric is not None:
+            y = np.atleast_1d(y)
+            if y.ndim == 1:
+                y = y.reshape(-1, 1)
+
+            if self.y_metric == "hamming":
+                # For classification: binary distance (0 if same class, 1 if different)
+                # Works correctly for multi-class: any difference = 1
+                D_Y = (y != y.T).astype(float)
+                if y.shape[1] > 1:
+                    # Multi-output: average across outputs
+                    D_Y = np.any(y[:, None, :] != y[None, :, :], axis=2).astype(float)
+            else:
+                # For regression: standard distance metric
+                D_Y = cdist(y, y, metric=self.y_metric)
+                max_D_Y = D_Y.max()
+                if max_D_Y > 0:
+                    D_Y = D_Y / max_D_Y
+
+            D = D_X + D_Y
+        else:
+            D = D_X
+
+        return D
+
+    def _assign_to_folds(self, D, n_splits):
+        """Assign samples/groups to folds using alternating max-min algorithm.
+
+        Parameters
+        ----------
+        D : ndarray of shape (n_samples, n_samples)
+            Distance matrix.
+        n_splits : int
+            Number of folds.
+
+        Returns
+        -------
+        fold_assignment : ndarray of shape (n_samples,)
+            Fold index for each sample.
+        """
+        n_samples = D.shape[0]
+        fold_assignment = np.full(n_samples, -1, dtype=int)
+
+        if n_splits >= n_samples:
+            # More folds than samples: assign one sample per fold
+            for i in range(n_samples):
+                fold_assignment[i] = i % n_splits
+            return fold_assignment
+
+        # Initialize: find k samples farthest from centroid
+        centroid_distances = D.mean(axis=1)
+        init_indices = np.argsort(centroid_distances)[-n_splits:]
+
+        # Assign initial samples to folds (one per fold)
+        for fold_idx, sample_idx in enumerate(init_indices):
+            fold_assignment[sample_idx] = fold_idx
+
+        # Track which samples are assigned and fold sizes
+        remaining = set(range(n_samples)) - set(init_indices)
+        fold_sizes = np.ones(n_splits, dtype=int)
+        target_size = n_samples // n_splits
+        max_size = target_size + (1 if n_samples % n_splits > 0 else 0)
+
+        # Lists of samples in each fold
+        fold_members = [list([idx]) for idx in init_indices]
+
+        # Alternating assignment: cycle through folds
+        while remaining:
+            for fold_idx in range(n_splits):
+                if not remaining:
+                    break
+                if fold_sizes[fold_idx] >= max_size:
+                    continue
+
+                # Compute min distance from remaining samples to this fold's members
+                remaining_list = list(remaining)
+                min_distances = np.array([
+                    D[r, fold_members[fold_idx]].min()
+                    for r in remaining_list
+                ])
+
+                # Select sample with maximum min-distance (most distant from fold)
+                best_idx = remaining_list[np.argmax(min_distances)]
+                fold_assignment[best_idx] = fold_idx
+                fold_members[fold_idx].append(best_idx)
+                fold_sizes[fold_idx] += 1
+                remaining.remove(best_idx)
+
+        return fold_assignment
+
+    def _single_split(self, D, test_size):
+        """Perform single train/test split using max-min algorithm.
+
+        This replicates the original SPXYSplitter behavior for backward compatibility.
+
+        Parameters
+        ----------
+        D : ndarray of shape (n_samples, n_samples)
+            Distance matrix.
+        test_size : float
+            Proportion of samples for test set.
+
+        Returns
+        -------
+        train_indices : ndarray
+            Indices of training samples.
+        test_indices : ndarray
+            Indices of test samples.
+        """
+        n_samples = D.shape[0]
+        n_train, _ = _validate_shuffle_split(n_samples, test_size, None, default_test_size=0.25)
+
+        if n_train < 2:
+            raise ValueError("Train sample size should be at least 2.")
+
+        index_train = np.array([], dtype=int)
+        index_test = np.arange(n_samples, dtype=int)
+
+        # Select the two farthest points
+        first_2pts = np.unravel_index(np.argmax(D), D.shape)
+        index_train = np.append(index_train, first_2pts[0])
+        index_train = np.append(index_train, first_2pts[1])
+
+        # Remove selected points from test indices
+        index_test = np.delete(index_test, np.where(index_test == first_2pts[0]))
+        index_test = np.delete(index_test, np.where(index_test == first_2pts[1]))
+
+        for _ in range(n_train - 2):
+            min_distances = D[index_train].min(axis=0)
+            next_point = np.argmax(min_distances[index_test])
+            selected = index_test[next_point]
+            index_train = np.append(index_train, selected)
+            index_test = np.delete(index_test, next_point)
+
+        return index_train, index_test
+
+    def split(self, X, y=None, groups=None):
+        """Generate train/test indices for each fold.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Feature matrix.
+        y : array-like of shape (n_samples,) or (n_samples, n_outputs), default=None
+            Target values. Required if y_metric is not None.
+        groups : array-like of shape (n_samples,), default=None
+            Group labels for samples. Samples with the same group label
+            will always be in the same fold.
+
+        Yields
+        ------
+        train : ndarray
+            Training set indices for this fold.
+        test : ndarray
+            Test set indices for this fold.
+        """
+        X = np.asarray(X)
+        n_samples = X.shape[0]
+
+        # Validate y requirement
+        if self.y_metric is not None and y is None:
+            raise ValueError(
+                f"y is required when y_metric='{self.y_metric}'. "
+                "Set y_metric=None for X-only (Kennard-Stone) splitting."
+            )
+
+        if y is not None:
+            y = np.asarray(y)
+            if y.ndim == 1:
+                y = y.reshape(-1, 1)
+
+        # Handle groups
+        if groups is not None:
+            groups = np.asarray(groups)
+            X_rep, y_rep, group_indices, unique_groups = self._aggregate_groups(X, y, groups)
+            D = self._compute_distance_matrix(X_rep, y_rep if self.y_metric else None)
+            n_units = len(unique_groups)
+        else:
+            D = self._compute_distance_matrix(X, y if self.y_metric else None)
+            group_indices = [[i] for i in range(n_samples)]
+            n_units = n_samples
+
+        # Single split mode (backward compatible with SPXYSplitter)
+        if self.n_splits == 1:
+            test_size = self.test_size if self.test_size is not None else 0.25
+            train_units, test_units = self._single_split(D, test_size)
+
+            # Map back to sample indices
+            train_indices = np.concatenate([group_indices[u] for u in train_units])
+            test_indices = np.concatenate([group_indices[u] for u in test_units])
+
+            yield train_indices, test_indices
+            return
+
+        # K-fold mode
+        if self.n_splits > n_units:
+            raise ValueError(
+                f"Cannot have n_splits={self.n_splits} with only {n_units} "
+                f"{'groups' if groups is not None else 'samples'}."
+            )
+
+        fold_assignment = self._assign_to_folds(D, self.n_splits)
+
+        for fold_idx in range(self.n_splits):
+            test_units = np.where(fold_assignment == fold_idx)[0]
+            train_units = np.where(fold_assignment != fold_idx)[0]
+
+            # Map back to sample indices
+            train_indices = np.concatenate([group_indices[u] for u in train_units])
+            test_indices = np.concatenate([group_indices[u] for u in test_units])
+
+            yield train_indices, test_indices
+
+    def get_n_splits(self, X=None, y=None, groups=None):
+        """Return the number of splitting iterations.
+
+        Parameters
+        ----------
+        X : object
+            Ignored, exists for compatibility.
+        y : object
+            Ignored, exists for compatibility.
+        groups : object
+            Ignored, exists for compatibility.
+
+        Returns
+        -------
+        n_splits : int
+            Number of folds.
+        """
         return self.n_splits

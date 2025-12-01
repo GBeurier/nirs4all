@@ -7,6 +7,7 @@
 > [Model] How to force params from self best_params
 
 **Bugs**:
+>   - [task_type] deactivate auto detection - set manually
 >   - [save_files] sep in save_files and save_plots and save_predictions
 >   - [MB-PLS] test on multi-source/block
 >   - [Kernel-PLS] poly and linear are crap
@@ -16,6 +17,7 @@
 >   - slow down between models: check dataset copy, ensure cache and reuse.
 >   - remove print scores in base model (bug in predict)
 >   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
+>   - Charts do not display correctly the wavelength on x-axis
 
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 
