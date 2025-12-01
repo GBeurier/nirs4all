@@ -178,7 +178,8 @@ class ConfusionMatrixChart(BaseChart):
                 im = ax.imshow(cm, interpolation='nearest', cmap='Blues')
 
                 # Add colorbar
-                plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                cbar.ax.tick_params(labelsize=self.config.tick_fontsize)
 
                 # Set ticks
                 n_classes = cm.shape[0]
@@ -195,7 +196,7 @@ class ConfusionMatrixChart(BaseChart):
                         ax.text(col, row, format(cm[row, col], 'd'),
                                ha="center", va="center",
                                color="white" if cm[row, col] > thresh else "black",
-                               fontsize=self.config.tick_fontsize)
+                               fontsize=self.config.annotation_fontsize)
 
                 # Labels
                 ax.set_ylabel('True label', fontsize=self.config.label_fontsize)

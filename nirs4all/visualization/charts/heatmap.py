@@ -676,7 +676,10 @@ class HeatmapChart(BaseChart):
             Tuple of (width, height) in inches.
         """
         # Base sizes
-        base_width, base_height = self.config.get_figsize('medium')
+        if n_y <= 8:
+            base_width, base_height = self.config.get_figsize('small')
+        else:
+            base_width, base_height = self.config.get_figsize('medium')
 
         # Minimum cell size (in inches) to avoid overlap
         min_cell_height = 0.35  # ~0.35 inches per Y label
@@ -847,10 +850,9 @@ class HeatmapChart(BaseChart):
             vmax = 1
             cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
 
-        # Select colormap based on direction
+        # Use colormap directly - normalizer already handles direction inversion
+        # (best values always map to 1.0, worst to 0.0)
         cmap_name = self.config.heatmap_colormap
-        if not display_higher_better:
-            cmap_name += '_r'
 
         im = ax.imshow(
             display_data,
@@ -863,6 +865,7 @@ class HeatmapChart(BaseChart):
         # Colorbar
         cbar = plt.colorbar(im, ax=ax, shrink=0.8)
         cbar.set_label(cbar_label, fontsize=self.config.label_fontsize)
+        cbar.ax.tick_params(labelsize=self.config.tick_fontsize)
 
         # Adapt font size based on number of labels to avoid overlap
         n_y = len(y_labels)
@@ -1162,10 +1165,9 @@ class HeatmapChart(BaseChart):
             vmax = 1
             cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
 
-        # Select colormap based on direction
+        # Use colormap directly - normalizer already handles direction inversion
+        # (best values always map to 1.0, worst to 0.0)
         cmap_name = self.config.heatmap_colormap
-        if not display_higher_better:
-            cmap_name += '_r'
 
         im = ax.imshow(
             display_data,
@@ -1178,6 +1180,7 @@ class HeatmapChart(BaseChart):
         # Colorbar
         cbar = plt.colorbar(im, ax=ax, shrink=0.8)
         cbar.set_label(cbar_label, fontsize=self.config.label_fontsize)
+        cbar.ax.tick_params(labelsize=self.config.tick_fontsize)
 
         # Adapt font size based on number of labels to avoid overlap
         n_y = len(y_labels)

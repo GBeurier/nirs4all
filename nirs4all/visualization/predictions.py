@@ -138,6 +138,7 @@ class PredictionAnalyzer:
         display_partition: str = 'all',
         show_scores: bool = True,
         aggregate: Optional[str] = None,
+        config: Optional[ChartConfig] = None,
         **kwargs
     ) -> Union[Figure, List[Figure]]:
         """Plot top K model comparison (scatter + residuals).
@@ -159,6 +160,7 @@ class PredictionAnalyzer:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
@@ -168,10 +170,11 @@ class PredictionAnalyzer:
             >>> fig = analyzer.plot_top_k(k=3, rank_metric='r2')
             >>> fig = analyzer.plot_top_k(k=3, aggregate='ID')  # Aggregated by ID
         """
+        effective_config = config if config is not None else self.config
         chart = TopKComparisonChart(
             self.predictions,
             self.dataset_name_override,
-            self.config
+            effective_config
         )
 
         # Check if dataset_name is specified in kwargs
@@ -221,6 +224,7 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         show_scores: bool = True,
         aggregate: Optional[str] = None,
+        config: Optional[ChartConfig] = None,
         **kwargs
     ) -> Union[Figure, List[Figure]]:
         """Plot confusion matrices for top K classification models.
@@ -239,6 +243,7 @@ class PredictionAnalyzer:
             display_partition: Partition to display confusion matrix from (default: 'test').
             show_scores: If True, show scores in chart titles (default: True).
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+            config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
@@ -253,10 +258,11 @@ class PredictionAnalyzer:
             ...     display_metric=['balanced_accuracy', 'accuracy']
             ... )
         """
+        effective_config = config if config is not None else self.config
         chart = ConfusionMatrixChart(
             self.predictions,
             self.dataset_name_override,
-            self.config
+            effective_config
         )
 
         # Check if dataset_name is specified in kwargs
@@ -302,6 +308,7 @@ class PredictionAnalyzer:
         display_metric: Optional[str] = None,
         display_partition: str = 'test',
         aggregate: Optional[str] = None,
+        config: Optional[ChartConfig] = None,
         **kwargs
     ) -> Union[Figure, List[Figure]]:
         """Plot score distribution histogram.
@@ -316,6 +323,7 @@ class PredictionAnalyzer:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional parameters (dataset_name, bins, figsize, filters).
 
         Returns:
@@ -325,10 +333,11 @@ class PredictionAnalyzer:
             >>> fig = analyzer.plot_histogram(display_metric='r2', display_partition='val')
             >>> fig = analyzer.plot_histogram(display_metric='rmse', aggregate='ID')
         """
+        effective_config = config if config is not None else self.config
         chart = ScoreHistogramChart(
             self.predictions,
             self.dataset_name_override,
-            self.config
+            effective_config
         )
 
         # Check if dataset_name is specified in kwargs
@@ -379,6 +388,7 @@ class PredictionAnalyzer:
         top_k: Optional[int] = None,
         sort_by_value: bool = False,
         sort_by: Optional[str] = None,
+        config: Optional[ChartConfig] = None,
         **kwargs
     ) -> Figure:
         """Plot performance heatmap across two variables.
@@ -417,6 +427,7 @@ class PredictionAnalyzer:
                 - 'borda': Sort by Borda count (sum of ranks across columns).
                 - 'condorcet': Sort by pairwise wins (Copeland method).
                 - 'consensus': Sort by consensus (geometric mean of normalized ranks).
+            config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional filters (dataset_name, model_name, etc.).
 
         Returns:
@@ -449,10 +460,11 @@ class PredictionAnalyzer:
             if display_agg == 'mean':  # Only override if not explicitly set
                 display_agg = aggregation
 
+        effective_config = config if config is not None else self.config
         chart = HeatmapChart(
             self.predictions,
             self.dataset_name_override,
-            self.config
+            effective_config
         )
         fig = chart.render(
             x_var=x_var,
@@ -482,6 +494,7 @@ class PredictionAnalyzer:
         display_metric: Optional[str] = None,
         display_partition: str = 'test',
         aggregate: Optional[str] = None,
+        config: Optional[ChartConfig] = None,
         **kwargs
     ) -> Figure:
         """Plot candlestick chart for score distribution by variable.
@@ -494,6 +507,7 @@ class PredictionAnalyzer:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            config: Optional ChartConfig to override analyzer's default config for this chart.
             **kwargs: Additional parameters (dataset_name, figsize, filters).
 
         Returns:
@@ -503,10 +517,11 @@ class PredictionAnalyzer:
             >>> fig = analyzer.plot_candlestick('model_name', display_metric='rmse')
             >>> fig = analyzer.plot_candlestick('model_name', display_metric='rmse', aggregate='ID')
         """
+        effective_config = config if config is not None else self.config
         chart = CandlestickChart(
             self.predictions,
             self.dataset_name_override,
-            self.config
+            effective_config
         )
         fig = chart.render(
             variable=variable,

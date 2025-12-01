@@ -24,6 +24,8 @@ class ChartConfig:
         title_fontsize: Font size for titles (default: 14).
         label_fontsize: Font size for axis labels (default: 10).
         tick_fontsize: Font size for tick labels (default: 9).
+        legend_fontsize: Font size for legend text (default: 9).
+        annotation_fontsize: Font size for text annotations inside charts (default: 9).
         figsize_small: Small figure size (default: (10, 6)).
         figsize_medium: Medium figure size (default: (12, 8)).
         figsize_large: Large figure size (default: (16, 10)).
@@ -41,9 +43,11 @@ class ChartConfig:
     title_fontsize: int = 14
     label_fontsize: int = 10
     tick_fontsize: int = 9
+    legend_fontsize: int = 9
+    annotation_fontsize: int = 9
 
     # Figure sizes
-    figsize_small: tuple = (10, 6)
+    figsize_small: tuple = (10, 4)
     figsize_medium: tuple = (12, 8)
     figsize_large: tuple = (16, 10)
 
@@ -68,6 +72,7 @@ class ChartConfig:
         plt.rcParams['axes.labelsize'] = self.label_fontsize
         plt.rcParams['xtick.labelsize'] = self.tick_fontsize
         plt.rcParams['ytick.labelsize'] = self.tick_fontsize
+        plt.rcParams['legend.fontsize'] = self.legend_fontsize
 
     def get_figsize(self, size: str = 'medium') -> tuple:
         """Get figure size by name.
