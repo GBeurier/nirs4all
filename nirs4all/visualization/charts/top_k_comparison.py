@@ -127,10 +127,24 @@ class TopKComparisonChart(BaseChart):
         elif rows == 1:
             axes = axes.reshape(1, -1)
 
+        # Check if aggregation was actually applied (check first model's partitions)
+        aggregation_applied = False
+        if aggregate and top_predictions:
+            first_pred = top_predictions[0]
+            partitions_data = first_pred.get('partitions', {})
+            for partition in partitions_to_display:
+                partition_data = partitions_data.get(partition, {})
+                if partition_data.get('aggregated', False):
+                    aggregation_applied = True
+                    break
+
         # Create figure title
         fig_title = f'Top {k} Models Comparison - Ranked by best {rank_metric} [{rank_partition}]'
         if aggregate:
-            fig_title += f' [aggregated by {aggregate}]'
+            if aggregation_applied:
+                fig_title += f' [aggregated by {aggregate}]'
+            else:
+                fig_title += f' [aggregation by {aggregate} not applied ⚠️]'
         if dataset_name:
             fig_title = f'{fig_title}\nDataset: {dataset_name}'
         fig.suptitle(fig_title, fontsize=self.config.title_fontsize, fontweight='bold')
@@ -214,7 +228,7 @@ class TopKComparisonChart(BaseChart):
                 title = model_name
 
             ax_scatter.set_title(title, fontsize=self.config.label_fontsize)
-            ax_scatter.legend(fontsize=8)
+            ax_scatter.legend(fontsize=self.config.legend_fontsize)
             ax_scatter.grid(True, alpha=0.3)
 
             # Residual plot
@@ -265,7 +279,7 @@ class TopKComparisonChart(BaseChart):
                     residual_title = f'Residuals [{display_partition}]'
 
             ax_residuals.set_title(residual_title, fontsize=self.config.label_fontsize)
-            ax_residuals.legend(fontsize=8)
+            ax_residuals.legend(fontsize=self.config.legend_fontsize)
             ax_residuals.grid(True, alpha=0.3)
 
             # Commented out: Add partition scores as text annotation (small box)

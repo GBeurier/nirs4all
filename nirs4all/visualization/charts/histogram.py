@@ -46,6 +46,7 @@ class ScoreHistogramChart(BaseChart):
     def render(self, display_metric: Optional[str] = None, display_partition: str = 'test',
                dataset_name: Optional[str] = None, bins: int = 20,
                figsize: Optional[tuple] = None, aggregate: Optional[str] = None,
+               clip_outliers: bool = True, iqr_factor: float = 1.5,
                **filters) -> Figure:
         """Render score distribution histogram (Optimized with Polars).
 
@@ -58,6 +59,10 @@ class ScoreHistogramChart(BaseChart):
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            clip_outliers: If True, constrain the x-axis to show the main distribution
+                          and let extreme outliers go off-frame (default: True).
+            iqr_factor: Factor to multiply IQR for determining outlier bounds.
+                       Higher values show more of the tails (default: 1.5).
             dataset_name: Optional dataset filter.
             **filters: Additional filters (model_name, config_name, etc.).
 
@@ -88,6 +93,8 @@ class ScoreHistogramChart(BaseChart):
                 bins=bins,
                 figsize=figsize,
                 aggregate=aggregate,
+                clip_outliers=clip_outliers,
+                iqr_factor=iqr_factor,
                 **all_filters
             )
 
@@ -140,14 +147,31 @@ class ScoreHistogramChart(BaseChart):
         # Create figure
         fig, ax = plt.subplots(figsize=figsize)
 
+        # Compute clipped range if requested
+        if clip_outliers:
+            x_min, x_max = self._compute_clipped_xlim(scores, iqr_factor)
+            # Filter scores for histogram binning within clipped range
+            clipped_scores = [s for s in scores if x_min <= s <= x_max]
+            n_clipped = len(scores) - len(clipped_scores)
+        else:
+            clipped_scores = scores
+            x_min, x_max = None, None
+            n_clipped = 0
+
         # Plot histogram
-        ax.hist(scores, bins=bins, alpha=self.config.alpha,
+        ax.hist(clipped_scores, bins=bins, alpha=self.config.alpha,
                 edgecolor='black', color='#35B779')
+
+        # Apply x-axis limits if clipping
+        if clip_outliers and x_min is not None:
+            ax.set_xlim(x_min, x_max)
+
         ax.set_xlabel(f'{display_metric} score', fontsize=self.config.label_fontsize)
         ax.set_ylabel('Frequency', fontsize=self.config.label_fontsize)
 
         # Title
-        title = f'Score Histogram - {display_metric} [{display_partition}]\n{len(scores)} predictions'
+        clipped_note = f' ({n_clipped} outliers clipped)' if n_clipped > 0 else ''
+        title = f'Score Histogram - {display_metric} [{display_partition}]\n{len(scores)} predictions{clipped_note}'
         if dataset_name:
             title = f'{title}\nDataset: {dataset_name}'
         ax.set_title(title, fontsize=self.config.title_fontsize)
@@ -165,7 +189,7 @@ class ScoreHistogramChart(BaseChart):
         # Add statistics box
         self.annotator.add_statistics_box(ax, scores, position='upper right')
 
-        ax.legend()
+        ax.legend(fontsize=self.config.legend_fontsize)
         plt.tight_layout()
 
         t2 = time.time()
@@ -180,6 +204,8 @@ class ScoreHistogramChart(BaseChart):
         bins: int,
         figsize: tuple,
         aggregate: str,
+        clip_outliers: bool = True,
+        iqr_factor: float = 1.5,
         **filters
     ) -> Figure:
         """Render histogram with aggregation support.
@@ -249,14 +275,31 @@ class ScoreHistogramChart(BaseChart):
         # Create figure
         fig, ax = plt.subplots(figsize=figsize)
 
+        # Compute clipped range if requested
+        if clip_outliers:
+            x_min, x_max = self._compute_clipped_xlim(scores, iqr_factor)
+            # Filter scores for histogram binning within clipped range
+            clipped_scores = [s for s in scores if x_min <= s <= x_max]
+            n_clipped = len(scores) - len(clipped_scores)
+        else:
+            clipped_scores = scores
+            x_min, x_max = None, None
+            n_clipped = 0
+
         # Plot histogram
-        ax.hist(scores, bins=bins, alpha=self.config.alpha,
+        ax.hist(clipped_scores, bins=bins, alpha=self.config.alpha,
                 edgecolor='black', color='#35B779')
+
+        # Apply x-axis limits if clipping
+        if clip_outliers and x_min is not None:
+            ax.set_xlim(x_min, x_max)
+
         ax.set_xlabel(f'{display_metric} score', fontsize=self.config.label_fontsize)
         ax.set_ylabel('Frequency', fontsize=self.config.label_fontsize)
 
         # Title with aggregation note
-        title = f'Score Histogram - {display_metric} [{display_partition}]\n{len(scores)} predictions [aggregated by {aggregate}]'
+        clipped_note = f' ({n_clipped} outliers clipped)' if n_clipped > 0 else ''
+        title = f'Score Histogram - {display_metric} [{display_partition}]\n{len(scores)} predictions [aggregated by {aggregate}]{clipped_note}'
         dataset_name = filters.get('dataset_name')
         if dataset_name:
             title = f'{title}\nDataset: {dataset_name}'
@@ -275,10 +318,54 @@ class ScoreHistogramChart(BaseChart):
         # Add statistics box
         self.annotator.add_statistics_box(ax, scores, position='upper right')
 
-        ax.legend()
+        ax.legend(fontsize=self.config.legend_fontsize)
         plt.tight_layout()
 
         t2 = time.time()
         print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
+
+    def _compute_clipped_xlim(
+        self,
+        scores: list,
+        iqr_factor: float = 1.5
+    ) -> tuple:
+        """Compute x-axis limits that clip extreme outliers.
+
+        Uses the IQR method to determine sensible bounds,
+        allowing extreme values to go off-frame.
+
+        Args:
+            scores: List of score values.
+            iqr_factor: Multiplier for IQR to determine outlier bounds.
+
+        Returns:
+            Tuple of (x_min, x_max) for axis limits.
+        """
+        scores_arr = np.array(scores)
+        q25 = float(np.quantile(scores_arr, 0.25))
+        q75 = float(np.quantile(scores_arr, 0.75))
+        iqr = q75 - q25
+
+        # Handle case where IQR is 0 (all values are the same)
+        if iqr == 0:
+            iqr = abs(q75) * 0.1 if q75 != 0 else 0.1
+
+        # Compute bounds using IQR
+        lower_bound = q25 - iqr_factor * iqr
+        upper_bound = q75 + iqr_factor * iqr
+
+        # Ensure we don't go beyond actual data range
+        data_min = float(np.min(scores_arr))
+        data_max = float(np.max(scores_arr))
+
+        x_min = max(data_min, lower_bound)
+        x_max = min(data_max, upper_bound)
+
+        # Add small padding (5%) for visual comfort
+        padding = (x_max - x_min) * 0.05
+        x_min -= padding
+        x_max += padding
+
+        return x_min, x_max

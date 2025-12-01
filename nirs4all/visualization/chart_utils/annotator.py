@@ -62,7 +62,7 @@ class ChartAnnotator:
                         score_text += f'\n(n={int(count_matrix[i, j])})'
 
                     ax.text(j, i, score_text, ha='center', va='center',
-                           color=text_color, fontsize=self.config.tick_fontsize)
+                           color=text_color, fontsize=self.config.annotation_fontsize)
 
     @staticmethod
     def get_text_color(background_value: float, threshold: float = 0.5) -> str:
@@ -124,4 +124,4 @@ class ChartAnnotator:
         ax.text(x, y, stats_text, transform=ax.transAxes,
                 verticalalignment=va, horizontalalignment=ha,
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
-                fontsize=self.config.tick_fontsize)
+                fontsize=self.config.annotation_fontsize)

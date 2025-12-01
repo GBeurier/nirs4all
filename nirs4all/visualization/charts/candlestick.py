@@ -47,6 +47,7 @@ class CandlestickChart(BaseChart):
     def render(self, variable: str, display_metric: Optional[str] = None,
                display_partition: str = 'test', dataset_name: Optional[str] = None,
                figsize: Optional[tuple] = None, aggregate: Optional[str] = None,
+               clip_outliers: bool = True, iqr_factor: float = 1.5,
                **filters) -> Figure:
         """Render candlestick chart showing metric distribution by variable (Optimized with Polars).
 
@@ -60,6 +61,10 @@ class CandlestickChart(BaseChart):
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            clip_outliers: If True, constrain the y-axis to show the main distribution
+                          and let extreme outliers go off-frame (default: True).
+            iqr_factor: Factor to multiply IQR for determining outlier bounds.
+                       Higher values show more of the tails (default: 1.5).
             **filters: Additional filters (config_name, etc.).
 
         Returns:
@@ -89,6 +94,8 @@ class CandlestickChart(BaseChart):
                 display_partition=display_partition,
                 figsize=figsize,
                 aggregate=aggregate,
+                clip_outliers=clip_outliers,
+                iqr_factor=iqr_factor,
                 **all_filters
             )
 
@@ -188,6 +195,11 @@ class CandlestickChart(BaseChart):
             ax.plot([i - 0.2, i + 0.2], [stats['median'], stats['median']],
                    'g--', linewidth=2, label='Median' if i == 0 else '')
 
+        # Apply y-axis clipping for outliers
+        if clip_outliers and stats_data:
+            y_min, y_max = self._compute_clipped_ylim(stats_data, iqr_factor)
+            ax.set_ylim(y_min, y_max)
+
         # Set labels and title
         ax.set_xticks(x_positions)
         var_labels = [str(v)[:25] + '...' if len(str(v)) > 25 else str(v)
@@ -203,7 +215,7 @@ class CandlestickChart(BaseChart):
         ax.set_title(title, fontsize=self.config.title_fontsize)
 
         ax.grid(True, alpha=0.3, axis='y')
-        ax.legend()
+        ax.legend(fontsize=self.config.legend_fontsize)
 
         plt.tight_layout()
 
@@ -219,6 +231,8 @@ class CandlestickChart(BaseChart):
         display_partition: str,
         figsize: tuple,
         aggregate: str,
+        clip_outliers: bool = True,
+        iqr_factor: float = 1.5,
         **filters
     ) -> Figure:
         """Render candlestick with aggregation support.
@@ -336,6 +350,11 @@ class CandlestickChart(BaseChart):
             ax.plot([i - 0.2, i + 0.2], [stats['median'], stats['median']],
                    'g--', linewidth=2, label='Median' if i == 0 else '')
 
+        # Apply y-axis clipping for outliers
+        if clip_outliers and stats_data:
+            y_min, y_max = self._compute_clipped_ylim(stats_data, iqr_factor)
+            ax.set_ylim(y_min, y_max)
+
         # Set labels and title
         ax.set_xticks(x_positions)
         var_labels = [str(v)[:25] + '...' if len(str(v)) > 25 else str(v)
@@ -351,7 +370,7 @@ class CandlestickChart(BaseChart):
         ax.set_title(title, fontsize=self.config.title_fontsize)
 
         ax.grid(True, alpha=0.3, axis='y')
-        ax.legend()
+        ax.legend(fontsize=self.config.legend_fontsize)
 
         plt.tight_layout()
 
@@ -359,3 +378,51 @@ class CandlestickChart(BaseChart):
         print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
+
+    def _compute_clipped_ylim(
+        self,
+        stats_data: list,
+        iqr_factor: float = 1.5
+    ) -> tuple:
+        """Compute y-axis limits that clip extreme outliers.
+
+        Uses the IQR method across all groups to determine sensible bounds,
+        allowing extreme min/max values to go off-frame.
+
+        Args:
+            stats_data: List of dicts with 'min', 'q25', 'q75', 'max' keys.
+            iqr_factor: Multiplier for IQR to determine outlier bounds.
+
+        Returns:
+            Tuple of (y_min, y_max) for axis limits.
+        """
+        # Collect all Q25 and Q75 values across groups
+        all_q25 = [s['q25'] for s in stats_data]
+        all_q75 = [s['q75'] for s in stats_data]
+        all_min = [s['min'] for s in stats_data]
+        all_max = [s['max'] for s in stats_data]
+
+        # Global IQR based on the range of quartiles
+        global_q25 = min(all_q25)
+        global_q75 = max(all_q75)
+        global_iqr = global_q75 - global_q25
+
+        # Handle case where IQR is 0 (all values are the same)
+        if global_iqr == 0:
+            global_iqr = abs(global_q75) * 0.1 if global_q75 != 0 else 0.1
+
+        # Compute bounds using IQR
+        lower_bound = global_q25 - iqr_factor * global_iqr
+        upper_bound = global_q75 + iqr_factor * global_iqr
+
+        # Ensure we show at least all the boxes (Q25 to Q75)
+        # but clip extreme whiskers
+        y_min = max(min(all_min), lower_bound)
+        y_max = min(max(all_max), upper_bound)
+
+        # Add small padding (5%) for visual comfort
+        padding = (y_max - y_min) * 0.05
+        y_min -= padding
+        y_max += padding
+
+        return y_min, y_max

@@ -15,6 +15,7 @@
 >   - run count is false at run start
 >   - slow down between models: check dataset copy, ensure cache and reuse.
 >   - remove print scores in base model (bug in predict)
+>   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
 
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 
