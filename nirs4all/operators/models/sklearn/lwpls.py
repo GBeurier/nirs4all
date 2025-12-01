@@ -486,6 +486,9 @@ def _lwpls_predict_jax(
 class LWPLS(BaseEstimator, RegressorMixin):
     """Locally-Weighted Partial Least Squares (LWPLS) regressor.
 
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
+
     LWPLS builds a local PLS model for each query sample, weighting
     training samples by their similarity (proximity) to the query.
     This approach is useful for:

@@ -513,6 +513,9 @@ def _get_cached_jax_fckpls():
 class FCKPLS(BaseEstimator, RegressorMixin):
     """Fractional Convolutional Kernel PLS (FCK-PLS).
 
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
+
     FCK-PLS builds spectral features by convolving input spectra with a bank
     of fractional order filters, then applies PLS regression on the expanded
     feature space. This approach captures derivative-like information at

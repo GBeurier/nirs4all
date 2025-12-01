@@ -396,6 +396,9 @@ def _get_cached_jax_simpls():
 class SIMPLS(BaseEstimator, RegressorMixin):
     """SIMPLS (Simple PLS) regressor.
 
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
+
     SIMPLS is an alternative to NIPALS-based PLS that computes components
     via projections of the covariance matrix X'Y. It produces the same
     predictions as PLSRegression for univariate Y, and slightly different

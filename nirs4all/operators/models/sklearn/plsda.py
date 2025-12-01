@@ -11,6 +11,10 @@ class PLSDA(BaseEstimator, ClassifierMixin):
     """PLS Discriminant Analysis (PLS-DA) classifier.
     (See pls.py for full docstring)
     """
+
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingClassifier)
+    _estimator_type = "classifier"
+
     def __init__(self, n_components: int = 5):
         self.n_components = n_components
 

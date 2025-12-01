@@ -143,6 +143,9 @@ def _get_cached_jax_mbpls():
 class MBPLS(BaseEstimator, RegressorMixin):
     """Multiblock PLS (MB-PLS) regressor.
 
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
+
     MB-PLS fuses multiple X blocks (e.g., different preprocessing variants,
     multiple sensors) into a single predictive model. Each block contributes
     to the latent variables according to its relevance to Y.

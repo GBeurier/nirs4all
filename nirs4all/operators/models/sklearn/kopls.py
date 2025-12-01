@@ -562,6 +562,9 @@ def _get_cached_jax_kopls():
 class KOPLS(BaseEstimator, RegressorMixin):
     """Kernel Orthogonal PLS (K-OPLS) regressor.
 
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
+
     K-OPLS combines kernel methods with Orthogonal PLS to handle nonlinear
     relationships in the data. It first removes Y-orthogonal variation from
     the kernel matrix, then fits a kernel PLS model on the filtered kernel.

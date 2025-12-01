@@ -117,10 +117,10 @@ data_paths = [
     'selection/nitro_classif_unmerged/Digestibility_custom2',
     'selection/nitro_classif_unmerged/Digestibility_custom3',
     'selection/nitro_classif_unmerged/Digestibility_custom5',
-    'selection/nitro_classif_unmerged/Hardness_custom2',
+    # 'selection/nitro_classif_unmerged/Hardness_custom2',
     'selection/nitro_classif_unmerged/Hardness_custom4',
-    'selection/nitro_classif_unmerged/Tannin_custom2',
-    'selection/nitro_classif_unmerged/Tannin_custom3',
+    # 'selection/nitro_classif_unmerged/Tannin_custom2',
+    # 'selection/nitro_classif_unmerged/Tannin_custom3',
 ]
 
 # ============================================================================
@@ -133,6 +133,12 @@ base_estimators = [
     ('plsda_14', PLSDA(n_components=14)),
     ('plsda_15', PLSDA(n_components=15)),
     ('plsda_16', PLSDA(n_components=16)),
+    ('oplsda_1_5', OPLSDA(n_components=1, pls_components=5)),
+    ('oplsda_2_5', OPLSDA(n_components=2, pls_components=5)),
+    ('oplsda_1_6', OPLSDA(n_components=1, pls_components=6)),
+    ('oplsda_2_6', OPLSDA(n_components=2, pls_components=6)),
+    ('oplsda_1_7', OPLSDA(n_components=1, pls_components=7)),
+    ('oplsda_2_7', OPLSDA(n_components=2, pls_components=7)),
     ('oplsda_1_12', OPLSDA(n_components=1, pls_components=12)),
     ('oplsda_2_12', OPLSDA(n_components=2, pls_components=12)),
     ('oplsda_1_13', OPLSDA(n_components=1, pls_components=13)),
@@ -148,7 +154,7 @@ base_estimators = [
     ('xgboost', XGBClassifier(n_estimators=400, max_depth=8, learning_rate=0.1, random_state=42, verbosity=0, use_label_encoder=False, eval_metric='mlogloss')),
     ('rf', RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42)),
     ('svc', SVC(kernel='rbf', probability=True, random_state=42)),
-    ('lgbm', LGBMClassifier(n_estimators=250, max_depth=8, learning_rate=0.1, random_state=42)),
+    # ('lgbm', LGBMClassifier(n_estimators=250, max_depth=8, learning_rate=0.1, random_state=42)),
     ('knn', KNeighborsClassifier(n_neighbors=5)),
     ("mlp_32_8_64", MLPClassifier(hidden_layer_sizes=(32, 8, 64), max_iter=500, random_state=42)),
     ("mlp_32_128_64", MLPClassifier(hidden_layer_sizes=(32, 128, 64), max_iter=500, random_state=42)),
@@ -160,7 +166,7 @@ base_estimators = [
 stacking_classifier = StackingClassifier(
     estimators=base_estimators,
     final_estimator=LogisticRegression(max_iter=1000, random_state=42),
-    cv=3,
+    cv=2,
     passthrough=False,
     n_jobs=-1
 )
@@ -191,7 +197,7 @@ pipeline = [
                 ScatterSimulationMSC(),
             ],
             "balance": "y",
-            "ref_percentage": 8.0,  # Target 200% of majority class
+            "ref_percentage": 4.0,
             "selection": "random",
             "random_state": 42
         }
@@ -225,7 +231,7 @@ pipeline = [
 
     MinMaxScaler(),
     # StandardScaler(),
-
+    stacking_classifier,
     # {
     #     "model": OPLSDA(n_components=10, pls_components=10),
     #     "name": "OPLSDA",
@@ -239,49 +245,24 @@ pipeline = [
     #     # }
     # },
 
-    {"model": OPLSDA(n_components=1, pls_components=11), "name": "OPLSDA_1_11"},
-    {"model": OPLSDA(n_components=2, pls_components=11), "name": "OPLSDA_2_11"},
-    # {"model": OPLSDA(n_components=3, pls_components=11), "name": "OPLSDA_3_11"},
-    {"model": OPLSDA(n_components=1, pls_components=12), "name": "OPLSDA_1_12"},
-    {"model": OPLSDA(n_components=2, pls_components=12), "name": "OPLSDA_2_12"},
-    # {"model": OPLSDA(n_components=3, pls_components=12), "name": "OPLSDA_3_12"},
-    {"model": OPLSDA(n_components=1, pls_components=13), "name": "OPLSDA_1_13"},
-    {"model": OPLSDA(n_components=2, pls_components=13), "name": "OPLSDA_2_13"},
-    # {"model": OPLSDA(n_components=3, pls_components=13), "name": "OPLSDA_3_13"},
-    {"model": OPLSDA(n_components=1, pls_components=14), "name": "OPLSDA_1_14"},
-    {"model": OPLSDA(n_components=2, pls_components=14), "name": "OPLSDA_2_14"},
-    # {"model": OPLSDA(n_components=3, pls_components=14), "name": "OPLSDA_3_14"},
-    {"model": OPLSDA(n_components=1, pls_components=15), "name": "OPLSDA_1_15"},
-    {"model": OPLSDA(n_components=2, pls_components=15), "name": "OPLSDA_2_15"},
-    # {"model": OPLSDA(n_components=3, pls_components=15), "name": "OPLSDA_3_15"},
-    {"model": OPLSDA(n_components=1, pls_components=16), "name": "OPLSDA_1_16"},
-    {"model": OPLSDA(n_components=2, pls_components=16), "name": "OPLSDA_2_16"},
-    # {"model": OPLSDA(n_components=3, pls_components=16), "name": "OPLSDA_3_16"},
-
-    # SpectralTransformer - Modern transformer for NIR spectral classification
-    # Designed for ~4k samples with binary, 3-class, and 5-class targets
-    # {
-    #     "model": spectral_transformer_classification,
-    #     "name": "SpectralTransformer",
-    #     "train_params": {
-    #         "epochs": 200,
-    #         "batch_size": 32,
-    #         "learning_rate": 0.001,
-    #         "patience": 30,
-    #         "verbose": 1,
-    #         "loss": "MSELoss",  # Works with sigmoid/softmax outputs
-    #         "optimizer": "Adam",
-    #     },
-        # "model_params": {
-        #     "embed_dim": 64,
-        #     "depth": 3,
-        #     "num_heads": 4,
-        #     "patch_size": 8,
-        #     "dropout": 0.1,
-        #     "drop_path": 0.0,
-        #     "pool": "mean",
-        # }
-    # },
+    # {"model": OPLSDA(n_components=1, pls_components=11), "name": "OPLSDA_1_11"},
+    # {"model": OPLSDA(n_components=2, pls_components=11), "name": "OPLSDA_2_11"},
+    # # {"model": OPLSDA(n_components=3, pls_components=11), "name": "OPLSDA_3_11"},
+    # {"model": OPLSDA(n_components=1, pls_components=12), "name": "OPLSDA_1_12"},
+    # {"model": OPLSDA(n_components=2, pls_components=12), "name": "OPLSDA_2_12"},
+    # # {"model": OPLSDA(n_components=3, pls_components=12), "name": "OPLSDA_3_12"},
+    # {"model": OPLSDA(n_components=1, pls_components=13), "name": "OPLSDA_1_13"},
+    # {"model": OPLSDA(n_components=2, pls_components=13), "name": "OPLSDA_2_13"},
+    # # {"model": OPLSDA(n_components=3, pls_components=13), "name": "OPLSDA_3_13"},
+    # {"model": OPLSDA(n_components=1, pls_components=14), "name": "OPLSDA_1_14"},
+    # {"model": OPLSDA(n_components=2, pls_components=14), "name": "OPLSDA_2_14"},
+    # # {"model": OPLSDA(n_components=3, pls_components=14), "name": "OPLSDA_3_14"},
+    # {"model": OPLSDA(n_components=1, pls_components=15), "name": "OPLSDA_1_15"},
+    # {"model": OPLSDA(n_components=2, pls_components=15), "name": "OPLSDA_2_15"},
+    # # {"model": OPLSDA(n_components=3, pls_components=15), "name": "OPLSDA_3_15"},
+    # {"model": OPLSDA(n_components=1, pls_components=16), "name": "OPLSDA_1_16"},
+    # {"model": OPLSDA(n_components=2, pls_components=16), "name": "OPLSDA_2_16"},
+    # # {"model": OPLSDA(n_components=3, pls_components=16), "name": "OPLSDA_3_16"},
 ]
 
 
@@ -424,23 +405,14 @@ fig_confusion_matrix_val = analyzer.plot_confusion_matrix(
     rank_metric='accuracy', display_metric='accuracy', rank_partition='val', display_partition='test', aggregate='ID'
 )
 
-
 # # Heatmaps
 # fig_heatmap_model_dataset = analyzer.plot_heatmap(
 #     x_var="model_name",
 #     y_var="dataset_name",
 #     rank_metric='balanced_accuracy',
 #     display_metric='balanced_accuracy',
+#     aggregate='ID'
 # )
-
-# Heatmaps
-fig_heatmap_model_dataset = analyzer.plot_heatmap(
-    x_var="model_name",
-    y_var="dataset_name",
-    rank_metric='balanced_accuracy',
-    display_metric='balanced_accuracy',
-    aggregate='ID'
-)
 
 # ============================================================================
 # AGGREGATED VISUALIZATIONS
