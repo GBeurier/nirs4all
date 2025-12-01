@@ -1057,9 +1057,6 @@ def _ipls_fit_jax(
 class IntervalPLS(BaseEstimator, RegressorMixin):
     """Interval Partial Least Squares (iPLS) regressor.
 
-    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
-    _estimator_type = "regressor"
-
     iPLS evaluates PLS models on contiguous wavelength intervals to identify
     optimal spectral regions for prediction. This is particularly useful for
     NIR spectroscopy where not all wavelengths contribute equally to the
@@ -1163,6 +1160,9 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
            regression (iPLS): A comparative chemometric study with an example
            from near-infrared spectroscopy. Applied Spectroscopy, 54(3), 413-419.
     """
+
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
 
     def __init__(
         self,

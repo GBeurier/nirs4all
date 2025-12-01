@@ -605,9 +605,6 @@ def _get_cached_jax_kernel_pls():
 class KernelPLS(BaseEstimator, RegressorMixin):
     """Nonlinear PLS using Kernel Methods (Kernel PLS / NL-PLS).
 
-    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
-    _estimator_type = "regressor"
-
     Kernel PLS maps the input data X into a higher-dimensional feature space
     using a kernel function (RBF, polynomial, sigmoid) and then fits a PLS
     model on the kernel matrix K(X, X). This allows capturing nonlinear
@@ -708,6 +705,9 @@ class KernelPLS(BaseEstimator, RegressorMixin):
            regression in reproducing kernel hilbert space. Journal of Machine
            Learning Research, 2, 97-123.
     """
+
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
 
     def __init__(
         self,

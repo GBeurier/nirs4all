@@ -22,7 +22,7 @@ from sklearn.linear_model import Ridge
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, StratifiedGroupKFold, GroupKFold
 from sklearn.preprocessing import MinMaxScaler
 
 # PLS operators
@@ -142,7 +142,7 @@ base_estimators = [
     ('opls_2_16', OPLS(n_components=2, pls_components=16)),
     ('KernelPLS', KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='numpy')),
     ('IKPLS', IKPLS(n_components=10, backend='numpy')),
-    ('FCKPLS', FCKPLS(n_components=5, alphas=(0.0, 1.0, 2.0), sigmas=(2.0,), kernel_size=15, backend='numpy'),
+    ('FCKPLS', FCKPLS(n_components=5, alphas=(0.0, 1.0, 2.0), sigmas=(2.0,), kernel_size=15, backend='numpy')),
     ('ridge', Ridge(alpha=1.0)),
     ('catboost', CatBoostRegressor(iterations=400, depth=8, learning_rate=0.1, random_state=42, verbose=0, allow_writing_files=False)),
     ('xgboost', XGBRegressor(n_estimators=400, max_depth=8, learning_rate=0.1, random_state=42, verbosity=0)),
@@ -213,7 +213,7 @@ pipeline = [
     # ]},
     # "chart_2d",
 
-    {"split": KFold(n_splits=3, shuffle=True, random_state=42)},
+    {"split": GroupKFold(n_splits=3, shuffle=True, random_state=42), "group": "ID"},
 
     # "fold_chart",
     # 'chart_2d',  # 2D Visualization of augmented features
