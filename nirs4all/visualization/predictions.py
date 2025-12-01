@@ -362,7 +362,9 @@ class PredictionAnalyzer:
         display_agg: str = 'best',
         show_counts: bool = True,
         local_scale: bool = False,
+        column_scale: bool = False,
         aggregate: Optional[str] = None,
+        top_k: Optional[int] = None,
         **kwargs
     ) -> Figure:
         """Plot performance heatmap across two variables.
@@ -385,7 +387,11 @@ class PredictionAnalyzer:
             display_agg: Aggregation for display scores ('best', 'worst', 'mean', 'median') (default: 'mean').
             show_counts: Show prediction counts in cells (default: True).
             local_scale: If True, colorbar shows actual metric values; if False, shows 0-1 normalized (default: False).
+            column_scale: If True, normalize colors per column (best in column = 1.0).
+                         Automatically sets local_scale=False when enabled (default: False).
             aggregate: If provided, aggregate predictions by this metadata column (e.g., 'ID').
+            top_k: If provided, show only top K models. Selection uses Borda count:
+                   first keeps top-1 per column, then ranks by Borda count.
             **kwargs: Additional filters (dataset_name, model_name, etc.).
 
         Returns:
@@ -402,6 +408,12 @@ class PredictionAnalyzer:
             ...     rank_agg='mean',
             ...     display_metric='f1',
             ...     display_agg='best'
+            ... )
+            >>>
+            >>> # Use column normalization for comparing across partitions
+            >>> fig = analyzer.plot_heatmap(
+            ...     'partition', 'model_name',
+            ...     column_scale=True
             ... )
         """
         # Handle backward compatibility with old 'aggregation' parameter
@@ -429,7 +441,9 @@ class PredictionAnalyzer:
             display_agg=display_agg,
             show_counts=show_counts,
             local_scale=local_scale,
+            column_scale=column_scale,
             aggregate=aggregate,
+            top_k=top_k,
             **kwargs
         )
         self._save_figure(fig, "heatmap", kwargs.get('dataset_name'))

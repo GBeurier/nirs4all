@@ -99,8 +99,9 @@ class PredictionRanker:
         y_pred: Optional[np.ndarray],
         y_proba: Optional[np.ndarray],
         metadata: Dict[str, Any],
-        aggregate: str
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
+        aggregate: str,
+        model_name: str = ""
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], bool]:
         """
         Apply aggregation to predictions by a group column.
 
@@ -110,28 +111,43 @@ class PredictionRanker:
             y_proba: Optional class probabilities array
             metadata: Metadata dictionary containing group column
             aggregate: Group column name or 'y' to group by y_true
+            model_name: Model name for warning messages
 
         Returns:
-            Tuple of (aggregated_y_true, aggregated_y_pred, aggregated_y_proba)
+            Tuple of (aggregated_y_true, aggregated_y_pred, aggregated_y_proba, was_aggregated)
+            The was_aggregated flag is True only if aggregation was actually applied.
         """
+        import warnings
         from nirs4all.data.predictions import Predictions
 
         if y_pred is None:
-            return y_true, y_pred, y_proba
+            return y_true, y_pred, y_proba, False
 
         # Determine group IDs
         if aggregate == 'y':
             if y_true is None:
-                return y_true, y_pred, y_proba
+                return y_true, y_pred, y_proba, False
             group_ids = y_true
         else:
             # Get group IDs from metadata
             if aggregate not in metadata:
-                return y_true, y_pred, y_proba
+                if model_name:
+                    warnings.warn(
+                        f"Aggregation column '{aggregate}' not found in metadata for model '{model_name}'. "
+                        f"Available columns: {list(metadata.keys())}. Skipping aggregation for this model.",
+                        UserWarning
+                    )
+                return y_true, y_pred, y_proba, False
             group_ids = np.asarray(metadata[aggregate])
 
         if len(group_ids) != len(y_pred):
-            return y_true, y_pred, y_proba
+            if model_name:
+                warnings.warn(
+                    f"Aggregation column '{aggregate}' length ({len(group_ids)}) doesn't match "
+                    f"predictions length ({len(y_pred)}) for model '{model_name}'. Skipping aggregation.",
+                    UserWarning
+                )
+            return y_true, y_pred, y_proba, False
 
         # Apply aggregation
         result = Predictions.aggregate(
@@ -144,7 +160,8 @@ class PredictionRanker:
         return (
             result.get('y_true'),
             result.get('y_pred'),
-            result.get('y_proba')
+            result.get('y_proba'),
+            True  # Aggregation was successfully applied
         )
 
     def top(
@@ -379,10 +396,12 @@ class PredictionRanker:
                             y_proba = self._get_array(row, "y_proba")
 
                         # Apply aggregation if requested
+                        was_aggregated = False
                         if aggregate and y_pred is not None:
                             metadata = json.loads(row.get("metadata", "{}"))
-                            y_true, y_pred, y_proba = self._apply_aggregation(
-                                y_true, y_pred, y_proba, metadata, aggregate
+                            model_name = row.get("model_name", "")
+                            y_true, y_pred, y_proba, was_aggregated = self._apply_aggregation(
+                                y_true, y_pred, y_proba, metadata, aggregate, model_name
                             )
 
                         partition_dict = {
@@ -393,7 +412,7 @@ class PredictionRanker:
                             "val_score": row.get("val_score"),
                             "test_score": row.get("test_score"),
                             "fold_id": row.get("fold_id"),
-                            "aggregated": aggregate is not None
+                            "aggregated": was_aggregated
                         }
 
                         # Add metadata from test partition
@@ -427,7 +446,7 @@ class PredictionRanker:
                                 "train_score": row.get("train_score"),
                                 "val_score": row.get("val_score"),
                                 "test_score": row.get("test_score"),
-                                "aggregated": aggregate is not None
+                                "aggregated": was_aggregated
                             })
                             result["id"] = result["rank_id"]
 
@@ -510,9 +529,11 @@ class PredictionRanker:
                     metadata = json.loads(row.get("metadata", "{}"))
 
                     # Apply aggregation if requested
+                    was_aggregated = False
                     if aggregate and y_pred is not None:
-                        y_true, y_pred, y_proba = self._apply_aggregation(
-                            y_true, y_pred, y_proba, metadata, aggregate
+                        model_name = row.get("model_name", "")
+                        y_true, y_pred, y_proba, was_aggregated = self._apply_aggregation(
+                            y_true, y_pred, y_proba, metadata, aggregate, model_name
                         )
 
                     result.update({
@@ -540,7 +561,7 @@ class PredictionRanker:
                         "train_score": row.get("train_score"),
                         "val_score": row.get("val_score"),
                         "test_score": row.get("test_score"),
-                        "aggregated": aggregate is not None
+                        "aggregated": was_aggregated
                     })
                     result["id"] = result["rank_id"]
 

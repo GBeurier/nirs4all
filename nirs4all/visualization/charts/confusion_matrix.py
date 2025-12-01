@@ -203,15 +203,22 @@ class ConfusionMatrixChart(BaseChart):
 
                 # Title with model info and scores
                 model_name = pred.get('model_name', 'Unknown')
+
+                # Check if aggregation was requested but not applied
+                was_aggregated = partition_data.get('aggregated', False)
+                agg_indicator = ""
+                if aggregate and not was_aggregated:
+                    agg_indicator = " ⚠️"  # Warning indicator for non-aggregated
+
                 if show_scores:
                     # Pass display_metrics list to show multiple metrics
                     title_scores = self._format_score_display(
                         pred, display_metrics, rank_metric, rank_partition,
                         display_metrics[0], display_partition
                     )
-                    title = f'{model_name}\n{title_scores}'
+                    title = f'{model_name}{agg_indicator}\n{title_scores}'
                 else:
-                    title = model_name
+                    title = f'{model_name}{agg_indicator}'
                 ax.set_title(title, fontsize=self.config.label_fontsize)
 
             # Hide empty subplots
