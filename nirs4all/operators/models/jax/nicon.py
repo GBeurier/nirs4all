@@ -676,6 +676,10 @@ def customizable_decon(input_shape, params={}):
     return _build_customizable_decon(input_shape, params, num_classes=1)
 
 @framework("jax")
+def customizable_decon_classification(input_shape, num_classes=2, params={}):
+    return _build_customizable_decon(input_shape, params, num_classes=num_classes)
+
+@framework("jax")
 def decon_layer_classification(input_shape, num_classes=2, params={}):
     return _build_customizable_decon(input_shape, params, num_classes=num_classes)
 

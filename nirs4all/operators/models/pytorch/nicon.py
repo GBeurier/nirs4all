@@ -463,7 +463,6 @@ def _build_customizable_decon(input_shape, params, num_classes=1):
     p1 = params.get('pool_size1', 2)
     s1 = params.get('strides1', 2)
     layers.append(nn.MaxPool1d(p1, s1))
-    seq_len = math.floor((seq_len - p1) / s1 + 1)
 
     layers.append(LayerNorm1D(c_curr))
 
@@ -483,7 +482,6 @@ def _build_customizable_decon(input_shape, params, num_classes=1):
     p2 = params.get('pool_size2', 2)
     s2 = params.get('strides2', 2)
     layers.append(nn.MaxPool1d(p2, s2))
-    seq_len = math.floor((seq_len - p2) / s2 + 1)
 
     layers.append(LayerNorm1D(c_curr))
 
@@ -503,7 +501,6 @@ def _build_customizable_decon(input_shape, params, num_classes=1):
     p3 = params.get('pool_size3', 2)
     s3 = params.get('strides3', 2)
     layers.append(nn.MaxPool1d(p3, s3))
-    seq_len = math.floor((seq_len - p3) / s3 + 1)
 
     layers.append(LayerNorm1D(c_curr))
 
@@ -522,14 +519,14 @@ def _build_customizable_decon(input_shape, params, num_classes=1):
     fp = params.get('final_pool_size', 5)
     fs = params.get('final_pool_strides', 3)
     layers.append(nn.MaxPool1d(fp, fs))
-    seq_len = math.floor((seq_len - fp) / fs + 1)
 
     layers.append(SpatialDropout1D(params.get('spatial_dropout2', 0.1)))
     layers.append(nn.Flatten())
 
+    # Use LazyLinear to infer input size at runtime
     du1 = params.get('dense_units1', 128)
     act_d1 = get_activation(params.get('activationDense1', "relu"))
-    layers.append(nn.Linear(conv_f * seq_len, du1))
+    layers.append(nn.LazyLinear(du1))
     layers.append(act_d1)
 
     du2 = params.get('dense_units2', 32)
@@ -671,6 +668,10 @@ def nicon_VG_classification(input_shape, num_classes=2, params={}):
 @framework("pytorch")
 def customizable_decon(input_shape, params={}):
     return _build_customizable_decon(input_shape, params, num_classes=1)
+
+@framework("pytorch")
+def customizable_decon_classification(input_shape, num_classes=2, params={}):
+    return _build_customizable_decon(input_shape, params, num_classes=num_classes)
 
 @framework("pytorch")
 def decon_layer_classification(input_shape, num_classes=2, params={}):
