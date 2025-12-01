@@ -39,6 +39,7 @@ from .charts.spectra import SpectraChartController
 from .charts.folds import FoldChartController
 from .charts.targets import YChartController
 from .charts.augmentation import AugmentationChartController
+from .charts.spectral_distribution import SpectralDistributionController
 
 __all__ = [
     'BaseController',
@@ -56,6 +57,7 @@ __all__ = [
     'FoldChartController',
     'YChartController',
     'AugmentationChartController',
+    'SpectralDistributionController',
     'SklearnModelController',
     'TensorFlowModelController',
     'PyTorchModelController',

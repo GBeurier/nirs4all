@@ -216,13 +216,19 @@ class CrossValidatorController(OperatorController):
         # Store the folds in the dataset
         dataset.set_folds(folds)
 
-        # If no test partition exists, use first fold as test
+        # If no test partition exists, use first fold's validation set as test
+        # This is expected behavior for single-fold splitters (e.g., SPXYGFold with n_splits=1)
+        # which are designed to create train/test splits
         if dataset.x({"partition": "test"}).shape[0] == 0:
-            print("{WARNING} No test partition found; using first fold as test set.")
             fold_1 = folds[0]
-            dataset._indexer.update_by_indices(
-                fold_1[1], {"partition": "test"}
-            )
+            if len(fold_1[1]) > 0:  # Only if there are validation samples
+                # Only show warning for multi-fold splits where this might be unexpected
+                n_folds = getattr(op, 'n_splits', len(folds))
+                if n_folds > 1:
+                    print("⚠️ No test partition found; using first fold as test set.")
+                dataset._indexer.update_by_indices(
+                    fold_1[1], {"partition": "test"}
+                )
 
         # Generate binary output with fold information
         headers = [f"fold_{i}" for i in range(len(folds))]

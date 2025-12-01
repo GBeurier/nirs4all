@@ -9,7 +9,7 @@ from sklearn.model_selection import BaseCrossValidator
 from sklearn.utils.validation import _num_samples
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedShuffleSplit, StratifiedGroupKFold
 from sklearn.preprocessing import KBinsDiscretizer
 from twinning import twin
 
@@ -183,6 +183,172 @@ class KBinsStratifiedSplitter(CustomSplitter):
             yield train_idx, test_idx
 
     def get_n_splits(self, X=None, y=None, groups=None):
+        return self.n_splits
+
+
+class BinnedStratifiedGroupKFold(CustomSplitter):
+    """
+    Stratified Group K-Fold cross-validator with binned continuous targets.
+
+    This splitter combines:
+    - KBinsDiscretizer to bin continuous y values into discrete categories
+    - StratifiedGroupKFold to ensure stratified splits while respecting groups
+
+    This is useful for regression tasks where you want stratified sampling
+    (balanced target distribution across folds) while ensuring samples from
+    the same group are never split across train and test sets.
+
+    Parameters
+    ----------
+    n_splits : int, default=5
+        Number of folds. Must be at least 2.
+
+    n_bins : int, default=10
+        Number of bins for discretizing continuous y values.
+        More bins = finer stratification but may fail with small datasets.
+
+    strategy : {'uniform', 'quantile', 'kmeans'}, default='quantile'
+        Strategy used to define the widths of the bins:
+        - 'uniform': All bins have identical widths.
+        - 'quantile': All bins have the same number of points (recommended for
+          imbalanced distributions).
+        - 'kmeans': Values in each bin have the same nearest center of a 1D
+          k-means cluster.
+
+    shuffle : bool, default=False
+        Whether to shuffle each class's samples before splitting.
+
+    random_state : int or None, default=None
+        Random state for reproducibility when shuffle=True.
+
+    Examples
+    --------
+    Basic usage with regression targets and groups:
+
+    >>> from nirs4all.operators.splitters import BinnedStratifiedGroupKFold
+    >>> import numpy as np
+    >>> X = np.random.randn(100, 10)
+    >>> y = np.random.randn(100)  # Continuous target
+    >>> groups = np.repeat(np.arange(20), 5)  # 20 groups, 5 samples each
+    >>> splitter = BinnedStratifiedGroupKFold(n_splits=5, n_bins=5)
+    >>> for train_idx, test_idx in splitter.split(X, y, groups):
+    ...     print(f"Train: {len(train_idx)}, Test: {len(test_idx)}")
+
+    With quantile binning for imbalanced targets:
+
+    >>> splitter = BinnedStratifiedGroupKFold(
+    ...     n_splits=3,
+    ...     n_bins=10,
+    ...     strategy='quantile',
+    ...     shuffle=True,
+    ...     random_state=42
+    ... )
+
+    Notes
+    -----
+    - The number of bins should be chosen based on the dataset size and the
+      number of unique groups. Too many bins may cause stratification to fail.
+    - Groups are never split across folds - all samples from a group will be
+      in either train or test, never both.
+    - Stratification is approximate when groups have varying sizes.
+
+    See Also
+    --------
+    KBinsStratifiedSplitter : Single train/test split with binned stratification.
+    sklearn.model_selection.StratifiedGroupKFold : For categorical targets.
+    """
+
+    def __init__(
+        self,
+        n_splits=5,
+        n_bins=10,
+        strategy="quantile",
+        shuffle=False,
+        random_state=None
+    ):
+        super().__init__()
+        self.n_splits = n_splits
+        self.n_bins = n_bins
+        self.strategy = strategy
+        self.shuffle = shuffle
+        self.random_state = random_state
+
+        if n_splits < 2:
+            raise ValueError(f"n_splits must be at least 2, got {n_splits}")
+        if n_bins < 2:
+            raise ValueError(f"n_bins must be at least 2, got {n_bins}")
+        if strategy not in ("uniform", "quantile", "kmeans"):
+            raise ValueError(
+                f"strategy must be 'uniform', 'quantile', or 'kmeans', got '{strategy}'"
+            )
+
+    def split(self, X, y=None, groups=None):
+        """Generate train/test indices for each fold.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Feature matrix.
+
+        y : array-like of shape (n_samples,) or (n_samples, n_outputs)
+            Continuous target values to be binned for stratification.
+
+        groups : array-like of shape (n_samples,)
+            Group labels for samples. Samples with the same group label
+            will always be in the same fold.
+
+        Yields
+        ------
+        train : ndarray
+            Training set indices for this fold.
+        test : ndarray
+            Test set indices for this fold.
+        """
+        if y is None:
+            raise ValueError("y is required for BinnedStratifiedGroupKFold")
+        if groups is None:
+            raise ValueError("groups is required for BinnedStratifiedGroupKFold")
+
+        y = np.asarray(y)
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
+
+        # Bin the continuous y values
+        discretizer = KBinsDiscretizer(
+            n_bins=self.n_bins,
+            encode="ordinal",
+            strategy=self.strategy,
+            subsample=200000
+        )
+        y_binned = discretizer.fit_transform(y).ravel().astype(int)
+
+        # Use sklearn's StratifiedGroupKFold with binned y
+        sgkf = StratifiedGroupKFold(
+            n_splits=self.n_splits,
+            shuffle=self.shuffle,
+            random_state=self.random_state
+        )
+
+        for train_idx, test_idx in sgkf.split(X, y_binned, groups):
+            yield train_idx, test_idx
+
+    def get_n_splits(self, X=None, y=None, groups=None):
+        """Return the number of splitting iterations.
+
+        Parameters
+        ----------
+        X : object
+            Ignored, exists for compatibility.
+        y : object
+            Ignored, exists for compatibility.
+        groups : object
+            Ignored, exists for compatibility.
+
+        Returns
+        -------
+        n_splits : int
+            Number of folds.
+        """
         return self.n_splits
 
 
