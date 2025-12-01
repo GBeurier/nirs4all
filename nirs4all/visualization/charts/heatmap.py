@@ -170,29 +170,17 @@ class HeatmapChart(BaseChart):
         # Display Data
         if is_partition_grouped:
             # If grouped by partition, we need all partitions, not just display_partition
-            df_disp = (
-                df
-                .with_columns(
-                    pl.when(pl.col("metric") == display_metric)
-                    .then(pl.col(pl.col("partition") + "_score")) # Dynamic col name? No, hard to do.
-                    # Fallback: just use the score col corresponding to the row's partition
-                    .otherwise(None) # TODO: Improve for partition grouping
-                    .alias("display_score")
-                )
-            )
-            # Actually, if x_var is partition, we just take the score of that row
-            # Assuming row['metric'] == display_metric for simplicity in V2
-             # If we need cross-metric, it's harder.
+            # Compute score for each partition, then select based on row's partition value
             df_disp = df.with_columns(
-                 get_score_expr(display_metric, "test").alias("display_score_test"), # Hacky
-                 get_score_expr(display_metric, "val").alias("display_score_val"),
-                 get_score_expr(display_metric, "train").alias("display_score_train"),
+                get_score_expr(display_metric, "test").alias("display_score_test"),
+                get_score_expr(display_metric, "val").alias("display_score_val"),
+                get_score_expr(display_metric, "train").alias("display_score_train"),
             ).with_columns(
-                pl.coalesce([
-                    pl.when(pl.col("partition")=="test").then("display_score_test"),
-                    pl.when(pl.col("partition")=="val").then("display_score_val"),
-                    pl.when(pl.col("partition")=="train").then("display_score_train")
-                ]).alias("display_score")
+                pl.when(pl.col("partition") == "test").then(pl.col("display_score_test"))
+                .when(pl.col("partition") == "val").then(pl.col("display_score_val"))
+                .when(pl.col("partition") == "train").then(pl.col("display_score_train"))
+                .otherwise(None)
+                .alias("display_score")
             )
         else:
             disp_select_cols = list(set(join_cols + ["display_score", x_var, y_var]))
@@ -207,9 +195,9 @@ class HeatmapChart(BaseChart):
         if rank_partition == display_partition and not is_partition_grouped:
             combined = df_rank.with_columns(pl.col("rank_score").alias("display_score"))
         elif is_partition_grouped:
-             # If partition grouped, we join rank info (for selection) onto all rows
-             # This allows selecting the "best fold" based on val, but showing all partitions for that fold
-             combined = df_disp.join(df_rank.select(join_cols + ["rank_score"]), on=join_cols, how="inner")
+            # If partition grouped, we join rank info (for selection) onto all rows
+            # This allows selecting the "best fold" based on val, but showing all partitions for that fold
+            combined = df_disp.join(df_rank.select(join_cols + ["rank_score"]), on=join_cols, how="inner")
         else:
             combined = df_disp.join(df_rank.select(join_cols + ["rank_score"]), on=join_cols, how="inner")
 
@@ -221,7 +209,7 @@ class HeatmapChart(BaseChart):
         combined = combined.filter(pl.col("rank_score").is_not_null() & pl.col("display_score").is_not_null())
 
         if combined.height == 0:
-             raise ValueError(f"No valid scores found for {x_var} vs {y_var}")
+            raise ValueError(f"No valid scores found for {x_var} vs {y_var}")
 
         # Sort for ranking
         rank_higher_better = self._is_higher_better(rank_metric)
@@ -249,8 +237,8 @@ class HeatmapChart(BaseChart):
                 pl.col("display_score").mean().alias("agg_score"),
                 pl.len().alias("count")
             ])
-        else: # median
-             agg_df = combined.group_by([x_var, y_var]).agg([
+        else:  # median
+            agg_df = combined.group_by([x_var, y_var]).agg([
                 pl.col("display_score").median().alias("agg_score"),
                 pl.len().alias("count")
             ])
