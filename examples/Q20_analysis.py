@@ -115,13 +115,14 @@ print("=" * 80)
 # ============================================================================
 # All classification datasets
 data_paths = [
-    'selection/nitro_classif_unmerged/Digestibility_custom2',
-    'selection/nitro_classif_unmerged/Digestibility_custom3',
-    'selection/nitro_classif_unmerged/Digestibility_custom5',
-    'selection/nitro_classif_unmerged/Hardness_custom2',
-    'selection/nitro_classif_unmerged/Hardness_custom4',
-    'selection/nitro_classif_unmerged/Tannin_custom2',
-    'selection/nitro_classif_unmerged/Tannin_custom3',
+    # 'selection/nitro_classif_unmerged/Digestibility_custom2',
+    # 'selection/nitro_classif_unmerged/Digestibility_custom3',
+    # 'selection/nitro_classif_unmerged/Digestibility_custom5',
+    'selection/nitro_regression_unmerged/Digestibility_0.8',
+    # 'selection/nitro_classif_unmerged/Hardness_custom2',
+    # 'selection/nitro_classif_unmerged/Hardness_custom4',
+    # 'selection/nitro_classif_unmerged/Tannin_custom2',
+    # 'selection/nitro_classif_unmerged/Tannin_custom3',
 ]
 
 # ============================================================================
@@ -177,46 +178,48 @@ stacking_classifier = StackingClassifier(
 # ============================================================================
 pipeline = [
     # Cross-validation setup (stratified for classification)
-    {
-        "sample_augmentation": {
-            "transformers": [
-                Rotate_Translate(p_range=2, y_factor=3),
-                Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
-                Spline_X_Simplification(spline_points=50, uniform=True),
-                GaussianAdditiveNoise(sigma=0.01),
-                MultiplicativeNoise(sigma_gain=0.05),
-                LinearBaselineDrift(),
-                PolynomialBaselineDrift(),
-                WavelengthShift(),
-                WavelengthStretch(),
-                LocalWavelengthWarp(),
-                SmoothMagnitudeWarp(),
-                GaussianSmoothingJitter(),
-                UnsharpSpectralMask(),
-                ChannelDropout(),
-                MixupAugmenter(),
-                ScatterSimulationMSC(),
-            ],
-            "balance": "y",
-            "ref_percentage": 4.0,
-            "selection": "random",
-            "random_state": 42
-        }
-    },
-    "fold_chart",
+    # "fold_chart",
+    # {
+    #     "sample_augmentation": {
+    #         "transformers": [
+    #             Rotate_Translate(p_range=2, y_factor=3),
+    #             Spline_Y_Perturbations(perturbation_intensity=0.005, spline_points=10),
+    #             Spline_X_Simplification(spline_points=50, uniform=True),
+    #             GaussianAdditiveNoise(sigma=0.01),
+    #             MultiplicativeNoise(sigma_gain=0.05),
+    #             LinearBaselineDrift(),
+    #             PolynomialBaselineDrift(),
+    #             WavelengthShift(),
+    #             WavelengthStretch(),
+    #             LocalWavelengthWarp(),
+    #             SmoothMagnitudeWarp(),
+    #             GaussianSmoothingJitter(),
+    #             UnsharpSpectralMask(),
+    #             ChannelDropout(),
+    #             MixupAugmenter(),
+    #             ScatterSimulationMSC(),
+    #         ],
+    #         "balance": "y",
+    #         "ref_percentage": 4.0,
+    #         "selection": "random",
+    #         "random_state": 42
+    #     }
+    # },
+    # "fold_chart",
     # "augment_details_chart",
     # Comprehensive feature augmentation with many preprocessing combinations
-    # {"feature_augmentation": [
-    #     [MSC(scale=False), EMSC, AreaNormalization],
-    #     [MSC(scale=False), EMSC, SNV],
-    #     [EMSC, Gaussian(order=1, sigma=2), RSNV],
-    #     # EMSC,
-    #     SNV,
-    #     Haar,
-    #     # [EMSC, FstDer],
-    #     [SNV, SndDer],
-    # ]},
-    # "chart_2d",
+    {"feature_augmentation": [
+        [MSC(scale=False), EMSC, AreaNormalization],
+        [MSC(scale=False), EMSC, SNV],
+        [EMSC, Gaussian(order=1, sigma=2), RSNV],
+        EMSC,
+        SNV,
+        Haar,
+        [EMSC, FstDer],
+        [SNV, SndDer],
+    ]},
+    "chart_2d",
+    "chart_3d",
     # CARS(
     #     n_components=12,            # PLS components for internal model
     #     n_sampling_runs=50,         # Number of Monte-Carlo runs
