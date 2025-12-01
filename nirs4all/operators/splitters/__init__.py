@@ -12,6 +12,7 @@ from .splitters import (
     SPlitSplitter,
     SystematicCircularSplitter,
     KBinsStratifiedSplitter,
+    BinnedStratifiedGroupKFold,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "SPlitSplitter",
     "SystematicCircularSplitter",
     "KBinsStratifiedSplitter",
+    "BinnedStratifiedGroupKFold",
 ]

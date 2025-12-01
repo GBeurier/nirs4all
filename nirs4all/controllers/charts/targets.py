@@ -1,4 +1,4 @@
-"""YChartController - Y values histogram visualization with train/test split."""
+"""YChartController - Y values histogram visualization with train/test split and folds."""
 
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 import matplotlib.pyplot as plt
@@ -44,8 +44,13 @@ class YChartController(OperatorController):
         prediction_store: Any = None
     ) -> Tuple['ExecutionContext', Any]:
         """
-        Execute y values histogram visualization with train/test split.
-        Skips execution in prediction mode.
+        Execute y values histogram visualization.
+
+        If cross-validation folds exist (more than 1 fold), displays a grid showing:
+        - One histogram per fold validation set
+        - One histogram for the test partition (if available)
+
+        Otherwise, displays a simple train vs test histogram.
 
         Returns:
             Tuple of (context, StepOutput)
@@ -56,22 +61,27 @@ class YChartController(OperatorController):
         if mode == "predict" or mode == "explain":
             return context, StepOutput()
 
-        # Initialize image list to track generated plots
-        img_list = []
+        # Get folds from dataset
+        folds = dataset.folds
 
-        local_context = context
-        y = dataset.y(local_context.selector)
+        # Check if we have multiple CV folds (not just a single train/test split)
+        has_cv_folds = folds is not None and len(folds) > 1
 
-        local_context = context.with_partition("train")
-        y_train = dataset.y(local_context.selector)
+        if has_cv_folds:
+            # Grid mode: show each fold's validation set + test partition
+            fig, chart_name = self._create_fold_grid_histogram(dataset, context, folds)
+        else:
+            # Simple mode: train vs test
+            local_context = context.with_partition("train")
+            y_train = dataset.y(local_context.selector)
 
-        local_context = context.with_partition("test")
-        y_test = dataset.y(local_context.selector)
+            local_context = context.with_partition("test")
+            y_test = dataset.y(local_context.selector)
 
-        # print(len(y), len(y_train), len(y_test))
+            y_all = dataset.y(context.selector)
 
-        fig, _ = self._create_bicolor_histogram(y_train, y_test, y)
-        chart_name = "Y_distribution_train_test"
+            fig, _ = self._create_bicolor_histogram(y_train, y_test, y_all)
+            chart_name = "Y_distribution_train_test"
 
         # Save plot to memory buffer as PNG binary
         img_buffer = io.BytesIO()
@@ -93,6 +103,167 @@ class YChartController(OperatorController):
             plt.close(fig)
 
         return context, step_output
+
+    def _create_fold_grid_histogram(
+        self,
+        dataset: 'SpectroDataset',
+        context: 'ExecutionContext',
+        folds: List[Tuple[List[int], List[int]]]
+    ) -> Tuple[Any, str]:
+        """Create a grid of histograms showing Y distribution for each fold validation set and test."""
+        n_folds = len(folds)
+
+        # Check if test partition exists
+        test_context = context.with_partition("test")
+        y_test = dataset.y(test_context.selector)
+        has_test = y_test is not None and len(y_test) > 0
+
+        # Calculate grid dimensions
+        n_plots = n_folds + (1 if has_test else 0)
+        n_cols = min(4, n_plots)
+        n_rows = (n_plots + n_cols - 1) // n_cols
+
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+
+        # Flatten axes for easy indexing
+        if n_plots == 1:
+            axes = [axes]
+        else:
+            axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+
+        # Get train partition context for y values
+        train_context = context.with_partition("train")
+
+        # Get base sample IDs for the train partition
+        base_sample_ids = dataset._indexer.x_indices(train_context, include_augmented=False)
+
+        # Get all y values for determining common bins
+        y_train_all = dataset.y(train_context.selector, include_augmented=False)
+        y_train_flat = y_train_all.flatten() if y_train_all.ndim > 1 else y_train_all
+
+        # Combine with test for common range
+        if has_test:
+            y_test_flat = y_test.flatten() if y_test.ndim > 1 else y_test
+            y_all = np.concatenate([y_train_flat, y_test_flat])
+        else:
+            y_all = y_train_flat
+
+        # Determine if data is categorical or continuous
+        unique_values = np.unique(y_all)
+        is_categorical = len(unique_values) <= 20 or y_all.dtype.kind in {'U', 'S', 'O'}
+
+        # Compute common bins for continuous data
+        if not is_categorical:
+            y_min, y_max = y_all.min(), y_all.max()
+            n_bins = min(30, max(10, len(unique_values) // 2))
+            common_bins = np.linspace(y_min, y_max, n_bins + 1)
+        else:
+            common_bins = None
+
+        # Get colormap
+        viridis_cmap = cm.get_cmap('viridis')
+
+        # Plot each fold's validation set
+        for fold_idx, (train_idx, val_idx) in enumerate(folds):
+            ax = axes[fold_idx]
+
+            if len(val_idx) == 0:
+                ax.text(0.5, 0.5, 'No validation samples', transform=ax.transAxes,
+                        ha='center', va='center', fontsize=12, color='gray')
+                ax.set_title(f'Fold {fold_idx + 1} - Validation')
+                continue
+
+            # Map fold indices to sample IDs and get y values
+            val_idx_arr = np.array(val_idx)
+            try:
+                val_sample_ids = base_sample_ids[val_idx_arr]
+            except IndexError:
+                val_sample_ids = val_idx_arr
+
+            y_val = dataset.y({"sample": val_sample_ids.tolist()}, include_augmented=False)
+            y_val_flat = y_val.flatten() if y_val.ndim > 1 else y_val
+
+            # Also get train y for this fold (for stacked visualization)
+            train_idx_arr = np.array(train_idx)
+            try:
+                train_sample_ids = base_sample_ids[train_idx_arr]
+            except IndexError:
+                train_sample_ids = train_idx_arr
+
+            y_train_fold = dataset.y({"sample": train_sample_ids.tolist()}, include_augmented=False)
+            y_train_fold_flat = y_train_fold.flatten() if y_train_fold.ndim > 1 else y_train_fold
+
+            # Plot histogram
+            if is_categorical:
+                self._plot_categorical_fold(ax, y_train_fold_flat, y_val_flat, unique_values, viridis_cmap)
+            else:
+                self._plot_continuous_fold(ax, y_train_fold_flat, y_val_flat, common_bins, viridis_cmap)
+
+            ax.set_title(f'Fold {fold_idx + 1} - Val (n={len(y_val_flat)})', fontsize=11)
+            ax.set_xlabel('Y Values')
+            ax.set_ylabel('Count')
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+
+        # Plot test partition if available
+        if has_test:
+            ax = axes[n_folds]
+            y_test_flat = y_test.flatten() if y_test.ndim > 1 else y_test
+
+            # For test, show against the full training set
+            if is_categorical:
+                self._plot_categorical_fold(ax, y_train_flat, y_test_flat, unique_values, viridis_cmap)
+            else:
+                self._plot_continuous_fold(ax, y_train_flat, y_test_flat, common_bins, viridis_cmap)
+
+            ax.set_title(f'Test Partition (n={len(y_test_flat)})', fontsize=11, color='darkred')
+            ax.set_xlabel('Y Values')
+            ax.set_ylabel('Count')
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+
+        # Hide unused subplots
+        for idx in range(n_plots, len(axes)):
+            axes[idx].set_visible(False)
+
+        # Main title
+        fig.suptitle(f'Y Distribution: {n_folds} Folds' + (' + Test' if has_test else ''),
+                     fontsize=14, fontweight='bold')
+        plt.tight_layout(rect=(0, 0, 1, 0.96))
+
+        chart_name = f"Y_distribution_{n_folds}folds" + ("_test" if has_test else "")
+        return fig, chart_name
+
+    def _plot_categorical_fold(self, ax, y_train: np.ndarray, y_val: np.ndarray,
+                               unique_values: np.ndarray, cmap) -> None:
+        """Plot categorical histogram for a single fold."""
+        train_counts = np.zeros(len(unique_values))
+        val_counts = np.zeros(len(unique_values))
+
+        for i, val in enumerate(unique_values):
+            train_counts[i] = np.sum(y_train == val)
+            val_counts[i] = np.sum(y_val == val)
+
+        x_pos = np.arange(len(unique_values))
+        width = 0.35
+
+        train_color = cmap(0.9)
+        val_color = cmap(0.1)
+
+        ax.bar(x_pos - width / 2, train_counts, width, label='Train', color=train_color, alpha=0.7)
+        ax.bar(x_pos + width / 2, val_counts, width, label='Val/Test', color=val_color, alpha=0.9)
+
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels([str(val) for val in unique_values], rotation=45, fontsize=8)
+
+    def _plot_continuous_fold(self, ax, y_train: np.ndarray, y_val: np.ndarray,
+                              bins: np.ndarray, cmap) -> None:
+        """Plot continuous histogram for a single fold."""
+        train_color = cmap(0.9)
+        val_color = cmap(0.1)
+
+        ax.hist(y_train, bins=bins, label='Train', color=train_color, alpha=0.5, edgecolor='none')
+        ax.hist(y_val, bins=bins, label='Val/Test', color=val_color, alpha=0.8, edgecolor='none')
 
     def _create_bicolor_histogram(self, y_train: np.ndarray, y_test: np.ndarray, y_all: np.ndarray) -> Tuple[Any, Dict[str, Any]]:
         """Create a bicolor histogram showing train/test distribution."""
