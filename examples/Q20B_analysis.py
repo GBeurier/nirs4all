@@ -159,7 +159,7 @@ base_estimators = [
 # Create Stacking Regressor with Ridge as meta-learner
 stacking_regressor = StackingRegressor(
     estimators=base_estimators,
-    final_estimator=Ridge(alpha=1.0),
+    final_estimator=RandomForestRegressor(n_estimators=200, max_depth=8, random_state=42),
     cv=2,
     passthrough=False,
     n_jobs=-1

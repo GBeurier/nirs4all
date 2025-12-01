@@ -98,6 +98,7 @@ from nirs4all.operators.models.pytorch.spectral_transformer import (
     spectral_transformer_classification
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.operators.models.pytorch.nicon import nicon_classification
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Batch Classification Analysis')
@@ -117,10 +118,10 @@ data_paths = [
     'selection/nitro_classif_unmerged/Digestibility_custom2',
     'selection/nitro_classif_unmerged/Digestibility_custom3',
     'selection/nitro_classif_unmerged/Digestibility_custom5',
-    # 'selection/nitro_classif_unmerged/Hardness_custom2',
+    'selection/nitro_classif_unmerged/Hardness_custom2',
     'selection/nitro_classif_unmerged/Hardness_custom4',
-    # 'selection/nitro_classif_unmerged/Tannin_custom2',
-    # 'selection/nitro_classif_unmerged/Tannin_custom3',
+    'selection/nitro_classif_unmerged/Tannin_custom2',
+    'selection/nitro_classif_unmerged/Tannin_custom3',
 ]
 
 # ============================================================================
@@ -149,17 +150,17 @@ base_estimators = [
     ('oplsda_2_15', OPLSDA(n_components=2, pls_components=15)),
     ('oplsda_1_16', OPLSDA(n_components=1, pls_components=16)),
     ('oplsda_2_16', OPLSDA(n_components=2, pls_components=16)),
-    ('logistic', LogisticRegression(max_iter=1000, random_state=42)),
-    ('catboost', CatBoostClassifier(iterations=400, depth=8, learning_rate=0.1, random_state=42, verbose=0, allow_writing_files=False)),
-    ('xgboost', XGBClassifier(n_estimators=400, max_depth=8, learning_rate=0.1, random_state=42, verbosity=0, use_label_encoder=False, eval_metric='mlogloss')),
-    ('rf', RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42)),
-    ('svc', SVC(kernel='rbf', probability=True, random_state=42)),
+    # ('logistic', LogisticRegression(max_iter=1000, random_state=42)),
+    ('catboost', CatBoostClassifier(iterations=200, depth=8, learning_rate=0.1, random_state=42, verbose=0, allow_writing_files=False)),
+    # ('xgboost', XGBClassifier(n_estimators=400, max_depth=8, learning_rate=0.1, random_state=42, verbosity=0, use_label_encoder=False, eval_metric='mlogloss')),
+    # ('rf', RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42)),
+    # ('svc', SVC(kernel='rbf', probability=True, random_state=42)),
     # ('lgbm', LGBMClassifier(n_estimators=250, max_depth=8, learning_rate=0.1, random_state=42)),
-    ('knn', KNeighborsClassifier(n_neighbors=5)),
+    # ('knn', KNeighborsClassifier(n_neighbors=5)),
     ("mlp_32_8_64", MLPClassifier(hidden_layer_sizes=(32, 8, 64), max_iter=500, random_state=42)),
     ("mlp_32_128_64", MLPClassifier(hidden_layer_sizes=(32, 128, 64), max_iter=500, random_state=42)),
     ("mlp_128_32_16_64", MLPClassifier(hidden_layer_sizes=(128, 32, 16, 64), max_iter=500, random_state=42)),
-    ("extratrees", ExtraTreesClassifier(n_estimators=200, max_depth=10, random_state=42)),
+    ("extratrees", ExtraTreesClassifier(n_estimators=200, max_depth=10, random_state=42))
 ]
 
 # Create Stacking Classifier with Logistic Regression as meta-learner
@@ -231,6 +232,7 @@ pipeline = [
 
     MinMaxScaler(),
     # StandardScaler(),
+    {"model": nicon_classification, "name": "nicon_classification"},
     stacking_classifier,
     # {
     #     "model": OPLSDA(n_components=10, pls_components=10),
@@ -265,6 +267,13 @@ pipeline = [
     # # {"model": OPLSDA(n_components=3, pls_components=16), "name": "OPLSDA_3_16"},
 ]
 
+for estimator_name, estimator in base_estimators:
+    pipeline.append(
+        {
+            "model": estimator,
+            "name": estimator_name
+        }
+    )
 
 # ============================================================================
 # RUN PIPELINE
