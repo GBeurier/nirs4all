@@ -7,6 +7,7 @@ import re
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from nirs4all.visualization.charts.config import ChartConfig
+from nirs4all.core.metrics import abbreviate_metric
 
 
 class BaseChart(ABC):
@@ -219,7 +220,8 @@ class BaseChart(ABC):
                     partition_scores.append(f"{score:.4f} [{partition}]")
 
             if partition_scores:
-                # Format: metric: score1 [partition1]  score2 [partition2]
-                metric_lines.append(f"{metric}: {' '.join(partition_scores)}")
+                # Format: AbbrevMetric: score1 [partition1]  score2 [partition2]
+                abbrev = abbreviate_metric(metric)
+                metric_lines.append(f"{abbrev}: {' '.join(partition_scores)}")
 
         return '\n'.join(metric_lines)

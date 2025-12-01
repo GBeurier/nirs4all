@@ -8,6 +8,7 @@ from typing import Optional, Union, List
 from sklearn.metrics import confusion_matrix as sk_confusion_matrix
 from nirs4all.visualization.charts.base import BaseChart
 from nirs4all.visualization.chart_utils.predictions_adapter import PredictionsAdapter
+from nirs4all.core.metrics import abbreviate_metric
 
 
 class ConfusionMatrixChart(BaseChart):
@@ -46,7 +47,7 @@ class ConfusionMatrixChart(BaseChart):
             raise ValueError("rank_metric must be a string")
 
     def render(self, k: int = 5, rank_metric: Optional[str] = None,
-               rank_partition: str = 'val', display_metric: str = '',
+               rank_partition: str = 'val', display_metric: Union[str, List[str]] = '',
                display_partition: str = 'test', show_scores: bool = True,
                dataset_name: Optional[str] = None,
                figsize: Optional[tuple] = None,
@@ -62,7 +63,9 @@ class ConfusionMatrixChart(BaseChart):
             k: Number of top models to show per dataset (default: 5).
             rank_metric: Metric for ranking (default: auto-detect from task type).
             rank_partition: Partition used for ranking models (default: 'val').
-            display_metric: Metric to display in titles (default: same as rank_metric).
+            display_metric: Metric(s) to display in titles. Can be a string for single
+                          metric or a list of strings for multiple metrics (e.g.,
+                          ['balanced_accuracy', 'accuracy']). Default: same as rank_metric.
             display_partition: Partition to display confusion matrix from (default: 'test').
             show_scores: If True, show scores in chart titles (default: True).
             dataset_name: Optional dataset filter. If provided, only shows that dataset.
@@ -76,8 +79,14 @@ class ConfusionMatrixChart(BaseChart):
         # Auto-detect metric if not provided
         if rank_metric is None:
             rank_metric = self._get_default_metric()
+
+        # Normalize display_metric to list
         if not display_metric:
-            display_metric = rank_metric
+            display_metrics = [rank_metric]
+        elif isinstance(display_metric, str):
+            display_metrics = [display_metric]
+        else:
+            display_metrics = list(display_metric)
 
         self.validate_inputs(k, rank_metric)
 
@@ -109,7 +118,7 @@ class ConfusionMatrixChart(BaseChart):
                 n=k,
                 rank_metric=rank_metric,
                 rank_partition=rank_partition,
-                display_metrics=[display_metric],
+                display_metrics=display_metrics,
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
@@ -195,9 +204,10 @@ class ConfusionMatrixChart(BaseChart):
                 # Title with model info and scores
                 model_name = pred.get('model_name', 'Unknown')
                 if show_scores:
+                    # Pass display_metrics list to show multiple metrics
                     title_scores = self._format_score_display(
-                        pred, show_scores, rank_metric, rank_partition,
-                        display_metric, display_partition
+                        pred, display_metrics, rank_metric, rank_partition,
+                        display_metrics[0], display_partition
                     )
                     title = f'{model_name}\n{title_scores}'
                 else:
@@ -209,7 +219,8 @@ class ConfusionMatrixChart(BaseChart):
                 axes[i].axis('off')
 
             # Create overall title for this dataset
-            overall_title = f'Dataset: {ds} - Top {k} Confusion Matrices\nRanked by best {rank_metric} [{rank_partition}], Displayed: [{display_partition}]'
+            rank_metric_abbrev = abbreviate_metric(rank_metric)
+            overall_title = f'Dataset: {ds} - Top {k} Confusion Matrices\nRanked by best {rank_metric_abbrev} [{rank_partition}], Displayed: [{display_partition}]'
             if aggregate:
                 overall_title += f' [aggregated by {aggregate}]'
             fig.suptitle(overall_title, fontsize=self.config.title_fontsize, fontweight='bold')

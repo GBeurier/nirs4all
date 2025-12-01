@@ -45,6 +45,73 @@ except ImportError:
     SCIPY_AVAILABLE = False
 
 
+# Metric abbreviation mapping: full name -> abbreviated name
+METRIC_ABBREVIATIONS = {
+    # Regression metrics
+    'mean_squared_error': 'MSE',
+    'mse': 'MSE',
+    'root_mean_squared_error': 'RMSE',
+    'rmse': 'RMSE',
+    'mean_absolute_error': 'MAE',
+    'mae': 'MAE',
+    'mean_absolute_percentage_error': 'MAPE',
+    'mape': 'MAPE',
+    'r2_score': 'R²',
+    'r2': 'R²',
+    'explained_variance': 'ExpVar',
+    'explained_variance_score': 'ExpVar',
+    'max_error': 'MaxErr',
+    'median_absolute_error': 'MedAE',
+    'median_ae': 'MedAE',
+    'bias': 'Bias',
+    'sep': 'SEP',
+    'rpd': 'RPD',
+    'consistency': 'Cons',
+    'nrmse': 'NRMSE',
+    'nmse': 'NMSE',
+    'nmae': 'NMAE',
+    'pearson_r': 'Pearson',
+    'spearman_r': 'Spearman',
+    # Classification metrics
+    'accuracy': 'Acc',
+    'balanced_accuracy': 'BalAcc',
+    'precision': 'Prec',
+    'balanced_precision': 'BalPrec',
+    'recall': 'Rec',
+    'balanced_recall': 'BalRec',
+    'f1': 'F1',
+    'f1_score': 'F1',
+    'f1_micro': 'F1µ',
+    'f1_macro': 'F1M',
+    'precision_micro': 'Precµ',
+    'precision_macro': 'PrecM',
+    'recall_micro': 'Recµ',
+    'recall_macro': 'RecM',
+    'specificity': 'Spec',
+    'roc_auc': 'AUC',
+    'auc': 'AUC',
+    'log_loss': 'LogLoss',
+    'matthews_corrcoef': 'MCC',
+    'mcc': 'MCC',
+    'cohen_kappa': 'Kappa',
+    'jaccard': 'Jaccard',
+    'jaccard_score': 'Jaccard',
+    'hamming_loss': 'Hamming',
+}
+
+
+def abbreviate_metric(metric: str) -> str:
+    """Convert metric name to abbreviated form.
+
+    Args:
+        metric: Full metric name (e.g., 'balanced_accuracy').
+
+    Returns:
+        Abbreviated metric name (e.g., 'BalAcc').
+    """
+    return METRIC_ABBREVIATIONS.get(metric.lower(), metric)
+
+
 def eval(y_true: np.ndarray, y_pred: np.ndarray, metric: Union[str, List[str]]) -> Union[float, Dict[str, float]]:
     """
     Calculate a specific metric for given predictions.

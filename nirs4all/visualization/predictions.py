@@ -217,7 +217,7 @@ class PredictionAnalyzer:
         k: int = 5,
         rank_metric: Optional[str] = None,
         rank_partition: str = 'val',
-        display_metric: str = '',
+        display_metric: Union[str, List[str]] = '',
         display_partition: str = 'test',
         show_scores: bool = True,
         aggregate: Optional[str] = None,
@@ -232,7 +232,10 @@ class PredictionAnalyzer:
             k: Number of top models to show (default: 5).
             rank_metric: Metric for ranking (default: auto-detect from task type).
             rank_partition: Partition used for ranking models (default: 'val').
-            display_metric: Metric to display in titles (default: same as rank_metric).
+            display_metric: Metric(s) to display in titles. Can be a single string
+                          (e.g., 'accuracy') or a list of strings for multiple metrics
+                          (e.g., ['balanced_accuracy', 'accuracy']). Metric names are
+                          shown in abbreviated form (default: same as rank_metric).
             display_partition: Partition to display confusion matrix from (default: 'test').
             show_scores: If True, show scores in chart titles (default: True).
             aggregate: If provided, aggregate predictions by this metadata column or 'y'.
@@ -244,6 +247,11 @@ class PredictionAnalyzer:
         Example:
             >>> fig = analyzer.plot_confusion_matrix(k=3, rank_metric='f1')
             >>> fig = analyzer.plot_confusion_matrix(k=3, aggregate='ID')
+            >>> # Multiple metrics displayed with abbreviated names
+            >>> fig = analyzer.plot_confusion_matrix(
+            ...     k=3,
+            ...     display_metric=['balanced_accuracy', 'accuracy']
+            ... )
         """
         chart = ConfusionMatrixChart(
             self.predictions,

@@ -76,12 +76,20 @@ class Predictions:
         >>> loaded = Predictions.load("predictions.json")
     """
 
-    def __init__(self, filepath: Optional[str] = None):
+    def __init__(self, filepath: Optional[Union[str, List[str]]] = None):
         """
         Initialize Predictions storage with component-based architecture.
 
         Args:
-            filepath: Optional path to load predictions from (.meta.parquet file)
+            filepath: Optional path(s) to load predictions from (.meta.parquet file).
+                     Can be a single path string or a list of paths.
+                     When multiple paths are provided, they are concatenated.
+
+        Examples:
+            >>> # Single file
+            >>> pred = Predictions("predictions.meta.parquet")
+            >>> # Multiple files concatenated
+            >>> pred = Predictions(["run1.meta.parquet", "run2.meta.parquet"])
         """
         # Initialize components with array registry support
         self._storage = PredictionStorage()
@@ -91,9 +99,14 @@ class Predictions:
         self._aggregator = PartitionAggregator(self._storage, self._indexer)
         self._query = CatalogQueryEngine(self._storage, self._indexer)
 
-        # Load from file if provided
-        if filepath and Path(filepath).exists():
-            self.load_from_file(filepath)
+        # Load from file(s) if provided
+        if filepath:
+            # Normalize to list
+            filepaths = [filepath] if isinstance(filepath, str) else filepath
+
+            for fp in filepaths:
+                if Path(fp).exists():
+                    self.load_from_file(fp)
 
     # =========================================================================
     # CORE CRUD OPERATIONS - Delegate to Storage
@@ -625,18 +638,25 @@ class Predictions:
         )
         self._storage.save_parquet(filepath, arrays_path)
 
-    def load_from_file(self, filepath: str) -> None:
+    def load_from_file(self, filepath: str, merge: bool = True) -> None:
         """
         Load predictions from split Parquet format.
 
         Supports:
         - Split Parquet with array registry (.meta.parquet + .arrays.parquet)
 
+        When called multiple times (e.g., from __init__ with multiple files),
+        predictions are merged by default.
+
         Args:
             filepath: Path to .meta.parquet file
+            merge: If True and storage already has data, merge loaded data.
+                   If False, replace existing data. (default: True)
 
         Examples:
             >>> predictions.load_from_file("predictions.meta.parquet")
+            >>> # Load additional predictions (merged)
+            >>> predictions.load_from_file("more_predictions.meta.parquet")
         """
         filepath = Path(filepath)
 
@@ -660,8 +680,15 @@ class Predictions:
                 f"Expected paired .arrays.parquet file for {filepath}"
             )
 
-        # Load using storage
-        self._storage.load_parquet(filepath, arrays_path)
+        # Check if we should merge or replace
+        if merge and len(self._storage) > 0:
+            # Load into temporary storage and merge
+            temp_storage = PredictionStorage()
+            temp_storage.load_parquet(filepath, arrays_path)
+            self._storage.merge(temp_storage)
+        else:
+            # Load directly (replace)
+            self._storage.load_parquet(filepath, arrays_path)
 
         # Reinitialize dependent components
         self._indexer = PredictionIndexer(self._storage)
@@ -817,6 +844,92 @@ class Predictions:
                     instance._storage._df = df
 
         return instance
+
+    @classmethod
+    def merge_parquet_files(
+        cls,
+        input_files: List[str],
+        output_file: str,
+        deduplicate: bool = True
+    ) -> 'Predictions':
+        """
+        Merge multiple prediction parquet files into a single output file.
+
+        This is a utility method to consolidate predictions from multiple
+        experiment runs into a single file for easier analysis.
+
+        Args:
+            input_files: List of paths to .meta.parquet files to merge.
+            output_file: Output path for the merged .meta.parquet file.
+            deduplicate: If True, remove duplicate prediction IDs (keep first).
+                        Default is True.
+
+        Returns:
+            Predictions instance containing the merged data.
+
+        Raises:
+            ValueError: If no input files are provided.
+            FileNotFoundError: If any input file does not exist.
+
+        Examples:
+            >>> # Merge multiple experiment runs
+            >>> merged = Predictions.merge_parquet_files(
+            ...     input_files=[
+            ...         "run1/predictions.meta.parquet",
+            ...         "run2/predictions.meta.parquet",
+            ...         "run3/predictions.meta.parquet"
+            ...     ],
+            ...     output_file="combined/all_predictions.meta.parquet"
+            ... )
+            >>> print(f"Merged {len(merged)} predictions")
+
+            >>> # Merge without deduplication
+            >>> merged = Predictions.merge_parquet_files(
+            ...     input_files=["exp1.meta.parquet", "exp2.meta.parquet"],
+            ...     output_file="merged.meta.parquet",
+            ...     deduplicate=False
+            ... )
+        """
+        if not input_files:
+            raise ValueError("At least one input file is required")
+
+        # Validate all input files exist
+        for filepath in input_files:
+            fp = Path(filepath)
+            if not fp.exists():
+                raise FileNotFoundError(f"Input file not found: {filepath}")
+            if not fp.name.endswith('.meta.parquet'):
+                raise ValueError(
+                    f"Expected .meta.parquet file, got: {filepath}\n"
+                    f"All input files must be .meta.parquet format"
+                )
+
+        # Load and merge all files
+        merged = cls()
+        total_loaded = 0
+
+        for filepath in input_files:
+            temp = cls()
+            temp.load_from_file(filepath, merge=False)
+            count_before = len(merged)
+            merged.merge_predictions(temp)
+            loaded = len(temp)
+            total_loaded += loaded
+            print(f"{DISK} Loaded {loaded} predictions from {filepath}")
+
+        # Deduplicate if requested
+        if deduplicate:
+            count_before = len(merged)
+            merged._storage._df = merged._storage._df.unique(subset=["id"], keep="first")
+            count_after = len(merged)
+            if count_before != count_after:
+                print(f"{CHECK} Removed {count_before - count_after} duplicate predictions")
+
+        # Save merged result
+        merged.save_to_file(output_file)
+        print(f"{CHECK} Merged {len(merged)} predictions to {output_file}")
+
+        return merged
 
     def archive_to_catalog(
         self,
