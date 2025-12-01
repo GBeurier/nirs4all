@@ -54,3 +54,7 @@ examples/nitro_regression/
 examples/nitro_classif/
 examples/selection/
 examples/charts/
+examples/sample_data/classif_denis
+examples/sample_data/nitro_classif_merged
+examples/sample_data/regression_denis
+examples/sample_data/nitro_reg_merged
