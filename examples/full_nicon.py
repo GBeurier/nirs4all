@@ -58,8 +58,8 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.models.pytorch.nicon import nicon as nicon_torch
-from nirs4all.operators.splitters import SPXYSplitter
+from nirs4all.operators.models.pytorch.nicon import nicon as nicon_torch, customizable_nicon as customizable_nicon_torch
+from nirs4all.operators.splitters import SPXYSplitter, SPXYGFold, BinnedStratifiedGroupKFold
 
 
 # Parse command-line arguments
@@ -78,8 +78,8 @@ print("=" * 80)
 # All regression datasets
 data_paths = [
     'sample_data/nitro_reg_merged/Digestibility_0.8',
-    'sample_data/nitro_reg_merged/Hardness_0.8',
-    'sample_data/nitro_reg_merged/Tannin_0.8'
+    # 'sample_data/nitro_reg_merged/Hardness_0.8',
+    # 'sample_data/nitro_reg_merged/Tannin_0.8'
     # Add your regression dataset paths here
 ]
 
@@ -88,7 +88,90 @@ pipeline = [
     # Y processing must come before sample augmentation
     {"y_processing": MinMaxScaler()},
 
-    {"split": SPXYSplitter(n_splits=3, shuffle=True, random_state=42), "group": "ID"},
+    {
+        "split": SPXYGFold,
+        "split_params": {
+            "n_splits": 1,
+            "test_size": 0.2,
+            # "random_state": {"_range_": [1, 10000000], "count": 100},
+            "aggregation": "mean"
+        },
+        "group": "ID"
+    },
+    "spectra_dist",
+    "y_chart",
+    # "fold_chart",
+    {
+        "split": BinnedStratifiedGroupKFold,
+        "split_params": {
+            "n_splits": 3,
+            "n_bins": 7,
+            "shuffle": True,
+            # "random_state": {"_range_": [1, 10000000], "count": 20},
+            "random_state": 1337
+        },
+        "group": "ID"
+    },
+
+    "y_chart",
+    "spectra_dist",
+    # "fold_chart",
+    # 'chart_2d',  # 2D Visualization of augmented features
+
+    MinMaxScaler(),
+
+    # {
+    #     'model': nicon_torch,
+    #     'train_params': {'epochs': 50, 'verbose': 0},
+    #     'name': 'nicon_torch'
+    # },
+    {
+        'model': customizable_nicon_torch,
+        'name': 'customizable_nicon_torch',
+        "finetune_params": {
+            "n_trials": 300,
+            "verbose": 2,
+            "sample": "tpe",  # hyperband
+            "eval_mode": "avg",
+            # "approach": "single",
+            "model_params": {
+                'spatial_dropout': (float, 0.01, 0.5),
+                'filters1': [4, 8, 16, 32, 64, 128, 256],
+                'kernel_size1': [3, 5, 7, 9, 11, 13, 15],
+                'strides1': [1, 2, 3, 4, 5],
+                'activation1': ['relu', 'selu', 'elu', 'swish', 'sigmoid', 'tanh'],
+                'dropout_rate': (float, 0.01, 0.5),
+                'filters2': [4, 8, 16, 32, 64, 128, 256],
+                'kernel_size2': [3, 5, 7, 9, 11, 13, 15],
+                'strides2': [1, 2, 3, 4, 5],
+                'activation2': ['relu', 'selu', 'elu', 'swish', 'sigmoid', 'tanh'],
+                'normalization_method1': ['BatchNormalization', 'LayerNormalization'],
+                'filters3': [4, 8, 16, 32, 64, 128, 256],
+                'kernel_size3': [3, 5, 7, 9, 11, 13, 15],
+                'strides3': [1, 2, 3, 4, 5],
+                'activation3': ['relu', 'selu', 'elu', 'swish', 'sigmoid', 'tanh'],
+                'normalization_method2': ['BatchNormalization', 'LayerNormalization'],
+                'dense_units': [4, 8, 16, 32, 64, 128, 256],
+                'dense_activation': ['relu', 'selu', 'elu', 'swish', 'sigmoid', 'tanh'],
+            },
+            "train_params": {
+                "epochs": 100,
+                "verbose": 0
+            }
+        },
+        "train_params": {
+            "epochs": 2000,
+            "patience": 150,
+            "batch_size": 2048,
+            "cyclic_lr": True,
+            "cyclic_lr_mode": "triangular2",
+            "base_lr": 0.0001,
+            "max_lr": 0.01,
+            "step_size": 100,
+            "verbose": 1
+        },
+    }
+
 
     # # Sample augmentation for regression
     # {
@@ -132,18 +215,7 @@ pipeline = [
     # ]},
     # "chart_2d",
 
-    {"split": GroupKFold(n_splits=3, shuffle=True, random_state=42), "group": "ID"},
 
-    # "fold_chart",
-    # 'chart_2d',  # 2D Visualization of augmented features
-
-    MinMaxScaler(),
-
-    {
-        'model': nicon_torch,
-        'train_params': {'epochs': 50, 'verbose': 0}, # Short training for test
-        'name': f'nicon_torch'
-    }
 ]
 
 
@@ -172,25 +244,25 @@ print(f"\nTop {best_model_count} models overall by {ranking_metric}:")
 for idx, prediction in enumerate(top_models):
     print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=['rmse', 'r2', 'mae'])} - {prediction['preprocessings']}")
 
-# Per-dataset analysis
-for dataset_name, dataset_prediction in predictions_per_dataset.items():
-    print(f"\n{'='*80}")
-    print(f"Dataset: {dataset_name}")
-    print(f"{'='*80}")
+# # Per-dataset analysis
+# for dataset_name, dataset_prediction in predictions_per_dataset.items():
+#     print(f"\n{'='*80}")
+#     print(f"Dataset: {dataset_name}")
+#     print(f"{'='*80}")
 
-    dataset_predictions = dataset_prediction['run_predictions']
+#     dataset_predictions = dataset_prediction['run_predictions']
 
-    # Top by RMSE
-    top_rmse = dataset_predictions.top(n=5, rank_metric='rmse', rank_partition='test')
-    print("\nTop 5 by RMSE (test):")
-    for idx, model in enumerate(top_rmse):
-        print(f"  {idx+1}. {Predictions.pred_short_string(model, metrics=['rmse', 'r2'], partition=['val', 'test'])}")
+#     # Top by RMSE
+#     top_rmse = dataset_predictions.top(n=5, rank_metric='rmse', rank_partition='test')
+#     print("\nTop 5 by RMSE (test):")
+#     for idx, model in enumerate(top_rmse):
+#         print(f"  {idx+1}. {Predictions.pred_short_string(model, metrics=['rmse', 'r2'], partition=['val', 'test'])}")
 
-    # Top by R2
-    top_r2 = dataset_predictions.top(n=5, rank_metric='r2', rank_partition='test')
-    print("\nTop 5 by R2 (test):")
-    for idx, model in enumerate(top_r2):
-        print(f"  {idx+1}. {Predictions.pred_short_string(model, metrics=['rmse', 'r2'], partition=['val', 'test'])}")
+#     # Top by R2
+#     top_r2 = dataset_predictions.top(n=5, rank_metric='r2', rank_partition='test')
+#     print("\nTop 5 by R2 (test):")
+#     for idx, model in enumerate(top_r2):
+#         print(f"  {idx+1}. {Predictions.pred_short_string(model, metrics=['rmse', 'r2'], partition=['val', 'test'])}")
 
 # ============================================================================
 # SAMPLE AGGREGATION EXAMPLE
