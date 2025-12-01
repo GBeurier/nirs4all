@@ -203,7 +203,7 @@ pipeline = [
             "random_state": 42
         }
     },
-    # "fold_chart",
+    "fold_chart",
     # "augment_details_chart",
     # Comprehensive feature augmentation with many preprocessing combinations
     # {"feature_augmentation": [
@@ -227,13 +227,13 @@ pipeline = [
     # "chart_2d",
     {"split": StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42), "group": "ID"},
 
-    # "fold_chart",
+    "fold_chart",
     # 'chart_2d',  # 2D Visualization of augmented features
 
     MinMaxScaler(),
     # StandardScaler(),
-    {"model": nicon_classification, "name": "nicon_classification"},
-    stacking_classifier,
+    # {"model": nicon_classification, "name": "nicon_classification"},
+    # stacking_classifier,
     # {
     #     "model": OPLSDA(n_components=10, pls_components=10),
     #     "name": "OPLSDA",
@@ -267,13 +267,13 @@ pipeline = [
     # # {"model": OPLSDA(n_components=3, pls_components=16), "name": "OPLSDA_3_16"},
 ]
 
-for estimator_name, estimator in base_estimators:
-    pipeline.append(
-        {
-            "model": estimator,
-            "name": estimator_name
-        }
-    )
+# for estimator_name, estimator in base_estimators:
+#     pipeline.append(
+#         {
+#             "model": estimator,
+#             "name": estimator_name
+#         }
+#     )
 
 # ============================================================================
 # RUN PIPELINE

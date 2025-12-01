@@ -385,8 +385,8 @@ X_selected = X[:, selector.get_support()]
 ```
 
 **Tasks:**
-- [ ] Add tests for MCUVE
-- [ ] Document usage
+- [x] Add tests for MCUVE
+- [x] Document usage
 
 **Test:** Add to `examples/Q19_pls_test.py`
 
@@ -417,8 +417,8 @@ X_selected = X[:, selector.get_support(indices=True)]
 ```
 
 **Tasks:**
-- [ ] Add tests for CARS
-- [ ] Document usage
+- [x] Add tests for CARS
+- [x] Document usage
 
 **Test:** Add to `examples/Q19_pls_test.py`
 

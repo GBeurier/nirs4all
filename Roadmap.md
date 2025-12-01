@@ -1,16 +1,13 @@
 ## ROADMAP
 
-> [sklearn] Integrate optuna finetuning
+> [sklearn] Integrate optuna finetuning on stack ?????
 
 > [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
 
-> [Predictions] Reload and management of predictions (to avoid recomputation and relaunch analysis, just analysis on predictions parquet)
-
 > [Model] How to force params from self best_params
 
-> [Expand] possible augmentations (cf llm report)
-
 **Bugs**:
+>   - [save_files] sep in save_files and save_plots and save_predictions
 >   - [MB-PLS] test on multi-source/block
 >   - [Kernel-PLS] poly and linear are crap
 >   - [_or_] with one element fallback on dummy controller
@@ -23,7 +20,7 @@
 
 > [Transfer] Automate model transfer and retraining. Test. Basically, file in pipeline "model".
 
-> [PLS] Implement variable selection methods, document and -
+> [PLS] Implement variable selection methods (CARS and MC-UVE done)
 
 > [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
 

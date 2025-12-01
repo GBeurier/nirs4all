@@ -179,8 +179,8 @@ class TopKComparisonChart(BaseChart):
 
                 if y_true is not None and y_pred is not None and len(y_true) > 0:
                     color = self.config.partition_colors.get(partition, '#333333')
-                    ax_scatter.scatter(y_true, y_pred, alpha=self.config.alpha,
-                                     s=30, color=color, label=partition)
+                    ax_scatter.scatter(y_true, y_pred, alpha=self.config.alpha * 0.7,
+                                     s=15, color=color, label=partition)
 
             # Add diagonal line
             min_val = min(all_y_true.min(), all_y_pred.min())
@@ -228,8 +228,8 @@ class TopKComparisonChart(BaseChart):
                     y_pred = np.array(y_pred)
                     residuals_p = y_pred - y_true
                     color = self.config.partition_colors.get(partition, '#333333')
-                    ax_residuals.scatter(y_true, residuals_p, alpha=self.config.alpha,
-                                       s=30, color=color, label=partition)
+                    ax_residuals.scatter(y_true, residuals_p, alpha=self.config.alpha * 0.7,
+                                       s=15, color=color, label=partition)
 
             ax_residuals.axhline(y=0, color='k', linestyle='--', lw=1.5, alpha=0.7)
             ax_residuals.set_xlabel('True Values', fontsize=self.config.label_fontsize)
