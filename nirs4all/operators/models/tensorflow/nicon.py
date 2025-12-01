@@ -775,9 +775,9 @@ def nicon_VG_classification(input_shape, num_classes=2, params={}):
 
 
 @framework('tensorflow')
-def decon_layer_classification(input_shape, num_classes=2, params={}):
+def customizable_decon_classification(input_shape, num_classes=2, params={}):
     """
-    Builds a model using depthwise separable convolutions and layer normalization for classification.
+    Builds a customizable model using depthwise separable convolutions for classification.
 
     Parameters:
         input_shape (tuple): Shape of the input data.
@@ -789,43 +789,76 @@ def decon_layer_classification(input_shape, num_classes=2, params={}):
     """
     model = Sequential()
     model.add(Input(shape=input_shape))
-    model.add(SpatialDropout1D(params.get('spatial_dropout', 0.2)))
+
+    # First block
+    model.add(SpatialDropout1D(params.get('spatial_dropout1', 0.2)))
     model.add(DepthwiseConv1D(
-        kernel_size=params.get('kernel_size1', 7), padding="same", depth_multiplier=2, activation="relu"
+        kernel_size=params.get('kernel_size1', 7),
+        padding=params.get('padding1', "same"),
+        depth_multiplier=params.get('depth_multiplier1', 2),
+        activation=params.get('activationDCNN1', "relu")
     ))
     model.add(DepthwiseConv1D(
-        kernel_size=params.get('kernel_size2', 7), padding="same", depth_multiplier=2, activation="relu"
+        kernel_size=params.get('kernel_size2', 7),
+        padding=params.get('padding2', "same"),
+        depth_multiplier=params.get('depth_multiplier2', 2),
+        activation=params.get('activationDCNN2', "relu")
     ))
-    model.add(MaxPooling1D(pool_size=2, strides=2))
+    model.add(MaxPooling1D(pool_size=params.get('pool_size1', 2), strides=params.get('strides1', 2)))
     model.add(LayerNormalization())
 
+    # Second block
     model.add(DepthwiseConv1D(
-        kernel_size=params.get('kernel_size3', 5), padding="same", depth_multiplier=2, activation="relu"
+        kernel_size=params.get('kernel_size3', 5),
+        padding=params.get('padding3', "same"),
+        depth_multiplier=params.get('depth_multiplier3', 2),
+        activation=params.get('activationDCNN3', "relu")
     ))
     model.add(DepthwiseConv1D(
-        kernel_size=params.get('kernel_size4', 5), padding="same", depth_multiplier=2, activation="relu"
+        kernel_size=params.get('kernel_size4', 5),
+        padding=params.get('padding4', "same"),
+        depth_multiplier=params.get('depth_multiplier4', 2),
+        activation=params.get('activationDCNN4', "relu")
     ))
-    model.add(MaxPooling1D(pool_size=2, strides=2))
+    model.add(MaxPooling1D(pool_size=params.get('pool_size2', 2), strides=params.get('strides2', 2)))
     model.add(LayerNormalization())
 
+    # Third block
     model.add(DepthwiseConv1D(
-        kernel_size=params.get('kernel_size5', 9), padding="same", depth_multiplier=2, activation="relu"
+        kernel_size=params.get('kernel_size5', 9),
+        padding=params.get('padding5', "same"),
+        depth_multiplier=params.get('depth_multiplier5', 2),
+        activation=params.get('activationDCNN5', "relu")
     ))
     model.add(DepthwiseConv1D(
-        kernel_size=params.get('kernel_size6', 9), padding="same", depth_multiplier=2, activation="relu"
+        kernel_size=params.get('kernel_size6', 9),
+        padding=params.get('padding6', "same"),
+        depth_multiplier=params.get('depth_multiplier6', 2),
+        activation=params.get('activationDCNN6', "relu")
     ))
-    model.add(MaxPooling1D(pool_size=2, strides=2))
+    model.add(MaxPooling1D(pool_size=params.get('pool_size3', 2), strides=params.get('strides3', 2)))
     model.add(LayerNormalization())
 
-    model.add(SeparableConv1D(64, kernel_size=3, depth_multiplier=1, padding="same", activation="relu"))
-    model.add(Conv1D(filters=32, kernel_size=3, padding="same"))
-    model.add(MaxPooling1D(pool_size=5, strides=3))
-    model.add(SpatialDropout1D(params.get('spatial_dropout', 0.1)))
+    # Final convolution and pooling block
+    model.add(SeparableConv1D(
+        filters=params.get('separable_filters', 64),
+        kernel_size=params.get('separable_kernel_size', 3),
+        depth_multiplier=params.get('separable_depth_multiplier', 1),
+        padding=params.get('separable_padding', "same"),
+        activation=params.get('activationCNN1', "relu")
+    ))
+    model.add(Conv1D(
+        filters=params.get('conv_filters', 32),
+        kernel_size=params.get('conv_kernel_size', 3),
+        padding=params.get('conv_padding', "same")
+    ))
+    model.add(MaxPooling1D(pool_size=params.get('final_pool_size', 5), strides=params.get('final_pool_strides', 3)))
+    model.add(SpatialDropout1D(params.get('spatial_dropout2', 0.1)))
     model.add(Flatten())
 
-    # Fully Connected layers
-    model.add(Dense(units=params.get('dense_units1', 128), activation="relu"))
-    model.add(Dense(units=params.get('dense_units2', 32), activation="relu"))
+    # Fully connected layers
+    model.add(Dense(units=params.get('dense_units1', 128), activation=params.get('activationDense1', "relu")))
+    model.add(Dense(units=params.get('dense_units2', 32), activation=params.get('activationDense2', "relu")))
     model.add(Dropout(params.get('dropout_rate', 0.2)))
 
     # Output layer
@@ -835,6 +868,23 @@ def decon_layer_classification(input_shape, num_classes=2, params={}):
         model.add(Dense(units=num_classes, activation="softmax"))
 
     return model
+
+
+@framework('tensorflow')
+def decon_layer_classification(input_shape, num_classes=2, params={}):
+    """
+    Builds a model using depthwise separable convolutions and layer normalization for classification.
+    Alias for customizable_decon_classification for backward compatibility.
+
+    Parameters:
+        input_shape (tuple): Shape of the input data.
+        num_classes (int): Number of classes for classification.
+        params (dict): Dictionary of parameters for model configuration.
+
+    Returns:
+        keras.Model: Compiled classification model.
+    """
+    return customizable_decon_classification(input_shape, num_classes, params)
 
 
 def transformer_model_classification(input_shape, num_classes=2, params={}):
