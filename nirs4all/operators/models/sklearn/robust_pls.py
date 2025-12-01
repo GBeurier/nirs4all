@@ -511,6 +511,9 @@ def _get_cached_jax_robust_pls():
 class RobustPLS(BaseEstimator, RegressorMixin):
     """Robust Partial Least Squares (Robust PLS) regressor.
 
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
+
     Robust PLS uses iteratively reweighted least squares (IRLS) to down-weight
     outliers during model fitting. This makes the model more resistant to
     outliers in both X (leverage points) and Y (vertical outliers).

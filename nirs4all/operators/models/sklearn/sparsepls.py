@@ -208,6 +208,9 @@ def _get_cached_jax_sparse_pls():
 class SparsePLS(BaseEstimator, RegressorMixin):
     """Sparse PLS (sPLS) regressor with L1 regularization.
 
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
+
     Sparse PLS performs joint prediction and variable selection by applying
     L1 (Lasso) regularization to the PLS loadings. This produces sparse
     loadings where many wavelengths/features have zero weights, effectively

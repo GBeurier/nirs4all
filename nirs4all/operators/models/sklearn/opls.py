@@ -85,6 +85,10 @@ class OPLS(BaseEstimator, RegressorMixin):
     """Orthogonal PLS (OPLS) regressor.
     (See pls.py for full docstring)
     """
+
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
+
     def __init__(self, n_components: int = 1, pls_components: int = 1, scale: bool = True, backend: str = 'numpy'):
         self.n_components = n_components
         self.pls_components = pls_components

@@ -19,6 +19,9 @@ def _check_pyopls_available():
 class OPLSDA(BaseEstimator, ClassifierMixin):
     """Orthogonal PLS Discriminant Analysis (OPLS-DA) classifier.
 
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingClassifier)
+    _estimator_type = "classifier"
+
     OPLS-DA combines OPLS filtering with PLS-DA classification.
     It removes Y-orthogonal variation from X before applying PLS-DA,
     improving class separation and model interpretability.
