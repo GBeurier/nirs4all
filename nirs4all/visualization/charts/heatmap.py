@@ -35,6 +35,95 @@ class HeatmapChart(BaseChart):
         self.annotator = ChartAnnotator(config)
         self.matrix_builder = MatrixBuilder()
 
+    def _select_top_k_by_borda(
+        self,
+        matrix: np.ndarray,
+        y_labels: List[str],
+        top_k: int,
+        higher_better: bool
+    ) -> tuple:
+        """Select top K models using Borda count ranking.
+
+        Selection strategy:
+        1. Always keep the top-1 model for each column (dataset/partition)
+        2. Rank remaining models by Borda count (sum of ranks per column)
+        3. Select top_k models total
+
+        Args:
+            matrix: Score matrix of shape (n_models, n_columns).
+            y_labels: List of model names (rows).
+            top_k: Number of top models to keep.
+            higher_better: If True, higher scores are better.
+
+        Returns:
+            Tuple of (filtered_matrix, filtered_y_labels, selected_indices).
+        """
+        n_models, n_cols = matrix.shape
+
+        if top_k >= n_models:
+            return matrix, y_labels, list(range(n_models))
+
+        # Compute per-column ranks (1 = best, n = worst)
+        # Handle NaN by assigning worst rank
+        ranks = np.zeros_like(matrix)
+        for j in range(n_cols):
+            col = matrix[:, j].copy()
+            valid_mask = ~np.isnan(col)
+            n_valid = valid_mask.sum()
+
+            if n_valid == 0:
+                ranks[:, j] = n_models  # All worst
+                continue
+
+            # Argsort: ascending by default
+            if higher_better:
+                # Higher is better -> descending order -> negate for argsort
+                order = np.argsort(-col)
+            else:
+                # Lower is better -> ascending order
+                order = np.argsort(col)
+
+            # Assign ranks
+            for rank_pos, idx in enumerate(order):
+                if valid_mask[idx]:
+                    ranks[idx, j] = rank_pos + 1  # 1-indexed rank
+                else:
+                    ranks[idx, j] = n_models  # NaN gets worst rank
+
+        # Step 1: Find top-1 model for each column (must be kept)
+        top1_indices = set()
+        for j in range(n_cols):
+            col = matrix[:, j]
+            valid_mask = ~np.isnan(col)
+            if valid_mask.any():
+                if higher_better:
+                    best_idx = np.nanargmax(col)
+                else:
+                    best_idx = np.nanargmin(col)
+                top1_indices.add(best_idx)
+
+        # Step 2: Compute Borda count for all models (lower is better - sum of ranks)
+        borda_scores = np.nansum(ranks, axis=1)
+
+        # Step 3: Select remaining models by Borda count
+        # First, rank all models by Borda score
+        borda_order = np.argsort(borda_scores)  # Lower borda score = better
+
+        selected_indices = set(top1_indices)
+        for idx in borda_order:
+            if len(selected_indices) >= top_k:
+                break
+            selected_indices.add(idx)
+
+        # Sort selected indices to maintain original order
+        selected_indices = sorted(selected_indices)
+
+        # Filter matrix and labels
+        filtered_matrix = matrix[selected_indices, :]
+        filtered_labels = [y_labels[i] for i in selected_indices]
+
+        return filtered_matrix, filtered_labels, selected_indices
+
     def validate_inputs(self, x_var: str, y_var: str, rank_metric: str, **kwargs) -> None:
         """Validate inputs."""
         if not x_var or not isinstance(x_var, str):
@@ -58,13 +147,38 @@ class HeatmapChart(BaseChart):
         display_agg: str = 'mean',
         show_counts: bool = True,
         local_scale: bool = False,
+        column_scale: bool = False,
         aggregate: Optional[str] = None,
+        top_k: Optional[int] = None,
         **filters
     ) -> Figure:
         """Render performance heatmap (Optimized with Polars).
 
         Uses vectorized operations for 20x+ speedup.
         When aggregate is provided, uses the slower but accurate aggregation path.
+
+        Args:
+            x_var: Variable for X-axis (columns).
+            y_var: Variable for Y-axis (rows).
+            rank_metric: Metric used for ranking models.
+            rank_partition: Partition used for ranking ('val', 'test', 'train').
+            display_metric: Metric displayed in cells.
+            display_partition: Partition for display metric.
+            figsize: Figure size (auto-computed if None).
+            normalize: Whether to normalize displayed values.
+            rank_agg: Ranking aggregation ('best', 'worst', 'mean', 'median').
+            display_agg: Display aggregation strategy.
+            show_counts: Whether to show sample counts.
+            local_scale: If True, use local scale for colors.
+            column_scale: If True, normalize colors per column (best in column = 1.0).
+                         Automatically sets local_scale=False when enabled.
+            aggregate: Aggregation column for sample-level aggregation.
+            top_k: If provided, show only top K models. Selection uses Borda count:
+                   first keeps top-1 per column, then ranks by Borda count.
+            **filters: Additional filters for predictions.
+
+        Returns:
+            Matplotlib Figure with the heatmap.
         """
         t0 = time.time()
 
@@ -98,7 +212,9 @@ class HeatmapChart(BaseChart):
                 display_agg=display_agg,
                 show_counts=show_counts,
                 local_scale=local_scale,
+                column_scale=column_scale,
                 aggregate=aggregate,
+                top_k=top_k,
                 **filters
             )
 
@@ -164,7 +280,7 @@ class HeatmapChart(BaseChart):
         df_rank = (
             df.filter(pl.col("partition") == rank_partition)
             .with_columns(get_score_expr(rank_metric, rank_partition).alias("rank_score"))
-            .select(rank_select_cols) # Include grouping vars if present
+            .select(rank_select_cols)  # Include grouping vars if present
         )
 
         # Display Data
@@ -275,12 +391,32 @@ class HeatmapChart(BaseChart):
 
         # --- POLARS OPTIMIZATION END ---
 
-        # Normalize for colors
+        # Determine if higher is better for display metric
         display_higher_better = self._is_higher_better(display_metric)
+
+        # Apply top_k filtering if requested
+        if top_k is not None and top_k > 0:
+            matrix, y_labels, selected_indices = self._select_top_k_by_borda(
+                matrix, y_labels, top_k, display_higher_better
+            )
+            count_matrix = count_matrix[selected_indices, :]
+
+        # Auto-compute figsize based on number of labels (always recompute for dynamic sizing)
+        figsize = self._compute_figsize(len(x_labels), len(y_labels))
+
+        # Normalize for colors
         normalize_per_row = is_dataset_grouped and (y_var == 'dataset_name')
-        normalized_matrix = self.normalizer.normalize(
-            matrix, display_higher_better, per_row=normalize_per_row
-        )
+
+        # column_scale overrides local_scale and per_row normalization
+        if column_scale:
+            local_scale = False
+            normalized_matrix = self.normalizer.normalize(
+                matrix, display_higher_better, per_column=True
+            )
+        else:
+            normalized_matrix = self.normalizer.normalize(
+                matrix, display_higher_better, per_row=normalize_per_row
+            )
 
         # Render
         fig = self._render_heatmap(
@@ -288,13 +424,44 @@ class HeatmapChart(BaseChart):
             x_labels, y_labels, x_var, y_var,
             rank_metric, rank_partition, rank_agg,
             display_metric, display_partition, display_agg,
-            figsize, normalize, show_counts, local_scale, display_higher_better
+            figsize, normalize, show_counts, local_scale, display_higher_better,
+            column_scale, top_k
         )
 
         t2 = time.time()
         print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
+
+    def _compute_figsize(self, n_x: int, n_y: int) -> tuple:
+        """Compute optimal figure size based on number of labels.
+
+        Ensures labels don't overlap by scaling height with number of Y labels
+        and width with number of X labels.
+
+        Args:
+            n_x: Number of X-axis labels.
+            n_y: Number of Y-axis labels.
+
+        Returns:
+            Tuple of (width, height) in inches.
+        """
+        # Base sizes
+        base_width, base_height = self.config.get_figsize('medium')
+
+        # Minimum cell size (in inches) to avoid overlap
+        min_cell_height = 0.35  # ~0.35 inches per Y label
+        min_cell_width = 0.6   # ~0.6 inches per X label (rotated labels need more width)
+
+        # Compute required size
+        required_height = max(base_height, n_y * min_cell_height + 2)  # +2 for margins/title
+        required_width = max(base_width, n_x * min_cell_width + 3)     # +3 for y-labels/colorbar
+
+        # Cap at reasonable maximum
+        max_height = 40
+        max_width = 30
+
+        return (min(required_width, max_width), min(required_height, max_height))
 
     @staticmethod
     def _is_higher_better(metric: str) -> bool:
@@ -332,13 +499,12 @@ class HeatmapChart(BaseChart):
         normalize: bool,
         show_counts: bool,
         local_scale: bool,
-        display_higher_better: bool
+        display_higher_better: bool,
+        column_scale: bool = False,
+        top_k: Optional[int] = None
     ) -> Figure:
         """Render the heatmap figure."""
         fig, ax = plt.subplots(figsize=figsize)
-
-        # Use normalized matrix for colors (always)
-        masked_matrix = np.ma.masked_invalid(normalized_matrix)
 
         # Determine scaling mode
         # Force local_scale=True for regression metrics (unbounded) unless explicitly set
@@ -349,14 +515,23 @@ class HeatmapChart(BaseChart):
 
         use_local_scale = local_scale or not is_bounded_0_1
 
-        masked_raw = np.ma.masked_invalid(matrix)
-
-        if use_local_scale:
-            vmin = np.nanmin(matrix)
-            vmax = np.nanmax(matrix)
-        else:
+        # When column_scale is enabled, use normalized matrix for coloring
+        # with 0-1 scale (each column independently normalized)
+        if column_scale:
+            display_data = np.ma.masked_invalid(normalized_matrix)
             vmin = 0
             vmax = 1
+            cbar_label = f'{display_metric.upper()}\n(per-column: green=best)'
+        elif use_local_scale:
+            display_data = np.ma.masked_invalid(matrix)
+            vmin = np.nanmin(matrix)
+            vmax = np.nanmax(matrix)
+            cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
+        else:
+            display_data = np.ma.masked_invalid(matrix)
+            vmin = 0
+            vmax = 1
+            cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
 
         # Select colormap based on direction
         cmap_name = self.config.heatmap_colormap
@@ -364,17 +539,26 @@ class HeatmapChart(BaseChart):
             cmap_name += '_r'
 
         im = ax.imshow(
-            masked_raw,
+            display_data,
             cmap=cmap_name,
             aspect='auto',
             vmin=vmin,
             vmax=vmax
         )
-        cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
 
         # Colorbar
         cbar = plt.colorbar(im, ax=ax, shrink=0.8)
         cbar.set_label(cbar_label, fontsize=self.config.label_fontsize)
+
+        # Adapt font size based on number of labels to avoid overlap
+        n_y = len(y_labels)
+        tick_fontsize = self.config.tick_fontsize
+        if n_y > 30:
+            tick_fontsize = max(5, tick_fontsize - 3)
+        elif n_y > 20:
+            tick_fontsize = max(6, tick_fontsize - 2)
+        elif n_y > 15:
+            tick_fontsize = max(7, tick_fontsize - 1)
 
         # Axis labels
         x_labels_display = [str(lbl)[:25] + '...' if len(str(lbl)) > 25 else str(lbl) for lbl in x_labels]
@@ -382,13 +566,23 @@ class HeatmapChart(BaseChart):
 
         ax.set_xticks(range(len(x_labels)))
         ax.set_yticks(range(len(y_labels)))
-        ax.set_xticklabels(x_labels_display, rotation=45, ha='right', fontsize=self.config.tick_fontsize)
-        ax.set_yticklabels(y_labels_display, fontsize=self.config.tick_fontsize)
+        ax.set_xticklabels(x_labels_display, rotation=45, ha='right', fontsize=tick_fontsize)
+        ax.set_yticklabels(y_labels_display, fontsize=tick_fontsize)
         ax.set_xlabel(x_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
         ax.set_ylabel(y_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
 
         # Title: Show display aggregation and metric, and add ranking info if different
-        title_parts = [f'{display_agg.title()} {display_metric} [{display_partition}]']
+        title_parts = []
+
+        # Add top_k indicator first if applicable
+        if top_k is not None and top_k > 0:
+            title_parts.append(f'Top {top_k}:')
+
+        title_parts.append(f'{display_agg.title()} {display_metric} [{display_partition}]')
+
+        # Add column_scale indicator
+        if column_scale:
+            title_parts.append('[column normalized]')
 
         # Add ranking score info if different from display (mimic confusion matrix behavior)
         # Show both the display and ranking configurations in the title
@@ -423,7 +617,9 @@ class HeatmapChart(BaseChart):
         display_agg: str,
         show_counts: bool,
         local_scale: bool,
+        column_scale: bool,
         aggregate: str,
+        top_k: Optional[int] = None,
         **filters
     ) -> Figure:
         """Render heatmap with aggregation support.
@@ -434,11 +630,12 @@ class HeatmapChart(BaseChart):
         t0 = time.time()
 
         # Determine if partition or dataset_name is used as a grouping variable
+        is_partition_grouped = (x_var == 'partition' or y_var == 'partition')
         is_dataset_grouped = (x_var == 'dataset_name' or y_var == 'dataset_name')
 
         # Remove internal parameters from filters
         all_filters = dict(filters)
-        for k in ['aggregation', 'rank_agg', 'display_agg', 'show_counts', 'figsize', 'aggregate']:
+        for k in ['aggregation', 'rank_agg', 'display_agg', 'show_counts', 'figsize', 'aggregate', 'column_scale']:
             all_filters.pop(k, None)
 
         df = self.predictions.to_dataframe()
@@ -452,15 +649,18 @@ class HeatmapChart(BaseChart):
             raise ValueError(f"No predictions found with filters: {all_filters}")
 
         # Get unique combinations of x_var and y_var
-        # Filter to display_partition for the actual data
-        display_df = df.filter(pl.col("partition") == display_partition)
+        # When partition is a grouping variable, don't filter to display_partition
+        if is_partition_grouped:
+            source_df = df
+        else:
+            source_df = df.filter(pl.col("partition") == display_partition)
 
-        if display_df.height == 0:
+        if source_df.height == 0:
             raise ValueError(f"No predictions found for partition: {display_partition}")
 
         # Get unique x and y values
-        x_labels = sorted([str(x) for x in display_df[x_var].unique().to_list()], key=self._natural_sort_key)
-        y_labels = sorted([str(y) for y in display_df[y_var].unique().to_list()], key=self._natural_sort_key)
+        x_labels = sorted([str(x) for x in source_df[x_var].unique().to_list()], key=self._natural_sort_key)
+        y_labels = sorted([str(y) for y in source_df[y_var].unique().to_list()], key=self._natural_sort_key)
 
         # Create mappings
         x_map = {x: i for i, x in enumerate(x_labels)}
@@ -470,7 +670,7 @@ class HeatmapChart(BaseChart):
         count_matrix = np.zeros((len(y_labels), len(x_labels)), dtype=int)
 
         # Get unique (x_var, y_var) combinations
-        unique_combinations = display_df.select([x_var, y_var]).unique().to_dicts()
+        unique_combinations = source_df.select([x_var, y_var]).unique().to_dicts()
 
         # Process each unique cell - get predictions with aggregation using top()
         for combo in unique_combinations:
@@ -490,6 +690,14 @@ class HeatmapChart(BaseChart):
             # Get aggregated predictions for this cell
             cell_filters = {**all_filters, x_var: combo[x_var], y_var: combo[y_var]}
 
+            # When partition is a grouping variable, use the combo's partition value
+            if is_partition_grouped:
+                cell_display_partition = combo.get('partition', display_partition)
+                # Remove partition from cell_filters to not conflict with display_partition
+                cell_filters.pop('partition', None)
+            else:
+                cell_display_partition = display_partition
+
             try:
                 # Use top(1) with aggregation to get the best model for this cell
                 top_preds = self.predictions.top(
@@ -497,7 +705,7 @@ class HeatmapChart(BaseChart):
                     rank_metric=rank_metric,
                     rank_partition=rank_partition,
                     display_metrics=[display_metric],
-                    display_partition=display_partition,
+                    display_partition=cell_display_partition,
                     aggregate_partitions=True,
                     aggregate=aggregate,
                     **cell_filters
@@ -507,7 +715,7 @@ class HeatmapChart(BaseChart):
                     pred = top_preds[0]
                     # Get the score from the display partition
                     partitions = pred.get('partitions', {})
-                    display_data = partitions.get(display_partition, {})
+                    display_data = partitions.get(cell_display_partition, {})
                     score = display_data.get(display_metric)
 
                     if score is None:
@@ -534,12 +742,32 @@ class HeatmapChart(BaseChart):
         t1 = time.time()
         print(f"Data wrangling time (with aggregation): {t1 - t0:.4f} seconds")
 
-        # Normalize for colors
+        # Determine if higher is better for display metric
         display_higher_better = self._is_higher_better(display_metric)
+
+        # Apply top_k filtering if requested
+        if top_k is not None and top_k > 0:
+            matrix, y_labels, selected_indices = self._select_top_k_by_borda(
+                matrix, y_labels, top_k, display_higher_better
+            )
+            count_matrix = count_matrix[selected_indices, :]
+
+        # Auto-compute figsize based on number of labels (always recompute for dynamic sizing)
+        figsize = self._compute_figsize(len(x_labels), len(y_labels))
+
+        # Normalize for colors
         normalize_per_row = is_dataset_grouped and (y_var == 'dataset_name')
-        normalized_matrix = self.normalizer.normalize(
-            matrix, display_higher_better, per_row=normalize_per_row
-        )
+
+        # column_scale overrides local_scale and per_row normalization
+        if column_scale:
+            local_scale = False
+            normalized_matrix = self.normalizer.normalize(
+                matrix, display_higher_better, per_column=True
+            )
+        else:
+            normalized_matrix = self.normalizer.normalize(
+                matrix, display_higher_better, per_row=normalize_per_row
+            )
 
         # Render with aggregation note in title
         fig = self._render_heatmap_aggregated(
@@ -548,7 +776,7 @@ class HeatmapChart(BaseChart):
             rank_metric, rank_partition, rank_agg,
             display_metric, display_partition, display_agg,
             figsize, normalize, show_counts, local_scale, display_higher_better,
-            aggregate
+            aggregate, column_scale, top_k
         )
 
         t2 = time.time()
@@ -576,7 +804,9 @@ class HeatmapChart(BaseChart):
         show_counts: bool,
         local_scale: bool,
         display_higher_better: bool,
-        aggregate: str
+        aggregate: str,
+        column_scale: bool = False,
+        top_k: Optional[int] = None
     ) -> Figure:
         """Render the heatmap figure with aggregation note."""
         fig, ax = plt.subplots(figsize=figsize)
@@ -592,14 +822,23 @@ class HeatmapChart(BaseChart):
 
         use_local_scale = local_scale or not is_bounded_0_1
 
-        masked_raw = np.ma.masked_invalid(matrix)
-
-        if use_local_scale:
-            vmin = np.nanmin(matrix)
-            vmax = np.nanmax(matrix)
-        else:
+        # When column_scale is enabled, use normalized matrix for coloring
+        # with 0-1 scale (each column independently normalized)
+        if column_scale:
+            display_data = np.ma.masked_invalid(normalized_matrix)
             vmin = 0
             vmax = 1
+            cbar_label = f'{display_metric.upper()}\n(per-column: green=best)'
+        elif use_local_scale:
+            display_data = np.ma.masked_invalid(matrix)
+            vmin = np.nanmin(matrix)
+            vmax = np.nanmax(matrix)
+            cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
+        else:
+            display_data = np.ma.masked_invalid(matrix)
+            vmin = 0
+            vmax = 1
+            cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
 
         # Select colormap based on direction
         cmap_name = self.config.heatmap_colormap
@@ -607,17 +846,26 @@ class HeatmapChart(BaseChart):
             cmap_name += '_r'
 
         im = ax.imshow(
-            masked_raw,
+            display_data,
             cmap=cmap_name,
             aspect='auto',
             vmin=vmin,
             vmax=vmax
         )
-        cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
 
         # Colorbar
         cbar = plt.colorbar(im, ax=ax, shrink=0.8)
         cbar.set_label(cbar_label, fontsize=self.config.label_fontsize)
+
+        # Adapt font size based on number of labels to avoid overlap
+        n_y = len(y_labels)
+        tick_fontsize = self.config.tick_fontsize
+        if n_y > 30:
+            tick_fontsize = max(5, tick_fontsize - 3)
+        elif n_y > 20:
+            tick_fontsize = max(6, tick_fontsize - 2)
+        elif n_y > 15:
+            tick_fontsize = max(7, tick_fontsize - 1)
 
         # Axis labels
         x_labels_display = [str(lbl)[:25] + '...' if len(str(lbl)) > 25 else str(lbl) for lbl in x_labels]
@@ -625,14 +873,24 @@ class HeatmapChart(BaseChart):
 
         ax.set_xticks(range(len(x_labels)))
         ax.set_yticks(range(len(y_labels)))
-        ax.set_xticklabels(x_labels_display, rotation=45, ha='right', fontsize=self.config.tick_fontsize)
-        ax.set_yticklabels(y_labels_display, fontsize=self.config.tick_fontsize)
+        ax.set_xticklabels(x_labels_display, rotation=45, ha='right', fontsize=tick_fontsize)
+        ax.set_yticklabels(y_labels_display, fontsize=tick_fontsize)
         ax.set_xlabel(x_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
         ax.set_ylabel(y_var.replace('_', ' ').title(), fontsize=self.config.label_fontsize)
 
         # Title with aggregation info
-        title_parts = [f'{display_agg.title()} {display_metric} [{display_partition}]']
+        title_parts = []
+
+        # Add top_k indicator first if applicable
+        if top_k is not None and top_k > 0:
+            title_parts.append(f'Top {top_k}:')
+
+        title_parts.append(f'{display_agg.title()} {display_metric} [{display_partition}]')
         title_parts.append(f'[aggregated by {aggregate}]')
+
+        # Add column_scale indicator
+        if column_scale:
+            title_parts.append('[column normalized]')
 
         if rank_partition != display_partition or rank_metric != display_metric or rank_agg != display_agg:
             title_parts.append(f'(rank on {rank_agg} {rank_metric} [{rank_partition}])')

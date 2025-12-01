@@ -12,20 +12,48 @@ class ScoreNormalizer:
     """
 
     @staticmethod
-    def normalize(matrix: np.ndarray, higher_better: bool, per_row: bool = False) -> np.ndarray:
+    def normalize(
+        matrix: np.ndarray,
+        higher_better: bool,
+        per_row: bool = False,
+        per_column: bool = False
+    ) -> np.ndarray:
         """Normalize matrix values to [0, 1] range.
 
         Args:
             matrix: Input matrix to normalize.
             higher_better: Whether higher values are better.
-            per_row: If True, normalize each row independently. If False, normalize globally.
+            per_row: If True, normalize each row independently.
+            per_column: If True, normalize each column independently.
+                       Takes precedence over per_row if both are True.
 
         Returns:
             Normalized matrix with values in [0, 1] range.
         """
         normalized = matrix.copy()
 
-        if per_row:
+        if per_column:
+            # Normalize each column independently (best in column = 1.0)
+            for j in range(normalized.shape[1]):
+                col = normalized[:, j]
+                valid_mask = ~np.isnan(col)
+
+                if not np.any(valid_mask):
+                    continue
+
+                valid_scores = col[valid_mask]
+                min_val = np.min(valid_scores)
+                max_val = np.max(valid_scores)
+
+                if max_val > min_val:
+                    col[valid_mask] = (valid_scores - min_val) / (max_val - min_val)
+                    if not higher_better:
+                        col[valid_mask] = 1 - col[valid_mask]
+                else:
+                    col[valid_mask] = 0.5
+
+                normalized[:, j] = col
+        elif per_row:
             # Normalize each row independently
             for i in range(normalized.shape[0]):
                 row = normalized[i, :]
