@@ -28,9 +28,6 @@ def _check_jax_available():
 class IKPLS(BaseEstimator, RegressorMixin):
     """Improved Kernel PLS (IKPLS) regressor.
 
-    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
-    _estimator_type = "regressor"
-
     A sklearn-compatible wrapper for the ikpls package, which provides
     fast PLS implementations using NumPy or JAX (for GPU/TPU acceleration).
     IKPLS is significantly faster than sklearn's PLSRegression, especially
@@ -96,6 +93,9 @@ class IKPLS(BaseEstimator, RegressorMixin):
     .. [1] Dayal, B. S., & MacGregor, J. F. (1997). Improved PLS algorithms.
            Journal of Chemometrics, 11(1), 73-85.
     """
+
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
 
     def __init__(
         self,

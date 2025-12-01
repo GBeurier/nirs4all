@@ -456,9 +456,6 @@ def _get_cached_jax_recursive_pls():
 class RecursivePLS(BaseEstimator, RegressorMixin):
     """Recursive Partial Least Squares (Recursive PLS) regressor.
 
-    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
-    _estimator_type = "regressor"
-
     Recursive PLS enables online model updates for drifting processes.
     It uses a forgetting factor to exponentially weight old samples,
     allowing the model to adapt to non-stationary data streams.
@@ -554,6 +551,9 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
            weighted PLS and its applications to adaptive control and prediction.
            Journal of Process Control, 7(3), 169-179.
     """
+
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
 
     def __init__(
         self,

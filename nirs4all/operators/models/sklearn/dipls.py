@@ -16,9 +16,6 @@ def _check_trendfitter_available():
 class DiPLS(BaseEstimator, RegressorMixin):
     """Dynamic PLS (DiPLS) regressor.
 
-    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
-    _estimator_type = "regressor"
-
     DiPLS extends PLS to handle dynamic systems by including time-lagged
     variables. It uses the `trendfitter` package.
 
@@ -72,6 +69,9 @@ class DiPLS(BaseEstimator, RegressorMixin):
            based on moving-window modeling. Chemical Engineering Research
            and Design, 131, 509-519.
     """
+
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
 
     def __init__(
         self,

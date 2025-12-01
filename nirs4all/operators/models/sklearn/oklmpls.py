@@ -687,9 +687,6 @@ def _oklmpls_fit_jax(
 class OKLMPLS(BaseEstimator, RegressorMixin):
     """Online Koopman Latent-Mode Partial Least Squares (OKLM-PLS).
 
-    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
-    _estimator_type = "regressor"
-
     OKLM-PLS combines Koopman operator theory with PLS for time-series
     regression. It learns latent scores T = ψ(X) @ W and simultaneously:
     - Enforces dynamic coherence: T_{t+1} ≈ F @ T_t
@@ -773,6 +770,9 @@ class OKLMPLS(BaseEstimator, RegressorMixin):
     SIMPLS : Standard PLS without dynamics.
     RecursivePLS : Online PLS with forgetting factor.
     """
+
+    # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
+    _estimator_type = "regressor"
 
     def __init__(
         self,
