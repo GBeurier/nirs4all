@@ -213,22 +213,27 @@ class CrossValidatorController(OperatorController):
         # Train mode: perform actual fold splitting
         folds = list(op.split(X, **kwargs))  # Convert to list to avoid iterator consumption
 
-        # Store the folds in the dataset
-        dataset.set_folds(folds)
-
-        # If no test partition exists, use first fold's validation set as test
+        # If no test partition exists and this is a single-fold split,
+        # use the validation set as test partition (not as fold)
         # This is expected behavior for single-fold splitters (e.g., SPXYGFold with n_splits=1)
-        # which are designed to create train/test splits
-        if dataset.x({"partition": "test"}).shape[0] == 0:
+        # which are designed to create train/test splits, not cross-validation folds
+        if dataset.x({"partition": "test"}).shape[0] == 0 and len(folds) == 1:
             fold_1 = folds[0]
             if len(fold_1[1]) > 0:  # Only if there are validation samples
-                # Only show warning for multi-fold splits where this might be unexpected
-                n_folds = getattr(op, 'n_splits', len(folds))
-                if n_folds > 1:
-                    print("⚠️ No test partition found; using first fold as test set.")
+                # Move validation samples to test partition
                 dataset._indexer.update_by_indices(
                     fold_1[1], {"partition": "test"}
                 )
+
+                # Update folds to use indices relative to train partition
+                # Since validation samples are now in test partition, train indices need re-indexing
+                # New train indices are 0, 1, 2, ..., n_train-1 (relative to train partition)
+                new_train_indices = list(range(len(fold_1[0])))
+                # Validation indices are now empty (they're the test partition)
+                folds = [(new_train_indices, [])]
+
+        # Store the folds in the dataset (after potential reindexing for single-fold case)
+        dataset.set_folds(folds)
 
         # Generate binary output with fold information
         headers = [f"fold_{i}" for i in range(len(folds))]
