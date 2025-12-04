@@ -1,10 +1,7 @@
 ## ROADMAP
 
-> [sklearn] Integrate optuna finetuning on stack ?????
-
-> [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
-
-> [Model] How to force params from self best_params
+> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
+---- > test interleaved for nitrosorgh on PLS or random forest.
 
 **Bugs**:
 >   - [task_type] deactivate auto detection - set manually
@@ -19,6 +16,12 @@
 >   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
 >   - Charts do not display correctly the wavelength on x-axis
 
+> [sklearn] Integrate optuna finetuning on stack ?????
+
+> [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
+
+> [Model] How to force params from self best_params
+
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 
 > [Transfer] Automate model transfer and retraining. Test. Basically, file in pipeline "model".
@@ -29,14 +32,14 @@
 
 **RELEASE** 0.5.2: Learning ready
 
-
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
 
-> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
 
 > [Examples] Clean and document
 
 > [Predict] Verify predict from model, pipeline, folder, file, pred, ...
+
+> [Split] add force_group (mean, median, max, min, etc.) before split to be able to split with groups seemlessly. ie: {"split": KFold, "force_group":"ID"} or reuse group if possible to detect that group is not required (I think it's not detectable)
 
 **RELEASE** 0.6.0: UI ready
 

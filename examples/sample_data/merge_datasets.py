@@ -1,106 +1,97 @@
 """
-Script to merge train and test datasets into a single train set.
+Script to merge train/test splits into single datasets.
 
-Creates merged copies of datasets from:
-- regression_denis -> regression_denis_merged
-- classif_denis -> classif_denis_merged
-
-Each merged folder contains: train_x.csv, train_y.csv, train_m.csv
-(which are the concatenation of original Xtrain+Xtest, Ytrain+Ytest, Mtrain+Mtest)
+Creates nitro_regression_merged and nitro_classif_merged folders
+with X.csv, Y.csv, M.csv files per subfolder.
 """
 
 import os
 import shutil
+import pandas as pd
 from pathlib import Path
 
-import pandas as pd
 
-
-def merge_dataset(source_folder: Path, dest_folder: Path) -> None:
-    """
-    Merge train and test files from source folder into destination folder.
+def merge_train_test(source_folder: Path, dest_folder: Path) -> None:
+    """Merge train and test CSV files from source to destination folder.
 
     Args:
-        source_folder: Path to the original dataset folder containing Xtrain, Xtest, etc.
-        dest_folder: Path to the destination folder for merged files.
+        source_folder: Path to folder containing Xtrain.csv, Xtest.csv, etc.
+        dest_folder: Path to destination folder for merged X.csv, Y.csv, M.csv
     """
     dest_folder.mkdir(parents=True, exist_ok=True)
 
-    # Define file pairs to merge (source_train, source_test, dest_name)
-    file_pairs = [
-        ("Xtrain.csv", "Xtest.csv", "train_x.csv"),
-        ("Ytrain.csv", "Ytest.csv", "train_y.csv"),
-        ("Mtrain.csv", "Mtest.csv", "train_m.csv"),
-    ]
+    # Columns to drop from metadata files (contain illegal/weird characters)
+    metadata_columns_to_drop = ["trait_class"]
 
-    for train_file, test_file, merged_name in file_pairs:
-        train_path = source_folder / train_file
-        test_path = source_folder / test_file
+    for prefix in ["X", "Y", "M"]:
+        train_file = source_folder / f"{prefix}train.csv"
+        test_file = source_folder / f"{prefix}test.csv"
 
-        if train_path.exists() and test_path.exists():
-            # Read and concatenate
-            df_train = pd.read_csv(train_path)
-            df_test = pd.read_csv(test_path)
+        if train_file.exists() and test_file.exists():
+            # Read with semicolon separator (source files use ; as delimiter)
+            df_train = pd.read_csv(train_file, sep=";")
+            df_test = pd.read_csv(test_file, sep=";")
             df_merged = pd.concat([df_train, df_test], ignore_index=True)
 
-            # Save merged file
-            merged_path = dest_folder / merged_name
-            df_merged.to_csv(merged_path, index=False)
-            print(f"  Created: {merged_path.name} ({len(df_merged)} rows)")
+            # Drop problematic columns from metadata files
+            if prefix == "M":
+                cols_to_drop = [c for c in metadata_columns_to_drop if c in df_merged.columns]
+                if cols_to_drop:
+                    df_merged = df_merged.drop(columns=cols_to_drop)
+                    print(f"  Dropped columns from M: {cols_to_drop}")
+
+            # Save merged file (using comma delimiter for clean output)
+            output_file = dest_folder / f"{prefix}_train.csv"
+            df_merged.to_csv(output_file, index=False, sep=";")
+            print(f"  Created {output_file.name} ({len(df_merged)} rows)")
         else:
-            missing = []
-            if not train_path.exists():
-                missing.append(train_file)
-            if not test_path.exists():
-                missing.append(test_file)
-            print(f"  Warning: Missing files {missing} in {source_folder.name}")
+            print(f"  Warning: Missing {prefix}train.csv or {prefix}test.csv")
 
 
-def process_dataset_folder(source_root: Path, dest_root: Path) -> None:
-    """
-    Process all subfolders in a dataset root folder.
+def process_dataset_folder(source_dir: Path, dest_dir: Path) -> None:
+    """Process all subfolders in a dataset directory.
 
     Args:
-        source_root: Path to the source root folder (e.g., regression_denis).
-        dest_root: Path to the destination root folder (e.g., regression_denis_merged).
+        source_dir: Path to source directory (e.g., nitro_regression)
+        dest_dir: Path to destination directory (e.g., nitro_regression_merged)
     """
-    if not source_root.exists():
-        print(f"Source folder not found: {source_root}")
+    if not source_dir.exists():
+        print(f"Source directory not found: {source_dir}")
         return
 
-    # Clean destination if it exists
-    if dest_root.exists():
-        shutil.rmtree(dest_root)
+    print(f"\nProcessing {source_dir.name} -> {dest_dir.name}")
+    print("=" * 50)
 
-    print(f"\nProcessing: {source_root.name} -> {dest_root.name}")
-    print("-" * 50)
+    # Clean destination if exists
+    if dest_dir.exists():
+        shutil.rmtree(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
     # Process each subfolder
-    subfolders = sorted([f for f in source_root.iterdir() if f.is_dir()])
-    for subfolder in subfolders:
-        print(f"\n{subfolder.name}:")
-        dest_subfolder = dest_root / subfolder.name
-        merge_dataset(subfolder, dest_subfolder)
+    for subfolder in sorted(source_dir.iterdir()):
+        if subfolder.is_dir():
+            print(f"\n{subfolder.name}:")
+            dest_subfolder = dest_dir / subfolder.name
+            merge_train_test(subfolder, dest_subfolder)
 
 
 def main():
-    """Main entry point."""
-    # Get the script's directory
-    script_dir = Path(__file__).parent
+    """Main function to merge all datasets."""
+    base_path = Path(__file__).parent
 
-    # Define source and destination folders
+    # Define source and destination pairs
     datasets = [
-        ("regression_denis", "regression_denis_merged"),
-        ("classif_denis", "classif_denis_merged"),
+        # ("nitro_regression", "nitro_regression_merged"),
+        ("nitro_classif", "nitro_classif_merged"),
     ]
 
     for source_name, dest_name in datasets:
-        source_root = script_dir / source_name
-        dest_root = script_dir / dest_name
-        process_dataset_folder(source_root, dest_root)
+        source_dir = base_path / source_name
+        dest_dir = base_path / dest_name
+        process_dataset_folder(source_dir, dest_dir)
 
     print("\n" + "=" * 50)
-    print("Merging complete!")
+    print("Done! Merged datasets created.")
 
 
 if __name__ == "__main__":

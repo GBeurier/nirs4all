@@ -416,9 +416,11 @@ class PipelineOrchestrator:
                     saver.save_file(filename, tab_report_csv_file)
 
             if self.save_files:
-                prediction_name = f"Best_prediction_{best['config_name']}_{best['model_name']}_{best['id']}.csv"
-                prediction_path = saver.base_path / prediction_name
-                Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
+                # Only save predictions if there's actual prediction data
+                if best.get("y_pred") is not None and len(best["y_pred"]) > 0:
+                    prediction_name = f"Best_prediction_{best['config_name']}_{best['model_name']}_{best['id']}.csv"
+                    prediction_path = saver.base_path / prediction_name
+                    Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
 
         if global_dataset_predictions.num_predictions > 0:
             global_dataset_predictions.save_to_file(dataset_prediction_path)

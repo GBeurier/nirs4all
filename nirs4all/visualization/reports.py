@@ -36,8 +36,11 @@ class TabReportManager:
         if not best_by_partition:
             return "No prediction data available", None
 
-        # Get task type from first available prediction's metadata
-        first_entry = next(iter(best_by_partition.values()))
+        # Get task type from first available non-None prediction's metadata
+        first_entry = next((v for v in best_by_partition.values() if v is not None), None)
+        if first_entry is None:
+            return "No prediction data available", None
+
         task_type = TabReportManager._get_task_type_from_entry(first_entry)
 
         # Extract n_features from metadata if available
@@ -47,7 +50,7 @@ class TabReportManager:
         partitions_data = {}
 
         for partition_name, entry in best_by_partition.items():
-            if partition_name in ['train', 'val', 'test']:
+            if partition_name in ['train', 'val', 'test'] and entry is not None:
                 y_true = np.array(entry['y_true'])
                 y_pred = np.array(entry['y_pred'])
 

@@ -58,3 +58,4 @@ examples/sample_data/classif_denis
 examples/sample_data/nitro_classif_merged
 examples/sample_data/regression_denis
 examples/sample_data/nitro_reg_merged
+examples/sample_data/nitro_classif/

@@ -650,14 +650,29 @@ class PredictionRanker:
         Notes:
             - Returns None if no predictions match the filter criteria
             - Use ascending=False for metrics where higher is better (R², accuracy)
+            - Automatically falls back to "test" partition if "val" has no data
         """
+        # Try ranking by val partition first (default behavior)
         results = self.top(
             n=1,
             rank_metric=metric,
+            rank_partition="val",
             ascending=ascending,
             aggregate_partitions=aggregate_partitions,
             **filters
         )
+
+        # Fallback to test partition if val has no data
+        # This handles single-fold splits where validation becomes test
+        if not results:
+            results = self.top(
+                n=1,
+                rank_metric=metric,
+                rank_partition="test",
+                ascending=ascending,
+                aggregate_partitions=aggregate_partitions,
+                **filters
+            )
 
         if not results:
             return None
