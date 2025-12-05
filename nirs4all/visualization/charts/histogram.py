@@ -148,22 +148,25 @@ class ScoreHistogramChart(BaseChart):
         fig, ax = plt.subplots(figsize=figsize)
 
         # Compute clipped range if requested
+        x_min, x_max = None, None
+        n_clipped = 0
         if clip_outliers:
             x_min, x_max = self._compute_clipped_xlim(scores, iqr_factor)
-            # Filter scores for histogram binning within clipped range
-            clipped_scores = [s for s in scores if x_min <= s <= x_max]
-            n_clipped = len(scores) - len(clipped_scores)
+            # Filter scores for histogram binning within clipped range (only if valid limits)
+            if x_min is not None and x_max is not None:
+                clipped_scores = [s for s in scores if x_min <= s <= x_max]
+                n_clipped = len(scores) - len(clipped_scores)
+            else:
+                clipped_scores = scores
         else:
             clipped_scores = scores
-            x_min, x_max = None, None
-            n_clipped = 0
 
         # Plot histogram
         ax.hist(clipped_scores, bins=bins, alpha=self.config.alpha,
                 edgecolor='black', color='#35B779')
 
         # Apply x-axis limits if clipping
-        if clip_outliers and x_min is not None:
+        if clip_outliers and x_min is not None and x_max is not None:
             ax.set_xlim(x_min, x_max)
 
         ax.set_xlabel(f'{display_metric} score', fontsize=self.config.label_fontsize)
@@ -276,22 +279,25 @@ class ScoreHistogramChart(BaseChart):
         fig, ax = plt.subplots(figsize=figsize)
 
         # Compute clipped range if requested
+        x_min, x_max = None, None
+        n_clipped = 0
         if clip_outliers:
             x_min, x_max = self._compute_clipped_xlim(scores, iqr_factor)
-            # Filter scores for histogram binning within clipped range
-            clipped_scores = [s for s in scores if x_min <= s <= x_max]
-            n_clipped = len(scores) - len(clipped_scores)
+            # Filter scores for histogram binning within clipped range (only if valid limits)
+            if x_min is not None and x_max is not None:
+                clipped_scores = [s for s in scores if x_min <= s <= x_max]
+                n_clipped = len(scores) - len(clipped_scores)
+            else:
+                clipped_scores = scores
         else:
             clipped_scores = scores
-            x_min, x_max = None, None
-            n_clipped = 0
 
         # Plot histogram
         ax.hist(clipped_scores, bins=bins, alpha=self.config.alpha,
                 edgecolor='black', color='#35B779')
 
         # Apply x-axis limits if clipping
-        if clip_outliers and x_min is not None:
+        if clip_outliers and x_min is not None and x_max is not None:
             ax.set_xlim(x_min, x_max)
 
         ax.set_xlabel(f'{display_metric} score', fontsize=self.config.label_fontsize)
@@ -341,11 +347,20 @@ class ScoreHistogramChart(BaseChart):
             iqr_factor: Multiplier for IQR to determine outlier bounds.
 
         Returns:
-            Tuple of (x_min, x_max) for axis limits.
+            Tuple of (x_min, x_max) for axis limits, or (None, None) if
+            limits cannot be computed (e.g., empty or all-NaN data).
         """
         scores_arr = np.array(scores)
-        q25 = float(np.quantile(scores_arr, 0.25))
-        q75 = float(np.quantile(scores_arr, 0.75))
+
+        # Filter out NaN and Inf values
+        valid_scores = scores_arr[np.isfinite(scores_arr)]
+
+        # Handle empty or all-invalid data
+        if len(valid_scores) == 0:
+            return None, None
+
+        q25 = float(np.quantile(valid_scores, 0.25))
+        q75 = float(np.quantile(valid_scores, 0.75))
         iqr = q75 - q25
 
         # Handle case where IQR is 0 (all values are the same)
@@ -357,8 +372,8 @@ class ScoreHistogramChart(BaseChart):
         upper_bound = q75 + iqr_factor * iqr
 
         # Ensure we don't go beyond actual data range
-        data_min = float(np.min(scores_arr))
-        data_max = float(np.max(scores_arr))
+        data_min = float(np.min(valid_scores))
+        data_max = float(np.max(valid_scores))
 
         x_min = max(data_min, lower_bound)
         x_max = min(data_max, upper_bound)
@@ -367,5 +382,9 @@ class ScoreHistogramChart(BaseChart):
         padding = (x_max - x_min) * 0.05
         x_min -= padding
         x_max += padding
+
+        # Final safety check for NaN/Inf
+        if not np.isfinite(x_min) or not np.isfinite(x_max):
+            return None, None
 
         return x_min, x_max
