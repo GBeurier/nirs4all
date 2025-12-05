@@ -283,6 +283,8 @@ class PredictionRanker:
         _ = filters.pop("aggregate_partitions", None)  # Already a parameter
         _ = filters.pop("ascending", None)  # Already a parameter
         _ = filters.pop("group_by_fold", None)  # Already a parameter
+        _ = filters.pop("higher_is_better", None)  # Not a data column
+        _ = filters.pop("aggregate", None)  # Already a parameter
 
         df = self._storage.to_dataframe()
         base = df.filter([pl.col(k) == v for k, v in filters.items()]) if filters else df
@@ -316,6 +318,7 @@ class PredictionRanker:
         # and then recalculate metrics on the aggregated data for ranking.
         # This ensures consistent ranking across all visualizations.
         rank_scores = []
+        _debug_count = 0  # DEBUG
         for row in rank_data.to_dicts():
             scores_json = row.get("scores")
             score = None
