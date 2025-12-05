@@ -61,3 +61,7 @@ examples/sample_data/nitro_reg_merged
 examples/sample_data/nitro_classif/
 examples/wk_src/
 examples/wk_tabpfn/
+examples/wk_denis/
+examples/synthetic/charts/
+examples/wk*/
+nirs4all/pipeline/storage/manifest_manager.py

@@ -936,8 +936,15 @@ class HeatmapChart(BaseChart):
     ) -> Figure:
         """Render heatmap with aggregation support.
 
-        This is slower than the default render because it needs to load arrays
-        and recalculate metrics after aggregation.
+        CRITICAL FIX: This method now performs GLOBAL ranking first, then builds
+        the matrix from ranked results. This ensures consistency with confusion
+        matrix and top list displays.
+
+        Flow:
+        1. Get ALL predictions with aggregation applied (one call to top with large n)
+        2. Build rank_scores dict keyed by y_var value (model_name, etc.)
+        3. Build matrix using display_metric scores from the globally ranked predictions
+        4. Sort by rank_score (not display_score) to maintain ranking consistency
         """
         t0 = time.time()
 
@@ -952,8 +959,14 @@ class HeatmapChart(BaseChart):
 
         df = self.predictions.to_dataframe()
 
-        # Normalize model_name to lowercase to merge case-insensitive duplicates
+        # For case-insensitive grouping, create a lowercase version of model_name
+        original_model_names = {}
         if 'model_name' in df.columns:
+            for row in df.select(['model_name']).unique().to_dicts():
+                orig = row['model_name']
+                lower = orig.lower() if orig else orig
+                if lower not in original_model_names:
+                    original_model_names[lower] = orig
             df = df.with_columns(pl.col('model_name').str.to_lowercase())
 
         # Apply filters
@@ -965,7 +978,6 @@ class HeatmapChart(BaseChart):
             raise ValueError(f"No predictions found with filters: {all_filters}")
 
         # Get unique combinations of x_var and y_var
-        # When partition is a grouping variable, don't filter to display_partition
         if is_partition_grouped:
             source_df = df
         else:
@@ -985,59 +997,95 @@ class HeatmapChart(BaseChart):
         matrix = np.full((len(y_labels), len(x_labels)), np.nan)
         count_matrix = np.zeros((len(y_labels), len(x_labels)), dtype=int)
 
-        # Get unique (x_var, y_var) combinations
-        unique_combinations = source_df.select([x_var, y_var]).unique().to_dicts()
+        # CRITICAL: Get ALL predictions with aggregation in ONE call for global ranking
+        # This ensures consistent ranking across all visualizations
+        try:
+            # Get a large number to capture all models
+            all_top_preds = self.predictions.top(
+                n=10000,  # Large number to get all
+                rank_metric=rank_metric,
+                rank_partition=rank_partition,
+                display_metrics=[display_metric, rank_metric] if display_metric != rank_metric else [rank_metric],
+                display_partition=display_partition,
+                aggregate_partitions=True,
+                aggregate=aggregate,
+                **all_filters
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to get aggregated predictions: {e}")
 
-        # Process each unique cell - get predictions with aggregation using top()
-        for combo in unique_combinations:
-            x_val = str(combo[x_var])
-            y_val = str(combo[y_var])
+        if not all_top_preds:
+            raise ValueError("No predictions found after aggregation")
 
-            if x_val not in x_map or y_val not in y_map:
-                continue
+        # CRITICAL FIX: When aggregate is provided, each prediction from top() is UNIQUE
+        # and should be shown as a separate row. Do NOT collapse by y_var (model_name).
+        # This ensures consistency with confusion matrix and top list displays.
+        #
+        # The predictions are already sorted by rank_score from top(), so we just need
+        # to build the matrix from the ordered results.
 
-            x_idx = x_map[x_val]
-            y_idx = y_map[y_val]
+        rank_higher_better = self._is_higher_better(rank_metric)
 
-            # Skip if already processed
-            if not np.isnan(matrix[y_idx, x_idx]):
-                continue
+        # Apply top_k limit to the predictions (they are already sorted by rank)
+        if top_k is not None and top_k > 0:
+            all_top_preds = all_top_preds[:top_k]
 
-            # Get aggregated predictions for this cell
-            cell_filters = {**all_filters, x_var: combo[x_var], y_var: combo[y_var]}
+        # Build new y_labels from the predictions (each prediction gets its own row)
+        # Use a unique identifier that includes fold_id to distinguish same-model predictions
+        y_labels = []
+        y_label_to_pred = {}  # Map from label to prediction for later use
+        rank_scores_for_sorting = {}  # label -> rank_score
 
-            # When partition is a grouping variable, use the combo's partition value
-            if is_partition_grouped:
-                cell_display_partition = combo.get('partition', display_partition)
-                # Remove partition from cell_filters to not conflict with display_partition
-                cell_filters.pop('partition', None)
+        for i, pred in enumerate(all_top_preds):
+            # Build a unique label for this prediction
+            model_name = pred.get('model_name', 'Unknown')
+            fold_id = pred.get('fold_id', '')
+            config_name = pred.get('config_name', '')
+
+            # Create a readable but unique label
+            # Include fold_id if there are multiple folds with same model_name
+            if fold_id and fold_id not in ['', 'None', None]:
+                label = f"{model_name} [{fold_id}]"
             else:
-                cell_display_partition = display_partition
+                label = model_name
 
-            try:
-                # Use top(1) with aggregation to get the best model for this cell
-                top_preds = self.predictions.top(
-                    n=1,
-                    rank_metric=rank_metric,
-                    rank_partition=rank_partition,
-                    display_metrics=[display_metric],
-                    display_partition=cell_display_partition,
-                    aggregate_partitions=True,
-                    aggregate=aggregate,
-                    **cell_filters
-                )
+            # Handle duplicates by appending index
+            original_label = label
+            counter = 1
+            while label in y_label_to_pred:
+                label = f"{original_label} ({counter})"
+                counter += 1
 
-                if top_preds:
-                    pred = top_preds[0]
-                    # Get the score from the display partition
-                    partitions = pred.get('partitions', {})
-                    display_data = partitions.get(cell_display_partition, {})
-                    score = display_data.get(display_metric)
+            y_labels.append(label)
+            y_label_to_pred[label] = pred
+            rank_scores_for_sorting[label] = pred.get('rank_score')
+
+        # Update y_map with new labels
+        y_map = {y: i for i, y in enumerate(y_labels)}
+
+        # Rebuild matrix with correct dimensions
+        matrix = np.full((len(y_labels), len(x_labels)), np.nan)
+        count_matrix = np.zeros((len(y_labels), len(x_labels)), dtype=int)
+
+        # Fill matrix from predictions (already in rank order)
+        for y_label, pred in y_label_to_pred.items():
+            y_idx = y_map[y_label]
+            partitions = pred.get('partitions', {})
+
+            # Fill in scores for each x_var (partition) column
+            if is_partition_grouped:
+                # x_var is 'partition', so each column is a partition
+                for partition_name in ['train', 'val', 'test']:
+                    if partition_name not in x_map:
+                        continue
+                    x_idx = x_map[partition_name]
+
+                    partition_data = partitions.get(partition_name, {})
+                    score = partition_data.get(display_metric)
 
                     if score is None:
-                        # Try y_true/y_pred calculation
-                        y_true = display_data.get('y_true')
-                        y_pred = display_data.get('y_pred')
+                        y_true = partition_data.get('y_true')
+                        y_pred = partition_data.get('y_pred')
                         if y_true is not None and y_pred is not None:
                             try:
                                 score = evaluator.eval(y_true, y_pred, display_metric)
@@ -1046,43 +1094,57 @@ class HeatmapChart(BaseChart):
 
                     if score is not None:
                         matrix[y_idx, x_idx] = score
-                        # Count aggregated samples
-                        y_pred = display_data.get('y_pred')
-                        if y_pred is not None:
-                            count_matrix[y_idx, x_idx] = len(y_pred)
-                        else:
-                            count_matrix[y_idx, x_idx] = 1
-            except Exception:
-                pass
+                        y_pred_arr = partition_data.get('y_pred')
+                        count_matrix[y_idx, x_idx] = len(y_pred_arr) if y_pred_arr is not None else 1
+            else:
+                # Single partition display
+                partition_data = partitions.get(display_partition, {})
+                score = partition_data.get(display_metric)
+
+                if score is None:
+                    y_true = partition_data.get('y_true')
+                    y_pred = partition_data.get('y_pred')
+                    if y_true is not None and y_pred is not None:
+                        try:
+                            score = evaluator.eval(y_true, y_pred, display_metric)
+                        except Exception:
+                            pass
+
+                # For non-partition grouped, we have a single x column
+                if x_labels:
+                    x_val = pred.get(x_var, x_labels[0])
+                    x_val_str = str(x_val).lower() if x_var == 'model_name' else str(x_val)
+                    if x_val_str in x_map:
+                        x_idx = x_map[x_val_str]
+                        if score is not None:
+                            matrix[y_idx, x_idx] = score
+                            y_pred_arr = partition_data.get('y_pred')
+                            count_matrix[y_idx, x_idx] = len(y_pred_arr) if y_pred_arr is not None else 1
 
         t1 = time.time()
         print(f"Data wrangling time (with aggregation): {t1 - t0:.4f} seconds")
 
         # Determine if higher is better for display/ranking metric
         display_higher_better = self._is_higher_better(display_metric)
-        rank_higher_better = self._is_higher_better(rank_metric)
 
-        # Sort by specified method if requested (before top_k filtering)
-        if sort_by:
+        # Matrix is already in rank order from top(), no need to re-sort for 'value'
+        # Only apply other sort methods if explicitly requested
+        if sort_by and sort_by != 'value':
+            # Use other sorting methods (borda, mean, etc.) on the matrix
             matrix, count_matrix, y_labels = self._sort_by_method(
                 matrix, count_matrix, y_labels, x_labels,
                 rank_partition, rank_higher_better, sort_by
             )
 
-        # Apply top_k filtering if requested
-        if top_k is not None and top_k > 0:
-            matrix, y_labels, selected_indices = self._select_top_k_by_borda(
-                matrix, y_labels, top_k, display_higher_better
-            )
-            count_matrix = count_matrix[selected_indices, :]
+        # Note: top_k is already applied earlier when slicing all_top_preds
+        # No need to apply it again here
 
-        # Auto-compute figsize based on number of labels (always recompute for dynamic sizing)
+        # Auto-compute figsize
         figsize = self._compute_figsize(len(x_labels), len(y_labels))
 
         # Normalize for colors
         normalize_per_row = is_dataset_grouped and (y_var == 'dataset_name')
 
-        # column_scale overrides local_scale and per_row normalization
         if column_scale:
             local_scale = False
             normalized_matrix = self.normalizer.normalize(
@@ -1093,7 +1155,7 @@ class HeatmapChart(BaseChart):
                 matrix, display_higher_better, per_row=normalize_per_row
             )
 
-        # Render with aggregation note in title
+        # Render
         fig = self._render_heatmap_aggregated(
             matrix, normalized_matrix, count_matrix,
             x_labels, y_labels, x_var, y_var,
