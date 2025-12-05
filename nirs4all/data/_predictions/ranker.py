@@ -312,43 +312,72 @@ class PredictionRanker:
             return PredictionResultsList([])
 
         # Compute rank scores
+        # CRITICAL: When aggregate is provided, we MUST aggregate predictions first
+        # and then recalculate metrics on the aggregated data for ranking.
+        # This ensures consistent ranking across all visualizations.
         rank_scores = []
         for row in rank_data.to_dicts():
-            # Try to get score from pre-computed scores first
             scores_json = row.get("scores")
             score = None
 
-            if scores_json:
+            # If aggregation is requested, we MUST recalculate from aggregated arrays
+            if aggregate:
                 try:
-                    scores_dict = json.loads(scores_json)
-                    if rank_partition in scores_dict and rank_metric in scores_dict[rank_partition]:
-                        score = scores_dict[rank_partition][rank_metric]
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                    y_true = self._get_array(row, "y_true")
+                    y_pred = self._get_array(row, "y_pred")
+                    y_proba = self._get_array(row, "y_proba")
 
-            # Fallback to legacy methods if score not found
-            if score is None:
-                if rank_metric == row["metric"]:
-                    # Use precomputed score for the rank_partition
-                    score_field = f"{rank_partition}_score"
-                    score = row.get(score_field)
-                else:
-                    # Compute metric from y_true/y_pred (Slow!)
+                    if y_true is not None and y_pred is not None:
+                        metadata = json.loads(row.get("metadata", "{}"))
+                        model_name = row.get("model_name", "")
+
+                        # Apply aggregation to ranking data
+                        agg_y_true, agg_y_pred, agg_y_proba, was_aggregated = self._apply_aggregation(
+                            y_true, y_pred, y_proba, metadata, aggregate, model_name
+                        )
+
+                        if was_aggregated and agg_y_true is not None and agg_y_pred is not None:
+                            # Calculate rank metric on AGGREGATED predictions
+                            score = evaluator.eval(agg_y_true, agg_y_pred, rank_metric)
+                        elif agg_y_true is not None and agg_y_pred is not None:
+                            # Aggregation was requested but couldn't be applied (missing column)
+                            # Fall back to non-aggregated score
+                            score = evaluator.eval(agg_y_true, agg_y_pred, rank_metric)
+                except Exception:
+                    pass
+            else:
+                # No aggregation - use pre-computed scores (fast path)
+                if scores_json:
                     try:
-                        if load_arrays:
-                            y_true = self._get_array(row, "y_true")
-                            y_pred = self._get_array(row, "y_pred")
-                            if y_true is not None and y_pred is not None:
-                                score = evaluator.eval(y_true, y_pred, rank_metric)
-                    except Exception:
+                        scores_dict = json.loads(scores_json)
+                        if rank_partition in scores_dict and rank_metric in scores_dict[rank_partition]:
+                            score = scores_dict[rank_partition][rank_metric]
+                    except (json.JSONDecodeError, TypeError):
                         pass
+
+                # Fallback to legacy methods if score not found
+                if score is None:
+                    if rank_metric == row["metric"]:
+                        # Use precomputed score for the rank_partition
+                        score_field = f"{rank_partition}_score"
+                        score = row.get(score_field)
+                    else:
+                        # Compute metric from y_true/y_pred (Slow!)
+                        try:
+                            if load_arrays:
+                                y_true = self._get_array(row, "y_true")
+                                y_pred = self._get_array(row, "y_pred")
+                                if y_true is not None and y_pred is not None:
+                                    score = evaluator.eval(y_true, y_pred, rank_metric)
+                        except Exception:
+                            pass
 
             rank_scores.append({
                 **{k: row[k] for k in KEY},
                 "rank_score": score,
                 "id": row["id"],
                 "fold_id": row["fold_id"],
-                "scores": scores_json # Pass scores along
+                "scores": scores_json  # Pass scores along
             })
 
         # Sort and get top n
