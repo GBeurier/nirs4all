@@ -59,3 +59,5 @@ examples/sample_data/nitro_classif_merged
 examples/sample_data/regression_denis
 examples/sample_data/nitro_reg_merged
 examples/sample_data/nitro_classif/
+examples/wk_src/
+examples/wk_tabpfn/
