@@ -15,6 +15,7 @@ Architecture:
     └── predictions.json             # Global predictions
 """
 
+import enum
 import uuid
 import yaml
 import shutil
@@ -26,7 +27,8 @@ from typing import Any, Dict, List, Optional, Union
 def _sanitize_for_yaml(obj: Any) -> Any:
     """
     Recursively sanitize data structures for safe YAML serialization.
-    Converts tuples to lists and removes runtime-only keys to avoid Python-specific YAML tags.
+    Converts tuples to lists, enums to their values, and removes runtime-only keys
+    to avoid Python-specific YAML tags.
 
     Args:
         obj: Object to sanitize
@@ -47,6 +49,21 @@ def _sanitize_for_yaml(obj: Any) -> Any:
                 continue
             sanitized[key] = _sanitize_for_yaml(value)
         return sanitized
+    elif isinstance(obj, enum.Enum):
+        # Convert enum to its value (string, int, etc.)
+        return obj.value
+    elif isinstance(obj, (str, int, float, bool, type(None))):
+        # Basic YAML-safe types
+        return obj
+    elif hasattr(obj, '__class__') and obj.__class__.__module__ not in ('builtins', '__builtin__'):
+        # Non-builtin objects that might not be YAML-serializable
+        # Try to get a reasonable string representation
+        if hasattr(obj, 'name'):
+            return obj.name
+        elif hasattr(obj, 'value'):
+            return obj.value
+        else:
+            return str(obj)
     else:
         return obj
 
