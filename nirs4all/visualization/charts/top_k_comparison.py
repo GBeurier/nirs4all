@@ -105,6 +105,7 @@ class TopKComparisonChart(BaseChart):
             ascending=ascending,
             aggregate_partitions=True,
             aggregate=aggregate,
+            best_per_model=True,  # Keep only best per model_name
             **filters
         )
 
@@ -170,10 +171,13 @@ class TopKComparisonChart(BaseChart):
                 y_pred = partition_data.get('y_pred')
 
                 if y_true is not None and y_pred is not None and len(y_true) > 0:
-                    all_y_true.extend(y_true)
-                    all_y_pred.extend(y_pred)
+                    # Flatten arrays to ensure homogeneous shape
+                    y_true_flat = np.asarray(y_true).flatten()
+                    y_pred_flat = np.asarray(y_pred).flatten()
+                    all_y_true.extend(y_true_flat)
+                    all_y_pred.extend(y_pred_flat)
                     color = self.config.partition_colors.get(partition, '#333333')
-                    all_colors.extend([color] * len(y_true))
+                    all_colors.extend([color] * len(y_true_flat))
 
             if not all_y_true:
                 ax_scatter.text(0.5, 0.5, 'No data', ha='center', va='center')
@@ -182,8 +186,8 @@ class TopKComparisonChart(BaseChart):
                 ax_residuals.axis('off')
                 continue
 
-            all_y_true = np.array(all_y_true)
-            all_y_pred = np.array(all_y_pred)
+            all_y_true = np.array(all_y_true, dtype=np.float64)
+            all_y_pred = np.array(all_y_pred, dtype=np.float64)
 
             # Scatter plot: Predicted vs True
             for partition in partitions_to_display:
@@ -192,8 +196,11 @@ class TopKComparisonChart(BaseChart):
                 y_pred = partition_data.get('y_pred')
 
                 if y_true is not None and y_pred is not None and len(y_true) > 0:
+                    # Flatten arrays to ensure homogeneous shape
+                    y_true_flat = np.asarray(y_true, dtype=np.float64).flatten()
+                    y_pred_flat = np.asarray(y_pred, dtype=np.float64).flatten()
                     color = self.config.partition_colors.get(partition, '#333333')
-                    ax_scatter.scatter(y_true, y_pred, alpha=self.config.alpha * 0.7,
+                    ax_scatter.scatter(y_true_flat, y_pred_flat, alpha=self.config.alpha * 0.7,
                                      s=15, color=color, label=partition)
 
             # Add diagonal line
@@ -238,11 +245,12 @@ class TopKComparisonChart(BaseChart):
                 y_pred = partition_data.get('y_pred')
 
                 if y_true is not None and y_pred is not None and len(y_true) > 0:
-                    y_true = np.array(y_true)
-                    y_pred = np.array(y_pred)
-                    residuals_p = y_pred - y_true
+                    # Flatten arrays to ensure homogeneous shape
+                    y_true_flat = np.asarray(y_true, dtype=np.float64).flatten()
+                    y_pred_flat = np.asarray(y_pred, dtype=np.float64).flatten()
+                    residuals_p = y_pred_flat - y_true_flat
                     color = self.config.partition_colors.get(partition, '#333333')
-                    ax_residuals.scatter(y_true, residuals_p, alpha=self.config.alpha * 0.7,
+                    ax_residuals.scatter(y_true_flat, residuals_p, alpha=self.config.alpha * 0.7,
                                        s=15, color=color, label=partition)
 
             ax_residuals.axhline(y=0, color='k', linestyle='--', lw=1.5, alpha=0.7)
