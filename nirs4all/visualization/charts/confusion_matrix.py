@@ -122,6 +122,7 @@ class ConfusionMatrixChart(BaseChart):
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
+                best_per_model=True,  # Keep only best per model_name
                 **ds_filters
             )
 

@@ -244,6 +244,8 @@ class CandlestickChart(BaseChart):
         t0 = time.time()
 
         # Get all predictions with aggregation applied
+        # NOTE: Do NOT use best_per_model=True here - candlestick shows distribution
+        # of scores WITHIN each variable group, so we need all predictions
         try:
             all_preds = self.predictions.top(
                 n=10000,  # Large number to get all
@@ -253,6 +255,7 @@ class CandlestickChart(BaseChart):
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
+                best_per_model=False,  # Keep all predictions for distribution
                 **filters
             )
         except Exception as e:

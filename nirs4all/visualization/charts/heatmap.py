@@ -1001,6 +1001,8 @@ class HeatmapChart(BaseChart):
         # This ensures consistent ranking across all visualizations
         try:
             # Get a large number to capture all models
+            # Use best_per_model=True to get only the best per model_name
+            # Rankings use unique model identities internally but results are deduplicated
             all_top_preds = self.predictions.top(
                 n=10000,  # Large number to get all
                 rank_metric=rank_metric,
@@ -1009,6 +1011,7 @@ class HeatmapChart(BaseChart):
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
+                best_per_model=True,  # Keep only best per model_name
                 **all_filters
             )
         except Exception as e:
@@ -1017,48 +1020,32 @@ class HeatmapChart(BaseChart):
         if not all_top_preds:
             raise ValueError("No predictions found after aggregation")
 
-        # CRITICAL FIX: When aggregate is provided, each prediction from top() is UNIQUE
-        # and should be shown as a separate row. Do NOT collapse by y_var (model_name).
-        # This ensures consistency with confusion matrix and top list displays.
+        # For heatmap display, we want to group by y_var (e.g., model_name, model_classname)
+        # and show only the best score per group.
+        # This is different from confusion matrix/top_k which show each unique prediction.
         #
-        # The predictions are already sorted by rank_score from top(), so we just need
-        # to build the matrix from the ordered results.
+        # The predictions are already sorted by rank_score from top(), so we take the first
+        # (best) prediction for each unique y_var value.
 
         rank_higher_better = self._is_higher_better(rank_metric)
 
-        # Apply top_k limit to the predictions (they are already sorted by rank)
+        # Group predictions by y_var and keep only the best per group
+        y_var_to_best_pred = {}  # y_var value -> best prediction
+        for pred in all_top_preds:
+            y_val = pred.get(y_var, 'Unknown')
+            y_val_str = str(y_val).lower() if y_var in ['model_name', 'model_classname'] else str(y_val)
+
+            # Since predictions are sorted by rank, the first one we see is the best
+            if y_val_str not in y_var_to_best_pred:
+                y_var_to_best_pred[y_val_str] = pred
+
+        # Build y_labels from unique y_var values (in rank order)
+        y_labels = list(y_var_to_best_pred.keys())
+
+        # Apply top_k limit after grouping
         if top_k is not None and top_k > 0:
-            all_top_preds = all_top_preds[:top_k]
-
-        # Build new y_labels from the predictions (each prediction gets its own row)
-        # Use a unique identifier that includes fold_id to distinguish same-model predictions
-        y_labels = []
-        y_label_to_pred = {}  # Map from label to prediction for later use
-        rank_scores_for_sorting = {}  # label -> rank_score
-
-        for i, pred in enumerate(all_top_preds):
-            # Build a unique label for this prediction
-            model_name = pred.get('model_name', 'Unknown')
-            fold_id = pred.get('fold_id', '')
-            config_name = pred.get('config_name', '')
-
-            # Create a readable but unique label
-            # Include fold_id if there are multiple folds with same model_name
-            if fold_id and fold_id not in ['', 'None', None]:
-                label = f"{model_name} [{fold_id}]"
-            else:
-                label = model_name
-
-            # Handle duplicates by appending index
-            original_label = label
-            counter = 1
-            while label in y_label_to_pred:
-                label = f"{original_label} ({counter})"
-                counter += 1
-
-            y_labels.append(label)
-            y_label_to_pred[label] = pred
-            rank_scores_for_sorting[label] = pred.get('rank_score')
+            y_labels = y_labels[:top_k]
+            y_var_to_best_pred = {k: v for k, v in y_var_to_best_pred.items() if k in y_labels}
 
         # Update y_map with new labels
         y_map = {y: i for i, y in enumerate(y_labels)}
@@ -1068,7 +1055,9 @@ class HeatmapChart(BaseChart):
         count_matrix = np.zeros((len(y_labels), len(x_labels)), dtype=int)
 
         # Fill matrix from predictions (already in rank order)
-        for y_label, pred in y_label_to_pred.items():
+        for y_label, pred in y_var_to_best_pred.items():
+            if y_label not in y_map:
+                continue
             y_idx = y_map[y_label]
             partitions = pred.get('partitions', {})
 

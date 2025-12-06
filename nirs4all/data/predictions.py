@@ -406,6 +406,7 @@ class Predictions:
         ascending: Optional[bool] = None,
         group_by_fold: bool = False,
         aggregate: Optional[str] = None,
+        best_per_model: bool = False,
         **filters
     ) -> PredictionResultsList:
         """
@@ -428,6 +429,8 @@ class Predictions:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            best_per_model: If True, keep only the best prediction per model_name.
+                           Uses tiebreaker (test score) when val scores are equal.
             **filters: Additional filter criteria (dataset_name, config_name, etc.)
 
         Returns:
@@ -443,6 +446,7 @@ class Predictions:
             ascending=ascending,
             group_by_fold=group_by_fold,
             aggregate=aggregate,
+            best_per_model=best_per_model,
             **filters
         )
 

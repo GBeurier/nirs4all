@@ -221,6 +221,8 @@ class ScoreHistogramChart(BaseChart):
 
         # Get all predictions with aggregation applied
         # Use a large n to get all predictions
+        # NOTE: Do NOT use best_per_model=True here - histogram needs ALL scores
+        # to show the full distribution, not just one per model
         try:
             all_preds = self.predictions.top(
                 n=10000,  # Large number to get all
@@ -230,6 +232,7 @@ class ScoreHistogramChart(BaseChart):
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
+                best_per_model=False,  # Keep all predictions for distribution
                 **filters
             )
         except Exception as e:

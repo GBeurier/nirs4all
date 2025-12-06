@@ -176,6 +176,7 @@ class PredictionRanker:
         group_by_fold: bool = False,
         load_arrays: bool = True,
         aggregate: Optional[str] = None,
+        best_per_model: bool = False,
         **filters
     ) -> PredictionResultsList:
         """
@@ -199,6 +200,9 @@ class PredictionRanker:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            best_per_model: If True, keep only the best prediction per model_name.
+                           Rankings use unique model identities, but final results
+                           are deduplicated to show only the best per model_name.
             **filters: Additional filter criteria (dataset_name, config_name, etc.)
 
         Returns:
@@ -383,9 +387,74 @@ class PredictionRanker:
                 "scores": scores_json  # Pass scores along
             })
 
-        # Sort and get top n
+        # Get tiebreaker scores (test partition) for models with equal rank scores
+        # This ensures consistent ranking when val scores are equal
+        tiebreaker_partition = "test" if rank_partition == "val" else "val"
+        tiebreaker_data = base.filter(pl.col("partition") == tiebreaker_partition)
+        tiebreaker_scores = {}
+        for row in tiebreaker_data.to_dicts():
+            key_tuple = tuple(row[k] for k in KEY) + (row.get("fold_id"),)
+            tiebreaker_score = None
+
+            # Try to get tiebreaker score
+            if aggregate:
+                try:
+                    y_true = self._get_array(row, "y_true")
+                    y_pred = self._get_array(row, "y_pred")
+                    y_proba = self._get_array(row, "y_proba")
+                    if y_true is not None and y_pred is not None:
+                        metadata = json.loads(row.get("metadata", "{}"))
+                        model_name = row.get("model_name", "")
+                        agg_y_true, agg_y_pred, _, was_agg = self._apply_aggregation(
+                            y_true, y_pred, y_proba, metadata, aggregate, model_name
+                        )
+                        if was_agg and agg_y_true is not None and agg_y_pred is not None:
+                            tiebreaker_score = evaluator.eval(agg_y_true, agg_y_pred, rank_metric)
+                except Exception:
+                    pass
+            else:
+                scores_json = row.get("scores")
+                if scores_json:
+                    try:
+                        scores_dict = json.loads(scores_json)
+                        if tiebreaker_partition in scores_dict and rank_metric in scores_dict[tiebreaker_partition]:
+                            tiebreaker_score = scores_dict[tiebreaker_partition][rank_metric]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                if tiebreaker_score is None and rank_metric == row.get("metric"):
+                    tiebreaker_score = row.get(f"{tiebreaker_partition}_score")
+
+            tiebreaker_scores[key_tuple] = tiebreaker_score
+
+        # Add tiebreaker scores to rank_scores
+        for rs in rank_scores:
+            key_tuple = tuple(rs[k] for k in KEY) + (rs.get("fold_id"),)
+            rs["tiebreaker_score"] = tiebreaker_scores.get(key_tuple)
+
+        # Sort with tiebreaker: primary by rank_score, secondary by tiebreaker_score
         rank_scores = [r for r in rank_scores if r["rank_score"] is not None]
-        rank_scores.sort(key=lambda x: x["rank_score"], reverse=not ascending)
+
+        def sort_key(x):
+            rank = x["rank_score"]
+            tiebreaker = x.get("tiebreaker_score")
+            # Handle None tiebreaker - use inf (worst) for ascending, -inf for descending
+            if tiebreaker is None:
+                tiebreaker = float('inf') if ascending else float('-inf')
+            return (rank, tiebreaker)
+
+        rank_scores.sort(key=sort_key, reverse=not ascending)
+
+        # Apply best_per_model filter if requested
+        if best_per_model:
+            seen_models = set()
+            filtered_scores = []
+            for rs in rank_scores:
+                model_name = rs.get("model_name", "").lower()
+                if model_name not in seen_models:
+                    seen_models.add(model_name)
+                    filtered_scores.append(rs)
+            rank_scores = filtered_scores
+
         top_keys = rank_scores[:n]
 
         if not top_keys:
