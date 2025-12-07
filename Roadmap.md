@@ -4,6 +4,7 @@
 ---- > test interleaved for nitrosorgh on PLS or random forest.
 
 **Bugs**:
+>   - [Split] try automatically to set a group even when not specified. Shouldn't do anything if not specified
 >   - [task_type] deactivate auto detection - set manually
 >   - [save_files] sep in save_files and save_plots and save_predictions
 >   - [MB-PLS] test on multi-source/block
