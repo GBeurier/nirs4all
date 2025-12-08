@@ -4,9 +4,11 @@ TopKComparisonChart - Scatter plots comparing predicted vs observed values for t
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from nirs4all.visualization.charts.base import BaseChart
-from nirs4all.visualization.chart_utils.predictions_adapter import PredictionsAdapter
+
+if TYPE_CHECKING:
+    from nirs4all.visualization.predictions import PredictionAnalyzer
 
 
 class TopKComparisonChart(BaseChart):
@@ -16,17 +18,22 @@ class TopKComparisonChart(BaseChart):
     for the best performing models according to a ranking metric.
     """
 
-    def __init__(self, predictions, dataset_name_override: Optional[str] = None,
-                 config=None):
+    def __init__(
+        self,
+        predictions,
+        dataset_name_override: Optional[str] = None,
+        config=None,
+        analyzer: Optional['PredictionAnalyzer'] = None
+    ):
         """Initialize top K comparison chart.
 
         Args:
             predictions: Predictions object instance.
             dataset_name_override: Optional dataset name override.
             config: Optional ChartConfig for customization.
+            analyzer: Optional PredictionAnalyzer for cached data access.
         """
-        super().__init__(predictions, dataset_name_override, config)
-        self.adapter = PredictionsAdapter(predictions)
+        super().__init__(predictions, dataset_name_override, config, analyzer=analyzer)
 
     def validate_inputs(self, k: int, rank_metric: Optional[str], **kwargs) -> None:
         """Validate top K comparison inputs.
@@ -94,18 +101,16 @@ class TopKComparisonChart(BaseChart):
         else:
             partitions_to_display = [display_partition]
 
-        # Get top models using predictions.top() with aggregate_partitions
-        ascending = not self.adapter.is_higher_better(rank_metric)
-
-        top_predictions = self.predictions.top(
+        # Get top models using common helper with group_by for deduplication
+        top_predictions = self._get_ranked_predictions(
             n=k,
             rank_metric=rank_metric,
             rank_partition=rank_partition,
             display_partition='test',  # Ignored when aggregate_partitions=True
-            ascending=ascending,
+            display_metrics=[display_metric] if display_metric else None,
             aggregate_partitions=True,
             aggregate=aggregate,
-            best_per_model=True,  # Keep only best per model_name
+            group_by=['model_name'],  # Keep only best per model_name
             **filters
         )
 

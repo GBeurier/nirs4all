@@ -6,8 +6,11 @@ import polars as pl
 import time
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 from nirs4all.visualization.charts.base import BaseChart
+
+if TYPE_CHECKING:
+    from nirs4all.visualization.predictions import PredictionAnalyzer
 
 
 class CandlestickChart(BaseChart):
@@ -17,16 +20,22 @@ class CandlestickChart(BaseChart):
     for each value of a grouping variable.
     """
 
-    def __init__(self, predictions, dataset_name_override: Optional[str] = None,
-                 config=None):
+    def __init__(
+        self,
+        predictions,
+        dataset_name_override: Optional[str] = None,
+        config=None,
+        analyzer: Optional['PredictionAnalyzer'] = None
+    ):
         """Initialize candlestick chart.
 
         Args:
             predictions: Predictions object instance.
             dataset_name_override: Optional dataset name override.
             config: Optional ChartConfig for customization.
+            analyzer: Optional PredictionAnalyzer for cached data access.
         """
-        super().__init__(predictions, dataset_name_override, config)
+        super().__init__(predictions, dataset_name_override, config, analyzer=analyzer)
 
     def validate_inputs(self, variable: str, display_metric: Optional[str], **kwargs) -> None:
         """Validate candlestick inputs.
@@ -243,11 +252,11 @@ class CandlestickChart(BaseChart):
         from nirs4all.core import metrics as evaluator
         t0 = time.time()
 
-        # Get all predictions with aggregation applied
-        # NOTE: Do NOT use best_per_model=True here - candlestick shows distribution
+        # Get all predictions with aggregation applied using common helper
+        # NOTE: Do NOT use group_by here - candlestick shows distribution
         # of scores WITHIN each variable group, so we need all predictions
         try:
-            all_preds = self.predictions.top(
+            all_preds = self._get_ranked_predictions(
                 n=10000,  # Large number to get all
                 rank_metric=display_metric,
                 rank_partition=display_partition,
@@ -255,7 +264,7 @@ class CandlestickChart(BaseChart):
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
-                best_per_model=False,  # Keep all predictions for distribution
+                group_by=None,  # Keep all predictions for distribution
                 **filters
             )
         except Exception as e:

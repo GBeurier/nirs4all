@@ -6,14 +6,17 @@ Delegates to specialized chart classes for rendering.
 
 Leverages the refactored Predictions API (predictions.top(), PredictionResult, etc.)
 for efficient data access and avoids redundant calculations.
+
+Includes a caching layer (PredictionCache) to avoid recomputing expensive aggregations
+when multiple charts use the same parameters.
 """
 from matplotlib.figure import Figure
-from typing import Optional, Union, List
+from typing import Any, Dict, Optional, Union, List
 import os
 import re
 import glob
-from pathlib import Path
 from nirs4all.data.predictions import Predictions
+from nirs4all.visualization.prediction_cache import PredictionCache
 from nirs4all.visualization.charts import (
     ChartConfig,
     ScoreHistogramChart,
@@ -30,6 +33,11 @@ class PredictionAnalyzer:
     Provides a unified interface for creating various prediction visualizations.
     Delegates to specialized chart classes for rendering.
 
+    Includes a caching layer (PredictionCache) to avoid recomputing expensive
+    aggregations when multiple charts use the same parameters. The cache is
+    keyed by (aggregate, rank_metric, rank_partition, display_partition, group_by,
+    filters) and stores the results of predictions.top() calls.
+
     Leverages the refactored Predictions API (predictions.top(), PredictionResult, etc.)
     for efficient data access and avoids redundant calculations.
 
@@ -38,17 +46,21 @@ class PredictionAnalyzer:
         dataset_name_override: Optional dataset name override for display.
         config: ChartConfig for customization across all charts.
         output_dir: Directory to save generated charts.
+        cache: PredictionCache for caching aggregated results.
 
     Example:
         >>> from nirs4all.data.predictions import Predictions
         >>> predictions = Predictions.load('predictions.json')
         >>> analyzer = PredictionAnalyzer(predictions)
         >>>
-        >>> # Plot top 5 models
-        >>> fig = analyzer.plot_top_k(k=5)
+        >>> # Plot top 5 models - first call computes aggregation
+        >>> fig = analyzer.plot_top_k(k=5, aggregate='ID')
         >>>
-        >>> # Plot heatmap
-        >>> fig = analyzer.plot_heatmap('model_name', 'preprocessings')
+        >>> # Plot heatmap - uses cached aggregation (fast!)
+        >>> fig = analyzer.plot_heatmap('model_name', 'preprocessings', aggregate='ID')
+        >>>
+        >>> # Check cache stats
+        >>> print(analyzer.get_cache_stats())
     """
 
     def __init__(
@@ -56,7 +68,8 @@ class PredictionAnalyzer:
         predictions_obj: Predictions,
         dataset_name_override: Optional[str] = None,
         config: Optional[ChartConfig] = None,
-        output_dir: Optional[str] = "workspace/figures"
+        output_dir: Optional[str] = "workspace/figures",
+        cache_size: int = 50
     ):
         """Initialize analyzer with predictions object.
 
@@ -65,11 +78,148 @@ class PredictionAnalyzer:
             dataset_name_override: Optional dataset name override for display.
             config: Optional ChartConfig for customization across all charts.
             output_dir: Directory to save generated charts. Defaults to "workspace/figures".
+            cache_size: Maximum number of cached query results. Defaults to 50.
         """
         self.predictions = predictions_obj
         self.dataset_name_override = dataset_name_override
         self.config = config or ChartConfig()
         self.output_dir = output_dir
+        self._cache = PredictionCache(max_entries=cache_size)
+
+    def clear_cache(self) -> None:
+        """Clear all caches.
+
+        Call this if the underlying predictions data has been modified
+        to ensure fresh results are computed. Clears both:
+        - Analyzer's query result cache
+        - Ranker's aggregation and score caches
+        """
+        self._cache.clear()
+        self.predictions.clear_caches()
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache performance statistics.
+
+        Returns:
+            Dictionary with stats for both analyzer and ranker caches:
+            - analyzer_cache: Query result cache stats
+            - ranker_cache: Aggregation and score cache stats
+        """
+        return {
+            'analyzer_cache': self._cache.get_stats(),
+            'ranker_cache': self.predictions.get_cache_stats()
+        }
+
+    def get_cached_predictions(
+        self,
+        n: int,
+        rank_metric: str,
+        rank_partition: str = 'val',
+        display_partition: str = 'test',
+        display_metrics: Optional[List[str]] = None,
+        aggregate: Optional[str] = None,
+        group_by: Optional[Union[str, List[str]]] = None,
+        aggregate_partitions: bool = True,
+        **filters
+    ):
+        """Get predictions with caching support.
+
+        This method wraps predictions.top() with a caching layer.
+        Charts should call this method instead of directly calling
+        predictions.top() to benefit from caching.
+
+        The cache key includes: aggregate, rank_metric, rank_partition,
+        display_partition, group_by, and all filters.
+
+        Args:
+            n: Number of top predictions to return.
+            rank_metric: Metric for ranking.
+            rank_partition: Partition for ranking (default: 'val').
+            display_partition: Partition for display (default: 'test').
+            display_metrics: List of metrics to compute for display.
+            aggregate: Aggregation column (e.g., 'ID') or None.
+            group_by: Grouping column(s) for deduplication.
+            aggregate_partitions: If True, include all partition data.
+            **filters: Additional filter criteria.
+
+        Returns:
+            PredictionResultsList from cache or fresh computation.
+
+        Example:
+            >>> # First call computes and caches
+            >>> preds = analyzer.get_cached_predictions(
+            ...     n=5, rank_metric='rmse', aggregate='ID'
+            ... )
+            >>> # Second call with same params is instant
+            >>> preds = analyzer.get_cached_predictions(
+            ...     n=5, rank_metric='rmse', aggregate='ID'
+            ... )
+        """
+        # Create cache key (n is intentionally excluded as we cache large result sets)
+        # We request more than needed and slice, so the same cache entry serves
+        # multiple calls with different n values
+        cache_n = max(n, 1000)  # Cache a larger result set
+
+        cache_key = self._cache.make_key(
+            aggregate=aggregate,
+            rank_metric=rank_metric,
+            rank_partition=rank_partition,
+            display_partition=display_partition,
+            group_by=group_by,
+            **filters
+        )
+
+        def compute():
+            # Determine ascending order based on metric type
+            ascending = not self._is_higher_better(rank_metric)
+
+            # Prepare display_metrics if not provided
+            effective_display_metrics = display_metrics
+            if effective_display_metrics is None:
+                effective_display_metrics = [rank_metric]
+            elif rank_metric not in effective_display_metrics:
+                effective_display_metrics = [rank_metric] + list(effective_display_metrics)
+
+            return self.predictions.top(
+                n=cache_n,
+                rank_metric=rank_metric,
+                rank_partition=rank_partition,
+                display_partition=display_partition,
+                display_metrics=effective_display_metrics,
+                ascending=ascending,
+                aggregate_partitions=aggregate_partitions,
+                aggregate=aggregate,
+                group_by=group_by,
+                **filters
+            )
+
+        # Get from cache or compute
+        result = self._cache.get_or_compute(cache_key, compute)
+
+        # Return only the requested number of results
+        return result[:n] if len(result) > n else result
+
+    @staticmethod
+    def _is_higher_better(metric: str) -> bool:
+        """Check if metric is higher-is-better.
+
+        Args:
+            metric: Metric name to check.
+
+        Returns:
+            True if higher values are better, False otherwise.
+        """
+        metric_lower = metric.lower()
+        higher_is_better = [
+            'accuracy', 'balanced_accuracy',
+            'precision', 'balanced_precision', 'precision_micro', 'precision_macro',
+            'recall', 'balanced_recall', 'recall_micro', 'recall_macro',
+            'f1', 'f1_micro', 'f1_macro',
+            'specificity', 'roc_auc', 'auc',
+            'matthews_corrcoef', 'cohen_kappa', 'jaccard',
+            'r2', 'r2_score'
+        ]
+        return metric_lower in higher_is_better
 
     def _save_figure(self, fig: Figure, chart_type: str, dataset_name: str = None):
         """Save figure to disk with versioning.
@@ -174,7 +324,8 @@ class PredictionAnalyzer:
         chart = TopKComparisonChart(
             self.predictions,
             self.dataset_name_override,
-            effective_config
+            effective_config,
+            analyzer=self  # Pass analyzer for cached data access
         )
 
         # Check if dataset_name is specified in kwargs
@@ -262,7 +413,8 @@ class PredictionAnalyzer:
         chart = ConfusionMatrixChart(
             self.predictions,
             self.dataset_name_override,
-            effective_config
+            effective_config,
+            analyzer=self  # Pass analyzer for cached data access
         )
 
         # Check if dataset_name is specified in kwargs
@@ -337,7 +489,8 @@ class PredictionAnalyzer:
         chart = ScoreHistogramChart(
             self.predictions,
             self.dataset_name_override,
-            effective_config
+            effective_config,
+            analyzer=self  # Pass analyzer for cached data access
         )
 
         # Check if dataset_name is specified in kwargs
@@ -464,7 +617,8 @@ class PredictionAnalyzer:
         chart = HeatmapChart(
             self.predictions,
             self.dataset_name_override,
-            effective_config
+            effective_config,
+            analyzer=self  # Pass analyzer for cached data access
         )
         fig = chart.render(
             x_var=x_var,
@@ -521,7 +675,8 @@ class PredictionAnalyzer:
         chart = CandlestickChart(
             self.predictions,
             self.dataset_name_override,
-            effective_config
+            effective_config,
+            analyzer=self  # Pass analyzer for cached data access
         )
         fig = chart.render(
             variable=variable,

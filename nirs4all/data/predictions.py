@@ -406,6 +406,7 @@ class Predictions:
         ascending: Optional[bool] = None,
         group_by_fold: bool = False,
         aggregate: Optional[str] = None,
+        group_by: Optional[Union[str, List[str]]] = None,
         best_per_model: bool = False,
         **filters
     ) -> PredictionResultsList:
@@ -429,8 +430,12 @@ class Predictions:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
-            best_per_model: If True, keep only the best prediction per model_name.
-                           Uses tiebreaker (test score) when val scores are equal.
+            group_by: Group predictions and keep only the best per group.
+                     Can be a single column name (str) or list of columns.
+                     Examples: 'model_name', ['model_name', 'preprocessings']
+                     The global sort order is preserved - first occurrence per group is kept.
+            best_per_model: DEPRECATED - Use group_by=['model_name'] instead.
+                           If True, keep only the best prediction per model_name.
             **filters: Additional filter criteria (dataset_name, config_name, etc.)
 
         Returns:
@@ -446,6 +451,7 @@ class Predictions:
             ascending=ascending,
             group_by_fold=group_by_fold,
             aggregate=aggregate,
+            group_by=group_by,
             best_per_model=best_per_model,
             **filters
         )
@@ -1087,6 +1093,42 @@ class Predictions:
             List of fold IDs
         """
         return self._indexer.get_folds()
+
+    # =========================================================================
+    # CACHE MANAGEMENT
+    # =========================================================================
+
+    def clear_caches(self) -> None:
+        """
+        Clear all internal caches.
+
+        Call this when the underlying data has been modified to ensure
+        fresh results are computed. This clears:
+        - Ranker's aggregation cache (cached aggregated y_true/y_pred)
+        - Ranker's score cache (cached metric scores)
+
+        Examples:
+            >>> predictions.add_prediction(...)  # Add new data
+            >>> predictions.clear_caches()  # Clear to ensure fresh results
+        """
+        self._ranker.clear_caches()
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """
+        Get cache statistics for debugging performance.
+
+        Returns a dictionary with hit rates and sizes for:
+        - aggregation_cache: Cached aggregated arrays
+        - score_cache: Cached metric scores
+
+        Returns:
+            Dictionary with cache statistics
+
+        Examples:
+            >>> stats = predictions.get_cache_stats()
+            >>> print(f"Aggregation cache hit rate: {stats['aggregation_cache']['hit_rate']:.1%}")
+        """
+        return self._ranker.get_cache_stats()
 
     # =========================================================================
     # STATIC UTILITY METHODS
