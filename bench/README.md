@@ -6,25 +6,6 @@ This directory contains research and benchmarking tools for NIRS data analysis s
 
 ```
 bench/
-├── preprocessing_selection/    # Preprocessing technique selection framework
-│   ├── run_pp_selection.py    # Main runner script
-│   ├── selector.py            # PreprocessingSelector orchestrator
-│   ├── metrics.py             # Unsupervised and supervised metrics
-│   ├── proxy_models.py        # Fast proxy models (Ridge, KNN)
-│   ├── combinations.py        # Combination analysis (MI, Grassmann)
-│   ├── systematic_selection.py # Systematic selection pipeline
-│   ├── example_*.py           # Example scripts
-│   ├── systematic/            # Modular systematic selection components
-│   └── README_pp_selection.md # Detailed documentation
-│
-├── splitter_selection/         # Train/test splitting strategy comparison
-│   ├── run_splitter_selection*.py  # Runner scripts (base, enhanced, classification)
-│   ├── splitter_strategies.py      # 16+ splitting algorithms
-│   ├── splitter_evaluation*.py     # Evaluation modules
-│   ├── splitter_visualization*.py  # Visualization modules
-│   ├── unsupervised_splitters.py   # Chemometrics splitters (Puchwein, Duplex, etc.)
-│   ├── Methodology_split.md        # Detailed methodology documentation
-│   └── NB1_*.ipynb                 # Jupyter notebook for analysis
 │
 ├── synthetic/                  # Synthetic NIRS spectra generation
 │   ├── generator.py           # SyntheticNIRSGenerator class
@@ -55,15 +36,6 @@ bench/
 
 ## Usage
 
-### Preprocessing Selection
-
-Find optimal preprocessing techniques before training:
-
-```bash
-cd bench/preprocessing_selection
-python run_pp_selection.py --depth 3 --plots
-```
-
 ### Splitter Selection
 
 Compare train/test splitting strategies:
@@ -92,12 +64,6 @@ python tabpfn_run.py --data_dir path/to/data
 ```
 
 ## Key Features
-
-### Preprocessing Selection
-- 4-stage evaluation (unsupervised → diversity → proxy models → augmentation)
-- 16 preprocessing techniques evaluated
-- Reduces search space by 10-20× while maintaining performance
-- See [README_pp_selection.md](preprocessing_selection/README_pp_selection.md) for details
 
 ### Splitter Selection
 - 16+ splitting strategies (Random, Kennard-Stone, SPXY, Duplex, etc.)
