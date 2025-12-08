@@ -7,10 +7,12 @@ from .feature_augmentation import FeatureAugmentationController
 from .sample_augmentation import SampleAugmentationController
 from .resampler import ResamplerController
 from .feature_selection import FeatureSelectionController
+from .concat_transform import ConcatAugmentationController
 
 __all__ = [
     "FeatureAugmentationController",
     "SampleAugmentationController",
     "ResamplerController",
     "FeatureSelectionController",
+    "ConcatAugmentationController",
 ]

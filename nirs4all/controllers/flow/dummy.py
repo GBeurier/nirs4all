@@ -107,7 +107,7 @@ class DummyController(OperatorController):
             analysis["key_types"] = {k: type(v).__name__ for k, v in step.items()}
 
             # Look for common pipeline keywords
-            pipeline_keywords = ['model', 'feature_augmentation', 'y_processing', 'sample_augmentation']
+            pipeline_keywords = ['model', 'feature_augmentation', 'concat_transform', 'y_processing', 'sample_augmentation']
             found_keywords = [k for k in step.keys() if k in pipeline_keywords]
             if found_keywords:
                 analysis["pipeline_keywords"] = found_keywords
@@ -223,7 +223,7 @@ class DummyController(OperatorController):
         suggestions = []
 
         if isinstance(config, dict):
-            if not any(k in config for k in ['model', 'feature_augmentation', 'y_processing', 'sample_augmentation']):
+            if not any(k in config for k in ['model', 'feature_augmentation', 'concat_transform', 'y_processing', 'sample_augmentation']):
                 suggestions.append("- Step is a dict but doesn't contain recognized pipeline keywords")
 
             if 'model' in config:
@@ -231,6 +231,9 @@ class DummyController(OperatorController):
 
             if 'feature_augmentation' in config:
                 suggestions.append("- Step contains 'feature_augmentation' - should be handled by FeatureAugmentationController")
+
+            if 'concat_transform' in config:
+                suggestions.append("- Step contains 'concat_transform' - should be handled by ConcatAugmentationController")
 
         elif hasattr(op, 'fit') and hasattr(op, 'transform'):
             suggestions.append("- Step has fit() and transform() methods - should be handled by TransformerMixinController")
