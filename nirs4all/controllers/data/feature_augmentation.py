@@ -17,6 +17,35 @@ import copy
 class FeatureAugmentationController(OperatorController):
     priority = 10
 
+    @staticmethod
+    def normalize_generator_spec(spec: Any) -> Any:
+        """Normalize generator spec for feature_augmentation context.
+
+        In feature_augmentation context, multi-selection should use combinations
+        by default since the order of parallel feature channels doesn't matter.
+        Translates legacy 'size' to 'pick' for explicit semantics.
+
+        Args:
+            spec: Generator specification (may contain _or_, size, pick, arrange).
+
+        Returns:
+            Normalized spec with 'size' converted to 'pick' if needed.
+        """
+        if not isinstance(spec, dict):
+            return spec
+
+        # If explicit pick/arrange specified, honor it
+        if "pick" in spec or "arrange" in spec:
+            return spec
+
+        # Convert legacy size to pick (combinations) for feature_augmentation
+        if "size" in spec and "_or_" in spec:
+            result = dict(spec)
+            result["pick"] = result.pop("size")
+            return result
+
+        return spec
+
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
         return keyword == "feature_augmentation"

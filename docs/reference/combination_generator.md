@@ -1,8 +1,26 @@
 # Combination Generator Documentation
 
+> **Last Updated**: December 8, 2025 | **Version**: Post Phase 1.5
+
 ## Overview
 
-The Combination Generator is a powerful Python utility that expands configuration specifications into all possible combinations based on flexible syntax rules. It supports basic combinations, size constraints, second-order permutations, and stochastic sampling for efficient exploration of large configuration spaces.
+The Combination Generator is a powerful Python utility that expands configuration specifications into all possible combinations based on flexible syntax rules. It supports basic combinations, size constraints, explicit selection semantics (`pick`/`arrange`), second-order permutations (`then_pick`/`then_arrange`), and stochastic sampling for efficient exploration of large configuration spaces.
+
+## Architecture
+
+The generator module follows a modular architecture:
+
+```
+nirs4all/pipeline/config/
+├── generator.py              # Main API: expand_spec(), count_combinations()
+└── _generator/
+    ├── __init__.py           # Package exports
+    ├── keywords.py           # Keyword constants and detection utilities
+    └── utils/
+        ├── __init__.py
+        ├── combinatorics.py  # Combination/permutation generators and counters
+        └── sampling.py       # Deterministic random sampling with seed support
+```
 
 ## Core Concepts
 
@@ -15,12 +33,33 @@ The fundamental building block is the `"_or_"` key that defines a set of choices
 # Generates: ["A", "B", "C"]
 ```
 
-### Size Constraints
+### Selection Semantics: `pick` vs `arrange`
 
-Control the number of elements selected from choices:
+Two explicit keywords control how items are selected:
+
+| Keyword | Meaning | Mathematical Basis | When to Use |
+|---------|---------|-------------------|-------------|
+| `pick` | Select N items, order doesn't matter | Combinations C(n, k) | Parallel/independent operations |
+| `arrange` | Arrange N items in sequence, order matters | Permutations P(n, k) | Sequential/chained operations |
 
 ```python
-# Single size
+# Unordered selection (combinations) - order doesn't matter
+{"_or_": ["A", "B", "C"], "pick": 2}
+# Generates: [["A", "B"], ["A", "C"], ["B", "C"]]
+# C(3, 2) = 3 variants
+
+# Ordered arrangement (permutations) - order matters
+{"_or_": ["A", "B", "C"], "arrange": 2}
+# Generates: [["A", "B"], ["A", "C"], ["B", "A"], ["B", "C"], ["C", "A"], ["C", "B"]]
+# P(3, 2) = 6 variants
+```
+
+### Legacy `size` Parameter
+
+The `size` parameter is maintained for backward compatibility and behaves like `pick` (combinations):
+
+```python
+# Legacy syntax (equivalent to pick)
 {"_or_": ["A", "B", "C"], "size": 2}
 # Generates: [["A", "B"], ["A", "C"], ["B", "C"]]
 
@@ -50,16 +89,28 @@ Generate sequences of numeric values using the `"_range_"` key:
 # Generates: 10 random values from 1 to 1000
 ```
 
-### Second-Order Combinations
+### Second-Order Selection with `then_pick` / `then_arrange`
 
-Use array syntax `[outer, inner]` for hierarchical combinations where:
-- **Inner**: Uses **permutations** (order matters within sub-arrays)
-- **Outer**: Uses **combinations** (order doesn't matter for selection)
+For hierarchical selection, use `then_pick` or `then_arrange` after a primary selection:
+
+```python
+# Step 1: pick=2 generates C(3,2) = 3 combinations: [A,B], [A,C], [B,C]
+# Step 2: then_arrange=2 generates P(3,2) = 6 arrangements of those 3 items
+{"_or_": ["A", "B", "C"], "pick": 2, "then_arrange": 2}
+
+# Step 1: arrange=2 generates P(3,2) = 6 permutations
+# Step 2: then_pick=2 generates C(6,2) = 15 combinations of those
+{"_or_": ["A", "B", "C"], "arrange": 2, "then_pick": 2}
+```
+
+### Legacy Second-Order Array Syntax
+
+The array syntax `[outer, inner]` is supported for backward compatibility:
 
 ```python
 {"_or_": ["A", "B"], "size": [1, 2]}
-# Generates: [["A", "B"], ["B", "A"]]
-# Note: Both permutations appear because order matters within inner arrays
+# Inner: permutations (order matters within sub-arrays)
+# Outer: combinations (order doesn't matter for selection)
 ```
 
 ### Stochastic Sampling
@@ -67,19 +118,33 @@ Use array syntax `[outer, inner]` for hierarchical combinations where:
 Use `"count"` to randomly sample from large result sets:
 
 ```python
-{"_or_": ["A", "B", "C", "D"], "size": (2, 3), "count": 5}
+{"_or_": ["A", "B", "C", "D"], "pick": (2, 3), "count": 5}
 # Generates: Random 5 combinations from all possible size 2-3 combinations
 ```
 
 ## Complete Syntax Reference
+
+### Keywords
+
+| Keyword | Description | Example |
+|---------|-------------|---------|
+| `_or_` | Choice between alternatives | `{"_or_": ["A", "B", "C"]}` |
+| `_range_` | Numeric sequence generation | `{"_range_": [1, 10, 2]}` |
+| `size` | Number of items to select (legacy, uses combinations) | `{"_or_": [...], "size": 2}` |
+| `pick` | Unordered selection (combinations) | `{"_or_": [...], "pick": 2}` |
+| `arrange` | Ordered arrangement (permutations) | `{"_or_": [...], "arrange": 2}` |
+| `then_pick` | Apply combinations to primary results | `{"_or_": [...], "pick": 2, "then_pick": 2}` |
+| `then_arrange` | Apply permutations to primary results | `{"_or_": [...], "pick": 2, "then_arrange": 2}` |
+| `count` | Limit number of generated variants | `{"_or_": [...], "count": 10}` |
 
 ### Basic Features
 
 | Syntax | Description | Example Output |
 |--------|-------------|----------------|
 | `{"_or_": ["A", "B", "C"]}` | All individual choices | `["A", "B", "C"]` |
-| `{"_or_": ["A", "B", "C"], "size": 2}` | Combinations of exactly 2 elements | `[["A", "B"], ["A", "C"], ["B", "C"]]` |
-| `{"_or_": ["A", "B", "C"], "size": (1, 3)}` | Combinations of 1 to 3 elements | `[["A"], ["B"], ["C"], ["A", "B"], ...]` |
+| `{"_or_": ["A", "B", "C"], "pick": 2}` | Combinations of exactly 2 elements | `[["A", "B"], ["A", "C"], ["B", "C"]]` |
+| `{"_or_": ["A", "B", "C"], "pick": (1, 3)}` | Combinations of 1 to 3 elements | `[["A"], ["B"], ["C"], ["A", "B"], ...]` |
+| `{"_or_": ["A", "B", "C"], "arrange": 2}` | Permutations of exactly 2 elements | `[["A", "B"], ["A", "C"], ["B", "A"], ...]` |
 | `{"_or_": ["A", "B", "C"], "count": 2}` | Random 2 choices | `["A", "C"]` (random) |
 
 ### Numeric Range Features
@@ -92,89 +157,187 @@ Use `"count"` to randomly sample from large result sets:
 | `{"_range_": {"from": 0, "to": 20, "step": 5}}` | Dictionary with step | `[0, 5, 10, 15, 20]` |
 | `{"_range_": [1, 100], "count": 5}` | Random sampling from range | `[23, 67, 12, 89, 45]` (random) |
 
-### Second-Order Syntax
+### Second-Order Selection
 
 | Syntax | Description | Key Behavior |
 |--------|-------------|--------------|
-| `[outer, inner]` | Array notation for second-order | Inner uses permutations, outer uses combinations |
-| `[2, 2]` | Select 2 arrangements of 2 elements each | `[["A", "B"], ["B", "A"]]` are different |
-| `[(1,3), 2]` | Select 1-3 arrangements of exactly 2 elements | Variable outer selection |
-| `[2, (1,3)]` | Select exactly 2 arrangements of 1-3 elements | Variable inner arrangements |
+| `pick: 2, then_pick: 2` | Pick 2, then pick 2 from results | Primary: C(n,2), Secondary: C(primary,2) |
+| `pick: 2, then_arrange: 2` | Pick 2, then arrange 2 from results | Primary: C(n,2), Secondary: P(primary,2) |
+| `arrange: 2, then_pick: 2` | Arrange 2, then pick 2 from results | Primary: P(n,2), Secondary: C(primary,2) |
+| `arrange: 2, then_arrange: 2` | Arrange 2, then arrange 2 from results | Primary: P(n,2), Secondary: P(primary,2) |
+
+### Legacy Second-Order Syntax (Array Notation)
+
+| Syntax | Description | Key Behavior |
+|--------|-------------|--------------|
+| `size: [outer, inner]` | Array notation for second-order | Inner uses permutations, outer uses combinations |
+| `size: [2, 2]` | Select 2 arrangements of 2 elements each | `[["A", "B"], ["B", "A"]]` are different |
+| `size: [(1,3), 2]` | Select 1-3 arrangements of exactly 2 elements | Variable outer selection |
+| `size: [2, (1,3)]` | Select exactly 2 arrangements of 1-3 elements | Variable inner arrangements |
 
 ### Advanced Combinations
 
 | Syntax | Description | Use Case |
 |--------|-------------|----------|
-| `[2, 2, "count": 4]` | Random 4 from second-order combinations | Large space sampling |
-| `{"_or_": [...], "size": [...], "count": N}` | Any combination with count limit | Efficient exploration |
+| `{"_or_": [...], "pick": 2, "count": 4}` | Random 4 from combinations | Large space sampling |
+| `{"_or_": [...], "arrange": 2, "then_pick": 2, "count": N}` | Second-order with count limit | Efficient exploration |
 
 ## Key Behavioral Rules
 
-### 1. First-Order vs Second-Order
+### 1. `pick` vs `arrange`
 
-- **First-Order**: `["A", "B"]` = `["B", "A"]` (combinations - order doesn't matter)
-- **Second-Order**: `["A", "B"]` ≠ `["B", "A"]` (permutations - order matters within inner arrays)
+- **`pick`**: `["A", "B"]` = `["B", "A"]` (combinations - order doesn't matter)
+- **`arrange`**: `["A", "B"]` ≠ `["B", "A"]` (permutations - order matters)
 
-### 2. Permutation Logic
+**Use case guidance:**
+- Use `pick` for `concat_transform` (feature order doesn't matter)
+- Use `pick` for `feature_augmentation` (parallel channels)
+- Use `arrange` for sequential preprocessing steps
+- Use `arrange` when the order of operations affects the result
 
-In second-order combinations:
+### 2. Second-Order Selection Logic
+
+With `then_pick` / `then_arrange`:
+- Primary selection (`pick` or `arrange`) happens first
+- Secondary selection (`then_pick` or `then_arrange`) is applied to primary results
+- Each step can use int or tuple (from, to) for size specification
+
+```python
+# Example: pick 2 combinations, then arrange 2 of those
+{"_or_": ["A", "B", "C"], "pick": 2, "then_arrange": 2}
+# Step 1: C(3,2) = 3 combinations: [A,B], [A,C], [B,C]
+# Step 2: P(3,2) = 6 arrangements of those 3 items
+```
+
+### 3. Legacy `size` with Array Notation
+
+In the legacy `size=[outer, inner]` second-order combinations:
 - `[A, [B, C]]` ≠ `[A, [C, B]]` ✅ (different inner permutations)
 - `[A, [B, C]]` = `[[B, C], A]` ✅ (same outer selection, different order doesn't matter)
 
-### 3. Count Sampling
+### 4. Count Sampling
 
 - Always applies **after** all combinations are generated
 - Uses random sampling without replacement
-- Works with any size or second-order configuration
+- Works with any selection configuration
 
 ## Implementation Details
 
+### Module Structure
+
+The generator is organized into modular components:
+
+```
+nirs4all/pipeline/config/
+├── generator.py                    # Main API
+│   ├── expand_spec(node)          # Expand to all combinations
+│   ├── count_combinations(node)   # Count without generating
+│   ├── _expand_with_pick()        # Handle pick keyword
+│   ├── _expand_with_arrange()     # Handle arrange keyword
+│   ├── _handle_pick_then_*()      # Second-order with pick primary
+│   ├── _handle_arrange_then_*()   # Second-order with arrange primary
+│   └── _generate_range()          # Numeric range generation
+│
+└── _generator/
+    ├── keywords.py                 # Keyword constants and utilities
+    │   ├── OR_KEYWORD, RANGE_KEYWORD
+    │   ├── PICK_KEYWORD, ARRANGE_KEYWORD
+    │   ├── THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD
+    │   ├── is_generator_node()
+    │   ├── is_pure_or_node()
+    │   ├── extract_modifiers()
+    │   └── extract_base_node()
+    │
+    └── utils/
+        ├── combinatorics.py       # Mathematical operations
+        │   ├── generate_combinations()
+        │   ├── generate_permutations()
+        │   ├── count_combinations()
+        │   ├── count_permutations()
+        │   └── normalize_size_spec()
+        │
+        └── sampling.py            # Deterministic random sampling
+            ├── sample_with_seed()
+            ├── shuffle_with_seed()
+            └── random_choice_with_seed()
+```
+
 ### Core Functions
 
-#### `expand_spec_fixed(node)`
+#### `expand_spec(node)`
 Main recursive expansion function that handles:
 - Lists: Cartesian product expansion
-- Dictionaries: OR nodes, range nodes, size constraints, count limits
+- Dictionaries: OR nodes, range nodes, pick/arrange constraints, count limits
 - Scalars: Direct return
 
 #### `count_combinations(node)`
-**NEW**: Calculate total number of combinations without generating them:
-- Returns exact count that `expand_spec_fixed` would produce
+Calculate total number of combinations without generating them:
+- Returns exact count that `expand_spec` would produce
 - Uses mathematical formulas (combinations, permutations, factorials)
-- Supports both `_or_` and `_range_` nodes
+- Supports `_or_`, `_range_`, `pick`, `arrange`, `then_pick`, `then_arrange`
 - Extremely fast even for large configuration spaces
 - Essential for performance planning and safety checks
 
-#### `_handle_nested_combinations(choices, nested_size)`
-Handles second-order array syntax `[outer, inner]`:
-1. Generates all inner permutations (order matters)
-2. Selects outer combinations (order doesn't matter)
-3. Returns nested structure
+#### `_expand_with_pick(choices, pick_spec, count, then_pick, then_arrange)`
+Handles the `pick` keyword (combinations):
+- Generates C(n, k) combinations where order doesn't matter
+- Supports int or tuple (from, to) range specification
+- Handles second-order with `then_pick` or `then_arrange`
+- Legacy `size=[outer, inner]` array notation for backward compatibility
 
-#### `_count_nested_combinations(choices, nested_size)`
-**NEW**: Counts second-order combinations using mathematical formulas:
-- Calculates P(n,k) for inner permutations
-- Calculates C(P,m) for outer combinations
-- Avoids expensive enumeration
+#### `_expand_with_arrange(choices, arrange_spec, count, then_pick, then_arrange)`
+Handles the `arrange` keyword (permutations):
+- Generates P(n, k) permutations where order matters
+- Supports int or tuple (from, to) range specification
+- Handles second-order with `then_pick` or `then_arrange`
 
 #### `_generate_range(range_spec)`
-**NEW**: Generate numeric sequences from range specifications:
+Generate numeric sequences from range specifications:
 - Supports array syntax: `[from, to]` or `[from, to, step]`
 - Supports dict syntax: `{"from": start, "to": end, "step": step}`
 - Handles positive and negative steps
 - End value is inclusive
 
-#### `_count_range(range_spec)`
-**NEW**: Count elements in numeric ranges without generating them:
-- Uses mathematical formula: `(end - start) // step + 1`
-- Handles edge cases (negative steps, invalid ranges)
-- Extremely efficient for large ranges
+### Keywords Module
 
-#### `_expand_combination(combo)`
-Expands specific combinations using Cartesian products.
+Centralized keyword constants and detection utilities:
 
-#### `_expand_value_fixed(v)`
-Handles value-position OR nodes with size and count constraints.
+```python
+from nirs4all.pipeline.config.generator import (
+    # Constants
+    OR_KEYWORD,           # "_or_"
+    RANGE_KEYWORD,        # "_range_"
+    PICK_KEYWORD,         # "pick"
+    ARRANGE_KEYWORD,      # "arrange"
+    THEN_PICK_KEYWORD,    # "then_pick"
+    THEN_ARRANGE_KEYWORD, # "then_arrange"
+    SIZE_KEYWORD,         # "size" (legacy)
+    COUNT_KEYWORD,        # "count"
+
+    # Detection functions
+    is_generator_node,     # Check if node has _or_ or _range_
+    is_pure_or_node,       # Check if node is purely an OR node
+    is_pure_range_node,    # Check if node is purely a range node
+    extract_modifiers,     # Extract size, count, pick, arrange modifiers
+    extract_base_node,     # Extract non-keyword keys
+)
+```
+
+### Sampling Utilities
+
+Deterministic random sampling with optional seed support:
+
+```python
+from nirs4all.pipeline.config._generator.utils import sample_with_seed
+
+# Deterministic sampling with seed
+result = sample_with_seed(["A", "B", "C", "D"], k=2, seed=42)
+# → Same result every time with seed=42
+
+# Without seed (non-deterministic)
+result = sample_with_seed(["A", "B", "C", "D"], k=2)
+# → Random each time
+```
 
 ### Dependencies
 
@@ -192,8 +355,10 @@ import random
 **Always estimate first** for unknown configuration spaces:
 
 ```python
+from nirs4all.pipeline.config.generator import expand_spec, count_combinations
+
 # Safe workflow
-config = [{"_or_": ["A", "B", "C", "D"], "size": [(1, 3), (1, 4)]}]
+config = [{"_or_": ["A", "B", "C", "D"], "pick": [(1, 3), (1, 4)]}]
 
 # Step 1: Estimate without generating
 estimated_count = count_combinations(config)
@@ -206,16 +371,18 @@ if estimated_count > 10000:
     print("Added count limit for safe sampling")
 
 # Step 3: Generate safely
-results = expand_spec_fixed(config)
+results = expand_spec(config)
 ```
 
 ### Smart Generation Utility
 
 ```python
 def estimate_and_generate(config, max_safe=1000):
+    from nirs4all.pipeline.config.generator import expand_spec, count_combinations
+
     estimated = count_combinations(config)
     if estimated <= max_safe:
-        return expand_spec_fixed(config)
+        return expand_spec(config)
     else:
         print(f"Large space: {estimated:,}. Add count limit!")
         return None

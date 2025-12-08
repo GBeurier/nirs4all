@@ -501,293 +501,831 @@ def expand_spec(node, validator: Optional[Callable] = None):
 
 ## 4. Modularization Strategy and Architecture
 
-### 4.1 Current Structure Problems
+### 4.1 Phase 1.5 Completion Status ✅
+
+Phase 1.5 (Selection Semantics) has been fully implemented. The following was delivered:
+
+**Implemented Features:**
+- ✅ `pick` keyword for combinations (unordered selection)
+- ✅ `arrange` keyword for permutations (ordered arrangement)
+- ✅ `then_pick` and `then_arrange` for second-order operations
+- ✅ Modular `_generator/` subpackage structure started
+- ✅ `keywords.py` with centralized constants and utilities
+- ✅ `utils/sampling.py` with seed-aware random functions
+- ✅ `utils/combinatorics.py` with helper functions
+- ✅ Comprehensive test coverage for pick/arrange
+
+**Current Structure (Post Phase 1.5):**
 
 ```
-generator.py (509 lines)
-├── expand_spec()           - Main expansion logic
-├── count_combinations()    - Counting logic (duplicates expand_spec pattern)
-├── _handle_nested_combinations() - Second-order logic
-├── _count_nested_combinations()  - Duplicates nested logic
-├── _expand_combination()   - Cartesian product helper
-├── _expand_value()         - Value-position expansion
-├── _count_value()          - Value-position counting
-├── _generate_range()       - Range generation
-└── _count_range()          - Range counting
+nirs4all/pipeline/config/
+├── generator.py                 # Main module (905 lines - still monolithic)
+└── _generator/
+    ├── __init__.py              # Package exports
+    ├── keywords.py              # Keyword constants and detection ✅
+    └── utils/
+        ├── __init__.py          # Utility exports ✅
+        ├── sampling.py          # Random sampling with seed ✅
+        └── combinatorics.py     # Combination/permutation helpers ✅
 ```
 
-**Issues**:
-1. DRY violations: `expand_*` and `count_*` functions duplicate logic
-2. Single file with multiple responsibilities
-3. No clear separation between generation strategies
-4. Hardcoded keyword handling
+### 4.2 Current Structure Analysis
 
-### 4.2 Proposed Module Structure
+While Phase 1.5 created the foundation, `generator.py` remains monolithic at ~900 lines:
+
+```
+generator.py (905 lines)
+├── expand_spec()                      # Main expansion (lines 47-135)
+├── count_combinations()               # Counting logic (lines 138-209)
+├── _expand_with_pick()                # Pick expansion (lines 212-266)
+├── _expand_with_arrange()             # Arrange expansion (lines 269-319)
+├── _handle_nested_arrangements()      # Nested with permutations (lines 322-361)
+├── _handle_nested_combinations()      # Nested with combinations (lines 364-405)
+├── _normalize_spec()                  # Size normalization (lines 408-415)
+├── _handle_pick_then_pick()           # Second-order pick→pick (lines 418-449)
+├── _handle_pick_then_arrange()        # Second-order pick→arrange (lines 452-483)
+├── _handle_arrange_then_pick()        # Second-order arrange→pick (lines 486-517)
+├── _handle_arrange_then_arrange()     # Second-order arrange→arrange (lines 520-551)
+├── _count_nested_combinations()       # Count nested (lines 554-582)
+├── _count_with_pick()                 # Count pick (lines 585-620)
+├── _count_with_arrange()              # Count arrange (lines 623-658)
+├── _count_nested_arrangements()       # Count nested arrange (lines 661-693)
+├── _count_pick_then_*()               # Count second-order (lines 696-789)
+├── _expand_combination()              # Cartesian product (lines 792-805)
+├── _expand_value()                    # Value-position expansion (lines 808-845)
+├── _count_value()                     # Value-position counting (lines 848-859)
+├── _generate_range()                  # Range generation (lines 862-886)
+└── _count_range()                     # Range counting (lines 889-905)
+```
+
+**Remaining Issues:**
+1. ❌ DRY violations: `_expand_*` and `_count_*` duplicate logic patterns
+2. ❌ No strategy pattern for keyword handling
+3. ❌ 30+ functions in single file
+4. ❌ Complex branching in `expand_spec` and `count_combinations`
+5. ⚠️ Utils exist but not fully utilized by main module
+
+### 4.3 Phase 2 Target Module Structure
 
 ```
 nirs4all/pipeline/config/
 ├── __init__.py
-├── generator/
-│   ├── __init__.py              # Public API exports
-│   ├── core.py                  # Main expand_spec and count_combinations
-│   ├── keywords.py              # Keyword constants and detection
-│   ├── strategies/
-│   │   ├── __init__.py
-│   │   ├── base.py              # Abstract base strategy
-│   │   ├── or_strategy.py       # _or_ handling
-│   │   ├── range_strategy.py    # _range_ handling
-│   │   ├── nested_strategy.py   # Second-order combinations
-│   │   └── registry.py          # Strategy registry
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   ├── combinatorics.py     # combinations, permutations, etc.
-│   │   └── sampling.py          # Random sampling with seed support
-│   └── validators/
-│       ├── __init__.py
-│       └── schema.py            # Generated config validation
-├── component_serialization.py
-├── context.py
-└── pipeline_config.py
+├── generator.py                      # Thin wrapper - public API only (~100 lines)
+└── _generator/
+    ├── __init__.py                   # Package exports
+    ├── core.py                       # NEW: Main expand/count orchestration
+    ├── keywords.py                   # ✅ Exists - keyword constants
+    ├── strategies/                   # NEW: Strategy pattern implementation
+    │   ├── __init__.py
+    │   ├── base.py                   # Abstract base strategy
+    │   ├── or_strategy.py            # _or_ keyword handling
+    │   ├── range_strategy.py         # _range_ keyword handling
+    │   ├── pick_strategy.py          # pick/arrange and second-order
+    │   └── registry.py               # Strategy discovery and dispatch
+    ├── utils/                        # ✅ Exists - helper utilities
+    │   ├── __init__.py
+    │   ├── combinatorics.py          # ✅ Exists - math helpers
+    │   └── sampling.py               # ✅ Exists - random with seed
+    └── validators/                   # NEW: Validation layer
+        ├── __init__.py
+        └── schema.py                 # Config validation
 ```
 
-### 4.3 Strategy Pattern for Keywords
+### 4.4 Strategy Pattern Implementation
 
-#### 4.3.1 Abstract Base Strategy
+#### 4.4.1 Abstract Base Strategy
 
 ```python
-# generator/strategies/base.py
+# _generator/strategies/base.py
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple, Union
+
+SizeSpec = Union[int, Tuple[int, int], List[int]]
 
 class ExpansionStrategy(ABC):
-    """Base class for expansion strategies."""
+    """Base class for generator expansion strategies.
+
+    Each strategy handles a specific type of generator node (e.g., _or_, _range_).
+    Strategies are responsible for both expansion and counting.
+    """
 
     @property
     @abstractmethod
-    def keywords(self) -> frozenset:
-        """Keywords this strategy handles."""
+    def primary_keyword(self) -> str:
+        """The main keyword this strategy handles (e.g., '_or_', '_range_')."""
+        pass
+
+    @property
+    @abstractmethod
+    def allowed_keys(self) -> FrozenSet[str]:
+        """All keys allowed in nodes this strategy handles."""
         pass
 
     @abstractmethod
-    def matches(self, node: dict) -> bool:
-        """Check if this strategy should handle the node."""
+    def matches(self, node: Dict[str, Any]) -> bool:
+        """Check if this strategy should handle the given node.
+
+        Args:
+            node: A dictionary node from the configuration.
+
+        Returns:
+            True if this strategy can handle the node.
+        """
         pass
 
     @abstractmethod
-    def expand(self, node: dict, seed: Optional[int] = None) -> List[Any]:
-        """Expand the node to all combinations."""
+    def expand(
+        self,
+        node: Dict[str, Any],
+        expand_child: callable,
+        seed: Optional[int] = None
+    ) -> List[Any]:
+        """Expand the node to all combinations.
+
+        Args:
+            node: The node to expand.
+            expand_child: Function to recursively expand child nodes.
+            seed: Optional random seed for reproducibility.
+
+        Returns:
+            List of all expanded variants.
+        """
         pass
 
     @abstractmethod
-    def count(self, node: dict) -> int:
-        """Count combinations without generating."""
+    def count(
+        self,
+        node: Dict[str, Any],
+        count_child: callable
+    ) -> int:
+        """Count combinations without generating them.
+
+        Args:
+            node: The node to count.
+            count_child: Function to recursively count child nodes.
+
+        Returns:
+            Total number of combinations.
+        """
         pass
 ```
 
-#### 4.3.2 OR Strategy Implementation
+#### 4.4.2 OR Strategy Implementation
 
 ```python
-# generator/strategies/or_strategy.py
+# _generator/strategies/or_strategy.py
+from typing import Any, Dict, FrozenSet, List, Optional
+from itertools import combinations, permutations
+
 from .base import ExpansionStrategy
+from ..keywords import (
+    OR_KEYWORD, SIZE_KEYWORD, COUNT_KEYWORD,
+    PICK_KEYWORD, ARRANGE_KEYWORD,
+    THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD,
+    PURE_OR_KEYS
+)
+from ..utils import sample_with_seed
 
 class OrStrategy(ExpansionStrategy):
-    """Handles _or_ keyword expansion."""
+    """Handles _or_ nodes with pick/arrange/size semantics."""
 
     @property
-    def keywords(self) -> frozenset:
-        return frozenset({"_or_", "size", "count"})
+    def primary_keyword(self) -> str:
+        return OR_KEYWORD
 
-    def matches(self, node: dict) -> bool:
-        return "_or_" in node and set(node.keys()).issubset(self.keywords)
+    @property
+    def allowed_keys(self) -> FrozenSet[str]:
+        return PURE_OR_KEYS
 
-    def expand(self, node: dict, seed: Optional[int] = None) -> List[Any]:
-        choices = node["_or_"]
-        size = node.get("size")
-        count = node.get("count")
+    def matches(self, node: Dict[str, Any]) -> bool:
+        if not isinstance(node, dict):
+            return False
+        return set(node.keys()).issubset(self.allowed_keys) and OR_KEYWORD in node
 
-        if size is not None:
-            return self._expand_with_size(choices, size, count, seed)
-        return self._expand_simple(choices, count, seed)
+    def expand(
+        self,
+        node: Dict[str, Any],
+        expand_child: callable,
+        seed: Optional[int] = None
+    ) -> List[Any]:
+        choices = node[OR_KEYWORD]
+        size = node.get(SIZE_KEYWORD)
+        pick = node.get(PICK_KEYWORD)
+        arrange = node.get(ARRANGE_KEYWORD)
+        then_pick = node.get(THEN_PICK_KEYWORD)
+        then_arrange = node.get(THEN_ARRANGE_KEYWORD)
+        count = node.get(COUNT_KEYWORD)
 
-    def count(self, node: dict) -> int:
-        choices = node["_or_"]
-        size = node.get("size")
-        count_limit = node.get("count")
+        # Dispatch to appropriate handler
+        if arrange is not None:
+            result = self._expand_arrange(choices, arrange, then_pick, then_arrange, expand_child)
+        elif pick is not None:
+            result = self._expand_pick(choices, pick, then_pick, then_arrange, expand_child)
+        elif size is not None:
+            # Legacy: size behaves like pick
+            result = self._expand_pick(choices, size, then_pick, then_arrange, expand_child)
+        else:
+            # Simple expansion: all choices
+            result = []
+            for choice in choices:
+                result.extend(expand_child(choice))
 
-        total = self._count_internal(choices, size)
-        return min(total, count_limit) if count_limit else total
+        # Apply count limit
+        if count is not None and len(result) > count:
+            result = sample_with_seed(result, count, seed=seed)
+
+        return result
+
+    def count(self, node: Dict[str, Any], count_child: callable) -> int:
+        # Similar structure to expand, but returns counts
+        ...
+
+    def _expand_pick(self, choices, spec, then_pick, then_arrange, expand_child):
+        """Handle pick (combinations) with optional second-order."""
+        ...
+
+    def _expand_arrange(self, choices, spec, then_pick, then_arrange, expand_child):
+        """Handle arrange (permutations) with optional second-order."""
+        ...
 ```
 
-#### 4.3.3 Strategy Registry
+#### 4.4.3 Range Strategy Implementation
 
 ```python
-# generator/strategies/registry.py
-from typing import List, Type
+# _generator/strategies/range_strategy.py
+from typing import Any, Dict, FrozenSet, List, Optional, Union
+
+from .base import ExpansionStrategy
+from ..keywords import RANGE_KEYWORD, COUNT_KEYWORD, PURE_RANGE_KEYS
+from ..utils import sample_with_seed
+
+class RangeStrategy(ExpansionStrategy):
+    """Handles _range_ nodes for numeric sequence generation."""
+
+    @property
+    def primary_keyword(self) -> str:
+        return RANGE_KEYWORD
+
+    @property
+    def allowed_keys(self) -> FrozenSet[str]:
+        return PURE_RANGE_KEYS
+
+    def matches(self, node: Dict[str, Any]) -> bool:
+        if not isinstance(node, dict):
+            return False
+        return set(node.keys()).issubset(self.allowed_keys) and RANGE_KEYWORD in node
+
+    def expand(
+        self,
+        node: Dict[str, Any],
+        expand_child: callable,
+        seed: Optional[int] = None
+    ) -> List[Any]:
+        range_spec = node[RANGE_KEYWORD]
+        count = node.get(COUNT_KEYWORD)
+
+        values = self._generate_range(range_spec)
+
+        if count is not None and len(values) > count:
+            values = sample_with_seed(values, count, seed=seed)
+
+        return values
+
+    def count(self, node: Dict[str, Any], count_child: callable) -> int:
+        range_spec = node[RANGE_KEYWORD]
+        count_limit = node.get(COUNT_KEYWORD)
+
+        total = self._count_range(range_spec)
+        return min(total, count_limit) if count_limit else total
+
+    def _generate_range(self, range_spec: Union[list, dict]) -> List[int]:
+        """Generate numeric range from specification."""
+        if isinstance(range_spec, list):
+            if len(range_spec) == 2:
+                start, end = range_spec
+                step = 1
+            else:
+                start, end, step = range_spec
+        else:  # dict
+            start = range_spec["from"]
+            end = range_spec["to"]
+            step = range_spec.get("step", 1)
+
+        if step > 0:
+            return list(range(start, end + 1, step))
+        else:
+            return list(range(start, end - 1, step))
+
+    def _count_range(self, range_spec: Union[list, dict]) -> int:
+        """Count range elements without generating."""
+        ...
+```
+
+#### 4.4.4 Strategy Registry
+
+```python
+# _generator/strategies/registry.py
+from typing import Dict, List, Optional, Type
 from .base import ExpansionStrategy
 from .or_strategy import OrStrategy
 from .range_strategy import RangeStrategy
-from .nested_strategy import NestedStrategy
 
-STRATEGY_REGISTRY: List[Type[ExpansionStrategy]] = [
-    OrStrategy,
-    RangeStrategy,
-    NestedStrategy,
+# Ordered list of strategies (first match wins)
+_STRATEGIES: List[Type[ExpansionStrategy]] = [
+    RangeStrategy,  # Check range first (simpler node structure)
+    OrStrategy,     # Then OR nodes
 ]
 
-def get_strategy(node: dict) -> ExpansionStrategy:
-    """Find matching strategy for a node."""
-    for strategy_cls in STRATEGY_REGISTRY:
-        strategy = strategy_cls()
+# Cached strategy instances
+_strategy_instances: Dict[Type[ExpansionStrategy], ExpansionStrategy] = {}
+
+
+def get_strategy(node: dict) -> Optional[ExpansionStrategy]:
+    """Find matching strategy for a node.
+
+    Args:
+        node: A dictionary node from the configuration.
+
+    Returns:
+        Matching strategy instance, or None if no strategy matches.
+    """
+    for strategy_cls in _STRATEGIES:
+        if strategy_cls not in _strategy_instances:
+            _strategy_instances[strategy_cls] = strategy_cls()
+
+        strategy = _strategy_instances[strategy_cls]
         if strategy.matches(node):
             return strategy
+
     return None
+
+
+def register_strategy(strategy_cls: Type[ExpansionStrategy], priority: int = -1):
+    """Register a custom strategy.
+
+    Args:
+        strategy_cls: The strategy class to register.
+        priority: Position in the strategy list (-1 = append at end).
+    """
+    if priority < 0:
+        _STRATEGIES.append(strategy_cls)
+    else:
+        _STRATEGIES.insert(priority, strategy_cls)
 ```
 
-### 4.4 Core Module Refactoring
+### 4.5 Core Module Refactoring
 
-#### 4.4.1 Simplified Core
+With strategies in place, the core module becomes a thin orchestration layer:
 
 ```python
-# generator/core.py
-from typing import Any, List, Optional, Union
+# _generator/core.py
+from typing import Any, Dict, List, Optional, Union
+from collections.abc import Mapping
+from itertools import product
+
 from .strategies.registry import get_strategy
-from .keywords import is_generator_node
+from .keywords import has_or_keyword, extract_base_node
+
+GeneratorNode = Union[Dict[str, Any], List[Any], str, int, float, bool, None]
+
 
 def expand_spec(
-    node: Union[dict, list, Any],
+    node: GeneratorNode,
     seed: Optional[int] = None
 ) -> List[Any]:
-    """
-    Expand a specification node to all possible combinations.
+    """Expand a specification node to all possible combinations.
 
     Args:
-        node: Specification to expand (dict, list, or scalar)
-        seed: Random seed for reproducible sampling
+        node: Specification to expand (dict, list, or scalar).
+        seed: Random seed for reproducible sampling when using 'count'.
 
     Returns:
-        List of all expanded combinations
-    """
-    # Handle lists
-    if isinstance(node, list):
-        return _expand_list(node, seed)
+        List of all expanded combinations.
 
-    # Handle non-dict scalars
-    if not isinstance(node, dict):
+    Examples:
+        >>> expand_spec({"_or_": ["A", "B", "C"]})
+        ['A', 'B', 'C']
+        >>> expand_spec({"_or_": ["A", "B"], "pick": 2})
+        [['A', 'B']]
+    """
+    return _expand_internal(node, seed)
+
+
+def _expand_internal(node: GeneratorNode, seed: Optional[int] = None) -> List[Any]:
+    """Internal recursive expansion."""
+    # Handle lists: Cartesian product of expanded elements
+    if isinstance(node, list):
+        if not node:
+            return [[]]
+        expanded = [_expand_internal(elem, seed) for elem in node]
+        return [list(combo) for combo in product(*expanded)]
+
+    # Handle scalars
+    if not isinstance(node, Mapping):
         return [node]
 
-    # Find matching strategy
+    # Try to find a matching strategy
     strategy = get_strategy(node)
     if strategy:
-        return strategy.expand(node, seed)
+        return strategy.expand(node, _expand_internal, seed)
 
-    # Default dict expansion (Cartesian product of keys)
+    # Mixed node with _or_ and other keys
+    if has_or_keyword(node):
+        return _expand_mixed_or_node(node, seed)
+
+    # Regular dict: Cartesian product over values
     return _expand_dict(node, seed)
 
-def count_combinations(node: Union[dict, list, Any]) -> int:
-    """
-    Count total combinations without generating them.
+
+def _expand_mixed_or_node(node: Dict[str, Any], seed: Optional[int]) -> List[Any]:
+    """Expand dict containing _or_ mixed with other keys."""
+    base = extract_base_node(node)
+    base_expanded = _expand_internal(base, seed)
+
+    # Build OR-only node for separate expansion
+    or_node = {k: v for k, v in node.items() if k not in base}
+    or_expanded = _expand_internal(or_node, seed)
+
+    # Merge results
+    results = []
+    for b in base_expanded:
+        for c in or_expanded:
+            if isinstance(c, Mapping):
+                results.append({**b, **c})
+            else:
+                raise ValueError("Top-level _or_ choices must be dicts")
+    return results
+
+
+def _expand_dict(node: Dict[str, Any], seed: Optional[int]) -> List[Dict]:
+    """Expand regular dict by taking Cartesian product of values."""
+    if not node:
+        return [{}]
+
+    keys = list(node.keys())
+    value_options = [_expand_value(node[k], seed) for k in keys]
+
+    results = []
+    for combo in product(*value_options):
+        results.append(dict(zip(keys, combo)))
+    return results
+
+
+def _expand_value(v: Any, seed: Optional[int]) -> List[Any]:
+    """Expand a single value, handling nested generators."""
+    if isinstance(v, Mapping):
+        strategy = get_strategy(v)
+        if strategy:
+            return strategy.expand(v, _expand_internal, seed)
+        return _expand_internal(v, seed)
+    elif isinstance(v, list):
+        return _expand_internal(v, seed)
+    else:
+        return [v]
+
+
+def count_combinations(node: GeneratorNode) -> int:
+    """Count total combinations without generating them.
 
     Args:
-        node: Specification to count
+        node: Specification to count.
 
     Returns:
-        Total number of combinations
+        Total number of combinations that expand_spec would produce.
     """
-    if isinstance(node, list):
-        return _count_list(node)
+    return _count_internal(node)
 
-    if not isinstance(node, dict):
+
+def _count_internal(node: GeneratorNode) -> int:
+    """Internal recursive counting."""
+    if isinstance(node, list):
+        if not node:
+            return 1
+        total = 1
+        for elem in node:
+            total *= _count_internal(elem)
+        return total
+
+    if not isinstance(node, Mapping):
         return 1
 
     strategy = get_strategy(node)
     if strategy:
-        return strategy.count(node)
+        return strategy.count(node, _count_internal)
+
+    if has_or_keyword(node):
+        return _count_mixed_or_node(node)
 
     return _count_dict(node)
+
+
+def _count_mixed_or_node(node: Dict[str, Any]) -> int:
+    """Count mixed OR node."""
+    base = extract_base_node(node)
+    or_node = {k: v for k, v in node.items() if k not in base}
+    return _count_internal(base) * _count_internal(or_node)
+
+
+def _count_dict(node: Dict[str, Any]) -> int:
+    """Count regular dict."""
+    if not node:
+        return 1
+    total = 1
+    for v in node.values():
+        total *= _count_value(v)
+    return total
+
+
+def _count_value(v: Any) -> int:
+    """Count value-position combinations."""
+    if isinstance(v, (Mapping, list)):
+        return _count_internal(v)
+    return 1
 ```
 
-### 4.5 Keywords Module
+### 4.6 Simplified Public API
+
+After Phase 2, `generator.py` becomes a thin wrapper:
 
 ```python
-# generator/keywords.py
-"""Generator keyword definitions and utilities."""
+# generator.py (becomes thin wrapper ~50 lines)
+"""Generator module for pipeline configuration expansion.
 
-# Core generation keywords
-OR_KEYWORD = "_or_"
-RANGE_KEYWORD = "_range_"
-LOG_RANGE_KEYWORD = "_log_range_"  # Future
+This module expands pipeline configuration specifications into concrete
+pipeline variants. It handles combinatorial keywords (_or_, _range_,
+pick, arrange, size, count) and generates all possible combinations.
 
-# Modifier keywords
-SIZE_KEYWORD = "size"
-COUNT_KEYWORD = "count"
-SEED_KEYWORD = "_seed_"
-WEIGHTS_KEYWORD = "_weights_"
-EXCLUDE_KEYWORD = "_exclude_"
+Main Functions:
+    expand_spec(node): Expand a configuration node into all variants
+    count_combinations(node): Count variants without generating them
 
-# Keyword groups
-GENERATION_KEYWORDS = frozenset({OR_KEYWORD, RANGE_KEYWORD, LOG_RANGE_KEYWORD})
-MODIFIER_KEYWORDS = frozenset({SIZE_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD, WEIGHTS_KEYWORD, EXCLUDE_KEYWORD})
-ALL_KEYWORDS = GENERATION_KEYWORDS | MODIFIER_KEYWORDS
+Keywords:
+    _or_: Choice between alternatives
+    _range_: Numeric sequence generation
+    size: Number of items to select (legacy, uses combinations)
+    pick: Unordered selection (combinations)
+    arrange: Ordered arrangement (permutations)
+    then_pick: Second-order combination selection
+    then_arrange: Second-order permutation selection
+    count: Limit number of generated variants
+"""
 
-def is_generator_node(node: dict) -> bool:
-    """Check if a dict node contains any generator keywords."""
-    if not isinstance(node, dict):
-        return False
-    return bool(GENERATION_KEYWORDS & set(node.keys()))
+# Re-export core API
+from ._generator.core import expand_spec, count_combinations
 
-def extract_modifiers(node: dict) -> dict:
-    """Extract modifier values from a node."""
-    return {k: node[k] for k in MODIFIER_KEYWORDS if k in node}
+# Re-export keywords for external use
+from ._generator.keywords import (
+    OR_KEYWORD, RANGE_KEYWORD, SIZE_KEYWORD, COUNT_KEYWORD,
+    PICK_KEYWORD, ARRANGE_KEYWORD, THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD,
+    PURE_OR_KEYS, PURE_RANGE_KEYS,
+    is_generator_node, is_pure_or_node, is_pure_range_node,
+    has_or_keyword, has_range_keyword,
+    extract_modifiers, extract_base_node,
+)
 
-def extract_base_node(node: dict) -> dict:
-    """Extract non-keyword keys from a node."""
-    return {k: v for k, v in node.items() if k not in ALL_KEYWORDS}
+__all__ = [
+    "expand_spec", "count_combinations",
+    # Keywords
+    "OR_KEYWORD", "RANGE_KEYWORD", "SIZE_KEYWORD", "COUNT_KEYWORD",
+    "PICK_KEYWORD", "ARRANGE_KEYWORD", "THEN_PICK_KEYWORD", "THEN_ARRANGE_KEYWORD",
+    "PURE_OR_KEYS", "PURE_RANGE_KEYS",
+    # Utilities
+    "is_generator_node", "is_pure_or_node", "is_pure_range_node",
+    "has_or_keyword", "has_range_keyword",
+    "extract_modifiers", "extract_base_node",
+]
 ```
 
-### 4.6 Utilities Module
+### 4.7 Validators Module (New)
 
 ```python
-# generator/utils/sampling.py
-import random
-from typing import List, TypeVar, Optional
+# _generator/validators/__init__.py
+"""Validation utilities for generated configurations."""
 
-T = TypeVar('T')
+from .schema import validate_config, ValidationError
 
-def sample_with_seed(
-    population: List[T],
-    k: int,
-    seed: Optional[int] = None,
-    weights: Optional[List[float]] = None
-) -> List[T]:
-    """
-    Sample from population with optional seed and weights.
+__all__ = ["validate_config", "ValidationError"]
+```
+
+```python
+# _generator/validators/schema.py
+"""Schema validation for generated configurations."""
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
+
+class ValidationError(Exception):
+    """Raised when a generated configuration is invalid."""
+    def __init__(self, message: str, path: str = "", value: Any = None):
+        self.message = message
+        self.path = path
+        self.value = value
+        super().__init__(f"{path}: {message}" if path else message)
+
+
+@dataclass
+class ValidationResult:
+    """Result of configuration validation."""
+    valid: bool
+    errors: List[ValidationError]
+    warnings: List[str]
+
+    @property
+    def error_messages(self) -> List[str]:
+        return [str(e) for e in self.errors]
+
+
+def validate_config(
+    config: Dict[str, Any],
+    schema: Optional[Dict[str, Any]] = None,
+    strict: bool = False
+) -> ValidationResult:
+    """Validate a generated configuration.
 
     Args:
-        population: Items to sample from
-        k: Number of items to sample
-        seed: Random seed for reproducibility
-        weights: Optional weights for weighted sampling
+        config: The configuration to validate.
+        schema: Optional schema definition for validation.
+        strict: If True, unknown keys are errors; otherwise warnings.
 
     Returns:
-        Sampled items
-    """
-    if seed is not None:
-        rng = random.Random(seed)
-    else:
-        rng = random.Random()
+        ValidationResult with valid flag, errors, and warnings.
 
-    if weights:
-        return rng.choices(population, weights=weights, k=k)
-    return rng.sample(population, k=min(k, len(population)))
+    Examples:
+        >>> result = validate_config({"model": "PLS"})
+        >>> result.valid
+        True
+    """
+    errors = []
+    warnings = []
+
+    # Check for empty config
+    if not config:
+        warnings.append("Empty configuration")
+
+    # If schema provided, validate against it
+    if schema:
+        errors.extend(_validate_against_schema(config, schema, strict))
+
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings
+    )
+
+
+def _validate_against_schema(
+    config: Dict[str, Any],
+    schema: Dict[str, Any],
+    strict: bool
+) -> List[ValidationError]:
+    """Validate config against schema definition."""
+    errors = []
+
+    # Check required fields
+    required = schema.get("required", [])
+    for field in required:
+        if field not in config:
+            errors.append(ValidationError(
+                f"Missing required field: {field}",
+                path=field
+            ))
+
+    # Check types
+    properties = schema.get("properties", {})
+    for key, value in config.items():
+        if key in properties:
+            expected_type = properties[key].get("type")
+            if expected_type and not _check_type(value, expected_type):
+                errors.append(ValidationError(
+                    f"Expected {expected_type}, got {type(value).__name__}",
+                    path=key,
+                    value=value
+                ))
+        elif strict:
+            errors.append(ValidationError(
+                f"Unknown field: {key}",
+                path=key
+            ))
+
+    return errors
+
+
+def _check_type(value: Any, expected: str) -> bool:
+    """Check if value matches expected type string."""
+    type_map = {
+        "string": str,
+        "integer": int,
+        "number": (int, float),
+        "boolean": bool,
+        "array": list,
+        "object": dict,
+    }
+    expected_types = type_map.get(expected, object)
+    return isinstance(value, expected_types)
 ```
 
-### 4.7 Migration Path
+### 4.8 Migration Path: Phase 2 Implementation Plan
 
-1. **Phase 1**: Extract keywords and utilities (non-breaking)
-2. **Phase 2**: Implement strategy pattern alongside existing code
-3. **Phase 3**: Migrate expand_spec to use strategies
-4. **Phase 4**: Remove old code
-5. **Phase 5**: Add new features using strategy pattern
+#### 4.8.1 Week 1: Strategy Infrastructure
+
+**Tasks:**
+1. Create `_generator/strategies/` directory
+2. Implement `base.py` with abstract `ExpansionStrategy`
+3. Implement `registry.py` with strategy dispatch
+4. Add unit tests for registry
+
+**Deliverables:**
+- [ ] `_generator/strategies/__init__.py`
+- [ ] `_generator/strategies/base.py`
+- [ ] `_generator/strategies/registry.py`
+- [ ] `tests/unit/pipeline/config/generator/test_registry.py`
+
+#### 4.8.2 Week 2: Range Strategy
+
+**Tasks:**
+1. Implement `RangeStrategy` in `range_strategy.py`
+2. Move `_generate_range` and `_count_range` logic to strategy
+3. Update registry to use RangeStrategy
+4. Ensure backward compatibility with tests
+
+**Deliverables:**
+- [ ] `_generator/strategies/range_strategy.py`
+- [ ] `tests/unit/pipeline/config/generator/test_range_strategy.py`
+
+#### 4.8.3 Week 3: OR Strategy (Core)
+
+**Tasks:**
+1. Implement basic `OrStrategy` without pick/arrange
+2. Handle simple `_or_` expansion
+3. Handle `size` parameter (legacy)
+4. Handle `count` parameter
+5. Add comprehensive tests
+
+**Deliverables:**
+- [ ] `_generator/strategies/or_strategy.py` (basic)
+- [ ] `tests/unit/pipeline/config/generator/test_or_strategy.py`
+
+#### 4.8.4 Week 4: OR Strategy (Selection Semantics)
+
+**Tasks:**
+1. Add `pick` and `arrange` handling to OrStrategy
+2. Add `then_pick` and `then_arrange` second-order
+3. Handle nested array syntax `[outer, inner]`
+4. Ensure all existing tests pass
+
+**Deliverables:**
+- [ ] `_generator/strategies/or_strategy.py` (complete)
+- [ ] Updated tests for pick/arrange
+
+#### 4.8.5 Week 5: Core Module Refactoring
+
+**Tasks:**
+1. Create `_generator/core.py` with simplified expand_spec
+2. Integrate strategy dispatch into core
+3. Update `generator.py` to be thin wrapper
+4. Run full test suite, fix regressions
+
+**Deliverables:**
+- [ ] `_generator/core.py`
+- [ ] Simplified `generator.py`
+- [ ] All tests passing
+
+#### 4.8.6 Week 6: Validators & Polish
+
+**Tasks:**
+1. Create `_generator/validators/` module
+2. Implement basic schema validation
+3. Add validation integration tests
+4. Documentation updates
+5. Clean up old code (remove duplicates)
+
+**Deliverables:**
+- [ ] `_generator/validators/__init__.py`
+- [ ] `_generator/validators/schema.py`
+- [ ] Updated documentation
+- [ ] Final cleanup
+
+### 4.9 Phase 2 Success Criteria
+
+| Criterion | Target | Measurement |
+|-----------|--------|-------------|
+| Main file size | < 100 lines | `wc -l generator.py` |
+| Test coverage | > 90% | `pytest --cov` |
+| All existing tests | Pass | `pytest tests/` |
+| DRY compliance | No duplicate expand/count | Code review |
+| Type coverage | 100% public API | `mypy --strict` |
+| Documentation | All functions documented | `pydocstyle` |
+
+### 4.10 Backward Compatibility Guarantees
+
+Phase 2 maintains full backward compatibility:
+
+1. **Public API unchanged**: `expand_spec()` and `count_combinations()` signatures preserved
+2. **Keyword behavior unchanged**: All existing keywords work identically
+3. **Import paths stable**: `from nirs4all.pipeline.config.generator import expand_spec` continues to work
+4. **No deprecation warnings**: Phase 2 adds no new deprecation warnings
+5. **Test compatibility**: All existing tests pass without modification
 
 ---
 
@@ -1207,62 +1745,104 @@ def test_count_equals_one():
 
 ## 7. Implementation Roadmap
 
-### Phase 1: Critical Fixes (Week 1-2)
-- [ ] Add seed support to `expand_spec`
-- [ ] Add type annotations
-- [ ] Add comprehensive docstrings
-- [ ] Create test suite for edge cases
+### Phase 1: Critical Fixes ✅ COMPLETE
+- [x] Add seed support via `sample_with_seed` utility
+- [x] Add type annotations in `keywords.py` and `utils/`
+- [x] Add comprehensive docstrings
+- [x] Create test suite for edge cases
 
-### Phase 2: Modularization (Week 3-4)
-- [ ] Extract keywords.py
-- [ ] Extract utils/ module
-- [ ] Implement strategy pattern
-- [ ] Migrate existing code to strategies
+### Phase 1.5: Selection Semantics ✅ COMPLETE
+- [x] Add `pick` keyword for combinations (unordered selection)
+- [x] Add `arrange` keyword for permutations (ordered arrangement)
+- [x] Add `then_pick` and `then_arrange` for second-order operations
+- [x] Create `_generator/` subpackage structure
+- [x] Extract `keywords.py` with centralized constants
+- [x] Extract `utils/sampling.py` and `utils/combinatorics.py`
+- [x] Add comprehensive tests for pick/arrange in `test_generator_pick_arrange.py`
 
-### Phase 3: New Features (Week 5-8)
-- [ ] Add `_log_range_` support
-- [ ] Add weighted sampling (`_weights_`)
-- [ ] Add exclusion rules (`_exclude_`)
-- [ ] Add tagging system
+### Phase 2: Modularization (Current - 6 weeks)
+- [x] Week 1: Create strategy infrastructure (`base.py`, `registry.py`)
+- [x] Week 2: Implement `RangeStrategy`
+- [x] Week 3: Implement basic `OrStrategy`
+- [x] Week 4: Add pick/arrange handling to `OrStrategy`
+- [x] Week 5: Refactor core module, thin wrapper
+- [x] Week 6: Add validators, polish, cleanup
 
-### Phase 4: Production Features (Week 9-12)
-- [ ] Add lazy/iterator generation
-- [ ] Add constraint system
-- [ ] Add preset system
-- [ ] Add export/visualization tools
+**See Section 4.8 for detailed implementation plan.**
 
-### Phase 5: Documentation & Examples (Week 13-14)
-- [ ] Update reference documentation
-- [ ] Create tutorial examples
-- [ ] Add migration guide
+### Phase 3: New Features (Week 7-12)
+- [x] Add `_log_range_` support for logarithmic ranges
+- [x] Add weighted sampling (`_weights_`) using existing `sample_with_seed`
+- [x] Add exclusion rules (`_exclude_`) for forbidden combinations
+- [x] Add tagging system (`_tag_`) for configuration metadata
+- [x] Add duplicates removal or generation skip
+
+### Phase 4: Production Features (Week 13-18) ✅ COMPLETED
+- [x] Add lazy/iterator generation via `expand_spec_iter()` - iterator.py
+- [x] Add constraint system (`_mutex_`, `_requires_`, `_exclude_`) - constraints.py
+- [x] Add preset system (`_preset_`) for named configurations - presets.py
+- [x] Add export/visualization tools (DataFrame, tree view) - utils/export.py
+
+### Phase 5: Documentation & Examples (Week 19-20)
+- [ ] Update reference documentation in `docs/reference/`
+- [ ] Create tutorial examples for new features
+- [ ] Create a complete pipeline with PLS (regression dataset) using a very complex and nested generation pipeline
+- [ ] Add migration guide for deprecated patterns
+- [ ] Update `Q23_generator_syntax.py` example
 
 ---
 
 ## 8. Summary
 
-The generator module is functional but has grown organically into a monolithic file with several issues:
+### Current Status (Post Phase 4)
 
-**Critical Issues**:
-1. Non-deterministic behavior with `count` parameter
-2. Inconsistent return types
-3. DRY violations between expand and count functions
-4. Missing type safety
+The generator module has completed its major refactoring phases:
 
-**Recommended Immediate Actions**:
-1. Add `seed` parameter for reproducibility
-2. Add type annotations
-3. Create comprehensive test suite
-4. Document edge cases
+**Completed ✅**:
+1. `pick` and `arrange` keywords for explicit selection semantics
+2. `then_pick` and `then_arrange` for second-order operations
+3. Modular `_generator/` subpackage with strategies, constraints, presets
+4. Seed-aware random sampling for reproducibility
+5. Strategy pattern for all keyword types (`_or_`, `_range_`, `_log_range_`, `_grid_`, `_zip_`, `_chain_`, `_sample_`)
+6. Constraint system (`_mutex_`, `_requires_`, `_exclude_`) for filtering combinations
+7. Preset system (`_preset_`) for reusable named configurations
+8. Iterator-based expansion (`expand_spec_iter()`) for memory efficiency
+9. Export utilities (DataFrame export, tree visualization, config diff)
+10. Comprehensive test coverage (261+ tests passing)
 
-**Long-term Vision**:
-- Modular, extensible architecture using strategy pattern
-- Rich keyword vocabulary for complex generation patterns
-- Production-ready API with validation, constraints, and tagging
-- Memory-efficient lazy generation for large spaces
+**Remaining** (Phase 5):
+- Documentation updates in `docs/reference/`
+- Tutorial examples for new features
+- Migration guide for deprecated patterns
+
+### Recommended Next Actions
+
+1. **Update reference documentation** (Phase 5)
+   - Document constraint keywords in `docs/reference/`
+   - Document preset system and usage
+   - Document iterator API
+
+2. **Create tutorial examples** (Phase 5)
+   - Example with presets for common preprocessing patterns
+   - Example with constraints for valid transform combinations
+   - Example using iterator for large configuration spaces
+
+3. **Update Q23_generator_syntax.py** (Phase 5)
+   - Add Phase 4 features to the examples
+   - Show constraint and preset usage
+
+### Long-term Vision
+
+- ✅ Modular, extensible architecture using strategy pattern
+- ✅ Rich keyword vocabulary for complex generation patterns
+- ✅ Production-ready API with validation, constraints, and tagging
+- ✅ Memory-efficient lazy generation for large configuration spaces
+- ✅ Full backward compatibility throughout evolution
 
 ---
 
 *Document created: December 8, 2025*
+*Last updated: Phase 4 Complete*
 *Author: GitHub Copilot Analysis*
 
 

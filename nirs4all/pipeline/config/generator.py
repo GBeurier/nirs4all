@@ -1,486 +1,371 @@
-# Fix: Add list handling to expand_spec function
-from itertools import product, combinations, permutations
-from collections.abc import Mapping
-from math import comb, factorial
-import random
-
-def expand_spec(node):
-    # NEW: Handle lists by expanding each element and taking the product
-    if isinstance(node, list):
-        if not node:
-            return [[]]  # Empty list -> single empty result
-
-        # Special case: if there's only one element in the list, check if we should unwrap
-        if len(node) == 1:
-            element_result = expand_spec(node[0])
-
-            # If the result contains lists (combinations), return directly to prevent extra wrapping
-            # If the result contains scalars, we still need to wrap them properly
-            if element_result and isinstance(element_result[0], list):
-                return element_result
-            # Otherwise, fall through to normal processing
-
-        # Expand each element in the list
-        expanded_elements = [expand_spec(element) for element in node]
-
-        # Take Cartesian product of all expansions
-        results = []
-        for combo in product(*expanded_elements):
-            results.append(list(combo))  # Convert tuple to list
-        return results
-
-    # Rest of the logic remains the same for dictionaries
-    if not isinstance(node, Mapping):
-        return [node]
-
-    # NEW: Handle _range_ node for numeric sequences
-    if set(node.keys()).issubset({"_range_", "count"}):
-        range_spec = node["_range_"]
-        count = node.get("count", None)
-
-        # Generate numeric range based on specification
-        range_values = _generate_range(range_spec)
-
-        # Apply count limit if specified
-        if count is not None and len(range_values) > count:
-            range_values = random.sample(range_values, count)
-
-        return range_values
-
-    # Case 1: pure OR node (with optional size, count)
-    if set(node.keys()).issubset({"_or_", "size", "count"}):
-        choices = node["_or_"]
-        size = node.get("size", None)
-        count = node.get("count", None)
-
-        if size is not None:
-            # NEW: Check for second-order array notation [outer, inner]
-            if isinstance(size, list) and len(size) == 2:
-                results = _handle_nested_combinations(choices, size)
-                # Apply count limit if specified
-                if count is not None and len(results) > count:
-                    results = random.sample(results, count)
-                return results
-
-            # Apply size constraints first, then expand
-            out = []
-
-            # Handle tuple size (from, to) or single size
-            if isinstance(size, tuple) and len(size) == 2:
-                from_size, to_size = size
-                # Generate combinations for all sizes from from_size to to_size (inclusive)
-                for s in range(from_size, to_size + 1):
-                    if s > len(choices):
-                        continue
-                    for combo in combinations(choices, s):
-                        # Expand this specific combination and return as individual elements
-                        combo_results = _expand_combination(combo)
-                        out.extend(combo_results)
-            else:
-                # Single size value
-                if size <= len(choices):
-                    for combo in combinations(choices, size):
-                        # Expand this specific combination and return as individual elements
-                        combo_results = _expand_combination(combo)
-                        out.extend(combo_results)
-
-            # Apply count limit if specified
-            if count is not None and len(out) > count:
-                out = random.sample(out, count)
-
-            return out
-        else:
-            # Original behavior: expand all choices
-            out = []
-            for choice in choices:
-                out.extend(expand_spec(choice))
-
-            # Apply count limit if specified
-            if count is not None and len(out) > count:
-                out = random.sample(out, count)
-
-            return out
-
-    # Case 2: dict that also contains "_or_" -> branch and merge
-    if "_or_" in node:
-        # Extract size and count if present
-        size = node.get("size", None)
-        count = node.get("count", None)
-        base = {k: v for k, v in node.items() if k not in ["_or_", "size", "count"]}
-        base_expanded = expand_spec(base)            # list[dict]
-
-        # Create a temporary or node with size and count
-        or_node = {"_or_": node["_or_"]}
-        if size is not None:
-            or_node["size"] = size
-        if count is not None:
-            or_node["count"] = count
-
-        choice_expanded = expand_spec(or_node)  # list[dict or scalar]
-        results = []
-        for b in base_expanded:
-            for c in choice_expanded:
-                if isinstance(c, Mapping):
-                    merged = {**b, **c}
-                    results.append(merged)
-                else:
-                    # Scalar choices only make sense as values under a key, not top-level merges
-                    raise ValueError("Top-level 'or' choices must be dicts.")
-        return results
-
-    # Case 3: normal dict -> product over keys
-    keys, options = zip(*[(k, _expand_value(v)) for k, v in node.items()]) if node else ([], [])
-    if not keys:
-        return [{}]
-    out = []
-    for combo in product(*options):
-        d = {}
-        for k, v in zip(keys, combo):
-            d[k] = v
-        out.append(d)
-    return out
-
-def count_combinations(node):
-    """Calculate total number of combinations without generating them.
-    Returns the count of results that expand_spec would produce.
-    """
-    # Handle lists by taking product of counts
-    if isinstance(node, list):
-        if not node:
-            return 1  # Empty list -> single empty result
-
-        total_count = 1
-        for element in node:
-            total_count *= count_combinations(element)
-        return total_count
-
-    # Scalars return 1
-    if not isinstance(node, Mapping):
-        return 1
-
-    # NEW: Handle _range_ node for counting numeric sequences
-    if set(node.keys()).issubset({"_range_", "count"}):
-        range_spec = node["_range_"]
-        count = node.get("count", None)
-
-        # Calculate range size
-        range_size = _count_range(range_spec)
-
-        # Apply count limit if specified
-        if count is not None:
-            return min(count, range_size)
-        return range_size
-
-    # Case 1: pure OR node (with optional size, count)
-    if set(node.keys()).issubset({"_or_", "size", "count"}):
-        choices = node["_or_"]
-        size = node.get("size", None)
-        count = node.get("count", None)
-
-        if size is not None:
-            # Check for second-order array notation [outer, inner]
-            if isinstance(size, list) and len(size) == 2:
-                total_count = _count_nested_combinations(choices, size)
-                # Apply count limit if specified
-                if count is not None:
-                    return min(count, total_count)
-                return total_count
-
-            # Handle tuple size (from, to) or single size
-            total_count = 0
-            if isinstance(size, tuple) and len(size) == 2:
-                from_size, to_size = size
-                for s in range(from_size, to_size + 1):
-                    if s <= len(choices):
-                        total_count += comb(len(choices), s)
-            else:
-                # Single size value
-                if size <= len(choices):
-                    total_count = comb(len(choices), size)
-
-            # Apply count limit if specified
-            if count is not None:
-                return min(count, total_count)
-            return total_count
-        else:
-            # All choices - count each choice's expansions
-            total_count = 0
-            for choice in choices:
-                total_count += count_combinations(choice)
-
-            # Apply count limit if specified
-            if count is not None:
-                return min(count, total_count)
-            return total_count
-
-    # Case 2: dict that also contains "_or_" -> branch and merge
-    if "_or_" in node:
-        size = node.get("size", None)
-        count = node.get("count", None)
-        base = {k: v for k, v in node.items() if k not in ["_or_", "size", "count"]}
-
-        base_count = count_combinations(base)
-
-        # Create temporary or node
-        or_node = {"_or_": node["_or_"]}
-        if size is not None:
-            or_node["size"] = size
-        if count is not None:
-            or_node["count"] = count
-
-        choice_count = count_combinations(or_node)
-
-        return base_count * choice_count
-
-    # Case 3: normal dict -> product over keys
-    if not node:
-        return 1
-
-    total_count = 1
-    for k, v in node.items():
-        total_count *= _count_value(v)
-
-    return total_count
-
-def _handle_nested_combinations(choices, nested_size):
-    """Handle second-order combinations with array syntax [outer, inner]
-    outer and inner can be int or tuple (from, to)
-    For second-order: inner elements use permutations (order matters within sub-arrays)
-    For outer selection: uses combinations (order doesn't matter for selecting which sub-arrays)
-    """
-    outer_size, inner_size = nested_size
-
-    # Handle inner size - can be int or tuple
-    if isinstance(inner_size, int):
-        inner_from, inner_to = inner_size, inner_size
-    else:  # tuple (from, to)
-        inner_from, inner_to = inner_size
-
-    # Handle outer size - can be int or tuple
-    if isinstance(outer_size, int):
-        outer_from, outer_to = outer_size, outer_size
-    else:  # tuple (from, to)
-        outer_from, outer_to = outer_size
-
-    # Step 1: Generate all possible inner arrangements (permutations - order matters!)
-    inner_arrangements = []
-    for inner_s in range(inner_from, inner_to + 1):
-        if inner_s > len(choices):
-            continue
-        # Use permutations for inner elements (order matters within sub-arrays)
-        for perm in permutations(choices, inner_s):
-            # Each inner arrangement is a simple list
-            if len(perm) == 1:
-                # Single element - don't wrap in extra list
-                inner_arrangements.append(perm[0])
-            else:
-                # Multiple elements - keep as list
-                inner_arrangements.append(list(perm))
-
-    # Step 2: Select outer combinations (combinations - order doesn't matter for selection)
-    out = []
-    for outer_s in range(outer_from, outer_to + 1):
-        if outer_s > len(inner_arrangements):
-            continue
-        # Use combinations for outer selection (order doesn't matter for which sub-arrays to pick)
-        for outer_combo in combinations(inner_arrangements, outer_s):
-            # Convert tuple to list and add to results
-            out.append(list(outer_combo))
-
-    return out
-
-def _count_nested_combinations(choices, nested_size):
-    """Count second-order combinations without generating them."""
-    outer_size, inner_size = nested_size
-
-    # Handle inner size - can be int or tuple
-    if isinstance(inner_size, int):
-        inner_from, inner_to = inner_size, inner_size
-    else:
-        inner_from, inner_to = inner_size
-
-    # Handle outer size - can be int or tuple
-    if isinstance(outer_size, int):
-        outer_from, outer_to = outer_size, outer_size
-    else:
-        outer_from, outer_to = outer_size
-
-    # Count inner arrangements (permutations)
-    total_inner_arrangements = 0
-    n_choices = len(choices)
-
-    for inner_s in range(inner_from, inner_to + 1):
-        if inner_s <= n_choices:
-            # Permutations: P(n,k) = n!/(n-k)!
-            perms = factorial(n_choices) // factorial(n_choices - inner_s) if inner_s <= n_choices else 0
-            total_inner_arrangements += perms
-
-    # Count outer combinations from inner arrangements
-    total_count = 0
-    for outer_s in range(outer_from, outer_to + 1):
-        if outer_s <= total_inner_arrangements:
-            total_count += comb(total_inner_arrangements, outer_s)
-
-    return total_count
-
-def _expand_combination(combo):
-    """Expand a specific combination of choices by taking their cartesian product."""
-    expanded_choices = []
-    for choice in combo:
-        expanded_choices.append(expand_spec(choice))
-
-    # Take cartesian product
-    results = []
-    for expanded_combo in product(*expanded_choices):
-        # Return the combination as a single list (flatten one level)
-        results.append(list(expanded_combo))
-
-    return results
-
-def _expand_value(v):
-    # Value position returns a list of *values* (scalars or dicts)
-    if isinstance(v, Mapping) and ("_or_" in v.keys()):
-        # Value-level OR can yield scalars or dicts as values (with optional size, count)
-        choices = v["_or_"]
-        size = v.get("size", None)
-        count = v.get("count", None)
-
-        if size is not None:
-            # NEW: Check for second-order array notation [outer, inner]
-            if isinstance(size, list) and len(size) == 2:
-                results = _handle_nested_combinations(choices, size)
-                # Apply count limit if specified
-                if count is not None and len(results) > count:
-                    results = random.sample(results, count)
-                return results
-
-            # Apply size constraints first, then expand
-            vals = []
-
-            # Handle tuple size (from, to) or single size
-            if isinstance(size, tuple) and len(size) == 2:
-                from_size, to_size = size
-                # Generate combinations for all sizes from from_size to to_size (inclusive)
-                for s in range(from_size, to_size + 1):
-                    if s > len(choices):
-                        continue
-                    for combo in combinations(choices, s):
-                        # Expand this specific combination
-                        combo_results = _expand_combination(combo)
-                        vals.extend(combo_results)
-            else:
-                # Single size value
-                if size <= len(choices):
-                    for combo in combinations(choices, size):
-                        # Expand this specific combination
-                        combo_results = _expand_combination(combo)
-                        vals.extend(combo_results)
-
-            # Apply count limit if specified
-            if count is not None and len(vals) > count:
-                vals = random.sample(vals, count)
-
-            return vals
-        else:
-            # Original behavior: expand all choices
-            vals = []
-            for choice in choices:
-                ex = expand_spec(choice)
-                # expand_spec returns list; extend with each item (scalar or dict value)
-                vals.extend(ex)
-
-            # Apply count limit if specified
-            if count is not None and len(vals) > count:
-                vals = random.sample(vals, count)
-
-            return vals
-    elif isinstance(v, Mapping) and ("_range_" in v.keys()):
-        # Handle _range_ in value position
-        range_spec = v["_range_"]
-        count = v.get("count", None)
-
-        # Generate numeric range based on specification
-        range_values = _generate_range(range_spec)
-
-        # Apply count limit if specified
-        if count is not None and len(range_values) > count:
-            range_values = random.sample(range_values, count)
-
-        return range_values
-    elif isinstance(v, Mapping):
-        # Nested object: expand to list of dict values
-        return expand_spec(v)
-    elif isinstance(v, list):
-        # Handle lists in value positions
-        return expand_spec(v)
-    else:
-        return [v]
-
-def _count_value(v):
-    """Count combinations for a value position."""
-    if isinstance(v, Mapping) and ("_or_" in v.keys()):
-        return count_combinations(v)
-    elif isinstance(v, Mapping) and ("_range_" in v.keys()):
-        return count_combinations(v)
-    elif isinstance(v, Mapping):
-        return count_combinations(v)
-    elif isinstance(v, list):
-        return count_combinations(v)
-    else:
-        return 1
-
-
-def _generate_range(range_spec):
-    """Generate numeric range from specification.
-
-    Supports two syntaxes:
-    - Array: [from, to, step] where step defaults to 1
-    - Dict: {"from": start, "to": end, "step": step}
-    """
-    if isinstance(range_spec, list):
-        if len(range_spec) == 2:
-            start, end = range_spec
-            step = 1
-        elif len(range_spec) == 3:
-            start, end, step = range_spec
-        else:
-            raise ValueError("Range array must be [from, to] or [from, to, step]")
-    elif isinstance(range_spec, dict):
-        start = range_spec["from"]
-        end = range_spec["to"]
-        step = range_spec.get("step", 1)
-    else:
-        raise ValueError("Range specification must be array [from, to, step] or dict {'from': start, 'to': end, 'step': step}")
-
-    # Generate range - end is inclusive
-    if step > 0:
-        return list(range(start, end + 1, step))
-    else:
-        # For negative steps, we need to ensure end is included
-        return list(range(start, end - 1, step))
-
-
-def _count_range(range_spec):
-    """Count elements in a numeric range without generating them."""
-    if isinstance(range_spec, list):
-        if len(range_spec) == 2:
-            start, end = range_spec
-            step = 1
-        elif len(range_spec) == 3:
-            start, end, step = range_spec
-        else:
-            raise ValueError("Range array must be [from, to] or [from, to, step]")
-    elif isinstance(range_spec, dict):
-        start = range_spec["from"]
-        end = range_spec["to"]
-        step = range_spec.get("step", 1)
-    else:
-        raise ValueError("Range specification must be array [from, to, step] or dict {'from': start, 'to': end, 'step': step}")
-
-    # Calculate count: (end - start) // step + 1 (end is inclusive)
-    if step > 0 and end >= start:
-        return (end - start) // step + 1
-    elif step < 0 and end <= start:
-        return (start - end) // abs(step) + 1
-    else:
-        return 0
+"""Generator module for pipeline configuration expansion.
+
+This module expands pipeline configuration specifications into concrete
+pipeline variants. It handles combinatorial keywords (_or_, _range_, size,
+count, pick, arrange) and generates all possible combinations.
+
+This is the public API module. The implementation is in the _generator
+subpackage, which uses a Strategy pattern for modular node handling.
+
+Main Functions:
+    expand_spec(node, seed): Expand a configuration node into all variants
+    expand_spec_iter(node, seed): Lazy iterator version for large spaces
+    count_combinations(node): Count variants without generating them
+
+Phase 2 Keywords:
+    _or_: Choice between alternatives
+    _range_: Numeric sequence generation
+    size: Number of items to select (legacy, uses combinations)
+    pick: Unordered selection (combinations) - explicit intent
+    arrange: Ordered arrangement (permutations) - explicit intent
+    then_pick: Second-order combination selection
+    then_arrange: Second-order permutation selection
+    count: Limit number of generated variants
+
+Phase 3 Keywords:
+    _log_range_: Logarithmic sequence generation
+    _grid_: Grid search style Cartesian product
+    _zip_: Parallel iteration (like Python's zip)
+    _chain_: Sequential ordered choices
+    _sample_: Statistical sampling (uniform, log-uniform, normal)
+    _tags_: Configuration tagging for filtering
+    _metadata_: Arbitrary metadata attachment
+
+Phase 4 Features:
+    Constraints: _mutex_, _requires_, _exclude_ for filtering combinations
+    Presets: _preset_ for named configuration templates
+    Iterator: expand_spec_iter for memory-efficient lazy expansion
+    Export: to_dataframe, diff_configs, print_expansion_tree utilities
+
+Examples:
+    Basic choice expansion:
+        >>> expand_spec({"_or_": ["A", "B", "C"]})
+        ['A', 'B', 'C']
+
+    Pick (combinations):
+        >>> expand_spec({"_or_": ["A", "B", "C"], "pick": 2})
+        [['A', 'B'], ['A', 'C'], ['B', 'C']]
+
+    Arrange (permutations):
+        >>> expand_spec({"_or_": ["A", "B", "C"], "arrange": 2})
+        [['A', 'B'], ['B', 'A'], ['A', 'C'], ['C', 'A'], ['B', 'C'], ['C', 'B']]
+
+    Mutual exclusion constraint (Phase 4):
+        >>> expand_spec({"_or_": ["A", "B", "C"], "pick": 2, "_mutex_": [["A", "B"]]})
+        [['A', 'C'], ['B', 'C']]  # ["A", "B"] excluded
+
+    Lazy iteration for large spaces (Phase 4):
+        >>> for config in expand_spec_iter({"_range_": [1, 1000000]}):
+        ...     process(config)  # Memory efficient
+
+    Numeric range:
+        >>> expand_spec({"_range_": [1, 5]})
+        [1, 2, 3, 4, 5]
+
+    Logarithmic range:
+        >>> expand_spec({"_log_range_": [0.001, 1, 4]})
+        [0.001, 0.01, 0.1, 1.0]
+
+    Grid search:
+        >>> expand_spec({"_grid_": {"x": [1, 2], "y": ["A", "B"]}})
+        [{'x': 1, 'y': 'A'}, {'x': 1, 'y': 'B'}, {'x': 2, 'y': 'A'}, {'x': 2, 'y': 'B'}]
+
+    Parallel zip:
+        >>> expand_spec({"_zip_": {"x": [1, 2], "y": ["A", "B"]}})
+        [{'x': 1, 'y': 'A'}, {'x': 2, 'y': 'B'}]
+
+    Nested dict expansion:
+        >>> expand_spec({"x": {"_or_": [1, 2]}, "y": 3})
+        [{'x': 1, 'y': 3}, {'x': 2, 'y': 3}]
+
+Architecture:
+    The _generator subpackage uses the Strategy pattern:
+    - strategies/base.py: ExpansionStrategy abstract base class
+    - strategies/registry.py: Strategy registration and dispatch
+    - strategies/range_strategy.py: Handles _range_ nodes
+    - strategies/or_strategy.py: Handles _or_ nodes with pick/arrange/constraints
+    - strategies/log_range_strategy.py: Handles _log_range_ nodes (Phase 3)
+    - strategies/grid_strategy.py: Handles _grid_ nodes (Phase 3)
+    - strategies/zip_strategy.py: Handles _zip_ nodes (Phase 3)
+    - strategies/chain_strategy.py: Handles _chain_ nodes (Phase 3)
+    - strategies/sample_strategy.py: Handles _sample_ nodes (Phase 3)
+    - validators/schema.py: Specification and config validation (Phase 3)
+    - iterator.py: Lazy expansion with expand_spec_iter (Phase 4)
+    - constraints.py: Constraint evaluation (_mutex_, _requires_) (Phase 4)
+    - presets.py: Preset registry and resolution (Phase 4)
+    - core.py: Main expansion logic using strategy dispatch
+    - keywords.py: Keyword constants and detection utilities
+    - utils/: Helper functions (sampling, combinatorics, export)
+"""
+
+# Re-export core API from _generator package
+from ._generator.core import expand_spec, count_combinations
+
+# Re-export iterator API (Phase 4)
+from ._generator.iterator import (  # noqa: F401
+    expand_spec_iter,
+    batch_iter,
+    iter_with_progress,
+)
+
+# Re-export keyword constants for external use
+from ._generator.keywords import (  # noqa: F401
+    # Core keywords
+    OR_KEYWORD,
+    RANGE_KEYWORD,
+    LOG_RANGE_KEYWORD,
+    GRID_KEYWORD,
+    ZIP_KEYWORD,
+    CHAIN_KEYWORD,
+    SAMPLE_KEYWORD,
+    # Modifier keywords
+    SIZE_KEYWORD,
+    COUNT_KEYWORD,
+    SEED_KEYWORD,
+    WEIGHTS_KEYWORD,
+    # Selection keywords
+    PICK_KEYWORD,
+    ARRANGE_KEYWORD,
+    THEN_PICK_KEYWORD,
+    THEN_ARRANGE_KEYWORD,
+    # Metadata keywords
+    TAGS_KEYWORD,
+    METADATA_KEYWORD,
+    # Constraint keywords
+    MUTEX_KEYWORD,
+    REQUIRES_KEYWORD,
+    DEPENDS_ON_KEYWORD,
+    EXCLUDE_KEYWORD,
+    # Keyword groups
+    PURE_OR_KEYS,
+    PURE_RANGE_KEYS,
+    PURE_LOG_RANGE_KEYS,
+    PURE_GRID_KEYS,
+    PURE_ZIP_KEYS,
+    PURE_CHAIN_KEYS,
+    PURE_SAMPLE_KEYS,
+    GENERATION_KEYWORDS,
+    SELECTION_KEYWORDS,
+    MODIFIER_KEYWORDS,
+    METADATA_KEYWORDS,
+    CONSTRAINT_KEYWORDS,
+    ALL_KEYWORDS,
+    # Detection functions
+    is_generator_node,
+    is_pure_or_node,
+    is_pure_range_node,
+    is_pure_log_range_node,
+    is_pure_grid_node,
+    is_pure_zip_node,
+    is_pure_chain_node,
+    is_pure_sample_node,
+    has_or_keyword,
+    has_range_keyword,
+    has_log_range_keyword,
+    has_grid_keyword,
+    has_zip_keyword,
+    has_chain_keyword,
+    has_sample_keyword,
+    # Extraction functions
+    extract_modifiers,
+    extract_base_node,
+    extract_or_choices,
+    extract_range_spec,
+    extract_tags,
+    extract_metadata,
+    extract_constraints,
+)
+
+# Re-export strategies for advanced usage
+from ._generator.strategies import (  # noqa: F401
+    ExpansionStrategy,
+    get_strategy,
+    register_strategy,
+    # Phase 2 strategies
+    RangeStrategy,
+    OrStrategy,
+    # Phase 3 strategies
+    LogRangeStrategy,
+    GridStrategy,
+    ZipStrategy,
+    ChainStrategy,
+    SampleStrategy,
+)
+
+# Re-export validators (Phase 3)
+from ._generator.validators import (  # noqa: F401
+    ValidationError,
+    ValidationResult,
+    ValidationSeverity,
+    validate_spec,
+    validate_config,
+    validate_expanded_configs,
+)
+
+# Re-export utilities (used by tests and advanced usage)
+from ._generator.utils.sampling import sample_with_seed  # noqa: F401
+
+# Re-export constraints (Phase 4)
+from ._generator.constraints import (  # noqa: F401
+    apply_mutex_constraint,
+    apply_requires_constraint,
+    apply_exclude_constraint,
+    apply_all_constraints,
+    parse_constraints,
+    validate_constraints,
+)
+
+# Re-export presets (Phase 4)
+from ._generator.presets import (  # noqa: F401
+    PRESET_KEYWORD,
+    register_preset,
+    unregister_preset,
+    get_preset,
+    get_preset_info,
+    list_presets,
+    clear_presets,
+    has_preset,
+    is_preset_reference,
+    resolve_preset,
+    resolve_presets_recursive,
+    export_presets,
+    import_presets,
+    register_builtin_presets,
+)
+
+# Re-export export utilities (Phase 4)
+from ._generator.utils.export import (  # noqa: F401
+    to_dataframe,
+    diff_configs,
+    summarize_configs,
+    get_expansion_tree,
+    print_expansion_tree,
+    format_config_table,
+    ExpansionTreeNode,
+)
+
+__all__ = [
+    # Core API
+    "expand_spec",
+    "count_combinations",
+    # Iterator API (Phase 4)
+    "expand_spec_iter",
+    "batch_iter",
+    "iter_with_progress",
+    # Core keyword constants
+    "OR_KEYWORD",
+    "RANGE_KEYWORD",
+    "LOG_RANGE_KEYWORD",
+    "GRID_KEYWORD",
+    "ZIP_KEYWORD",
+    "CHAIN_KEYWORD",
+    "SAMPLE_KEYWORD",
+    # Modifier keyword constants
+    "SIZE_KEYWORD",
+    "COUNT_KEYWORD",
+    "SEED_KEYWORD",
+    "WEIGHTS_KEYWORD",
+    # Selection keyword constants
+    "PICK_KEYWORD",
+    "ARRANGE_KEYWORD",
+    "THEN_PICK_KEYWORD",
+    "THEN_ARRANGE_KEYWORD",
+    # Metadata keyword constants
+    "TAGS_KEYWORD",
+    "METADATA_KEYWORD",
+    # Constraint keyword constants
+    "MUTEX_KEYWORD",
+    "REQUIRES_KEYWORD",
+    "DEPENDS_ON_KEYWORD",
+    "EXCLUDE_KEYWORD",
+    # Keyword groups
+    "PURE_OR_KEYS",
+    "PURE_RANGE_KEYS",
+    "PURE_LOG_RANGE_KEYS",
+    "PURE_GRID_KEYS",
+    "PURE_ZIP_KEYS",
+    "PURE_CHAIN_KEYS",
+    "PURE_SAMPLE_KEYS",
+    "GENERATION_KEYWORDS",
+    "SELECTION_KEYWORDS",
+    "MODIFIER_KEYWORDS",
+    "METADATA_KEYWORDS",
+    "CONSTRAINT_KEYWORDS",
+    "ALL_KEYWORDS",
+    # Detection functions
+    "is_generator_node",
+    "is_pure_or_node",
+    "is_pure_range_node",
+    "is_pure_log_range_node",
+    "is_pure_grid_node",
+    "is_pure_zip_node",
+    "is_pure_chain_node",
+    "is_pure_sample_node",
+    "has_or_keyword",
+    "has_range_keyword",
+    "has_log_range_keyword",
+    "has_grid_keyword",
+    "has_zip_keyword",
+    "has_chain_keyword",
+    "has_sample_keyword",
+    # Extraction functions
+    "extract_modifiers",
+    "extract_base_node",
+    "extract_or_choices",
+    "extract_range_spec",
+    "extract_tags",
+    "extract_metadata",
+    "extract_constraints",
+    # Strategy pattern
+    "ExpansionStrategy",
+    "get_strategy",
+    "register_strategy",
+    # Phase 2 strategies
+    "RangeStrategy",
+    "OrStrategy",
+    # Phase 3 strategies
+    "LogRangeStrategy",
+    "GridStrategy",
+    "ZipStrategy",
+    "ChainStrategy",
+    "SampleStrategy",
+    # Validators
+    "ValidationError",
+    "ValidationResult",
+    "ValidationSeverity",
+    "validate_spec",
+    "validate_config",
+    "validate_expanded_configs",
+    # Utilities
+    "sample_with_seed",
+    # Constraints (Phase 4)
+    "apply_mutex_constraint",
+    "apply_requires_constraint",
+    "apply_exclude_constraint",
+    "apply_all_constraints",
+    "parse_constraints",
+    "validate_constraints",
+    # Presets (Phase 4)
+    "PRESET_KEYWORD",
+    "register_preset",
+    "unregister_preset",
+    "get_preset",
+    "get_preset_info",
+    "list_presets",
+    "clear_presets",
+    "has_preset",
+    "is_preset_reference",
+    "resolve_preset",
+    "resolve_presets_recursive",
+    "export_presets",
+    "import_presets",
+    "register_builtin_presets",
+    # Export utilities (Phase 4)
+    "to_dataframe",
+    "diff_configs",
+    "summarize_configs",
+    "get_expansion_tree",
+    "print_expansion_tree",
+    "format_config_table",
+    "ExpansionTreeNode",
+]
