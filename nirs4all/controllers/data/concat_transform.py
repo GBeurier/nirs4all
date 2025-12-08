@@ -176,6 +176,11 @@ class ConcatAugmentationController(OperatorController):
                 # Apply all operations and concatenate
                 concat_blocks = []
                 for op_idx, operation in enumerate(operations):
+                    # Handle None operations - pass through unchanged
+                    if operation is None:
+                        concat_blocks.append(all_2d)
+                        continue
+
                     op_name_base = self._get_operation_name(operation, op_idx)
                     binary_key = f"{proc_name}_{op_name_base}"
 
@@ -255,6 +260,22 @@ class ConcatAugmentationController(OperatorController):
             ValueError: If config format is invalid or generator syntax is not expanded
         """
         if isinstance(config, list):
+            # Handle generator wrapper: when using pick/arrange, the generator
+            # wraps the selected combination in an extra list, e.g., [[op1, op2]]
+            # instead of [op1, op2]. Unwrap if we detect this pattern.
+            # However, don't unwrap if it's a user-defined chain [[transformer, transformer]].
+            # Detection: generator output contains serialized components (dicts/strings),
+            # while user-defined chains contain live transformer instances.
+            if len(config) == 1 and isinstance(config[0], list):
+                inner = config[0]
+                # Check if inner list looks like generator output (contains serialized components)
+                has_serialized = any(
+                    isinstance(item, (dict, str))
+                    or (isinstance(item, list) and any(isinstance(x, (dict, str)) for x in item))
+                    for item in inner
+                )
+                if has_serialized:
+                    config = inner
             operations = self._deserialize_operations(config)
             return {"operations": operations, "name": None, "source_processing": None}
         elif isinstance(config, dict):
@@ -305,7 +326,7 @@ class ConcatAugmentationController(OperatorController):
             op: Single operation (may be serialized or instance)
 
         Returns:
-            Deserialized transformer instance
+            Deserialized transformer instance or chain of instances
         """
         # Already a transformer instance
         if hasattr(op, 'fit') and hasattr(op, 'transform'):
@@ -314,6 +335,10 @@ class ConcatAugmentationController(OperatorController):
         # Serialized as dict or string
         if isinstance(op, (dict, str)):
             return deserialize_component(op)
+
+        # Handle lists (chains of transformers) - recursively deserialize
+        if isinstance(op, list):
+            return [self._deserialize_single_operation(item) for item in op]
 
         return op
 
@@ -365,7 +390,9 @@ class ConcatAugmentationController(OperatorController):
         # Generate name from operation names
         op_names = []
         for op in operations:
-            if isinstance(op, list) and op:
+            if op is None:
+                op_names.append("raw")
+            elif isinstance(op, list) and op:
                 # Chain: use last transformer name
                 op_names.append(op[-1].__class__.__name__)
             elif hasattr(op, '__class__'):
