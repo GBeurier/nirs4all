@@ -411,9 +411,12 @@ class TransferPreprocessingSelector:
 
         for item in expanded:
             if isinstance(item, list):
-                str_combo = [
-                    str(x) if not isinstance(x, str) else x for x in item
-                ]
+                # Filter out None values from the combination
+                str_combo = [x for x in item if x is not None and x != "None"]
+
+                # Skip empty combinations (all None)
+                if len(str_combo) == 0:
+                    continue
 
                 if len(str_combo) == 1:
                     singles.append(str_combo[0])
@@ -424,6 +427,8 @@ class TransferPreprocessingSelector:
                     stacked.append(stacked_name)
 
             elif isinstance(item, str):
+                if item == "None" or item is None:
+                    continue  # Skip None strings
                 if ">" in item:
                     stacked.append(item)
                 else:
@@ -433,7 +438,7 @@ class TransferPreprocessingSelector:
                     f"  Warning: Unexpected dict in expanded spec: {item}",
                     level=2
                 )
-            else:
+            elif item is not None:
                 singles.append(str(item))
 
         # Remove duplicates while preserving order
@@ -482,23 +487,54 @@ class TransferPreprocessingSelector:
 
     def fit(
         self,
-        X_source: np.ndarray,
-        X_target: np.ndarray,
+        X_source_or_config,
+        X_target: Optional[np.ndarray] = None,
         y_source: Optional[np.ndarray] = None,
         y_target: Optional[np.ndarray] = None,
     ) -> TransferSelectionResults:
         """
         Run transfer-optimized preprocessing selection.
 
+        Supports two calling conventions:
+
+        1. **Raw arrays** (original API):
+            selector.fit(X_source, X_target, y_source, y_target)
+
+        2. **DatasetConfigs** (nirs4all-native API):
+            selector.fit(dataset_config)
+            - Single dataset: Uses train as source, test as target
+            - Multiple datasets: Combines X("all") from all datasets
+
         Args:
-            X_source: Source dataset (n_samples_src, n_features).
-            X_target: Target dataset (n_samples_tgt, n_features).
+            X_source_or_config: Either:
+                - np.ndarray: Source dataset (n_samples_src, n_features)
+                - DatasetConfigs: nirs4all dataset configuration
+            X_target: Target dataset (required if X_source_or_config is array).
             y_source: Optional source targets for supervised validation.
             y_target: Optional target labels for supervised validation.
 
         Returns:
             TransferSelectionResults with ranked recommendations.
+
+        Example:
+            >>> # Using DatasetConfigs (recommended nirs4all way)
+            >>> selector = TransferPreprocessingSelector(preset="balanced")
+            >>> results = selector.fit(DatasetConfigs(data_path))
+            >>> pp_list = results.to_preprocessing_list(top_k=10)
+
+            >>> # Using raw arrays
+            >>> results = selector.fit(X_train, X_test, y_train)
         """
+        # Determine calling convention
+        if X_target is None:
+            # DatasetConfigs mode
+            X_source, X_target, y_source, y_target = self._extract_data_from_dataset_configs(
+                X_source_or_config
+            )
+        else:
+            # Raw arrays mode
+            X_source = X_source_or_config
+
         # Validate inputs
         X_source, X_target = validate_datasets(X_source, X_target)
 
@@ -1058,24 +1094,24 @@ class TransferPreprocessingSelector:
         Returns:
             Tuple of (X, y) where y may be None.
         """
-        # Handle SpectroDataset
-        if hasattr(config, "get_samples") and hasattr(config, "get_targets"):
-            samples = config.get_samples(partition=partition)
-            if samples is not None and len(samples) > 0:
-                X = samples[0] if isinstance(samples, tuple) else np.asarray(samples)
-            else:
-                X = config.samples if hasattr(config, "samples") else None
-                if X is None:
+        # Handle SpectroDataset (uses x() and y() methods with selector dict)
+        if hasattr(config, "x") and hasattr(config, "y"):
+            try:
+                samples = config.x({"partition": partition})
+                if samples is not None:
+                    X = samples[0] if isinstance(samples, tuple) else np.asarray(samples)
+                else:
                     raise ValueError("Could not extract samples from SpectroDataset")
+            except Exception as e:
+                raise ValueError(f"Could not extract samples from SpectroDataset: {e}")
 
-            y = (
-                config.get_targets(partition=partition)
-                if hasattr(config, "get_targets") else None
-            )
-            if y is None and hasattr(config, "targets"):
-                y = config.targets
+            try:
+                y = config.y({"partition": partition})
+                y = np.asarray(y).ravel() if y is not None else None
+            except Exception:
+                y = None
 
-            return np.asarray(X), np.asarray(y) if y is not None else None
+            return np.asarray(X), y
 
         # Handle DatasetConfigs
         if hasattr(config, "get_datasets") or hasattr(config, "iter_datasets"):
@@ -1119,6 +1155,150 @@ class TransferPreprocessingSelector:
             f"Unsupported config type: {type(config)}. "
             "Expected DatasetConfigs, SpectroDataset, dict, or numpy array."
         )
+
+    def _extract_data_from_dataset_configs(
+        self,
+        config,
+    ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Extract X_source, X_target, y_source, y_target from DatasetConfigs.
+
+        Handles two cases:
+        1. Single dataset: Uses train partition as source, test as target
+        2. Multiple datasets: Combines all samples from each dataset
+
+        Args:
+            config: DatasetConfigs or similar nirs4all data structure.
+
+        Returns:
+            Tuple of (X_source, X_target, y_source, y_target).
+        """
+        # Handle DatasetConfigs
+        if hasattr(config, "get_datasets") or hasattr(config, "iter_datasets"):
+            if hasattr(config, "get_datasets"):
+                datasets = config.get_datasets()
+            else:
+                datasets = list(config.iter_datasets())
+
+            if not datasets:
+                raise ValueError("DatasetConfigs contains no datasets")
+
+            if len(datasets) == 1:
+                # Single dataset: train as source, test as target
+                dataset = datasets[0]
+                X_source, y_source = self._extract_samples_from_dataset(
+                    dataset, partition="train"
+                )
+                X_target, y_target = self._extract_samples_from_dataset(
+                    dataset, partition="test"
+                )
+                return X_source, X_target, y_source, y_target
+            else:
+                # Multiple datasets: combine all samples from each
+                all_X = []
+                all_y = []
+                for ds in datasets:
+                    X_all, y_all = self._extract_samples_from_dataset(ds, partition="all")
+                    all_X.append(X_all)
+                    if y_all is not None:
+                        all_y.append(y_all)
+
+                # Use first dataset as source, rest combined as target
+                X_source = all_X[0]
+                y_source = all_y[0] if all_y else None
+                X_target = np.vstack(all_X[1:])
+                y_target = np.concatenate(all_y[1:]) if len(all_y) > 1 else None
+
+                return X_source, X_target, y_source, y_target
+
+        # Handle single SpectroDataset
+        if hasattr(config, "get_samples"):
+            X_source, y_source = self._extract_samples_from_dataset(
+                config, partition="train"
+            )
+            X_target, y_target = self._extract_samples_from_dataset(
+                config, partition="test"
+            )
+            return X_source, X_target, y_source, y_target
+
+        raise ValueError(
+            f"Cannot extract data from {type(config)}. "
+            "Expected DatasetConfigs or SpectroDataset."
+        )
+
+    def _extract_samples_from_dataset(
+        self,
+        dataset,
+        partition: str = "train",
+    ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+        """
+        Extract X, y from a SpectroDataset for a given partition.
+
+        Args:
+            dataset: SpectroDataset instance.
+            partition: Partition to extract ('train', 'test', or 'all').
+
+        Returns:
+            Tuple of (X, y) where y may be None.
+        """
+        # Get samples using SpectroDataset.x() method
+        if partition == "all":
+            # Combine train and test
+            try:
+                X_train = dataset.x({"partition": "train"})
+            except Exception:
+                X_train = None
+
+            try:
+                X_test = dataset.x({"partition": "test"})
+            except Exception:
+                X_test = None
+
+            if X_train is not None and X_test is not None:
+                # Handle tuple returns (multi-source)
+                if isinstance(X_train, tuple):
+                    X_train = X_train[0]
+                if isinstance(X_test, tuple):
+                    X_test = X_test[0]
+                X = np.vstack([np.asarray(X_train), np.asarray(X_test)])
+            elif X_train is not None:
+                X = np.asarray(X_train[0] if isinstance(X_train, tuple) else X_train)
+            elif X_test is not None:
+                X = np.asarray(X_test[0] if isinstance(X_test, tuple) else X_test)
+            else:
+                raise ValueError("Dataset has no samples")
+        else:
+            try:
+                samples = dataset.x({"partition": partition})
+            except Exception:
+                raise ValueError(f"No samples found for partition '{partition}'")
+            if samples is None:
+                raise ValueError(f"No samples found for partition '{partition}'")
+            X = samples[0] if isinstance(samples, tuple) else np.asarray(samples)
+
+        # Get targets using SpectroDataset.y() method
+        y = None
+        try:
+            if partition == "all":
+                y_train = dataset.y({"partition": "train"})
+                y_test = dataset.y({"partition": "test"})
+                if y_train is not None and y_test is not None:
+                    y = np.concatenate([
+                        np.asarray(y_train).ravel(),
+                        np.asarray(y_test).ravel()
+                    ])
+                elif y_train is not None:
+                    y = np.asarray(y_train).ravel()
+                elif y_test is not None:
+                    y = np.asarray(y_test).ravel()
+            else:
+                y_data = dataset.y({"partition": partition})
+                if y_data is not None:
+                    y = np.asarray(y_data).ravel()
+        except Exception:
+            pass
+
+        return np.asarray(X), y
 
     def get_preprocessing_by_name(self, name: str) -> Any:
         """

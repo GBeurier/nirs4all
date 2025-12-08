@@ -10,12 +10,13 @@ Classes:
         ranking, visualization, and export methods.
 """
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from nirs4all.analysis.transfer_utils import format_pipeline_name
+from nirs4all.analysis.transfer_utils import format_pipeline_name, get_base_preprocessings
 
 
 # =============================================================================
@@ -112,6 +113,63 @@ class TransferSelectionResults:
             List of top-K TransferResult objects.
         """
         return self.ranking[:k]
+
+    def to_preprocessing_list(
+        self,
+        top_k: int = 10,
+        preprocessings: Optional[Dict[str, Any]] = None,
+    ) -> List[List[Any]]:
+        """
+        Convert top-K results to a list of preprocessing transform pipelines.
+
+        Each result is converted to a list of transformer instances that can
+        be directly used in nirs4all pipeline's feature_augmentation.
+
+        Args:
+            top_k: Number of top results to convert.
+            preprocessings: Optional dict mapping names to transformers.
+                Uses get_base_preprocessings() if not provided.
+
+        Returns:
+            List of preprocessing pipelines, where each pipeline is a list
+            of transformer instances. For stacked pipelines like "snv>d1",
+            returns [[SNV(), D1()], ...].
+
+        Example:
+            >>> results = selector.fit(X_train, X_test)
+            >>> pp_list = results.to_preprocessing_list(top_k=5)
+            >>> # pp_list = [[SNV()], [MSC()], [SNV(), D1()], ...]
+            >>>
+            >>> # Use in pipeline:
+            >>> pipeline = [
+            ...     {"feature_augmentation": {"_or_": pp_list, "pick": 1}},
+            ...     {"model": PLSRegression()},
+            ... ]
+        """
+        if preprocessings is None:
+            preprocessings = get_base_preprocessings()
+
+        result_list: List[List[Any]] = []
+        top_results = self.ranking[:top_k]
+
+        for r in top_results:
+            # Parse the pipeline name (e.g., "snv>d1>msc" or "snv")
+            component_names = r.name.split(">") if ">" in r.name else [r.name]
+
+            # Convert each component name to its transformer instance
+            pipeline_transforms: List[Any] = []
+            for name in component_names:
+                if name in preprocessings:
+                    # Use deepcopy to ensure each pipeline gets fresh instances
+                    pipeline_transforms.append(deepcopy(preprocessings[name]))
+                else:
+                    # If name not found, skip this result
+                    break
+            else:
+                # Only add if all components were found
+                result_list.append(pipeline_transforms)
+
+        return result_list
 
     def to_pipeline_spec(
         self, top_k: int = 1, use_augmentation: bool = False
