@@ -2,7 +2,7 @@
 ChartAnnotator - Helper for adding annotations to charts.
 """
 import numpy as np
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, Union
 from nirs4all.visualization.charts.config import ChartConfig
 
 
@@ -16,13 +16,17 @@ class ChartAnnotator:
         config: ChartConfig instance for customization.
     """
 
-    def __init__(self, config: Optional[ChartConfig] = None):
+    def __init__(self, config: Optional[Union[ChartConfig, Dict[str, Any]]] = None):
         """Initialize annotator with config.
 
         Args:
-            config: Optional ChartConfig for customization.
+            config: Optional ChartConfig or dict for customization.
+                   If a dict is provided, it will be used to create a ChartConfig.
         """
-        self.config = config or ChartConfig()
+        if isinstance(config, dict):
+            self.config = ChartConfig(**config)
+        else:
+            self.config = config or ChartConfig()
 
     def add_heatmap_annotations(
         self,

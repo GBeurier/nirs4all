@@ -4,11 +4,13 @@ ConfusionMatrixChart - Confusion matrix visualizations for classification models
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from typing import Optional, Union, List
+from typing import Optional, Union, List, TYPE_CHECKING
 from sklearn.metrics import confusion_matrix as sk_confusion_matrix
 from nirs4all.visualization.charts.base import BaseChart
-from nirs4all.visualization.chart_utils.predictions_adapter import PredictionsAdapter
 from nirs4all.core.metrics import abbreviate_metric
+
+if TYPE_CHECKING:
+    from nirs4all.visualization.predictions import PredictionAnalyzer
 
 
 class ConfusionMatrixChart(BaseChart):
@@ -18,17 +20,22 @@ class ConfusionMatrixChart(BaseChart):
     with proper handling of multi-class predictions.
     """
 
-    def __init__(self, predictions, dataset_name_override: Optional[str] = None,
-                 config=None):
+    def __init__(
+        self,
+        predictions,
+        dataset_name_override: Optional[str] = None,
+        config=None,
+        analyzer: Optional['PredictionAnalyzer'] = None
+    ):
         """Initialize confusion matrix chart.
 
         Args:
             predictions: Predictions object instance.
             dataset_name_override: Optional dataset name override.
             config: Optional ChartConfig for customization.
+            analyzer: Optional PredictionAnalyzer for cached data access.
         """
-        super().__init__(predictions, dataset_name_override, config)
-        self.adapter = PredictionsAdapter(predictions)
+        super().__init__(predictions, dataset_name_override, config, analyzer=analyzer)
 
     def validate_inputs(self, k: int, rank_metric: Optional[str], **kwargs) -> None:
         """Validate confusion matrix inputs.
@@ -81,12 +88,19 @@ class ConfusionMatrixChart(BaseChart):
             rank_metric = self._get_default_metric()
 
         # Normalize display_metric to list
+        # For confusion matrix, always include accuracy and f1 alongside the display_metric
         if not display_metric:
             display_metrics = [rank_metric]
         elif isinstance(display_metric, str):
             display_metrics = [display_metric]
         else:
             display_metrics = list(display_metric)
+
+        # Always ensure accuracy and f1 are included for classification confusion matrix
+        classification_essentials = ['accuracy', 'f1']
+        for essential_metric in classification_essentials:
+            if essential_metric not in display_metrics:
+                display_metrics.append(essential_metric)
 
         self.validate_inputs(k, rank_metric)
 
@@ -112,9 +126,9 @@ class ConfusionMatrixChart(BaseChart):
         # Create one figure per dataset
         figures = []
         for ds in datasets:
-            # Get top models for this specific dataset
+            # Get top models for this specific dataset using common helper
             ds_filters = {**filters, 'dataset_name': ds}
-            top_preds = self.predictions.top(
+            top_preds = self._get_ranked_predictions(
                 n=k,
                 rank_metric=rank_metric,
                 rank_partition=rank_partition,
@@ -122,7 +136,7 @@ class ConfusionMatrixChart(BaseChart):
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
-                best_per_model=True,  # Keep only best per model_name
+                group_by=['model_name'],  # Keep only best per model_name
                 **ds_filters
             )
 
@@ -159,9 +173,13 @@ class ConfusionMatrixChart(BaseChart):
                 y_true = partition_data.get('y_true')
                 y_pred = partition_data.get('y_pred')
 
-                if y_true is None or y_pred is None or len(y_true) == 0:
+                # Check for missing or empty data
+                y_true_empty = y_true is None or (hasattr(y_true, '__len__') and len(y_true) == 0)
+                y_pred_empty = y_pred is None or (hasattr(y_pred, '__len__') and len(y_pred) == 0)
+                if y_true_empty or y_pred_empty:
                     ax.text(0.5, 0.5, 'No data', ha='center', va='center')
-                    ax.set_title(f'Model {i+1}: No data')
+                    model_name = pred.get('model_name', 'Unknown')
+                    ax.set_title(f'{model_name}: No data')
                     ax.axis('off')
                     continue
 
@@ -216,12 +234,20 @@ class ConfusionMatrixChart(BaseChart):
                     # Pass display_metrics list to show multiple metrics
                     title_scores = self._format_score_display(
                         pred, display_metrics, rank_metric, rank_partition,
-                        display_metrics[0], display_partition
+                        display_metrics[0], display_partition,
+                        show_rank_score=(rank_partition != display_partition or rank_metric not in display_metrics)
                     )
+                    # Split scores into 2 lines if too long
+                    score_parts = title_scores.split(' | ')
+                    if len(score_parts) > 2:
+                        mid = (len(score_parts) + 1) // 2
+                        line1 = ' | '.join(score_parts[:mid])
+                        line2 = ' | '.join(score_parts[mid:])
+                        title_scores = f'{line1}\n{line2}'
                     title = f'{model_name}{agg_indicator}\n{title_scores}'
                 else:
                     title = f'{model_name}{agg_indicator}'
-                ax.set_title(title, fontsize=self.config.label_fontsize)
+                ax.set_title(title, fontsize=self.config.label_fontsize, pad=4)
 
             # Hide empty subplots
             for i in range(n_plots, len(axes)):
@@ -229,11 +255,11 @@ class ConfusionMatrixChart(BaseChart):
 
             # Create overall title for this dataset
             rank_metric_abbrev = abbreviate_metric(rank_metric)
-            overall_title = f'Dataset: {ds} - Top {k} Confusion Matrices\nRanked by best {rank_metric_abbrev} [{rank_partition}], Displayed: [{display_partition}]'
+            overall_title = f'Top {k} Models - {rank_metric_abbrev} [{rank_partition}→{display_partition}]'
             if aggregate:
-                overall_title += f' [aggregated by {aggregate}]'
+                overall_title += f' (agg: {aggregate})'
             fig.suptitle(overall_title, fontsize=self.config.title_fontsize, fontweight='bold')
-            plt.tight_layout()
+            plt.tight_layout(rect=(0, 0, 1, 0.95))  # Leave space for suptitle
 
             figures.append(fig)
 

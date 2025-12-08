@@ -14,13 +14,16 @@ import numpy as np
 import polars as pl
 import time
 from matplotlib.figure import Figure
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from nirs4all.visualization.charts.base import BaseChart
 from nirs4all.visualization.chart_utils.normalizer import ScoreNormalizer
 from nirs4all.visualization.chart_utils.annotator import ChartAnnotator
 from nirs4all.visualization.chart_utils.matrix_builder import MatrixBuilder
 from nirs4all.core import metrics as evaluator
 from nirs4all.core.metrics import abbreviate_metric
+
+if TYPE_CHECKING:
+    from nirs4all.visualization.predictions import PredictionAnalyzer
 
 
 class HeatmapChart(BaseChart):
@@ -30,10 +33,24 @@ class HeatmapChart(BaseChart):
     aggregation strategies.
     """
 
-    def __init__(self, predictions, dataset_name_override: Optional[str] = None, config=None):
-        super().__init__(predictions, dataset_name_override, config)
+    def __init__(
+        self,
+        predictions,
+        dataset_name_override: Optional[str] = None,
+        config=None,
+        analyzer: Optional['PredictionAnalyzer'] = None
+    ):
+        """Initialize heatmap chart.
+
+        Args:
+            predictions: Predictions object instance.
+            dataset_name_override: Optional dataset name override.
+            config: Optional ChartConfig for customization.
+            analyzer: Optional PredictionAnalyzer for cached data access.
+        """
+        super().__init__(predictions, dataset_name_override, config, analyzer=analyzer)
         self.normalizer = ScoreNormalizer()
-        self.annotator = ChartAnnotator(config)
+        self.annotator = ChartAnnotator(self.config)
         self.matrix_builder = MatrixBuilder()
 
     def _select_top_k_by_borda(
@@ -999,11 +1016,13 @@ class HeatmapChart(BaseChart):
 
         # CRITICAL: Get ALL predictions with aggregation in ONE call for global ranking
         # This ensures consistent ranking across all visualizations
+        # For heatmap, we need to group by y_var to get one row per unique y value
         try:
-            # Get a large number to capture all models
-            # Use best_per_model=True to get only the best per model_name
-            # Rankings use unique model identities internally but results are deduplicated
-            all_top_preds = self.predictions.top(
+            # Determine grouping strategy for heatmap
+            # We group by y_var to get the best prediction for each row
+            group_by_cols = [y_var]
+
+            all_top_preds = self._get_ranked_predictions(
                 n=10000,  # Large number to get all
                 rank_metric=rank_metric,
                 rank_partition=rank_partition,
@@ -1011,7 +1030,7 @@ class HeatmapChart(BaseChart):
                 display_partition=display_partition,
                 aggregate_partitions=True,
                 aggregate=aggregate,
-                best_per_model=True,  # Keep only best per model_name
+                group_by=group_by_cols,  # Group by y_var for heatmap rows
                 **all_filters
             )
         except Exception as e:
@@ -1020,22 +1039,16 @@ class HeatmapChart(BaseChart):
         if not all_top_preds:
             raise ValueError("No predictions found after aggregation")
 
-        # For heatmap display, we want to group by y_var (e.g., model_name, model_classname)
-        # and show only the best score per group.
-        # This is different from confusion matrix/top_k which show each unique prediction.
-        #
-        # The predictions are already sorted by rank_score from top(), so we take the first
-        # (best) prediction for each unique y_var value.
-
+        # Predictions are already grouped by y_var from _get_ranked_predictions(group_by=[y_var])
+        # and sorted by rank_score. Build y_labels in rank order.
         rank_higher_better = self._is_higher_better(rank_metric)
 
-        # Group predictions by y_var and keep only the best per group
-        y_var_to_best_pred = {}  # y_var value -> best prediction
+        # Build y_labels from predictions (already deduplicated and sorted by rank)
+        y_var_to_best_pred = {}  # y_var value -> prediction
         for pred in all_top_preds:
             y_val = pred.get(y_var, 'Unknown')
             y_val_str = str(y_val).lower() if y_var in ['model_name', 'model_classname'] else str(y_val)
-
-            # Since predictions are sorted by rank, the first one we see is the best
+            # Since predictions are already grouped by y_var, first occurrence is the only one
             if y_val_str not in y_var_to_best_pred:
                 y_var_to_best_pred[y_val_str] = pred
 

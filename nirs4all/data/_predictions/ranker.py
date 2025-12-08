@@ -3,10 +3,16 @@ Ranking and top-k selection for predictions.
 
 This module provides the PredictionRanker class for ranking predictions
 by metrics and selecting top-performing models.
+
+Performance optimizations (v0.4.2):
+    - AggregationCache: Caches aggregated y_true/y_pred/y_proba per (prediction_id, aggregate_key)
+    - ScoreCache: Caches computed metrics per (prediction_id, aggregate_key, metric, partition)
+    - Avoids redundant array loading and metric recalculation
 """
 
 import json
-from typing import Dict, Any, List, Optional, Tuple
+import warnings
+from typing import Dict, Any, List, Optional, Tuple, Union
 import numpy as np
 import polars as pl
 
@@ -17,6 +23,123 @@ from .storage import PredictionStorage
 from .serializer import PredictionSerializer
 from .indexer import PredictionIndexer
 from .result import PredictionResult, PredictionResultsList
+
+
+class AggregationCache:
+    """
+    LRU cache for aggregated prediction arrays.
+
+    Caches aggregated (y_true, y_pred, y_proba) per (prediction_id, aggregate_key)
+    to avoid redundant aggregation computations.
+
+    This is the main source of slowness - aggregating arrays is O(n) per prediction
+    and involves numpy operations. By caching, we only pay this cost once.
+    """
+
+    def __init__(self, max_entries: int = 5000):
+        """Initialize cache with max entries."""
+        self._cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        self._access_order: List[Tuple[str, str]] = []
+        self._max_entries = max_entries
+        self._hits = 0
+        self._misses = 0
+
+    def get(self, pred_id: str, aggregate_key: str) -> Optional[Dict[str, Any]]:
+        """Get cached aggregation result."""
+        key = (pred_id, aggregate_key)
+        if key in self._cache:
+            self._hits += 1
+            # Move to end (LRU)
+            if key in self._access_order:
+                self._access_order.remove(key)
+            self._access_order.append(key)
+            return self._cache[key]
+        self._misses += 1
+        return None
+
+    def put(self, pred_id: str, aggregate_key: str, result: Dict[str, Any]) -> None:
+        """Store aggregation result."""
+        key = (pred_id, aggregate_key)
+        # Evict if needed
+        while len(self._cache) >= self._max_entries and self._access_order:
+            oldest = self._access_order.pop(0)
+            self._cache.pop(oldest, None)
+
+        self._cache[key] = result
+        if key in self._access_order:
+            self._access_order.remove(key)
+        self._access_order.append(key)
+
+    def clear(self) -> None:
+        """Clear cache."""
+        self._cache.clear()
+        self._access_order.clear()
+        self._hits = 0
+        self._misses = 0
+
+    def stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        total = self._hits + self._misses
+        return {
+            'hits': self._hits,
+            'misses': self._misses,
+            'hit_rate': self._hits / total if total > 0 else 0,
+            'size': len(self._cache),
+            'max_size': self._max_entries
+        }
+
+
+class ScoreCache:
+    """
+    Cache for computed metric scores.
+
+    Caches scores per (prediction_id, aggregate_key, metric, partition).
+    Once a metric is computed for a prediction, it's stored here and never recomputed.
+    """
+
+    def __init__(self, max_entries: int = 50000):
+        """Initialize cache with max entries."""
+        self._cache: Dict[Tuple[str, str, str, str], float] = {}
+        self._max_entries = max_entries
+        self._hits = 0
+        self._misses = 0
+
+    def get(self, pred_id: str, aggregate_key: str, metric: str, partition: str) -> Optional[float]:
+        """Get cached score."""
+        key = (pred_id, aggregate_key or '', metric, partition)
+        if key in self._cache:
+            self._hits += 1
+            return self._cache[key]
+        self._misses += 1
+        return None
+
+    def put(self, pred_id: str, aggregate_key: str, metric: str, partition: str, score: float) -> None:
+        """Store score."""
+        if len(self._cache) >= self._max_entries:
+            # Simple eviction: clear half the cache
+            keys = list(self._cache.keys())[:len(self._cache) // 2]
+            for k in keys:
+                del self._cache[k]
+
+        key = (pred_id, aggregate_key or '', metric, partition)
+        self._cache[key] = score
+
+    def clear(self) -> None:
+        """Clear cache."""
+        self._cache.clear()
+        self._hits = 0
+        self._misses = 0
+
+    def stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        total = self._hits + self._misses
+        return {
+            'hits': self._hits,
+            'misses': self._misses,
+            'hit_rate': self._hits / total if total > 0 else 0,
+            'size': len(self._cache),
+            'max_size': self._max_entries
+        }
 
 
 class PredictionRanker:
@@ -61,6 +184,22 @@ class PredictionRanker:
         self._serializer = serializer
         self._indexer = indexer
 
+        # Performance caches - avoid redundant computation
+        self._aggregation_cache = AggregationCache(max_entries=5000)
+        self._score_cache = ScoreCache(max_entries=50000)
+
+    def clear_caches(self) -> None:
+        """Clear all internal caches. Call when predictions data changes."""
+        self._aggregation_cache.clear()
+        self._score_cache.clear()
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for debugging performance."""
+        return {
+            'aggregation_cache': self._aggregation_cache.stats(),
+            'score_cache': self._score_cache.stats()
+        }
+
     def _parse_vec_json(self, s: str) -> np.ndarray:
         """Parse JSON string to numpy array."""
         return np.asarray(json.loads(s), dtype=float)
@@ -93,6 +232,55 @@ class PredictionRanker:
 
         return None
 
+    def _get_fallback_metadata_for_avg_fold(
+        self,
+        row: Dict[str, Any],
+        aggregate: str,
+        partition: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get metadata from a corresponding regular fold when avg/w_avg fold has empty metadata.
+
+        For avg and w_avg folds that were created without metadata, this method looks up
+        metadata from a corresponding regular fold (e.g., fold '0') that should have the
+        same sample structure.
+
+        Args:
+            row: Current prediction row (avg/w_avg fold)
+            aggregate: Aggregation column to look for (e.g., 'ID')
+            partition: Partition name (train/val/test)
+
+        Returns:
+            Metadata dictionary with the aggregate column, or None if not found.
+        """
+        try:
+            # Get identifying info from current row
+            model_name = row.get("model_name", "")
+            config_name = row.get("config_name", "")
+            dataset_name = row.get("dataset_name", "")
+
+            # Query for a regular fold (not avg/w_avg) with the same model/config/dataset
+            df = self._storage._df
+            regular_fold = df.filter(
+                (pl.col("model_name") == model_name) &
+                (pl.col("config_name") == config_name) &
+                (pl.col("dataset_name") == dataset_name) &
+                (pl.col("partition") == partition) &
+                (~pl.col("fold_id").is_in(["avg", "w_avg"]))
+            ).head(1)
+
+            if regular_fold.height > 0:
+                fold_row = regular_fold.to_dicts()[0]
+                metadata_json = fold_row.get("metadata", "{}")
+                metadata = json.loads(metadata_json) if isinstance(metadata_json, str) else metadata_json
+
+                if aggregate in metadata:
+                    return metadata
+        except Exception:
+            pass
+
+        return None
+
     def _apply_aggregation(
         self,
         y_true: Optional[np.ndarray],
@@ -100,10 +288,15 @@ class PredictionRanker:
         y_proba: Optional[np.ndarray],
         metadata: Dict[str, Any],
         aggregate: str,
-        model_name: str = ""
+        model_name: str = "",
+        pred_id: str = "",
+        row: Optional[Dict[str, Any]] = None,
+        partition: str = "test"
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], bool]:
         """
         Apply aggregation to predictions by a group column.
+
+        Uses internal cache to avoid redundant aggregation computations.
 
         Args:
             y_true: True values array
@@ -112,16 +305,29 @@ class PredictionRanker:
             metadata: Metadata dictionary containing group column
             aggregate: Group column name or 'y' to group by y_true
             model_name: Model name for warning messages
+            pred_id: Prediction ID for caching (optional but recommended)
+            row: Optional full row dict for fallback metadata lookup (for avg/w_avg folds)
+            partition: Partition name for fallback lookup (default: 'test')
 
         Returns:
             Tuple of (aggregated_y_true, aggregated_y_pred, aggregated_y_proba, was_aggregated)
             The was_aggregated flag is True only if aggregation was actually applied.
         """
-        import warnings
         from nirs4all.data.predictions import Predictions
 
         if y_pred is None:
             return y_true, y_pred, y_proba, False
+
+        # Check cache first if we have a prediction ID
+        if pred_id:
+            cached = self._aggregation_cache.get(pred_id, aggregate)
+            if cached is not None:
+                return (
+                    cached.get('y_true'),
+                    cached.get('y_pred'),
+                    cached.get('y_proba'),
+                    cached.get('was_aggregated', True)
+                )
 
         # Determine group IDs
         if aggregate == 'y':
@@ -130,15 +336,35 @@ class PredictionRanker:
             group_ids = y_true
         else:
             # Get group IDs from metadata
-            if aggregate not in metadata:
+            effective_metadata = metadata
+
+            # For avg/w_avg folds with empty metadata, try to get from a regular fold
+            if aggregate not in metadata and row is not None:
+                fold_id = row.get("fold_id", "")
+                if fold_id in ["avg", "w_avg"]:
+                    fallback_metadata = self._get_fallback_metadata_for_avg_fold(
+                        row, aggregate, partition
+                    )
+                    if fallback_metadata is not None:
+                        effective_metadata = fallback_metadata
+
+            if aggregate not in effective_metadata:
                 if model_name:
                     warnings.warn(
                         f"Aggregation column '{aggregate}' not found in metadata for model '{model_name}'. "
                         f"Available columns: {list(metadata.keys())}. Skipping aggregation for this model.",
                         UserWarning
                     )
+                # Cache the failure to avoid repeated warnings
+                if pred_id:
+                    self._aggregation_cache.put(pred_id, aggregate, {
+                        'y_true': y_true,
+                        'y_pred': y_pred,
+                        'y_proba': y_proba,
+                        'was_aggregated': False
+                    })
                 return y_true, y_pred, y_proba, False
-            group_ids = np.asarray(metadata[aggregate])
+            group_ids = np.asarray(effective_metadata[aggregate])
 
         if len(group_ids) != len(y_pred):
             if model_name:
@@ -147,6 +373,14 @@ class PredictionRanker:
                     f"predictions length ({len(y_pred)}) for model '{model_name}'. Skipping aggregation.",
                     UserWarning
                 )
+            # Cache the failure
+            if pred_id:
+                self._aggregation_cache.put(pred_id, aggregate, {
+                    'y_true': y_true,
+                    'y_pred': y_pred,
+                    'y_proba': y_proba,
+                    'was_aggregated': False
+                })
             return y_true, y_pred, y_proba, False
 
         # Apply aggregation
@@ -157,12 +391,195 @@ class PredictionRanker:
             y_true=y_true
         )
 
-        return (
+        agg_result = (
             result.get('y_true'),
             result.get('y_pred'),
             result.get('y_proba'),
             True  # Aggregation was successfully applied
         )
+
+        # Cache the result
+        if pred_id:
+            self._aggregation_cache.put(pred_id, aggregate, {
+                'y_true': agg_result[0],
+                'y_pred': agg_result[1],
+                'y_proba': agg_result[2],
+                'was_aggregated': True
+            })
+
+        return agg_result
+
+    def _get_score_cached(
+        self,
+        row: Dict[str, Any],
+        metric: str,
+        partition: str,
+        aggregate: Optional[str] = None,
+        load_arrays: bool = True
+    ) -> Optional[float]:
+        """
+        Get score for a prediction, using cache when possible.
+
+        This is the main performance optimization. It:
+        1. Checks the score cache first
+        2. If not cached, computes and caches the score
+        3. Handles both aggregated and non-aggregated cases
+
+        Args:
+            row: Row dictionary from prediction storage
+            metric: Metric name to compute
+            partition: Partition name
+            aggregate: Aggregation column name (optional)
+            load_arrays: Whether to load arrays if needed
+
+        Returns:
+            Score value or None
+        """
+        pred_id = row.get("id", "")
+        aggregate_key = aggregate or ""
+
+        # Check score cache first
+        cached_score = self._score_cache.get(pred_id, aggregate_key, metric, partition)
+        if cached_score is not None:
+            return cached_score
+
+        score = None
+
+        if aggregate:
+            # Aggregated path - must compute from arrays
+            try:
+                y_true = self._get_array(row, "y_true")
+                y_pred = self._get_array(row, "y_pred")
+                y_proba = self._get_array(row, "y_proba")
+
+                if y_true is not None and y_pred is not None:
+                    metadata = json.loads(row.get("metadata", "{}"))
+                    model_name = row.get("model_name", "")
+
+                    agg_y_true, agg_y_pred, _, was_aggregated = self._apply_aggregation(
+                        y_true, y_pred, y_proba, metadata, aggregate, model_name, pred_id,
+                        row=row, partition=partition
+                    )
+
+                    if agg_y_true is not None and agg_y_pred is not None:
+                        score = evaluator.eval(agg_y_true, agg_y_pred, metric)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+        else:
+            # Non-aggregated path - try pre-computed scores first
+            scores_json = row.get("scores")
+            if scores_json:
+                try:
+                    scores_dict = json.loads(scores_json)
+                    if partition in scores_dict and metric in scores_dict[partition]:
+                        score = scores_dict[partition][metric]
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # Fallback to legacy field
+            if score is None and metric == row.get("metric"):
+                score = row.get(f"{partition}_score")
+
+            # Last resort: compute from arrays
+            if score is None and load_arrays:
+                try:
+                    y_true = self._get_array(row, "y_true")
+                    y_pred = self._get_array(row, "y_pred")
+                    if y_true is not None and y_pred is not None:
+                        score = evaluator.eval(y_true, y_pred, metric)
+                except (ValueError, TypeError):
+                    pass
+
+        # Cache the computed score
+        if score is not None:
+            self._score_cache.put(pred_id, aggregate_key, metric, partition, score)
+
+        return score
+
+    def _get_precomputed_score(
+        self,
+        row: Dict[str, Any],
+        metric: str,
+        partition: str
+    ) -> Optional[float]:
+        """
+        Get pre-computed score from row, using scores JSON or legacy fields.
+
+        Priority:
+        1. scores JSON: {"val": {"rmse": 0.5}}
+        2. Legacy field: val_score (if metric matches row's metric)
+
+        Args:
+            row: Row dictionary from prediction storage
+            metric: Metric name to retrieve (e.g., 'rmse', 'r2')
+            partition: Partition name (e.g., 'val', 'test')
+
+        Returns:
+            Pre-computed score or None if not found
+        """
+        # Try scores JSON first (new format)
+        scores_json = row.get("scores")
+        if scores_json:
+            try:
+                scores_dict = json.loads(scores_json)
+                if partition in scores_dict and metric in scores_dict[partition]:
+                    return scores_dict[partition][metric]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Fallback to legacy field
+        if metric == row.get("metric"):
+            return row.get(f"{partition}_score")
+
+        return None
+
+    def _make_group_key(
+        self,
+        row: Dict[str, Any],
+        group_by: List[str]
+    ) -> Tuple:
+        """
+        Create hashable group key from row values.
+
+        Handles:
+        - Case-insensitive comparison for string columns (model_name, model_classname, etc.)
+        - None/missing values (treated as a single group)
+        - Numeric columns (kept as-is for proper grouping)
+        - List values (converted to tuple for hashability)
+
+        Args:
+            row: Row dictionary
+            group_by: List of column names to group by
+
+        Returns:
+            Tuple of values for the group key
+        """
+        # Columns that should be compared case-insensitively
+        case_insensitive_cols = {
+            'model_name', 'model_classname', 'preprocessings',
+            'dataset_name', 'config_name'
+        }
+
+        key_parts = []
+        for col in group_by:
+            val = row.get(col)
+
+            # Handle None/missing values
+            if val is None:
+                key_parts.append(None)
+                continue
+
+            # Case-insensitive for string columns
+            if isinstance(val, str) and col in case_insensitive_cols:
+                val = val.lower()
+            # Convert lists to tuples for hashability
+            elif isinstance(val, list):
+                val = tuple(val)
+            # Numeric columns (int, float) kept as-is
+            # This ensures proper grouping by fold_id, step_idx, etc.
+
+            key_parts.append(val)
+        return tuple(key_parts)
 
     def top(
         self,
@@ -176,6 +593,7 @@ class PredictionRanker:
         group_by_fold: bool = False,
         load_arrays: bool = True,
         aggregate: Optional[str] = None,
+        group_by: Optional[Union[str, List[str]]] = None,
         best_per_model: bool = False,
         **filters
     ) -> PredictionResultsList:
@@ -200,9 +618,12 @@ class PredictionRanker:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
-            best_per_model: If True, keep only the best prediction per model_name.
-                           Rankings use unique model identities, but final results
-                           are deduplicated to show only the best per model_name.
+            group_by: Group predictions and keep only the best per group.
+                     Can be a single column name (str) or list of columns.
+                     Examples: 'model_name', ['model_name', 'preprocessings']
+                     The global sort order is preserved - first occurrence per group is kept.
+            best_per_model: DEPRECATED - Use group_by=['model_name'] instead.
+                           If True, keep only the best prediction per model_name.
             **filters: Additional filter criteria (dataset_name, config_name, etc.)
 
         Returns:
@@ -232,10 +653,33 @@ class PredictionRanker:
             ... )
             >>>
             >>> # Get top 5 with predictions aggregated by sample ID
+            >>> # Useful when multiple scans per sample (e.g., 4 scans averaged)
             >>> top_5_by_id = ranker.top(
             ...     n=5,
             ...     rank_metric="rmse",
             ...     aggregate='ID'  # Aggregate by metadata 'ID' column
+            ... )
+            >>>
+            >>> # Get best prediction per model (for TopK charts)
+            >>> one_per_model = ranker.top(
+            ...     n=10,
+            ...     rank_metric="rmse",
+            ...     group_by=["model_name"]  # One result per unique model_name
+            ... )
+            >>>
+            >>> # Get best prediction per model class (e.g., PLSRegression, SVR)
+            >>> one_per_class = ranker.top(
+            ...     n=10,
+            ...     rank_metric="rmse",
+            ...     group_by=["model_classname"]  # One result per model class
+            ... )
+            >>>
+            >>> # Multi-column grouping for heatmaps
+            >>> # Get best per (model_name, fold_id) combination
+            >>> per_model_fold = ranker.top(
+            ...     n=100,
+            ...     rank_metric="rmse",
+            ...     group_by=["model_name", "fold_id"]
             ... )
 
         Notes:
@@ -243,6 +687,8 @@ class PredictionRanker:
             - Otherwise, recomputes metric from y_true/y_pred arrays
             - ascending=True means lower scores rank higher (good for RMSE, MAE)
             - ascending=False means higher scores rank higher (good for R², accuracy)
+            - group_by preserves global ranking order: sorts first, then takes first per group
+            - aggregate is applied BEFORE ranking to ensure correct score calculation
         """
         # Handle display_partition as list (backward compat)
         if isinstance(display_partition, list):
@@ -317,70 +763,23 @@ class PredictionRanker:
         if rank_data.height == 0:
             return PredictionResultsList([])
 
-        # Compute rank scores
+        # Compute rank scores using cached method
         # CRITICAL: When aggregate is provided, we MUST aggregate predictions first
         # and then recalculate metrics on the aggregated data for ranking.
         # This ensures consistent ranking across all visualizations.
         rank_scores = []
-        _debug_count = 0  # DEBUG
         for row in rank_data.to_dicts():
             scores_json = row.get("scores")
-            score = None
 
-            # If aggregation is requested, we MUST recalculate from aggregated arrays
-            if aggregate:
-                try:
-                    y_true = self._get_array(row, "y_true")
-                    y_pred = self._get_array(row, "y_pred")
-                    y_proba = self._get_array(row, "y_proba")
+            # Use cached scoring method - handles both aggregated and non-aggregated
+            score = self._get_score_cached(row, rank_metric, rank_partition, aggregate, load_arrays)
 
-                    if y_true is not None and y_pred is not None:
-                        metadata = json.loads(row.get("metadata", "{}"))
-                        model_name = row.get("model_name", "")
-
-                        # Apply aggregation to ranking data
-                        agg_y_true, agg_y_pred, agg_y_proba, was_aggregated = self._apply_aggregation(
-                            y_true, y_pred, y_proba, metadata, aggregate, model_name
-                        )
-
-                        if was_aggregated and agg_y_true is not None and agg_y_pred is not None:
-                            # Calculate rank metric on AGGREGATED predictions
-                            score = evaluator.eval(agg_y_true, agg_y_pred, rank_metric)
-                        elif agg_y_true is not None and agg_y_pred is not None:
-                            # Aggregation was requested but couldn't be applied (missing column)
-                            # Fall back to non-aggregated score
-                            score = evaluator.eval(agg_y_true, agg_y_pred, rank_metric)
-                except Exception:
-                    pass
-            else:
-                # No aggregation - use pre-computed scores (fast path)
-                if scores_json:
-                    try:
-                        scores_dict = json.loads(scores_json)
-                        if rank_partition in scores_dict and rank_metric in scores_dict[rank_partition]:
-                            score = scores_dict[rank_partition][rank_metric]
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-
-                # Fallback to legacy methods if score not found
-                if score is None:
-                    if rank_metric == row["metric"]:
-                        # Use precomputed score for the rank_partition
-                        score_field = f"{rank_partition}_score"
-                        score = row.get(score_field)
-                    else:
-                        # Compute metric from y_true/y_pred (Slow!)
-                        try:
-                            if load_arrays:
-                                y_true = self._get_array(row, "y_true")
-                                y_pred = self._get_array(row, "y_pred")
-                                if y_true is not None and y_pred is not None:
-                                    score = evaluator.eval(y_true, y_pred, rank_metric)
-                        except Exception:
-                            pass
-
+            # Include additional columns that might be used for group_by filtering
+            # These columns are commonly used in visualizations for grouping
+            extra_cols = ["model_classname", "preprocessings", "pipeline_uid", "task_type"]
             rank_scores.append({
                 **{k: row[k] for k in KEY},
+                **{k: row.get(k) for k in extra_cols if k in row},
                 "rank_score": score,
                 "id": row["id"],
                 "fold_id": row["fold_id"],
@@ -394,35 +793,9 @@ class PredictionRanker:
         tiebreaker_scores = {}
         for row in tiebreaker_data.to_dicts():
             key_tuple = tuple(row[k] for k in KEY) + (row.get("fold_id"),)
-            tiebreaker_score = None
 
-            # Try to get tiebreaker score
-            if aggregate:
-                try:
-                    y_true = self._get_array(row, "y_true")
-                    y_pred = self._get_array(row, "y_pred")
-                    y_proba = self._get_array(row, "y_proba")
-                    if y_true is not None and y_pred is not None:
-                        metadata = json.loads(row.get("metadata", "{}"))
-                        model_name = row.get("model_name", "")
-                        agg_y_true, agg_y_pred, _, was_agg = self._apply_aggregation(
-                            y_true, y_pred, y_proba, metadata, aggregate, model_name
-                        )
-                        if was_agg and agg_y_true is not None and agg_y_pred is not None:
-                            tiebreaker_score = evaluator.eval(agg_y_true, agg_y_pred, rank_metric)
-                except Exception:
-                    pass
-            else:
-                scores_json = row.get("scores")
-                if scores_json:
-                    try:
-                        scores_dict = json.loads(scores_json)
-                        if tiebreaker_partition in scores_dict and rank_metric in scores_dict[tiebreaker_partition]:
-                            tiebreaker_score = scores_dict[tiebreaker_partition][rank_metric]
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                if tiebreaker_score is None and rank_metric == row.get("metric"):
-                    tiebreaker_score = row.get(f"{tiebreaker_partition}_score")
+            # Use cached scoring method for tiebreaker
+            tiebreaker_score = self._get_score_cached(row, rank_metric, tiebreaker_partition, aggregate, load_arrays)
 
             tiebreaker_scores[key_tuple] = tiebreaker_score
 
@@ -432,7 +805,16 @@ class PredictionRanker:
             rs["tiebreaker_score"] = tiebreaker_scores.get(key_tuple)
 
         # Sort with tiebreaker: primary by rank_score, secondary by tiebreaker_score
-        rank_scores = [r for r in rank_scores if r["rank_score"] is not None]
+        # Filter out None and NaN scores - these indicate missing or invalid data
+        def _is_valid_score(score):
+            if score is None:
+                return False
+            try:
+                return not np.isnan(score)
+            except (TypeError, ValueError):
+                return True  # Non-numeric scores are kept (shouldn't happen)
+
+        rank_scores = [r for r in rank_scores if _is_valid_score(r["rank_score"])]
 
         def sort_key(x):
             rank = x["rank_score"]
@@ -444,14 +826,37 @@ class PredictionRanker:
 
         rank_scores.sort(key=sort_key, reverse=not ascending)
 
-        # Apply best_per_model filter if requested
+        # Handle group_by filtering
+        # IMPORTANT: This happens AFTER global sorting, so we preserve rank order
+        # and just take the first (best) occurrence per group.
+        effective_group_by: Optional[List[str]] = None
+
+        # Handle deprecated best_per_model parameter
         if best_per_model:
-            seen_models = set()
+            warnings.warn(
+                "best_per_model is deprecated and will be removed in a future version. "
+                "Use group_by=['model_name'] instead.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            if group_by is None:
+                effective_group_by = ['model_name']
+
+        # Handle group_by parameter (can be string or list)
+        if group_by is not None:
+            if isinstance(group_by, str):
+                effective_group_by = [group_by]
+            else:
+                effective_group_by = list(group_by)
+
+        # Apply group-by filtering if requested
+        if effective_group_by:
+            seen_groups: set = set()
             filtered_scores = []
             for rs in rank_scores:
-                model_name = rs.get("model_name", "").lower()
-                if model_name not in seen_models:
-                    seen_models.add(model_name)
+                group_key = self._make_group_key(rs, effective_group_by)
+                if group_key not in seen_groups:
+                    seen_groups.add(group_key)
                     filtered_scores.append(rs)
             rank_scores = filtered_scores
 
@@ -501,8 +906,10 @@ class PredictionRanker:
                         if aggregate and y_pred is not None:
                             metadata = json.loads(row.get("metadata", "{}"))
                             model_name = row.get("model_name", "")
+                            pred_id = row.get("id", "")
                             y_true, y_pred, y_proba, was_aggregated = self._apply_aggregation(
-                                y_true, y_pred, y_proba, metadata, aggregate, model_name
+                                y_true, y_pred, y_proba, metadata, aggregate, model_name, pred_id,
+                                row=row, partition=partition
                             )
 
                         partition_dict = {
@@ -633,8 +1040,10 @@ class PredictionRanker:
                     was_aggregated = False
                     if aggregate and y_pred is not None:
                         model_name = row.get("model_name", "")
+                        pred_id = row.get("id", "")
                         y_true, y_pred, y_proba, was_aggregated = self._apply_aggregation(
-                            y_true, y_pred, y_proba, metadata, aggregate, model_name
+                            y_true, y_pred, y_proba, metadata, aggregate, model_name, pred_id,
+                            row=row, partition=display_partition
                         )
 
                     result.update({
