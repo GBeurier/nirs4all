@@ -1,6 +1,10 @@
 # IDE
 .idea/
 
+# Environment files
+.env
+.env.*
+
 # Python
 *.py[cod]
 __pycache__/
