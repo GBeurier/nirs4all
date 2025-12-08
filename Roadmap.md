@@ -17,6 +17,8 @@
 >   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
 >   - Charts do not display correctly the wavelength on x-axis
 
+> [Review] all the ranking chain to optimize and clean dead code and redondancies
+
 > [sklearn] Integrate optuna finetuning on stack ?????
 
 > [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax

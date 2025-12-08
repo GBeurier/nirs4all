@@ -1,0 +1,115 @@
+{
+  "experiment": {
+    "action": "classification",
+    "dataset": "data/sample_data.csv"
+  },
+  "pipeline": [
+    {
+      "class": "sklearn.preprocessing.MinMaxScaler"
+    },
+    {
+      "feature_augmentation": [
+        null,
+        { "class": "nirs4all.transformations.SavitzkyGolay" },
+        [
+          { "class": "nirs4all.transformations.StandardNormalVariate" },
+          { "class": "nirs4all.transformations.Gaussian" }
+        ]
+      ]
+    },
+    {
+      "sample_augmentation": [
+        { "class": "nirs4all.transformations.Rotate_Translate" },
+        {
+          "class": "nirs4all.transformations.Rotate_Translate",
+          "params": { "p_range": 3 }
+        }
+      ]
+    },
+    { "class": "sklearn.model_selection.ShuffleSplit" },
+    {
+      "cluster": {
+        "class": "sklearn.cluster.KMeans",
+        "params": { "n_clusters": 5, "random_state": 42 }
+      }
+    },
+    {
+      "class": "sklearn.model_selection.RepeatedStratifiedKFold",
+      "params": { "n_splits": 5, "n_repeats": 2, "random_state": 42 }
+    },
+    "uncluster",
+    { "class": "PlotData" },
+    { "class": "PlotClusters" },
+    { "class": "PlotResults" },
+    {
+      "dispatch": [
+        [
+          {
+            "class": "sklearn.preprocessing.MinMaxScaler"
+          },
+          {
+            "feature_augmentation": [
+              null,
+              { "class": "nirs4all.transformations.SavitzkyGolay" },
+              [
+                { "class": "nirs4all.transformations.StandardNormalVariate" },
+                { "class": "nirs4all.transformations.Gaussian" }
+              ]
+            ]
+          },
+          {
+            "model": {
+              "class": "sklearn.ensemble.RandomForestClassifier",
+              "params": { "random_state": 42, "max_depth": 10 }
+            },
+            "y_pipeline": { "class": "sklearn.preprocessing.StandardScaler" }
+          }
+        ],
+        {
+          "model": "nirs4all.presets.ref_models.decon",
+          "y_pipeline": { "class": "sklearn.preprocessing.StandardScaler" }
+        },
+        {
+          "model": {
+            "class": "sklearn.svm.SVC",
+            "params": { "kernel": "linear", "C": 1.0, "random_state": 42 }
+          },
+          "y_pipeline": [
+            { "class": "sklearn.preprocessing.MinMaxScaler" },
+            { "class": "sklearn.preprocessing.RobustScaler" }
+          ],
+          "finetune_params": { "C": [0.1, 1.0, 10.0] }
+        },
+        {
+          "stack": {
+            "model": {
+              "class": "sklearn.ensemble.RandomForestClassifier",
+              "params": { "random_state": 42, "max_depth": 10 }
+            },
+            "y_pipeline": { "class": "sklearn.preprocessing.StandardScaler" },
+            "base_learners": [
+              {
+                "model": {
+                  "class": "sklearn.ensemble.GradientBoostingClassifier",
+                  "params": { "random_state": 42, "n_estimators": 100, "max_depth": 5 }
+                },
+                "y_pipeline": { "class": "sklearn.preprocessing.MinMaxScaler" }
+              },
+              {
+                "model": {
+                  "class": "sklearn.tree.DecisionTreeClassifier",
+                  "params": { "random_state": 42, "max_depth": 5 }
+                },
+                "y_pipeline": { "class": "sklearn.preprocessing.MinMaxScaler" },
+                "finetune_params": { "max_depth": [3, 5, 7] }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    { "class": "PlotModelPerformance" },
+    { "class": "PlotFeatureImportance" },
+    { "class": "PlotConfusionMatrix" }
+  ]
+}
