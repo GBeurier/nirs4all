@@ -18,7 +18,6 @@ dist/
 
 # Folders
 /.vscode/
-/bench/
 build/
 results/
 predict/
@@ -50,19 +49,6 @@ workspace_export_example/examples/sample_data/Hiba23
 examples/regression_data/
 examples/out
 /exports/
-examples/nitro_regression/
-examples/nitro_classif/
-examples/selection/
-examples/charts/
-examples/sample_data/classif_denis
-examples/sample_data/nitro_classif_merged
-examples/sample_data/regression_denis
-examples/sample_data/nitro_reg_merged
-examples/sample_data/nitro_classif/
-examples/wk_src/
-examples/wk_tabpfn/
-examples/wk_denis/
-examples/synthetic/charts/
-examples/wk*/
 *.parquet
-
+bench/_datasets/
+bench/synthetic/charts/
