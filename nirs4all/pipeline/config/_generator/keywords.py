@@ -23,6 +23,7 @@ GRID_KEYWORD: str = "_grid_"  # Grid search style parameter combinations
 ZIP_KEYWORD: str = "_zip_"  # Parallel iteration (zip behavior)
 CHAIN_KEYWORD: str = "_chain_"  # Sequential ordered choices
 SAMPLE_KEYWORD: str = "_sample_"  # Statistical sampling (uniform, log-uniform)
+CARTESIAN_KEYWORD: str = "_cartesian_"  # Cartesian product of stages with pick/arrange
 
 # =============================================================================
 # Modifier Keywords
@@ -73,6 +74,7 @@ GENERATION_KEYWORDS: FrozenSet[str] = frozenset({
     ZIP_KEYWORD,
     CHAIN_KEYWORD,
     SAMPLE_KEYWORD,
+    CARTESIAN_KEYWORD,
 })
 
 SELECTION_KEYWORDS: FrozenSet[str] = frozenset({
@@ -144,6 +146,13 @@ PURE_CHAIN_KEYS: FrozenSet[str] = frozenset({
 
 PURE_SAMPLE_KEYS: FrozenSet[str] = frozenset({
     SAMPLE_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD,
+    TAGS_KEYWORD, METADATA_KEYWORD,
+})
+
+PURE_CARTESIAN_KEYS: FrozenSet[str] = frozenset({
+    CARTESIAN_KEYWORD, PICK_KEYWORD, ARRANGE_KEYWORD,
+    COUNT_KEYWORD, SEED_KEYWORD,
+    MUTEX_KEYWORD, REQUIRES_KEYWORD, EXCLUDE_KEYWORD,
     TAGS_KEYWORD, METADATA_KEYWORD,
 })
 
@@ -398,6 +407,20 @@ def is_pure_sample_node(node: Dict[str, Any]) -> bool:
     if not isinstance(node, dict):
         return False
     return SAMPLE_KEYWORD in node and set(node.keys()).issubset(PURE_SAMPLE_KEYS)
+
+
+def has_cartesian_keyword(node: Dict[str, Any]) -> bool:
+    """Check if a node contains the _cartesian_ keyword."""
+    if not isinstance(node, dict):
+        return False
+    return CARTESIAN_KEYWORD in node
+
+
+def is_pure_cartesian_node(node: Dict[str, Any]) -> bool:
+    """Check if a node is a pure cartesian node."""
+    if not isinstance(node, dict):
+        return False
+    return CARTESIAN_KEYWORD in node and set(node.keys()).issubset(PURE_CARTESIAN_KEYS)
 
 
 def extract_tags(node: Dict[str, Any]) -> list:
