@@ -14,6 +14,9 @@ Phase 3 Strategies:
     - ChainStrategy: Handles _chain_ nodes for sequential ordered expansion
     - SampleStrategy: Handles _sample_ nodes for statistical sampling
 
+Phase 4+ Strategies:
+    - CartesianStrategy: Handles _cartesian_ nodes for staged pipeline expansion
+
 Usage:
     from ._generator.strategies import get_strategy, ExpansionStrategy
 
@@ -37,6 +40,9 @@ from .zip_strategy import ZipStrategy
 from .chain_strategy import ChainStrategy
 from .sample_strategy import SampleStrategy
 
+# Phase 4+ strategies
+from .cartesian_strategy import CartesianStrategy
+
 __all__ = [
     # Base class
     "ExpansionStrategy",
@@ -52,4 +58,6 @@ __all__ = [
     "ZipStrategy",
     "ChainStrategy",
     "SampleStrategy",
+    # Phase 4+ strategies
+    "CartesianStrategy",
 ]

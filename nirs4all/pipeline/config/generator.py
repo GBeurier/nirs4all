@@ -12,7 +12,7 @@ Main Functions:
     expand_spec_iter(node, seed): Lazy iterator version for large spaces
     count_combinations(node): Count variants without generating them
 
-Phase 2 Keywords:
+Keywords:
     _or_: Choice between alternatives
     _range_: Numeric sequence generation
     size: Number of items to select (legacy, uses combinations)
@@ -22,7 +22,6 @@ Phase 2 Keywords:
     then_arrange: Second-order permutation selection
     count: Limit number of generated variants
 
-Phase 3 Keywords:
     _log_range_: Logarithmic sequence generation
     _grid_: Grid search style Cartesian product
     _zip_: Parallel iteration (like Python's zip)
@@ -31,7 +30,6 @@ Phase 3 Keywords:
     _tags_: Configuration tagging for filtering
     _metadata_: Arbitrary metadata attachment
 
-Phase 4 Features:
     Constraints: _mutex_, _requires_, _exclude_ for filtering combinations
     Presets: _preset_ for named configuration templates
     Iterator: expand_spec_iter for memory-efficient lazy expansion
@@ -118,6 +116,7 @@ from ._generator.keywords import (  # noqa: F401
     ZIP_KEYWORD,
     CHAIN_KEYWORD,
     SAMPLE_KEYWORD,
+    CARTESIAN_KEYWORD,
     # Modifier keywords
     SIZE_KEYWORD,
     COUNT_KEYWORD,
@@ -144,6 +143,7 @@ from ._generator.keywords import (  # noqa: F401
     PURE_ZIP_KEYS,
     PURE_CHAIN_KEYS,
     PURE_SAMPLE_KEYS,
+    PURE_CARTESIAN_KEYS,
     GENERATION_KEYWORDS,
     SELECTION_KEYWORDS,
     MODIFIER_KEYWORDS,
@@ -159,6 +159,7 @@ from ._generator.keywords import (  # noqa: F401
     is_pure_zip_node,
     is_pure_chain_node,
     is_pure_sample_node,
+    is_pure_cartesian_node,
     has_or_keyword,
     has_range_keyword,
     has_log_range_keyword,
@@ -166,6 +167,7 @@ from ._generator.keywords import (  # noqa: F401
     has_zip_keyword,
     has_chain_keyword,
     has_sample_keyword,
+    has_cartesian_keyword,
     # Extraction functions
     extract_modifiers,
     extract_base_node,
@@ -190,6 +192,8 @@ from ._generator.strategies import (  # noqa: F401
     ZipStrategy,
     ChainStrategy,
     SampleStrategy,
+    # Phase 4+ strategies
+    CartesianStrategy,
 )
 
 # Re-export validators (Phase 3)
@@ -260,6 +264,7 @@ __all__ = [
     "ZIP_KEYWORD",
     "CHAIN_KEYWORD",
     "SAMPLE_KEYWORD",
+    "CARTESIAN_KEYWORD",
     # Modifier keyword constants
     "SIZE_KEYWORD",
     "COUNT_KEYWORD",
@@ -286,6 +291,7 @@ __all__ = [
     "PURE_ZIP_KEYS",
     "PURE_CHAIN_KEYS",
     "PURE_SAMPLE_KEYS",
+    "PURE_CARTESIAN_KEYS",
     "GENERATION_KEYWORDS",
     "SELECTION_KEYWORDS",
     "MODIFIER_KEYWORDS",
@@ -301,6 +307,7 @@ __all__ = [
     "is_pure_zip_node",
     "is_pure_chain_node",
     "is_pure_sample_node",
+    "is_pure_cartesian_node",
     "has_or_keyword",
     "has_range_keyword",
     "has_log_range_keyword",
@@ -308,6 +315,7 @@ __all__ = [
     "has_zip_keyword",
     "has_chain_keyword",
     "has_sample_keyword",
+    "has_cartesian_keyword",
     # Extraction functions
     "extract_modifiers",
     "extract_base_node",
@@ -329,6 +337,8 @@ __all__ = [
     "ZipStrategy",
     "ChainStrategy",
     "SampleStrategy",
+    # Phase 4+ strategies
+    "CartesianStrategy",
     # Validators
     "ValidationError",
     "ValidationResult",

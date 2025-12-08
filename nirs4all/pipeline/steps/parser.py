@@ -56,6 +56,7 @@ class StepParser:
         "model",
         "preprocessing",
         "feature_augmentation",
+        "auto_transfer_preproc",
         "concat_transform",
         "y_processing",
         "sample_augmentation",

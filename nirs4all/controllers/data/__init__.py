@@ -8,6 +8,7 @@ from .sample_augmentation import SampleAugmentationController
 from .resampler import ResamplerController
 from .feature_selection import FeatureSelectionController
 from .concat_transform import ConcatAugmentationController
+from .auto_transfer_preproc import AutoTransferPreprocessingController
 
 __all__ = [
     "FeatureAugmentationController",
@@ -15,4 +16,5 @@ __all__ = [
     "ResamplerController",
     "FeatureSelectionController",
     "ConcatAugmentationController",
+    "AutoTransferPreprocessingController",
 ]

@@ -31,6 +31,7 @@ from .data.feature_augmentation import FeatureAugmentationController
 from .data.sample_augmentation import SampleAugmentationController
 from .data.resampler import ResamplerController
 from .data.concat_transform import ConcatAugmentationController
+from .data.auto_transfer_preproc import AutoTransferPreprocessingController
 
 # Import splitter controllers
 from .splitters.split import CrossValidatorController
@@ -54,6 +55,7 @@ __all__ = [
     'SampleAugmentationController',
     'ResamplerController',
     'ConcatAugmentationController',
+    'AutoTransferPreprocessingController',
     'CrossValidatorController',
     'SpectraChartController',
     'FoldChartController',

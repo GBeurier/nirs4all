@@ -47,6 +47,7 @@ $examples = @(
     "Q20_analysis.py",
     "Q21_feature_selection.py",
     "Q22_concat_transform.py",
+    "Q27_transfer_analysis.py",
     "X1_metadata.py",
     "X2_sample_augmentation.py",
     "X4_features.py"
