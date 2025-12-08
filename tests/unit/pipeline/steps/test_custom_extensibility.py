@@ -521,6 +521,7 @@ class TestKeywordPrioritization:
             "model",
             "preprocessing",
             "feature_augmentation",
+            "concat_transform",
             "y_processing",
             "sample_augmentation",
         ]

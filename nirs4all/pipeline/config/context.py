@@ -482,6 +482,7 @@ class RuntimeContext:
     binary_loader: Any = None
     pipeline_uid: Optional[str] = None
     step_runner: Any = None
+    step_number: int = 0
     operation_count: int = 0
     substep_number: int = -1
     target_model: Optional[Dict[str, Any]] = None

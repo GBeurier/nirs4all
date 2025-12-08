@@ -30,6 +30,7 @@ from .transforms.y_transformer import YTransformerMixinController
 from .data.feature_augmentation import FeatureAugmentationController
 from .data.sample_augmentation import SampleAugmentationController
 from .data.resampler import ResamplerController
+from .data.concat_transform import ConcatAugmentationController
 
 # Import splitter controllers
 from .splitters.split import CrossValidatorController
@@ -52,6 +53,7 @@ __all__ = [
     'FeatureAugmentationController',
     'SampleAugmentationController',
     'ResamplerController',
+    'ConcatAugmentationController',
     'CrossValidatorController',
     'SpectraChartController',
     'FoldChartController',
