@@ -107,7 +107,8 @@ class PipelineExecutor:
         dataset: SpectroDataset,
         context: ExecutionContext,
         runtime_context: Any,  # RuntimeContext
-        prediction_store: Optional[Predictions] = None
+        prediction_store: Optional[Predictions] = None,
+        generator_choices: Optional[List[Dict[str, Any]]] = None
     ) -> None:
         """Execute pipeline steps sequentially on dataset.
 
@@ -118,6 +119,7 @@ class PipelineExecutor:
             context: Initial execution context
             runtime_context: Runtime infrastructure context
             prediction_store: Prediction store for accumulating results
+            generator_choices: List of generator choices that produced this pipeline
 
         Raises:
             RuntimeError: If pipeline execution fails
@@ -141,7 +143,8 @@ class PipelineExecutor:
                 name=config_name,
                 dataset=dataset.name,
                 pipeline_config=pipeline_config,
-                pipeline_hash=pipeline_hash
+                pipeline_hash=pipeline_hash,
+                generator_choices=generator_choices
             )
 
             # Register with saver

@@ -184,8 +184,15 @@ class ConcatAugmentationController(OperatorController):
                     op_name_base = self._get_operation_name(operation, op_idx)
                     binary_key = f"{proc_name}_{op_name_base}"
 
+                    # Handle nested concat_transform dict
+                    if isinstance(operation, dict) and "concat_transform" in operation:
+                        transformed, nested_artifacts = self._execute_nested_concat(
+                            operation["concat_transform"], train_2d, all_2d, binary_key,
+                            mode, loaded_binaries, runtime_context
+                        )
+                        all_artifacts.extend(nested_artifacts)
                     # Handle chain vs single transformer
-                    if isinstance(operation, list):
+                    elif isinstance(operation, list):
                         # Chain: [A, B, C] → C(B(A(X)))
                         transformed, chain_artifacts = self._execute_chain(
                             operation, train_2d, all_2d, binary_key,
@@ -306,11 +313,14 @@ class ConcatAugmentationController(OperatorController):
             operations: List of operations (may be serialized or instances)
 
         Returns:
-            List of deserialized transformer instances
+            List of deserialized transformer instances or nested concat_transform dicts
         """
         deserialized = []
         for op in operations:
-            if isinstance(op, list):
+            if isinstance(op, dict) and "concat_transform" in op:
+                # Nested concat_transform - keep as dict, will be handled during execution
+                deserialized.append(op)
+            elif isinstance(op, list):
                 # Chain of transformers
                 chain = [self._deserialize_single_operation(item) for item in op]
                 deserialized.append(chain)
@@ -332,6 +342,10 @@ class ConcatAugmentationController(OperatorController):
         if hasattr(op, 'fit') and hasattr(op, 'transform'):
             return op
 
+        # Nested concat_transform dict - preserve as-is
+        if isinstance(op, dict) and "concat_transform" in op:
+            return op
+
         # Serialized as dict or string
         if isinstance(op, (dict, str)):
             return deserialize_component(op)
@@ -344,16 +358,20 @@ class ConcatAugmentationController(OperatorController):
 
     def _get_operation_name(self, operation: Any, index: int) -> str:
         """
-        Get a name for an operation (single transformer or chain).
+        Get a name for an operation (single transformer, chain, or nested concat).
 
         Args:
-            operation: Single transformer or list of transformers (chain)
+            operation: Single transformer, list of transformers (chain),
+                       or dict with concat_transform key
             index: Operation index in the operations list
 
         Returns:
             String name for the operation
         """
-        if isinstance(operation, list):
+        if isinstance(operation, dict) and "concat_transform" in operation:
+            # Nested concat_transform
+            return f"nested_concat_{index}"
+        elif isinstance(operation, list):
             # Chain: use last transformer's class name
             if operation:
                 last_name = operation[-1].__class__.__name__
@@ -512,3 +530,84 @@ class ConcatAugmentationController(OperatorController):
                 artifacts.append(artifact)
 
         return current_all, artifacts
+
+    def _execute_nested_concat(
+        self,
+        nested_config: Any,
+        train_data: np.ndarray,
+        all_data: np.ndarray,
+        binary_key_base: str,
+        mode: str,
+        loaded_binaries: Optional[List[Tuple[str, Any]]],
+        runtime_context: 'RuntimeContext'
+    ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+        """
+        Execute a nested concat_transform: concatenate multiple pipelines.
+
+        This allows nesting concat_transform within concat_transform, enabling
+        complex preprocessing structures like:
+        concat_transform: [
+            PCA(50),
+            {"concat_transform": [[SNV(), PCA(50)], [SG(), PCA(50)]]}
+        ]
+
+        Args:
+            nested_config: The nested concat_transform configuration (list of operations)
+            train_data: 2D training data for fitting
+            all_data: 2D data to transform
+            binary_key_base: Base key for saving/loading transformers
+            mode: Execution mode
+            loaded_binaries: Pre-loaded binaries for predict mode
+            runtime_context: Runtime infrastructure
+
+        Returns:
+            Tuple of (concatenated_data, list_of_artifact_metadata)
+        """
+        # Parse the nested config to get operations
+        config = self._parse_config(nested_config)
+        operations = config["operations"]
+
+        if not operations:
+            return all_data, []
+
+        artifacts = []
+        concat_blocks = []
+
+        for op_idx, operation in enumerate(operations):
+            # Handle None operations - pass through unchanged
+            if operation is None:
+                concat_blocks.append(all_data)
+                continue
+
+            op_name_base = self._get_operation_name(operation, op_idx)
+            binary_key = f"{binary_key_base}_nested{op_idx}_{op_name_base}"
+
+            # Recursively handle nested concat_transform
+            if isinstance(operation, dict) and "concat_transform" in operation:
+                transformed, nested_artifacts = self._execute_nested_concat(
+                    operation["concat_transform"], train_data, all_data, binary_key,
+                    mode, loaded_binaries, runtime_context
+                )
+                artifacts.extend(nested_artifacts)
+            # Handle chain vs single transformer
+            elif isinstance(operation, list):
+                # Chain: [A, B, C] → C(B(A(X)))
+                transformed, chain_artifacts = self._execute_chain(
+                    operation, train_data, all_data, binary_key,
+                    mode, loaded_binaries, runtime_context
+                )
+                artifacts.extend(chain_artifacts)
+            else:
+                # Single transformer
+                transformed, artifact = self._execute_single(
+                    operation, train_data, all_data, binary_key,
+                    mode, loaded_binaries, runtime_context
+                )
+                if artifact:
+                    artifacts.append(artifact)
+
+            concat_blocks.append(transformed)
+
+        # Concatenate all blocks horizontally
+        concatenated = np.hstack(concat_blocks)
+        return concatenated, artifacts

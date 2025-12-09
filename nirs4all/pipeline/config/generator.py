@@ -97,7 +97,7 @@ Architecture:
 """
 
 # Re-export core API from _generator package
-from ._generator.core import expand_spec, count_combinations
+from ._generator.core import expand_spec, expand_spec_with_choices, count_combinations
 
 # Re-export iterator API (Phase 4)
 from ._generator.iterator import (  # noqa: F401
@@ -251,6 +251,7 @@ from ._generator.utils.export import (  # noqa: F401
 __all__ = [
     # Core API
     "expand_spec",
+    "expand_spec_with_choices",
     "count_combinations",
     # Iterator API (Phase 4)
     "expand_spec_iter",

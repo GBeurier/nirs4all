@@ -99,7 +99,8 @@ class ManifestManager:
         dataset: str,
         pipeline_config: dict,
         pipeline_hash: str,
-        metadata: Optional[dict] = None
+        metadata: Optional[dict] = None,
+        generator_choices: Optional[List[Dict[str, Any]]] = None
     ) -> tuple[str, Path]:
         """
         Create new pipeline with sequential numbering.
@@ -110,6 +111,8 @@ class ManifestManager:
             pipeline_config: Pipeline configuration dict
             pipeline_hash: Hash of pipeline config (first 6 chars)
             metadata: Optional initial metadata
+            generator_choices: List of generator choices that produced this pipeline.
+                Each choice is a dict like {"_or_": selected_value} or {"_range_": 18}.
 
         Returns:
             Tuple of (pipeline_id, pipeline_dir)
@@ -142,6 +145,7 @@ class ManifestManager:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "version": "1.0",
             "pipeline": pipeline_config,
+            "generator_choices": generator_choices or [],
             "metadata": metadata or {},
             "artifacts": [],
             "predictions": []
@@ -449,6 +453,171 @@ class ManifestManager:
             print(f"  [extract] Extracted {len(result)} unique preprocessing(s)")
 
         return result
+
+    def extract_generator_choice(
+        self,
+        prediction: Dict[str, Any],
+        choice_index: int,
+        instantiate: bool = False,
+        verbose: bool = False
+    ) -> Optional[Any]:
+        """Extract a specific generator choice from a prediction's pipeline manifest.
+
+        Given a prediction (from `predictions.top()` or similar), loads the
+        corresponding pipeline manifest and returns the generator choice at
+        the specified index.
+
+        Generator choices are stored in the manifest's `generator_choices` field,
+        which is a list of dicts like:
+            [{"_or_": "StandardScaler"}, {"_range_": 18}, {"_or_": {...}}]
+
+        This method allows extracting the value of a specific choice, either as
+        the raw JSON node (for re-use in pipeline specs) or as an instantiated
+        Python object.
+
+        Args:
+            prediction: Prediction dictionary with 'pipeline_uid' field.
+            choice_index: Index of the choice in the generator_choices list (0-based).
+            instantiate: If True, deserialize the choice value into a Python object.
+                        If False, return the raw JSON value.
+            verbose: If True, print debug information.
+
+        Returns:
+            The choice value (JSON or instantiated object), or None if:
+            - The prediction has no pipeline_uid
+            - The manifest doesn't exist or has no generator_choices
+            - The choice_index is out of range
+
+        Example:
+            >>> manager = ManifestManager(runs_dir)
+            >>> top_pred = predictions.top(n=1)[0]
+            >>> # Get raw JSON of first choice
+            >>> scaler_spec = manager.extract_generator_choice(top_pred, 0)
+            >>> # scaler_spec = "sklearn.preprocessing._data.StandardScaler"
+            >>>
+            >>> # Get instantiated object
+            >>> scaler = manager.extract_generator_choice(top_pred, 0, instantiate=True)
+            >>> # scaler = StandardScaler()
+            >>>
+            >>> # Get second choice (e.g., model spec)
+            >>> model_spec = manager.extract_generator_choice(top_pred, 1)
+            >>> # model_spec = {'class': '...PLSRegression', 'params': {'n_components': 3}}
+        """
+        # Get pipeline_uid from prediction
+        pipeline_uid = prediction.get("pipeline_uid")
+        if not pipeline_uid:
+            if verbose:
+                print("[extract_choice] No pipeline_uid in prediction")
+            return None
+
+        # Load manifest
+        try:
+            manifest = self.load_manifest(pipeline_uid)
+        except FileNotFoundError:
+            if verbose:
+                print(f"[extract_choice] Manifest not found for {pipeline_uid}")
+            return None
+
+        # Get generator_choices
+        choices = manifest.get("generator_choices", [])
+        if not choices:
+            if verbose:
+                print(f"[extract_choice] No generator_choices in manifest for {pipeline_uid}")
+            return None
+
+        # Check index bounds
+        if choice_index < 0 or choice_index >= len(choices):
+            if verbose:
+                print(f"[extract_choice] Index {choice_index} out of range (0-{len(choices)-1})")
+            return None
+
+        # Get the choice entry
+        choice_entry = choices[choice_index]
+
+        # Extract the value from the choice dict (e.g., {"_or_": value} -> value)
+        # The choice dict has exactly one key which is the generator keyword
+        if isinstance(choice_entry, dict) and len(choice_entry) == 1:
+            keyword = next(iter(choice_entry.keys()))
+            value = choice_entry[keyword]
+        else:
+            # Unexpected format, return as-is
+            value = choice_entry
+
+        if verbose:
+            print(f"[extract_choice] Choice {choice_index}: {value}")
+
+        # Optionally instantiate
+        if instantiate:
+            return deserialize_component(value)
+        else:
+            return value
+
+    def extract_all_generator_choices(
+        self,
+        prediction: Dict[str, Any],
+        instantiate: bool = False,
+        verbose: bool = False
+    ) -> List[Any]:
+        """Extract all generator choices from a prediction's pipeline manifest.
+
+        Similar to extract_generator_choice but returns all choices at once.
+
+        Args:
+            prediction: Prediction dictionary with 'pipeline_uid' field.
+            instantiate: If True, deserialize all choice values into Python objects.
+                        If False, return raw JSON values.
+            verbose: If True, print debug information.
+
+        Returns:
+            List of choice values (JSON or instantiated objects).
+            Empty list if no choices are available.
+
+        Example:
+            >>> manager = ManifestManager(runs_dir)
+            >>> top_pred = predictions.top(n=1)[0]
+            >>> all_choices = manager.extract_all_generator_choices(top_pred)
+            >>> # all_choices = ["StandardScaler", {'class': '...', 'params': {...}}]
+        """
+        pipeline_uid = prediction.get("pipeline_uid")
+        if not pipeline_uid:
+            if verbose:
+                print("[extract_choices] No pipeline_uid in prediction")
+            return []
+
+        try:
+            manifest = self.load_manifest(pipeline_uid)
+        except FileNotFoundError:
+            if verbose:
+                print(f"[extract_choices] Manifest not found for {pipeline_uid}")
+            return []
+
+        choices = manifest.get("generator_choices", [])
+        if not choices:
+            return []
+
+        results = []
+        for choice_entry in choices:
+            # Extract value from choice dict
+            if isinstance(choice_entry, dict) and len(choice_entry) == 1:
+                keyword = next(iter(choice_entry.keys()))
+                value = choice_entry[keyword]
+            else:
+                value = choice_entry
+
+            if instantiate:
+                try:
+                    results.append(deserialize_component(value))
+                except Exception as e:
+                    if verbose:
+                        print(f"[extract_choices] Failed to deserialize: {value} - {e}")
+                    results.append(value)  # Return raw value on failure
+            else:
+                results.append(value)
+
+        if verbose:
+            print(f"[extract_choices] Extracted {len(results)} choice(s)")
+
+        return results
 
     def _parse_display_string(self, display: str, verbose: bool = False) -> List[Any]:
         """Parse a preprocessing display string back to transformer instances.
