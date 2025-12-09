@@ -157,7 +157,7 @@ FOLDER_LIST = [os.path.join(REDOX_FOLDER, sub_folder) for sub_folder in SUB_FOLD
 
 AGGREGATION_KEY_LIST = ["ID_1700_clean" for _ in FOLDER_LIST]
 
-TEST_MODE = True
+TEST_MODE = False
 
 if TEST_MODE:
     TRANSFER_PP_PRESET = "fast"
