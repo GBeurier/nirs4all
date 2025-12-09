@@ -9,7 +9,7 @@ from typing import List, Any, Dict, Union
 import yaml
 
 from .component_serialization import serialize_component
-from .generator import expand_spec, count_combinations
+from .generator import expand_spec, expand_spec_with_choices, count_combinations
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,16 +30,22 @@ class PipelineConfigs:
 
         ## Generation
         self.has_configurations = False
+        self.generator_choices: List[List[Dict[str, Any]]] = []  # Choices for each pipeline
+
         if self._has_gen_keys(self.steps):
             count = count_combinations(self.steps)
             if count > max_generation_count:
                 raise ValueError(f"Configuration expansion would generate {count} configurations, exceeding the limit of {max_generation_count}. Please simplify your configuration.")
             if count > 1:
                 self.has_configurations = True
-                self.steps = expand_spec(self.steps)
+                # Use expand_spec_with_choices to track generator choices
+                expanded_with_choices = expand_spec_with_choices(self.steps)
+                self.steps = [config for config, choices in expanded_with_choices]
+                self.generator_choices = [choices for config, choices in expanded_with_choices]
 
         if not self.has_configurations:
             self.steps = [self.steps]  # Wrap single configuration in a list
+            self.generator_choices = [[]]  # No choices for single config
 
         ## Name and hash
         if name == "":

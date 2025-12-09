@@ -180,7 +180,11 @@ class PipelineOrchestrator:
             run_dataset_predictions = Predictions()
 
             # Execute each pipeline configuration on this dataset
-            for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
+            for i, (steps, config_name, gen_choices) in enumerate(zip(
+                pipeline_configs.steps,
+                pipeline_configs.names,
+                pipeline_configs.generator_choices
+            )):
                 dataset = dataset_configs.get_dataset(config, name)
 
                 # Capture raw data BEFORE any preprocessing happens
@@ -211,7 +215,8 @@ class PipelineOrchestrator:
                     dataset=dataset,
                     context=context,
                     runtime_context=runtime_context,
-                    prediction_store=config_predictions
+                    prediction_store=config_predictions,
+                    generator_choices=gen_choices
                 )
 
                 # Capture last pipeline_uid and manifest_manager for syncing back to runner
