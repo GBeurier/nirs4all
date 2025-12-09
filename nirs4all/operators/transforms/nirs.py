@@ -722,6 +722,531 @@ def second_derivative(
     return np.gradient(d1, delta, axis=1, edge_order=edge_order)
 
 
+def _compute_entropy(x: np.ndarray, n_bins: int = 10) -> float:
+    """Compute entropy of a 1D array."""
+    from scipy.stats import entropy as scipy_entropy
+    hist, _ = np.histogram(x, bins=n_bins, density=True)
+    hist = hist[hist > 0]
+    return scipy_entropy(hist) if len(hist) > 0 else 0.0
+
+
+class WaveletFeatures(TransformerMixin, BaseEstimator):
+    """
+    Discrete Wavelet Transform feature extractor for spectral data.
+
+    Decomposes spectra into approximation (smooth trends) and detail (sharp
+    features) coefficients at multiple scales, then extracts statistical
+    features from each level. This captures both global baseline variations
+    and local absorption peaks.
+
+    Scientific basis:
+        - Multi-resolution analysis captures features at different scales
+        - Daubechies wavelets (db4) are well-suited for smooth signals
+        - Wavelet coefficients are partially decorrelated
+
+    Parameters
+    ----------
+    wavelet : str, default='db4'
+        Wavelet to use (e.g., 'haar', 'db4', 'coif3', 'sym4').
+    max_level : int, default=5
+        Maximum decomposition level.
+    n_coeffs_per_level : int, default=10
+        Number of top coefficients (by magnitude) to extract per level.
+    copy : bool, default=True
+        Whether to copy input data.
+
+    Attributes
+    ----------
+    actual_level_ : int
+        Actual decomposition level used (may be less than max_level
+        depending on signal length).
+    n_features_out_ : int
+        Number of output features.
+
+    References
+    ----------
+    Mallat (1989). A theory for multiresolution signal decomposition:
+    the wavelet representation. IEEE PAMI.
+    """
+
+    def __init__(
+        self,
+        wavelet: str = 'db4',
+        max_level: int = 5,
+        n_coeffs_per_level: int = 10,
+        *,
+        copy: bool = True
+    ):
+        self.wavelet = wavelet
+        self.max_level = max_level
+        self.n_coeffs_per_level = n_coeffs_per_level
+        self.copy = copy
+
+    def _reset(self):
+        if hasattr(self, 'actual_level_'):
+            del self.actual_level_
+            del self.n_features_out_
+            del self.feature_names_
+
+    def fit(self, X, y=None):
+        """
+        Fit the wavelet feature extractor.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : None
+            Ignored.
+
+        Returns
+        -------
+        self : WaveletFeatures
+            Fitted transformer.
+        """
+        if scipy.sparse.issparse(X):
+            raise ValueError("WaveletFeatures does not support scipy.sparse input")
+
+        self._reset()
+
+        n_features = X.shape[1]
+        max_level_possible = pywt.dwt_max_level(n_features, self.wavelet)
+        self.actual_level_ = min(self.max_level, max_level_possible)
+
+        # Generate feature names and count total features
+        self.feature_names_ = []
+
+        # Approximation coefficients: 4 stats + n_coeffs
+        for stat in ['mean', 'std', 'energy', 'entropy']:
+            self.feature_names_.append(f"wf_approx_{stat}")
+        for i in range(self.n_coeffs_per_level):
+            self.feature_names_.append(f"wf_approx_coef_{i}")
+
+        # Detail coefficients at each level: 4 stats + n_coeffs per level
+        for level in range(1, self.actual_level_ + 1):
+            for stat in ['mean', 'std', 'energy', 'entropy']:
+                self.feature_names_.append(f"wf_d{level}_{stat}")
+            for i in range(self.n_coeffs_per_level):
+                self.feature_names_.append(f"wf_d{level}_coef_{i}")
+
+        self.n_features_out_ = len(self.feature_names_)
+        return self
+
+    def transform(self, X, copy=None):
+        """
+        Extract wavelet features from spectra.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input spectra.
+        copy : bool or None, optional
+            Ignored (for API compatibility).
+
+        Returns
+        -------
+        X_transformed : ndarray of shape (n_samples, n_features_out_)
+            Wavelet features.
+        """
+        check_is_fitted(self, 'actual_level_')
+
+        if scipy.sparse.issparse(X):
+            raise ValueError("WaveletFeatures does not support scipy.sparse input")
+
+        n_samples = X.shape[0]
+        features_list = []
+
+        for i in range(n_samples):
+            coeffs = pywt.wavedec(X[i], self.wavelet, level=self.actual_level_)
+            sample_features = []
+
+            # Process approximation coefficients (coeffs[0])
+            approx = coeffs[0]
+            sample_features.extend([
+                np.mean(approx),
+                np.std(approx),
+                np.sum(approx ** 2),  # energy
+                _compute_entropy(approx)
+            ])
+            # Top N coefficients (sorted by magnitude)
+            sorted_idx = np.argsort(np.abs(approx))[::-1]
+            top_coeffs = approx[sorted_idx[:self.n_coeffs_per_level]]
+            if len(top_coeffs) < self.n_coeffs_per_level:
+                top_coeffs = np.pad(top_coeffs, (0, self.n_coeffs_per_level - len(top_coeffs)))
+            sample_features.extend(top_coeffs)
+
+            # Process detail coefficients at each level
+            for level in range(1, self.actual_level_ + 1):
+                detail = coeffs[level]
+                sample_features.extend([
+                    np.mean(detail),
+                    np.std(detail),
+                    np.sum(detail ** 2),
+                    _compute_entropy(detail)
+                ])
+                sorted_idx = np.argsort(np.abs(detail))[::-1]
+                top_coeffs = detail[sorted_idx[:self.n_coeffs_per_level]]
+                if len(top_coeffs) < self.n_coeffs_per_level:
+                    top_coeffs = np.pad(top_coeffs, (0, self.n_coeffs_per_level - len(top_coeffs)))
+                sample_features.extend(top_coeffs)
+
+            features_list.append(sample_features)
+
+        return np.array(features_list)
+
+    def get_feature_names_out(self, input_features=None):
+        """Get output feature names."""
+        check_is_fitted(self, 'feature_names_')
+        return np.array(self.feature_names_)
+
+    def _more_tags(self):
+        return {"allow_nan": False}
+
+
+class WaveletPCA(TransformerMixin, BaseEstimator):
+    """
+    Multi-scale PCA on wavelet coefficients.
+
+    Applies PCA separately to each wavelet decomposition level, creating
+    a compact multi-scale representation where each scale contributes a
+    few principal components. This preserves frequency-specific information
+    while reducing dimensionality.
+
+    Scientific basis:
+        - Combines multi-resolution analysis with decorrelation
+        - Each scale captures different frequency information
+        - PCA per scale reduces redundancy within each frequency band
+        - Results in a compact, interpretable feature set
+
+    Parameters
+    ----------
+    wavelet : str, default='db4'
+        Wavelet to use (e.g., 'haar', 'db4', 'coif3', 'sym4').
+    max_level : int, default=4
+        Maximum decomposition level.
+    n_components_per_level : int, default=3
+        Number of PCA components to keep per decomposition level.
+    whiten : bool, default=True
+        Whether to whiten the PCA components.
+    copy : bool, default=True
+        Whether to copy input data.
+
+    Attributes
+    ----------
+    actual_level_ : int
+        Actual decomposition level used.
+    pcas_ : dict
+        Fitted PCA objects per level.
+    scalers_ : dict
+        Fitted StandardScaler objects per level.
+    n_features_out_ : int
+        Number of output features.
+
+    References
+    ----------
+    Trygg & Wold (1998). PLS regression on wavelet compressed NIR spectra.
+    """
+
+    def __init__(
+        self,
+        wavelet: str = 'db4',
+        max_level: int = 4,
+        n_components_per_level: int = 3,
+        whiten: bool = True,
+        *,
+        copy: bool = True
+    ):
+        self.wavelet = wavelet
+        self.max_level = max_level
+        self.n_components_per_level = n_components_per_level
+        self.whiten = whiten
+        self.copy = copy
+
+    def _reset(self):
+        if hasattr(self, 'actual_level_'):
+            del self.actual_level_
+            del self.pcas_
+            del self.scalers_
+            del self.feature_names_
+            del self.n_features_out_
+
+    def fit(self, X, y=None):
+        """
+        Fit the wavelet-PCA transformer.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : None
+            Ignored.
+
+        Returns
+        -------
+        self : WaveletPCA
+            Fitted transformer.
+        """
+        from sklearn.decomposition import PCA
+
+        if scipy.sparse.issparse(X):
+            raise ValueError("WaveletPCA does not support scipy.sparse input")
+
+        self._reset()
+
+        n_samples, n_features = X.shape
+        max_level_possible = pywt.dwt_max_level(n_features, self.wavelet)
+        self.actual_level_ = min(self.max_level, max_level_possible)
+
+        # Decompose all samples to get coefficient arrays
+        all_coeffs = {i: [] for i in range(self.actual_level_ + 1)}
+
+        for i in range(n_samples):
+            coeffs = pywt.wavedec(X[i], self.wavelet, level=self.actual_level_)
+            for level_idx, c in enumerate(coeffs):
+                all_coeffs[level_idx].append(c)
+
+        # Fit PCA for each level
+        self.pcas_ = {}
+        self.scalers_ = {}
+        self.feature_names_ = []
+
+        for level_idx in range(self.actual_level_ + 1):
+            level_data = np.array(all_coeffs[level_idx])
+            n_coeffs = level_data.shape[1]
+            n_comps = min(self.n_components_per_level, n_coeffs, n_samples - 1)
+
+            if n_comps > 0:
+                scaler = StandardScaler()
+                level_scaled = scaler.fit_transform(level_data)
+                pca = PCA(n_components=n_comps, whiten=self.whiten)
+                pca.fit(level_scaled)
+
+                self.scalers_[level_idx] = scaler
+                self.pcas_[level_idx] = pca
+
+                level_name = 'approx' if level_idx == 0 else f'd{level_idx}'
+                for j in range(n_comps):
+                    self.feature_names_.append(f"wpca_{level_name}_pc{j}")
+
+        self.n_features_out_ = len(self.feature_names_)
+        return self
+
+    def transform(self, X, copy=None):
+        """
+        Transform spectra to wavelet-PCA features.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input spectra.
+        copy : bool or None, optional
+            Ignored (for API compatibility).
+
+        Returns
+        -------
+        X_transformed : ndarray of shape (n_samples, n_features_out_)
+            Wavelet-PCA features.
+        """
+        check_is_fitted(self, 'pcas_')
+
+        if scipy.sparse.issparse(X):
+            raise ValueError("WaveletPCA does not support scipy.sparse input")
+
+        if not self.pcas_:
+            return np.zeros((X.shape[0], 0))
+
+        n_samples = X.shape[0]
+        all_features = []
+
+        for i in range(n_samples):
+            coeffs = pywt.wavedec(X[i], self.wavelet, level=self.actual_level_)
+            sample_features = []
+
+            for level_idx, c in enumerate(coeffs):
+                if level_idx in self.pcas_:
+                    c_scaled = self.scalers_[level_idx].transform(c.reshape(1, -1))
+                    pcs = self.pcas_[level_idx].transform(c_scaled).flatten()
+                    sample_features.extend(pcs)
+
+            all_features.append(sample_features)
+
+        return np.array(all_features)
+
+    def get_feature_names_out(self, input_features=None):
+        """Get output feature names."""
+        check_is_fitted(self, 'feature_names_')
+        return np.array(self.feature_names_)
+
+    def _more_tags(self):
+        return {"allow_nan": False}
+
+
+class WaveletSVD(TransformerMixin, BaseEstimator):
+    """
+    Multi-scale SVD on wavelet coefficients.
+
+    Applies Truncated SVD separately to each wavelet decomposition level,
+    creating a compact multi-scale representation. Similar to WaveletPCA
+    but uses SVD which doesn't center data and works better for sparse data.
+
+    Scientific basis:
+        - Combines multi-resolution analysis with dimensionality reduction
+        - Each scale captures different frequency information
+        - SVD per scale reduces redundancy within each frequency band
+        - Results in a compact feature set
+
+    Parameters
+    ----------
+    wavelet : str, default='db4'
+        Wavelet to use (e.g., 'haar', 'db4', 'coif3', 'sym4').
+    max_level : int, default=4
+        Maximum decomposition level.
+    n_components_per_level : int, default=3
+        Number of SVD components to keep per decomposition level.
+    copy : bool, default=True
+        Whether to copy input data.
+
+    Attributes
+    ----------
+    actual_level_ : int
+        Actual decomposition level used.
+    svds_ : dict
+        Fitted TruncatedSVD objects per level.
+    n_features_out_ : int
+        Number of output features.
+
+    References
+    ----------
+    Trygg & Wold (1998). PLS regression on wavelet compressed NIR spectra.
+    """
+
+    def __init__(
+        self,
+        wavelet: str = 'db4',
+        max_level: int = 4,
+        n_components_per_level: int = 3,
+        *,
+        copy: bool = True
+    ):
+        self.wavelet = wavelet
+        self.max_level = max_level
+        self.n_components_per_level = n_components_per_level
+        self.copy = copy
+
+    def _reset(self):
+        if hasattr(self, 'actual_level_'):
+            del self.actual_level_
+            del self.svds_
+            del self.feature_names_
+            del self.n_features_out_
+
+    def fit(self, X, y=None):
+        """
+        Fit the wavelet-SVD transformer.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Training data.
+        y : None
+            Ignored.
+
+        Returns
+        -------
+        self : WaveletSVD
+            Fitted transformer.
+        """
+        from sklearn.decomposition import TruncatedSVD
+
+        if scipy.sparse.issparse(X):
+            raise ValueError("WaveletSVD does not support scipy.sparse input")
+
+        self._reset()
+
+        n_samples, n_features = X.shape
+        max_level_possible = pywt.dwt_max_level(n_features, self.wavelet)
+        self.actual_level_ = min(self.max_level, max_level_possible)
+
+        # Decompose all samples to get coefficient arrays
+        all_coeffs = {i: [] for i in range(self.actual_level_ + 1)}
+
+        for i in range(n_samples):
+            coeffs = pywt.wavedec(X[i], self.wavelet, level=self.actual_level_)
+            for level_idx, c in enumerate(coeffs):
+                all_coeffs[level_idx].append(c)
+
+        # Fit SVD for each level
+        self.svds_ = {}
+        self.feature_names_ = []
+
+        for level_idx in range(self.actual_level_ + 1):
+            level_data = np.array(all_coeffs[level_idx])
+            n_coeffs = level_data.shape[1]
+            # TruncatedSVD requires n_components < min(n_samples, n_features)
+            n_comps = min(self.n_components_per_level, n_coeffs - 1, n_samples - 1)
+
+            if n_comps > 0:
+                svd = TruncatedSVD(n_components=n_comps)
+                svd.fit(level_data)
+
+                self.svds_[level_idx] = svd
+
+                level_name = 'approx' if level_idx == 0 else f'd{level_idx}'
+                for j in range(n_comps):
+                    self.feature_names_.append(f"wsvd_{level_name}_sv{j}")
+
+        self.n_features_out_ = len(self.feature_names_)
+        return self
+
+    def transform(self, X, copy=None):
+        """
+        Transform spectra to wavelet-SVD features.
+
+        Parameters
+        ----------
+        X : array-like of shape (n_samples, n_features)
+            Input spectra.
+        copy : bool or None, optional
+            Ignored (for API compatibility).
+
+        Returns
+        -------
+        X_transformed : ndarray of shape (n_samples, n_features_out_)
+            Wavelet-SVD features.
+        """
+        check_is_fitted(self, 'svds_')
+
+        if scipy.sparse.issparse(X):
+            raise ValueError("WaveletSVD does not support scipy.sparse input")
+
+        if not self.svds_:
+            return np.zeros((X.shape[0], 0))
+
+        n_samples = X.shape[0]
+        all_features = []
+
+        for i in range(n_samples):
+            coeffs = pywt.wavedec(X[i], self.wavelet, level=self.actual_level_)
+            sample_features = []
+
+            for level_idx, c in enumerate(coeffs):
+                if level_idx in self.svds_:
+                    svs = self.svds_[level_idx].transform(c.reshape(1, -1)).flatten()
+                    sample_features.extend(svs)
+
+            all_features.append(sample_features)
+
+        return np.array(all_features)
+
+    def get_feature_names_out(self, input_features=None):
+        """Get output feature names."""
+        check_is_fitted(self, 'feature_names_')
+        return np.array(self.feature_names_)
+
+    def _more_tags(self):
+        return {"allow_nan": False}
+
+
 class SecondDerivative(TransformerMixin, BaseEstimator):
     """
     Second numerical derivative using numpy.gradient.

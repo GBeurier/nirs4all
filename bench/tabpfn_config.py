@@ -140,29 +140,16 @@ def create_model(task_type: str, variant: str = 'default', device: str = 'cuda',
 # Inference Config Builders
 # =============================================================================
 
-# Preprocessing transform names (subset of full search space for efficiency)
-PREPROCESS_NAMES = [
-    "quantile_uni_coarse",
-    "quantile_norm_coarse",
-    "kdi_uni",
-    "kdi_alpha_0.3",
-    "kdi_alpha_3.0",
-    "none",
-    "safepower",
-    "squashing_scaler_default",
-]
+# Preprocessing transform names - using 'none' only (no data transformation)
+PREPROCESS_NAMES = ["none"]
+PREPROCESS_NAMES_MINIMAL = ["none"]
 
-PREPROCESS_NAMES_MINIMAL = [
-    "quantile_uni_coarse",
-    "kdi_uni",
-    "none",
-    "squashing_scaler_default",
-]
+# Global transformers - disabled (no SVD or other transforms)
+GLOBAL_TRANSFORMERS = [None]
+GLOBAL_TRANSFORMERS_MINIMAL = [None]
 
-GLOBAL_TRANSFORMERS = [None, "svd", "svd_quarter_components"]
-GLOBAL_TRANSFORMERS_MINIMAL = [None, "svd"]
-
-CATEGORICAL_NAMES = ["numeric", "ordinal_very_common_categories_shuffled", "none"]
+# Categorical encoding - numeric only
+CATEGORICAL_NAMES = ["numeric"]
 CATEGORICAL_NAMES_MINIMAL = ["numeric"]
 
 
@@ -229,62 +216,46 @@ def generate_inference_configs(
     """
     Generate a list of inference_config options for Optuna categorical search.
 
+    Only includes non-transforming inference variables. All data transformations
+    (preprocessing, outlier removal, y-preprocessing) are disabled.
+
     Args:
-        task_type: 'regression' or 'classification'
-        mode: 'minimal' (~48 configs), 'standard' (~192 configs), or 'full' (~800+ configs)
+        task_type: 'regression' or 'classification' (unused, kept for API compatibility)
+        mode: 'minimal', 'standard', or 'full' (controls min_unique_options only)
 
     Returns:
         List of inference_config dictionaries
     """
     configs = []
 
-    # Select parameter ranges based on mode
+    # Non-transforming inference options
+    fingerprint_options = [True, False]
+
+    # min_unique_for_numerical controls threshold for numerical treatment (not a transform)
     if mode == 'minimal':
-        fingerprint_options = [True, False]
-        outlier_std_options = [None, 7.0]
-        preprocess_names = PREPROCESS_NAMES_MINIMAL
-        global_transformers = GLOBAL_TRANSFORMERS_MINIMAL
         min_unique_options = [5]
-        append_original_options = [True]
     elif mode == 'standard':
-        fingerprint_options = [True, False]
-        outlier_std_options = [None, 7.0, 12.0]
-        preprocess_names = PREPROCESS_NAMES_MINIMAL
-        global_transformers = GLOBAL_TRANSFORMERS_MINIMAL
         min_unique_options = [1, 5, 10]
-        append_original_options = [True, False]
     else:  # full
-        fingerprint_options = [True, False]
-        outlier_std_options = [None, 7.0, 12.0]
-        preprocess_names = PREPROCESS_NAMES
-        global_transformers = GLOBAL_TRANSFORMERS
         min_unique_options = [1, 5, 10, 30]
-        append_original_options = [True, False]
 
-    # Y preprocessing for regression
-    y_preprocess_options = [None, ("safepower",)] if task_type == 'regression' else [None]
-
-    # Build combinations
+    # Build combinations - no transformations applied
     for fingerprint in fingerprint_options:
-        for outlier_std in outlier_std_options:
-            for preprocess_name in preprocess_names:
-                for global_tf in global_transformers:
-                    for append_orig in append_original_options:
-                        for y_preprocess in y_preprocess_options:
-                            config = build_inference_config(
-                                fingerprint_feature=fingerprint,
-                                outlier_removal_std=outlier_std,
-                                min_unique_for_numerical=min_unique_options[0],
-                                preprocess_transforms=[
-                                    build_preprocess_transform(
-                                        preprocess_name,
-                                        global_tf,
-                                        append_original=append_orig,
-                                    )
-                                ],
-                                regression_y_preprocess=y_preprocess,
-                            )
-                            configs.append(config)
+        for min_unique in min_unique_options:
+            config = build_inference_config(
+                fingerprint_feature=fingerprint,
+                outlier_removal_std=None,  # No outlier removal
+                min_unique_for_numerical=min_unique,
+                preprocess_transforms=[
+                    build_preprocess_transform(
+                        "none",  # No preprocessing
+                        None,    # No global transformer
+                        append_original=True,
+                    )
+                ],
+                regression_y_preprocess=None,  # No y preprocessing
+            )
+            configs.append(config)
 
     return configs
 
