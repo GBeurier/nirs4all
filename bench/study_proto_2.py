@@ -23,7 +23,7 @@ import os
 import time
 from pathlib import Path
 
-# Load environment variables from .env file
+# Load environment variables from .env file (in project root)
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -38,8 +38,12 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization.predictions import PredictionAnalyzer
 from nirs4all.operators.transforms import (
-    Wavelet, StandardNormalVariate, FirstDerivative, SavitzkyGolay,
+    Wavelet, WaveletFeatures, WaveletPCA, WaveletSVD,
+    StandardNormalVariate, FirstDerivative, SavitzkyGolay,
 )
+from nirs4all.operators.splitters import SPXYGFold, BinnedStratifiedGroupKFold
+from sklearn.model_selection import StratifiedGroupKFold, GroupKFold
+from sklearn.random_projection import GaussianRandomProjection, SparseRandomProjection
 
 # TabPFN config module (local)
 from tabpfn_config import (
@@ -104,14 +108,7 @@ args = parser.parse_args()
 # =============================================================================
 
 # Dataset path - use _datasets if available, else fallback to examples sample_data
-_DATASETS_PATH = Path(__file__).parent.parent / "_datasets" / "redox" / "1700_Brix_StratGroupedKfold"
-_EXAMPLES_PATH = Path(__file__).parent.parent / "examples" / "sample_data" / "regression"
-
-if _DATASETS_PATH.exists():
-    DATA_PATH = _DATASETS_PATH
-else:
-    DATA_PATH = _EXAMPLES_PATH
-    print("Note: Using fallback sample data from examples/sample_data/regression")
+DATA_PATH = "_datasets/redox/1700_Brix_StratGroupedKfold/"
 
 # Study parameters
 TASK_TYPE = 'regression'
@@ -126,30 +123,39 @@ MODEL_VARIANTS = ['default', 'real', 'low-skew'] if TASK_TYPE == 'regression' el
 # Feature Extraction Pipeline Components
 # =============================================================================
 
-def create_feature_extraction_options():
-    """
-    Create feature extraction options using concat_transform with generation.
-
-    Returns a list of feature extraction options that can be used with
-    concat_transform's _or_ syntax. Each option produces reduced-dimension
-    features suitable for TabPFN (max 2000 features).
-
-    Note: Do NOT include None here - in concat_transform, None means
-    "pass through raw features" which would concatenate 2151 raw features
-    with the transformed features, exceeding TabPFN's limit.
-    """
-    return [
+tabpfn_transformers = [
+        # Basic dimensionality reduction
         PCA(n_components=50),
         PCA(n_components=100),
-        PCA(n_components=150),
+        PCA(n_components=120),
         TruncatedSVD(n_components=50),
+        SparseRandomProjection(n_components=100),
+        GaussianRandomProjection(n_components=100),
+
+        # Sequential Wavelet -> PCA (global PCA on all wavelet coefficients)
         [Wavelet('haar'), PCA(n_components=50)],
         [Wavelet('db4'), PCA(n_components=50)],
         [Wavelet('coif3'), PCA(n_components=50)],
+        [Wavelet('haar'), PCA(n_components=25)],
+
+        # Preprocessing -> PCA
         [StandardNormalVariate(), PCA(n_components=100)],
         [SavitzkyGolay(), PCA(n_components=100)],
         [FirstDerivative(), PCA(n_components=100)],
-        [Wavelet('haar'), PCA(n_components=25)],
+
+        # Wavelet statistical features (extracts stats + top coeffs per level)
+        WaveletFeatures(wavelet='db4', max_level=5, n_coeffs_per_level=10),
+        WaveletFeatures(wavelet='haar', max_level=5, n_coeffs_per_level=10),
+        WaveletFeatures(wavelet='coif3', max_level=4, n_coeffs_per_level=8),
+
+        # Multi-scale Wavelet-PCA (PCA per decomposition level)
+        WaveletPCA(wavelet='coif3', max_level=4, n_components_per_level=5),
+        WaveletPCA(wavelet='haar', max_level=5, n_components_per_level=4),
+        WaveletPCA(wavelet='db4', max_level=5, n_components_per_level=3),
+
+        # Multi-scale Wavelet-SVD (SVD per decomposition level)
+        WaveletSVD(wavelet='db4', max_level=4, n_components_per_level=5),
+        WaveletSVD(wavelet='haar', max_level=5, n_components_per_level=4),
     ]
 
 
@@ -176,10 +182,23 @@ def main():
         # Target scaling (same as study_proto_1)
         {"y_processing": MinMaxScaler()},
 
+        # {
+        #     "split": SPXYGFold,
+        #     "split_params": {
+        #         "n_splits": 1,
+        #         "test_size": 0.2,
+        #         "aggregation": "mean"
+        #     },
+        #     "group": "ID_1700_clean"
+        # },
+        {
+            "split": GroupKFold(n_splits=3, shuffle=True, random_state=42), "group": "ID_1700_clean"
+        },
+
         # Feature extraction with multiple options (preprocessing handled here, not in TabPFN)
         {
             "concat_transform": {
-                "_or_": create_feature_extraction_options(),
+                "_or_": tabpfn_transformers,
                 "pick": (1, 2),
                 "count": 10,
             }
@@ -199,9 +218,7 @@ def main():
                 "eval_mode": "best",
                 "sample": "tpe",
                 "model_params": {
-                    # Model variant selection via model_path
                     "model_path": get_model_path_options(TASK_TYPE, MODEL_VARIANTS),
-                    # TabPFN inference config options
                     "inference_config": generate_inference_configs(TASK_TYPE, mode="minimal"),
                 },
             },
@@ -251,9 +268,9 @@ def main():
 
     print(f"Top {n_top} results by {ranking_metric.upper()}:")
     print("-" * 70)
-    top_models = predictions.top(n=n_top, rank_metric=ranking_metric)
+    top_models = predictions.top(n=n_top, rank_metric=ranking_metric, aggregate="ID_1700_clean")
 
-    for idx, prediction in enumerate(top_models, 1):
+    for idx, prediction in enumerate(top_models, 10):
         score = prediction.get("test_score", prediction.get("val_score", None))
         if TASK_TYPE == "regression" and score is not None:
             display_score = math.sqrt(score)  # Convert MSE to RMSE
@@ -264,7 +281,7 @@ def main():
         model_name = prediction.get("model_name", "N/A")
         preprocessing = prediction.get("preprocessings", "N/A")
 
-        print(f"{idx:2d}. {score_str:>14} | {model_name:<20} | {preprocessing}")
+        print(f"{idx}. {score_str:>14} | {model_name:<20} | {preprocessing}")
 
     print()
 
@@ -283,29 +300,29 @@ def main():
     print(f"  Preprocessing: {best.get('preprocessings', 'N/A')}")
     print()
 
-    # Per-model summary
-    print("-" * 70)
-    print("Performance by Model:")
-    print("-" * 70)
-    model_scores = {}
-    for pred in predictions.filter_predictions(partition='test'):
-        model_name = pred.get('model_name', 'Unknown')
-        score = pred.get('test_score')
-        if score is not None:
-            if model_name not in model_scores:
-                model_scores[model_name] = []
-            model_scores[model_name].append(score)
+    # # Per-model summary
+    # print("-" * 70)
+    # print("Performance by Model:")
+    # print("-" * 70)
+    # model_scores = {}
+    # for pred in predictions.filter_predictions(partition='test'):
+    #     model_name = pred.get('model_name', 'Unknown')
+    #     score = pred.get('test_score')
+    #     if score is not None:
+    #         if model_name not in model_scores:
+    #             model_scores[model_name] = []
+    #         model_scores[model_name].append(score)
 
-    for model_name, scores in sorted(model_scores.items()):
-        avg_score = sum(scores) / len(scores)
-        min_score = min(scores)
-        if TASK_TYPE == "regression":
-            avg_rmse = math.sqrt(avg_score)
-            min_rmse = math.sqrt(min_score)
-            print(f"  {model_name:<25} avg RMSE={avg_rmse:.4f}, best RMSE={min_rmse:.4f} (n={len(scores)})")
-        else:
-            print(f"  {model_name:<25} avg={avg_score:.4f}, best={min_score:.4f} (n={len(scores)})")
-    print()
+    # for model_name, scores in sorted(model_scores.items()):
+    #     avg_score = sum(scores) / len(scores)
+    #     min_score = min(scores)
+    #     if TASK_TYPE == "regression":
+    #         avg_rmse = math.sqrt(avg_score)
+    #         min_rmse = math.sqrt(min_score)
+    #         print(f"  {model_name:<25} avg RMSE={avg_rmse:.4f}, best RMSE={min_rmse:.4f} (n={len(scores)})")
+    #     else:
+    #         print(f"  {model_name:<25} avg={avg_score:.4f}, best={min_score:.4f} (n={len(scores)})")
+    # print()
 
     # Summary
     print("=" * 70)
@@ -323,41 +340,41 @@ def main():
     # =========================================================================
     output_dir = DATA_PATH.parent
 
-    print("Generating visualizations...")
-    analyzer = PredictionAnalyzer(predictions)
+    # print("Generating visualizations...")
+    # analyzer = PredictionAnalyzer(predictions)
 
-    # Top K plot
-    try:
-        fig1 = analyzer.plot_top_k(k=10, rank_metric=ranking_metric, rank_partition="test")
-        if isinstance(fig1, list):
-            for i, f in enumerate(fig1):
-                f.savefig(output_dir / f"study_proto_2_top_k_{i}.png", dpi=150, bbox_inches="tight")
-        else:
-            fig1.savefig(output_dir / "study_proto_2_top_k.png", dpi=150, bbox_inches="tight")
-        print("  Saved: study_proto_2_top_k.png")
-    except Exception as e:
-        print(f"  Warning: Could not create top-k plot: {e}")
+    # # Top K plot
+    # try:
+    #     fig1 = analyzer.plot_top_k(k=10, rank_metric=ranking_metric, rank_partition="test")
+    #     if isinstance(fig1, list):
+    #         for i, f in enumerate(fig1):
+    #             f.savefig(output_dir / f"study_proto_2_top_k_{i}.png", dpi=150, bbox_inches="tight")
+    #     else:
+    #         fig1.savefig(output_dir / "study_proto_2_top_k.png", dpi=150, bbox_inches="tight")
+    #     print("  Saved: study_proto_2_top_k.png")
+    # except Exception as e:
+    #     print(f"  Warning: Could not create top-k plot: {e}")
 
-    # Heatmap: model vs preprocessing
-    try:
-        fig2 = analyzer.plot_heatmap(
-            x_var="model_name",
-            y_var="preprocessings",
-            rank_metric=ranking_metric,
-            rank_partition="test",
-        )
-        fig2.savefig(output_dir / "study_proto_2_heatmap.png", dpi=150, bbox_inches="tight")
-        print("  Saved: study_proto_2_heatmap.png")
-    except Exception as e:
-        print(f"  Warning: Could not create heatmap: {e}")
+    # # Heatmap: model vs preprocessing
+    # try:
+    #     fig2 = analyzer.plot_heatmap(
+    #         x_var="model_name",
+    #         y_var="preprocessings",
+    #         rank_metric=ranking_metric,
+    #         rank_partition="test",
+    #     )
+    #     fig2.savefig(output_dir / "study_proto_2_heatmap.png", dpi=150, bbox_inches="tight")
+    #     print("  Saved: study_proto_2_heatmap.png")
+    # except Exception as e:
+    #     print(f"  Warning: Could not create heatmap: {e}")
 
-    print()
-    print("=" * 70)
-    print("STUDY COMPLETE")
-    print("=" * 70)
+    # print()
+    # print("=" * 70)
+    # print("STUDY COMPLETE")
+    # print("=" * 70)
 
-    if args.show:
-        plt.show()
+    # if args.show:
+    #     plt.show()
 
 
 if __name__ == "__main__":

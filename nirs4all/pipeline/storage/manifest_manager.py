@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from nirs4all.pipeline.config.component_serialization import deserialize_component
+
 
 def _sanitize_for_yaml(obj: Any) -> Any:
     """
@@ -359,3 +361,394 @@ class ManifestManager:
         existing = [d for d in target_dir.iterdir()
                     if d.is_dir() and d.name[0:4].isdigit()]
         return len(existing) + 1
+
+    def extract_top_preprocessings(
+        self,
+        predictions: List[Dict[str, Any]],
+        top_k: int = 3,
+        step_name: str = "feature_augmentation",
+        exclude_scalers: bool = True,
+        verbose: bool = False
+    ) -> List[List[Any]]:
+        """Extract top K unique preprocessing pipelines from ranked predictions.
+
+        Given a list of predictions (typically from `predictions.top()`), extracts
+        the preprocessing pipeline that was actually used for each prediction by
+        parsing the display string and deserializing the transformers.
+
+        Iterates through ALL predictions until top_k unique preprocessings are found.
+        This ensures we get the best-performing unique preprocessings even if the
+        top predictions share the same preprocessing (e.g., different folds).
+
+        This method is designed for pipeline chaining: run pipeline 1, get top
+        predictions, extract their preprocessings, use in pipeline 2.
+
+        Args:
+            predictions: List of prediction dictionaries, typically from
+                `predictions.top(n=..., rank_metric="rmse")`. Should be sorted
+                by score (best first). Each prediction must have:
+                - 'preprocessings': display string (e.g., "ExtendedMSC>Detr>MinMax")
+            top_k: Number of unique preprocessings to extract. Will iterate through
+                all predictions until this many unique preprocessings are found.
+            step_name: Unused, kept for backward compatibility.
+            exclude_scalers: If True, remove scaler transformers from each pipeline.
+            verbose: If True, print tracing information.
+
+        Returns:
+            List of up to top_k unique preprocessing pipelines. Each pipeline
+            is a list of transformer instances ready for use in pipeline config.
+
+        Example:
+            >>> manager = ManifestManager(runs_dir)
+            >>> top_preds = predictions.top(n=50, rank_metric="rmse")  # Get many predictions
+            >>> top_pp = manager.extract_top_preprocessings(top_preds, top_k=3)
+            >>> # top_pp = [[ExtendedMSC(), Detrend()], [SNV()], [MSC(), FirstDer()]]
+            >>> # Use in next pipeline:
+            >>> pipeline = [{"feature_augmentation": {"_or_": top_pp}}, ...]
+        """
+        result = []
+        seen_display_strings = set()
+
+        # Iterate through ALL predictions to find top_k unique preprocessings
+        for pred in predictions:
+            # Stop once we have enough unique preprocessings
+            if len(result) >= top_k:
+                break
+
+            # Get the preprocessing display string from the prediction
+            pp_display = pred.get("preprocessings", "")
+            if not pp_display:
+                continue
+
+            # Skip if we already have this preprocessing (deduplication)
+            if pp_display in seen_display_strings:
+                if verbose:
+                    print(f"  [extract] Skipping duplicate: {pp_display}")
+                continue
+
+            # Parse the display string to extract preprocessings
+            deserialized = self._parse_display_string(pp_display, verbose=verbose)
+
+            if exclude_scalers and deserialized:
+                deserialized = self._strip_trailing_scalers(deserialized, verbose=verbose)
+
+            if not deserialized:
+                if verbose:
+                    print(f"  [extract] Empty after parsing: {pp_display}")
+                continue
+
+            # Success - add to results and mark as seen
+            seen_display_strings.add(pp_display)
+            result.append(deserialized)
+
+            if verbose:
+                names = [type(t).__name__ for t in deserialized]
+                print(f"  [extract] #{len(result)}: {names} (from {pp_display})")
+
+        if verbose:
+            print(f"  [extract] Extracted {len(result)} unique preprocessing(s)")
+
+        return result
+
+    def _parse_display_string(self, display: str, verbose: bool = False) -> List[Any]:
+        """Parse a preprocessing display string back to transformer instances.
+
+        The display string format is like:
+        - "ExtendedMSC>Detr>ExtendedMSC>MinMax"
+        - "SNV>1stDer"
+        - "raw" (no preprocessing)
+
+        Args:
+            display: Display string from prediction.
+            verbose: Print debug info.
+
+        Returns:
+            List of transformer instances.
+        """
+        # Mapping from abbreviated display names to full class paths
+        # These paths must match the actual module locations
+        abbrev_to_class = {
+            # NIRS-specific transforms
+            "SNV": "nirs4all.operators.transforms.scalers.StandardNormalVariate",
+            "MSC": "nirs4all.operators.transforms.nirs.MultiplicativeScatterCorrection",
+            "ExtendedMSC": "nirs4all.operators.transforms.nirs.ExtendedMultiplicativeScatterCorrection",
+            "EMSC": "nirs4all.operators.transforms.nirs.ExtendedMultiplicativeScatterCorrection",
+            "RSNV": "nirs4all.operators.transforms.scalers.RobustStandardNormalVariate",
+            "AreaNorm": "nirs4all.operators.transforms.nirs.AreaNormalization",
+            # Signal processing transforms
+            "SG": "nirs4all.operators.transforms.nirs.SavitzkyGolay",
+            "1stDer": "nirs4all.operators.transforms.nirs.FirstDerivative",
+            "2ndDer": "nirs4all.operators.transforms.nirs.SecondDerivative",
+            "Detr": "nirs4all.operators.transforms.signal.Detrend",
+            "Gauss": "nirs4all.operators.transforms.signal.Gaussian",
+            # Wavelet transforms
+            "Haar": "nirs4all.operators.transforms.wavelets.Haar",
+            # Sklearn scalers
+            "MinMax": "sklearn.preprocessing.MinMaxScaler",
+            "Std": "sklearn.preprocessing.StandardScaler",
+            "Rbt": "sklearn.preprocessing.RobustScaler",
+        }
+
+        if not display or display == "raw" or display == "None":
+            return []
+
+        # Handle multi-source pipelines (split by |)
+        # Take the main part (usually the second one contains actual preprocessing)
+        parts = display.split("|")
+        if len(parts) > 1:
+            # Find the part with actual preprocessing (not just scalers)
+            for part in parts:
+                if any(abbrev in part for abbrev in ["SNV", "MSC", "1stDer", "2ndDer", "Detr", "SG"]):
+                    display = part
+                    break
+            else:
+                display = parts[-1]  # Use last part if no preprocessing found
+
+        # Split by > to get individual transformer names
+        names = display.split(">")
+        transformers = []
+
+        for name in names:
+            name = name.strip()
+            if name in abbrev_to_class:
+                class_path = abbrev_to_class[name]
+                try:
+                    instance = deserialize_component(class_path)
+                    transformers.append(instance)
+                except Exception as e:
+                    if verbose:
+                        print(f"  [parse] Failed to deserialize {name}: {e}")
+            elif verbose and name:
+                print(f"  [parse] Unknown transformer: {name}")
+
+        return transformers
+
+    def _flatten_preprocessing_options(self, content: Any) -> List[Any]:
+        """Flatten nested preprocessing options into individual pipelines.
+
+        The manifest can have various structures:
+        - Single string: "ClassName"
+        - List of strings: ["Class1", "Class2"] = single pipeline with 2 steps
+        - Nested lists: [[["A", "B"], ["C"]]] = multiple pipeline options
+
+        Returns:
+            List of individual preprocessing pipelines.
+        """
+        result = []
+
+        if not content:
+            return result
+
+        if isinstance(content, str):
+            result.append([content])
+        elif isinstance(content, list):
+            # Check if first element is also a list (nested options)
+            if content and isinstance(content[0], list):
+                for option in content:
+                    result.extend(self._flatten_preprocessing_options(option))
+            else:
+                # Check if all elements are strings (single pipeline)
+                if all(isinstance(x, str) for x in content):
+                    result.append(content)
+                else:
+                    # Mixed - recurse
+                    for item in content:
+                        result.extend(self._flatten_preprocessing_options(item))
+
+        return result
+
+    def _generate_display_string(self, pipeline: Any) -> str:
+        """Generate a display string from serialized preprocessing.
+
+        Converts class names to abbreviated form matching short_preprocessings_str().
+
+        Args:
+            pipeline: Serialized preprocessing (string or list of strings/dicts).
+
+        Returns:
+            Display string like "ExtendedMSC>Detr>MinMax".
+        """
+        # Class name replacements (matches dataset.short_preprocessings_str)
+        replacements = [
+            ("ExtendedMultiplicativeScatterCorrection", "ExtendedMSC"),
+            ("MultiplicativeScatterCorrection", "MSC"),
+            ("StandardNormalVariate", "SNV"),
+            ("RobustStandardNormalVariate", "RSNV"),
+            ("SavitzkyGolay", "SG"),
+            ("FirstDerivative", "1stDer"),
+            ("SecondDerivative", "2ndDer"),
+            ("Detrend", "Detr"),
+            ("Gaussian", "Gauss"),
+            ("Haar", "Haar"),
+            ("LogTransform", "Log"),
+            ("MinMaxScaler", "MinMax"),
+            ("RobustScaler", "Rbt"),
+            ("StandardScaler", "Std"),
+            ("QuantileTransformer", "Quant"),
+            ("PowerTransformer", "Pow"),
+            ("AreaNormalization", "AreaNorm"),
+        ]
+
+        def get_class_name(item: Any) -> str:
+            """Extract class name from various formats."""
+            if isinstance(item, str):
+                # Full path like "nirs4all.operators.transforms.nirs.SNV"
+                return item.rpartition(".")[2]
+            elif isinstance(item, dict):
+                class_path = item.get("class", "")
+                return class_path.rpartition(".")[2]
+            return ""
+
+        # Extract names
+        names = []
+        if isinstance(pipeline, list):
+            for item in pipeline:
+                name = get_class_name(item)
+                if name:
+                    names.append(name)
+        elif isinstance(pipeline, str):
+            name = get_class_name(pipeline)
+            if name:
+                names.append(name)
+
+        # Apply replacements
+        abbreviated = []
+        for name in names:
+            abbrev = name
+            for long_name, short in replacements:
+                if name == long_name:
+                    abbrev = short
+                    break
+            abbreviated.append(abbrev)
+
+        return ">".join(abbreviated)
+
+    def _display_strings_match(self, generated: str, target: str) -> bool:
+        """Check if generated display string is a component of the target.
+
+        The target display string represents the full preprocessing chain applied
+        during training, which may combine multiple options from _or_ picks plus
+        scalers. The generated string is from a single option in the manifest.
+
+        For example:
+        - target: "ExtendedMSC>Detr>ExtendedMSC>MinMax" (full chain)
+        - generated: "ExtendedMSC>Detr" (one option)
+        - Should match because "ExtendedMSC>Detr" is a prefix of the target
+
+        Args:
+            generated: Generated display string from a single manifest option.
+            target: Target display string from prediction (full chain).
+
+        Returns:
+            True if generated is a component of target's preprocessing chain.
+        """
+        # Exact match
+        if generated == target:
+            return True
+
+        # Strip scalers from target for comparison
+        scalers = {"MinMax", "Std", "Rbt", "Quant", "Pow"}
+
+        def strip_scalers(s: str) -> str:
+            parts = s.split(">")
+            # Strip from start
+            while parts and parts[0] in scalers:
+                parts.pop(0)
+            # Strip from end
+            while parts and parts[-1] in scalers:
+                parts.pop()
+            return ">".join(parts)
+
+        target_core = strip_scalers(target)
+        gen_core = strip_scalers(generated)
+
+        # Check if generated is exactly the target (after stripping scalers)
+        if gen_core == target_core:
+            return True
+
+        # Check if generated is a prefix of target
+        # This handles pick:(1,2) case where multiple options are combined
+        if target_core.startswith(gen_core + ">") or target_core.startswith(gen_core):
+            return True
+
+        return False
+
+    def _strip_trailing_scalers(
+        self,
+        pipeline: List[Any],
+        verbose: bool = False
+    ) -> List[Any]:
+        """Remove trailing scaler transformers from a pipeline.
+
+        Scalers at the end of a pipeline are typically added for normalization
+        before the model, not as part of the preprocessing. This method removes
+        them to get only the actual preprocessing transformers.
+
+        Args:
+            pipeline: List of transformer instances.
+            verbose: If True, print when scalers are removed.
+
+        Returns:
+            Pipeline with trailing scalers removed.
+        """
+        # Common scaler class names to strip
+        scaler_names = {
+            'MinMaxScaler', 'StandardScaler', 'RobustScaler', 'MaxAbsScaler',
+            'Normalizer', 'QuantileTransformer', 'PowerTransformer'
+        }
+
+        result = list(pipeline)
+
+        # Remove scalers from the end
+        while result and type(result[-1]).__name__ in scaler_names:
+            removed = result.pop()
+            if verbose:
+                print(f"    [extract_preprocessings] Stripped trailing scaler: {type(removed).__name__}")
+
+        # Also remove scalers from the beginning (often added before preprocessing)
+        while result and type(result[0]).__name__ in scaler_names:
+            removed = result.pop(0)
+            if verbose:
+                print(f"    [extract_preprocessings] Stripped leading scaler: {type(removed).__name__}")
+
+        return result
+
+    def _deserialize_preprocessing(self, pp_pipeline: Any) -> List[Any]:
+        """Deserialize a preprocessing pipeline from manifest format.
+
+        Args:
+            pp_pipeline: Preprocessing pipeline in manifest format.
+                Can be a string (class name), a list of class names,
+                or a nested structure.
+
+        Returns:
+            List of transformer instances.
+        """
+        deserialized = []
+
+        if isinstance(pp_pipeline, list):
+            for item in pp_pipeline:
+                if isinstance(item, str):
+                    instance = deserialize_component(item)
+                    deserialized.append(instance)
+                elif isinstance(item, list):
+                    # Nested list - this is a sub-pipeline
+                    sub_pipeline = [
+                        deserialize_component(cn)
+                        for cn in item
+                        if isinstance(cn, str)
+                    ]
+                    if sub_pipeline:
+                        deserialized.extend(sub_pipeline)
+                elif isinstance(item, dict):
+                    # Dict format with class and params
+                    instance = deserialize_component(item)
+                    deserialized.append(instance)
+        elif isinstance(pp_pipeline, str):
+            instance = deserialize_component(pp_pipeline)
+            deserialized.append(instance)
+        elif isinstance(pp_pipeline, dict):
+            instance = deserialize_component(pp_pipeline)
+            deserialized.append(instance)
+
+        return deserialized

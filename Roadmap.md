@@ -9,15 +9,11 @@
 >   - [save_files] sep in save_files and save_plots and save_predictions
 >   - [MB-PLS] test on multi-source/block
 >   - [Kernel-PLS] poly and linear are crap
->   - [_or_] with one element fallback on dummy controller
 >   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
->   - run count is false at run start
 >   - slow down between models: check dataset copy, ensure cache and reuse.
 >   - remove print scores in base model (bug in predict)
 >   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
 >   - Charts do not display correctly the wavelength on x-axis
-
-> [Review] all the ranking chain to optimize and clean dead code and redondancies
 
 > [sklearn] Integrate optuna finetuning on stack ?????
 
@@ -36,7 +32,6 @@
 **RELEASE** 0.5.2: Learning ready
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
-
 
 > [Examples] Clean and document
 
