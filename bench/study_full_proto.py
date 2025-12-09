@@ -17,6 +17,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 os.environ['DISABLE_EMOJIS'] = '0'
 
 import matplotlib.pyplot as plt
+
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.ensemble import RandomForestRegressor
@@ -25,12 +26,7 @@ from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.random_projection import GaussianRandomProjection, SparseRandomProjection
 
-try:
-    from catboost import CatBoostRegressor
-    CATBOOST_AVAILABLE = True
-except ImportError:
-    CatBoostRegressor = None
-    CATBOOST_AVAILABLE = False
+from catboost import CatBoostRegressor
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
@@ -39,18 +35,10 @@ from nirs4all.analysis import TransferPreprocessingSelector
 from nirs4all.operators.models.sklearn import OPLS
 from nirs4all.operators.models.sklearn.lwpls import LWPLS
 from nirs4all.operators.splitters import SPXYGFold
-from nirs4all.operators.transforms import (
-    Wavelet, WaveletFeatures, WaveletPCA, WaveletSVD,
-    StandardNormalVariate, FirstDerivative, SavitzkyGolay,
-)
+from nirs4all.operators.transforms import Wavelet, WaveletFeatures, WaveletPCA, WaveletSVD, StandardNormalVariate, FirstDerivative, SavitzkyGolay
 from nirs4all.operators.models.pytorch.nicon import nicon, customizable_nicon, thin_nicon, nicon_VG
 
-from tabpfn_config import (
-    get_model_class,
-    get_model_path_options,
-    generate_inference_configs,
-    TABPFN_AVAILABLE,
-)
+from study_tabpfn_config import get_model_class, get_model_path_options, generate_inference_configs
 
 try:
     from huggingface_hub import login
@@ -68,28 +56,155 @@ parser.add_argument("--device", type=str, default="cuda", help="Device: 'cuda' o
 args = parser.parse_args()
 
 
-FOLDER_LIST = ['_datasets/redox/1700_Brix_StratGroupedKfold', '_datasets/redox/1700_Brix_YearSplit', '_datasets/redox/1700_CondElecCorr_StratGroupedKfold', '_datasets/redox/1700_CondElecCorr_YearSplit', '_datasets/redox/1700_pepH_StratGroupedKfold', '_datasets/redox/1700_pepH_YearSplit', '_datasets/redox/1700_pH_StratGroupedKfold', '_datasets/redox/1700_pH_YearSplit', '_datasets/redox/1700_Temp_Leaf_StratGroupedKfold', '_datasets/redox/1700_Temp_Leaf_YearSplit', '_datasets/redox/Pencil_Brix_StratGroupedKfold', '_datasets/redox/Pencil_Brix_YearSplit', '_datasets/redox/Pencil_CondElecCorr_StratGroupedKfold', '_datasets/redox/Pencil_CondElecCorr_YearSplit', '_datasets/redox/Pencil_pepH_StratGroupedKfold', '_datasets/redox/Pencil_pepH_YearSplit', '_datasets/redox/Pencil_pH_StratGroupedKfold', '_datasets/redox/Pencil_pH_YearSplit', '_datasets/redox/Pencil_Temp_Leaf_StratGroupedKfold', '_datasets/redox/Pencil_Temp_Leaf_YearSplit']
+def get_pp_fingerprint(pp):
+    """Create a fingerprint string for a preprocessing pipeline to enable comparison."""
+    if pp is None:
+        return "None"
+    if not isinstance(pp, list):
+        pp = [pp]
+    parts = []
+    for item in pp:
+        if isinstance(item, list):
+            parts.append(f"[{get_pp_fingerprint(item)}]")
+        else:
+            class_name = type(item).__name__
+            params = getattr(item, 'get_params', lambda: {})()
+            parts.append(f"{class_name}({params})")
+    return "|".join(parts)
+
+
+def get_best_pp_cp(count_pp, count_cp, runner, predictions, pp_index=0, aggregation_key=None):
+    k = 6 * count_pp
+    top_preds = predictions.top(n=k, rank_metric="rmse", rank_partition="test")
+
+    best_cp = []
+    best_pp = []
+    best_pp_fingerprints = set()
+
+    for pred in top_preds:
+        if len(best_cp) >= count_cp and len(best_pp) >= count_pp:
+            break
+
+        if len(best_cp) < count_cp:
+            best_params = pred.get("best_params", {})
+            n_components = best_params.get("n_components", 10)
+            if n_components not in best_cp:
+                best_cp.append(n_components)
+
+        if len(best_pp) < count_pp:
+            pp_choice = runner.manifest_manager.extract_generator_choice(pred, choice_index=pp_index, instantiate=True)
+            fingerprint = get_pp_fingerprint(pp_choice)
+            print(pp_choice)
+            if fingerprint not in best_pp_fingerprints:
+                best_pp_fingerprints.add(fingerprint)
+                best_pp.append(pp_choice)
+
+    return best_pp, best_cp
+
+def expand_tabpfn_pp(top3_pp):
+    uniques_pp_fingerprints = set()
+
+    for pp in top3_pp:
+        if len(pp) > 1:
+            fingerprint = ""
+            for sub_pipeline in pp:
+                fingerprint += get_pp_fingerprint(sub_pipeline) + ";"
+                sub_pipeline.append(PCA(n_components=100))
+
+            if fingerprint not in uniques_pp_fingerprints:
+                new_pipeline = {
+                    "concat_transform": pp
+                }
+                print("ADDING CONCAT:", new_pipeline)
+                TABPFN_PP.append(new_pipeline)
+        else:
+            print("SINGLE")
+            print(pp)
+            pipe = pp[0]
+            fingerprint = get_pp_fingerprint(pipe)
+            if fingerprint not in uniques_pp_fingerprints:
+                pipe.append(PCA(n_components=100))
+                uniques_pp_fingerprints.add(fingerprint)
+                print("ADDED", pipe)
+                TABPFN_PP.append(pipe)
+
+###########################################################
+
+REDOX_FOLDER = '_datasets/redox/'
+SUB_FOLDER_LIST = [
+    '1700_Brix_StratGroupedKfold',
+    '1700_Brix_YearSplit',
+    '1700_CondElecCorr_StratGroupedKfold',
+    '1700_CondElecCorr_YearSplit',
+    '1700_pepH_StratGroupedKfold',
+    '1700_pepH_YearSplit',
+    '1700_pH_StratGroupedKfold',
+    '1700_pH_YearSplit',
+    '1700_Temp_Leaf_StratGroupedKfold',
+    '1700_Temp_Leaf_YearSplit',
+    'Pencil_Brix_StratGroupedKfold',
+    'Pencil_Brix_YearSplit',
+    'Pencil_CondElecCorr_StratGroupedKfold',
+    'Pencil_CondElecCorr_YearSplit',
+    'Pencil_pepH_StratGroupedKfold',
+    'Pencil_pepH_YearSplit',
+    'Pencil_pH_StratGroupedKfold',
+    'Pencil_pH_YearSplit',
+    'Pencil_Temp_Leaf_StratGroupedKfold',
+    'Pencil_Temp_Leaf_YearSplit']
+
+FOLDER_LIST = [os.path.join(REDOX_FOLDER, sub_folder) for sub_folder in SUB_FOLDER_LIST]
 
 AGGREGATION_KEY_LIST = ["ID_1700_clean" for _ in FOLDER_LIST]
 
-PP_SPEC = {
-    "_cartesian_": [
-        {"_or_": [None, "msc", "snv", "emsc", "rsnv"]},
-        # {"_or_": [None, "savgol", "savgol_15", "gaussian", "gaussian2", "msc", "snv", "emsc", "rsnv"]},
-        {"_or_": [None, "d1", "d2", "savgol_d1", "savgol15_d1", "savgol_d2"]},
-        # {"_or_": [None, "haar", "detrend", "area_norm", "wav_sym5", "wav_coif3", "msc", "snv", "emsc"]},
-    ],
-}
+TEST_MODE = True
 
-SELECTOR_TOP_K = 10 #20
-MAX_PP_PIPELINE_1 = 40
-PLS_TRIALS = 20 #25
-OPLS_TRIALS = 30 #35
-RIDGE_TRIALS = 20 #20
-TABPFN_TRIALS = 10 #10
-TABPFN_MODEL_VARIANTS = ['default', 'real', 'low-skew', 'small-samples']
+if TEST_MODE:
+    TRANSFER_PP_PRESET = "fast"
+    TRANSFER_PP_SELECTED = 3
+    PLS_PP_COUNT = 3
+    PLS_PP_TOP_SELECTED_COUNT = 3
+    PLS_TRIALS = 1
+    OPLS_TRIALS = 1
+    TEST_LW_PLS = False
+    RIDGE_TRIALS = 1
+    TABPFN_TRIALS = 1
+    TABPFN_MODEL_VARIANTS = ['default', 'real']#, 'low-skew', 'small-samples']
+    TABPFN_PP_MAX_COUNT = 1
+    TABPFN_PP_MAX_SIZE = 1
 
-TABPFN_TRANSFORMERS = [
+    GLOBAL_PP = {
+        "_cartesian_": [
+            # {"_or_": [None, "msc", "snv", "emsc", "rsnv"]},
+            {"_or_": [None, "savgol", "savgol_15", "gaussian", "gaussian2", "msc", "snv", "emsc", "rsnv"]},
+            {"_or_": [None, "d1", "d2", "savgol_d1", "savgol15_d1", "savgol_d2"]},
+            # {"_or_": [None, "haar", "detrend", "area_norm", "wav_sym5", "wav_coif3", "msc", "snv", "emsc"]},
+        ],
+    }
+else:
+    TRANSFER_PP_PRESET = "balanced"  # "fast", "balanced", "comprehensive"
+    TRANSFER_PP_SELECTED = 10
+    PLS_PP_COUNT = 40
+    PLS_PP_TOP_SELECTED_COUNT = 10
+    PLS_TRIALS = 20
+    OPLS_TRIALS = 30
+    TEST_LW_PLS = False
+    RIDGE_TRIALS = 20
+    TABPFN_TRIALS = 10
+    TABPFN_MODEL_VARIANTS = ['default', 'real', 'low-skew', 'small-samples']
+    TABPFN_PP_MAX_COUNT = 20
+    TABPFN_PP_MAX_SIZE = 3
+
+    GLOBAL_PP = {
+        "_cartesian_": [
+            {"_or_": [None, "msc", "snv", "emsc", "rsnv"]},
+            {"_or_": [None, "savgol", "savgol_15", "gaussian", "gaussian2", "msc", "snv", "emsc", "rsnv"]},
+            {"_or_": [None, "d1", "d2", "savgol_d1", "savgol15_d1", "savgol_d2"]},
+            {"_or_": [None, "haar", "detrend", "area_norm", "wav_sym5", "wav_coif3", "msc", "snv", "emsc"]},
+        ],
+    }
+
+TABPFN_PP = [
     PCA(n_components=50),
     PCA(n_components=100),
     TruncatedSVD(n_components=50),
@@ -106,32 +221,13 @@ TABPFN_TRANSFORMERS = [
 ]
 
 
-def _format_pipeline_for_display(pipeline_list):
-    """Format a list of preprocessing pipelines for display.
-
-    Args:
-        pipeline_list: List of pipelines, where each pipeline is a list of transformers
-
-    Returns:
-        List of formatted strings for display
-    """
-    result = []
-    for pipeline in pipeline_list:
-        if isinstance(pipeline, list):
-            names = [type(t).__name__ for t in pipeline]
-            result.append(" > ".join(names) if names else "(empty)")
-        else:
-            result.append(type(pipeline).__name__)
-    return result
-
-
 def run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key):
     """Pipeline 1: PLS and OPLS with transfer-selected preprocessings."""
     pipeline = [
         # {"split": GroupKFold(n_splits=3), "group": aggregation_key},
         {"split": SPXYGFold(n_splits=3), "group": aggregation_key},
         {"y_processing": MinMaxScaler(feature_range=(0.05, 0.9))},
-        {"feature_augmentation": {"_or_": filtered_pp_list, "pick": (1, 2), "count": MAX_PP_PIPELINE_1}},
+        {"feature_augmentation": {"_or_": filtered_pp_list, "pick": [1, 2], "count": PLS_PP_COUNT}},
         MinMaxScaler,
         {
             "model": PLSRegression(),
@@ -145,89 +241,60 @@ def run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key):
                 "model_params": {"n_components": ("int", 1, 40)},
             },
         },
-        {
-            "model": OPLS(),
-            "name": "OPLS-Finetuned",
-            "finetune_params": {
-                "n_trials": OPLS_TRIALS,
-                "verbose": 0,
-                "approach": "grouped",
-                "eval_mode": "avg",
-                "sample": "tpe",
-                "model_params": {
-                    "n_components": ("int", 1, 10),
-                    "pls_components": ("int", 1, 40),
-                },
-            },
-        },
+        # {
+        #     "model": OPLS(),
+        #     "name": "OPLS-Finetuned",
+        #     "finetune_params": {
+        #         "n_trials": OPLS_TRIALS,
+        #         "verbose": 0,
+        #         "approach": "grouped",
+        #         "eval_mode": "avg",
+        #         "sample": "tpe",
+        #         "model_params": {
+        #             "n_components": ("int", 1, 10),
+        #             "pls_components": ("int", 1, 40),
+        #         },
+        #     },
+        # },
     ]
 
     pipeline_config = PipelineConfigs(pipeline, "pipeline_1_pls_opls")
     runner = PipelineRunner(save_files=True, verbose=0, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
-    # Get many predictions to ensure we find enough unique preprocessings
-    # (top predictions may share the same preprocessing across folds)
-    top_preds = predictions.top(n=50, rank_metric="rmse", rank_partition="test", aggregate=aggregation_key)
-    if not top_preds:
-        print("  Warning: No predictions found")
-        return predictions, filtered_pp_list[:3], 10, []
-
-    top3_pp_display = [p.get("preprocessings", None) for p in top_preds[:3]]
-    best_pred = top_preds[0]
-    best_params = best_pred.get("best_params", {})
-    best_n_components = best_params.get("n_components", 10)
-
-    # Extract top preprocessing pipelines from the best predictions
-    # This parses display strings and deserializes the transformers for reuse
-    top_pp_list = runner.manifest_manager.extract_top_preprocessings(
-        predictions=list(top_preds),
-        top_k=3,
-        exclude_scalers=True,
-        verbose=True
+    top_pp_list, best_n_components = get_best_pp_cp(
+        count_pp=PLS_PP_TOP_SELECTED_COUNT,
+        count_cp=1,
+        runner=runner,
+        predictions=predictions,
+        pp_index=0,
+        aggregation_key=aggregation_key,
     )
 
-    # Display the extracted pipelines
-    extracted_display = _format_pipeline_for_display(top_pp_list)
-    print(f"  *** Extracted {len(top_pp_list)} preprocessing pipeline(s): {extracted_display}")
-
-    # Fallback to original list if extraction fails
-    if not top_pp_list:
-        print("  Warning: Could not extract preprocessings from manifests, using original list")
-        top_pp_list = filtered_pp_list[:min(3, len(filtered_pp_list))]
-
-    return predictions, top_pp_list, best_n_components, top3_pp_display
+    return predictions, top_pp_list, best_n_components[0]
 
 
 def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
     """Pipeline 2: LWPLS, Ridge, CatBoost, Nicon, RandomForest."""
 
     catboost_configs = [
-        CatBoostRegressor(iterations=200, depth=6, learning_rate=0.1, verbose=0, allow_writing_files=False),
-        CatBoostRegressor(iterations=400, depth=8, learning_rate=0.05, verbose=0, allow_writing_files=False),
-        CatBoostRegressor(iterations=300, depth=10, learning_rate=0.08, verbose=0, allow_writing_files=False),
-    ] if CATBOOST_AVAILABLE else []
+        CatBoostRegressor(iterations=200, depth=6, learning_rate=0.1, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
+        CatBoostRegressor(iterations=400, depth=8, learning_rate=0.05, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
+        CatBoostRegressor(iterations=300, depth=10, learning_rate=0.08, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
+    ]
 
     nicon_configs = [
         {"model": nicon, "name": "nicon"},
         {"model": nicon_VG, "name": "nicon"},
+        {"model": thin_nicon, "name": "nicon"},
     ]
 
-    # Build feature_augmentation step based on number of pipelines
-    # - If multiple pipelines: use _or_ syntax
-    # - If single pipeline: use it directly (no _or_ needed)
-    # - If empty: skip feature_augmentation
     if len(top3_pp) > 1:
         feature_aug_step = {"feature_augmentation": {"_or_": top3_pp}}
         print(f"  [Pipeline 2] Using _or_ with {len(top3_pp)} pipelines")
     elif len(top3_pp) == 1:
-        # Single pipeline - use directly without _or_
         feature_aug_step = {"feature_augmentation": top3_pp[0]}
         print(f"  [Pipeline 2] Using single pipeline directly: {[type(t).__name__ for t in top3_pp[0]]}")
-    else:
-        # No preprocessings - skip feature_augmentation entirely
-        feature_aug_step = None
-        print(f"  [Pipeline 2] No preprocessings, skipping feature_augmentation")
 
     pipeline = [
         # {"split": GroupKFold(n_splits=3), "group": aggregation_key},
@@ -241,8 +308,6 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
 
     pipeline.extend([
         MinMaxScaler,
-        {"model": LWPLS(n_components=best_n_components), "name": "LWPLS"},
-
         {
             "model": Ridge(),
             "name": "Ridge-Finetuned",
@@ -261,6 +326,9 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
         *nicon_configs,
     ])
 
+    if TEST_LW_PLS:
+        pipeline.append({"model": LWPLS(n_components=best_n_components), "name": "LWPLS"})
+
     pipeline_config = PipelineConfigs(pipeline, "pipeline_2_ensemble")
     runner = PipelineRunner(save_files=True, verbose=0, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset_config)
@@ -269,23 +337,19 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
 
 def run_pipeline_3(dataset_config, aggregation_key, top3_pp):
     """Pipeline 3: TabPFN finetuning."""
-    if not TABPFN_AVAILABLE:
-        print("  TabPFN not available, skipping pipeline 3")
-        return None
 
     TabPFN_class = get_model_class('regression')
-
-    for pp in top3_pp:
-        TABPFN_TRANSFORMERS.append([pp, PCA(n_components=100)])
+    expand_tabpfn_pp(top3_pp)
+    print(TABPFN_PP)
 
     pipeline = [
         # {"split": GroupKFold(n_splits=3), "group": aggregation_key},
         {"split": SPXYGFold(n_splits=3), "group": aggregation_key},
         {"y_processing": MinMaxScaler()},
-        {"concat_transform": {"_or_": TABPFN_TRANSFORMERS, "pick": (1, 3), "count": 20}},
+        {"concat_transform": {"_or_": TABPFN_PP, "pick": [1, TABPFN_PP_MAX_SIZE], "count": TABPFN_PP_MAX_COUNT}},
         StandardScaler(),
         {
-            "model": TabPFN_class(device=args.device),
+            "model": TabPFN_class(device="cuda"),
             "name": "TabPFN-Finetuned",
             "finetune_params": {
                 "n_trials": TABPFN_TRIALS,
@@ -357,33 +421,34 @@ def main():
         print("\n[Phase 1] TransferPreprocessingSelector...")
         t0 = time.time()
         selector = TransferPreprocessingSelector(
-            preset="balanced",
-            preprocessing_spec=PP_SPEC,
+            preset=TRANSFER_PP_PRESET,
+            preprocessing_spec=GLOBAL_PP,
             verbose=args.verbose,
         )
         results = selector.fit(dataset_config)
-        filtered_pp_list = results.to_preprocessing_list(top_k=SELECTOR_TOP_K)
+        filtered_pp_list = results.to_preprocessing_list(top_k=TRANSFER_PP_SELECTED)
         print(f"  Selected {len(filtered_pp_list)} preprocessings in {time.time()-t0:.1f}s")
 
         # Phase 2: Pipeline 1 - PLS/OPLS
-        print("\n[Phase 2] Pipeline 1: PLS/OPLS finetuning...")
+        print("\n[Phas:e 2] Pipeline 1: PLS/OPLS finetuning...")
         t0 = time.time()
-        preds_1, top3_pp, best_n_components, top3_pp_display = run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key)
+        preds_1, top_pp_list, best_n_components = run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key)
         print(f"  Completed in {time.time()-t0:.1f}s")
-        print(f"  Best n_components: {best_n_components}")
-        print(f"  Top {len(top3_pp_display)} preprocessings (display): {top3_pp_display}")
-        print(f"  >>> Actual {len(top3_pp)} pipelines passed to Pipeline 2: {_format_pipeline_for_display(top3_pp)}")
+        print(f"  Top {len(top_pp_list)} preprocessings for Pipeline 2:")
+        print(f"    " + "\n    ".join([str(pp) for pp in top_pp_list]))
+        print(f"  Best n_components for PLS: {best_n_components}")
+
 
         # Phase 3: Pipeline 2 - LWPLS, Ridge, CatBoost, Nicon, RF
         print("\n[Phase 3] Pipeline 2: Ensemble models...")
         t0 = time.time()
-        preds_2 = run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key)
+        preds_2 = run_pipeline_2(dataset_config, top_pp_list, best_n_components, aggregation_key)
         print(f"  Completed in {time.time()-t0:.1f}s")
 
         # Phase 4: Pipeline 3 - TabPFN
         print("\n[Phase 4] Pipeline 3: TabPFN...")
         t0 = time.time()
-        preds_3 = run_pipeline_3(dataset_config, aggregation_key, top3_pp)
+        preds_3 = run_pipeline_3(dataset_config, aggregation_key, top_pp_list)
         if preds_3:
             print(f"  Completed in {time.time()-t0:.1f}s")
 
