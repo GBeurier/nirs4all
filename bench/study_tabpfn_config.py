@@ -15,18 +15,12 @@ from __future__ import annotations
 from typing import Optional
 from pathlib import Path
 
+from tabpfn import TabPFNClassifier, TabPFNRegressor
+from tabpfn.model_loading import get_cache_dir
 # TabPFN imports - lazy loaded to avoid import errors when not installed
-try:
-    from tabpfn import TabPFNClassifier, TabPFNRegressor  # type: ignore
-    from tabpfn.model_loading import get_cache_dir  # type: ignore
-    TABPFN_AVAILABLE = True
-except ImportError:
-    TABPFN_AVAILABLE = False
-    TabPFNClassifier = None
-    TabPFNRegressor = None
 
-    def get_cache_dir():
-        return Path(".")
+def get_cache_dir():
+    return Path(".")
 
 
 # =============================================================================

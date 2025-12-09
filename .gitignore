@@ -57,3 +57,4 @@ examples/out
 bench/_datasets/
 bench/synthetic/charts/
 bench/workspace/
+*.ckpt
