@@ -128,6 +128,9 @@ def create_model(task_type: str, variant: str = 'default', device: str = 'cuda',
     model_paths = get_model_paths(task_type, [variant])
     model_path = model_paths[0]
 
+    # Default to ignoring pretraining limits for high-dimensional NIRS data
+    kwargs.setdefault('ignore_pretraining_limits', True)
+
     if model_path is not None:
         return model_class(model_path=model_path, device=device, **kwargs)
     else:

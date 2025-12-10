@@ -26,7 +26,7 @@ class StudyRunner:
 
         # Training Configuration
         self.test_mode: bool = False
-        self.transfer_pp_preset: str = "balanced"
+        self.transfer_pp_preset: Optional[str] = None  # "fast", "balanced", "comprehensive"
         self.transfer_pp_selected: int = 10
         self.transfer_pp_config: Optional[Dict[str, Any]] = None  # Advanced: TransferPreprocessingSelector kwargs
 
@@ -130,7 +130,8 @@ class StudyRunner:
         found = []
 
         for dataset_path in datasets:
-            dataset_name = Path(dataset_path).name
+            # Use lowercase to match folder_to_name() convention in config_parser.py
+            dataset_name = Path(dataset_path).name.lower()
             parquet_path = workspace / f"{dataset_name}.meta.parquet"
 
             if parquet_path.exists():

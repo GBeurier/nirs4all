@@ -45,7 +45,7 @@ class MyStudy(StudyRunner):
 
         DATASETS_FOLDER = '../_datasets/hiba/'
         SUB_FOLDER_LIST = [
-            'SLA',
+            'LDMC',
         ]
 
         self.folder_list = [os.path.join(DATASETS_FOLDER, sub) for sub in SUB_FOLDER_LIST]
@@ -62,7 +62,7 @@ class MyStudy(StudyRunner):
         # ====================================================================
 
         # Transfer Preprocessing Selection (simple mode)
-        self.transfer_pp_preset = "balanced"  # "fast", "balanced", "comprehensive"
+        self.transfer_pp_preset = None  # "fast", "balanced", "comprehensive"
         self.transfer_pp_selected = 10
 
         # PLS/OPLS
@@ -114,6 +114,20 @@ class MyStudy(StudyRunner):
         # Uncomment and configure these for advanced control.
         # When set, they override simple parameters and use direct function calls.
 
+        self.transfer_pp_config = {
+            'preset': None,  # Disable preset to use custom config
+            'run_stage2': False,
+            'stage2_top_k': 15,
+            'stage2_max_depth': 3,
+            'run_stage3': True,
+            'stage3_top_k': 10,
+            'stage3_max_order': 2,
+            'run_stage4': False,
+            'n_components': 20,
+            'k_neighbors': 10,
+            'n_jobs': -1,
+        }
+
         # --- GLOBAL_PP: Preprocessing search space for TransferPreprocessingSelector ---
         # Now uses direct transformer objects instead of string names (more explicit & IDE-friendly)
         # self.global_pp = {
@@ -143,19 +157,7 @@ class MyStudy(StudyRunner):
         # ]
 
         # --- TRANSFER_PP_CONFIG: Full TransferPreprocessingSelector configuration ---
-        # self.transfer_pp_config = {
-        #     'preset': None,  # Disable preset to use custom config
-        #     'run_stage2': True,
-        #     'stage2_top_k': 15,
-        #     'stage2_max_depth': 3,
-        #     'run_stage3': True,
-        #     'stage3_top_k': 10,
-        #     'stage3_max_order': 2,
-        #     'run_stage4': False,
-        #     'n_components': 20,
-        #     'k_neighbors': 10,
-        #     'n_jobs': -1,
-        # }
+
 
         # ====================================================================
         # EXECUTION CONTROL (optional)
