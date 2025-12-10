@@ -14,6 +14,7 @@ from .sklearn_model import SklearnModelController
 from .tensorflow_model import TensorFlowModelController
 from .torch_model import PyTorchModelController
 from .jax_model import JaxModelController
+from .autogluon_model import AutoGluonModelController
 
 __all__ = [
     'BaseModelController',
@@ -21,4 +22,5 @@ __all__ = [
     'TensorFlowModelController',
     'PyTorchModelController',
     'JaxModelController',
+    'AutoGluonModelController',
 ]
