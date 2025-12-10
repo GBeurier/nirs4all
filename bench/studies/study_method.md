@@ -27,9 +27,9 @@ The analysis follows a four-phase cascading architecture where each phase inform
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  PHASE 2: PLS BASELINE WITH FINETUNING                                      │
+│  PHASE 2: PLS AND OPLS BASELINES                                            │
 │  ─────────────────────────────────────                                      │
-│  • Train PLS models with automated component tuning                         │
+│  • Train PLS and OPLS models with automated component tuning                │
 │  • Evaluate preprocessing combinations via feature augmentation             │
 │  • Identify best preprocessing + hyperparameter combinations                │
 │  OUTPUT → Top preprocessing pipelines + optimal n_components               │
@@ -39,7 +39,7 @@ The analysis follows a four-phase cascading architecture where each phase inform
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  PHASE 3: ENSEMBLE AND DEEP LEARNING                                        │
 │  ─────────────────────────────────────                                      │
-│  • Ridge regression with regularization tuning                              │
+│  • Ridge, Random Forest, and LWPLS (optional)                               │
 │  • Gradient boosting (CatBoost) with multiple configurations               │
 │  • 1D-CNN architectures (NICON variants)                                   │
 │  • Use validated preprocessing from Phase 2                                 │
@@ -69,7 +69,7 @@ The analysis follows a four-phase cascading architecture where each phase inform
 
 ### 1.2 Key Design Principles
 
-1. **Cascading knowledge transfer**: Preprocessing validated by simpler models (PLS) is reused by complex models
+1. **Cascading knowledge transfer**: Preprocessing validated by simpler models (PLS/OPLS) is reused by complex models
 2. **Automated hyperparameter optimization**: All tunable models use TPE-based Bayesian optimization
 3. **Consistent cross-validation**: Same fold structure across all phases for fair comparison
 4. **Reproducibility**: Full pipeline serialization enables exact reconstruction
@@ -231,24 +231,28 @@ These are propagated to downstream phases, ensuring complex models benefit from 
 
 ## 5. Model Architectures
 
-### 5.1 Phase 2: Partial Least Squares Regression
+### 5.1 Phase 2: PLS and OPLS Baselines
 
 **Partial Least Squares** (PLS) regression (Wold et al., 1984) is the foundational chemometric method for NIRS. PLS projects both X and y onto latent variables that maximize covariance, handling collinearity inherent in spectral data.
 
-#### PLS Finetuning
+**Orthogonal PLS** (OPLS) extends PLS by separating variation in X that is correlated with Y (predictive) from variation that is uncorrelated (orthogonal). This often results in simpler, more interpretable models with fewer predictive components.
+
+#### PLS and OPLS Finetuning
 
 | Parameter | Search Space | Rationale |
 |-----------|--------------|-----------|
-| `n_components` | 1–40 | More components capture more variance but risk overfitting |
+| `n_components` (PLS) | 1–40 | More components capture more variance but risk overfitting |
+| `n_components` (OPLS) | 1–10 | Orthogonal components to remove structured noise |
+| `pls_components` (OPLS)| 1–40 | Predictive components |
 
 **Optimization Settings:**
-- **Trials**: 20 per preprocessing configuration
+- **Trials**: 20 (PLS), 30 (OPLS) per preprocessing configuration
 - **Approach**: Grouped (average across folds)
 - **Evaluation**: RMSE on validation partition
 
 #### Role in the Cascade
 
-PLS serves dual purposes:
+These baselines serve dual purposes:
 1. **Baseline establishment**: Provides chemometric reference performance
 2. **Preprocessing validation**: Identifies which preprocessing pipelines work well, informing subsequent phases
 
@@ -297,6 +301,19 @@ The architectures use:
 - Batch normalization and dropout for regularization
 - Global average pooling before the regression head
 - Adam optimizer with learning rate scheduling
+
+#### 5.2.4 Random Forest Regression
+
+Random Forest constructs an ensemble of decision trees trained on bootstrapped samples. It captures non-linear interactions and is robust to outliers.
+
+| Parameter | Value |
+|-----------|-------|
+| `n_estimators` | 200 |
+| `max_depth` | 10 |
+
+#### 5.2.5 Locally Weighted PLS (Optional)
+
+**Locally Weighted PLS** (LWPLS) builds a local PLS model for each query sample using only its nearest neighbors in the training set. This handles non-linearities by approximating the global manifold with local linear models. It uses the optimal component count determined in Phase 2.
 
 ### 5.3 Phase 4: Transformer Architecture
 
