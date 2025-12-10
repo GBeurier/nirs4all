@@ -27,6 +27,7 @@ import math
 import os
 import re
 import shutil
+import tempfile
 import zipfile
 from pathlib import Path
 from datetime import datetime
@@ -75,6 +76,74 @@ LOGO_CIRAD = Path(__file__).parent / "logo-cirad-en.jpg"
 
 # Method documentation
 METHOD_DOC_PATH = Path(__file__).parent / "study_method.md"
+
+
+# ========================================
+# PANDOC SUPPORT
+# ========================================
+
+def is_pandoc_available() -> bool:
+    """Check if pandoc is available on the system.
+
+    Returns:
+        True if pandoc is available, False otherwise.
+    """
+    try:
+        import pypandoc
+        pypandoc.get_pandoc_version()
+        return True
+    except (ImportError, OSError):
+        return False
+
+
+def render_markdown_to_pdf_pandoc(markdown_path: Path, output_pdf_path: Path) -> bool:
+    """Render markdown file to PDF using pandoc.
+
+    This provides high-quality rendering of LaTeX equations, tables,
+    and other markdown features.
+
+    Args:
+        markdown_path: Path to the markdown file.
+        output_pdf_path: Path for the output PDF file.
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    try:
+        import pypandoc
+
+        # Convert markdown to PDF with LaTeX engine for best equation rendering
+        pypandoc.convert_file(
+            str(markdown_path),
+            'pdf',
+            outputfile=str(output_pdf_path),
+            extra_args=[
+                '--pdf-engine=pdflatex',
+                '-V', 'geometry:margin=1in',
+                '-V', 'fontsize=10pt',
+                '-V', 'documentclass=article',
+                '--highlight-style=tango',
+            ]
+        )
+        return True
+    except Exception as e:
+        print(f"    ⚠️ Pandoc rendering failed: {e}")
+        # Try with xelatex as fallback (better unicode support)
+        try:
+            pypandoc.convert_file(
+                str(markdown_path),
+                'pdf',
+                outputfile=str(output_pdf_path),
+                extra_args=[
+                    '--pdf-engine=xelatex',
+                    '-V', 'geometry:margin=1in',
+                    '-V', 'fontsize=10pt',
+                ]
+            )
+            return True
+        except Exception as e2:
+            print(f"    ⚠️ Pandoc xelatex fallback also failed: {e2}")
+            return False
 
 
 # ========================================
@@ -1209,11 +1278,152 @@ All files are packaged in a ZIP archive for easy sharing.
     def add_annex_methodology(self, pdf: PdfPages):
         """Add Annex: Methodology Documentation integrally to PDF.
 
+        Tries to use pandoc for high-quality rendering of LaTeX equations
+        and tables. Falls back to matplotlib-based rendering if pandoc
+        is not available.
+
         Args:
             pdf: PdfPages object
         """
         print("  📄 Annex: Methodology")
 
+        # Add to markdown content regardless of rendering method
+        self.markdown_content.append("## Annex – Methodology\n\n")
+
+        if not METHOD_DOC_PATH.exists():
+            print(f"    ⚠️ Method documentation not found: {METHOD_DOC_PATH}")
+            return
+
+        # Read the methodology content
+        try:
+            with open(METHOD_DOC_PATH, 'r', encoding='utf-8') as f:
+                method_content = f.read()
+            self.markdown_content.append(method_content + "\n\n")
+        except Exception as e:
+            print(f"    ⚠️ Could not read methodology file: {e}")
+            return
+
+        # Try pandoc rendering first (best quality for equations and tables)
+        if is_pandoc_available():
+            print("    🔧 Using pandoc for high-quality rendering...")
+            success = self._render_methodology_with_pandoc(pdf, method_content)
+            if success:
+                return
+            print("    ⚠️ Pandoc rendering failed, falling back to matplotlib...")
+
+        # Fallback: matplotlib-based rendering (strips equations)
+        print("    🔧 Using matplotlib rendering (equations simplified)...")
+        self._render_methodology_with_matplotlib(pdf, method_content)
+
+    def _render_methodology_with_pandoc(self, pdf: PdfPages, method_content: str) -> bool:
+        """Render methodology using pandoc and merge into the PDF.
+
+        Args:
+            pdf: PdfPages object
+            method_content: Markdown content to render
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from PyPDF2 import PdfReader
+        except ImportError:
+            try:
+                from pypdf import PdfReader
+            except ImportError:
+                print("    ⚠️ PyPDF2/pypdf not available for PDF merging")
+                return False
+
+        # Create temporary files for pandoc conversion
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_md = Path(temp_dir) / "methodology.md"
+            temp_pdf = Path(temp_dir) / "methodology.pdf"
+
+            # Add title to the markdown content
+            full_content = "# Annex: Methodology\n\n" + method_content
+
+            # Write markdown to temp file
+            with open(temp_md, 'w', encoding='utf-8') as f:
+                f.write(full_content)
+
+            # Convert to PDF using pandoc
+            if not render_markdown_to_pdf_pandoc(temp_md, temp_pdf):
+                return False
+
+            if not temp_pdf.exists():
+                print("    ⚠️ Pandoc did not produce output PDF")
+                return False
+
+            # Read the generated PDF and add each page to the main PDF
+            try:
+                reader = PdfReader(str(temp_pdf))
+                num_pages = len(reader.pages)
+                print(f"    📄 Adding {num_pages} methodology pages from pandoc...")
+
+                # For each page in the pandoc PDF, create a matplotlib figure
+                # that embeds the PDF page as an image
+                import subprocess
+
+                # Convert PDF pages to images using pdftoppm if available
+                try:
+                    # Try using pdf2image if available
+                    from pdf2image import convert_from_path
+                    images = convert_from_path(str(temp_pdf), dpi=150)
+
+                    for i, img in enumerate(images):
+                        fig, ax = plt.subplots(figsize=(8.27, 11.69))
+                        ax.axis('off')
+                        ax.imshow(img)
+                        ax.set_xlim(0, img.width)
+                        ax.set_ylim(img.height, 0)
+                        pdf.savefig(fig, bbox_inches='tight', pad_inches=0)
+                        plt.close(fig)
+
+                    print(f"    ✅ Added {len(images)} pages via pdf2image")
+                    return True
+
+                except ImportError:
+                    # pdf2image not available, try alternative approach
+                    print("    ℹ️ pdf2image not available, using alternative method...")
+
+                    # Save pandoc PDF separately and note it in the report
+                    annex_pdf_path = self.output_dir / f"{self.filename}_methodology_annex.pdf"
+                    shutil.copy(temp_pdf, annex_pdf_path)
+                    print(f"    📄 Saved methodology annex separately: {annex_pdf_path}")
+
+                    # Add a reference page to the main PDF
+                    fig, ax = plt.subplots(figsize=(8.27, 11.69))
+                    ax.axis('off')
+                    ax.text(0.5, 0.6, 'Annex: Methodology', ha='center', va='center',
+                            fontsize=18, fontweight='bold', transform=ax.transAxes,
+                            family='sans-serif', color='#2c3e50')
+                    ax.text(0.5, 0.45, f'See separate file: {annex_pdf_path.name}', ha='center', va='center',
+                            fontsize=12, transform=ax.transAxes,
+                            family='sans-serif', color='#7f8c8d')
+                    ax.text(0.5, 0.35, '(Generated with pandoc for full LaTeX equation support)', ha='center', va='center',
+                            fontsize=10, transform=ax.transAxes,
+                            family='sans-serif', color='#95a5a6', style='italic')
+                    ax.set_xlim(0, 1)
+                    ax.set_ylim(0, 1)
+                    pdf.savefig(fig, bbox_inches='tight')
+                    plt.close(fig)
+                    return True
+
+            except Exception as e:
+                print(f"    ⚠️ Error processing pandoc PDF: {e}")
+                return False
+
+        return False
+
+    def _render_methodology_with_matplotlib(self, pdf: PdfPages, method_content: str):
+        """Render methodology using matplotlib (fallback method).
+
+        This method strips LaTeX equations as matplotlib cannot render them properly.
+
+        Args:
+            pdf: PdfPages object
+            method_content: Markdown content to render
+        """
         # Title page
         fig, ax = plt.subplots(figsize=(8.27, 11.69))  # A4 size
         ax.axis('off')
@@ -1225,29 +1435,13 @@ All files are packaged in a ZIP archive for easy sharing.
         pdf.savefig(fig, bbox_inches='tight')
         plt.close(fig)
 
-        self.markdown_content.append("## Annex – Methodology\n\n")
+        # Strip or simplify LaTeX equations to avoid rendering issues
+        # Replace LaTeX equations with plain text descriptions
+        method_content_pdf = re.sub(r'\$\$[^\$]+\$\$', '[Mathematical formula - see markdown version]', method_content)
+        method_content_pdf = re.sub(r'\$[^\$]+\$', '[formula]', method_content_pdf)
 
-        # Include study_method.md content if it exists
-        if METHOD_DOC_PATH.exists():
-            try:
-                with open(METHOD_DOC_PATH, 'r', encoding='utf-8') as f:
-                    method_content = f.read()
-
-                # Strip or simplify LaTeX equations to avoid rendering issues
-                import re
-                # Replace LaTeX equations with plain text descriptions
-                method_content_pdf = re.sub(r'\$\$[^\$]+\$\$', '[Mathematical formula - see markdown version]', method_content)
-                method_content_pdf = re.sub(r'\$[^\$]+\$', '[formula]', method_content_pdf)
-
-                self.markdown_content.append(method_content + "\n\n")
-
-                # Use improved markdown rendering with cleaned content
-                self._render_markdown_to_pdf(pdf, method_content_pdf)
-
-            except Exception as e:
-                print(f"    ⚠️ Could not include methodology: {e}")
-        else:
-            print(f"    ⚠️ Method documentation not found: {METHOD_DOC_PATH}")
+        # Use improved markdown rendering with cleaned content
+        self._render_markdown_to_pdf(pdf, method_content_pdf)
 
     def _render_markdown_to_pdf(self, pdf: PdfPages, markdown_text: str):
         """Render markdown content as formatted PDF pages with proper pagination.
@@ -1596,7 +1790,9 @@ All files are packaged in a ZIP archive for easy sharing.
 
 def generate_report(workspace_path: Path, filename: str, output_dir: Path,
                    aggregation_key: Optional[str] = None, mode: str = 'aggregated',
-                   dataset_folder: Optional[Path] = None) -> Optional[Path]:
+                   dataset_folder: Optional[Path] = None,
+                   exclude_models: Optional[List[str]] = None,
+                   rename_map: Optional[Dict[str, str]] = None) -> Optional[Path]:
     """Generate comprehensive report for a dataset.
 
     Args:
@@ -1606,6 +1802,8 @@ def generate_report(workspace_path: Path, filename: str, output_dir: Path,
         aggregation_key: Column name to aggregate by (e.g., 'ID', 'sample_id'). None for raw predictions.
         mode: Analysis mode - 'raw', 'aggregated', or 'both'
         dataset_folder: Path to dataset folder (optional) for loading actual data and creating visualizations
+        exclude_models: List of model names to exclude (case-insensitive partial match). Defaults to EXCLUDE_MODELS.
+        rename_map: Dict mapping old pattern to new names. Defaults to MODEL_RENAME_MAP.
 
     Returns:
         Path to generated PDF report
@@ -1628,8 +1826,10 @@ def generate_report(workspace_path: Path, filename: str, output_dir: Path,
         print(f"  ⚠️ No predictions found, skipping")
         return None
 
-    # Apply filters
-    predictions = apply_model_filters(predictions, EXCLUDE_MODELS, MODEL_RENAME_MAP)
+    # Apply filters (use defaults if not provided)
+    effective_exclude = exclude_models if exclude_models is not None else EXCLUDE_MODELS
+    effective_rename = rename_map if rename_map is not None else MODEL_RENAME_MAP
+    predictions = apply_model_filters(predictions, effective_exclude, effective_rename)
     print(f"  ➡️ Using {len(predictions)} predictions after filtering")
 
     # Detect task type
@@ -1739,6 +1939,10 @@ Examples:
                        help='Analysis mode: "raw" (no aggregation), "aggregated" (with aggregation), or "both" (default: aggregated)')
     parser.add_argument('--dataset-folder', type=str, default=None,
                        help='Path to dataset folder for loading actual data and creating visualizations')
+    parser.add_argument('--exclude-models', nargs='*', default=None,
+                       help='Models to exclude from report (case-insensitive partial match). Default: KernelPLS')
+    parser.add_argument('--rename-models', nargs='*', default=None,
+                       help='Model renaming as key=value pairs (e.g., "dict=nicon tabpfn=transformer")')
 
     args = parser.parse_args()
 
@@ -1747,6 +1951,17 @@ Examples:
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
     dataset_folder = Path(args.dataset_folder) if args.dataset_folder else None
+
+    # Parse model filtering options
+    exclude_models = args.exclude_models if args.exclude_models is not None else EXCLUDE_MODELS
+    rename_map = {}
+    if args.rename_models:
+        for pair in args.rename_models:
+            if '=' in pair:
+                key, value = pair.split('=', 1)
+                rename_map[key] = value
+    else:
+        rename_map = MODEL_RENAME_MAP
 
     print("=" * 70)
     print("NIRS ANALYSIS REPORT GENERATOR")
@@ -1760,6 +1975,10 @@ Examples:
         print("Aggregation: None (raw predictions)")
     if dataset_folder:
         print(f"Dataset folder: {dataset_folder}")
+    if exclude_models:
+        print(f"Excluding models: {exclude_models}")
+    if rename_map:
+        print(f"Renaming models: {rename_map}")
     print()
 
     # Determine which files to process
@@ -1786,7 +2005,9 @@ Examples:
                 output_dir=output_dir,
                 aggregation_key=args.aggregation_key,
                 mode=args.mode,
-                dataset_folder=dataset_folder
+                dataset_folder=dataset_folder,
+                exclude_models=exclude_models,
+                rename_map=rename_map,
             )
             if pdf_path:
                 success_count += 1
