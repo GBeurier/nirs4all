@@ -92,7 +92,7 @@ def get_model_paths(task_type: str, variants: Optional[list[str]] = None) -> lis
     return paths
 
 
-def get_model_path_options(task_type: str, variants: Optional[list[str]] = None) -> list[str]:
+def get_model_path_options(task_type: str, variants: Optional[list[str]] = None) -> Optional[list[str]]:
     """
     Get model paths for Optuna categorical search (excludes None).
 
@@ -101,10 +101,14 @@ def get_model_path_options(task_type: str, variants: Optional[list[str]] = None)
         variants: List of variant names
 
     Returns:
-        List of valid checkpoint paths (None values filtered out)
+        List of valid checkpoint paths (None values filtered out),
+        or None if only 'default' variant is requested (which uses None path)
     """
     paths = get_model_paths(task_type, variants)
-    return [p for p in paths if p is not None]
+    filtered = [p for p in paths if p is not None]
+    # Return None if all paths were None (e.g., only 'default' variant)
+    # This signals to callers that model_path should not be included in hyperparameter search
+    return filtered if filtered else None
 
 
 def create_model(task_type: str, variant: str = 'default', device: str = 'cuda', **kwargs):

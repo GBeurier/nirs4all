@@ -403,6 +403,7 @@ def compute_transfer_score(
 
     Returns:
         Composite transfer score (0-1 scale, higher is better).
+        Returns NaN if critical metrics are invalid.
     """
     if weights is None:
         # Default weights prioritizing centroid distance and CKA
@@ -413,16 +414,25 @@ def compute_transfer_score(
             "evr": 0.10,
         }
 
+    # Check for invalid critical metrics
+    critical_metrics = [metrics.centroid_distance, metrics.spread_distance, metrics.evr_source]
+    if any(np.isnan(m) or np.isinf(m) for m in critical_metrics):
+        return float('nan')
+
     score = 0.0
+    eps = 1e-10
 
     if raw_metrics is not None:
         # Use improvement-based scoring
-        eps = 1e-10
 
         # Centroid improvement (reduction is good)
-        centroid_improv = (raw_metrics.centroid_distance - metrics.centroid_distance) / (
-            raw_metrics.centroid_distance + eps
-        )
+        # Handle case where raw centroid is very small (already well-aligned)
+        raw_centroid = raw_metrics.centroid_distance
+        if raw_centroid < eps:
+            # Baseline already optimal, penalize any increase
+            centroid_improv = -abs(metrics.centroid_distance) if metrics.centroid_distance > eps else 0.0
+        else:
+            centroid_improv = (raw_centroid - metrics.centroid_distance) / (raw_centroid + eps)
         score += weights.get("centroid", 0.4) * np.clip(centroid_improv, -1, 1)
 
         # CKA (higher is better, so we use raw value)
@@ -430,13 +440,19 @@ def compute_transfer_score(
         score += weights.get("cka", 0.3) * cka_score
 
         # Spread improvement (reduction is good)
-        spread_improv = (raw_metrics.spread_distance - metrics.spread_distance) / (
-            raw_metrics.spread_distance + eps
-        )
+        raw_spread = raw_metrics.spread_distance
+        if raw_spread < eps:
+            spread_improv = -abs(metrics.spread_distance) if metrics.spread_distance > eps else 0.0
+        else:
+            spread_improv = (raw_spread - metrics.spread_distance) / (raw_spread + eps)
         score += weights.get("spread", 0.2) * np.clip(spread_improv, -1, 1)
 
         # EVR preservation
-        evr_ratio = metrics.evr_source / (raw_metrics.evr_source + eps)
+        raw_evr = raw_metrics.evr_source
+        if raw_evr < eps:
+            evr_ratio = 1.0 if metrics.evr_source < eps else 0.0
+        else:
+            evr_ratio = metrics.evr_source / (raw_evr + eps)
         score += weights.get("evr", 0.1) * min(evr_ratio, 1.0)
 
     else:

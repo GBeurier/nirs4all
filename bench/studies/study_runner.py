@@ -17,10 +17,16 @@ from sklearn.random_projection import GaussianRandomProjection, SparseRandomProj
 
 from nirs4all.operators.transforms import (
     Wavelet, WaveletFeatures, WaveletPCA, WaveletSVD,
-    StandardNormalVariate, FirstDerivative, SavitzkyGolay
+    StandardNormalVariate, FirstDerivative, SecondDerivative, SavitzkyGolay,
+    MultiplicativeScatterCorrection, Detrend, Gaussian, Haar,
+    RobustStandardNormalVariate,
+)
+from nirs4all.operators.transforms.nirs import (
+    AreaNormalization,
+    ExtendedMultiplicativeScatterCorrection as EMSC,
 )
 
-from bench.studies.study_base_runner import StudyRunner
+from study_base_runner import StudyRunner
 
 
 # ============================================================================
@@ -37,12 +43,12 @@ class MyStudy(StudyRunner):
         # DATASET CONFIGURATION
         # ====================================================================
 
-        REDOX_FOLDER = '_datasets/test_dataset/'
+        DATASETS_FOLDER = '../_datasets/hiba/'
         SUB_FOLDER_LIST = [
-            'Test_folder',
+            'SLA',
         ]
 
-        self.folder_list = [os.path.join(REDOX_FOLDER, sub) for sub in SUB_FOLDER_LIST]
+        self.folder_list = [os.path.join(DATASETS_FOLDER, sub) for sub in SUB_FOLDER_LIST]
         self.aggregation_key_list = ["ID" for _ in self.folder_list]
 
         # ====================================================================
@@ -109,12 +115,13 @@ class MyStudy(StudyRunner):
         # When set, they override simple parameters and use direct function calls.
 
         # --- GLOBAL_PP: Preprocessing search space for TransferPreprocessingSelector ---
+        # Now uses direct transformer objects instead of string names (more explicit & IDE-friendly)
         # self.global_pp = {
         #     "_cartesian_": [
-        #         {"_or_": [None, "msc", "snv", "emsc", "rsnv"]},
-        #         {"_or_": [None, "savgol", "savgol_15", "gaussian", "gaussian2"]},
-        #         {"_or_": [None, "d1", "d2", "savgol_d1", "savgol15_d1", "savgol_d2"]},
-        #         {"_or_": [None, "haar", "detrend", "area_norm", "wav_sym5", "wav_coif3"]},
+        #         {"_or_": [None, MultiplicativeScatterCorrection(), StandardNormalVariate(), EMSC(), RobustStandardNormalVariate()]},
+        #         {"_or_": [None, SavitzkyGolay(), SavitzkyGolay(window_length=15), Gaussian(order=1, sigma=2), Gaussian(order=2, sigma=2)]},
+        #         {"_or_": [None, FirstDerivative(), SecondDerivative(), SavitzkyGolay(deriv=1), SavitzkyGolay(window_length=15, deriv=1), SavitzkyGolay(deriv=2)]},
+        #         {"_or_": [None, Haar(), Detrend(), AreaNormalization(), Wavelet("sym5"), Wavelet("coif3")]},
         #     ],
         # }
 

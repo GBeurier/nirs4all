@@ -36,7 +36,16 @@ from nirs4all.analysis import TransferPreprocessingSelector
 from nirs4all.operators.models.sklearn import OPLS
 from nirs4all.operators.models.sklearn.lwpls import LWPLS
 from nirs4all.operators.splitters import SPXYGFold
-from nirs4all.operators.transforms import Wavelet, WaveletFeatures, WaveletPCA, WaveletSVD, StandardNormalVariate, FirstDerivative, SavitzkyGolay
+from nirs4all.operators.transforms import (
+    Wavelet, WaveletFeatures, WaveletPCA, WaveletSVD,
+    StandardNormalVariate, FirstDerivative, SecondDerivative, SavitzkyGolay,
+    MultiplicativeScatterCorrection, Detrend, Gaussian, Haar,
+    RobustStandardNormalVariate,
+)
+from nirs4all.operators.transforms.nirs import (
+    AreaNormalization,
+    ExtendedMultiplicativeScatterCorrection as EMSC,
+)
 from nirs4all.operators.models.pytorch.nicon import nicon, customizable_nicon, thin_nicon, nicon_VG
 
 from study_tabpfn_config import get_model_class, get_model_path_options, generate_inference_configs
@@ -54,6 +63,7 @@ parser = argparse.ArgumentParser(description="Full Analysis Study")
 parser.add_argument("--show", action="store_true", help="Show plots interactively")
 parser.add_argument("--verbose", type=int, default=1, help="Verbosity level (0-2)")
 parser.add_argument("--device", type=str, default="cuda", help="Device: 'cuda' or 'cpu'")
+parser.add_argument("--workspace", type=str, default="wk", help="Workspace directory path")
 
 # Dataset configuration
 parser.add_argument("--datasets", nargs='+', help="Dataset folder paths")
@@ -202,24 +212,25 @@ if len(FOLDER_LIST) != len(AGGREGATION_KEY_LIST):
 
 if TEST_MODE:
     TRANSFER_PP_PRESET = "fast"
-    TRANSFER_PP_SELECTED = 3
-    PLS_PP_COUNT = 3
-    PLS_PP_TOP_SELECTED_COUNT = 3
+    TRANSFER_PP_SELECTED = 2
+    PLS_PP_COUNT = 2
+    PLS_PP_TOP_SELECTED_COUNT = 1
     PLS_TRIALS = 1
     OPLS_TRIALS = 1
     TEST_LW_PLS = False
     RIDGE_TRIALS = 1
     TABPFN_TRIALS = 1
-    TABPFN_MODEL_VARIANTS = ['default', 'real']#, 'low-skew', 'small-samples']
+    TABPFN_MODEL_VARIANTS = ['default']#, 'real']#, 'low-skew', 'small-samples']
     TABPFN_PP_MAX_COUNT = 1
     TABPFN_PP_MAX_SIZE = 1
+    WORKSPACE_PATH = args.workspace if hasattr(args, 'workspace') else "wk"
 
+    # Object-based preprocessing spec (recommended)
     GLOBAL_PP = {
         "_cartesian_": [
-            # {"_or_": [None, "msc", "snv", "emsc", "rsnv"]},
-            {"_or_": [None, "savgol", "savgol_15", "gaussian", "gaussian2", "msc", "snv", "emsc", "rsnv"]},
-            {"_or_": [None, "d1", "d2", "savgol_d1", "savgol15_d1", "savgol_d2"]},
-            # {"_or_": [None, "haar", "detrend", "area_norm", "wav_sym5", "wav_coif3", "msc", "snv", "emsc"]},
+            {"_or_": [None, SavitzkyGolay(), SavitzkyGolay(window_length=15), Gaussian(order=1, sigma=2), Gaussian(order=2, sigma=2),
+                      MultiplicativeScatterCorrection(), StandardNormalVariate(), EMSC(), RobustStandardNormalVariate()]},
+            {"_or_": [None, FirstDerivative(), SecondDerivative(), SavitzkyGolay(deriv=1), SavitzkyGolay(window_length=15, deriv=1), SavitzkyGolay(deriv=2)]},
         ],
     }
 else:
@@ -229,47 +240,51 @@ else:
     PLS_PP_TOP_SELECTED_COUNT = 10
     PLS_TRIALS = 20
     OPLS_TRIALS = 30
-    TEST_LW_PLS = False
+    TEST_LW_PLS = True
     RIDGE_TRIALS = 20
     TABPFN_TRIALS = 10
     TABPFN_MODEL_VARIANTS = ['default', 'real', 'low-skew', 'small-samples']
     TABPFN_PP_MAX_COUNT = 20
     TABPFN_PP_MAX_SIZE = 3
+    WORKSPACE_PATH = args.workspace if hasattr(args, 'workspace') else "wk"
 
+    # Object-based preprocessing spec (recommended)
     GLOBAL_PP = {
         "_cartesian_": [
-            {"_or_": [None, "msc", "snv", "emsc", "rsnv"]},
-            {"_or_": [None, "savgol", "savgol_15", "gaussian", "gaussian2", "msc", "snv", "emsc", "rsnv"]},
-            {"_or_": [None, "d1", "d2", "savgol_d1", "savgol15_d1", "savgol_d2"]},
-            {"_or_": [None, "haar", "detrend", "area_norm", "wav_sym5", "wav_coif3", "msc", "snv", "emsc"]},
+            {"_or_": [None, MultiplicativeScatterCorrection(), StandardNormalVariate(), EMSC(), RobustStandardNormalVariate()]},
+            {"_or_": [None, SavitzkyGolay(), SavitzkyGolay(window_length=15), Gaussian(order=1, sigma=2), Gaussian(order=2, sigma=2),
+                      MultiplicativeScatterCorrection(), StandardNormalVariate(), EMSC(), RobustStandardNormalVariate()]},
+            {"_or_": [None, FirstDerivative(), SecondDerivative(), SavitzkyGolay(deriv=1), SavitzkyGolay(window_length=15, deriv=1), SavitzkyGolay(deriv=2)]},
+            {"_or_": [None, Haar(), Detrend(), AreaNormalization(), Wavelet("sym5"), Wavelet("coif3"),
+                      MultiplicativeScatterCorrection(), StandardNormalVariate(), EMSC()]},
         ],
     }
 
-# Override with CLI arguments if provided
-if args.transfer_preset:
-    TRANSFER_PP_PRESET = args.transfer_preset
-if args.transfer_selected:
-    TRANSFER_PP_SELECTED = args.transfer_selected
-if args.pls_pp_count:
-    PLS_PP_COUNT = args.pls_pp_count
-if args.pls_pp_top:
-    PLS_PP_TOP_SELECTED_COUNT = args.pls_pp_top
-if args.pls_trials:
-    PLS_TRIALS = args.pls_trials
-if args.opls_trials:
-    OPLS_TRIALS = args.opls_trials
-if args.test_lwpls:
-    TEST_LW_PLS = True
-if args.ridge_trials:
-    RIDGE_TRIALS = args.ridge_trials
-if args.tabpfn_trials:
-    TABPFN_TRIALS = args.tabpfn_trials
-if args.tabpfn_variants:
-    TABPFN_MODEL_VARIANTS = args.tabpfn_variants
-if args.tabpfn_pp_max_count:
-    TABPFN_PP_MAX_COUNT = args.tabpfn_pp_max_count
-if args.tabpfn_pp_max_size:
-    TABPFN_PP_MAX_SIZE = args.tabpfn_pp_max_size
+    # Override with CLI arguments if provided
+    if args.transfer_preset:
+        TRANSFER_PP_PRESET = args.transfer_preset
+    if args.transfer_selected:
+        TRANSFER_PP_SELECTED = args.transfer_selected
+    if args.pls_pp_count:
+        PLS_PP_COUNT = args.pls_pp_count
+    if args.pls_pp_top:
+        PLS_PP_TOP_SELECTED_COUNT = args.pls_pp_top
+    if args.pls_trials:
+        PLS_TRIALS = args.pls_trials
+    if args.opls_trials:
+        OPLS_TRIALS = args.opls_trials
+    if args.test_lwpls:
+        TEST_LW_PLS = True
+    if args.ridge_trials:
+        RIDGE_TRIALS = args.ridge_trials
+    if args.tabpfn_trials:
+        TABPFN_TRIALS = args.tabpfn_trials
+    if args.tabpfn_variants:
+        TABPFN_MODEL_VARIANTS = args.tabpfn_variants
+    if args.tabpfn_pp_max_count:
+        TABPFN_PP_MAX_COUNT = args.tabpfn_pp_max_count
+    if args.tabpfn_pp_max_size:
+        TABPFN_PP_MAX_SIZE = args.tabpfn_pp_max_size
 
 TABPFN_PP = [
     PCA(n_components=50),
@@ -308,25 +323,25 @@ def run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key):
                 "model_params": {"n_components": ("int", 1, 40)},
             },
         },
-        # {
-        #     "model": OPLS(),
-        #     "name": "OPLS-Finetuned",
-        #     "finetune_params": {
-        #         "n_trials": OPLS_TRIALS,
-        #         "verbose": 0,
-        #         "approach": "grouped",
-        #         "eval_mode": "avg",
-        #         "sample": "tpe",
-        #         "model_params": {
-        #             "n_components": ("int", 1, 10),
-        #             "pls_components": ("int", 1, 40),
-        #         },
-        #     },
-        # },
+        {
+            "model": OPLS(),
+            "name": "OPLS-Finetuned",
+            "finetune_params": {
+                "n_trials": OPLS_TRIALS,
+                "verbose": 0,
+                "approach": "grouped",
+                "eval_mode": "avg",
+                "sample": "tpe",
+                "model_params": {
+                    "n_components": ("int", 1, 10),
+                    "pls_components": ("int", 1, 40),
+                },
+            },
+        },
     ]
 
     pipeline_config = PipelineConfigs(pipeline, "pipeline_1_pls_opls")
-    runner = PipelineRunner(save_files=True, verbose=0, plots_visible=False)
+    runner = PipelineRunner(workspace_path=WORKSPACE_PATH, save_files=True, verbose=0, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     top_pp_list, best_n_components = get_best_pp_cp(
@@ -345,9 +360,9 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
     """Pipeline 2: LWPLS, Ridge, CatBoost, Nicon, RandomForest."""
 
     catboost_configs = [
-        CatBoostRegressor(iterations=200, depth=6, learning_rate=0.1, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
-        CatBoostRegressor(iterations=400, depth=8, learning_rate=0.05, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
-        CatBoostRegressor(iterations=300, depth=10, learning_rate=0.08, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
+        # CatBoostRegressor(iterations=200, depth=6, learning_rate=0.1, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
+        # CatBoostRegressor(iterations=400, depth=8, learning_rate=0.05, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
+        # CatBoostRegressor(iterations=300, depth=10, learning_rate=0.08, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
     ]
 
     nicon_configs = [
@@ -397,7 +412,7 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
         pipeline.append({"model": LWPLS(n_components=best_n_components), "name": "LWPLS"})
 
     pipeline_config = PipelineConfigs(pipeline, "pipeline_2_ensemble")
-    runner = PipelineRunner(save_files=True, verbose=0, plots_visible=False)
+    runner = PipelineRunner(workspace_path=WORKSPACE_PATH, save_files=True, verbose=0, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset_config)
     return predictions
 
@@ -408,6 +423,14 @@ def run_pipeline_3(dataset_config, aggregation_key, top3_pp):
     TabPFN_class = get_model_class('regression')
     expand_tabpfn_pp(top3_pp)
     print(TABPFN_PP)
+
+    # Build model_params, only including model_path if there are valid paths
+    model_params = {
+        "inference_config": generate_inference_configs('regression', mode="minimal"),
+    }
+    model_path_options = get_model_path_options('regression', TABPFN_MODEL_VARIANTS)
+    if model_path_options:
+        model_params["model_path"] = model_path_options
 
     pipeline = [
         # {"split": GroupKFold(n_splits=3), "group": aggregation_key},
@@ -424,16 +447,13 @@ def run_pipeline_3(dataset_config, aggregation_key, top3_pp):
                 "approach": "single",
                 "eval_mode": "best",
                 "sample": "tpe",
-                "model_params": {
-                    "model_path": get_model_path_options('regression', TABPFN_MODEL_VARIANTS),
-                    "inference_config": generate_inference_configs('regression', mode="minimal"),
-                },
+                "model_params": model_params,
             },
         },
     ]
 
     pipeline_config = PipelineConfigs(pipeline, "pipeline_3_tabpfn")
-    runner = PipelineRunner(save_files=True, verbose=args.verbose, plots_visible=False)
+    runner = PipelineRunner(workspace_path=WORKSPACE_PATH, save_files=True, verbose=args.verbose, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset_config)
     return predictions
 
@@ -488,7 +508,7 @@ def main():
         print("\n[Phase 1] TransferPreprocessingSelector...")
         t0 = time.time()
 
-        # Check if advanced config is available (set by study_full_proto_runner)
+        # Check if advanced config is available (set by study_runner)
         transfer_pp_config = getattr(sys.modules[__name__], 'TRANSFER_PP_CONFIG', None)
 
         if transfer_pp_config is not None:
