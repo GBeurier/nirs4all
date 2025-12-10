@@ -8,6 +8,7 @@ and TabPFN into a unified analysis workflow.
 import argparse
 import math
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -53,6 +54,35 @@ parser = argparse.ArgumentParser(description="Full Analysis Study")
 parser.add_argument("--show", action="store_true", help="Show plots interactively")
 parser.add_argument("--verbose", type=int, default=1, help="Verbosity level (0-2)")
 parser.add_argument("--device", type=str, default="cuda", help="Device: 'cuda' or 'cpu'")
+
+# Dataset configuration
+parser.add_argument("--datasets", nargs='+', help="Dataset folder paths")
+parser.add_argument("--aggregation-keys", nargs='+', help="Aggregation keys (one per dataset)")
+
+# Test mode
+parser.add_argument("--test-mode", action="store_true", help="Run in test mode (fast execution)")
+
+# Transfer preprocessing configuration
+parser.add_argument("--transfer-preset", type=str, choices=["fast", "balanced", "comprehensive"],
+                   help="Transfer preprocessing preset")
+parser.add_argument("--transfer-selected", type=int, help="Number of preprocessings to select")
+
+# PLS/OPLS configuration
+parser.add_argument("--pls-pp-count", type=int, help="PLS preprocessing count")
+parser.add_argument("--pls-pp-top", type=int, help="Top PLS preprocessings to select")
+parser.add_argument("--pls-trials", type=int, help="Number of PLS trials")
+parser.add_argument("--opls-trials", type=int, help="Number of OPLS trials")
+
+# Other model configurations
+parser.add_argument("--test-lwpls", action="store_true", help="Test LWPLS model")
+parser.add_argument("--ridge-trials", type=int, help="Number of Ridge trials")
+
+# TabPFN configuration
+parser.add_argument("--tabpfn-trials", type=int, help="Number of TabPFN trials")
+parser.add_argument("--tabpfn-variants", nargs='+', help="TabPFN model variants")
+parser.add_argument("--tabpfn-pp-max-count", type=int, help="TabPFN max preprocessing count")
+parser.add_argument("--tabpfn-pp-max-size", type=int, help="TabPFN max preprocessing size")
+
 args = parser.parse_args()
 
 
@@ -130,6 +160,7 @@ def expand_tabpfn_pp(top3_pp):
 
 ###########################################################
 
+# Default configuration (can be overridden by CLI arguments)
 REDOX_FOLDER = '_datasets/redox/'
 SUB_FOLDER_LIST = [
     '1700_Brix_StratGroupedKfold',
@@ -153,11 +184,21 @@ SUB_FOLDER_LIST = [
     'Pencil_Temp_Leaf_StratGroupedKfold',
     'Pencil_Temp_Leaf_YearSplit']
 
-FOLDER_LIST = [os.path.join(REDOX_FOLDER, sub_folder) for sub_folder in SUB_FOLDER_LIST]
+DEFAULT_FOLDER_LIST = [os.path.join(REDOX_FOLDER, sub_folder) for sub_folder in SUB_FOLDER_LIST]
+DEFAULT_AGGREGATION_KEY_LIST = ["ID_1700_clean" for _ in DEFAULT_FOLDER_LIST]
 
-AGGREGATION_KEY_LIST = ["ID_1700_clean" for _ in FOLDER_LIST]
+# Default test mode settings
+DEFAULT_TEST_MODE = False
 
-TEST_MODE = False
+# Apply CLI arguments or use defaults
+TEST_MODE = args.test_mode if hasattr(args, 'test_mode') else DEFAULT_TEST_MODE
+FOLDER_LIST = args.datasets if args.datasets else DEFAULT_FOLDER_LIST
+AGGREGATION_KEY_LIST = args.aggregation_keys if args.aggregation_keys else DEFAULT_AGGREGATION_KEY_LIST
+
+# Validate dataset and aggregation key lists match
+if len(FOLDER_LIST) != len(AGGREGATION_KEY_LIST):
+    print(f"Error: Number of datasets ({len(FOLDER_LIST)}) must match number of aggregation keys ({len(AGGREGATION_KEY_LIST)})")
+    sys.exit(1)
 
 if TEST_MODE:
     TRANSFER_PP_PRESET = "fast"
@@ -203,6 +244,32 @@ else:
             {"_or_": [None, "haar", "detrend", "area_norm", "wav_sym5", "wav_coif3", "msc", "snv", "emsc"]},
         ],
     }
+
+# Override with CLI arguments if provided
+if args.transfer_preset:
+    TRANSFER_PP_PRESET = args.transfer_preset
+if args.transfer_selected:
+    TRANSFER_PP_SELECTED = args.transfer_selected
+if args.pls_pp_count:
+    PLS_PP_COUNT = args.pls_pp_count
+if args.pls_pp_top:
+    PLS_PP_TOP_SELECTED_COUNT = args.pls_pp_top
+if args.pls_trials:
+    PLS_TRIALS = args.pls_trials
+if args.opls_trials:
+    OPLS_TRIALS = args.opls_trials
+if args.test_lwpls:
+    TEST_LW_PLS = True
+if args.ridge_trials:
+    RIDGE_TRIALS = args.ridge_trials
+if args.tabpfn_trials:
+    TABPFN_TRIALS = args.tabpfn_trials
+if args.tabpfn_variants:
+    TABPFN_MODEL_VARIANTS = args.tabpfn_variants
+if args.tabpfn_pp_max_count:
+    TABPFN_PP_MAX_COUNT = args.tabpfn_pp_max_count
+if args.tabpfn_pp_max_size:
+    TABPFN_PP_MAX_SIZE = args.tabpfn_pp_max_size
 
 TABPFN_PP = [
     PCA(n_components=50),
@@ -420,11 +487,27 @@ def main():
         # Phase 1: Transfer Preprocessing Selection
         print("\n[Phase 1] TransferPreprocessingSelector...")
         t0 = time.time()
-        selector = TransferPreprocessingSelector(
-            preset=TRANSFER_PP_PRESET,
-            preprocessing_spec=GLOBAL_PP,
-            verbose=args.verbose,
-        )
+
+        # Check if advanced config is available (set by study_full_proto_runner)
+        transfer_pp_config = getattr(sys.modules[__name__], 'TRANSFER_PP_CONFIG', None)
+
+        if transfer_pp_config is not None:
+            # Advanced mode: use full config dict for TransferPreprocessingSelector
+            selector_kwargs = transfer_pp_config.copy()
+            # Ensure preprocessing_spec is set if not in config but GLOBAL_PP is available
+            if 'preprocessing_spec' not in selector_kwargs and GLOBAL_PP is not None:
+                selector_kwargs['preprocessing_spec'] = GLOBAL_PP
+            if 'verbose' not in selector_kwargs:
+                selector_kwargs['verbose'] = args.verbose
+            selector = TransferPreprocessingSelector(**selector_kwargs)
+        else:
+            # Simple mode: use preset and GLOBAL_PP
+            selector = TransferPreprocessingSelector(
+                preset=TRANSFER_PP_PRESET,
+                preprocessing_spec=GLOBAL_PP,
+                verbose=args.verbose,
+            )
+
         results = selector.fit(dataset_config)
         filtered_pp_list = results.to_preprocessing_list(top_k=TRANSFER_PP_SELECTED)
         print(f"  Selected {len(filtered_pp_list)} preprocessings in {time.time()-t0:.1f}s")
