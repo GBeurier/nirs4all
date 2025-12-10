@@ -33,7 +33,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization.predictions import PredictionAnalyzer
 from nirs4all.analysis import TransferPreprocessingSelector
-from nirs4all.operators.models.sklearn import OPLS
+from nirs4all.operators.models.sklearn import OPLS, IKPLS
 from nirs4all.operators.models.sklearn.lwpls import LWPLS
 from nirs4all.operators.splitters import SPXYGFold
 from nirs4all.operators.transforms import (
@@ -290,9 +290,9 @@ def run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key):
         {"split": SPXYGFold(n_splits=3, random_state=42), "group": aggregation_key},
         {"y_processing": MinMaxScaler(feature_range=(0.05, 0.9))},
         {"feature_augmentation": {"_or_": filtered_pp_list, "pick": [1, 2], "count": PLS_PP_COUNT}},
-        MinMaxScaler,
+        MinMaxScaler(feature_range=(0.05, 0.75)),
         {
-            "model": PLSRegression(),
+            "model": IKPLS(backend="jax"),
             "name": "PLS-Finetuned",
             "finetune_params": {
                 "n_trials": PLS_TRIALS,
@@ -303,21 +303,21 @@ def run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key):
                 "model_params": {"n_components": ("int", 1, 40)},
             },
         },
-        {
-            "model": OPLS(),
-            "name": "OPLS-Finetuned",
-            "finetune_params": {
-                "n_trials": OPLS_TRIALS,
-                "verbose": 0,
-                "approach": "grouped",
-                "eval_mode": "avg",
-                "sample": "tpe",
-                "model_params": {
-                    "n_components": ("int", 1, 10),
-                    "pls_components": ("int", 1, 40),
-                },
-            },
-        },
+        # {
+        #     "model": OPLS(backend="jax"),
+        #     "name": "OPLS-Finetuned",
+        #     "finetune_params": {
+        #         "n_trials": OPLS_TRIALS,
+        #         "verbose": 0,
+        #         "approach": "grouped",
+        #         "eval_mode": "avg",
+        #         "sample": "tpe",
+        #         "model_params": {
+        #             "n_components": ("int", 1, 10),
+        #             "pls_components": ("int", 1, 40),
+        #         },
+        #     },
+        # },
     ]
 
     pipeline_config = PipelineConfigs(pipeline, "pipeline_1_pls_opls")
@@ -369,7 +369,8 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
         pipeline.append(feature_aug_step)
 
     pipeline.extend([
-        MinMaxScaler(),
+        # MinMaxScaler(),
+        MinMaxScaler(feature_range=(0.05, 0.75)),
         {
             "model": Ridge(),
             "name": "Ridge-Finetuned",
@@ -415,7 +416,7 @@ def run_pipeline_3(dataset_config, aggregation_key, top3_pp):
     pipeline = [
         # {"split": GroupKFold(n_splits=3), "group": aggregation_key},
         {"split": SPXYGFold(n_splits=3, random_state=42), "group": aggregation_key},
-        {"y_processing": MinMaxScaler()},
+        {"y_processing": StandardScaler()},
         {"concat_transform": {"_or_": TABPFN_PP, "pick": [1, TABPFN_PP_MAX_SIZE], "count": TABPFN_PP_MAX_COUNT}},
         StandardScaler(),
         {
