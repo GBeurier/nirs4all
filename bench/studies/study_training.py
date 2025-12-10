@@ -171,31 +171,11 @@ def expand_tabpfn_pp(top3_pp):
 ###########################################################
 
 # Default configuration (can be overridden by CLI arguments)
-REDOX_FOLDER = '_datasets/redox/'
-SUB_FOLDER_LIST = [
-    '1700_Brix_StratGroupedKfold',
-    '1700_Brix_YearSplit',
-    '1700_CondElecCorr_StratGroupedKfold',
-    '1700_CondElecCorr_YearSplit',
-    '1700_pepH_StratGroupedKfold',
-    '1700_pepH_YearSplit',
-    '1700_pH_StratGroupedKfold',
-    '1700_pH_YearSplit',
-    '1700_Temp_Leaf_StratGroupedKfold',
-    '1700_Temp_Leaf_YearSplit',
-    'Pencil_Brix_StratGroupedKfold',
-    'Pencil_Brix_YearSplit',
-    'Pencil_CondElecCorr_StratGroupedKfold',
-    'Pencil_CondElecCorr_YearSplit',
-    'Pencil_pepH_StratGroupedKfold',
-    'Pencil_pepH_YearSplit',
-    'Pencil_pH_StratGroupedKfold',
-    'Pencil_pH_YearSplit',
-    'Pencil_Temp_Leaf_StratGroupedKfold',
-    'Pencil_Temp_Leaf_YearSplit']
+DATASET_FOLDER = '_datasets/redox/'
+SUB_FOLDER_LIST = []
 
-DEFAULT_FOLDER_LIST = [os.path.join(REDOX_FOLDER, sub_folder) for sub_folder in SUB_FOLDER_LIST]
-DEFAULT_AGGREGATION_KEY_LIST = ["ID_1700_clean" for _ in DEFAULT_FOLDER_LIST]
+DEFAULT_FOLDER_LIST = [os.path.join(DATASET_FOLDER, sub_folder) for sub_folder in SUB_FOLDER_LIST]
+DEFAULT_AGGREGATION_KEY_LIST = ["ID" for _ in DEFAULT_FOLDER_LIST]
 
 # Default test mode settings
 DEFAULT_TEST_MODE = False
@@ -360,9 +340,9 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
     """Pipeline 2: LWPLS, Ridge, CatBoost, Nicon, RandomForest."""
 
     catboost_configs = [
-        # CatBoostRegressor(iterations=200, depth=6, learning_rate=0.1, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
-        # CatBoostRegressor(iterations=400, depth=8, learning_rate=0.05, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
-        # CatBoostRegressor(iterations=300, depth=10, learning_rate=0.08, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
+        CatBoostRegressor(iterations=200, depth=6, learning_rate=0.1, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
+        CatBoostRegressor(iterations=400, depth=8, learning_rate=0.05, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
+        CatBoostRegressor(iterations=300, depth=10, learning_rate=0.08, verbose=0, allow_writing_files=False, task_type="GPU", devices="0"),
     ]
 
     nicon_configs = [
@@ -401,7 +381,7 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
             },
         },
 
-        # {"model": RandomForestRegressor(n_estimators=200, max_depth=10, random_state=42), "name": "RandomForest"},
+        {"model": RandomForestRegressor(n_estimators=200, max_depth=10, random_state=42), "name": "RandomForest"},
 
         *[{"model": cb, "name": f"CatBoost-{i+1}"} for i, cb in enumerate(catboost_configs)],
 

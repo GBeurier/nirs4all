@@ -267,22 +267,21 @@ class ConcatAugmentationController(OperatorController):
             ValueError: If config format is invalid or generator syntax is not expanded
         """
         if isinstance(config, list):
-            # Handle generator wrapper: when using pick/arrange, the generator
-            # wraps the selected combination in an extra list, e.g., [[op1, op2]]
-            # instead of [op1, op2]. Unwrap if we detect this pattern.
-            # However, don't unwrap if it's a user-defined chain [[transformer, transformer]].
-            # Detection: generator output contains serialized components (dicts/strings),
-            # while user-defined chains contain live transformer instances.
+            # Handle generator pick output:
+            # - pick=1 with single transformer: [PCA(50)] -> one operation: PCA(50)
+            # - pick=1 with chain: [[Wavelet, PCA]] -> one operation: chain [Wavelet, PCA]
+            # - pick=2: [[op1], [op2]] or [[chain1], [chain2]] -> two operations
+            #
+            # When picking a single item (len=1), the item itself is the operation.
+            # If that item is a list, it's a chain (sequential transformers).
+            # We should NOT unwrap chains - they should remain as one operation.
+            #
+            # Only unwrap when we have multiple picked items that each need
+            # to be treated as separate operations to concatenate.
             if len(config) == 1 and isinstance(config[0], list):
-                inner = config[0]
-                # Check if inner list looks like generator output (contains serialized components)
-                has_serialized = any(
-                    isinstance(item, (dict, str))
-                    or (isinstance(item, list) and any(isinstance(x, (dict, str)) for x in item))
-                    for item in inner
-                )
-                if has_serialized:
-                    config = inner
+                # Single selection that is a list - this is ONE chain operation
+                # Keep as-is, _deserialize_operations will handle it
+                pass  # Don't unwrap
             operations = self._deserialize_operations(config)
             return {"operations": operations, "name": None, "source_processing": None}
         elif isinstance(config, dict):
