@@ -33,6 +33,8 @@ from study_base_runner import StudyRunner
 # CONFIGURATION
 # ============================================================================
 
+# TODO - Classification models
+
 class MyStudy(StudyRunner):
     """Configure your study by editing this class."""
 
@@ -62,7 +64,7 @@ class MyStudy(StudyRunner):
         # ====================================================================
 
         # Transfer Preprocessing Selection (simple mode)
-        self.transfer_pp_preset = None  # "fast", "balanced", "comprehensive"
+        self.transfer_pp_preset = "fast"  # "fast", "balanced", "comprehensive", "full"
         self.transfer_pp_selected = 10
 
         # PLS/OPLS
@@ -114,47 +116,47 @@ class MyStudy(StudyRunner):
         # Uncomment and configure these for advanced control.
         # When set, they override simple parameters and use direct function calls.
 
-        self.transfer_pp_config = {
-            'preset': None,  # Disable preset to use custom config
-            'run_stage2': False,
-            'stage2_top_k': 15,
-            'stage2_max_depth': 3,
-            'run_stage3': True,
-            'stage3_top_k': 10,
-            'stage3_max_order': 2,
-            'run_stage4': False,
-            'n_components': 20,
-            'k_neighbors': 10,
-            'n_jobs': -1,
-        }
+        # self.transfer_pp_config = {
+        #     'preset': None,  # Disable preset to use custom config
+        #     'run_stage2': False,
+        #     'stage2_top_k': 15,
+        #     'stage2_max_depth': 3,
+        #     'run_stage3': True,
+        #     'stage3_top_k': 10,
+        #     'stage3_max_order': 2,
+        #     'run_stage4': False,
+        #     'n_components': 20,
+        #     'k_neighbors': 10,
+        #     'n_jobs': -1,
+        # }
 
         # --- GLOBAL_PP: Preprocessing search space for TransferPreprocessingSelector ---
         # Now uses direct transformer objects instead of string names (more explicit & IDE-friendly)
-        # self.global_pp = {
-        #     "_cartesian_": [
-        #         {"_or_": [None, MultiplicativeScatterCorrection(), StandardNormalVariate(), EMSC(), RobustStandardNormalVariate()]},
-        #         {"_or_": [None, SavitzkyGolay(), SavitzkyGolay(window_length=15), Gaussian(order=1, sigma=2), Gaussian(order=2, sigma=2)]},
-        #         {"_or_": [None, FirstDerivative(), SecondDerivative(), SavitzkyGolay(deriv=1), SavitzkyGolay(window_length=15, deriv=1), SavitzkyGolay(deriv=2)]},
-        #         {"_or_": [None, Haar(), Detrend(), AreaNormalization(), Wavelet("sym5"), Wavelet("coif3")]},
-        #     ],
-        # }
+        self.global_pp = {
+            "_cartesian_": [
+                {"_or_": [None, MultiplicativeScatterCorrection(), StandardNormalVariate(), EMSC(), RobustStandardNormalVariate()]},
+                {"_or_": [None, SavitzkyGolay(), SavitzkyGolay(window_length=15), Gaussian(order=1, sigma=2), Gaussian(order=2, sigma=2)]},
+                {"_or_": [None, FirstDerivative(), SecondDerivative(), SavitzkyGolay(deriv=1), SavitzkyGolay(window_length=15, deriv=1), SavitzkyGolay(deriv=2)]},
+                # {"_or_": [None, Haar(), Detrend(), AreaNormalization(), Wavelet("sym5"), Wavelet("coif3")]},
+            ],
+        }
 
         # --- TABPFN_PP: Custom preprocessing pipelines for TabPFN ---
-        # self.tabpfn_pp = [
-        #     PCA(n_components=50),
-        #     PCA(n_components=100),
-        #     TruncatedSVD(n_components=50),
-        #     SparseRandomProjection(n_components=100),
-        #     GaussianRandomProjection(n_components=100),
-        #     [Wavelet('haar'), PCA(n_components=50)],
-        #     [Wavelet('db4'), PCA(n_components=50)],
-        #     [StandardNormalVariate(), PCA(n_components=100)],
-        #     [SavitzkyGolay(), PCA(n_components=100)],
-        #     [FirstDerivative(), PCA(n_components=100)],
-        #     WaveletFeatures(wavelet='db4', max_level=5, n_coeffs_per_level=10),
-        #     WaveletPCA(wavelet='coif3', max_level=4, n_components_per_level=5),
-        #     WaveletSVD(wavelet='db4', max_level=4, n_components_per_level=5),
-        # ]
+        self.tabpfn_pp = [
+            PCA(n_components=50),
+            PCA(n_components=100),
+            TruncatedSVD(n_components=50),
+            SparseRandomProjection(n_components=100),
+            GaussianRandomProjection(n_components=100),
+            [Wavelet('haar'), PCA(n_components=50)],
+            [Wavelet('db4'), PCA(n_components=50)],
+            [StandardNormalVariate(), PCA(n_components=100)],
+            [SavitzkyGolay(), PCA(n_components=100)],
+            [FirstDerivative(), PCA(n_components=100)],
+            WaveletFeatures(wavelet='db4', max_level=5, n_coeffs_per_level=10),
+            WaveletPCA(wavelet='coif3', max_level=4, n_components_per_level=5),
+            WaveletSVD(wavelet='db4', max_level=4, n_components_per_level=5),
+        ]
 
         # --- TRANSFER_PP_CONFIG: Full TransferPreprocessingSelector configuration ---
 

@@ -31,7 +31,7 @@ def run_study(config: Dict[str, Any]) -> None:
             - All other training parameters
     """
     # Import study_full_training main logic
-    import bench.studies.study_training as training
+    import study_training as training
 
     # Override module-level variables with config
     training.TEST_MODE = config.get('test_mode', False)

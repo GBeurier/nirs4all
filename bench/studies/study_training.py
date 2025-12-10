@@ -287,7 +287,7 @@ def run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key):
     """Pipeline 1: PLS and OPLS with transfer-selected preprocessings."""
     pipeline = [
         # {"split": GroupKFold(n_splits=3), "group": aggregation_key},
-        {"split": SPXYGFold(n_splits=3), "group": aggregation_key},
+        {"split": SPXYGFold(n_splits=3, random_state=42), "group": aggregation_key},
         {"y_processing": MinMaxScaler(feature_range=(0.05, 0.9))},
         {"feature_augmentation": {"_or_": filtered_pp_list, "pick": [1, 2], "count": PLS_PP_COUNT}},
         MinMaxScaler,
@@ -360,7 +360,7 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
 
     pipeline = [
         # {"split": GroupKFold(n_splits=3), "group": aggregation_key},
-        {"split": SPXYGFold(n_splits=3), "group": aggregation_key},
+        {"split": SPXYGFold(n_splits=3, random_state=42), "group": aggregation_key},
         {"y_processing": MinMaxScaler(feature_range=(0.05, 0.9))},
     ]
 
@@ -369,7 +369,7 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
         pipeline.append(feature_aug_step)
 
     pipeline.extend([
-        MinMaxScaler,
+        MinMaxScaler(),
         {
             "model": Ridge(),
             "name": "Ridge-Finetuned",
@@ -389,7 +389,7 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
     ])
 
     if TEST_LW_PLS:
-        pipeline.append({"model": LWPLS(n_components=best_n_components), "name": "LWPLS"})
+        pipeline.append({"model": LWPLS(n_components=best_n_components, backend='torch'), "name": "LWPLS"})
 
     pipeline_config = PipelineConfigs(pipeline, "pipeline_2_ensemble")
     runner = PipelineRunner(workspace_path=WORKSPACE_PATH, save_files=True, verbose=0, plots_visible=False)
@@ -414,7 +414,7 @@ def run_pipeline_3(dataset_config, aggregation_key, top3_pp):
 
     pipeline = [
         # {"split": GroupKFold(n_splits=3), "group": aggregation_key},
-        {"split": SPXYGFold(n_splits=3), "group": aggregation_key},
+        {"split": SPXYGFold(n_splits=3, random_state=42), "group": aggregation_key},
         {"y_processing": MinMaxScaler()},
         {"concat_transform": {"_or_": TABPFN_PP, "pick": [1, TABPFN_PP_MAX_SIZE], "count": TABPFN_PP_MAX_COUNT}},
         StandardScaler(),
