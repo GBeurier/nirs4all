@@ -236,8 +236,16 @@ class SklearnModelController(BaseModelController):
         task_type = train_params.pop('task_type', None)
         # verbose controls controller output, we don't want to force it on the model
         verbose = train_params.pop('verbose', 0)
-        # reset_gpu: if True, reset GPU memory after training (helps with CatBoost GPU memory leaks)
+        # reset_gpu: if True, reset GPU memory before/after training (helps with CatBoost GPU memory leaks)
         reset_gpu = train_params.pop('reset_gpu', False)
+
+        # Reset GPU memory BEFORE training to ensure clean state
+        if reset_gpu:
+            if _reset_gpu_memory():
+                if verbose > 1:
+                    print(f"🔄 GPU memory cleared before training {model.__class__.__name__}")
+            elif verbose > 0:
+                print(f"{WARNING} reset_gpu=True but PyTorch/CUDA not available")
 
         # if verbose > 1 and train_params:
             # print(f"🔧 Training {model.__class__.__name__} with params: {train_params}")
@@ -261,6 +269,10 @@ class SklearnModelController(BaseModelController):
 
         # Fit the model
         trained_model.fit(X_train, y_train.ravel())  # Ensure y is 1D for sklearn
+
+        # Reset GPU memory AFTER training as well to free model's training buffers
+        if reset_gpu:
+            _reset_gpu_memory()
 
         # Always calculate and display final test scores, regardless of verbose level
         # But control the detail level based on verbose
@@ -301,14 +313,6 @@ class SklearnModelController(BaseModelController):
                         direction = ARROW_UP if higher_is_better else ARROW_DOWN
                         all_scores_str = ModelUtils.format_scores(val_scores)
                         # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
-
-        # Reset GPU memory if requested (helps with CatBoost GPU memory leaks)
-        if reset_gpu:
-            if _reset_gpu_memory():
-                if verbose > 1:
-                    print(f"🔄 GPU memory reset after training {trained_model.__class__.__name__}")
-            elif verbose > 0:
-                print(f"{WARNING} reset_gpu=True but PyTorch/CUDA not available")
 
         return trained_model
 
