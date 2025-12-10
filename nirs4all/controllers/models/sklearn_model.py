@@ -20,9 +20,29 @@ from sklearn.base import is_classifier, is_regressor
 
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN
+from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN, WARNING
 from .utilities import ModelControllerUtils as ModelUtils
 from .factory import ModelFactory
+
+
+def _reset_gpu_memory() -> bool:
+    """Reset GPU memory using PyTorch CUDA.
+
+    Clears cached memory and synchronizes GPU operations.
+    Useful for preventing memory leaks with GPU-based models like CatBoost.
+
+    Returns:
+        bool: True if GPU was successfully reset, False if torch/CUDA unavailable.
+    """
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            return True
+    except ImportError:
+        pass
+    return False
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -216,6 +236,8 @@ class SklearnModelController(BaseModelController):
         task_type = train_params.pop('task_type', None)
         # verbose controls controller output, we don't want to force it on the model
         verbose = train_params.pop('verbose', 0)
+        # reset_gpu: if True, reset GPU memory after training (helps with CatBoost GPU memory leaks)
+        reset_gpu = train_params.pop('reset_gpu', False)
 
         # if verbose > 1 and train_params:
             # print(f"🔧 Training {model.__class__.__name__} with params: {train_params}")
@@ -279,6 +301,14 @@ class SklearnModelController(BaseModelController):
                         direction = ARROW_UP if higher_is_better else ARROW_DOWN
                         all_scores_str = ModelUtils.format_scores(val_scores)
                         # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
+
+        # Reset GPU memory if requested (helps with CatBoost GPU memory leaks)
+        if reset_gpu:
+            if _reset_gpu_memory():
+                if verbose > 1:
+                    print(f"🔄 GPU memory reset after training {trained_model.__class__.__name__}")
+            elif verbose > 0:
+                print(f"{WARNING} reset_gpu=True but PyTorch/CUDA not available")
 
         return trained_model
 

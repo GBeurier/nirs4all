@@ -411,7 +411,11 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
 
         {"model": RandomForestRegressor(n_estimators=200, max_depth=10, random_state=42), "name": "RandomForest"},
 
-        *[{"model": cb, "name": f"CatBoost-{i+1}"} for i, cb in enumerate(catboost_configs)],
+        *[{"model": cb, "name": f"CatBoost-{i+1}",
+           "train_params": {
+                "reset_gpu": True,  # Reset GPU after every training
+            }
+           } for i, cb in enumerate(catboost_configs)],
 
         *nicon_configs,
     ])
