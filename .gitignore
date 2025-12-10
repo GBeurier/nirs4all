@@ -63,3 +63,4 @@ bench/studies/reports/
 bench/studies/_datasets/
 bench/studies/workspace/
 bench/studies/wk
+examples/catboost_info
