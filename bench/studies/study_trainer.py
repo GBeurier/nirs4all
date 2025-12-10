@@ -1,8 +1,8 @@
 """
-Study Full Proto Runner - Wrapper for Advanced Mode
+Study Full training Runner - Wrapper for Advanced Mode
 ====================================================
 Provides run_study() function for direct execution with Python objects.
-This module wraps study_full_proto.py to support both CLI and function call modes.
+This module wraps study_full_training.py to support both CLI and function call modes.
 """
 
 import os
@@ -30,35 +30,35 @@ def run_study(config: Dict[str, Any]) -> None:
             - transfer_pp_config: Optional TransferPreprocessingSelector kwargs
             - All other training parameters
     """
-    # Import study_full_proto main logic
-    import bench.studies.study_train as proto
+    # Import study_full_training main logic
+    import bench.studies.study_training as training
 
     # Override module-level variables with config
-    proto.TEST_MODE = config.get('test_mode', False)
-    proto.FOLDER_LIST = config.get('folder_list', [])
-    proto.AGGREGATION_KEY_LIST = config.get('aggregation_key_list', [])
+    training.TEST_MODE = config.get('test_mode', False)
+    training.FOLDER_LIST = config.get('folder_list', [])
+    training.AGGREGATION_KEY_LIST = config.get('aggregation_key_list', [])
 
     # Override GLOBAL_PP if provided
     if config.get('global_pp') is not None:
-        proto.GLOBAL_PP = config['global_pp']
+        training.GLOBAL_PP = config['global_pp']
 
     # Override TABPFN_PP if provided
     if config.get('tabpfn_pp') is not None:
-        proto.TABPFN_PP = config['tabpfn_pp']
+        training.TABPFN_PP = config['tabpfn_pp']
 
     # Override training parameters
-    proto.TRANSFER_PP_PRESET = config.get('transfer_pp_preset', 'balanced')
-    proto.TRANSFER_PP_SELECTED = config.get('transfer_pp_selected', 10)
-    proto.PLS_PP_COUNT = config.get('pls_pp_count', 40)
-    proto.PLS_PP_TOP_SELECTED_COUNT = config.get('pls_pp_top_selected', 10)
-    proto.PLS_TRIALS = config.get('pls_trials', 20)
-    proto.OPLS_TRIALS = config.get('opls_trials', 30)
-    proto.TEST_LW_PLS = config.get('test_lwpls', False)
-    proto.RIDGE_TRIALS = config.get('ridge_trials', 20)
-    proto.TABPFN_TRIALS = config.get('tabpfn_trials', 10)
-    proto.TABPFN_MODEL_VARIANTS = config.get('tabpfn_model_variants', ['default', 'real'])
-    proto.TABPFN_PP_MAX_COUNT = config.get('tabpfn_pp_max_count', 20)
-    proto.TABPFN_PP_MAX_SIZE = config.get('tabpfn_pp_max_size', 3)
+    training.TRANSFER_PP_PRESET = config.get('transfer_pp_preset', 'balanced')
+    training.TRANSFER_PP_SELECTED = config.get('transfer_pp_selected', 10)
+    training.PLS_PP_COUNT = config.get('pls_pp_count', 40)
+    training.PLS_PP_TOP_SELECTED_COUNT = config.get('pls_pp_top_selected', 10)
+    training.PLS_TRIALS = config.get('pls_trials', 20)
+    training.OPLS_TRIALS = config.get('opls_trials', 30)
+    training.TEST_LW_PLS = config.get('test_lwpls', False)
+    training.RIDGE_TRIALS = config.get('ridge_trials', 20)
+    training.TABPFN_TRIALS = config.get('tabpfn_trials', 10)
+    training.TABPFN_MODEL_VARIANTS = config.get('tabpfn_model_variants', ['default', 'real'])
+    training.TABPFN_PP_MAX_COUNT = config.get('tabpfn_pp_max_count', 20)
+    training.TABPFN_PP_MAX_SIZE = config.get('tabpfn_pp_max_size', 3)
 
     # Create a mock args object for compatibility
     class Args:
@@ -66,19 +66,20 @@ def run_study(config: Dict[str, Any]) -> None:
             for k, v in kwargs.items():
                 setattr(self, k, v)
 
-    proto.args = Args(
+    training.args = Args(
         show=config.get('show_plots', False),
         verbose=config.get('verbose', 1),
         device=config.get('device', 'cuda'),
+        workspace=config.get('workspace_path', 'wk'),
     )
 
     # Handle TransferPreprocessingSelector config if provided
     transfer_pp_config = config.get('transfer_pp_config')
     if transfer_pp_config:
         # Store it for use in the pipeline
-        proto.TRANSFER_PP_CONFIG = transfer_pp_config
+        training.TRANSFER_PP_CONFIG = transfer_pp_config
     else:
-        proto.TRANSFER_PP_CONFIG = None
+        training.TRANSFER_PP_CONFIG = None
 
     # Run the main function
-    proto.main()
+    training.main()

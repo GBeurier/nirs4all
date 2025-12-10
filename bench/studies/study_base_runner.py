@@ -165,7 +165,7 @@ class StudyRunner:
         """
         cmd = [
             sys.executable,
-            "study_full_proto.py",
+            "study_training.py",
             "--device", self.device,
             "--verbose", str(self.verbose),
         ]
@@ -187,6 +187,7 @@ class StudyRunner:
             "--tabpfn-trials", str(self.tabpfn_trials),
             "--tabpfn-pp-max-count", str(self.tabpfn_pp_max_count),
             "--tabpfn-pp-max-size", str(self.tabpfn_pp_max_size),
+            "--workspace", self.workspace_path,
         ])
 
         cmd.extend(["--tabpfn-variants"] + self.tabpfn_model_variants)
@@ -216,6 +217,7 @@ class StudyRunner:
                 'folder_list': self.folder_list,
                 'aggregation_key_list': self.aggregation_key_list,
                 'test_mode': self.test_mode,
+                'workspace_path': self.workspace_path,
                 'transfer_pp_preset': self.transfer_pp_preset,
                 'transfer_pp_selected': self.transfer_pp_selected,
                 'transfer_pp_config': self.transfer_pp_config,

@@ -3,7 +3,7 @@ Study Report Generator - Automated Report Generation for NIRS Analysis
 =======================================================================
 
 This script automatically generates comprehensive reports from prediction parquet files
-created by study_full_proto.py. It generates both PDF reports and export packages with
+created by study_training.py. It generates both PDF reports and export packages with
 all artifacts (models, predictions, charts, etc.).
 
 The report includes:
