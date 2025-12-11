@@ -60,6 +60,9 @@ def run_study(config: Dict[str, Any]) -> None:
     training.TABPFN_PP_MAX_COUNT = config.get('tabpfn_pp_max_count', 20)
     training.TABPFN_PP_MAX_SIZE = config.get('tabpfn_pp_max_size', 3)
 
+    # Task type override: 'auto' for automatic detection, or force a specific type
+    training.TASK_TYPE = config.get('task_type', 'auto')
+
     # Create a mock args object for compatibility
     class Args:
         def __init__(self, **kwargs):
