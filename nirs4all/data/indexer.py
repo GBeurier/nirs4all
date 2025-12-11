@@ -93,7 +93,7 @@ class Indexer:
         selector = self._ensure_selector_dict(selector)
         return self._query_builder.build(selector, exclude_columns=["processings"])
 
-    def x_indices(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
+    def x_indices(self, selector: Selector, include_augmented: bool = True, include_excluded: bool = False) -> np.ndarray:
         """
         Get sample indices with optional augmented sample aggregation.
 
@@ -111,6 +111,9 @@ class Indexer:
             include_augmented: If True, include augmented versions of selected samples.
                              If False, return only base samples (sample == origin).
                              Default True for backward compatibility.
+            include_excluded: If True, include samples marked as excluded.
+                            If False (default), exclude samples marked as excluded=True.
+                            Use True for diagnostics, reporting, or viewing excluded samples.
 
         Returns:
             np.ndarray: Array of sample indices (dtype: np.int32). When include_augmented=True,
@@ -133,28 +136,36 @@ class Indexer:
             >>> base_train = indexer.x_indices({"partition": "train"}, include_augmented=False)
             >>> # Returns: [0, 1, 2, 3, 4] (5 base only)
             >>>
-            >>> # Filter by group
-            >>> group1 = indexer.x_indices({"partition": "train", "group": 1})
+            >>> # Mark sample as excluded and filter it
+            >>> indexer.mark_excluded([0], reason="outlier")
+            >>> filtered = indexer.x_indices({"partition": "train"})
+            >>> # Returns: [1, 2, 3, 4, ...] (sample 0 and its augmentations excluded)
             >>>
-            >>> # Get all samples (no filter)
-            >>> all_samples = indexer.x_indices({})
+            >>> # Include excluded samples (for diagnostics)
+            >>> all_samples = indexer.x_indices({"partition": "train"}, include_excluded=True)
 
         Note:
             The two-phase selection ensures that augmented samples from other partitions
             are NOT included, preventing data leakage in cross-validation scenarios.
         """
+        # Build the exclusion filter
+        excluded_filter = self._query_builder.build_excluded_filter(include_excluded)
+
         if not include_augmented:
             # Simple case: filter for base samples only
             condition = self._build_filter_condition(selector)
-            base_condition = condition & self._query_builder.build_base_samples_filter()
+            base_condition = condition & self._query_builder.build_base_samples_filter() & excluded_filter
             filtered_df = self._store.query(base_condition)
             return filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
 
         # Two-phase selection using augmentation tracker
-        condition = self._build_filter_condition(selector)
-        return self._augmentation_tracker.get_all_samples_with_augmentations(condition)
+        # Pass both the base condition AND the exclusion filter
+        condition = self._build_filter_condition(selector) & excluded_filter
+        return self._augmentation_tracker.get_all_samples_with_augmentations(
+            condition, additional_filter=excluded_filter
+        )
 
-    def y_indices(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
+    def y_indices(self, selector: Selector, include_augmented: bool = True, include_excluded: bool = False) -> np.ndarray:
         """
         Get y indices for samples. Returns origin indices for y-value lookup.
 
@@ -168,6 +179,9 @@ class Indexer:
             include_augmented: If True (default), include augmented samples mapped to their origins.
                              If False, return only base sample origins (sample == origin).
                              Default True for backward compatibility with original behavior.
+            include_excluded: If True, include samples marked as excluded.
+                            If False (default), exclude samples marked as excluded=True.
+                            Use True for diagnostics, reporting, or viewing excluded samples.
 
         Returns:
             np.ndarray: Array of origin sample indices for y-value lookup (dtype: np.int32).
@@ -195,13 +209,23 @@ class Indexer:
             >>> # Get only base sample origins
             >>> base_origins = indexer.y_indices({"partition": "train"}, include_augmented=False)
             >>> # Returns: [0, 1, 2, 3, 4]
+            >>>
+            >>> # Exclude filtered samples
+            >>> indexer.mark_excluded([0], reason="outlier")
+            >>> filtered_y = indexer.y_indices({"partition": "train"})
+            >>> # Sample 0 and its augmentations excluded from result
 
         Note:
             The length and order of y_indices() output always corresponds to x_indices()
             output with the same selector and include_augmented parameters. This ensures
             X and y arrays are properly aligned for training.
         """
+        # Build the exclusion filter
+        excluded_filter = self._query_builder.build_excluded_filter(include_excluded)
+
         filtered_df = self._apply_filters(selector) if selector else self._store.df
+        # Apply exclusion filter
+        filtered_df = filtered_df.filter(excluded_filter)
 
         if not include_augmented:
             # Return only base sample origins (sample == origin)
@@ -452,6 +476,8 @@ class Indexer:
             "branch": pl.Series(branches, dtype=pl.Int8),
             "processings": pl.Series(processings_list, dtype=pl.List(pl.Utf8)),  # Native list!
             "augmentation": pl.Series(augmentations, dtype=pl.Categorical),
+            "excluded": pl.Series([False] * count, dtype=pl.Boolean),  # Default: not excluded
+            "exclusion_reason": pl.Series([None] * count, dtype=pl.Utf8),  # Default: no reason
         }
 
         # Add additional columns with proper casting
@@ -954,3 +980,281 @@ class Indexer:
 
         parts_str = "\n- ".join(summary)
         return f"Indexes:\n- {parts_str}"
+
+    # ==================== Sample Filtering Methods ====================
+
+    def mark_excluded(
+        self,
+        sample_indices: SampleIndices,
+        reason: Optional[str] = None,
+        cascade_to_augmented: bool = True
+    ) -> int:
+        """
+        Mark samples as excluded from training.
+
+        Excluded samples are automatically filtered out from x_indices() and y_indices()
+        calls unless include_excluded=True is explicitly passed. This provides a
+        non-destructive way to remove outliers or corrupted samples from training.
+
+        Args:
+            sample_indices: Sample IDs to exclude. Can be:
+                          - int: Single sample ID
+                          - List[int]: List of sample IDs
+                          - np.ndarray: Array of sample IDs
+            reason: Optional string describing why samples are excluded
+                   (e.g., "outlier", "corrupted", "low_quality").
+            cascade_to_augmented: If True (default), also exclude augmented samples
+                                 derived from the specified base samples. This prevents
+                                 data leakage from augmented versions of excluded samples.
+
+        Returns:
+            int: Number of samples marked as excluded.
+
+        Raises:
+            ValueError: If sample_indices is empty.
+
+        Examples:
+            >>> indexer = Indexer()
+            >>> indexer.add_samples(5, partition="train")
+            >>> indexer.augment_rows([0, 1], 2, "flip")
+            >>>
+            >>> # Mark sample 0 as excluded (outlier detection)
+            >>> n_excluded = indexer.mark_excluded([0], reason="iqr_outlier")
+            >>> # n_excluded: 3 (sample 0 + 2 augmented versions)
+            >>>
+            >>> # Verify exclusion
+            >>> train_samples = indexer.x_indices({"partition": "train"})
+            >>> # Sample 0 and its augmentations no longer included
+            >>>
+            >>> # View excluded samples
+            >>> excluded_df = indexer.get_excluded_samples()
+
+        Note:
+            - Exclusion is non-destructive: data remains in the indexer
+            - Use mark_included() to reverse exclusion
+            - Excluded samples can still be accessed via include_excluded=True
+            - Cascade prevents data leakage from augmented versions
+        """
+        count = len(sample_indices) if isinstance(sample_indices, (list, np.ndarray)) else 1
+        sample_ids = self._normalize_indices(sample_indices, count, "sample_indices")
+
+        if not sample_ids:
+            return 0
+
+        all_samples_to_exclude = set(sample_ids)
+
+        # Cascade to augmented samples if requested
+        if cascade_to_augmented:
+            augmented = self._augmentation_tracker.get_augmented_for_origins(sample_ids)
+            all_samples_to_exclude.update(augmented.tolist())
+
+        # Build condition and update
+        condition = self._query_builder.build_sample_filter(list(all_samples_to_exclude))
+        updates = {"excluded": True}
+        if reason is not None:
+            updates["exclusion_reason"] = reason
+
+        self._store.update_by_condition(condition, updates)
+        return len(all_samples_to_exclude)
+
+    def mark_included(
+        self,
+        sample_indices: Optional[SampleIndices] = None,
+        cascade_to_augmented: bool = True
+    ) -> int:
+        """
+        Remove exclusion flag from samples.
+
+        This method reverses the effect of mark_excluded(), re-including samples
+        in x_indices() and y_indices() results.
+
+        Args:
+            sample_indices: Sample IDs to include. Can be:
+                          - int: Single sample ID
+                          - List[int]: List of sample IDs
+                          - np.ndarray: Array of sample IDs
+                          - None: Include ALL currently excluded samples
+            cascade_to_augmented: If True (default), also include augmented samples
+                                 derived from the specified base samples.
+
+        Returns:
+            int: Number of samples marked as included.
+
+        Examples:
+            >>> indexer = Indexer()
+            >>> indexer.add_samples(5, partition="train")
+            >>> indexer.mark_excluded([0, 1], reason="outlier")
+            >>>
+            >>> # Re-include sample 0
+            >>> n_included = indexer.mark_included([0])
+            >>> # n_included: 1
+            >>>
+            >>> # Re-include all excluded samples
+            >>> n_included = indexer.mark_included()  # No argument = all excluded
+
+        Note:
+            - Clears both the excluded flag and exclusion_reason
+            - Useful for iterative filtering or correcting previous exclusions
+        """
+        if sample_indices is None:
+            # Include all currently excluded samples
+            condition = pl.col("excluded") == True  # noqa: E712
+            count = len(self._store.query(condition))
+            self._store.update_by_condition(condition, {"excluded": False, "exclusion_reason": None})
+            return count
+
+        count = len(sample_indices) if isinstance(sample_indices, (list, np.ndarray)) else 1
+        sample_ids = self._normalize_indices(sample_indices, count, "sample_indices")
+
+        if not sample_ids:
+            return 0
+
+        all_samples_to_include = set(sample_ids)
+
+        # Cascade to augmented samples if requested
+        if cascade_to_augmented:
+            augmented = self._augmentation_tracker.get_augmented_for_origins(sample_ids)
+            all_samples_to_include.update(augmented.tolist())
+
+        # Build condition and update
+        condition = self._query_builder.build_sample_filter(list(all_samples_to_include))
+        self._store.update_by_condition(condition, {"excluded": False, "exclusion_reason": None})
+        return len(all_samples_to_include)
+
+    def get_excluded_samples(self, selector: Optional[Selector] = None) -> pl.DataFrame:
+        """
+        Get DataFrame of excluded samples with their exclusion reasons.
+
+        Args:
+            selector: Optional filter criteria to narrow down the query.
+                     If None, returns all excluded samples.
+
+        Returns:
+            pl.DataFrame: DataFrame containing excluded samples with columns:
+                         sample, origin, partition, group, branch, exclusion_reason.
+
+        Examples:
+            >>> indexer = Indexer()
+            >>> indexer.add_samples(5, partition="train")
+            >>> indexer.mark_excluded([0, 1], reason="outlier")
+            >>>
+            >>> # Get all excluded samples
+            >>> excluded_df = indexer.get_excluded_samples()
+            >>> print(excluded_df)
+            >>>
+            >>> # Get excluded samples from train partition only
+            >>> train_excluded = indexer.get_excluded_samples({"partition": "train"})
+
+        Note:
+            Returns a Polars DataFrame for efficient processing.
+            Use .to_pandas() if pandas DataFrame is needed.
+        """
+        # Start with excluded=True filter
+        condition = pl.col("excluded") == True  # noqa: E712
+
+        # Add selector conditions if provided
+        if selector:
+            selector_condition = self._build_filter_condition(selector)
+            condition = condition & selector_condition
+
+        return self._store.query(condition).select([
+            "sample", "origin", "partition", "group", "branch",
+            "augmentation", "exclusion_reason"
+        ])
+
+    def get_exclusion_summary(self) -> Dict[str, Any]:
+        """
+        Get summary statistics of exclusions by reason.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing:
+                - total_excluded: Total number of excluded samples
+                - total_samples: Total number of samples in indexer
+                - exclusion_rate: Ratio of excluded to total samples
+                - by_reason: Dict mapping reason strings to counts
+                - by_partition: Dict mapping partition names to excluded counts
+
+        Examples:
+            >>> indexer = Indexer()
+            >>> indexer.add_samples(10, partition="train")
+            >>> indexer.mark_excluded([0, 1], reason="outlier")
+            >>> indexer.mark_excluded([2], reason="low_quality")
+            >>>
+            >>> summary = indexer.get_exclusion_summary()
+            >>> print(summary)
+            >>> # {
+            >>> #     'total_excluded': 3,
+            >>> #     'total_samples': 10,
+            >>> #     'exclusion_rate': 0.3,
+            >>> #     'by_reason': {'outlier': 2, 'low_quality': 1},
+            >>> #     'by_partition': {'train': 3}
+            >>> # }
+        """
+        df = self._store.df
+        total_samples = len(df)
+
+        # Filter to excluded samples
+        excluded_df = df.filter(pl.col("excluded") == True)  # noqa: E712
+        total_excluded = len(excluded_df)
+
+        # Group by reason
+        by_reason = {}
+        if total_excluded > 0:
+            reason_counts = excluded_df.group_by("exclusion_reason").agg(
+                pl.len().alias("count")
+            ).to_dicts()
+            for row in reason_counts:
+                reason = row["exclusion_reason"] if row["exclusion_reason"] else "unspecified"
+                by_reason[reason] = row["count"]
+
+        # Group by partition
+        by_partition = {}
+        if total_excluded > 0:
+            partition_counts = excluded_df.group_by("partition").agg(
+                pl.len().alias("count")
+            ).to_dicts()
+            for row in partition_counts:
+                by_partition[row["partition"]] = row["count"]
+
+        return {
+            "total_excluded": total_excluded,
+            "total_samples": total_samples,
+            "exclusion_rate": total_excluded / total_samples if total_samples > 0 else 0.0,
+            "by_reason": by_reason,
+            "by_partition": by_partition,
+        }
+
+    def reset_exclusions(self, selector: Optional[Selector] = None) -> int:
+        """
+        Remove all exclusion flags matching the selector.
+
+        This is a convenience method equivalent to calling mark_included() on all
+        excluded samples matching the selector.
+
+        Args:
+            selector: Optional filter criteria. If None, resets ALL exclusions.
+
+        Returns:
+            int: Number of samples reset.
+
+        Examples:
+            >>> # Reset all exclusions
+            >>> n_reset = indexer.reset_exclusions()
+            >>>
+            >>> # Reset only train partition exclusions
+            >>> n_reset = indexer.reset_exclusions({"partition": "train"})
+        """
+        # Build condition for excluded samples
+        condition = pl.col("excluded") == True  # noqa: E712
+
+        # Add selector conditions if provided
+        if selector:
+            selector_condition = self._build_filter_condition(selector)
+            condition = condition & selector_condition
+
+        # Count before update
+        count = len(self._store.query(condition))
+
+        # Update to include
+        self._store.update_by_condition(condition, {"excluded": False, "exclusion_reason": None})
+        return count

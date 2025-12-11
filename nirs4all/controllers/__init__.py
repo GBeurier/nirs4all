@@ -32,6 +32,7 @@ from .data.sample_augmentation import SampleAugmentationController
 from .data.resampler import ResamplerController
 from .data.concat_transform import ConcatAugmentationController
 from .data.auto_transfer_preproc import AutoTransferPreprocessingController
+from .data.sample_filter import SampleFilterController
 
 # Import splitter controllers
 from .splitters.split import CrossValidatorController
@@ -53,6 +54,7 @@ __all__ = [
     'YTransformerMixinController',
     'FeatureAugmentationController',
     'SampleAugmentationController',
+    'SampleFilterController',
     'ResamplerController',
     'ConcatAugmentationController',
     'AutoTransferPreprocessingController',

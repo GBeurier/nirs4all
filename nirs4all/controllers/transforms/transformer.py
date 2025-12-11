@@ -87,16 +87,19 @@ class TransformerMixinController(OperatorController):
         operator_name = op.__class__.__name__
 
         # Get all data (always needed for transform)
-        all_data = dataset.x(context.selector, "3d", concat_source=False)
+        # IMPORTANT: Include excluded samples to maintain consistent array shapes
+        # when replacing features. Excluded samples are filtered at query time, not transform time.
+        all_data = dataset.x(context.selector, "3d", concat_source=False, include_excluded=True)
 
         # Get fitting data based on fit_on_all option
+        # Note: Fitting should EXCLUDE filtered samples to prevent outlier influence
         if fit_on_all:
-            # Fit on all data (unsupervised preprocessing)
-            fit_data = all_data
+            # Fit on all data (unsupervised preprocessing) but exclude filtered samples
+            fit_data = dataset.x(context.selector, "3d", concat_source=False, include_excluded=False)
         else:
-            # Standard: fit on train data only
+            # Standard: fit on train data only (excluding filtered samples)
             train_context = context.with_partition("train")
-            fit_data = dataset.x(train_context.selector, "3d", concat_source=False)
+            fit_data = dataset.x(train_context.selector, "3d", concat_source=False, include_excluded=False)
 
         # Ensure data is in list format
         if not isinstance(fit_data, list):

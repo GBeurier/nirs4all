@@ -10,6 +10,8 @@ from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.splitters import SPXYGFold
 from nirs4all.operators.transforms import SavitzkyGolay, ASLSBaseline
+from nirs4all.operators.filters import YOutlierFilter, HighLeverageFilter, SpectralQualityFilter, XOutlierFilter
+from nirs4all.operators.filters.base import CompositeFilter
 
 from huggingface_hub import login
 from tabpfn import TabPFNClassifier, TabPFNRegressor
@@ -42,17 +44,44 @@ DATA_PATH = [
 AGGREGATION_KEY = "ID"  # None
 TASK_TYPE = "regression"  # "classification" or "regression" or "auto" or "binary"
 
+filter_quality = SpectralQualityFilter(
+    max_nan_ratio=0.15,
+    max_zero_ratio=0.4,
+    min_variance=1e-6,
+    max_value=4.0,
+    min_value=-0.5,
+)
+
+filter_iqr = YOutlierFilter(method="iqr", threshold=1.5, reason="iqr")
+filter_zscore = YOutlierFilter(method="zscore", threshold=3.0, reason="zscore")
+
+
 TabPFNModel = TabPFNRegressor if TASK_TYPE == "regression" else TabPFNClassifier
 tabpfn_real_path = 'tabpfn-v2.5-regressor-v2.5_real.ckpt' if TASK_TYPE == "regression" else 'tabpfn-v2.5-classifier-v2.5_real.ckpt'
 # Define the pipeline
 pipeline = [
     ASLSBaseline(),
+    # "2d_chart",
+    {
+        "sample_filter": {
+            "filters": [HighLeverageFilter, filter_quality, XOutlierFilter(method="pca_residual", n_components=30)],
+            "mode": "any",
+            "report": True,  # Print filtering report
+        }
+    },
+
+    # {"chart_y": {"include_excluded": True, "highlight_excluded": True}},
+    # {"chart_2d": {"include_excluded": True, "highlight_excluded": True}},
+    # "chart_y",
+    # {"y_processing": [QuantileTransformer(n_quantiles=150, output_distribution='normal', random_state=42), StandardScaler()]},
+    {"y_processing": StandardScaler()},
+    # "chart_y",
     {"split": SPXYGFold(n_splits=1, random_state=42), "group": AGGREGATION_KEY},  # COMMENT IF TRAIN AND TEST ARE PROVIDED
     {"split": SPXYGFold(n_splits=3, random_state=42), "group": AGGREGATION_KEY},
-    {"y_processing": RobustScaler()},
     StandardScaler(),
     SavitzkyGolay(),
-    PCA(n_components=0.99, random_state=42, whiten=True), # PCA(50)
+    # PCA(n_components=0.99, random_state=42, whiten=True),
+    PCA(50, random_state=42, whiten=True),
     StandardScaler(),
     PowerTransformer(),
     {
@@ -67,10 +96,10 @@ pipeline = [
         },
         "name": "AutoGluon",
     },
-    {
-        "model": TabPFNModel(n_estimators=16, device='cuda', random_state=42),
-        "name": "TabPFN",
-    },
+    # {
+    #     "model": TabPFNModel(n_estimators=16, device='cuda', random_state=42),
+    #     "name": "TabPFN",
+    # },
     {
         "model": TabPFNModel(n_estimators=16, device='cuda', random_state=42, model_path=tabpfn_real_path),
         "name": "TabPFN-real",
@@ -82,7 +111,7 @@ pipeline_config = PipelineConfigs(pipeline, "SOTA")
 dataset_config = DatasetConfigs(DATA_PATH, task_type=TASK_TYPE)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_files=True, verbose=0, plots_visible=True)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analyze and display top performing models

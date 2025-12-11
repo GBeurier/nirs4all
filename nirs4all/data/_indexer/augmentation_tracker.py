@@ -38,7 +38,7 @@ class AugmentationTracker:
         self._store = store
         self._query_builder = query_builder
 
-    def get_augmented_for_origins(self, origin_ids: List[int]) -> np.ndarray:
+    def get_augmented_for_origins(self, origin_ids: List[int], additional_filter: Optional[pl.Expr] = None) -> np.ndarray:
         """
         Get all augmented samples for given origin sample IDs.
 
@@ -47,6 +47,7 @@ class AugmentationTracker:
 
         Args:
             origin_ids: List of origin sample IDs to find augmented versions for.
+            additional_filter: Optional additional filter to apply (e.g., exclusion filter).
 
         Returns:
             np.ndarray: Array of augmented sample IDs (dtype: np.int32). Only
@@ -75,6 +76,10 @@ class AugmentationTracker:
         origin_filter = self._query_builder.build_origin_filter(origin_ids)
         augmented_filter = self._query_builder.build_augmented_samples_filter()
         condition = origin_filter & augmented_filter
+
+        # Apply additional filter if provided (e.g., exclusion filter)
+        if additional_filter is not None:
+            condition = condition & additional_filter
 
         # Query and return sample IDs
         augmented_df = self._store.query(condition)
@@ -161,7 +166,7 @@ class AugmentationTracker:
         filtered_df = self._store.query(combined)
         return filtered_df.select(pl.col("sample")).to_series().to_numpy().astype(np.int32)
 
-    def get_all_samples_with_augmentations(self, base_condition: pl.Expr) -> np.ndarray:
+    def get_all_samples_with_augmentations(self, base_condition: pl.Expr, additional_filter: Optional[pl.Expr] = None) -> np.ndarray:
         """
         Get base samples and their augmentations in two phases (leak prevention).
 
@@ -171,6 +176,9 @@ class AugmentationTracker:
 
         Args:
             base_condition: Polars expression for selecting base samples.
+            additional_filter: Optional additional filter to apply to augmented samples
+                             (e.g., exclusion filter). This filter is applied in both
+                             phases to ensure excluded augmented samples are filtered.
 
         Returns:
             np.ndarray: Combined array of base sample IDs and their augmented versions.
@@ -190,8 +198,8 @@ class AugmentationTracker:
         if len(base_samples) == 0:
             return base_samples
 
-        # Phase 2: Get augmented versions
-        augmented = self.get_augmented_for_origins(base_samples.tolist())
+        # Phase 2: Get augmented versions (apply additional_filter to exclude marked samples)
+        augmented = self.get_augmented_for_origins(base_samples.tolist(), additional_filter=additional_filter)
 
         if len(augmented) == 0:
             return base_samples
