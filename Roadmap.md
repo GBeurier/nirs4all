@@ -35,6 +35,8 @@
 
 > [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
 
+> [Workflow Operators] branch, merge, split_src, scope
+
 **RELEASE** 0.5.2: Learning ready
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
@@ -43,9 +45,9 @@
 
 > [Predict] Verify predict from model, pipeline, folder, file, pred, ...
 
-**RELEASE** 0.6.0: UI ready
-
 > [Stacking] Use prediction as X for stacking.
+
+**RELEASE** 0.6.0: UI ready
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
 
@@ -101,7 +103,7 @@
 
 > [Y_pipeline in models]
 
-> [Workflow Operators] branch, merge, split_src, scope
+
 
 > [Transformations] Asymetric processings (PCA in pipelines) > auto/optional padding and cropping
 
