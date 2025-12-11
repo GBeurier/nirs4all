@@ -178,6 +178,9 @@ class AutoGluonModelController(BaseModelController):
         if force_params:
             params.update(force_params)
 
+        # Extract random_state if provided
+        random_state = params.pop('random_state', None)
+
         # Determine problem type from dataset
         problem_type = None
         if dataset.task_type:
@@ -216,7 +219,8 @@ class AutoGluonModelController(BaseModelController):
         return {
             'predictor_params': predictor_params,
             'fit_params': self._fit_params,
-            'temp_dir': temp_dir
+            'temp_dir': temp_dir,
+            'random_state': random_state
         }
 
     def _train_model(
@@ -255,6 +259,7 @@ class AutoGluonModelController(BaseModelController):
         # Get config from model
         predictor_params = model['predictor_params'].copy()
         fit_params = model.get('fit_params', {}).copy()
+        random_state = model.get('random_state', None)
 
         # Create DataFrame with features and target
         label_col = '__target__'
@@ -294,6 +299,13 @@ class AutoGluonModelController(BaseModelController):
         # Add num_bag_folds if specified (for bagging)
         if 'num_bag_folds' in fit_params:
             fit_kwargs['num_bag_folds'] = fit_params.pop('num_bag_folds')
+
+        # Add random_state via ag_args_fit for reproducibility
+        # AutoGluon propagates random seeds to models through ag_args_fit
+        if random_state is not None:
+            ag_args_fit = fit_kwargs.get('ag_args_fit', {})
+            ag_args_fit['random_seed'] = random_state
+            fit_kwargs['ag_args_fit'] = ag_args_fit
 
         # Add remaining fit params
         fit_kwargs.update(fit_params)
@@ -532,6 +544,19 @@ class AutoGluonModelController(BaseModelController):
                 params['num_bag_folds'] = trial.suggest_int('num_bag_folds', low, high)
             else:
                 params['num_bag_folds'] = nbf_config
+
+        # Sample random_state (typically fixed, but can be searched)
+        if 'random_state' in finetune_params:
+            rs_config = finetune_params['random_state']
+            if isinstance(rs_config, tuple) and len(rs_config) == 3:
+                low, high = rs_config[1], rs_config[2]
+                params['random_state'] = trial.suggest_int('random_state', low, high)
+            elif isinstance(rs_config, list):
+                params['random_state'] = trial.suggest_categorical(
+                    'random_state', rs_config
+                )
+            else:
+                params['random_state'] = rs_config
 
         return params
 
