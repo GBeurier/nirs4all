@@ -1,4 +1,4 @@
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from sklearn.base import TransformerMixin
 
@@ -12,6 +12,21 @@ if TYPE_CHECKING:
 
 import numpy as np
 
+
+def _is_transformer_like(obj: Any) -> bool:
+    """Check if object is a TransformerMixin instance or class."""
+    # Instance check
+    if isinstance(obj, TransformerMixin):
+        return True
+    # Class check (e.g., StandardScaler without parentheses)
+    if isinstance(obj, type) and issubclass(obj, TransformerMixin):
+        return True
+    # Fallback for edge cases
+    if hasattr(obj, '__class__') and hasattr(obj.__class__, '__mro__'):
+        return TransformerMixin in obj.__class__.__mro__
+    return False
+
+
 @register_controller
 class YTransformerMixinController(OperatorController):
     """
@@ -19,16 +34,40 @@ class YTransformerMixinController(OperatorController):
 
     Triggered by the "y_processing" keyword and applies transformations to target data,
     fitting on train targets and transforming all target data.
+
+    Supports both single transformers and chained transformers (list syntax):
+        - Single: {"y_processing": StandardScaler()}
+        - Chained: {"y_processing": [StandardScaler, QuantileTransformer(n_quantiles=30)]}
+
+    When using chained transformers, each transformer is applied sequentially,
+    with proper ancestry tracking and individual artifact persistence for prediction mode.
     """
     priority = 5
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
-        """Match if keyword is 'y_processing' and operator is a TransformerMixin."""
-        # print(f">>>> Checking YTransformerMixinController match...")
-        # print(f"Keyword: {keyword}, Operator: {operator}, Is TransformerMixin: {isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)}")
-        return (keyword == "y_processing" and
-                (isinstance(operator, TransformerMixin) or issubclass(operator.__class__, TransformerMixin)))
+        """Match if keyword is 'y_processing' and operator is TransformerMixin or list thereof.
+
+        Args:
+            step: Original step configuration
+            operator: Parsed operator (TransformerMixin instance, class, or list)
+            keyword: Step keyword
+
+        Returns:
+            True if this controller should handle the step
+        """
+        if keyword != "y_processing":
+            return False
+
+        # Single transformer (instance or class)
+        if _is_transformer_like(operator):
+            return True
+
+        # List of transformers
+        if isinstance(operator, (list, tuple)) and len(operator) > 0:
+            return all(_is_transformer_like(t) for t in operator)
+
+        return False
 
     @classmethod
     def use_multi_source(cls) -> bool:
@@ -50,101 +89,181 @@ class YTransformerMixinController(OperatorController):
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ):
+    ) -> Tuple[ExecutionContext, List[Any]]:
         """
-        Execute transformer on dataset targets, fitting on train targets and transforming all targets.
-        Skips execution in prediction mode.
+        Execute transformer(s) on dataset targets, fitting on train targets and transforming all targets.
+
+        Supports both single transformers and chained transformers (list).
+        Each transformer is applied sequentially, with proper ancestry tracking.
 
         Args:
             step_info: Parsed step containing operator and metadata
-            dataset: Dataset to operate on
             dataset: Dataset containing targets to transform
             context: Pipeline context with partition information
             runtime_context: Runtime context containing infrastructure components
             source: Source index (not used for target processing)
-            mode: Execution mode ("train" or "predict")
-            loaded_binaries: Pre-loaded binaries (unused)
+            mode: Execution mode ("train", "predict", or "explain")
+            loaded_binaries: Pre-loaded fitted transformers for predict/explain mode
+            prediction_store: Not used for y_processing
 
         Returns:
             Tuple of (updated_context, fitted_transformers_list)
         """
-        # Extract operator for compatibility with existing code
         operator = step_info.operator
 
-        # Skip execution in prediction mode
+        # Normalize to list and instantiate class types
+        operators = self._normalize_operators(operator)
+
+        # Convert loaded_binaries to dict for easy lookup by name
+        binaries_dict = {}
+        if loaded_binaries:
+            binaries_dict = {name: obj for name, obj in loaded_binaries}
+
+        # Execute each transformer sequentially
+        current_context = context
+        all_artifacts = []
+
+        for idx, op in enumerate(operators):
+            current_context, artifacts = self._execute_single_transformer(
+                transformer=op,
+                transformer_index=idx,
+                dataset=dataset,
+                context=current_context,
+                runtime_context=runtime_context,
+                mode=mode,
+                binaries_dict=binaries_dict
+            )
+            all_artifacts.extend(artifacts)
+
+        return current_context, all_artifacts
+
+    def _normalize_operators(self, operator: Any) -> List[TransformerMixin]:
+        """Normalize operator(s) to a list of instantiated TransformerMixin objects.
+
+        Args:
+            operator: Single transformer, class, or list thereof
+
+        Returns:
+            List of instantiated TransformerMixin objects
+        """
+        # Handle single transformer
+        if not isinstance(operator, (list, tuple)):
+            operators = [operator]
+        else:
+            operators = list(operator)
+
+        # Instantiate class types (e.g., StandardScaler vs StandardScaler())
+        instantiated = []
+        for op in operators:
+            if isinstance(op, type) and issubclass(op, TransformerMixin):
+                instantiated.append(op())
+            else:
+                instantiated.append(op)
+
+        return instantiated
+
+    def _execute_single_transformer(
+        self,
+        transformer: TransformerMixin,
+        transformer_index: int,
+        dataset: 'SpectroDataset',
+        context: ExecutionContext,
+        runtime_context: 'RuntimeContext',
+        mode: str,
+        binaries_dict: Dict[str, Any]
+    ) -> Tuple[ExecutionContext, List[Any]]:
+        """Execute a single transformer on dataset targets.
+
+        Args:
+            transformer: The transformer to apply
+            transformer_index: Index in the chain (for naming)
+            dataset: Dataset containing targets
+            context: Current execution context
+            runtime_context: Runtime context for artifact persistence
+            mode: Execution mode
+            binaries_dict: Pre-loaded binaries dict for predict/explain mode
+
+        Returns:
+            Tuple of (updated_context, artifacts_list)
+        """
         from sklearn.base import clone
 
-        # Naming for the new processing
-        operator_name = operator.__class__.__name__
+        # Generate unique name for this transformer
+        operator_name = transformer.__class__.__name__
+        op_id = runtime_context.next_op()
         current_y_processing = context.state.y_processing
-        new_processing_name = f"{current_y_processing}_{operator_name}{runtime_context.next_op()}"
+        new_processing_name = f"{current_y_processing}_{operator_name}{op_id}"
 
-        if (mode == "predict" or mode == "explain") and loaded_binaries:
-            transformer = loaded_binaries[0][1] if loaded_binaries else operator
-            # print(f"🔄 Using pre-loaded transformer for prediction: {transformer}")
-            dataset._targets.add_processed_targets(
-                processing_name=new_processing_name,
-                targets=np.array([]),
-                ancestor=current_y_processing,
-                transformer=transformer,
-                mode=mode
-            )
-            updated_context = context.with_y(new_processing_name)
-            # print(f">>>>>>> Registered {transformer}")
-            # try:
-            #     print(transformer.data_min_, transformer.data_max_)
-            # except AttributeError:
-            #     print("Transformer does not have data_min_ or data_max_ attributes")
-            return updated_context, []
+        # Artifact name for saving/loading (includes index for ordering in chained transformers)
+        artifact_name = f"y_{operator_name}_{op_id}"
 
-        # Get train and all targets
+        # Handle prediction/explain mode: load pre-fitted transformer
+        if mode in ("predict", "explain"):
+            # Try to find the transformer in loaded binaries
+            fitted_transformer = binaries_dict.get(artifact_name)
+
+            if fitted_transformer is None:
+                # Fallback: try without index suffix for backward compatibility
+                legacy_name = f"y_{operator_name}"
+                fitted_transformer = binaries_dict.get(legacy_name)
+
+            if fitted_transformer is not None:
+                dataset._targets.add_processed_targets(
+                    processing_name=new_processing_name,
+                    targets=np.array([]),
+                    ancestor=current_y_processing,
+                    transformer=fitted_transformer,
+                    mode=mode
+                )
+                updated_context = context.with_y(new_processing_name)
+                return updated_context, []
+            else:
+                # No pre-fitted transformer found - this shouldn't happen in proper predict mode
+                raise ValueError(
+                    f"No fitted transformer found for '{artifact_name}' in loaded binaries. "
+                    f"Available: {list(binaries_dict.keys())}"
+                )
+
+        # Training mode: fit and transform
+
+        # Get train targets for fitting (excluding filtered samples)
         train_context = context.with_partition("train")
-
         train_y_selector = dict(train_context.selector)
-        train_y_selector['y'] = train_context.state.y_processing
-        train_data = dataset.y(train_y_selector)
+        train_y_selector['y'] = current_y_processing
+        train_data = dataset.y(train_y_selector, include_excluded=False)
 
+        # Get all targets for transformation (INCLUDING excluded samples)
+        # This is necessary because add_processed_targets expects targets for ALL samples
         all_y_selector = dict(context.selector)
-        all_y_selector['y'] = context.state.y_processing
-        all_data = dataset.y(all_y_selector)
+        all_y_selector['y'] = current_y_processing
+        all_data = dataset.y(all_y_selector, include_excluded=True)
 
-        # Clone and fit the transformer on training targets
-        transformer = clone(operator)
-        transformer.fit(train_data)
+        # Clone, fit, and transform
+        fitted_transformer = clone(transformer)
+        fitted_transformer.fit(train_data)
+        transformed_targets = fitted_transformer.transform(all_data)
 
-        # Transform all targets
-        transformed_targets = transformer.transform(all_data)
-
-
-        # Add the processed targets to the dataset
+        # Add processed targets to dataset with proper ancestry
         dataset.add_processed_targets(
             processing_name=new_processing_name,
             targets=transformed_targets,
             ancestor_processing=current_y_processing,
-            transformer=transformer
+            transformer=fitted_transformer
         )
-        # print(f">>>>>>> Registered {transformer}")
-        # try:
-        #     print(transformer.data_min_, transformer.data_max_)
-        # except AttributeError:
-        #     print("Transformer does not have data_min_ or data_max_ attributes")
-        # Update context to use the new y processing
+
+        # Update context to use new processing
         updated_context = context.with_y(new_processing_name)
 
-        # Persist fitted transformer using new serializer
+        # Persist fitted transformer
+        artifacts = []
         if mode == "train":
             artifact = runtime_context.saver.persist_artifact(
                 step_number=runtime_context.step_number,
-                name=f"y_{operator_name}",
-                obj=transformer,
+                name=artifact_name,
+                obj=fitted_transformer,
                 format_hint='sklearn'
             )
-            fitted_transformers = [artifact]
-            return updated_context, fitted_transformers
+            artifacts.append(artifact)
 
-        # print(f"✅ Successfully applied {operator_name} to targets: {current_y_processing} → {new_processing_name}")
-        # print(f"   Train shape: {train_targets.shape} → {transformer.transform(train_targets).shape}")
-        # print(f"   All shape: {all_targets.shape} → {transformed_targets.shape}")
-
-        return updated_context, []
+        return updated_context, artifacts
 

@@ -3,6 +3,9 @@
 Controllers for chart and visualization operators.
 """
 
-# Import chart controllers (keeping original file structure for now)
+# Import chart controllers for registration
+from nirs4all.controllers.charts.exclusion import ExclusionChartController
 
-__all__ = []
+__all__ = [
+    "ExclusionChartController",
+]

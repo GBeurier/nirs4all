@@ -192,11 +192,25 @@ class StepParser:
 
 
     def _deserialize_operator(self, value: Any) -> Optional[Any]:
-        """Deserialize an operator value if needed."""
+        """Deserialize an operator value if needed.
+
+        Handles:
+        - None: returns None
+        - Instances: returns as-is
+        - Class types: returns as-is (controller will instantiate)
+        - Dict with 'class'/'function': deserializes component
+        - String: deserializes as module path
+        - List/tuple: recursively deserializes each element
+        """
         if value is None:
             return None
 
-        # Already an instance
+        # Handle lists/tuples (for chained operators like y_processing)
+        if isinstance(value, (list, tuple)):
+            deserialized = [self._deserialize_operator(v) for v in value]
+            return deserialized if isinstance(value, list) else tuple(deserialized)
+
+        # Already an instance or class type - return as-is
         if not isinstance(value, (dict, str)):
             return value
 

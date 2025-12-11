@@ -11,6 +11,11 @@ from .augmentation.splines import (
 )
 from .augmentation.abc_augmenter import Augmenter, IdentityAugmenter
 
+from .filters import (
+    SampleFilter,
+    YOutlierFilter,
+)
+
 from .transforms import (
     # NIRS transformations
     Haar,
@@ -59,6 +64,10 @@ __all__ = [
     "Spline_Smoothing",
     "Augmenter",
     "IdentityAugmenter",
+
+    # Sample filtering
+    "SampleFilter",
+    "YOutlierFilter",
 
     # NIRS transformations
     "Haar",

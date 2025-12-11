@@ -39,6 +39,8 @@ class IndexStore:
             "branch": pl.Series([], dtype=pl.Int8),
             "processings": pl.Series([], dtype=pl.List(pl.Utf8)),  # Native list type!
             "augmentation": pl.Series([], dtype=pl.Categorical),
+            "excluded": pl.Series([], dtype=pl.Boolean),  # Sample filtering flag
+            "exclusion_reason": pl.Series([], dtype=pl.Utf8),  # Filtering reason
         })
 
     @property
