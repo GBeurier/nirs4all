@@ -311,6 +311,54 @@ class BaseModelController(OperatorController, ABC):
             y_test_unscaled = dataset.y(test_context.selector)
         return X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled
 
+    def _remap_folds_to_positions(
+        self,
+        dataset: 'SpectroDataset',
+        context: 'ExecutionContext',
+        mode: str
+    ) -> List[Tuple[List[int], List[int]]]:
+        """Convert fold sample IDs to positional indices for the current active samples.
+
+        Folds are stored with absolute sample IDs (from the indexer), which remain
+        valid even after sample filtering excludes samples. This method converts
+        those sample IDs to positional indices into the current X_train array.
+
+        Args:
+            dataset: SpectroDataset with the fold information.
+            context: Execution context with partition info.
+            mode: Execution mode ('train', 'predict', 'explain').
+
+        Returns:
+            List of (train_indices, val_indices) tuples with positional indices.
+        """
+        raw_folds = dataset.folds
+
+        if not raw_folds:
+            return []
+
+        # In predict/explain mode, folds are not used for training, just return as-is
+        if mode in ("predict", "explain"):
+            return raw_folds
+
+        # Get current active sample IDs for train partition (respecting exclusions)
+        train_context = context.with_partition("train")
+        active_sample_ids = dataset._indexer.x_indices(  # noqa: SLF001
+            train_context.selector, include_augmented=True, include_excluded=False
+        )
+
+        # Build a mapping from sample ID to positional index
+        id_to_pos = {int(sid): pos for pos, sid in enumerate(active_sample_ids)}
+
+        # Remap each fold's sample IDs to positional indices
+        # Only include samples that are still active (not excluded)
+        remapped_folds = []
+        for train_ids, val_ids in raw_folds:
+            train_indices = [id_to_pos[int(sid)] for sid in train_ids if int(sid) in id_to_pos]
+            val_indices = [id_to_pos[int(sid)] for sid in val_ids if int(sid) in id_to_pos]
+            remapped_folds.append((train_indices, val_indices))
+
+        return remapped_folds
+
 
     def execute(
         self,
@@ -359,7 +407,11 @@ class BaseModelController(OperatorController, ABC):
                 dataset.set_task_type(task_type_str)
 
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
-        folds = dataset.folds
+
+        # Convert fold sample IDs to positional indices
+        # Folds now store absolute sample IDs, which remain valid even after sample filtering
+        # We need to convert them to positional indices into the current X_train array
+        folds = self._remap_folds_to_positions(dataset, context, mode)
 
         if self.verbose > 0:
             print(f"{SEARCH} Model config: {model_config}")

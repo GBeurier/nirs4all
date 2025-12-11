@@ -60,42 +60,39 @@ TabPFNModel = TabPFNRegressor if TASK_TYPE == "regression" else TabPFNClassifier
 tabpfn_real_path = 'tabpfn-v2.5-regressor-v2.5_real.ckpt' if TASK_TYPE == "regression" else 'tabpfn-v2.5-classifier-v2.5_real.ckpt'
 # Define the pipeline
 pipeline = [
-    ASLSBaseline(),
-    # "2d_chart",
     {
         "sample_filter": {
-            "filters": [HighLeverageFilter, filter_quality, XOutlierFilter(method="pca_residual", n_components=30)],
+            "filters": [HighLeverageFilter, XOutlierFilter(method="pca_residual", n_components=30)],
             "mode": "any",
             "report": True,  # Print filtering report
         }
     },
-
-    # {"chart_y": {"include_excluded": True, "highlight_excluded": True}},
-    # {"chart_2d": {"include_excluded": True, "highlight_excluded": True}},
-    # "chart_y",
-    # {"y_processing": [QuantileTransformer(n_quantiles=150, output_distribution='normal', random_state=42), StandardScaler()]},
-    {"y_processing": StandardScaler()},
-    # "chart_y",
+    ASLSBaseline(),
     {"split": SPXYGFold(n_splits=1, random_state=42), "group": AGGREGATION_KEY},  # COMMENT IF TRAIN AND TEST ARE PROVIDED
     {"split": SPXYGFold(n_splits=3, random_state=42), "group": AGGREGATION_KEY},
-    StandardScaler(),
-    SavitzkyGolay(),
-    # PCA(n_components=0.99, random_state=42, whiten=True),
-    PCA(50, random_state=42, whiten=True),
+    # {"chart_y": {"include_excluded": True, "highlight_excluded": True}},
+    # {"chart_2d": {"include_excluded": True, "highlight_excluded": True}},
+    # {"y_processing": [QuantileTransformer(n_quantiles=150, output_distribution='normal', random_state=42), StandardScaler()]},
+    {"y_processing": StandardScaler()},
+    # StandardScaler(),
+    # SavitzkyGolay(),
+
+    PCA(n_components=0.99, random_state=42, whiten=True),
+    # PCA(50, random_state=42, whiten=True),
     StandardScaler(),
     PowerTransformer(),
-    {
-        'model': {
-            'framework': 'autogluon',
-            'params': {
-                'presets': 'extreme_quality',
-                'time_limit': 3600,
-                'num_bag_folds': 5,
-                'random_state': 42,
-            }
-        },
-        "name": "AutoGluon",
-    },
+    # {
+    #     'model': {
+    #         'framework': 'autogluon',
+    #         'params': {
+    #             'presets': 'extreme_quality',
+    #             'time_limit': 3600,
+    #             'num_bag_folds': 5,
+    #             'random_state': 42,
+    #         }
+    #     },
+    #     "name": "AutoGluon",
+    # },
     # {
     #     "model": TabPFNModel(n_estimators=16, device='cuda', random_state=42),
     #     "name": "TabPFN",

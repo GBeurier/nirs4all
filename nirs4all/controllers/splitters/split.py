@@ -142,6 +142,13 @@ class CrossValidatorController(OperatorController):
         # IMPORTANT: Only split on base samples (exclude augmented) to prevent data leakage
         X = dataset.x(local_context, layout="2d", concat_source=True, include_augmented=False)
 
+        # Get the actual sample IDs from the indexer - these will be used to store folds
+        # with absolute sample IDs instead of positional indices, so folds remain valid
+        # even if samples are excluded later by sample_filter
+        base_sample_ids = dataset._indexer.x_indices(  # noqa: SLF001
+            local_context.selector, include_augmented=False, include_excluded=False
+        )
+
         y = None
         if needs_y:
             y = dataset.y(local_context, include_augmented=False)
@@ -213,36 +220,39 @@ class CrossValidatorController(OperatorController):
         # Train mode: perform actual fold splitting
         folds = list(op.split(X, **kwargs))  # Convert to list to avoid iterator consumption
 
+        # Convert positional indices to absolute sample IDs
+        # This ensures folds remain valid even if samples are excluded later by sample_filter
+        sample_id_folds = [
+            (base_sample_ids[train_idx].tolist(), base_sample_ids[val_idx].tolist())
+            for train_idx, val_idx in folds
+        ]
+
         # If no test partition exists and this is a single-fold split,
         # use the validation set as test partition (not as fold)
         # This is expected behavior for single-fold splitters (e.g., SPXYGFold with n_splits=1)
         # which are designed to create train/test splits, not cross-validation folds
-        if dataset.x({"partition": "test"}).shape[0] == 0 and len(folds) == 1:
-            fold_1 = folds[0]
+        if dataset.x({"partition": "test"}).shape[0] == 0 and len(sample_id_folds) == 1:
+            fold_1 = sample_id_folds[0]
             if len(fold_1[1]) > 0:  # Only if there are validation samples
-                # Move validation samples to test partition
+                # Move validation samples to test partition using sample IDs
                 dataset._indexer.update_by_indices(
                     fold_1[1], {"partition": "test"}
                 )
 
-                # Update folds to use indices relative to train partition
-                # Since validation samples are now in test partition, train indices need re-indexing
-                # New train indices are 0, 1, 2, ..., n_train-1 (relative to train partition)
-                new_train_indices = list(range(len(fold_1[0])))
-                # Validation indices are now empty (they're the test partition)
-                folds = [(new_train_indices, [])]
+                # Keep train sample IDs, clear validation (they're now in test partition)
+                sample_id_folds = [(fold_1[0], [])]
 
-        # Store the folds in the dataset (after potential reindexing for single-fold case)
-        dataset.set_folds(folds)
+        # Store the folds in the dataset (using sample IDs, not positional indices)
+        dataset.set_folds(sample_id_folds)
 
-        # Generate binary output with fold information
-        headers = [f"fold_{i}" for i in range(len(folds))]
+        # Generate binary output with fold information (using sample IDs)
+        headers = [f"fold_{i}" for i in range(len(sample_id_folds))]
         binary = ",".join(headers).encode("utf-8") + b"\n"
-        max_train_samples = max(len(train_idx) for train_idx, _ in folds)
+        max_train_samples = max(len(train_idx) for train_idx, _ in sample_id_folds)
 
         for row_idx in range(max_train_samples):
             row_values = []
-            for fold_idx, (train_idx, val_idx) in enumerate(folds):
+            for fold_idx, (train_idx, val_idx) in enumerate(sample_id_folds):
                 if row_idx < len(train_idx):
                     row_values.append(str(train_idx[row_idx]))
                 else:
