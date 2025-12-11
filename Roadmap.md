@@ -3,11 +3,14 @@
 > [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
 ---- > test interleaved for nitrosorgh on PLS or random forest.
 
+> [Predictions] as a pipeline context for custom stacking.
+
 > [TabReport] aggregated
+
+> [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 
 **Bugs**:
 >   - [Split] try automatically to set a group even when not specified. Shouldn't do anything if not specified
->   - [task_type] deactivate auto detection - set manually
 >   - [save_files] sep in save_files and save_plots and save_predictions
 >   - [MB-PLS] test on multi-source/block
 >   - [Kernel-PLS] poly and linear are crap
@@ -16,6 +19,7 @@
 >   - remove print scores in base model (bug in predict)
 >   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
 >   - Charts do not display correctly the wavelength on x-axis
+> [Split] add force_group (mean, median, max, min, etc.) before split to be able to split with groups seemlessly. ie: {"split": KFold, "force_group":"ID"} or reuse group if possible to detect that group is not required (I think it's not detectable)
 
 > [sklearn] Integrate optuna finetuning on stack ?????
 
@@ -39,11 +43,7 @@
 
 > [Predict] Verify predict from model, pipeline, folder, file, pred, ...
 
-> [Split] add force_group (mean, median, max, min, etc.) before split to be able to split with groups seemlessly. ie: {"split": KFold, "force_group":"ID"} or reuse group if possible to detect that group is not required (I think it's not detectable)
-
 **RELEASE** 0.6.0: UI ready
-
-> [Predictions] as a pipeline context for custom stacking.
 
 > [Stacking] Use prediction as X for stacking.
 
