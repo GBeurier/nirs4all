@@ -6,7 +6,7 @@ import polars as pl
 import time
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from typing import Optional, TYPE_CHECKING
+from typing import Literal, Optional, TYPE_CHECKING
 from nirs4all.visualization.charts.base import BaseChart
 from nirs4all.visualization.chart_utils.annotator import ChartAnnotator
 
@@ -56,6 +56,7 @@ class ScoreHistogramChart(BaseChart):
                dataset_name: Optional[str] = None, bins: int = 20,
                figsize: Optional[tuple] = None, aggregate: Optional[str] = None,
                clip_outliers: bool = True, iqr_factor: float = 1.5,
+               layout: Literal['standard', 'stacked', 'staggered'] = 'standard',
                **filters) -> Figure:
         """Render score distribution histogram (Optimized with Polars).
 
@@ -72,6 +73,10 @@ class ScoreHistogramChart(BaseChart):
                           and let extreme outliers go off-frame (default: True).
             iqr_factor: Factor to multiply IQR for determining outlier bounds.
                        Higher values show more of the tails (default: 1.5).
+            layout: Histogram layout style:
+                   - 'standard': overlapping histograms (default)
+                   - 'stacked': bars stacked on top of each other
+                   - 'staggered': bars placed side by side
             dataset_name: Optional dataset filter.
             **filters: Additional filters (model_name, config_name, etc.).
 
@@ -104,6 +109,7 @@ class ScoreHistogramChart(BaseChart):
                 aggregate=aggregate,
                 clip_outliers=clip_outliers,
                 iqr_factor=iqr_factor,
+                layout=layout,
                 **all_filters
             )
 
@@ -170,9 +176,8 @@ class ScoreHistogramChart(BaseChart):
         else:
             clipped_scores = scores
 
-        # Plot histogram
-        ax.hist(clipped_scores, bins=bins, alpha=self.config.alpha,
-                edgecolor='black', color='#35B779')
+        # Plot histogram based on layout
+        self._plot_histogram(ax, clipped_scores, bins, layout)
 
         # Apply x-axis limits if clipping
         if clip_outliers and x_min is not None and x_max is not None:
@@ -182,8 +187,9 @@ class ScoreHistogramChart(BaseChart):
         ax.set_ylabel('Frequency', fontsize=self.config.label_fontsize)
 
         # Title
+        layout_note = f' [{layout}]' if layout != 'standard' else ''
         clipped_note = f' ({n_clipped} outliers clipped)' if n_clipped > 0 else ''
-        title = f'Score Histogram - {display_metric} [{display_partition}]\n{len(scores)} predictions{clipped_note}'
+        title = f'Score Histogram - {display_metric} [{display_partition}]{layout_note}\n{len(scores)} predictions{clipped_note}'
         if dataset_name:
             title = f'{title}\nDataset: {dataset_name}'
         ax.set_title(title, fontsize=self.config.title_fontsize)
@@ -218,6 +224,7 @@ class ScoreHistogramChart(BaseChart):
         aggregate: str,
         clip_outliers: bool = True,
         iqr_factor: float = 1.5,
+        layout: Literal['standard', 'stacked', 'staggered'] = 'standard',
         **filters
     ) -> Figure:
         """Render histogram with aggregation support.
@@ -303,9 +310,8 @@ class ScoreHistogramChart(BaseChart):
         else:
             clipped_scores = scores
 
-        # Plot histogram
-        ax.hist(clipped_scores, bins=bins, alpha=self.config.alpha,
-                edgecolor='black', color='#35B779')
+        # Plot histogram based on layout
+        self._plot_histogram(ax, clipped_scores, bins, layout)
 
         # Apply x-axis limits if clipping
         if clip_outliers and x_min is not None and x_max is not None:
@@ -315,8 +321,9 @@ class ScoreHistogramChart(BaseChart):
         ax.set_ylabel('Frequency', fontsize=self.config.label_fontsize)
 
         # Title with aggregation note
+        layout_note = f' [{layout}]' if layout != 'standard' else ''
         clipped_note = f' ({n_clipped} outliers clipped)' if n_clipped > 0 else ''
-        title = f'Score Histogram - {display_metric} [{display_partition}]\n{len(scores)} predictions [aggregated by {aggregate}]{clipped_note}'
+        title = f'Score Histogram - {display_metric} [{display_partition}]{layout_note}\n{len(scores)} predictions [aggregated by {aggregate}]{clipped_note}'
         dataset_name = filters.get('dataset_name')
         if dataset_name:
             title = f'{title}\nDataset: {dataset_name}'
@@ -342,6 +349,40 @@ class ScoreHistogramChart(BaseChart):
         print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
+
+    def _plot_histogram(
+        self,
+        ax,
+        scores: list,
+        bins: int,
+        layout: Literal['standard', 'stacked', 'staggered'] = 'standard'
+    ) -> None:
+        """Plot histogram with specified layout style.
+
+        Args:
+            ax: Matplotlib axes object.
+            scores: List of score values to plot.
+            bins: Number of histogram bins.
+            layout: Layout style ('standard', 'stacked', 'staggered').
+        """
+        if layout == 'standard':
+            # Standard overlapping histogram
+            ax.hist(scores, bins=bins, alpha=self.config.alpha,
+                    edgecolor='black', color='#35B779')
+
+        elif layout == 'stacked':
+            # Stacked histogram - for single distribution, same as standard
+            # but with histtype='barstacked' for consistency with multi-series
+            ax.hist(scores, bins=bins, alpha=self.config.alpha,
+                    edgecolor='black', color='#35B779', histtype='barstacked')
+
+        elif layout == 'staggered':
+            # Staggered - use 'bar' type with rwidth for spacing effect
+            ax.hist(scores, bins=bins, alpha=self.config.alpha,
+                    edgecolor='black', color='#35B779', histtype='bar', rwidth=0.8)
+
+        else:
+            raise ValueError(f"Unknown layout: {layout}. Use 'standard', 'stacked', or 'staggered'.")
 
     def _compute_clipped_xlim(
         self,

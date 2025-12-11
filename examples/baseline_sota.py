@@ -4,6 +4,7 @@ import os
 
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, PowerTransformer, QuantileTransformer, RobustScaler
+from sklearn.model_selection import GroupKFold, StratifiedGroupKFold, StratifiedShuffleSplit, ShuffleSplit, GroupShuffleSplit
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
@@ -13,10 +14,11 @@ from nirs4all.operators.transforms import SavitzkyGolay, ASLSBaseline
 from nirs4all.operators.filters import YOutlierFilter, HighLeverageFilter, SpectralQualityFilter, XOutlierFilter
 from nirs4all.operators.filters.base import CompositeFilter
 
-from huggingface_hub import login
 from tabpfn import TabPFNClassifier, TabPFNRegressor
+from tabpfn_extensions.rf_pfn import RandomForestTabPFNClassifier, RandomForestTabPFNRegressor
 import torch
 
+from huggingface_hub import login
 # Load .env file from project root
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(env_path)
@@ -57,30 +59,40 @@ filter_zscore = YOutlierFilter(method="zscore", threshold=3.0, reason="zscore")
 
 
 TabPFNModel = TabPFNRegressor if TASK_TYPE == "regression" else TabPFNClassifier
+RFTabPFNModel = RandomForestTabPFNRegressor if TASK_TYPE == "regression" else RandomForestTabPFNClassifier
 tabpfn_real_path = 'tabpfn-v2.5-regressor-v2.5_real.ckpt' if TASK_TYPE == "regression" else 'tabpfn-v2.5-classifier-v2.5_real.ckpt'
 # Define the pipeline
 pipeline = [
-    {
-        "sample_filter": {
-            "filters": [HighLeverageFilter, XOutlierFilter(method="pca_residual", n_components=30)],
-            "mode": "any",
-            "report": True,  # Print filtering report
-        }
-    },
-    ASLSBaseline(),
-    {"split": SPXYGFold(n_splits=1, random_state=42), "group": AGGREGATION_KEY},  # COMMENT IF TRAIN AND TEST ARE PROVIDED
-    {"split": SPXYGFold(n_splits=3, random_state=42), "group": AGGREGATION_KEY},
+    ## Filtering
+    # {
+    #     "sample_filter": {
+    #         "filters": [HighLeverageFilter, XOutlierFilter(method="pca_residual", n_components=30)],
+    #         "mode": "any",
+    #         "report": True,  # Print filtering report
+    #     }
+    # },
     # {"chart_y": {"include_excluded": True, "highlight_excluded": True}},
     # {"chart_2d": {"include_excluded": True, "highlight_excluded": True}},
-    # {"y_processing": [QuantileTransformer(n_quantiles=150, output_distribution='normal', random_state=42), StandardScaler()]},
-    {"y_processing": StandardScaler()},
-    # StandardScaler(),
-    # SavitzkyGolay(),
 
-    PCA(n_components=0.99, random_state=42, whiten=True),
-    # PCA(50, random_state=42, whiten=True),
+    ## Baseline
+    ASLSBaseline(),
+
+    ## Split
+    {"split": SPXYGFold(n_splits=1, random_state=42), "group": AGGREGATION_KEY},  # COMMENT IF TRAIN AND TEST ARE PROVIDED
+    # {"split": GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42), "group": AGGREGATION_KEY},
+    {"split": SPXYGFold(n_splits=3, random_state=42), "group": AGGREGATION_KEY},
+    # {"split": GroupKFold(n_splits=3), "group": AGGREGATION_KEY},
+
+    ## Processings
+    {"y_processing": [QuantileTransformer(n_quantiles=150, output_distribution='normal', random_state=42), StandardScaler()]},
+    # {"y_processing": StandardScaler()},
     StandardScaler(),
-    PowerTransformer(),
+    SavitzkyGolay(),
+    PCA(n_components=0.999, random_state=42, whiten=True),
+    StandardScaler(),
+    # PowerTransformer(),
+
+    ## Models
     # {
     #     'model': {
     #         'framework': 'autogluon',
@@ -101,6 +113,14 @@ pipeline = [
         "model": TabPFNModel(n_estimators=16, device='cuda', random_state=42, model_path=tabpfn_real_path),
         "name": "TabPFN-real",
     },
+    # {
+    #     "model": RFTabPFNModel(
+    #         tabpfn=TabPFNModel(n_estimators=4, device='cuda', random_state=42, model_path=tabpfn_real_path),
+    #         n_estimators=8,
+    #         max_depth=3,
+    #     ),
+    #     "name": "RF-TabPFN",
+    # }
 ]
 
 # Create configuration objects
