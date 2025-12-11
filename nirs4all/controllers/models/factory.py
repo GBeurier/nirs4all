@@ -608,7 +608,9 @@ class ModelFactory:
 
         for cls in mro:
             module = cls.__module__
-            if 'xgboost' in module:
+            if 'autogluon' in module:
+                return 'autogluon'
+            elif 'xgboost' in module:
                 return 'xgboost'
             elif 'lightgbm' in module:
                 return 'lightgbm'

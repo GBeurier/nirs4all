@@ -48,6 +48,22 @@ from .nirs import (
     log_transform,
     first_derivative,
     second_derivative,
+    ReflectanceToAbsorbance,
+    reflectance_to_absorbance,
+    # Baseline correction
+    PYBASELINES_METHODS,
+    pybaseline_correction,
+    PyBaselineCorrection,
+    ASLSBaseline,
+    asls_baseline,
+    AirPLS,
+    ArPLS,
+    IModPoly,
+    ModPoly,
+    SNIP,
+    RollingBall,
+    IASLS,
+    BEADS,
 )
 
 # Import scalers (including local aliases such as IdentityTransformer and
@@ -142,6 +158,22 @@ __all__ = [
     "log_transform",
     "first_derivative",
     "second_derivative",
+    "ReflectanceToAbsorbance",
+    "reflectance_to_absorbance",
+    # Baseline correction (pybaselines wrapper)
+    "PYBASELINES_METHODS",
+    "pybaseline_correction",
+    "PyBaselineCorrection",
+    "ASLSBaseline",
+    "asls_baseline",
+    "AirPLS",
+    "ArPLS",
+    "IModPoly",
+    "ModPoly",
+    "SNIP",
+    "RollingBall",
+    "IASLS",
+    "BEADS",
 
     # Scalers
     "Normalize",
