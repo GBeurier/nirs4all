@@ -49,7 +49,7 @@ class StepParser:
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     # Reserved keywords that are not operators
-    RESERVED_KEYWORDS = ["params", "metadata", "steps", "name", "finetune_params", "train_params"]
+    RESERVED_KEYWORDS = ["params", "metadata", "steps", "name", "finetune_params", "train_params", "fit_on_all"]
 
     # Priority workflow keywords (ordered by priority, highest first)
     WORKFLOW_KEYWORDS = [

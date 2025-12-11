@@ -20,7 +20,24 @@ from nirs4all.data.config_parser import parse_config
 
 class DatasetConfigs:
 
-    def __init__(self, configurations: Union[Dict[str, Any], List[Dict[str, Any]], str, List[str]]):
+    def __init__(
+        self,
+        configurations: Union[Dict[str, Any], List[Dict[str, Any]], str, List[str]],
+        task_type: Union[str, List[str]] = "auto"
+    ):
+        '''Initialize dataset configurations.
+
+        Args:
+            configurations: Dataset configuration(s) as path(s), dict(s), or list of either
+            task_type: Force task type. Can be:
+                      - A single string applied to all datasets
+                      - A list of strings (one per dataset)
+                      Valid values per dataset:
+                      - 'auto': Automatic detection based on target values (default)
+                      - 'regression': Force regression task
+                      - 'binary_classification': Force binary classification task
+                      - 'multiclass_classification': Force multiclass classification task
+        '''
         user_configs = configurations if isinstance(configurations, list) else [configurations]
         self.configs = []
         for config in user_configs:
@@ -31,14 +48,35 @@ class DatasetConfigs:
                 print(f"{CROSS} Skipping invalid dataset config: {config}")
 
         self.cache: Dict[str, Any] = {}
+
+        # Normalize task_type to a list matching configs length
+        if isinstance(task_type, str):
+            self._task_types = [task_type] * len(self.configs)
+        else:
+            if len(task_type) != len(self.configs):
+                raise ValueError(
+                    f"task_type list length ({len(task_type)}) must match "
+                    f"number of datasets ({len(self.configs)})"
+                )
+            self._task_types = list(task_type)
         # print(f"✅ {len(self.configs)} dataset configuration(s).")
 
     def iter_datasets(self):
-        for config, name in self.configs:
-            dataset = self.get_dataset(config, name)
+        for idx, (config, name) in enumerate(self.configs):
+            dataset = self._get_dataset_with_task_type(config, name, self._task_types[idx])
             yield dataset
 
-    def get_dataset(self, config, name) -> SpectroDataset:
+    def _get_dataset_with_task_type(self, config, name, task_type: str) -> SpectroDataset:
+        """Internal method to get dataset with specific task type."""
+        dataset = self._load_dataset(config, name)
+
+        # Apply forced task type if specified (not 'auto')
+        if task_type != "auto":
+            dataset.set_task_type(task_type, forced=True)
+
+        return dataset
+
+    def _load_dataset(self, config, name) -> SpectroDataset:
         # Handle preloaded datasets
         if isinstance(config, dict) and "_preloaded_dataset" in config:
             return config["_preloaded_dataset"]
@@ -94,8 +132,7 @@ class DatasetConfigs:
         if index < 0 or index >= len(self.configs):
             raise IndexError(f"Dataset index {index} out of range. Available datasets: 0 to {len(self.configs)-1}.")
         config, name = self.configs[index]
-        dataset = self.get_dataset(config, name)
-        return dataset
+        return self._get_dataset_with_task_type(config, name, self._task_types[index])
 
     def get_datasets(self) -> List[SpectroDataset]:
         return list(self.iter_datasets())

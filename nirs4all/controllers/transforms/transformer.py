@@ -56,27 +56,51 @@ class TransformerMixinController(OperatorController):
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Any] = None
     ):
-        """Execute transformer - handles normal, feature augmentation, and sample augmentation modes."""
+        """Execute transformer - handles normal, feature augmentation, and sample augmentation modes.
+
+        Supports optional `fit_on_all` parameter in step configuration to fit the transformer
+        on all data instead of just training data. This is useful for unsupervised preprocessing
+        where you want the transformation to capture the full data distribution.
+
+        Step format:
+            # Standard (fit on train, transform all):
+            StandardScaler()
+
+            # Fit on ALL data (unsupervised preprocessing):
+            {"preprocessing": StandardScaler(), "fit_on_all": True}
+        """
         op = step_info.operator
+
+        # Extract fit_on_all option from step configuration
+        fit_on_all = False
+        if isinstance(step_info.original_step, dict):
+            fit_on_all = step_info.original_step.get("fit_on_all", False)
 
         # Check if we're in sample augmentation mode
         if context.metadata.augment_sample and mode not in ["predict", "explain"]:
             return self._execute_for_sample_augmentation(
-                op, dataset, context, runtime_context, mode, loaded_binaries, prediction_store
+                op, dataset, context, runtime_context, mode, loaded_binaries, prediction_store,
+                fit_on_all=fit_on_all
             )
 
         # Normal or feature augmentation execution (existing code)
         operator_name = op.__class__.__name__
 
-        # Get train and all data as lists of 3D arrays (one per source)
-        train_context = context.with_partition("train")
-
-        train_data = dataset.x(train_context.selector, "3d", concat_source=False)
+        # Get all data (always needed for transform)
         all_data = dataset.x(context.selector, "3d", concat_source=False)
 
+        # Get fitting data based on fit_on_all option
+        if fit_on_all:
+            # Fit on all data (unsupervised preprocessing)
+            fit_data = all_data
+        else:
+            # Standard: fit on train data only
+            train_context = context.with_partition("train")
+            fit_data = dataset.x(train_context.selector, "3d", concat_source=False)
+
         # Ensure data is in list format
-        if not isinstance(train_data, list):
-            train_data = [train_data]
+        if not isinstance(fit_data, list):
+            fit_data = [fit_data]
         if not isinstance(all_data, list):
             all_data = [all_data]
 
@@ -86,8 +110,8 @@ class TransformerMixinController(OperatorController):
         processing_names = []
 
         # Loop through each data source
-        for sd_idx, (train_x, all_x) in enumerate(zip(train_data, all_data)):
-            # print(f"Processing source {sd_idx}: train shape {train_x.shape}, all shape {all_x.shape}")
+        for sd_idx, (fit_x, all_x) in enumerate(zip(fit_data, all_data)):
+            # print(f"Processing source {sd_idx}: fit shape {fit_x.shape}, all shape {all_x.shape}")
 
             # Get processing names for this source
             processing_ids = dataset.features_processings(sd_idx)
@@ -101,16 +125,16 @@ class TransformerMixinController(OperatorController):
             source_processing_names = []
 
             # Loop through each processing in the 3D data (samples, processings, features)
-            for processing_idx in range(train_x.shape[1]):
+            for processing_idx in range(fit_x.shape[1]):
                 processing_name = processing_ids[processing_idx]
                 # print(f" Processing {processing_name} (idx {processing_idx})")
                 # print(processing_name, processing_name in source_processings)
                 if processing_name not in source_processings:
                     continue
-                train_2d = train_x[:, processing_idx, :]  # Training data
+                fit_2d = fit_x[:, processing_idx, :]      # Data for fitting
                 all_2d = all_x[:, processing_idx, :]      # All data to transform
 
-                # print(f" Processing {processing_name} (idx {processing_idx}): train {train_2d.shape}, all {all_2d.shape}")
+                # print(f" Processing {processing_name} (idx {processing_idx}): fit {fit_2d.shape}, all {all_2d.shape}")
                 new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
 
                 if loaded_binaries and (mode == "predict" or mode == "explain"):
@@ -119,7 +143,7 @@ class TransformerMixinController(OperatorController):
                         raise ValueError(f"Binary for {new_operator_name} not found in loaded_binaries")
                 else:
                     transformer = clone(op)
-                    transformer.fit(train_2d)
+                    transformer.fit(fit_2d)
 
                 transformed_2d = transformer.transform(all_2d)
 
@@ -178,16 +202,27 @@ class TransformerMixinController(OperatorController):
         runtime_context: 'RuntimeContext',
         mode: str,
         loaded_binaries: Optional[List[Tuple[str, Any]]],
-        prediction_store: Optional[Any]
+        prediction_store: Optional[Any],
+        fit_on_all: bool = False
     ) -> Tuple[ExecutionContext, List]:
         """
         Apply transformer to origin samples and add augmented samples.
 
         Optimized implementation:
         - Batch data fetching: fetches all target samples in one call
-        - Single transformer fit: fits transformer once on train data, reuses for all samples
+        - Single transformer fit: fits transformer once on train/all data, reuses for all samples
         - Batch transform: transforms all samples at once per processing
         - Bulk insert: adds all augmented samples in a loop but with pre-fitted transformer
+
+        Args:
+            operator: The transformer operator to apply
+            dataset: The dataset to operate on
+            context: Execution context
+            runtime_context: Runtime context with saver, step info, etc.
+            mode: Execution mode ("train", "predict", "explain")
+            loaded_binaries: Pre-loaded binaries for predict/explain mode
+            prediction_store: Not used
+            fit_on_all: If True, fit transformer on all data instead of train only
         """
         target_sample_ids = context.metadata.target_samples
         if not target_sample_ids:
@@ -197,16 +232,21 @@ class TransformerMixinController(OperatorController):
         fitted_transformers = []
         n_targets = len(target_sample_ids)
 
-        # Get train data for fitting (if not in predict/explain mode) - once for all samples
-        train_data = None
+        # Get data for fitting (if not in predict/explain mode) - once for all samples
+        fit_data = None
         fitted_transformers_cache = {}  # Cache fitted transformers per source/processing
 
         if mode not in ["predict", "explain"]:
-            train_context = context.with_partition("train")
-            train_selector = train_context.selector.with_augmented(False)
-            train_data = dataset.x(train_selector, "3d", concat_source=False)
-            if not isinstance(train_data, list):
-                train_data = [train_data]
+            if fit_on_all:
+                # Fit on all data (unsupervised preprocessing)
+                fit_selector = context.selector.with_augmented(False)
+            else:
+                # Standard: fit on train data only
+                train_context = context.with_partition("train")
+                fit_selector = train_context.selector.with_augmented(False)
+            fit_data = dataset.x(fit_selector, "3d", concat_source=False)
+            if not isinstance(fit_data, list):
+                fit_data = [fit_data]
 
         # Batch fetch all target samples at once
         batch_selector = {"sample": list(target_sample_ids)}
@@ -225,17 +265,18 @@ class TransformerMixinController(OperatorController):
             # If mismatch, fallback to original sample-by-sample approach
             # This can happen if some target_sample_ids don't exist or are filtered out
             return self._execute_for_sample_augmentation_sequential(
-                operator, dataset, context, runtime_context, mode, loaded_binaries, prediction_store
+                operator, dataset, context, runtime_context, mode, loaded_binaries, prediction_store,
+                fit_on_all=fit_on_all
             )
 
         # Pre-fit and cache transformers for each source/processing combination (once!)
-        if mode not in ["predict", "explain"] and train_data:
+        if mode not in ["predict", "explain"] and fit_data:
             for source_idx in range(n_sources):
                 for proc_idx in range(n_processings):
                     cache_key = (source_idx, proc_idx)
                     transformer = clone(operator)
-                    train_proc_data = train_data[source_idx][:, proc_idx, :]
-                    transformer.fit(train_proc_data)
+                    fit_proc_data = fit_data[source_idx][:, proc_idx, :]
+                    transformer.fit(fit_proc_data)
                     fitted_transformers_cache[cache_key] = transformer
 
                     # Save a single transformer binary per source/processing (not per sample)
@@ -311,11 +352,22 @@ class TransformerMixinController(OperatorController):
         runtime_context: 'RuntimeContext',
         mode: str,
         loaded_binaries: Optional[List[Tuple[str, Any]]],
-        prediction_store: Optional[Any]
+        prediction_store: Optional[Any],
+        fit_on_all: bool = False
     ) -> Tuple[ExecutionContext, List]:
         """
         Fallback sequential implementation for sample augmentation.
         Used when batch processing is not possible due to data shape mismatches.
+
+        Args:
+            operator: The transformer operator to apply
+            dataset: The dataset to operate on
+            context: Execution context
+            runtime_context: Runtime context with saver, step info, etc.
+            mode: Execution mode ("train", "predict", "explain")
+            loaded_binaries: Pre-loaded binaries for predict/explain mode
+            prediction_store: Not used
+            fit_on_all: If True, fit transformer on all data instead of train only
         """
         target_sample_ids = context.metadata.target_samples
         if not target_sample_ids:
@@ -325,14 +377,19 @@ class TransformerMixinController(OperatorController):
         fitted_transformers = []
         fitted_transformers_cache = {}
 
-        # Get train data for fitting (if not in predict/explain mode)
-        train_data = None
+        # Get data for fitting (if not in predict/explain mode)
+        fit_data = None
         if mode not in ["predict", "explain"]:
-            train_context = context.with_partition("train")
-            train_selector = train_context.selector.with_augmented(False)
-            train_data = dataset.x(train_selector, "3d", concat_source=False)
-            if not isinstance(train_data, list):
-                train_data = [train_data]
+            if fit_on_all:
+                # Fit on all data (unsupervised preprocessing)
+                fit_selector = context.selector.with_augmented(False)
+            else:
+                # Standard: fit on train data only
+                train_context = context.with_partition("train")
+                fit_selector = train_context.selector.with_augmented(False)
+            fit_data = dataset.x(fit_selector, "3d", concat_source=False)
+            if not isinstance(fit_data, list):
+                fit_data = [fit_data]
 
         # Process each target sample
         for sample_id in target_sample_ids:
@@ -363,9 +420,9 @@ class TransformerMixinController(OperatorController):
                         transformer = fitted_transformers_cache[cache_key]
                     else:
                         transformer = clone(operator)
-                        if train_data:
-                            train_proc_data = train_data[source_idx][:, proc_idx, :]
-                            transformer.fit(train_proc_data)
+                        if fit_data:
+                            fit_proc_data = fit_data[source_idx][:, proc_idx, :]
+                            transformer.fit(fit_proc_data)
                         fitted_transformers_cache[cache_key] = transformer
 
                         # Save transformer binary once
