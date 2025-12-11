@@ -128,6 +128,19 @@ class DatasetConfigs:
         # print(f"📊 Loaded dataset '{dataset.name}' with {train_count} training and {test_count} test samples.")
         return dataset
 
+    def get_dataset(self, config, name) -> SpectroDataset:
+        """Get dataset by config and name (backward compatible).
+
+        Note: When called directly, uses the first task_type (or 'auto' if single dataset).
+        For proper per-dataset task_type handling, use iter_datasets() or get_dataset_at().
+        """
+        # Find the index of this config to get the right task_type
+        for idx, (cfg, cfg_name) in enumerate(self.configs):
+            if cfg_name == name:
+                return self._get_dataset_with_task_type(config, name, self._task_types[idx])
+        # Fallback: load without forced task_type
+        return self._load_dataset(config, name)
+
     def get_dataset_at(self, index) -> SpectroDataset:
         if index < 0 or index >= len(self.configs):
             raise IndexError(f"Dataset index {index} out of range. Available datasets: 0 to {len(self.configs)-1}.")
