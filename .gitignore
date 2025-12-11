@@ -64,3 +64,6 @@ bench/studies/_datasets/
 bench/studies/workspace/
 bench/studies/wk
 examples/catboost_info
+examples/charts/
+examples/sample_data/Hiba/
+examples/sample_data/redox/
