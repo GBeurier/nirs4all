@@ -3,7 +3,7 @@ from pathlib import Path
 import os
 
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, PowerTransformer, QuantileTransformer
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, PowerTransformer, QuantileTransformer, RobustScaler
 
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
@@ -49,7 +49,7 @@ pipeline = [
     ASLSBaseline(),
     {"split": SPXYGFold(n_splits=1, random_state=42), "group": AGGREGATION_KEY},  # COMMENT IF TRAIN AND TEST ARE PROVIDED
     {"split": SPXYGFold(n_splits=3, random_state=42), "group": AGGREGATION_KEY},
-    {"y_processing": StandardScaler()},
+    {"y_processing": RobustScaler()},
     StandardScaler(),
     SavitzkyGolay(),
     PCA(n_components=0.99, random_state=42, whiten=True), # PCA(50)
