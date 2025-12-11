@@ -1,4 +1,3 @@
-import argparse
 from dotenv import load_dotenv
 from pathlib import Path
 import os
@@ -15,12 +14,6 @@ from nirs4all.operators.transforms import SavitzkyGolay, ASLSBaseline
 from huggingface_hub import login
 from tabpfn import TabPFNClassifier, TabPFNRegressor
 import torch
-
-# Parse command-line arguments
-parser = argparse.ArgumentParser(description='Q1 Regression Example')
-parser.add_argument('--plots', action='store_true', help='Show plots interactively')
-parser.add_argument('--show', action='store_true', help='Show all plots')
-args = parser.parse_args()
 
 # Load .env file from project root
 env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -39,16 +32,22 @@ if torch.cuda.is_available():
 
 ##========================== Main Pipeline Configuration =========================##
 # Configuration variables
-DATA_PATH = ['sample_data/Hiba/LDMC_vera', 'sample_data/Hiba/LDMC_hiba', 'sample_data/Hiba/SLA_vera', 'sample_data/Hiba/SLA_hiba']
+DATA_PATH = [
+    'sample_data/Hiba/LDMC_vera',
+    # 'sample_data/Hiba/LDMC_hiba',
+    # 'sample_data/Hiba/SLA_vera',
+    # 'sample_data/Hiba/SLA_hiba'
+]
+
 AGGREGATION_KEY = "ID"  # None
-TASK_TYPE = "regression"  # "classification" or "regression"
+TASK_TYPE = "regression"  # "classification" or "regression" or "auto" or "binary"
 
 TabPFNModel = TabPFNRegressor if TASK_TYPE == "regression" else TabPFNClassifier
 tabpfn_real_path = 'tabpfn-v2.5-regressor-v2.5_real.ckpt' if TASK_TYPE == "regression" else 'tabpfn-v2.5-classifier-v2.5_real.ckpt'
 # Define the pipeline
 pipeline = [
     ASLSBaseline(),
-    {"split": SPXYGFold(n_splits=1, random_state=42), "group": AGGREGATION_KEY}, # Comment if train and test are provided
+    {"split": SPXYGFold(n_splits=1, random_state=42), "group": AGGREGATION_KEY},  # COMMENT IF TRAIN AND TEST ARE PROVIDED
     {"split": SPXYGFold(n_splits=3, random_state=42), "group": AGGREGATION_KEY},
     {"y_processing": StandardScaler()},
     StandardScaler(),
@@ -80,15 +79,16 @@ pipeline = [
 
 # Create configuration objects
 pipeline_config = PipelineConfigs(pipeline, "SOTA")
-dataset_config = DatasetConfigs(DATA_PATH, TASK_TYPE)
+dataset_config = DatasetConfigs(DATA_PATH, task_type=TASK_TYPE)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=True, verbose=0, plots_visible=args.plots)
+runner = PipelineRunner(save_files=True, verbose=0)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analyze and display top performing models
 best_model_count = 5
-ranking_metric = ['rmse', 'r2', 'mape']
+rank_metric = 'rmse' if TASK_TYPE == "regression" else 'balanced_accuracy'
+display_metrics = ['rmse', 'r2', 'mape', 'nrmse'] if TASK_TYPE == "regression" else ['accuracy', 'balanced_accuracy', 'f1', 'recall']
 
 for dataset_name, dataset_prediction in predictions_per_dataset.items():
     print(f"\n{'=' * 80}")
@@ -98,30 +98,31 @@ for dataset_name, dataset_prediction in predictions_per_dataset.items():
     dataset_predictions = dataset_prediction['run_predictions']
 
     # Display top performing models
-    print("Top Predictions (row wise):")
+    print("Top Predictions (per row):")
     print("-" * 80)
-    top_models_val = dataset_predictions.top(best_model_count, ranking_metric)
-    print(f"\nTop {best_model_count} models based on validation {ranking_metric[0].upper()}:")
-    for idx, prediction in enumerate(top_models_val):
-        print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=ranking_metric)} - {prediction['preprocessings']}")
 
-    print(f"\nTop {best_model_count} models based on test {ranking_metric[0].upper()}:")
-    top_models_test = dataset_predictions.top(best_model_count, ranking_metric, rank_partition='test')
+    print(f"\nTop {best_model_count} models based on validation {rank_metric.upper()}:")
+    top_models_val = dataset_predictions.top(best_model_count, rank_metric, rank_partition='val', display_metrics=display_metrics)
+    for idx, prediction in enumerate(top_models_val):
+        print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=display_metrics)} - {prediction['preprocessings']}")
+
+    print(f"\nTop {best_model_count} models based on test {rank_metric.upper()}:")
+    top_models_test = dataset_predictions.top(best_model_count, rank_metric, rank_partition='test', display_metrics=display_metrics)
     for idx, prediction in enumerate(top_models_test):
-        print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=ranking_metric)} - {prediction['preprocessings']}")
+        print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=display_metrics)} - {prediction['preprocessings']}")
 
     # Print aggregated results if aggregation_key is provided
-    if aggregation_key is not None:
+    if AGGREGATION_KEY is not None:
         print("*" * 80)
-        print(f"\n Top Predictions (aggregated by {aggregation_key}):")
+        print(f"\n Top Predictions (aggregated by {AGGREGATION_KEY}):")
         print("-" * 80)
-        # Display top performing models
-        top_models_val = dataset_predictions.top(best_model_count, ranking_metric[0], aggregate=aggregation_key)
-        print(f"\nTop {best_model_count} models based on validation {ranking_metric[0].upper()}:")
-        for idx, prediction in enumerate(top_models_val):
-            print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=ranking_metric)} - {prediction['preprocessings']}")
 
-        print(f"\nTop {best_model_count} models based on test {ranking_metric[0].upper()}:")
-        top_models_test = dataset_predictions.top(best_model_count, ranking_metric[0], rank_partition='test', aggregate=aggregation_key)
+        print(f"\nTop {best_model_count} models based on validation {rank_metric.upper()}:")
+        top_models_val = dataset_predictions.top(best_model_count, rank_metric, rank_partition='val', display_metrics=display_metrics, aggregate=AGGREGATION_KEY)
+        for idx, prediction in enumerate(top_models_val):
+            print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=display_metrics)} - {prediction['preprocessings']}")
+
+        print(f"\nTop {best_model_count} models based on test {rank_metric.upper()}:")
+        top_models_test = dataset_predictions.top(best_model_count, rank_metric, rank_partition='test', display_metrics=display_metrics, aggregate=AGGREGATION_KEY)
         for idx, prediction in enumerate(top_models_test):
-            print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=ranking_metric)} - {prediction['preprocessings']}")
+            print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=display_metrics)} - {prediction['preprocessings']}")
