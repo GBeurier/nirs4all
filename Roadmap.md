@@ -3,6 +3,8 @@
 > [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
 ---- > test interleaved for nitrosorgh on PLS or random forest.
 
+> [TabReport] aggregated
+
 **Bugs**:
 >   - [Split] try automatically to set a group even when not specified. Shouldn't do anything if not specified
 >   - [task_type] deactivate auto detection - set manually

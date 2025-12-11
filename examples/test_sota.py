@@ -1,84 +1,26 @@
-"""
-Q1 Example - Basic Regression Pipeline with PLS Models
-=====================================================
-Demonstrates NIRS regression analysis using PLS models with various preprocessing techniques.
-Features automated hyperparameter tuning for n_components and comprehensive result visualization.
-"""
-
-# Standard library imports
 import argparse
-import time
-import matplotlib.pyplot as plt
+from dotenv import load_dotenv
+from pathlib import Path
+import os
 
-# Third-party imports
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.model_selection import ShuffleSplit
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, PowerTransformer, QuantileTransformer
 
-# NIRS4All imports
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
-from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative, SecondDerivative, Gaussian,
-    StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
-)
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.decomposition import PCA, TruncatedSVD
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import Ridge
-from sklearn.model_selection import GroupKFold
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.random_projection import GaussianRandomProjection, SparseRandomProjection
-
-from catboost import CatBoostRegressor
-
-from nirs4all.data import DatasetConfigs
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.analysis import TransferPreprocessingSelector
-from nirs4all.operators.models.sklearn import OPLS, IKPLS
-from nirs4all.operators.models.sklearn.lwpls import LWPLS
 from nirs4all.operators.splitters import SPXYGFold
-from nirs4all.operators.transforms import (
-    Wavelet, WaveletFeatures, WaveletPCA, WaveletSVD,
-    StandardNormalVariate, FirstDerivative, SecondDerivative, SavitzkyGolay,
-    MultiplicativeScatterCorrection, Detrend, Gaussian, Haar,
-    RobustStandardNormalVariate,
-)
-from nirs4all.operators.transforms import (
-    AirPLS,      # Adaptive Iteratively Reweighted PLS
-    ArPLS,       # Asymmetrically Reweighted PLS
-    ASLSBaseline, # Asymmetric Least Squares
-    IASLS,       # Improved ASLS
-    IModPoly,    # Improved Modified Polynomial
-    ModPoly,     # Modified Polynomial
-    SNIP,        # Statistics-sensitive Non-linear Iterative Peak-clipping
-    RollingBall, # Rolling ball algorithm
-    BEADS,       # Baseline Estimation And Denoising with Sparsity
-)
+from nirs4all.operators.transforms import SavitzkyGolay, ASLSBaseline
 
-from nirs4all.operators.transforms.nirs import (
-    AreaNormalization,
-    ExtendedMultiplicativeScatterCorrection as EMSC, ReflectanceToAbsorbance, ASLSBaseline,
-)
-from nirs4all.operators.models.pytorch.nicon import nicon, customizable_nicon, thin_nicon, nicon_VG
-from autogluon.tabular import TabularDataset, TabularPredictor
-from nirs4all.operators.splitters import SPXYGFold, BinnedStratifiedGroupKFold
+from huggingface_hub import login
+from tabpfn import TabPFNClassifier, TabPFNRegressor
+import torch
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q1 Regression Example')
 parser.add_argument('--plots', action='store_true', help='Show plots interactively')
 parser.add_argument('--show', action='store_true', help='Show all plots')
 args = parser.parse_args()
-
-import os
-from pathlib import Path
-from dotenv import load_dotenv
-from tabpfn import TabPFNClassifier, TabPFNRegressor
-from huggingface_hub import login
 
 # Load .env file from project root
 env_path = Path(__file__).resolve().parent.parent / ".env"
@@ -91,20 +33,29 @@ if hf_token:
 else:
     print("Warning: HF_TOKEN not found in .env or environment. TabPFN may not work properly.")
 
+# Clear GPU cache if using CUDA
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
 
+##========================== Main Pipeline Configuration =========================##
 # Configuration variables
-data_path = 'sample_data/regression'
+DATA_PATH = ['sample_data/Hiba/LDMC_vera', 'sample_data/Hiba/LDMC_hiba', 'sample_data/Hiba/SLA_vera', 'sample_data/Hiba/SLA_hiba']
+AGGREGATION_KEY = "ID"  # None
+TASK_TYPE = "regression"  # "classification" or "regression"
 
-
+TabPFNModel = TabPFNRegressor if TASK_TYPE == "regression" else TabPFNClassifier
+tabpfn_real_path = 'tabpfn-v2.5-regressor-v2.5_real.ckpt' if TASK_TYPE == "regression" else 'tabpfn-v2.5-classifier-v2.5_real.ckpt'
+# Define the pipeline
 pipeline = [
-    SPXYGFold(n_splits=5, random_state=42),
     ASLSBaseline(),
+    {"split": SPXYGFold(n_splits=1, random_state=42), "group": AGGREGATION_KEY}, # Comment if train and test are provided
+    {"split": SPXYGFold(n_splits=3, random_state=42), "group": AGGREGATION_KEY},
+    {"y_processing": StandardScaler()},
     StandardScaler(),
     SavitzkyGolay(),
-    PCA(n_components=50, random_state=42, whiten=True),
+    PCA(n_components=0.99, random_state=42, whiten=True), # PCA(50)
     StandardScaler(),
-    # ShuffleSplit(n_splits=5, test_size=0.2, random_state=42),
-    {"y_processing": StandardScaler()},
+    PowerTransformer(),
     {
         'model': {
             'framework': 'autogluon',
@@ -112,36 +63,65 @@ pipeline = [
                 'presets': 'extreme_quality',
                 'time_limit': 3600,
                 'num_bag_folds': 5,
+                'random_state': 42,
             }
         },
         "name": "AutoGluon",
     },
+    {
+        "model": TabPFNModel(n_estimators=16, device='cuda', random_state=42),
+        "name": "TabPFN",
+    },
+    {
+        "model": TabPFNModel(n_estimators=16, device='cuda', random_state=42, model_path=tabpfn_real_path),
+        "name": "TabPFN-real",
+    },
 ]
 
 # Create configuration objects
-pipeline_config = PipelineConfigs(pipeline, "test")
-dataset_config = DatasetConfigs(data_path)
-
+pipeline_config = PipelineConfigs(pipeline, "SOTA")
+dataset_config = DatasetConfigs(DATA_PATH, TASK_TYPE)
 
 # Run the pipeline
 runner = PipelineRunner(save_files=True, verbose=0, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
-
-# Analysis and visualization
-start_time = time.time()
+# Analyze and display top performing models
 best_model_count = 5
-ranking_metric = 'rmse'  # Options: 'rmse', 'mae', 'r2'
+ranking_metric = ['rmse', 'r2', 'mape']
 
-# Display top performing models
-top_models = predictions.top(best_model_count, ranking_metric)
-print(f"Top models display took: {time.time() - start_time:.2f}s")
-start_time = time.time()
-for idx, prediction in enumerate(top_models):
-    print(f"{idx+1}. {Predictions.pred_short_string(prediction, metrics=[ranking_metric])} - {prediction['preprocessings']}")
-print(f"Print display took: {time.time() - start_time:.2f}s")
-start_time = time.time()
+for dataset_name, dataset_prediction in predictions_per_dataset.items():
+    print(f"\n{'=' * 80}")
+    print(f"Dataset: {dataset_name}")
+    print(f"{'=' * 80}")
 
+    dataset_predictions = dataset_prediction['run_predictions']
 
-if args.show:
-    plt.show()
+    # Display top performing models
+    print("Top Predictions (row wise):")
+    print("-" * 80)
+    top_models_val = dataset_predictions.top(best_model_count, ranking_metric)
+    print(f"\nTop {best_model_count} models based on validation {ranking_metric[0].upper()}:")
+    for idx, prediction in enumerate(top_models_val):
+        print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=ranking_metric)} - {prediction['preprocessings']}")
+
+    print(f"\nTop {best_model_count} models based on test {ranking_metric[0].upper()}:")
+    top_models_test = dataset_predictions.top(best_model_count, ranking_metric, rank_partition='test')
+    for idx, prediction in enumerate(top_models_test):
+        print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=ranking_metric)} - {prediction['preprocessings']}")
+
+    # Print aggregated results if aggregation_key is provided
+    if aggregation_key is not None:
+        print("*" * 80)
+        print(f"\n Top Predictions (aggregated by {aggregation_key}):")
+        print("-" * 80)
+        # Display top performing models
+        top_models_val = dataset_predictions.top(best_model_count, ranking_metric[0], aggregate=aggregation_key)
+        print(f"\nTop {best_model_count} models based on validation {ranking_metric[0].upper()}:")
+        for idx, prediction in enumerate(top_models_val):
+            print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=ranking_metric)} - {prediction['preprocessings']}")
+
+        print(f"\nTop {best_model_count} models based on test {ranking_metric[0].upper()}:")
+        top_models_test = dataset_predictions.top(best_model_count, ranking_metric[0], rank_partition='test', aggregate=aggregation_key)
+        for idx, prediction in enumerate(top_models_test):
+            print(f"{idx + 1}. {Predictions.pred_short_string(prediction, metrics=ranking_metric)} - {prediction['preprocessings']}")
