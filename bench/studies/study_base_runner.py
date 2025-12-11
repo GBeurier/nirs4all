@@ -12,7 +12,7 @@ This class supports two execution modes:
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 
 class StudyRunner:
@@ -44,6 +44,11 @@ class StudyRunner:
         self.tabpfn_pp: Optional[List[Any]] = None  # Advanced: List of preprocessing pipelines
 
         self.global_pp: Optional[Dict[str, Any]] = None  # Advanced: Global preprocessing spec
+
+        # Task type override: forces task type and disables automatic detection
+        # Can be a single string (applied to all datasets) or a list (one per dataset)
+        # Valid values: 'regression', 'binary_classification', 'multiclass_classification', 'auto' (default)
+        self.task_type: Union[str, List[str]] = "auto"
 
         self.device: str = "cuda"
         self.verbose: int = 1
@@ -193,6 +198,14 @@ class StudyRunner:
 
         cmd.extend(["--tabpfn-variants"] + self.tabpfn_model_variants)
 
+        # Handle task_type: can be string or list
+        if isinstance(self.task_type, list):
+            # Pass as comma-separated for CLI
+            if not all(t == "auto" for t in self.task_type):
+                cmd.extend(["--task-type"] + self.task_type)
+        elif self.task_type != "auto":
+            cmd.extend(["--task-type", self.task_type])
+
         if self.test_lwpls:
             cmd.append("--test-lwpls")
 
@@ -219,6 +232,7 @@ class StudyRunner:
                 'aggregation_key_list': self.aggregation_key_list,
                 'test_mode': self.test_mode,
                 'workspace_path': self.workspace_path,
+                'task_type': self.task_type,
                 'transfer_pp_preset': self.transfer_pp_preset,
                 'transfer_pp_selected': self.transfer_pp_selected,
                 'transfer_pp_config': self.transfer_pp_config,

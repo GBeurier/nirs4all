@@ -48,10 +48,20 @@ class MyStudy(StudyRunner):
         DATASETS_FOLDER = '../_datasets/hiba/'
         SUB_FOLDER_LIST = [
             'LDMC',
+            'SLA'
         ]
 
         self.folder_list = [os.path.join(DATASETS_FOLDER, sub) for sub in SUB_FOLDER_LIST]
         self.aggregation_key_list = ["ID" for _ in self.folder_list]
+
+        # ====================================================================
+        # TASK TYPE (force task type, disable automatic detection)
+        # ====================================================================
+        # Can be a single string (applied to all datasets) or a list (one per dataset)
+        # Valid values: 'regression', 'binary_classification', 'multiclass_classification', 'auto'
+        # Use 'auto' for automatic detection based on target values
+
+        self.task_type = "auto"  # or ["regression", "classification"] for per-dataset
 
         # ====================================================================
         # TEST MODE (set to True for quick testing)
@@ -122,7 +132,7 @@ class MyStudy(StudyRunner):
             'stage2_top_k': 15,
             'stage2_max_depth': 3,
             'run_stage3': True,
-            'stage3_top_k': 10,
+            'stage3_top_k': 20,
             'stage3_max_order': 2,
             'run_stage4': False,
             'n_components': 20,

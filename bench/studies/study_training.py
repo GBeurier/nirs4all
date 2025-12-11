@@ -50,6 +50,11 @@ from nirs4all.operators.models.pytorch.nicon import nicon, customizable_nicon, t
 
 from study_tabpfn_config import get_model_class, get_model_path_options, generate_inference_configs
 
+from dotenv import load_dotenv
+
+env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(env_path)
+
 try:
     from huggingface_hub import login
     hf_token = os.environ.get("HF_TOKEN")
@@ -71,6 +76,11 @@ parser.add_argument("--aggregation-keys", nargs='+', help="Aggregation keys (one
 
 # Test mode
 parser.add_argument("--test-mode", action="store_true", help="Run in test mode (fast execution)")
+
+# Task type override (single value or one per dataset)
+parser.add_argument("--task-type", nargs='+', default=["auto"],
+                   help="Force task type: 'auto', 'regression', 'binary_classification', 'multiclass_classification'. "
+                        "Can specify one value for all datasets or one per dataset.")
 
 # Transfer preprocessing configuration
 parser.add_argument("--transfer-preset", type=str, choices=["fast", "balanced", "comprehensive"],
@@ -185,9 +195,22 @@ TEST_MODE = args.test_mode if hasattr(args, 'test_mode') else DEFAULT_TEST_MODE
 FOLDER_LIST = args.datasets if args.datasets else DEFAULT_FOLDER_LIST
 AGGREGATION_KEY_LIST = args.aggregation_keys if args.aggregation_keys else DEFAULT_AGGREGATION_KEY_LIST
 
+# Task type: 'auto' for automatic detection, or force a specific type
+# Can be a single string or a list (one per dataset)
+_task_type_arg = args.task_type if hasattr(args, 'task_type') else ["auto"]
+if len(_task_type_arg) == 1:
+    TASK_TYPE = _task_type_arg[0]  # Single value for all datasets
+else:
+    TASK_TYPE = _task_type_arg  # List of values, one per dataset
+
 # Validate dataset and aggregation key lists match
 if len(FOLDER_LIST) != len(AGGREGATION_KEY_LIST):
     print(f"Error: Number of datasets ({len(FOLDER_LIST)}) must match number of aggregation keys ({len(AGGREGATION_KEY_LIST)})")
+    sys.exit(1)
+
+# Validate task_type list length if it's a list
+if isinstance(TASK_TYPE, list) and len(TASK_TYPE) != len(FOLDER_LIST):
+    print(f"Error: Number of task types ({len(TASK_TYPE)}) must match number of datasets ({len(FOLDER_LIST)})")
     sys.exit(1)
 
 if TEST_MODE:
@@ -290,7 +313,8 @@ def run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key):
         {"split": SPXYGFold(n_splits=3, random_state=42), "group": aggregation_key},
         {"y_processing": MinMaxScaler(feature_range=(0.05, 0.9))},
         {"feature_augmentation": {"_or_": filtered_pp_list, "pick": [1, 2], "count": PLS_PP_COUNT}},
-        MinMaxScaler(feature_range=(0.05, 0.75)),
+        # MinMaxScaler(feature_range=(0.05, 0.75)),
+        {"preprocessing": MinMaxScaler(), "fit_on_all": True},
         {
             "model": IKPLS(backend="jax"),
             "name": "PLS-Finetuned",
@@ -360,16 +384,16 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
                           devices="0",
                           used_ram_limit="20GB",
                           gpu_cat_features_storage='CpuPinnedMemory'),
-        CatBoostRegressor(iterations=300,
-                          depth=10,
-                          learning_rate=0.08,
-                          verbose=0,
-                          allow_writing_files=False,
-                          train_dir=None,
-                          task_type="GPU",
-                          devices="0",
-                          used_ram_limit="20GB",
-                          gpu_cat_features_storage='CpuPinnedMemory'),
+        # CatBoostRegressor(iterations=300,
+        #                   depth=10,
+        #                   learning_rate=0.08,
+        #                   verbose=0,
+        #                   allow_writing_files=False,
+        #                   train_dir=None,
+        #                   task_type="GPU",
+        #                   devices="0",
+        #                   used_ram_limit="20GB",
+        #                   gpu_cat_features_storage='CpuPinnedMemory'),
     ]
 
     nicon_configs = [
@@ -512,9 +536,11 @@ def main():
         print(f"\n{'='*70}")
         print(f"PROCESSING: {folder}")
         print(f"Aggregation key: {aggregation_key}")
+        if TASK_TYPE != "auto":
+            print(f"Forced task type: {TASK_TYPE}")
         print("=" * 70)
 
-        dataset_config = DatasetConfigs(str(folder))
+        dataset_config = DatasetConfigs(str(folder), task_type=TASK_TYPE)
 
         # Phase 1: Transfer Preprocessing Selection
         print("\n[Phase 1] TransferPreprocessingSelector...")

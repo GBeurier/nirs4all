@@ -324,11 +324,13 @@ class SpectroDataset:
         """Get the detected task type."""
         return self._target_accessor.task_type
 
-    def set_task_type(self, task_type: Union[str, TaskType]) -> None:
+    def set_task_type(self, task_type: Union[str, TaskType], forced: bool = True) -> None:
         """Set the task type explicitly.
 
         Args:
             task_type: Task type as string ('regression', 'binary_classification', 'multiclass_classification') or TaskType enum
+            forced: If True, prevents auto-detection from overriding this value
+                   in subsequent y_processing steps (e.g., after MinMaxScaler). Default True.
         """
         if isinstance(task_type, str):
             # Map common string values to TaskType enum
@@ -340,7 +342,7 @@ class SpectroDataset:
                 'multiclass_classification': TaskType.MULTICLASS_CLASSIFICATION,
             }
             task_type = task_map.get(task_type.lower(), TaskType.REGRESSION)
-        self._targets._task_type = task_type
+        self._targets.set_task_type(task_type, forced)
 
     @property
     def num_classes(self) -> int:
