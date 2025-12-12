@@ -29,6 +29,7 @@ from .utilities import ModelControllerUtils as ModelUtils
 from nirs4all.core import metrics as evaluator
 from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING, TARGET
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
+from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 from .components import (
     ModelIdentifierGenerator,
     PredictionTransformer,
@@ -724,7 +725,9 @@ class BaseModelController(OperatorController, ABC):
                     artifact = self._persist_model(
                         runtime_context, model, model_id,
                         branch_id=context.selector.branch_id,
-                        branch_name=context.selector.branch_name
+                        branch_name=context.selector.branch_name,
+                        branch_path=context.selector.branch_path,
+                        fold_id=i
                     )
                     binaries.append(artifact)
 
@@ -756,7 +759,9 @@ class BaseModelController(OperatorController, ABC):
             artifact = self._persist_model(
                 runtime_context, model, model_id,
                 branch_id=context.selector.branch_id,
-                branch_name=context.selector.branch_name
+                branch_name=context.selector.branch_name,
+                branch_path=context.selector.branch_path,
+                fold_id=None  # Single model, no folds
             )
             binaries.append(artifact)
 
@@ -1707,22 +1712,28 @@ class BaseModelController(OperatorController, ABC):
         model: Any,
         model_id: str,
         branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None
+        branch_name: Optional[str] = None,
+        branch_path: Optional[List[int]] = None,
+        fold_id: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None
     ) -> 'ArtifactMeta':
-        """Persist trained model to disk using serializer infrastructure.
+        """Persist trained model to disk using registry or legacy saver.
 
-        Auto-detects model framework (sklearn, tensorflow, pytorch, xgboost, catboost, lightgbm)
-        and delegates to appropriate serializer for optimal storage format.
+        Uses artifact_registry.register() if available (v2 system), otherwise
+        falls back to saver.persist_artifact() (legacy).
 
         Args:
-            runtime_context: Runtime context with saver instance.
+            runtime_context: Runtime context with saver/registry instances.
             model: Trained model to persist.
             model_id: Unique identifier for the model.
             branch_id: Optional branch identifier for branched pipelines.
             branch_name: Optional branch name for branched pipelines.
+            branch_path: Optional list of branch indices for nested branching.
+            fold_id: Optional fold identifier for CV artifacts.
+            params: Optional model parameters for inspection.
 
         Returns:
-            ArtifactMeta with persistence metadata (path, format, size, etc.).
+            ArtifactMeta or ArtifactRecord with persistence metadata.
         """
         # Detect framework hint from model type
         model_type = type(model).__module__
@@ -1741,6 +1752,35 @@ class BaseModelController(OperatorController, ABC):
         else:
             format_hint = None  # Let serializer auto-detect
 
+        # Use artifact registry if available (v2 system)
+        if runtime_context.artifact_registry is not None:
+            registry = runtime_context.artifact_registry
+            pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
+            step_index = runtime_context.step_number
+
+            # Use branch_path or convert branch_id to branch_path
+            bp = branch_path or ([branch_id] if branch_id is not None else [])
+
+            # Generate deterministic artifact ID
+            artifact_id = registry.generate_id(
+                pipeline_id=pipeline_id,
+                branch_path=bp,
+                step_index=step_index,
+                fold_id=fold_id
+            )
+
+            # Register artifact with registry
+            record = registry.register(
+                obj=model,
+                artifact_id=artifact_id,
+                artifact_type=ArtifactType.MODEL,
+                params=params or {},
+                format_hint=format_hint
+            )
+
+            return record
+
+        # Fallback to legacy saver.persist_artifact()
         return runtime_context.saver.persist_artifact(
             step_number=runtime_context.step_number,
             name=f"{model_id}.pkl",

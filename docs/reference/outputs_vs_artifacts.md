@@ -7,6 +7,10 @@ The nirs4all serialization system distinguishes between two types of saved files
 1. **Artifacts** - Internal binary objects (models, transformers, scalers) stored in content-addressed storage
 2. **Outputs** - Human-readable files (charts, reports, CSV) stored in organized directories
 
+> **Note:** This document describes the artifacts architecture overview. For the complete
+> artifacts system v2 with branching, stacking, cleanup utilities, and CLI tools, see
+> [Artifacts System v2](./artifacts_system_v2.md).
+
 ## Architecture: "Return, Don't Save"
 
 To ensure clean separation of concerns and testability, controllers **do not save files directly**. Instead, they return a `StepOutput` object containing the data to be saved. The `PipelineExecutor` handles the actual file I/O.

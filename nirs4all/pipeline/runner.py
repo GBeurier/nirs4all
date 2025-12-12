@@ -174,7 +174,7 @@ class PipelineRunner:
         # Runtime components (set by executor during execution)
         self.saver: Any = None  # SimulationSaver
         self.manifest_manager: Any = None  # ManifestManager
-        self.binary_loader: Any = None  # BinaryLoader for predict/explain modes
+        self.artifact_loader: Any = None  # ArtifactLoader for predict/explain modes
         self.pipeline_uid: Optional[str] = None  # Current pipeline UID
         self.target_model: Optional[Dict] = None  # Target model for predict/explain modes
 
@@ -210,7 +210,7 @@ class PipelineRunner:
             pipeline_name=pipeline_name,
             dataset_name=dataset_name,
             max_generation_count=max_generation_count,
-            binary_loader=self.binary_loader,
+            artifact_loader=self.artifact_loader,
             target_model=self.target_model,
             explainer=self.explainer
         )

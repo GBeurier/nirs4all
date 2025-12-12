@@ -405,11 +405,285 @@ predictions, _ = runner.run(pipeline_config, dataset_config)
 - ❌ No embedded `_runtime_instance` (clean separation)
 - ❌ No pickle for models (use framework-native formats)
 
+## Manifest Schema v2 (Artifacts Refactoring)
+
+The v2 schema extends the manifest format with enhanced artifact tracking for
+branching pipelines, stacking/meta-models, and fold-aware artifacts.
+
+### Schema Detection
+
+The schema version is detected by the `artifacts` section structure:
+
+```python
+def detect_schema_version(manifest: Dict[str, Any]) -> str:
+    """Detect manifest schema version."""
+    artifacts = manifest.get("artifacts", {})
+    if isinstance(artifacts, dict) and artifacts.get("schema_version") == "2.0":
+        return "2.0"
+    elif isinstance(artifacts, list):
+        return "1.0"
+    else:
+        return "1.0"  # Legacy format
+```
+
+### v2 Schema Structure
+
+```yaml
+schema_version: "2.0"
+uid: "a1b2c3d4-e5f6-4789-abcd-ef0123456789"
+pipeline_id: "0001_pls_abc123"
+name: "pls_baseline"
+dataset: "corn_m5"
+created_at: "2025-12-12T10:00:00Z"
+
+artifacts:
+  schema_version: "2.0"
+  items:
+    - artifact_id: "0001:0:all"
+      content_hash: "sha256:abc123def456789..."
+      path: "transformer_StandardScaler_abc123.pkl"
+      pipeline_id: "0001"
+      branch_path: []
+      step_index: 0
+      fold_id: null
+      artifact_type: transformer
+      class_name: StandardScaler
+      depends_on: []
+      format: joblib
+      format_version: "sklearn==1.5.0"
+      nirs4all_version: "0.9.0"
+      size_bytes: 2048
+      created_at: "2025-12-12T10:00:00Z"
+      params: {}
+
+predictions: [...]
+```
+
+### v2 Artifact Record Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `artifact_id` | string | ✅ | Deterministic ID: `<pipeline>:<branch...>:<step>:<fold>` |
+| `content_hash` | string | ✅ | SHA256 hash with `sha256:` prefix |
+| `path` | string | ✅ | Relative path to binary file |
+| `pipeline_id` | string | ✅ | Pipeline identifier |
+| `branch_path` | list[int] | ✅ | Branch indices (empty for shared) |
+| `step_index` | int | ✅ | Pipeline step index |
+| `fold_id` | int \| null | ✅ | CV fold ID (null for shared) |
+| `artifact_type` | string | ✅ | One of: model, transformer, splitter, encoder, meta_model |
+| `class_name` | string | ✅ | Python class name |
+| `depends_on` | list[string] | ✅ | Dependency artifact IDs |
+| `format` | string | ✅ | Serialization format (joblib, pkl, keras, pt, etc.) |
+| `format_version` | string | ❌ | Library version info |
+| `nirs4all_version` | string | ❌ | nirs4all version at creation |
+| `size_bytes` | int | ❌ | File size in bytes |
+| `created_at` | string | ❌ | ISO8601 timestamp |
+| `params` | object | ❌ | Additional metadata |
+| `meta_config` | object | ❌ | Meta-model configuration (for stacking) |
+
+### Artifact ID Format
+
+The artifact ID encodes the execution context:
+
+```
+<pipeline_id>:<branch_path...>:<step_index>:<fold_id|all>
+
+Examples:
+  "0001:3:all"        → Pipeline 0001, step 3, shared across folds
+  "0001:0:3:0"        → Pipeline 0001, branch 0, step 3, fold 0
+  "0001:0:2:5:all"    → Pipeline 0001, nested branch [0,2], step 5, shared
+```
+
+**Parsing:**
+```python
+def parse_artifact_id(artifact_id: str) -> Dict[str, Any]:
+    parts = artifact_id.split(":")
+    pipeline_id = parts[0]
+    fold_str = parts[-1]
+    step_index = int(parts[-2])
+    branch_path = [int(p) for p in parts[1:-2]]
+    fold_id = None if fold_str == "all" else int(fold_str)
+    return {
+        "pipeline_id": pipeline_id,
+        "branch_path": branch_path,
+        "step_index": step_index,
+        "fold_id": fold_id
+    }
+```
+
+### Branch-Aware Artifacts
+
+Artifacts track their branch context:
+
+```yaml
+# Shared (pre-branch) artifact
+- artifact_id: "0001:0:all"
+  branch_path: []
+  step_index: 0
+
+# Branch 0 artifact
+- artifact_id: "0001:0:2:all"
+  branch_path: [0]
+  step_index: 2
+
+# Branch 1 artifact
+- artifact_id: "0001:1:2:all"
+  branch_path: [1]
+  step_index: 2
+
+# Nested branch [0, 1] artifact
+- artifact_id: "0001:0:1:3:all"
+  branch_path: [0, 1]
+  step_index: 3
+```
+
+### Fold-Specific Artifacts
+
+Per-fold models for CV averaging:
+
+```yaml
+# Fold-specific models
+- artifact_id: "0001:3:0"
+  fold_id: 0
+  step_index: 3
+
+- artifact_id: "0001:3:1"
+  fold_id: 1
+  step_index: 3
+
+- artifact_id: "0001:3:2"
+  fold_id: 2
+  step_index: 3
+
+# Shared transformer (fold_id: null)
+- artifact_id: "0001:0:all"
+  fold_id: null
+  step_index: 0
+```
+
+### Meta-Model Configuration
+
+For stacking, artifacts include source model references:
+
+```yaml
+- artifact_id: "0001:5:all"
+  artifact_type: meta_model
+  class_name: Ridge
+  depends_on:
+    - "0001:3:all"
+    - "0001:4:all"
+  meta_config:
+    source_models:
+      - artifact_id: "0001:3:all"
+        feature_index: 0
+      - artifact_id: "0001:4:all"
+        feature_index: 1
+    feature_columns:
+      - "PLSRegression_pred"
+      - "RandomForest_pred"
+```
+
+### v1 to v2 Compatibility
+
+The `ArtifactLoader` handles both formats transparently:
+
+```python
+def import_from_manifest(self, manifest: Dict[str, Any]) -> None:
+    """Import artifacts from v1 or v2 manifest."""
+    artifacts = manifest.get("artifacts", {})
+
+    if isinstance(artifacts, dict) and artifacts.get("schema_version") == "2.0":
+        # v2 format: artifacts.items
+        for item in artifacts.get("items", []):
+            record = ArtifactRecord.from_dict(item)
+            self._records[record.artifact_id] = record
+    elif isinstance(artifacts, list):
+        # v1 format: convert to ArtifactRecord
+        for item in artifacts:
+            record = self._convert_v1_to_record(item)
+            self._records[record.artifact_id] = record
+```
+
+### Centralized Storage (v2)
+
+v2 uses centralized storage per dataset:
+
+```
+workspace/
+├── binaries/                     # v2 centralized storage
+│   ├── corn_m5/
+│   │   ├── model_PLSRegression_a1b2c3.joblib
+│   │   └── transformer_StandardScaler_d4e5f6.pkl
+│   └── wheat_protein/
+│       └── ...
+│
+└── runs/                         # Lightweight manifests
+    └── corn_m5/
+        └── 20251210_abc123/
+            └── 0001_pls/
+                └── manifest.yaml
+```
+
+**Migration from v1:**
+- v1 artifacts in `results/artifacts/objects/` continue to work
+- New runs use `workspace/binaries/<dataset>/`
+- Loader checks both locations
+
+### Deduplication (v2)
+
+Content-addressed storage with deduplication:
+
+```yaml
+# Two manifests reference same file via content_hash:
+# Manifest 1:
+- artifact_id: "0001:3:all"
+  content_hash: "sha256:abc123..."
+  path: "model_PLSRegression_abc123.joblib"
+
+# Manifest 2:
+- artifact_id: "0002:3:all"
+  content_hash: "sha256:abc123..."  # Same hash
+  path: "model_PLSRegression_abc123.joblib"  # Same file
+
+# Only ONE file on disk in binaries/
+```
+
+### Dependency Graph
+
+Artifacts track dependencies for proper loading order:
+
+```yaml
+artifacts:
+  items:
+    - artifact_id: "0001:0:all"
+      depends_on: []
+
+    - artifact_id: "0001:1:all"
+      depends_on: ["0001:0:all"]
+
+    - artifact_id: "0001:2:all"
+      depends_on: ["0001:0:all", "0001:1:all"]
+```
+
+**Loading with dependencies:**
+```python
+loader = ArtifactLoader(workspace, dataset)
+loader.import_from_manifest(manifest)
+
+# Load artifact and all dependencies in topological order
+all_artifacts = loader.load_with_dependencies("0001:2:all")
+# Returns: {"0001:0:all": scaler, "0001:1:all": pca, "0001:2:all": model}
+```
+
 ## References
 
 - **Serializer**: `nirs4all/utils/serializer.py`
 - **Manifest Manager**: `nirs4all/pipeline/manifest_manager.py`
 - **Binary Loader**: `nirs4all/pipeline/binary_loader.py`
+- **Artifact Registry**: `nirs4all/pipeline/storage/artifacts/registry.py`
+- **Artifact Loader**: `nirs4all/pipeline/storage/artifacts/loader.py`
 - **Runner**: `nirs4all/pipeline/runner.py`
 - **GC Script**: `scripts/gc_artifacts.py`
-- **Tests**: `tests/test_serializer.py`, `tests/test_manifest_manager.py`, `tests/test_phase2_integration.py`, `tests/integration_tests/test_comprehensive_integration.py`
+- **Tests**: `tests/test_serializer.py`, `tests/test_manifest_manager.py`, `tests/unit/pipeline/storage/artifacts/`
+- **User Guide**: [Artifacts System v2](../reference/artifacts_system_v2.md)
+- **API Reference**: [Storage API](../api/storage.md)

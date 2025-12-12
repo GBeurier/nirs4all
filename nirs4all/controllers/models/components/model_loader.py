@@ -16,6 +16,37 @@ import re
 from typing import List, Tuple, Optional, Any
 
 
+# Mapping of nirs4all model aliases to their underlying class names
+# These aliases are common in pipeline configs but the artifacts store
+# the actual framework class names
+MODEL_ALIAS_MAPPINGS = {
+    # TensorFlow/Keras models - nicon and variants are common aliases
+    "nicon": ["Sequential", "Functional", "Model"],
+    "customizable_nicon": ["Sequential", "Functional", "Model"],
+    "keras_model": ["Sequential", "Functional", "Model"],
+    # Sklearn aliases
+    "gbr": ["GradientBoostingRegressor"],
+    "gbc": ["GradientBoostingClassifier"],
+    "rfr": ["RandomForestRegressor"],
+    "rfc": ["RandomForestClassifier"],
+    "pls": ["PLSRegression"],
+    "svr": ["SVR"],
+    "svc": ["SVC"],
+    "dtr": ["DecisionTreeRegressor"],
+    "dtc": ["DecisionTreeClassifier"],
+    "knn": ["KNeighborsRegressor", "KNeighborsClassifier"],
+    "lr": ["LinearRegression"],
+    "ridge": ["Ridge"],
+    "lasso": ["Lasso"],
+    "elasticnet": ["ElasticNet"],
+    "logistic": ["LogisticRegression"],
+    "xgb": ["XGBRegressor", "XGBClassifier"],
+    "lgbm": ["LGBMRegressor", "LGBMClassifier"],
+    "catboost": ["CatBoostRegressor", "CatBoostClassifier"],
+    # Other potential mappings can be added here
+}
+
+
 class ModelLoader:
     """Loads models from serialized binaries.
 
@@ -118,31 +149,58 @@ class ModelLoader:
         When binaries are loaded per-branch, there should be exactly one model
         of each class per fold. This method finds that model.
 
+        Handles alias matching:
+        - If searching for "PLS", will also match "PLSRegression".
+        - If searching for "nicon", will also match "Sequential", "Functional".
+
+        This handles cases where model config uses short aliases but the artifact
+        stores the full class name.
+
         Note: Models are stored with names like "Ridge_5.pkl" where each fold
         gets a different operation counter. So fold_idx determines which one
         to pick from multiple matches, not the filename pattern.
 
         Args:
-            class_name: Model class name (e.g., "Ridge", "PLSRegression")
+            class_name: Model class name or alias (e.g., "Ridge", "PLS", "nicon")
             fold_idx: Optional fold index to match (used to select from matches)
             binaries_dict: Dict of binary name -> model
 
         Returns:
             Model instance or None if not found
         """
-        # Pattern: ClassName_N.pkl or ClassName_N (any operation counter)
-        # Each fold has its own operation counter, so we match all and pick by index
-        pattern = re.compile(
-            rf'^{re.escape(class_name)}_(\d+)(\.pkl|\.joblib)?$'
-        )
+        # Build list of class names to search for (original + aliases)
+        class_names_to_try = [class_name]
+
+        # Check if this is an alias that maps to multiple class names
+        if class_name.lower() in MODEL_ALIAS_MAPPINGS:
+            class_names_to_try.extend(MODEL_ALIAS_MAPPINGS[class_name.lower()])
 
         # Find matching binaries with their operation numbers
         matches = []
-        for name, obj in binaries_dict.items():
-            match = pattern.match(name)
-            if match:
-                op_num = int(match.group(1))
-                matches.append((op_num, name, obj))
+
+        for search_name in class_names_to_try:
+            # Try exact pattern first
+            exact_pattern = re.compile(
+                rf'^{re.escape(search_name)}_(\d+)(\.pkl|\.joblib)?$'
+            )
+
+            # Also try pattern that starts with the class_name (for alias matching)
+            # e.g., "PLS" should match "PLSRegression_400"
+            prefix_pattern = re.compile(
+                rf'^{re.escape(search_name)}[A-Za-z]*_(\d+)(\.pkl|\.joblib)?$'
+            )
+
+            for name, obj in binaries_dict.items():
+                # Skip if already matched
+                if any(m[1] == name for m in matches):
+                    continue
+
+                match = exact_pattern.match(name)
+                if not match:
+                    match = prefix_pattern.match(name)
+                if match:
+                    op_num = int(match.group(1))
+                    matches.append((op_num, name, obj))
 
         if not matches:
             return None

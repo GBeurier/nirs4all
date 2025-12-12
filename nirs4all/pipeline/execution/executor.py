@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Union
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.storage.artifacts.manager import ArtifactManager
 from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 from nirs4all.pipeline.steps.step_runner import StepRunner
@@ -24,44 +23,44 @@ class PipelineExecutor:
 
     Attributes:
         step_runner: Executes individual steps
-        artifact_manager: Manages artifact persistence
         manifest_manager: Manages pipeline manifests
         verbose: Verbosity level
         mode: Execution mode (train/predict/explain)
         continue_on_error: Whether to continue on step failures
+        artifact_registry: Registry for v2 artifact management
     """
 
     def __init__(
         self,
         step_runner: StepRunner,
-        artifact_manager: Optional[ArtifactManager] = None,
         manifest_manager: Optional[ManifestManager] = None,
         verbose: int = 0,
         mode: str = "train",
         continue_on_error: bool = False,
         saver: Any = None,
-        binary_loader: Any = None
+        artifact_loader: Any = None,
+        artifact_registry: Any = None
     ):
         """Initialize pipeline executor.
 
         Args:
             step_runner: Step runner for executing individual steps
-            artifact_manager: Optional artifact manager
             manifest_manager: Optional manifest manager
             verbose: Verbosity level
             mode: Execution mode (train/predict/explain)
             continue_on_error: Whether to continue on step failures
             saver: Simulation saver for file operations
-            binary_loader: Binary loader for predict/explain modes
+            artifact_loader: Artifact loader for predict/explain modes
+            artifact_registry: Artifact registry for v2 artifact management
         """
         self.step_runner = step_runner
-        self.artifact_manager = artifact_manager
         self.manifest_manager = manifest_manager
         self.verbose = verbose
         self.mode = mode
         self.continue_on_error = continue_on_error
         self.saver = saver
-        self.binary_loader = binary_loader
+        self.artifact_loader = artifact_loader
+        self.artifact_registry = artifact_registry
 
         # Execution state
         self.step_number = 0
@@ -253,8 +252,8 @@ class PipelineExecutor:
 
             # Load binaries if in prediction/explain mode
             loaded_binaries = None
-            if self.mode in ("predict", "explain") and self.binary_loader:
-                loaded_binaries = self.binary_loader.get_step_binaries(self.step_number)
+            if self.mode in ("predict", "explain") and self.artifact_loader:
+                loaded_binaries = self.artifact_loader.get_step_binaries(self.step_number)
                 if self.verbose > 1 and loaded_binaries:
                     print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
 
@@ -341,11 +340,19 @@ class PipelineExecutor:
 
             # For predict mode, load binaries specifically for this branch
             branch_binaries = None
-            if self.mode in ("predict", "explain") and self.binary_loader:
-                # Load binaries for this specific branch
-                branch_binaries = self.binary_loader.get_step_binaries(
-                    self.step_number, branch_id=branch_id
-                )
+            if self.mode in ("predict", "explain") and self.artifact_loader:
+                # Get the full branch_path from context (handles nested branches)
+                branch_path = getattr(branch_context.selector, 'branch_path', None)
+                if branch_path:
+                    # Use full branch_path for proper nested branch matching
+                    branch_binaries = self.artifact_loader.get_step_binaries(
+                        self.step_number, branch_path=branch_path
+                    )
+                else:
+                    # Fallback to simple branch_id
+                    branch_binaries = self.artifact_loader.get_step_binaries(
+                        self.step_number, branch_id=branch_id
+                    )
                 if not branch_binaries:
                     # Fallback to non-branch binaries if no branch-specific ones exist
                     branch_binaries = loaded_binaries
@@ -516,10 +523,15 @@ class PipelineExecutor:
             List of processed artifact metadata
         """
         from nirs4all.pipeline.execution.result import ArtifactMeta
+        from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord
 
         processed_artifacts = []
         for artifact in artifacts:
-            if isinstance(artifact, (ArtifactMeta, dict)):
+            if isinstance(artifact, ArtifactRecord):
+                # v2 system: ArtifactRecord from registry.register()
+                # Convert to dict for manifest storage
+                processed_artifacts.append(artifact.to_dict())
+            elif isinstance(artifact, (ArtifactMeta, dict)):
                 # Legacy: already persisted
                 meta = artifact
                 # Add branch metadata if applicable
@@ -570,9 +582,9 @@ class PipelineExecutor:
         if not loaded_binaries:
             return loaded_binaries
 
-        # Note: loaded_binaries are (name, obj) tuples from BinaryLoader
-        # The BinaryLoader now handles branch filtering internally via get_step_binaries(step, branch_id)
-        # This method is kept for backward compatibility but primarily relies on BinaryLoader
+        # Note: loaded_binaries are (name, obj) tuples from ArtifactLoader
+        # The ArtifactLoader now handles branch filtering internally via get_step_binaries(step, branch_id)
+        # This method is kept for backward compatibility but primarily relies on ArtifactLoader
 
         return loaded_binaries
 

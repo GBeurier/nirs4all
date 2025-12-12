@@ -192,9 +192,15 @@ class BranchController(OperatorController):
 
             # Create isolated context for this branch
             branch_context = initial_context.copy()
+
+            # Build branch_path by appending to parent's branch_path
+            parent_branch_path = context.selector.branch_path or []
+            new_branch_path = parent_branch_path + [branch_id]
+
             branch_context.selector = branch_context.selector.with_branch(
                 branch_id=branch_id,
-                branch_name=branch_name
+                branch_name=branch_name,
+                branch_path=new_branch_path
             )
 
             # Reset processing to initial state for this branch
@@ -206,8 +212,8 @@ class BranchController(OperatorController):
 
             # In predict/explain mode, load branch-specific binaries
             branch_binaries = loaded_binaries
-            if mode in ("predict", "explain") and runtime_context.binary_loader:
-                branch_binaries = runtime_context.binary_loader.get_step_binaries(
+            if mode in ("predict", "explain") and runtime_context.artifact_loader:
+                branch_binaries = runtime_context.artifact_loader.get_step_binaries(
                     runtime_context.step_number, branch_id=branch_id
                 )
                 if not branch_binaries:
@@ -534,16 +540,15 @@ class BranchController(OperatorController):
         """Multiply existing branch contexts with new branches (for nesting).
 
         Creates Cartesian product of branch contexts for nested branching.
+        Uses branch_path for tracking the full hierarchy.
 
         Args:
             existing: List of existing branch context dicts
             new: List of new branch context dicts
 
         Returns:
-            Combined list of branch contexts
+            Combined list of branch contexts with hierarchical branch_path
         """
-        # For Phase 1, we do simple multiplication
-        # Future phases may support more complex nesting
         result = []
         flattened_id = 0
 
@@ -551,6 +556,7 @@ class BranchController(OperatorController):
             parent_id = parent["branch_id"]
             parent_name = parent["name"]
             parent_context = parent["context"]
+            parent_branch_path = parent_context.selector.branch_path or [parent_id]
 
             for child in new:
                 child_id = child["branch_id"]
@@ -559,15 +565,23 @@ class BranchController(OperatorController):
 
                 # Create combined context
                 combined_context = child_context.copy()
-                combined_context.selector.branch_id = flattened_id
-                combined_context.selector.branch_name = f"{parent_name}_{child_name}"
+
+                # Build nested branch_path: parent_path + child_id
+                combined_branch_path = parent_branch_path + [child_id]
+
+                combined_context.selector = combined_context.selector.with_branch(
+                    branch_id=flattened_id,  # Keep flattened ID for backward compat
+                    branch_name=f"{parent_name}_{child_name}",
+                    branch_path=combined_branch_path
+                )
 
                 result.append({
                     "branch_id": flattened_id,
                     "name": f"{parent_name}_{child_name}",
                     "context": combined_context,
                     "parent_branch_id": parent_id,
-                    "child_branch_id": child_id
+                    "child_branch_id": child_id,
+                    "branch_path": combined_branch_path
                 })
                 flattened_id += 1
 

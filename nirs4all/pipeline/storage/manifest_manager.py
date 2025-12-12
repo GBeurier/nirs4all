@@ -4,18 +4,25 @@ Manifest Manager - Pipeline manifest and dataset index management
 Manages pipeline manifests with sequential numbering and content-addressed artifacts.
 Provides centralized pipeline registration, lookup, and lifecycle management.
 
-Architecture:
-    workspace/runs/YYYY-MM-DD_dataset/
-    ├── artifacts/objects/           # Content-addressed binaries
-    ├── 0001_abc123/                 # Sequential pipelines
-    │   ├── manifest.yaml
-    │   ├── metrics.json
-    │   └── predictions.csv
-    ├── 0002_def456/
-    └── predictions.json             # Global predictions
+Architecture (v2):
+    workspace/
+    ├── binaries/<dataset>/          # Centralized artifact storage
+    │   ├── model_PLSRegression_abc123.joblib
+    │   └── transformer_StandardScaler_def456.pkl
+    └── runs/<dataset>/
+        ├── 0001_pls_abc123/
+        │   └── manifest.yaml        # References artifacts by path
+        ├── 0002_rf_def456/
+        │   └── manifest.yaml
+        └── predictions.json         # Global predictions
+
+Manifest Schema Versions:
+    v1.0: Legacy format with flat artifacts list
+    v2.0: New format with structured artifacts section and schema_version field
 """
 
 import enum
+import logging
 import uuid
 import yaml
 import shutil
@@ -24,6 +31,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+
+logger = logging.getLogger(__name__)
+
+
+# Schema version constants
+MANIFEST_SCHEMA_V1 = "1.0"
+MANIFEST_SCHEMA_V2 = "2.0"
+CURRENT_MANIFEST_SCHEMA = MANIFEST_SCHEMA_V2
 
 
 def _sanitize_for_yaml(obj: Any) -> Any:
@@ -135,19 +151,22 @@ class ManifestManager:
         pipeline_dir = self.results_dir / pipeline_id
         pipeline_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create manifest
+        # Create manifest with v2 schema
         uid = str(uuid.uuid4())
         manifest = {
+            "schema_version": CURRENT_MANIFEST_SCHEMA,
             "uid": uid,
             "pipeline_id": pipeline_id,
             "name": name,
             "dataset": dataset,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "version": "1.0",
             "pipeline": pipeline_config,
             "generator_choices": generator_choices or [],
             "metadata": metadata or {},
-            "artifacts": [],
+            "artifacts": {
+                "schema_version": CURRENT_MANIFEST_SCHEMA,
+                "items": []
+            },
             "predictions": []
         }
 
@@ -209,12 +228,55 @@ class ManifestManager:
         """
         Append artifacts to a pipeline manifest.
 
+        Supports both v1 (list) and v2 (dict with items) artifact formats.
+
         Args:
             pipeline_id: Pipeline ID
             artifacts: List of artifact metadata dictionaries
         """
         manifest = self.load_manifest(pipeline_id)
-        manifest["artifacts"].extend(artifacts)
+        artifacts_section = manifest.get("artifacts", [])
+
+        if self._is_v2_artifacts(artifacts_section):
+            # v2 format: dict with "items" list
+            artifacts_section["items"].extend(artifacts)
+        else:
+            # v1 format: flat list
+            artifacts_section.extend(artifacts)
+
+        manifest["artifacts"] = artifacts_section
+        self.save_manifest(pipeline_id, manifest)
+
+    def append_artifacts_v2(
+        self,
+        pipeline_id: str,
+        records: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Append v2 ArtifactRecords to a pipeline manifest.
+
+        Args:
+            pipeline_id: Pipeline ID
+            records: List of ArtifactRecord instances or dicts
+        """
+        from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord
+
+        manifest = self.load_manifest(pipeline_id)
+        artifacts_section = manifest.get("artifacts", {})
+
+        # Ensure v2 format
+        if not self._is_v2_artifacts(artifacts_section):
+            # Convert v1 to v2
+            artifacts_section = self._convert_artifacts_to_v2(artifacts_section)
+
+        # Append records as dicts
+        for record in records:
+            if isinstance(record, ArtifactRecord):
+                artifacts_section["items"].append(record.to_dict())
+            else:
+                artifacts_section["items"].append(record)
+
+        manifest["artifacts"] = artifacts_section
         self.save_manifest(pipeline_id, manifest)
 
     def append_prediction(self, pipeline_id: str, prediction: dict) -> None:
@@ -921,3 +983,109 @@ class ManifestManager:
             deserialized.append(instance)
 
         return deserialized
+
+    # =========================================================================
+    # Schema Version Detection and Conversion (v2)
+    # =========================================================================
+
+    @staticmethod
+    def get_schema_version(manifest: Dict[str, Any]) -> str:
+        """Detect manifest schema version.
+
+        Args:
+            manifest: Manifest dictionary
+
+        Returns:
+            Schema version string ("1.0" or "2.0")
+        """
+        # Check explicit schema_version field
+        if "schema_version" in manifest:
+            return manifest["schema_version"]
+
+        # Check artifacts section format
+        artifacts = manifest.get("artifacts", [])
+        if isinstance(artifacts, dict) and "schema_version" in artifacts:
+            return artifacts["schema_version"]
+
+        # Legacy detection: if artifacts is a list, it's v1
+        if isinstance(artifacts, list):
+            return MANIFEST_SCHEMA_V1
+
+        # Default to v1 for unknown formats
+        return MANIFEST_SCHEMA_V1
+
+    @staticmethod
+    def _is_v2_artifacts(artifacts_section: Any) -> bool:
+        """Check if artifacts section is v2 format.
+
+        v2 format is a dict with "items" key.
+        v1 format is a flat list.
+
+        Args:
+            artifacts_section: The artifacts section from manifest
+
+        Returns:
+            True if v2 format
+        """
+        return (isinstance(artifacts_section, dict)
+                and "items" in artifacts_section)
+
+    @staticmethod
+    def _convert_artifacts_to_v2(artifacts_list: List[Dict]) -> Dict[str, Any]:
+        """Convert v1 artifacts list to v2 format.
+
+        Args:
+            artifacts_list: v1 format flat list of artifacts
+
+        Returns:
+            v2 format dict with schema_version and items
+        """
+        return {
+            "schema_version": MANIFEST_SCHEMA_V2,
+            "items": artifacts_list
+        }
+
+    def get_artifacts_list(self, manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get artifacts as a flat list regardless of schema version.
+
+        Args:
+            manifest: Manifest dictionary
+
+        Returns:
+            List of artifact metadata dictionaries
+        """
+        artifacts = manifest.get("artifacts", [])
+
+        if self._is_v2_artifacts(artifacts):
+            return artifacts.get("items", [])
+        elif isinstance(artifacts, list):
+            return artifacts
+        else:
+            return []
+
+    def upgrade_manifest_to_v2(self, pipeline_id: str) -> None:
+        """Upgrade a v1 manifest to v2 format in place.
+
+        Args:
+            pipeline_id: Pipeline ID to upgrade
+        """
+        manifest = self.load_manifest(pipeline_id)
+
+        # Check if already v2
+        if self.get_schema_version(manifest) == MANIFEST_SCHEMA_V2:
+            logger.debug(f"Manifest {pipeline_id} already at v2")
+            return
+
+        # Add schema version
+        manifest["schema_version"] = MANIFEST_SCHEMA_V2
+
+        # Convert artifacts section
+        artifacts = manifest.get("artifacts", [])
+        if isinstance(artifacts, list):
+            manifest["artifacts"] = self._convert_artifacts_to_v2(artifacts)
+
+        # Remove old version field if present
+        manifest.pop("version", None)
+
+        self.save_manifest(pipeline_id, manifest)
+        logger.info(f"Upgraded manifest {pipeline_id} to v2")

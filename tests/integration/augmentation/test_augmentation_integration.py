@@ -132,9 +132,11 @@ class TestManifestManagerIntegration:
 
         # Load manifest and verify
         manifest = manifest_manager.load_manifest(pipeline_id)
-        assert len(manifest["artifacts"]) == 1
-        assert manifest["artifacts"][0]["name"] == "scaler_0"
-        assert manifest["artifacts"][0]["step"] == 0
+        # v2 schema has artifacts as {"items": [...], "schema_version": "2.0"}
+        artifacts_items = manifest["artifacts"]["items"]
+        assert len(artifacts_items) == 1
+        assert artifacts_items[0]["name"] == "scaler_0"
+        assert artifacts_items[0]["step"] == 0
 
     def test_load_artifacts_from_manifest(self, manifest_manager, results_dir):
         """Test loading artifacts via manifest."""
@@ -157,7 +159,9 @@ class TestManifestManagerIntegration:
 
         # Load manifest and artifact
         manifest = manifest_manager.load_manifest(pipeline_id)
-        loaded_scaler = load(manifest["artifacts"][0], results_dir)
+        # v2 schema has artifacts as {"items": [...], "schema_version": "2.0"}
+        artifacts_items = manifest["artifacts"]["items"]
+        loaded_scaler = load(artifacts_items[0], results_dir)
 
         # Verify loaded scaler works
         assert hasattr(loaded_scaler, 'mean_')
@@ -210,13 +214,15 @@ class TestPipelineWorkflow:
         assert manifest["pipeline_id"] == pipeline_id
         assert manifest["name"] == "svm_baseline"
         assert manifest["dataset"] == "corn_m5"
-        assert len(manifest["artifacts"]) == 2
-        assert manifest["artifacts"][0]["name"] == "StandardScaler_0"
-        assert manifest["artifacts"][1]["name"] == "SVC_1_model"
+        # v2 schema has artifacts as {"items": [...], "schema_version": "2.0"}
+        artifacts_items = manifest["artifacts"]["items"]
+        assert len(artifacts_items) == 2
+        assert artifacts_items[0]["name"] == "StandardScaler_0"
+        assert artifacts_items[1]["name"] == "SVC_1_model"
 
         # 6. Load artifacts for prediction
-        loaded_scaler = load(manifest["artifacts"][0], saver.base_path)
-        loaded_model = load(manifest["artifacts"][1], saver.base_path)
+        loaded_scaler = load(artifacts_items[0], saver.base_path)
+        loaded_model = load(artifacts_items[1], saver.base_path)
 
         # Verify they work
         assert hasattr(loaded_scaler, 'mean_')
@@ -256,9 +262,10 @@ class TestPipelineWorkflow:
         assert manifest2["name"] == "pipeline2"
         assert manifest3["name"] == "pipeline3"
 
-        assert len(manifest1["artifacts"]) == 1
-        assert len(manifest2["artifacts"]) == 1
-        assert len(manifest3["artifacts"]) == 1
+        # v2 schema has artifacts as {"items": [...], "schema_version": "2.0"}
+        assert len(manifest1["artifacts"]["items"]) == 1
+        assert len(manifest2["artifacts"]["items"]) == 1
+        assert len(manifest3["artifacts"]["items"]) == 1
 
 
 if __name__ == "__main__":
