@@ -164,10 +164,10 @@ class TestCreatePipeline:
         assert manifest["name"] == "test_pipeline"
         assert manifest["dataset"] == "test_dataset"
         assert "created_at" in manifest
-        assert manifest["version"] == "1.0"
+        assert manifest["schema_version"] == "2.0"  # v2 schema
         assert manifest["pipeline"] == config
         assert manifest["metadata"] == metadata
-        assert manifest["artifacts"] == []
+        assert manifest["artifacts"]["items"] == []  # v2: artifacts is dict
         assert manifest["predictions"] == []
 
 
@@ -211,7 +211,8 @@ class TestArtifactManagement:
         manager.append_artifacts(pipeline_id, artifacts)
 
         manifest = manager.load_manifest(pipeline_id)
-        assert manifest["artifacts"] == artifacts
+        # v2: artifacts is a dict with 'items' key
+        assert manifest["artifacts"]["items"] == artifacts
 
     def test_append_artifacts_multiple_times(self, manager):
         """Test appending artifacts multiple times accumulates."""
@@ -222,8 +223,10 @@ class TestArtifactManagement:
         manager.append_artifacts(pipeline_id, ["def456"])
 
         manifest = manager.load_manifest(pipeline_id)
-        assert "abc123" in manifest["artifacts"]
-        assert "def456" in manifest["artifacts"]
+        # v2: artifacts is a dict with 'items' key
+        items = manifest["artifacts"]["items"]
+        assert "abc123" in items
+        assert "def456" in items
 
 
 class TestPredictionManagement:

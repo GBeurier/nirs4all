@@ -5,6 +5,7 @@ from sklearn.base import TransformerMixin
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -207,6 +208,16 @@ class YTransformerMixinController(OperatorController):
                 legacy_name = f"y_{operator_name}"
                 fitted_transformer = binaries_dict.get(legacy_name)
 
+            if fitted_transformer is None:
+                # Fallback: search by class name pattern (handles v2 artifact system)
+                # Look for any key matching y_{class_name}_{number}
+                import re
+                pattern = re.compile(rf'^y_{re.escape(operator_name)}_(\d+)$')
+                for key, obj in binaries_dict.items():
+                    if pattern.match(key):
+                        fitted_transformer = obj
+                        break
+
             if fitted_transformer is not None:
                 dataset._targets.add_processed_targets(
                     processing_name=new_processing_name,
@@ -257,15 +268,67 @@ class YTransformerMixinController(OperatorController):
         # Persist fitted transformer
         artifacts = []
         if mode == "train":
-            artifact = runtime_context.saver.persist_artifact(
-                step_number=runtime_context.step_number,
+            artifact = self._persist_y_transformer(
+                runtime_context=runtime_context,
+                transformer=fitted_transformer,
                 name=artifact_name,
-                obj=fitted_transformer,
-                format_hint='sklearn',
-                branch_id=context.selector.branch_id,
-                branch_name=context.selector.branch_name
+                context=context
             )
             artifacts.append(artifact)
 
         return updated_context, artifacts
+
+    def _persist_y_transformer(
+        self,
+        runtime_context: 'RuntimeContext',
+        transformer: Any,
+        name: str,
+        context: ExecutionContext
+    ) -> Any:
+        """Persist fitted Y transformer using artifact registry or legacy saver.
+
+        Uses artifact_registry.register() if available (v2 system), otherwise
+        falls back to saver.persist_artifact() (legacy).
+
+        Args:
+            runtime_context: Runtime context with saver/registry instances.
+            transformer: Fitted transformer to persist.
+            name: Artifact name for the transformer.
+            context: Execution context with branch information.
+
+        Returns:
+            ArtifactRecord (v2) or ArtifactMeta (legacy) with persistence metadata.
+        """
+        # Use artifact registry if available (v2 system)
+        if runtime_context.artifact_registry is not None:
+            registry = runtime_context.artifact_registry
+            pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
+            step_index = runtime_context.step_number
+            branch_path = context.selector.branch_path or []
+
+            # Generate deterministic artifact ID
+            artifact_id = registry.generate_id(
+                pipeline_id=pipeline_id,
+                branch_path=branch_path,
+                step_index=step_index,
+                fold_id=None  # Y transformers are shared across folds
+            )
+
+            # Register artifact with registry (use ENCODER type for y transformers)
+            return registry.register(
+                obj=transformer,
+                artifact_id=artifact_id,
+                artifact_type=ArtifactType.ENCODER,
+                format_hint='sklearn'
+            )
+
+        # Fallback to legacy saver.persist_artifact()
+        return runtime_context.saver.persist_artifact(
+            step_number=runtime_context.step_number,
+            name=name,
+            obj=transformer,
+            format_hint='sklearn',
+            branch_id=context.selector.branch_id,
+            branch_name=context.selector.branch_name
+        )
 

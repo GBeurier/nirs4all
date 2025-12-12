@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.storage.artifacts.manager import ArtifactManager
 from nirs4all.pipeline.execution.executor import PipelineExecutor
 from nirs4all.pipeline.storage.io import SimulationSaver
 from nirs4all.pipeline.storage.manifest_manager import ManifestManager
@@ -37,6 +36,7 @@ class ExecutorBuilder:
         # Required parameters
         self._run_directory: Optional[Path] = None
         self._dataset: Optional[SpectroDataset] = None
+        self._workspace: Optional[Path] = None
 
         # Optional parameters with defaults
         self._verbose: int = 0
@@ -45,12 +45,12 @@ class ExecutorBuilder:
         self._continue_on_error: bool = False
         self._show_spinner: bool = True
         self._plots_visible: bool = False
-        self._binary_loader: Any = None
+        self._artifact_loader: Any = None
+        self._artifact_registry: Any = None
 
         # Components (will be created if not provided)
         self._saver: Optional[SimulationSaver] = None
         self._manifest_manager: Optional[ManifestManager] = None
-        self._artifact_manager: Optional[ArtifactManager] = None
         self._step_runner: Optional[StepRunner] = None
 
     def with_run_directory(self, run_directory: Path) -> 'ExecutorBuilder':
@@ -149,16 +149,40 @@ class ExecutorBuilder:
         self._plots_visible = plots_visible
         return self
 
-    def with_binary_loader(self, binary_loader: Any) -> 'ExecutorBuilder':
-        """Set binary loader for predict/explain modes.
+    def with_artifact_loader(self, artifact_loader: Any) -> 'ExecutorBuilder':
+        """Set artifact loader for predict/explain modes.
 
         Args:
-            binary_loader: BinaryLoader instance
+            artifact_loader: ArtifactLoader instance
 
         Returns:
             Self for method chaining
         """
-        self._binary_loader = binary_loader
+        self._artifact_loader = artifact_loader
+        return self
+
+    def with_artifact_registry(self, artifact_registry: Any) -> 'ExecutorBuilder':
+        """Set artifact registry for train mode.
+
+        Args:
+            artifact_registry: ArtifactRegistry instance
+
+        Returns:
+            Self for method chaining
+        """
+        self._artifact_registry = artifact_registry
+        return self
+
+    def with_workspace(self, workspace: Path) -> 'ExecutorBuilder':
+        """Set workspace root path for artifact storage.
+
+        Args:
+            workspace: Workspace root path
+
+        Returns:
+            Self for method chaining
+        """
+        self._workspace = workspace
         return self
 
     def with_saver(self, saver: SimulationSaver) -> 'ExecutorBuilder':
@@ -183,18 +207,6 @@ class ExecutorBuilder:
             Self for method chaining
         """
         self._manifest_manager = manifest_manager
-        return self
-
-    def with_artifact_manager(self, artifact_manager: ArtifactManager) -> 'ExecutorBuilder':
-        """Set custom artifact manager.
-
-        Args:
-            artifact_manager: ArtifactManager instance
-
-        Returns:
-            Self for method chaining
-        """
-        self._artifact_manager = artifact_manager
         return self
 
     def with_step_runner(self, step_runner: StepRunner) -> 'ExecutorBuilder':
@@ -235,14 +247,6 @@ class ExecutorBuilder:
         if self._manifest_manager is None:
             self._manifest_manager = ManifestManager(self._run_directory)
 
-        # Create artifact manager if not provided
-        if self._artifact_manager is None:
-            artifacts_dir = self._run_directory / "_binaries"
-            self._artifact_manager = ArtifactManager(
-                artifacts_dir,
-                manifest_manager=self._manifest_manager
-            )
-
         # Create step runner if not provided
         if self._step_runner is None:
             self._step_runner = StepRunner(
@@ -257,11 +261,21 @@ class ExecutorBuilder:
         # Build and return executor
         return PipelineExecutor(
             step_runner=self._step_runner,
-            artifact_manager=self._artifact_manager,
             manifest_manager=self._manifest_manager,
             verbose=self._verbose,
             mode=self._mode,
             continue_on_error=self._continue_on_error,
             saver=self._saver,
-            binary_loader=self._binary_loader
+            artifact_loader=self._artifact_loader,
+            artifact_registry=self._artifact_registry
         )
+
+    @property
+    def workspace(self) -> Optional[Path]:
+        """Get the workspace path."""
+        return self._workspace
+
+    @property
+    def artifact_registry(self) -> Any:
+        """Get the artifact registry."""
+        return self._artifact_registry

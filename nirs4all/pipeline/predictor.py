@@ -11,7 +11,7 @@ import numpy as np
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.storage.artifacts.binary_loader import BinaryLoader
+from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.storage.io import SimulationSaver
@@ -29,7 +29,7 @@ class Predictor:
         saver: File saver for managing outputs
         manifest_manager: Manager for pipeline manifests
         pipeline_uid: Unique identifier for the pipeline
-        binary_loader: Loader for trained model artifacts
+        artifact_loader: Loader for trained model artifacts
         config_path: Path to the pipeline configuration
         target_model: Metadata for the target model
     """
@@ -44,7 +44,7 @@ class Predictor:
         self.saver: Optional[SimulationSaver] = None
         self.manifest_manager: Optional[ManifestManager] = None
         self.pipeline_uid: Optional[str] = None
-        self.binary_loader: Optional[BinaryLoader] = None
+        self.artifact_loader: Optional[ArtifactLoader] = None
         self.config_path: Optional[str] = None
         self.target_model: Optional[Dict[str, Any]] = None
 
@@ -126,7 +126,7 @@ class Predictor:
                 .with_continue_on_error(self.runner.continue_on_error)
                 .with_show_spinner(self.runner.show_spinner)
                 .with_plots_visible(self.runner.plots_visible)
-                .with_binary_loader(self.binary_loader)
+                .with_artifact_loader(self.artifact_loader)
                 .with_saver(self.saver)
                 .with_manifest_manager(self.manifest_manager)
                 .build())
@@ -136,7 +136,7 @@ class Predictor:
             runtime_context = RuntimeContext(
                 saver=self.saver,
                 manifest_manager=self.manifest_manager,
-                binary_loader=self.binary_loader,
+                artifact_loader=self.artifact_loader,
                 step_runner=executor.step_runner,
                 target_model=self.target_model,
                 explainer=self.runner.explainer
@@ -289,6 +289,6 @@ class Predictor:
 
         print(f"{SEARCH}Loading from manifest: {pipeline_uid}")
         manifest = self.manifest_manager.load_manifest(pipeline_uid)
-        self.binary_loader = BinaryLoader.from_manifest(manifest, self.saver.base_path)
+        self.artifact_loader = ArtifactLoader.from_manifest(manifest, self.saver.base_path)
 
         return steps

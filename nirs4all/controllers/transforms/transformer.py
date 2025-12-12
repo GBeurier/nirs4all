@@ -6,6 +6,7 @@ from sklearn.base import TransformerMixin
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
+from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 
 if TYPE_CHECKING:
     from nirs4all.spectra.spectra_dataset import SpectroDataset
@@ -219,15 +220,13 @@ class TransformerMixinController(OperatorController):
                 source_new_processing_names.append(new_processing_name)
                 source_processing_names.append(processing_name)
 
-                # Persist fitted transformer using new serializer
+                # Persist fitted transformer using artifact registry or legacy saver
                 if mode == "train":
-                    artifact = runtime_context.saver.persist_artifact(
-                        step_number=runtime_context.step_number,
+                    artifact = self._persist_transformer(
+                        runtime_context=runtime_context,
+                        transformer=transformer,
                         name=new_operator_name,
-                        obj=transformer,
-                        format_hint='sklearn',
-                        branch_id=context.selector.branch_id,
-                        branch_name=context.selector.branch_name
+                        context=context
                     )
                     fitted_transformers.append(artifact)
 
@@ -347,13 +346,11 @@ class TransformerMixinController(OperatorController):
 
                     # Save a single transformer binary per source/processing (not per sample)
                     if mode == "train":
-                        artifact = runtime_context.saver.persist_artifact(
-                            step_number=runtime_context.step_number,
+                        artifact = self._persist_transformer(
+                            runtime_context=runtime_context,
+                            transformer=transformer,
                             name=f"{operator_name}_{source_idx}_{proc_idx}",
-                            obj=transformer,
-                            format_hint='sklearn',
-                            branch_id=context.selector.branch_id,
-                            branch_name=context.selector.branch_name
+                            context=context
                         )
                         fitted_transformers.append(artifact)
 
@@ -495,11 +492,11 @@ class TransformerMixinController(OperatorController):
 
                         # Save transformer binary once
                         if mode == "train":
-                            artifact = runtime_context.saver.persist_artifact(
-                                step_number=runtime_context.step_number,
+                            artifact = self._persist_transformer(
+                                runtime_context=runtime_context,
+                                transformer=transformer,
                                 name=f"{operator_name}_{source_idx}_{proc_idx}",
-                                obj=transformer,
-                                format_hint='sklearn'
+                                context=context
                             )
                             fitted_transformers.append(artifact)
 
@@ -524,3 +521,67 @@ class TransformerMixinController(OperatorController):
             dataset.add_samples(data=data_to_add, indexes=index_dict)
 
         return context, fitted_transformers
+
+    def _persist_transformer(
+        self,
+        runtime_context: 'RuntimeContext',
+        transformer: Any,
+        name: str,
+        context: ExecutionContext
+    ) -> Any:
+        """Persist fitted transformer using artifact registry or legacy saver.
+
+        Uses artifact_registry.register() if available (v2 system), otherwise
+        falls back to saver.persist_artifact() (legacy).
+
+        Args:
+            runtime_context: Runtime context with saver/registry instances.
+            transformer: Fitted transformer to persist.
+            name: Operator name for the transformer (e.g., "StandardScaler_3").
+            context: Execution context with branch information.
+
+        Returns:
+            ArtifactRecord (v2) or ArtifactMeta (legacy) with persistence metadata.
+        """
+        # Use artifact registry if available (v2 system)
+        if runtime_context.artifact_registry is not None:
+            registry = runtime_context.artifact_registry
+            pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
+            step_index = runtime_context.step_number
+            branch_path = context.selector.branch_path or []
+
+            # Extract the operation counter from the name (e.g., "StandardScaler_3" -> 3)
+            # This ensures unique IDs for multiple transformers at the same step
+            sub_index = None
+            if "_" in name:
+                try:
+                    sub_index = int(name.rsplit("_", 1)[1])
+                except (ValueError, IndexError):
+                    pass
+
+            # Generate deterministic artifact ID
+            artifact_id = registry.generate_id(
+                pipeline_id=pipeline_id,
+                branch_path=branch_path,
+                step_index=step_index,
+                fold_id=None,  # Transformers are shared across folds
+                sub_index=sub_index
+            )
+
+            # Register artifact with registry
+            return registry.register(
+                obj=transformer,
+                artifact_id=artifact_id,
+                artifact_type=ArtifactType.TRANSFORMER,
+                format_hint='sklearn'
+            )
+
+        # Fallback to legacy saver.persist_artifact()
+        return runtime_context.saver.persist_artifact(
+            step_number=runtime_context.step_number,
+            name=name,
+            obj=transformer,
+            format_hint='sklearn',
+            branch_id=context.selector.branch_id,
+            branch_name=context.selector.branch_name
+        )

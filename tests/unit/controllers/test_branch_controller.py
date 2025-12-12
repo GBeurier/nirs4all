@@ -384,11 +384,14 @@ class TestBranchMultiplication:
         ]
 
         # Mock context copy method
-        for item in existing + new:
+        for i, item in enumerate(existing + new):
             mock_ctx = Mock()
             mock_selector = Mock()
             mock_selector.branch_id = None
             mock_selector.branch_name = None
+            # branch_path should be a list or None - the code uses it with list concatenation
+            mock_selector.branch_path = [i] if i < len(existing) else None
+            mock_selector.with_branch = Mock(return_value=mock_selector)
             mock_ctx.selector = mock_selector
             mock_ctx.copy = Mock(return_value=mock_ctx)
             item["context"] = mock_ctx

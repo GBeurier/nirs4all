@@ -1,5 +1,17 @@
 ## ROADMAP
 
+**Bugs**:
+>   - [MB-PLS] test on multi-source/block ---
+>   - [Kernel-PLS] poly and linear are crap ---
+>   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
+>   - slow down between models: check dataset copy, ensure cache and reuse.
+>   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
+>   - Charts do not display correctly the wavelength on x-axis - nm cm-1 all messed up. Add force type.
+
+**Features**:
+
+> sauvegarde et numérotation des artifacts et binaires. (en particulier avec le branching)
+
 > [Predictions] as a pipeline context for custom stacking.
 > [Stacking] Use prediction as X for stacking.
 
@@ -10,53 +22,34 @@
 
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 
-**Bugs**:
->   - [Split] try automatically to set a group even when not specified. Shouldn't do anything if not specified
->   - [save_files] sep in save_files and save_plots and save_predictions
->   - [MB-PLS] test on multi-source/block
->   - [Kernel-PLS] poly and linear are crap
->   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
->   - slow down between models: check dataset copy, ensure cache and reuse.
->   - remove print scores in base model (bug in predict)
->   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
->   - Charts do not display correctly the wavelength on x-axis
-> [Split] add force_group (mean, median, max, min, etc.) before split to be able to split with groups seemlessly. ie: {"split": KFold, "force_group":"ID"} or reuse group if possible to detect that group is not required (I think it's not detectable)
+> [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
+> [Predict] Verify predict from model, pipeline, folder, file, pred, ...
+> [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
+> [Transfer] Automate model transfer and retraining. Test. Basically, file in pipeline "model".
 
-> [sklearn] Integrate optuna finetuning on stack ?????
-
-> [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
+- [Split] bug + review: fix the "try automatically to set a group even when not specified. Shouldn't do anything if not specified", review doc and explicit also the use of group "y" ?
+- [Split > DONE] add force_group (mean, median, max, min, etc.) before split to be able to split with groups seemlessly. ie: {"split": KFold, "force_group":"ID"} or reuse group if possible to detect that group is not required (I think it's not detectable)
 
 > [Model] How to force params from self best_params
 
-> [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
-
-> [Transfer] Automate model transfer and retraining. Test. Basically, file in pipeline "model".
-
-> [PLS] Implement variable selection methods (CARS and MC-UVE done)
+> [Logs] implement feature and update print/log strategy
 
 > [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
-
-> [Workflow Operators] branch, merge, split_src, scope
-
-**RELEASE** 0.5.2: Learning ready
-
-> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
-
 > [Examples] Clean and document
 
-> [Predict] Verify predict from model, pipeline, folder, file, pred, ...
-
-
+> [Workspace] review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
 
 **RELEASE** 0.6.0: UI ready
 
-> [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators.
+> [PLS] Implement variable selection methods (CARS and MC-UVE done)
+
+> [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
+
+> [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators. and more. Both operators and analyzers should be uniformized (inside the pipeline or outside)
 
 > [Folds] Operator load fold (csv)
 
 > [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
-
-**RELEASE** 0.6.1: Minimal Valuable Controllers
 
 > [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
 
@@ -70,21 +63,19 @@
 
 > [Models] extend the scope of custom model fallback (sklearn only for now), to include custom layouts (ie. custom NN without framework and 3D data, spectrograms, etc.)
 
-**RELEASE** 0.6.2: Pipeline logic
+> [Optuna] Integrate complex params setters: Stack (sklearn stacking model), Nested_dict (TABPFN inference params)
+> [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
+> [Optuna] Allows complex scenarios (random X trials then TPE X trials)
 
 > [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin) _ add data aug operators en masse.
 
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
-
-> [Logs] implement feature and update print/log strategy
 
 > [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
 
 > [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 
 > [Tests] clean workspace and run folder creation during tests.
-
-**RELEASE** 0.7: Tests & Logs ready
 
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 

@@ -474,7 +474,7 @@ class TestBranchArtifactPersistence:
             dataset
         )
 
-        # Check that _binaries directory exists
+        # Check that binaries directory exists
         runs_dir = workspace_path / "runs"
         assert runs_dir.exists(), "Runs directory should exist"
 
@@ -482,10 +482,15 @@ class TestBranchArtifactPersistence:
         run_dirs = list(runs_dir.glob("*"))
         assert len(run_dirs) > 0, "Should have at least one run directory"
 
-        binaries_dir = run_dirs[0] / "_binaries"
+        # v2 uses workspace/binaries/<dataset>/ instead of run_dir/_binaries
+        binaries_dir = workspace_path / "binaries" / "test_branch_predict"
+        if not binaries_dir.exists():
+            # Fallback to legacy location
+            binaries_dir = run_dirs[0] / "_binaries"
+
         if binaries_dir.exists():
             # Should have multiple binary files for different branches
-            binary_files = list(binaries_dir.glob("*.pkl")) + list(binaries_dir.glob("*.joblib"))
+            binary_files = list(binaries_dir.rglob("*.pkl")) + list(binaries_dir.rglob("*.joblib"))
             # At minimum we should have scalers and models for each branch
             assert len(binary_files) >= 2, f"Expected multiple binaries, got {len(binary_files)}"
 
@@ -518,7 +523,13 @@ class TestBranchArtifactPersistence:
         with open(manifest_files[0], 'r') as f:
             manifest = yaml.safe_load(f)
 
-        artifacts = manifest.get("artifacts", [])
+        artifacts_section = manifest.get("artifacts", [])
+        # Handle v2 format (dict with items) or v1 format (list)
+        if isinstance(artifacts_section, dict) and "items" in artifacts_section:
+            artifacts = artifacts_section["items"]
+        else:
+            artifacts = artifacts_section
+
         # Find artifacts with branch metadata
         branched_artifacts = [a for a in artifacts if a.get("branch_id") is not None]
 
@@ -581,41 +592,44 @@ class TestBackwardCompatibility:
         # Should return all predictions (or handle gracefully)
         # Note: This behavior depends on how Polars handles None in filters
 
-    def test_legacy_binary_loader_handles_no_branch_artifacts(
+    def test_legacy_artifact_loader_handles_no_branch_artifacts(
         self, workspace_path
     ):
-        """Test that BinaryLoader handles legacy artifacts without branch_id."""
-        from nirs4all.pipeline.storage.artifacts.binary_loader import BinaryLoader
+        """Test that ArtifactLoader handles legacy artifacts without branch_id."""
+        from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 
-        # Simulate legacy artifact metadata without branch_id
-        legacy_artifacts = [
-            {
-                "name": "scaler",
-                "step": 1,
-                "path": "scaler_abc123.pkl",
-                "format": "joblib",
-                # Note: no branch_id field
-            },
-            {
-                "name": "model",
-                "step": 2,
-                "path": "model_def456.pkl",
-                "format": "joblib",
-                # Note: no branch_id field
-            },
-        ]
+        # Create binaries directory
+        binaries_dir = workspace_path / "binaries" / "test_dataset"
+        binaries_dir.mkdir(parents=True, exist_ok=True)
 
-        loader = BinaryLoader(legacy_artifacts, workspace_path)
+        # Simulate legacy artifact metadata without branch_path (v1 format)
+        legacy_manifest = {
+            "dataset": "test_dataset",
+            "artifacts": [
+                {
+                    "name": "scaler",
+                    "step": 1,
+                    "path": "scaler_abc123.pkl",
+                    "format": "joblib",
+                    # Note: no branch_id field (v1 format)
+                },
+                {
+                    "name": "model",
+                    "step": 2,
+                    "path": "model_def456.pkl",
+                    "format": "joblib",
+                    # Note: no branch_id field (v1 format)
+                },
+            ]
+        }
+
+        loader = ArtifactLoader(workspace_path, "test_dataset")
+        loader.import_from_manifest(legacy_manifest)
 
         # Should be able to query without errors
         info = loader.get_cache_info()
-        assert "available_steps" in info
+        assert "total_artifacts" in info
 
         # Should find artifacts for step 1
         assert loader.has_binaries_for_step(1)
         assert loader.has_binaries_for_step(2)
-
-        # Querying with branch_id should fall back to non-branched artifacts
-        # (This will fail to load since files don't exist, but shouldn't error on query)
-        branches = loader.get_available_branches(1)
-        assert None in branches  # Legacy artifacts have None branch_id

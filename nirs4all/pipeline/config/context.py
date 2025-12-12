@@ -48,6 +48,9 @@ class DataSelector(MutableMapping):
         include_augmented: Whether to include augmented samples
         y: Optional target processing version (e.g. "numeric", "scaled")
         branch_id: Optional branch identifier for pipeline branching (0-indexed)
+            DEPRECATED: Use branch_path instead for nested branch support.
+        branch_path: List of branch indices for nested branching (e.g., [0, 2] for
+            branch 2 inside branch 0). Empty list means pre-branch/shared artifacts.
         branch_name: Optional human-readable branch name for tracking
 
     Example:
@@ -65,6 +68,7 @@ class DataSelector(MutableMapping):
     include_augmented: bool = False
     y: Optional[str] = None
     branch_id: Optional[int] = None
+    branch_path: List[int] = field(default_factory=list)
     branch_name: Optional[str] = None
     _extra: Dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -124,6 +128,7 @@ class DataSelector(MutableMapping):
             include_augmented=self.include_augmented,
             y=self.y,
             branch_id=self.branch_id,
+            branch_path=list(self.branch_path),
             branch_name=self.branch_name
         )
         new_selector._extra = deepcopy(self._extra)
@@ -202,14 +207,16 @@ class DataSelector(MutableMapping):
     def with_branch(
         self,
         branch_id: Optional[int] = None,
-        branch_name: Optional[str] = None
+        branch_name: Optional[str] = None,
+        branch_path: Optional[List[int]] = None
     ) -> "DataSelector":
         """
         Create new selector with updated branch information.
 
         Args:
-            branch_id: Branch identifier (0-indexed)
+            branch_id: Branch identifier (0-indexed). DEPRECATED: Use branch_path.
             branch_name: Human-readable branch name
+            branch_path: List of branch indices for nested branching
 
         Returns:
             New DataSelector with updated branch info
@@ -217,6 +224,16 @@ class DataSelector(MutableMapping):
         new_selector = self.copy()
         new_selector.branch_id = branch_id
         new_selector.branch_name = branch_name
+
+        # Support both old branch_id and new branch_path
+        if branch_path is not None:
+            new_selector.branch_path = list(branch_path)
+        elif branch_id is not None:
+            # Convert single branch_id to branch_path for compatibility
+            new_selector.branch_path = [branch_id]
+        else:
+            new_selector.branch_path = []
+
         return new_selector
 
 
@@ -516,7 +533,8 @@ class RuntimeContext:
     Attributes:
         saver: SimulationSaver for file operations
         manifest_manager: ManifestManager for pipeline tracking
-        binary_loader: BinaryLoader for predict/explain modes
+        artifact_loader: ArtifactLoader for predict/explain modes
+        artifact_registry: ArtifactRegistry for artifact management (v2 system)
         pipeline_uid: Current pipeline unique identifier
         step_runner: StepRunner for executing sub-steps
         operation_count: Counter for operation IDs
@@ -524,7 +542,8 @@ class RuntimeContext:
     """
     saver: Any = None
     manifest_manager: Any = None
-    binary_loader: Any = None
+    artifact_loader: Any = None
+    artifact_registry: Any = None
     pipeline_uid: Optional[str] = None
     step_runner: Any = None
     step_number: int = 0

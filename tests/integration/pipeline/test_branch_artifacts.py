@@ -20,7 +20,15 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
-from nirs4all.pipeline.storage.artifacts.binary_loader import BinaryLoader
+from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
+
+
+def get_artifacts_list(manifest):
+    """Extract artifacts list from manifest, handling both v1 and v2 schema."""
+    artifacts_section = manifest.get("artifacts", [])
+    if isinstance(artifacts_section, dict) and "items" in artifacts_section:
+        return artifacts_section["items"]
+    return artifacts_section
 
 
 def create_test_dataset(n_samples: int = 100, n_features: int = 50) -> SpectroDataset:
@@ -97,8 +105,13 @@ class TestBranchArtifactCompleteness:
         run_dirs = list(runs_dir.glob("*"))
         assert len(run_dirs) > 0, "Should have at least one run directory"
 
-        # Check binaries directory exists
-        binaries_dir = run_dirs[0] / "_binaries"
+        # Check binaries directory - v2 uses workspace/binaries/<dataset>/
+        # instead of run_dir/_binaries
+        binaries_dir = workspace_path / "binaries" / "test_artifacts"
+        if not binaries_dir.exists():
+            # Fallback to legacy location
+            binaries_dir = run_dirs[0] / "_binaries"
+
         if binaries_dir.exists():
             # Should have binary files
             binary_files = list(binaries_dir.rglob("*.pkl")) + list(binaries_dir.rglob("*.joblib"))
@@ -141,7 +154,7 @@ class TestBranchArtifactCompleteness:
             with open(manifest_path, 'r') as f:
                 manifest = yaml.safe_load(f)
 
-            artifacts = manifest.get("artifacts", [])
+            artifacts = get_artifacts_list(manifest)
             pipeline_dir = manifest_path.parent
 
             # Verify we have artifacts for both branches
@@ -213,13 +226,18 @@ class TestBranchArtifactUniqueness:
         with open(manifest_files[0], 'r') as f:
             manifest = yaml.safe_load(f)
 
-        artifacts = manifest.get("artifacts", [])
+        artifacts_section = manifest.get("artifacts", [])
+        # Handle v2 format (dict with items) or v1 format (list)
+        if isinstance(artifacts_section, dict) and "items" in artifacts_section:
+            artifacts = artifacts_section["items"]
+        else:
+            artifacts = artifacts_section
 
         # Should have at least scalers and models
         assert len(artifacts) >= 2, f"Expected at least 2 artifacts, got {len(artifacts)}"
 
-        # Check we have both scaler types
-        artifact_names = [a.get("name", "") for a in artifacts]
+        # Check we have both scaler types (v2 uses class_name instead of name)
+        artifact_names = [a.get("class_name", a.get("name", "")) for a in artifacts]
         has_standard = any("StandardScaler" in n for n in artifact_names)
         has_minmax = any("MinMaxScaler" in n for n in artifact_names)
         assert has_standard and has_minmax, "Should have both scaler types"
@@ -257,7 +275,7 @@ class TestBranchArtifactUniqueness:
         with open(manifest_files[0], 'r') as f:
             manifest = yaml.safe_load(f)
 
-        artifacts = manifest.get("artifacts", [])
+        artifacts = get_artifacts_list(manifest)
 
         # Verify artifacts are created (deduplication may reduce count)
         assert len(artifacts) >= 1, f"Expected at least 1 artifact, got {len(artifacts)}"
@@ -395,7 +413,7 @@ class TestManifestBranchMetadata:
         with open(manifest_files[0], 'r') as f:
             manifest = yaml.safe_load(f)
 
-        artifacts = manifest.get("artifacts", [])
+        artifacts = get_artifacts_list(manifest)
 
         # Check that some artifacts have branch metadata
         # Pre-branch artifacts may have branch_id=None, but branch artifacts should have it
@@ -433,7 +451,7 @@ class TestManifestBranchMetadata:
         with open(manifest_files[0], 'r') as f:
             manifest = yaml.safe_load(f)
 
-        artifacts = manifest.get("artifacts", [])
+        artifacts = get_artifacts_list(manifest)
 
         # Check for named branch artifacts
         branch_names_in_artifacts = set()
@@ -447,9 +465,9 @@ class TestManifestBranchMetadata:
         pass  # Test passes if manifest loads without error
 
 
-class TestBinaryLoaderBranchSupport:
+class TestArtifactLoaderBranchSupport:
     """
-    Test BinaryLoader branch-aware loading.
+    Test ArtifactLoader branch-aware loading.
 
     Per specification §5.1.2.
     """
@@ -459,91 +477,111 @@ class TestBinaryLoaderBranchSupport:
         """Create temporary workspace directory."""
         workspace = tmp_path / "workspace"
         workspace.mkdir(parents=True)
+        (workspace / "binaries" / "test_dataset").mkdir(parents=True)
         return workspace
 
-    def test_binary_loader_handles_branch_artifacts(self, workspace_path):
-        """Test that BinaryLoader handles branch artifacts correctly."""
-        # Create mock artifacts with branch metadata
-        artifacts = [
-            {
-                "name": "StandardScaler",
-                "step": 2,
-                "branch_id": 0,
-                "branch_name": "branch_0",
-                "path": "ab/abc123.pkl",
-                "format": "joblib",
-            },
-            {
-                "name": "MinMaxScaler",
-                "step": 2,
-                "branch_id": 1,
-                "branch_name": "branch_1",
-                "path": "cd/cdef456.pkl",
-                "format": "joblib",
-            },
-            {
-                "name": "Ridge",
-                "step": 3,
-                "branch_id": 0,
-                "branch_name": "branch_0",
-                "path": "ef/efgh789.pkl",
-                "format": "joblib",
-            },
-            {
-                "name": "Ridge",
-                "step": 3,
-                "branch_id": 1,
-                "branch_name": "branch_1",
-                "path": "gh/ghij012.pkl",
-                "format": "joblib",
-            },
-        ]
+    def test_artifact_loader_handles_branch_artifacts(self, workspace_path):
+        """Test that ArtifactLoader handles branch artifacts correctly."""
+        # Create mock manifest with v2 format artifacts
+        manifest = {
+            "dataset": "test_dataset",
+            "artifacts": {
+                "schema_version": "2.0",
+                "items": [
+                    {
+                        "artifact_id": "0001:0:2:all",
+                        "content_hash": "sha256:abc123",
+                        "path": "ab/abc123.pkl",
+                        "pipeline_id": "0001",
+                        "branch_path": [0],
+                        "step_index": 2,
+                        "artifact_type": "transformer",
+                        "class_name": "StandardScaler",
+                        "format": "joblib",
+                    },
+                    {
+                        "artifact_id": "0001:1:2:all",
+                        "content_hash": "sha256:def456",
+                        "path": "cd/cdef456.pkl",
+                        "pipeline_id": "0001",
+                        "branch_path": [1],
+                        "step_index": 2,
+                        "artifact_type": "transformer",
+                        "class_name": "MinMaxScaler",
+                        "format": "joblib",
+                    },
+                    {
+                        "artifact_id": "0001:0:3:all",
+                        "content_hash": "sha256:ghi789",
+                        "path": "ef/efgh789.pkl",
+                        "pipeline_id": "0001",
+                        "branch_path": [0],
+                        "step_index": 3,
+                        "artifact_type": "model",
+                        "class_name": "Ridge",
+                        "format": "joblib",
+                    },
+                    {
+                        "artifact_id": "0001:1:3:all",
+                        "content_hash": "sha256:jkl012",
+                        "path": "gh/ghij012.pkl",
+                        "pipeline_id": "0001",
+                        "branch_path": [1],
+                        "step_index": 3,
+                        "artifact_type": "model",
+                        "class_name": "Ridge",
+                        "format": "joblib",
+                    },
+                ]
+            }
+        }
 
-        loader = BinaryLoader(artifacts, workspace_path)
+        loader = ArtifactLoader(workspace_path, "test_dataset")
+        loader.import_from_manifest(manifest)
 
-        # Check available branches for step 2
-        branches = loader.get_available_branches(2)
-        assert 0 in branches
-        assert 1 in branches
+        # Check we have artifacts for step 2
+        assert loader.has_binaries_for_step(2, branch_id=0)
+        assert loader.has_binaries_for_step(2, branch_id=1)
 
         # Check cache info
         info = loader.get_cache_info()
-        assert "available_steps" in info
+        assert "total_artifacts" in info
+        assert info["total_artifacts"] == 4
 
-    def test_binary_loader_legacy_compatibility(self, workspace_path):
+    def test_artifact_loader_legacy_compatibility(self, workspace_path):
         """
-        Test that BinaryLoader handles legacy artifacts without branch_id.
+        Test that ArtifactLoader handles legacy artifacts without branch_id.
 
         Per spec §5.1.4: Backward compatibility with legacy manifests.
         """
-        # Legacy artifacts without branch_id
-        legacy_artifacts = [
-            {
-                "name": "StandardScaler",
-                "step": 1,
-                "path": "scaler_abc123.pkl",
-                "format": "joblib",
-                # Note: no branch_id field
-            },
-            {
-                "name": "Ridge",
-                "step": 2,
-                "path": "model_def456.pkl",
-                "format": "joblib",
-                # Note: no branch_id field
-            },
-        ]
+        # Legacy artifacts without branch_path (v1 format)
+        legacy_manifest = {
+            "dataset": "test_dataset",
+            "artifacts": [
+                {
+                    "name": "StandardScaler",
+                    "step": 1,
+                    "path": "scaler_abc123.pkl",
+                    "format": "joblib",
+                    # Note: no branch_id field (v1 format)
+                },
+                {
+                    "name": "Ridge",
+                    "step": 2,
+                    "path": "model_def456.pkl",
+                    "format": "joblib",
+                    # Note: no branch_id field (v1 format)
+                },
+            ]
+        }
 
-        loader = BinaryLoader(legacy_artifacts, workspace_path)
+        loader = ArtifactLoader(workspace_path, "test_dataset")
+        loader.import_from_manifest(legacy_manifest)
 
         # Should be able to query without errors
         info = loader.get_cache_info()
-        assert "available_steps" in info
+        assert "total_artifacts" in info
 
         # Should find artifacts for steps
         assert loader.has_binaries_for_step(1)
         assert loader.has_binaries_for_step(2)
-
-        # Legacy artifacts should have None branch_id
-        branches = loader.get_available_branches(1)
-        assert None in branches
