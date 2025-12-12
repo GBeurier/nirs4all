@@ -61,7 +61,8 @@ class PredictionDataAssembler:
         indices: dict,  # {'train': list, 'val': list, 'test': list}
         runner: Any,
         X_shape: Tuple[int, ...],
-        best_params: Optional[dict] = None
+        best_params: Optional[dict] = None,
+        context: Any = None  # ExecutionContext for branch info
     ) -> dict:
         """Assemble complete prediction record.
 
@@ -75,6 +76,7 @@ class PredictionDataAssembler:
             runner: PipelineRunner instance
             X_shape: Shape of input data (for n_features)
             best_params: Optional hyperparameters from optimization
+            context: Optional ExecutionContext for branch information
 
         Returns:
             Dictionary ready for storage in prediction database
@@ -85,6 +87,15 @@ class PredictionDataAssembler:
 
         # Ensure task_type is a string (convert from enum if needed)
         task_type_str = str(dataset.task_type.value) if hasattr(dataset.task_type, 'value') else str(dataset.task_type)
+
+        # Extract branch info from context
+        branch_id = None
+        branch_name = None
+        if context is not None:
+            selector = getattr(context, 'selector', None)
+            if selector is not None:
+                branch_id = getattr(selector, 'branch_id', None)
+                branch_name = getattr(selector, 'branch_name', None)
 
         prediction_data = {
             'dataset_name': dataset_name,
@@ -107,7 +118,9 @@ class PredictionDataAssembler:
             'preprocessings': dataset.short_preprocessings_str(),
             'best_params': best_params if best_params is not None else {},
             'partitions': [],
-            'partition_metadata': {}  # Store metadata per partition for aggregation
+            'partition_metadata': {},  # Store metadata per partition for aggregation
+            'branch_id': branch_id,
+            'branch_name': branch_name or "",
         }
 
         # Cache train metadata since val samples come from train partition

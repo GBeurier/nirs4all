@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING, Union
+import re
 
 from sklearn.base import TransformerMixin
 
@@ -14,6 +15,52 @@ import numpy as np
 from sklearn.base import clone
 import pickle
 ## TODO add parrallel support for multi-source datasets and multi-processing datasets
+
+
+def _find_transformer_by_class(
+    class_name: str,
+    binaries_dict: Dict[str, Any],
+    search_index: int = 0
+) -> Optional[Any]:
+    """Find a transformer binary by class name when exact match fails.
+
+    For branched pipelines, operation counters may differ between train and
+    predict modes. This function searches for any binary matching the class
+    name and returns the nth match based on search_index.
+
+    Args:
+        class_name: Transformer class name (e.g., "StandardScaler", "PCA")
+        binaries_dict: Dict of binary name -> transformer object
+        search_index: Which match to return (0 for first, 1 for second, etc.)
+
+    Returns:
+        Transformer object or None if not found
+    """
+    # Pattern: ClassName_N (any operation counter)
+    pattern = re.compile(rf'^{re.escape(class_name)}_(\d+)$')
+
+    # Find matching binaries with their operation numbers
+    matches = []
+    for name, obj in binaries_dict.items():
+        match = pattern.match(name)
+        if match:
+            op_num = int(match.group(1))
+            matches.append((op_num, name, obj))
+
+    if not matches:
+        return None
+
+    # Sort by operation number (ascending)
+    matches.sort(key=lambda x: x[0])
+
+    if search_index < len(matches):
+        return matches[search_index][2]
+    elif matches:
+        # Fallback: return first match
+        return matches[0][2]
+
+    return None
+
 
 @register_controller
 class TransformerMixinController(OperatorController):
@@ -127,6 +174,9 @@ class TransformerMixinController(OperatorController):
             source_new_processing_names = []
             source_processing_names = []
 
+            # Track how many transformers of this class we've loaded (for fallback search)
+            transformer_load_index = 0
+
             # Loop through each processing in the 3D data (samples, processings, features)
             for processing_idx in range(fit_x.shape[1]):
                 processing_name = processing_ids[processing_idx]
@@ -141,9 +191,20 @@ class TransformerMixinController(OperatorController):
                 new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
 
                 if loaded_binaries and (mode == "predict" or mode == "explain"):
-                    transformer = dict(loaded_binaries).get(f"{new_operator_name}")
+                    binaries_dict = dict(loaded_binaries)
+                    transformer = binaries_dict.get(new_operator_name)
                     if transformer is None:
-                        raise ValueError(f"Binary for {new_operator_name} not found in loaded_binaries")
+                        # Fallback: search by class name (handles branch op counter mismatch)
+                        transformer = _find_transformer_by_class(
+                            operator_name, binaries_dict, transformer_load_index
+                        )
+                        if transformer is None:
+                            available = list(binaries_dict.keys())
+                            raise ValueError(
+                                f"Binary for {new_operator_name} not found in loaded_binaries. "
+                                f"Available: {available}"
+                            )
+                    transformer_load_index += 1
                 else:
                     transformer = clone(op)
                     transformer.fit(fit_2d)
@@ -164,7 +225,9 @@ class TransformerMixinController(OperatorController):
                         step_number=runtime_context.step_number,
                         name=new_operator_name,
                         obj=transformer,
-                        format_hint='sklearn'
+                        format_hint='sklearn',
+                        branch_id=context.selector.branch_id,
+                        branch_name=context.selector.branch_name
                     )
                     fitted_transformers.append(artifact)
 
@@ -288,7 +351,9 @@ class TransformerMixinController(OperatorController):
                             step_number=runtime_context.step_number,
                             name=f"{operator_name}_{source_idx}_{proc_idx}",
                             obj=transformer,
-                            format_hint='sklearn'
+                            format_hint='sklearn',
+                            branch_id=context.selector.branch_id,
+                            branch_name=context.selector.branch_name
                         )
                         fitted_transformers.append(artifact)
 

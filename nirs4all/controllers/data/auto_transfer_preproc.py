@@ -307,6 +307,8 @@ class AutoTransferPreprocessingController(OperatorController):
                 name="transfer_preprocessing_recommendation",
                 obj=recommendation_data,
                 format_hint="json",
+                branch_id=context.selector.branch_id,
+                branch_name=context.selector.branch_name,
             )
             artifacts.append(artifact)
 
@@ -625,6 +627,8 @@ class AutoTransferPreprocessingController(OperatorController):
                             name=binary_key,
                             obj=transform,
                             format_hint="sklearn",
+                            branch_id=context.selector.branch_id,
+                            branch_name=context.selector.branch_name,
                         )
                         artifacts.append(artifact)
 
@@ -723,6 +727,8 @@ class AutoTransferPreprocessingController(OperatorController):
                             name=binary_key,
                             obj=transform,
                             format_hint="sklearn",
+                            branch_id=context.selector.branch_id,
+                            branch_name=context.selector.branch_name,
                         )
                         artifacts.append(artifact)
 

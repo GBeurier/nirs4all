@@ -60,6 +60,7 @@ class StepParser:
         "concat_transform",
         "y_processing",
         "sample_augmentation",
+        "branch",
     ]
 
     def parse(self, step: Any) -> ParsedStep:

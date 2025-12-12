@@ -340,7 +340,7 @@ class TestNirs4allIntegration:
             MinMaxScaler(),
             {"feature_augmentation": {
                 "_or_": [Detrend, FirstDerivative, Gaussian, StandardNormalVariate],
-                "size": [(1, 2), (2, 3)],
+                "pick": (1, 2),
                 "count": 4
             }},
             ShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
@@ -367,7 +367,7 @@ class TestNirs4allIntegration:
 
         pipeline = [
             MinMaxScaler(),
-            {"feature_augmentation": {"_or_": [Gaussian, StandardNormalVariate], "size": 1, "count": 2}},
+            {"feature_augmentation": {"_or_": [Gaussian, StandardNormalVariate], "pick": 1, "count": 2}},
             ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
             {"model": PLSRegression(n_components=5)},
             {"model": PLSRegression(n_components=10)},

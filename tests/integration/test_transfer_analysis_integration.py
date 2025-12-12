@@ -399,8 +399,9 @@ class TestGeneratorIntegration:
         single_results = [r for r in results.ranking if r.pipeline_type == "single"]
         assert len(single_results) == 3
 
+        # Names are the full class names when using string specs (resolved to objects)
         names = {r.name for r in single_results}
-        assert names == {"snv", "msc", "d1"}
+        assert names == {"StandardNormalVariate", "MultiplicativeScatterCorrection", "FirstDerivative"}
 
     def test_generator_arrange_spec(self, small_transfer_data):
         """Test generator with arrange (stacking) specification."""

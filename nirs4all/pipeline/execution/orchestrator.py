@@ -290,6 +290,7 @@ class PipelineOrchestrator:
             configs = DatasetConfigs.__new__(DatasetConfigs)
             configs.configs = [({"_preloaded_dataset": dataset}, dataset.name)]
             configs.cache = {dataset.name: self._extract_dataset_cache(dataset)}
+            configs._task_types = ["auto"]  # Default task type for wrapped datasets
             return configs
 
         # Handle numpy arrays and tuples
@@ -316,6 +317,7 @@ class PipelineOrchestrator:
         configs = DatasetConfigs.__new__(DatasetConfigs)
         configs.configs = [({"_preloaded_dataset": spectro_dataset}, dataset_name)]
         configs.cache = {dataset_name: self._extract_dataset_cache(spectro_dataset)}
+        configs._task_types = ["auto"]  # Default task type for wrapped datasets
         return configs
 
     def _split_and_add_data(self, dataset: SpectroDataset, X: np.ndarray, y: Optional[np.ndarray], partition_info: Dict) -> None:

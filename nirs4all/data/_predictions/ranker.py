@@ -954,7 +954,9 @@ class PredictionRanker:
                                 "train_score": row.get("train_score"),
                                 "val_score": row.get("val_score"),
                                 "test_score": row.get("test_score"),
-                                "aggregated": was_aggregated
+                                "aggregated": was_aggregated,
+                                "branch_id": row.get("branch_id"),
+                                "branch_name": row.get("branch_name"),
                             })
                             result["id"] = result["rank_id"]
 
@@ -1071,7 +1073,9 @@ class PredictionRanker:
                         "train_score": row.get("train_score"),
                         "val_score": row.get("val_score"),
                         "test_score": row.get("test_score"),
-                        "aggregated": was_aggregated
+                        "aggregated": was_aggregated,
+                        "branch_id": row.get("branch_id"),
+                        "branch_name": row.get("branch_name"),
                     })
                     result["id"] = result["rank_id"]
 

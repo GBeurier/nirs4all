@@ -32,6 +32,8 @@ class EnsembleUtils:
 
         Args:
             probability_arrays: List of probability arrays, each shape (n_samples, n_classes).
+                               Arrays can have different numbers of classes; they will be
+                               padded/aligned to the maximum number of classes found.
             weights: Optional weights for each model (fold weights based on validation scores).
                     If None, uses uniform weights.
             use_confidence_weighting: If True, additionally weight each fold's contribution
@@ -44,19 +46,34 @@ class EnsembleUtils:
                 - averaged_probabilities: Averaged probabilities (n_samples, n_classes)
 
         Raises:
-            ValueError: If probability_arrays is empty or shapes don't match.
+            ValueError: If probability_arrays is empty or sample counts don't match.
         """
         if not probability_arrays:
             raise ValueError("probability_arrays cannot be empty")
 
-        # Validate shapes
-        base_shape = probability_arrays[0].shape
-        for i, arr in enumerate(probability_arrays):
-            if arr.shape != base_shape:
-                raise ValueError(f"Array {i} has shape {arr.shape}, expected {base_shape}")
+        # Validate sample counts and find max classes
+        n_samples = probability_arrays[0].shape[0]
+        max_classes = probability_arrays[0].shape[1] if probability_arrays[0].ndim > 1 else 1
 
-        n_models = len(probability_arrays)
-        n_samples = base_shape[0]
+        for i, arr in enumerate(probability_arrays):
+            if arr.shape[0] != n_samples:
+                raise ValueError(f"Array {i} has {arr.shape[0]} samples, expected {n_samples}")
+            n_classes = arr.shape[1] if arr.ndim > 1 else 1
+            max_classes = max(max_classes, n_classes)
+
+        # Align arrays to max_classes by padding with zeros
+        aligned_arrays = []
+        for arr in probability_arrays:
+            if arr.ndim == 1:
+                arr = arr.reshape(-1, 1)
+            n_classes = arr.shape[1]
+            if n_classes < max_classes:
+                # Pad with zeros for missing classes
+                padding = np.zeros((n_samples, max_classes - n_classes), dtype=arr.dtype)
+                arr = np.hstack([arr, padding])
+            aligned_arrays.append(arr)
+
+        n_models = len(aligned_arrays)
 
         # Default to uniform fold weights
         if weights is None:
@@ -69,12 +86,12 @@ class EnsembleUtils:
         if use_confidence_weighting:
             # Confidence-weighted averaging: each sample gets per-fold weights
             # based on prediction confidence (max probability)
-            averaged_probs = np.zeros_like(probability_arrays[0], dtype=float)
+            averaged_probs = np.zeros((n_samples, max_classes), dtype=float)
 
             for sample_idx in range(n_samples):
                 # Compute confidence for each fold at this sample
                 confidences = np.array([
-                    np.max(probs[sample_idx]) for probs in probability_arrays
+                    np.max(probs[sample_idx]) for probs in aligned_arrays
                 ])
 
                 # Combine fold weights with confidence weights
@@ -82,12 +99,12 @@ class EnsembleUtils:
                 combined_weights = combined_weights / np.sum(combined_weights)  # Normalize
 
                 # Weighted average for this sample
-                for fold_idx, probs in enumerate(probability_arrays):
+                for fold_idx, probs in enumerate(aligned_arrays):
                     averaged_probs[sample_idx] += combined_weights[fold_idx] * probs[sample_idx]
         else:
             # Standard weighted average of probabilities
-            averaged_probs = np.zeros_like(probability_arrays[0], dtype=float)
-            for probs, w in zip(probability_arrays, fold_weights):
+            averaged_probs = np.zeros((n_samples, max_classes), dtype=float)
+            for probs, w in zip(aligned_arrays, fold_weights):
                 averaged_probs += w * probs
 
         # Get class predictions via argmax

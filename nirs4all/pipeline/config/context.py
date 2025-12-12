@@ -47,6 +47,8 @@ class DataSelector(MutableMapping):
         fold_id: Optional fold identifier for cross-validation
         include_augmented: Whether to include augmented samples
         y: Optional target processing version (e.g. "numeric", "scaled")
+        branch_id: Optional branch identifier for pipeline branching (0-indexed)
+        branch_name: Optional human-readable branch name for tracking
 
     Example:
         >>> selector = DataSelector(partition="train", processing=[["raw"]])
@@ -62,6 +64,8 @@ class DataSelector(MutableMapping):
     fold_id: Optional[int] = None
     include_augmented: bool = False
     y: Optional[str] = None
+    branch_id: Optional[int] = None
+    branch_name: Optional[str] = None
     _extra: Dict[str, Any] = field(default_factory=dict, repr=False)
 
     def __iter__(self) -> Iterator[str]:
@@ -118,7 +122,9 @@ class DataSelector(MutableMapping):
             concat_source=self.concat_source,
             fold_id=self.fold_id,
             include_augmented=self.include_augmented,
-            y=self.y
+            y=self.y,
+            branch_id=self.branch_id,
+            branch_name=self.branch_name
         )
         new_selector._extra = deepcopy(self._extra)
         return new_selector
@@ -191,6 +197,26 @@ class DataSelector(MutableMapping):
         """
         new_selector = self.copy()
         new_selector.include_augmented = include_augmented
+        return new_selector
+
+    def with_branch(
+        self,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None
+    ) -> "DataSelector":
+        """
+        Create new selector with updated branch information.
+
+        Args:
+            branch_id: Branch identifier (0-indexed)
+            branch_name: Human-readable branch name
+
+        Returns:
+            New DataSelector with updated branch info
+        """
+        new_selector = self.copy()
+        new_selector.branch_id = branch_id
+        new_selector.branch_name = branch_name
         return new_selector
 
 
@@ -447,6 +473,25 @@ class ExecutionContext:
         """
         new_ctx = self.copy()
         new_ctx.metadata = dataclass_replace(new_ctx.metadata, **kwargs)
+        return new_ctx
+
+    def with_branch(
+        self,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None
+    ) -> "ExecutionContext":
+        """
+        Create new context with updated branch information.
+
+        Args:
+            branch_id: Branch identifier (0-indexed)
+            branch_name: Human-readable branch name
+
+        Returns:
+            New ExecutionContext with updated branch info
+        """
+        new_ctx = self.copy()
+        new_ctx.selector = new_ctx.selector.with_branch(branch_id, branch_name)
         return new_ctx
 
     def get_selector(self) -> DataSelector:

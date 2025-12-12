@@ -162,12 +162,14 @@ class HighLeverageFilter(SampleFilter):
         if n_samples == 0:
             self.threshold_ = float('inf')
             self.mean_ = np.zeros(n_features) if n_features > 0 else np.array([])
+            self.precision_ = np.eye(n_features) if n_features > 0 else np.array([[1.0]])
             return self
 
         if n_samples == 1:
             self.threshold_ = float('inf')
             self.mean_ = X[0].copy()
             self._leverages_ = np.array([1.0])  # Single sample has max leverage
+            self.precision_ = np.eye(n_features) if n_features > 0 else np.array([[1.0]])
             return self
 
         if n_samples < 2:

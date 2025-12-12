@@ -31,6 +31,8 @@ class ArtifactMeta(TypedDict):
     size: int           # Size in bytes
     saved_at: str       # ISO timestamp
     step: int           # Pipeline step number (set by caller)
+    branch_id: Optional[int]      # Branch ID for pipeline branching (None if not in branch)
+    branch_name: Optional[str]    # Human-readable branch name
 
 
 # Framework detection cache
@@ -449,7 +451,9 @@ def persist(
     obj: Any,
     artifacts_dir: Union[str, Path],
     name: str,
-    format_hint: Optional[str] = None
+    format_hint: Optional[str] = None,
+    branch_id: Optional[int] = None,
+    branch_name: Optional[str] = None
 ) -> ArtifactMeta:
     """
     Persist object to _binaries storage with meaningful names.
@@ -459,9 +463,11 @@ def persist(
         artifacts_dir: Path to run _binaries/ directory
         name: Artifact name (e.g., "scaler", "model")
         format_hint: Optional format hint ('sklearn', 'tensorflow', etc.)
+        branch_id: Optional branch ID for pipeline branching
+        branch_name: Optional human-readable branch name
 
     Returns:
-        ArtifactMeta with hash, path, format, size
+        ArtifactMeta with hash, path, format, size, and branch info
 
     Raises:
         ValueError: If object cannot be serialized
@@ -511,7 +517,9 @@ def persist(
         "nirs4all_version": _get_nirs4all_version(),
         "size": len(data),
         "saved_at": datetime.now(timezone.utc).isoformat(),
-        "step": -1  # Caller must set this
+        "step": -1,  # Caller must set this
+        "branch_id": branch_id,
+        "branch_name": branch_name
     }
 
 

@@ -62,14 +62,32 @@ class PipelineConfigs:
         # print(f"✅ {len(self.steps)} pipeline configuration(s).")
 
     @staticmethod
-    def _has_gen_keys(obj: Any) -> bool:
-        """Recursively check if the configuration contains 'or' keys."""
+    def _has_gen_keys(obj: Any, skip_branch: bool = True) -> bool:
+        """Recursively check if the configuration contains generator keys.
+
+        Args:
+            obj: Configuration object to check
+            skip_branch: If True, skip generator detection inside 'branch' keys
+                         (these are handled by BranchController at runtime)
+
+        Returns:
+            True if generator keys are found at the pipeline level
+        """
         if isinstance(obj, dict):
+            # Skip content inside 'branch' key - BranchController handles those
+            if skip_branch and "branch" in obj:
+                # Check other keys but skip branch content
+                return any(
+                    PipelineConfigs._has_gen_keys(v, skip_branch)
+                    for k, v in obj.items()
+                    if k != "branch"
+                )
+
             if "_or_" in obj or "_range_" in obj:
                 return True
-            return any(PipelineConfigs._has_gen_keys(v) for v in obj.values())
+            return any(PipelineConfigs._has_gen_keys(v, skip_branch) for v in obj.values())
         elif isinstance(obj, list):
-            return any(PipelineConfigs._has_gen_keys(item) for item in obj)
+            return any(PipelineConfigs._has_gen_keys(item, skip_branch) for item in obj)
         return False
 
     @staticmethod

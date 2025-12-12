@@ -63,10 +63,10 @@ RFTabPFNModel = RandomForestTabPFNRegressor if TASK_TYPE == "regression" else Ra
 tabpfn_real_path = 'tabpfn-v2.5-regressor-v2.5_real.ckpt' if TASK_TYPE == "regression" else 'tabpfn-v2.5-classifier-v2.5_real.ckpt'
 # Define the pipeline
 pipeline = [
-    ## Filtering
+    # Filtering
     # {
     #     "sample_filter": {
-    #         "filters": [HighLeverageFilter, XOutlierFilter(method="pca_residual", n_components=30)],
+    #         "filters": [YOutlierFilter(method="percentile", upper_percentile=70, lower_percentile=0)],  # HighLeverageFilter, XOutlierFilter(method="pca_residual", n_components=30),
     #         "mode": "any",
     #         "report": True,  # Print filtering report
     #     }
@@ -84,11 +84,11 @@ pipeline = [
     # {"split": GroupKFold(n_splits=3), "group": AGGREGATION_KEY},
 
     ## Processings
-    {"y_processing": [QuantileTransformer(n_quantiles=150, output_distribution='normal', random_state=42), StandardScaler()]},
-    # {"y_processing": StandardScaler()},
+    # {"y_processing": [QuantileTransformer(n_quantiles=150, output_distribution='normal', random_state=42), StandardScaler()]},
+    {"y_processing": StandardScaler()},
     StandardScaler(),
     SavitzkyGolay(),
-    PCA(n_components=0.999, random_state=42, whiten=True),
+    PCA(n_components=0.99, random_state=42, whiten=True),
     StandardScaler(),
     # PowerTransformer(),
 
@@ -110,7 +110,7 @@ pipeline = [
     #     "name": "TabPFN",
     # },
     {
-        "model": TabPFNModel(n_estimators=16, device='cuda', random_state=42, model_path=tabpfn_real_path),
+        "model": TabPFNModel(n_estimators=4, device='cuda', random_state=42, model_path=tabpfn_real_path),
         "name": "TabPFN-real",
     },
     # {

@@ -211,7 +211,9 @@ class FeatureSelectionController(OperatorController):
                         step_number=runtime_context.step_number,
                         name=new_operator_name,
                         obj=selector,
-                        format_hint='sklearn'
+                        format_hint='sklearn',
+                        branch_id=context.selector.branch_id,
+                        branch_name=context.selector.branch_name
                     )
                     fitted_selectors.append(artifact)
 

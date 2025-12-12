@@ -49,6 +49,7 @@ BRAIN = emoji("🧠 ", "")
 MICROSCOPE = emoji("🔬 ", "")
 PALETTE = emoji("🎨 ", "")
 CHECKMARK = emoji("✓ ", "*")
+BRANCH = emoji("🌿 ", "[BRANCH] ")
 
 # Arrow indicators for metrics
 ARROW_UP = emoji("↑", "^")
