@@ -177,6 +177,7 @@ class XOutlierFilter(SampleFilter):
             # Set minimal state so get_mask returns empty array
             self.threshold_ = float('inf')
             self.center_ = np.zeros(n_features) if n_features > 0 else np.array([])
+            self.precision_ = np.eye(n_features) if n_features > 0 else np.array([[1.0]])
             return self
 
         if n_samples == 1:
@@ -184,6 +185,7 @@ class XOutlierFilter(SampleFilter):
             self.threshold_ = float('inf')
             self.center_ = X[0].copy()
             self._distances_ = np.array([0.0])
+            self.precision_ = np.eye(n_features) if n_features > 0 else np.array([[1.0]])
             return self
 
         if n_samples < 2:

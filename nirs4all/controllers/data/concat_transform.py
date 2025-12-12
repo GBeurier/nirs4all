@@ -188,7 +188,7 @@ class ConcatAugmentationController(OperatorController):
                     if isinstance(operation, dict) and "concat_transform" in operation:
                         transformed, nested_artifacts = self._execute_nested_concat(
                             operation["concat_transform"], train_2d, all_2d, binary_key,
-                            mode, loaded_binaries, runtime_context
+                            mode, loaded_binaries, runtime_context, context
                         )
                         all_artifacts.extend(nested_artifacts)
                     # Handle chain vs single transformer
@@ -196,14 +196,14 @@ class ConcatAugmentationController(OperatorController):
                         # Chain: [A, B, C] → C(B(A(X)))
                         transformed, chain_artifacts = self._execute_chain(
                             operation, train_2d, all_2d, binary_key,
-                            mode, loaded_binaries, runtime_context
+                            mode, loaded_binaries, runtime_context, context
                         )
                         all_artifacts.extend(chain_artifacts)
                     else:
                         # Single transformer
                         transformed, artifact = self._execute_single(
                             operation, train_2d, all_2d, binary_key,
-                            mode, loaded_binaries, runtime_context
+                            mode, loaded_binaries, runtime_context, context
                         )
                         if artifact:
                             all_artifacts.append(artifact)
@@ -434,7 +434,8 @@ class ConcatAugmentationController(OperatorController):
         binary_key: str,
         mode: str,
         loaded_binaries: Optional[List[Tuple[str, Any]]],
-        runtime_context: 'RuntimeContext'
+        runtime_context: 'RuntimeContext',
+        context: Optional['ExecutionContext'] = None
     ) -> Tuple[np.ndarray, Optional[Dict[str, Any]]]:
         """
         Execute a single transformer.
@@ -447,6 +448,7 @@ class ConcatAugmentationController(OperatorController):
             mode: Execution mode
             loaded_binaries: Pre-loaded binaries for predict mode
             runtime_context: Runtime infrastructure
+            context: Optional execution context for branch info
 
         Returns:
             Tuple of (transformed_data, artifact_metadata)
@@ -466,11 +468,15 @@ class ConcatAugmentationController(OperatorController):
 
         artifact = None
         if mode == "train" and runtime_context.saver is not None:
+            branch_id = context.selector.branch_id if context else None
+            branch_name = context.selector.branch_name if context else None
             artifact = runtime_context.saver.persist_artifact(
                 step_number=runtime_context.step_number,
                 name=binary_key,
                 obj=fitted,
-                format_hint='sklearn'
+                format_hint='sklearn',
+                branch_id=branch_id,
+                branch_name=branch_name
             )
 
         return transformed, artifact
@@ -483,7 +489,8 @@ class ConcatAugmentationController(OperatorController):
         binary_key_base: str,
         mode: str,
         loaded_binaries: Optional[List[Tuple[str, Any]]],
-        runtime_context: 'RuntimeContext'
+        runtime_context: 'RuntimeContext',
+        context: Optional['ExecutionContext'] = None
     ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
         """
         Execute a chain of transformers sequentially: [A, B, C] → C(B(A(X))).
@@ -496,6 +503,7 @@ class ConcatAugmentationController(OperatorController):
             mode: Execution mode
             loaded_binaries: Pre-loaded binaries for predict mode
             runtime_context: Runtime infrastructure
+            context: Optional execution context for branch info
 
         Returns:
             Tuple of (final_transformed_data, list_of_artifact_metadata)
@@ -520,11 +528,15 @@ class ConcatAugmentationController(OperatorController):
             current_all = fitted.transform(current_all)
 
             if mode == "train" and runtime_context.saver is not None:
+                branch_id = context.selector.branch_id if context else None
+                branch_name = context.selector.branch_name if context else None
                 artifact = runtime_context.saver.persist_artifact(
                     step_number=runtime_context.step_number,
                     name=binary_key,
                     obj=fitted,
-                    format_hint='sklearn'
+                    format_hint='sklearn',
+                    branch_id=branch_id,
+                    branch_name=branch_name
                 )
                 artifacts.append(artifact)
 
@@ -538,7 +550,8 @@ class ConcatAugmentationController(OperatorController):
         binary_key_base: str,
         mode: str,
         loaded_binaries: Optional[List[Tuple[str, Any]]],
-        runtime_context: 'RuntimeContext'
+        runtime_context: 'RuntimeContext',
+        context: Optional['ExecutionContext'] = None
     ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
         """
         Execute a nested concat_transform: concatenate multiple pipelines.
@@ -558,6 +571,7 @@ class ConcatAugmentationController(OperatorController):
             mode: Execution mode
             loaded_binaries: Pre-loaded binaries for predict mode
             runtime_context: Runtime infrastructure
+            context: Optional execution context for branch info
 
         Returns:
             Tuple of (concatenated_data, list_of_artifact_metadata)
@@ -585,7 +599,7 @@ class ConcatAugmentationController(OperatorController):
             if isinstance(operation, dict) and "concat_transform" in operation:
                 transformed, nested_artifacts = self._execute_nested_concat(
                     operation["concat_transform"], train_data, all_data, binary_key,
-                    mode, loaded_binaries, runtime_context
+                    mode, loaded_binaries, runtime_context, context
                 )
                 artifacts.extend(nested_artifacts)
             # Handle chain vs single transformer
@@ -593,14 +607,14 @@ class ConcatAugmentationController(OperatorController):
                 # Chain: [A, B, C] → C(B(A(X)))
                 transformed, chain_artifacts = self._execute_chain(
                     operation, train_data, all_data, binary_key,
-                    mode, loaded_binaries, runtime_context
+                    mode, loaded_binaries, runtime_context, context
                 )
                 artifacts.extend(chain_artifacts)
             else:
                 # Single transformer
                 transformed, artifact = self._execute_single(
                     operation, train_data, all_data, binary_key,
-                    mode, loaded_binaries, runtime_context
+                    mode, loaded_binaries, runtime_context, context
                 )
                 if artifact:
                     artifacts.append(artifact)

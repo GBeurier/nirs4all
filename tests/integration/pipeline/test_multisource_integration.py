@@ -44,7 +44,7 @@ class TestMultisourceIntegration:
             {
                 "feature_augmentation": {
                     "_or_": [StandardNormalVariate(), SavitzkyGolay(), Gaussian(), Haar()],
-                    "size": [(2, 3), (1, 3)],
+                    "pick": (1, 3),
                     "count": 3
                 }
             },

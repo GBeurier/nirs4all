@@ -149,7 +149,9 @@ class SimulationSaver:
         step_number: int,
         name: str,
         obj: Any,
-        format_hint: Optional[str] = None
+        format_hint: Optional[str] = None,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Persist artifact using the serializer with content-addressed storage.
@@ -162,6 +164,8 @@ class SimulationSaver:
             name: Artifact name (for reference)
             obj: Object to persist
             format_hint: Optional format hint for serializer
+            branch_id: Optional branch ID for pipeline branching
+            branch_name: Optional human-readable branch name
 
         Returns:
             Artifact metadata dictionary (empty if save_files=False)
@@ -171,6 +175,8 @@ class SimulationSaver:
             return {
                 "name": name,
                 "step": step_number,
+                "branch_id": branch_id,
+                "branch_name": branch_name,
                 "skipped": True,
                 "reason": "save_files=False"
             }
@@ -183,8 +189,15 @@ class SimulationSaver:
         artifacts_dir = self.base_path / "_binaries"
         artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-        # Persist using new serializer
-        artifact = persist(obj, artifacts_dir, name, format_hint)
+        # Persist using new serializer with branch info
+        artifact = persist(
+            obj,
+            artifacts_dir,
+            name,
+            format_hint,
+            branch_id=branch_id,
+            branch_name=branch_name
+        )
         artifact["step"] = step_number
 
         # Note: metadata tracking removed - using manifest system now

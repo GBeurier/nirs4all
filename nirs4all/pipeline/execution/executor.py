@@ -219,6 +219,9 @@ class PipelineExecutor:
     ) -> ExecutionContext:
         """Execute all steps in sequence.
 
+        Handles pipeline branching: when a branch step is encountered, subsequent
+        steps are executed on each branch context independently.
+
         Args:
             steps: List of steps to execute
             dataset: Dataset to process
@@ -231,6 +234,7 @@ class PipelineExecutor:
             Updated execution context
         """
         from nirs4all.pipeline.execution.result import ArtifactMeta
+        from nirs4all.utils.emoji import BRANCH
 
         for step in steps:
             self.step_number += 1
@@ -254,66 +258,119 @@ class PipelineExecutor:
                 if self.verbose > 1 and loaded_binaries:
                     print(f"🔍 Loaded {', '.join(b[0] for b in loaded_binaries)} binaries for step {self.step_number}")
 
-            try:
-                # Execute step via step runner
-                step_result = self.step_runner.execute(
+            # Check if we're in branch mode and this is NOT a branch step
+            branch_contexts = context.custom.get("branch_contexts", [])
+            is_branch_step = isinstance(step, dict) and "branch" in step
+
+            if branch_contexts and not is_branch_step:
+                # Execute step on each branch context
+                context = self._execute_step_on_branches(
                     step=step,
                     dataset=dataset,
                     context=context,
                     runtime_context=runtime_context,
                     loaded_binaries=loaded_binaries,
+                    prediction_store=prediction_store,
+                    all_artifacts=all_artifacts
+                )
+            else:
+                # Normal execution (single context)
+                context = self._execute_single_step(
+                    step=step,
+                    dataset=dataset,
+                    context=context,
+                    runtime_context=runtime_context,
+                    loaded_binaries=loaded_binaries,
+                    prediction_store=prediction_store,
+                    all_artifacts=all_artifacts
+                )
+
+        return context
+
+    def _execute_step_on_branches(
+        self,
+        step: Any,
+        dataset: SpectroDataset,
+        context: ExecutionContext,
+        runtime_context: Any,
+        loaded_binaries: Optional[List] = None,
+        prediction_store: Optional[Predictions] = None,
+        all_artifacts: Optional[List] = None
+    ) -> ExecutionContext:
+        """Execute a step on all branch contexts.
+
+        Args:
+            step: Step to execute
+            dataset: Dataset to process
+            context: Context containing branch_contexts in custom dict
+            runtime_context: Runtime infrastructure context
+            loaded_binaries: Pre-loaded binaries for predict mode
+            prediction_store: Prediction store
+            all_artifacts: List to accumulate artifacts
+
+        Returns:
+            Updated context with updated branch contexts
+        """
+        from nirs4all.pipeline.execution.result import ArtifactMeta
+        from nirs4all.utils.emoji import BRANCH
+
+        branch_contexts = context.custom.get("branch_contexts", [])
+
+        if not branch_contexts:
+            # No branches, execute normally
+            return self._execute_single_step(
+                step, dataset, context, runtime_context,
+                loaded_binaries, prediction_store, all_artifacts
+            )
+
+        if self.verbose > 0:
+            print(f"{BRANCH}Executing step on {len(branch_contexts)} branch(es)")
+
+        updated_branch_contexts = []
+
+        for branch_info in branch_contexts:
+            branch_id = branch_info["branch_id"]
+            branch_name = branch_info["name"]
+            branch_context = branch_info["context"]
+
+            if self.verbose > 0:
+                print(f"  {BRANCH}Branch {branch_id} ({branch_name})")
+
+            # Update step number on branch context
+            branch_context = branch_context.with_step_number(self.step_number)
+
+            # For predict mode, load binaries specifically for this branch
+            branch_binaries = None
+            if self.mode in ("predict", "explain") and self.binary_loader:
+                # Load binaries for this specific branch
+                branch_binaries = self.binary_loader.get_step_binaries(
+                    self.step_number, branch_id=branch_id
+                )
+                if not branch_binaries:
+                    # Fallback to non-branch binaries if no branch-specific ones exist
+                    branch_binaries = loaded_binaries
+
+            # Execute step on this branch
+            try:
+                step_result = self.step_runner.execute(
+                    step=step,
+                    dataset=dataset,
+                    context=branch_context,
+                    runtime_context=runtime_context,
+                    loaded_binaries=branch_binaries,
                     prediction_store=prediction_store
                 )
 
-                if self.verbose > 1:
-                    print(f"✅ Step {self.step_number} completed with {len(step_result.artifacts)} artifacts")
-                    print(dataset)
+                # Process artifacts
+                processed_artifacts = self._process_step_artifacts(
+                    step_result.artifacts,
+                    branch_id=branch_id,
+                    branch_name=branch_name
+                )
+                if all_artifacts is not None:
+                    all_artifacts.extend(processed_artifacts)
 
-                # Process artifacts (persist if needed)
-                processed_artifacts = []
-                for artifact in step_result.artifacts:
-                    if isinstance(artifact, (ArtifactMeta, dict)):
-                        # Legacy: already persisted (ArtifactMeta or dict representation)
-                        processed_artifacts.append(artifact)
-                    elif isinstance(artifact, tuple) and len(artifact) >= 2:
-                        # New: (obj, name, format_hint)
-                        obj, name = artifact[0], artifact[1]
-                        format_hint = artifact[2] if len(artifact) > 2 else None
-
-                        if self.saver:
-                            meta = self.saver.persist_artifact(
-                                step_number=self.step_number,
-                                name=name,
-                                obj=obj,
-                                format_hint=format_hint
-                            )
-                            processed_artifacts.append(meta)
-
-                # Process outputs (save files)
-                for output in step_result.outputs:
-                    if isinstance(output, dict):
-                        # Legacy: already saved
-                        pass
-                    elif isinstance(output, tuple) and len(output) >= 3:
-                        # New: (data, name, type)
-                        data, name, type_hint = output
-                        if self.saver:
-                            self.saver.save_output(
-                                step_number=self.step_number,
-                                name=name,
-                                data=data,
-                                extension=f".{type_hint}" if not type_hint.startswith('.') else type_hint
-                            )
-
-                # Update context and accumulate artifacts
-                context = step_result.updated_context
-                all_artifacts.extend(processed_artifacts)
-
-                # Sync operation_count back from runtime_context (controllers may have incremented it)
-                if runtime_context:
-                    self.operation_count = runtime_context.operation_count
-
-                # Append artifacts to manifest if in train mode
+                # Append artifacts to manifest
                 if (self.mode == "train" and
                     self.manifest_manager and
                     runtime_context.pipeline_uid and
@@ -322,16 +379,202 @@ class PipelineExecutor:
                         runtime_context.pipeline_uid,
                         processed_artifacts
                     )
-                    if self.verbose > 1:
-                        print(f"📦 Appended {len(processed_artifacts)} artifacts to manifest")
+
+                # Update branch context
+                updated_branch_contexts.append({
+                    "branch_id": branch_id,
+                    "name": branch_name,
+                    "context": step_result.updated_context,
+                    # Preserve any additional metadata
+                    **{k: v for k, v in branch_info.items()
+                       if k not in ("branch_id", "name", "context")}
+                })
 
             except Exception as e:
                 if self.continue_on_error:
-                    print(f"⚠️  Step {self.step_number} failed but continuing: {str(e)}")
+                    print(f"⚠️  Branch {branch_id} step {self.step_number} failed: {str(e)}")
+                    # Keep original context on failure
+                    updated_branch_contexts.append(branch_info)
                 else:
-                    raise RuntimeError(f"Pipeline step {self.step_number} failed: {str(e)}") from e
+                    raise RuntimeError(
+                        f"Pipeline step {self.step_number} failed on branch {branch_id}: {str(e)}"
+                    ) from e
+
+        # Update context with new branch contexts
+        result_context = context.copy()
+        result_context.custom["branch_contexts"] = updated_branch_contexts
+
+        # Sync operation_count back from runtime_context
+        if runtime_context:
+            self.operation_count = runtime_context.operation_count
+
+        return result_context
+
+    def _execute_single_step(
+        self,
+        step: Any,
+        dataset: SpectroDataset,
+        context: ExecutionContext,
+        runtime_context: Any,
+        loaded_binaries: Optional[List] = None,
+        prediction_store: Optional[Predictions] = None,
+        all_artifacts: Optional[List] = None
+    ) -> ExecutionContext:
+        """Execute a single step (non-branched).
+
+        Args:
+            step: Step to execute
+            dataset: Dataset to process
+            context: Current execution context
+            runtime_context: Runtime infrastructure context
+            loaded_binaries: Pre-loaded binaries for predict mode
+            prediction_store: Prediction store
+            all_artifacts: List to accumulate artifacts
+
+        Returns:
+            Updated context
+        """
+        from nirs4all.pipeline.execution.result import ArtifactMeta
+
+        try:
+            # Execute step via step runner
+            step_result = self.step_runner.execute(
+                step=step,
+                dataset=dataset,
+                context=context,
+                runtime_context=runtime_context,
+                loaded_binaries=loaded_binaries,
+                prediction_store=prediction_store
+            )
+
+            if self.verbose > 1:
+                print(f"✅ Step {self.step_number} completed with {len(step_result.artifacts)} artifacts")
+                print(dataset)
+
+            # Process artifacts (persist if needed)
+            processed_artifacts = self._process_step_artifacts(step_result.artifacts)
+            if all_artifacts is not None:
+                all_artifacts.extend(processed_artifacts)
+
+            # Process outputs (save files)
+            for output in step_result.outputs:
+                if isinstance(output, dict):
+                    # Legacy: already saved
+                    pass
+                elif isinstance(output, tuple) and len(output) >= 3:
+                    # New: (data, name, type)
+                    data, name, type_hint = output
+                    if self.saver:
+                        self.saver.save_output(
+                            step_number=self.step_number,
+                            name=name,
+                            data=data,
+                            extension=f".{type_hint}" if not type_hint.startswith('.') else type_hint
+                        )
+
+            # Update context
+            context = step_result.updated_context
+
+            # Sync operation_count back from runtime_context
+            if runtime_context:
+                self.operation_count = runtime_context.operation_count
+
+            # Append artifacts to manifest if in train mode
+            if (self.mode == "train" and
+                self.manifest_manager and
+                runtime_context.pipeline_uid and
+                processed_artifacts):
+                self.manifest_manager.append_artifacts(
+                    runtime_context.pipeline_uid,
+                    processed_artifacts
+                )
+                if self.verbose > 1:
+                    print(f"📦 Appended {len(processed_artifacts)} artifacts to manifest")
+
+        except Exception as e:
+            if self.continue_on_error:
+                print(f"⚠️  Step {self.step_number} failed but continuing: {str(e)}")
+            else:
+                raise RuntimeError(f"Pipeline step {self.step_number} failed: {str(e)}") from e
 
         return context
+
+    def _process_step_artifacts(
+        self,
+        artifacts: List[Any],
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None
+    ) -> List[Any]:
+        """Process and persist step artifacts.
+
+        Args:
+            artifacts: Raw artifacts from step execution
+            branch_id: Optional branch ID for artifact naming
+            branch_name: Optional branch name for metadata
+
+        Returns:
+            List of processed artifact metadata
+        """
+        from nirs4all.pipeline.execution.result import ArtifactMeta
+
+        processed_artifacts = []
+        for artifact in artifacts:
+            if isinstance(artifact, (ArtifactMeta, dict)):
+                # Legacy: already persisted
+                meta = artifact
+                # Add branch metadata if applicable
+                if branch_id is not None and isinstance(meta, dict):
+                    meta = dict(meta)  # Copy to avoid mutation
+                    meta["branch_id"] = branch_id
+                    meta["branch_name"] = branch_name
+                processed_artifacts.append(meta)
+            elif isinstance(artifact, tuple) and len(artifact) >= 2:
+                # New: (obj, name, format_hint)
+                obj, name = artifact[0], artifact[1]
+                format_hint = artifact[2] if len(artifact) > 2 else None
+
+                # Add branch prefix to name if branching
+                if branch_id is not None:
+                    name = f"{name}_b{branch_id}"
+
+                if self.saver:
+                    meta = self.saver.persist_artifact(
+                        step_number=self.step_number,
+                        name=name,
+                        obj=obj,
+                        format_hint=format_hint,
+                        branch_id=branch_id,
+                        branch_name=branch_name
+                    )
+                    processed_artifacts.append(meta)
+
+        return processed_artifacts
+
+    def _filter_binaries_for_branch(
+        self,
+        loaded_binaries: List,
+        branch_id: int
+    ) -> List:
+        """Filter loaded binaries for a specific branch.
+
+        Filters artifacts by branch_id metadata. Artifacts without branch_id
+        (pre-branch/shared) are included for all branches.
+
+        Args:
+            loaded_binaries: All loaded binaries for this step as (name, obj) tuples
+            branch_id: Target branch ID
+
+        Returns:
+            Filtered list of binaries for this branch (including shared artifacts)
+        """
+        if not loaded_binaries:
+            return loaded_binaries
+
+        # Note: loaded_binaries are (name, obj) tuples from BinaryLoader
+        # The BinaryLoader now handles branch filtering internally via get_step_binaries(step, branch_id)
+        # This method is kept for backward compatibility but primarily relies on BinaryLoader
+
+        return loaded_binaries
 
     def _compute_pipeline_hash(self, steps: List[Any]) -> str:
         """Compute MD5 hash of pipeline configuration.

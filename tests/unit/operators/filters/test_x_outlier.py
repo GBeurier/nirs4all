@@ -277,13 +277,16 @@ class TestXOutlierFilterEdgeCases:
         with pytest.raises(ValueError, match="has not been fitted"):
             filter_obj.get_mask(X)
 
-    def test_insufficient_samples_raises_error(self):
-        """Test that insufficient samples raises ValueError."""
+    def test_insufficient_samples_returns_gracefully(self):
+        """Test that insufficient samples (1 sample) is handled gracefully."""
         X = np.random.randn(1, 5)  # Only 1 sample
         filter_obj = XOutlierFilter()
 
-        with pytest.raises(ValueError, match="at least 2 samples"):
-            filter_obj.fit(X)
+        # Should handle single sample gracefully, not raise
+        filter_obj.fit(X)
+        mask = filter_obj.get_mask(X)
+        assert len(mask) == 1
+        assert mask[0] == True  # Single sample should not be considered an outlier
 
 
 class TestXOutlierFilterHelperMethods:

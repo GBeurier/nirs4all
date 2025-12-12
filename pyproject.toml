@@ -70,6 +70,7 @@ all-gpu = [
     "keras>=3.0.0",
     "jax>=0.4.10",
     "jaxlib>=0.4.10",
+    "flax",
     "ikpls>=1.0.0",
     "pyopls>=20.0",
     "mbpls>=1.0.0",

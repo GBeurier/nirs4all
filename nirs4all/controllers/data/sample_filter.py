@@ -271,7 +271,9 @@ class SampleFilterController(OperatorController):
                     step_number=runtime_context.step_number,
                     name=operator_name,
                     obj=filter_obj,
-                    format_hint='sklearn'
+                    format_hint='sklearn',
+                    branch_id=context.selector.branch_id,
+                    branch_name=context.selector.branch_name
                 )
                 artifacts.append(artifact)
 

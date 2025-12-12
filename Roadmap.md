@@ -1,11 +1,12 @@
 ## ROADMAP
 
-> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
----- > test interleaved for nitrosorgh on PLS or random forest.
-
 > [Predictions] as a pipeline context for custom stacking.
+> [Stacking] Use prediction as X for stacking.
 
-> [TabReport] aggregated
+> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
+---- > test interleaved for nitrosorgh on PLS or random forest. and force layout option.
+
+> [TabReport] include > aggregated
 
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 
@@ -45,7 +46,7 @@
 
 > [Predict] Verify predict from model, pipeline, folder, file, pred, ...
 
-> [Stacking] Use prediction as X for stacking.
+
 
 **RELEASE** 0.6.0: UI ready
 

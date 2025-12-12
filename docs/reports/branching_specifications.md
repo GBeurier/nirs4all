@@ -1584,7 +1584,7 @@ analyzer.generate_report("reports/branch_comparison.html", branch_comparison=Tru
 
 ### Phase 7: Outlier Excluder Branches (Week 7-8)
 
-**Scope**: Sample-based branching with outlier detection strategies
+**Scope**: Sample-based branching with outlier detection strategies - Reuse existing outliers exclusion methods
 
 **Tasks**:
 1. Implement `OutlierExcluderController` or extend `BranchController`
@@ -1912,6 +1912,75 @@ tests/
 - [TransformerController](../../nirs4all/controllers/transforms/transformer.py): Processing update logic
 
 ---
+
+## 10. Future Improvements
+
+The current Phase 5 implementation uses class-name based fallback search for artifacts when operation counters don't match between training and prediction modes. While functional, this approach has limitations. The following improvements are planned:
+
+### 10.1 Structural Path-Based Artifact Naming
+
+**Current behavior:** Artifacts are named with global operation counters (e.g., `Ridge_5.pkl`, `StandardScaler_2`), which creates fragile coupling between training execution order and prediction.
+
+**Proposed improvement:** Use structural pipeline paths for artifact naming:
+- `step_2/branch_1/StandardScaler.pkl` instead of `StandardScaler_2`
+- `step_3/branch_0/Ridge_fold0.pkl` instead of `Ridge_5.pkl`
+
+**Benefits:**
+- Deterministic naming independent of execution order
+- Self-documenting artifact organization
+- Easier debugging and manual inspection
+- No fallback search needed in predict mode
+
+### 10.2 Direct Manifest Lookup for Artifact Loading
+
+**Current behavior:** In predict mode, the loader generates expected artifact names using `runner.next_op()`, then falls back to class-name search when exact match fails.
+
+**Proposed improvement:** Store explicit artifact mappings in manifest per branch:
+```yaml
+artifacts:
+  - step: 2
+    branch_id: 1
+    branch_name: "minmax_branch"
+    artifacts:
+      - name: "MinMaxScaler"
+        path: "_binaries/MinMaxScaler_abc123.pkl"
+        hash: "sha256:..."
+```
+
+In predict mode, look up artifacts directly from manifest using `(step, branch_id)` key instead of regenerating names.
+
+**Benefits:**
+- Single source of truth for artifact locations
+- Eliminates operation counter synchronization issues
+- Supports artifact versioning and deduplication
+- Enables manifest-based validation before execution
+
+### 10.3 Branch Execution State Persistence
+
+**Current behavior:** Branch execution state (which branches were executed, their order, operation counts) is implicit and reconstructed during prediction.
+
+**Proposed improvement:** Persist branch execution state in manifest:
+```yaml
+branch_execution:
+  step: 2
+  branches:
+    - id: 0
+      name: "standard_branch"
+      ops_start: 1
+      ops_end: 4
+      artifacts: ["StandardScaler_1", "Ridge_1", "Ridge_2"]
+    - id: 1
+      name: "minmax_branch"
+      ops_start: 5
+      ops_end: 8
+      artifacts: ["MinMaxScaler_2", "Ridge_5", "Ridge_6"]
+```
+
+**Benefits:**
+- Predictable artifact resolution in predict mode
+- Support for partial branch execution analysis
+- Enables branch-level caching and incremental training
+
 ---
 
 **Author:** Senior Python/ML Developer

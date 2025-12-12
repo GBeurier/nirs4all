@@ -141,7 +141,11 @@ class Predictions:
         n_features: int = 0,
         preprocessings: str = "",
         best_params: Optional[Dict[str, Any]] = None,
-        scores: Optional[Dict[str, Dict[str, float]]] = None
+        scores: Optional[Dict[str, Dict[str, float]]] = None,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None,
+        exclusion_count: Optional[int] = None,
+        exclusion_rate: Optional[float] = None
     ) -> str:
         """
         Add a single prediction to storage.
@@ -177,6 +181,10 @@ class Predictions:
             preprocessings: Preprocessing steps applied
             best_params: Best hyperparameters
             scores: Dictionary of pre-computed scores per partition
+            branch_id: Branch identifier for pipeline branching (0-indexed)
+            branch_name: Human-readable branch name
+            exclusion_count: Number of samples excluded during training (outlier_excluder)
+            exclusion_rate: Rate of samples excluded (0.0-1.0, outlier_excluder)
 
         Returns:
             Prediction ID
@@ -210,6 +218,10 @@ class Predictions:
             "preprocessings": preprocessings,
             "best_params": best_params if best_params is not None else {},
             "scores": scores if scores is not None else {},
+            "branch_id": branch_id,
+            "branch_name": branch_name or "",
+            "exclusion_count": exclusion_count,
+            "exclusion_rate": exclusion_rate,
         }
 
         return self._storage.add_row(row_dict)
@@ -242,7 +254,9 @@ class Predictions:
         n_features: Union[int, List[int]] = 0,
         preprocessings: Union[str, List[str]] = "",
         best_params: Union[Optional[Dict[str, Any]], List[Optional[Dict[str, Any]]]] = None,
-        scores: Union[Optional[Dict[str, Dict[str, float]]], List[Optional[Dict[str, Dict[str, float]]]]] = None
+        scores: Union[Optional[Dict[str, Dict[str, float]]], List[Optional[Dict[str, Dict[str, float]]]]] = None,
+        branch_id: Union[Optional[int], List[Optional[int]]] = None,
+        branch_name: Union[Optional[str], List[Optional[str]]] = None
     ) -> None:
         """
         Add multiple predictions to storage (batch operation).
@@ -282,6 +296,8 @@ class Predictions:
             'preprocessings': preprocessings,
             'best_params': best_params,
             'scores': scores,
+            'branch_id': branch_id,
+            'branch_name': branch_name,
         }
 
         # Find the maximum length (number of predictions)
@@ -320,6 +336,8 @@ class Predictions:
         model_name: Optional[str] = None,
         fold_id: Optional[str] = None,
         step_idx: Optional[int] = None,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None,
         load_arrays: bool = True,
         **kwargs
     ) -> List[Dict[str, Any]]:
@@ -336,6 +354,8 @@ class Predictions:
             model_name: Filter by model name
             fold_id: Filter by fold ID
             step_idx: Filter by step index
+            branch_id: Filter by branch ID (for pipeline branching)
+            branch_name: Filter by branch name (for pipeline branching)
             load_arrays: If True, loads actual arrays from registry (slower).
                         If False, returns metadata only with array references (fast).
             **kwargs: Additional filter criteria
@@ -349,6 +369,8 @@ class Predictions:
             >>> preds = predictions.filter_predictions(dataset_name="wheat", load_arrays=False)
             >>> # Full query with arrays
             >>> preds = predictions.filter_predictions(dataset_name="wheat", load_arrays=True)
+            >>> # Filter by branch
+            >>> branch_preds = predictions.filter_predictions(branch_id=0)
         """
         df_filtered = self._indexer.filter(
             dataset_name=dataset_name,
@@ -357,6 +379,8 @@ class Predictions:
             model_name=model_name,
             fold_id=fold_id,
             step_idx=step_idx,
+            branch_id=branch_id,
+            branch_name=branch_name,
             **kwargs
         )
 
@@ -1307,7 +1331,7 @@ class Predictions:
             'model_name': entry['model_name'],
             'fold_id': entry['fold_id'],
             'step_idx': entry['step_idx'],
-            'op_counter': entry['op_counter']
+            'op_counter': entry.get('op_counter', entry.get('id', 0))
         }
 
         for partition in ['train', 'val', 'test']:

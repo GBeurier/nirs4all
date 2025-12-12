@@ -245,6 +245,8 @@ class BaseModelController(OperatorController, ABC):
 
         In prediction mode, uses all available data (partition=None) instead of splitting.
 
+        Also handles sample_partitioner branches, which restrict data to a subset of samples.
+
         Args:
             dataset: SpectroDataset with partitioned data.
             context: Execution context with partition and preprocessing info.
@@ -257,6 +259,12 @@ class BaseModelController(OperatorController, ABC):
         # Check if we're in prediction/explain mode
         mode = context.state.mode
 
+        # Check for sample partition (from sample_partitioner branches)
+        sample_partition = context.custom.get("sample_partition")
+        partition_sample_indices = None
+        if sample_partition:
+            partition_sample_indices = set(sample_partition.get("sample_indices", []))
+
         if mode in ("predict", "explain"):
             # In prediction mode, use all available data (no partition split)
             pred_context = context.with_partition(None)
@@ -266,6 +274,15 @@ class BaseModelController(OperatorController, ABC):
             # Build selector for y with processing from state
             pred_context.selector['y'] = pred_context.state.y_processing
             y_all = dataset.y(pred_context.selector)
+
+            # If sample partition is active, filter to partition samples
+            if partition_sample_indices:
+                all_sample_ids = dataset._indexer.x_indices(
+                    pred_context.selector, include_augmented=True, include_excluded=False
+                )
+                mask = np.array([int(sid) in partition_sample_indices for sid in all_sample_ids])
+                X_all = X_all[mask]
+                y_all = y_all[mask]
 
             # Return empty training data and all data as "test" for prediction
             empty_X = np.array([]).reshape(0, X_all.shape[1] if len(X_all.shape) > 1 else 0)
@@ -278,6 +295,8 @@ class BaseModelController(OperatorController, ABC):
                 # For regression, get numeric (unscaled) targets
                 pred_context.selector['y'] = 'numeric'
                 y_all_unscaled = dataset.y(pred_context.selector)
+                if partition_sample_indices:
+                    y_all_unscaled = y_all_unscaled[mask]
 
             return empty_X, empty_y, X_all, y_all, empty_y, y_all_unscaled
 
@@ -286,15 +305,32 @@ class BaseModelController(OperatorController, ABC):
         test_context = context.with_partition('test')
 
         X_train = dataset.x(train_context.selector, layout=layout)
+        X_test = dataset.x(test_context.selector, layout=layout)
 
         # Build selectors for y with processing from state
         train_context.selector['y'] = train_context.state.y_processing
         y_train = dataset.y(train_context.selector)
 
-        X_test = dataset.x(test_context.selector, layout=layout)
-
         test_context.selector['y'] = test_context.state.y_processing
         y_test = dataset.y(test_context.selector)
+
+        # If sample partition is active, filter train and test data
+        if partition_sample_indices:
+            # Get sample IDs for train partition
+            train_sample_ids = dataset._indexer.x_indices(
+                train_context.selector, include_augmented=True, include_excluded=False
+            )
+            train_mask = np.array([int(sid) in partition_sample_indices for sid in train_sample_ids])
+            X_train = X_train[train_mask]
+            y_train = y_train[train_mask]
+
+            # Get sample IDs for test partition
+            test_sample_ids = dataset._indexer.x_indices(
+                test_context.selector, include_augmented=True, include_excluded=False
+            )
+            test_mask = np.array([int(sid) in partition_sample_indices for sid in test_sample_ids])
+            X_test = X_test[test_mask]
+            y_test = y_test[test_mask]
 
         # For classification tasks, use the transformed targets for evaluation
         # For regression tasks, use the original "numeric" targets
@@ -302,6 +338,10 @@ class BaseModelController(OperatorController, ABC):
             # Use the same y context as the model training (transformed targets)
             y_train_unscaled = dataset.y(train_context.selector)
             y_test_unscaled = dataset.y(test_context.selector)
+            # Apply partition mask if active
+            if partition_sample_indices:
+                y_train_unscaled = y_train_unscaled[train_mask]
+                y_test_unscaled = y_test_unscaled[test_mask]
         else:
             # Use numeric targets for regression
             train_context.selector['y'] = 'numeric'
@@ -309,6 +349,10 @@ class BaseModelController(OperatorController, ABC):
 
             y_train_unscaled = dataset.y(train_context.selector)
             y_test_unscaled = dataset.y(test_context.selector)
+            # Apply partition mask if active
+            if partition_sample_indices:
+                y_train_unscaled = y_train_unscaled[train_mask]
+                y_test_unscaled = y_test_unscaled[test_mask]
         return X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled
 
     def _remap_folds_to_positions(
@@ -322,6 +366,10 @@ class BaseModelController(OperatorController, ABC):
         Folds are stored with absolute sample IDs (from the indexer), which remain
         valid even after sample filtering excludes samples. This method converts
         those sample IDs to positional indices into the current X_train array.
+
+        Also handles:
+        - Branch-specific outlier exclusion masks from outlier_excluder branches
+        - Sample partitioning from sample_partitioner branches
 
         Args:
             dataset: SpectroDataset with the fold information.
@@ -340,20 +388,52 @@ class BaseModelController(OperatorController, ABC):
         if mode in ("predict", "explain"):
             return raw_folds
 
-        # Get current active sample IDs for train partition (respecting exclusions)
+        # Get current active sample IDs for train partition (respecting indexer exclusions)
         train_context = context.with_partition("train")
         active_sample_ids = dataset._indexer.x_indices(  # noqa: SLF001
             train_context.selector, include_augmented=True, include_excluded=False
         )
 
+        # Check for sample partition (from sample_partitioner branches)
+        # When active, we need to filter active_sample_ids to only those in the partition
+        sample_partition = context.custom.get("sample_partition")
+        partition_sample_ids_set = None
+        if sample_partition:
+            partition_sample_ids_set = set(sample_partition.get("sample_indices", []))
+            # Filter active_sample_ids to only those in the partition
+            active_sample_ids = np.array([
+                sid for sid in active_sample_ids
+                if int(sid) in partition_sample_ids_set
+            ])
+
         # Build a mapping from sample ID to positional index
         id_to_pos = {int(sid): pos for pos, sid in enumerate(active_sample_ids)}
 
+        # Check for branch-specific outlier exclusion (from outlier_excluder branches)
+        outlier_exclusion = context.custom.get("outlier_exclusion")
+        excluded_sample_ids_set = set()
+        if outlier_exclusion:
+            # The outlier_exclusion stores:
+            # - mask: boolean array where True = keep, False = exclude
+            # - sample_indices: the sample IDs corresponding to the mask
+            mask = outlier_exclusion.get("mask")
+            sample_indices = outlier_exclusion.get("sample_indices", [])
+            if mask is not None and len(sample_indices) > 0:
+                # Get sample IDs that are excluded by this branch's outlier detection
+                for i, sid in enumerate(sample_indices):
+                    if i < len(mask) and not mask[i]:
+                        excluded_sample_ids_set.add(int(sid))
+
         # Remap each fold's sample IDs to positional indices
-        # Only include samples that are still active (not excluded)
+        # Only include samples that are still active (in partition, not excluded by indexer or outlier_excluder)
         remapped_folds = []
         for train_ids, val_ids in raw_folds:
-            train_indices = [id_to_pos[int(sid)] for sid in train_ids if int(sid) in id_to_pos]
+            # For train indices: filter to partition and exclude outlier_excluder samples
+            train_indices = [
+                id_to_pos[int(sid)] for sid in train_ids
+                if int(sid) in id_to_pos and int(sid) not in excluded_sample_ids_set
+            ]
+            # For val indices: filter to partition (keep all samples in partition for evaluation)
             val_indices = [id_to_pos[int(sid)] for sid in val_ids if int(sid) in id_to_pos]
             remapped_folds.append((train_indices, val_indices))
 
@@ -641,7 +721,11 @@ class BaseModelController(OperatorController, ABC):
 
                 # Only persist in train mode, not in predict/explain modes
                 if mode == "train":
-                    artifact = self._persist_model(runtime_context, model, model_id)
+                    artifact = self._persist_model(
+                        runtime_context, model, model_id,
+                        branch_id=context.selector.branch_id,
+                        branch_name=context.selector.branch_name
+                    )
                     binaries.append(artifact)
 
             # Compute weights based on scores
@@ -669,7 +753,11 @@ class BaseModelController(OperatorController, ABC):
                 y_train_unscaled, y_test_unscaled, y_test_unscaled,
                 loaded_binaries=loaded_binaries, mode=mode
             )
-            artifact = self._persist_model(runtime_context, model, model_id)
+            artifact = self._persist_model(
+                runtime_context, model, model_id,
+                branch_id=context.selector.branch_id,
+                branch_name=context.selector.branch_name
+            )
             binaries.append(artifact)
 
             # Add predictions for single model case (no weights)
@@ -865,7 +953,8 @@ class BaseModelController(OperatorController, ABC):
             indices=indices,
             runner=runtime_context,
             X_shape=X_train.shape,
-            best_params=best_params
+            best_params=best_params,
+            context=context
         )
 
         # Add full scores to prediction data
@@ -1525,8 +1614,16 @@ class BaseModelController(OperatorController, ABC):
             'preprocessings': dataset.short_preprocessings_str(),
             'partitions': partitions,
             'partition_metadata': partition_metadata,
-            'best_params': best_params if best_params else {}
+            'best_params': best_params if best_params else {},
+            'branch_id': getattr(context.selector, 'branch_id', None),
+            'branch_name': getattr(context.selector, 'branch_name', None) or "",
         }
+
+        # Add outlier exclusion info if available (from outlier_excluder branches)
+        exclusion_info = context.custom.get('exclusion_info', {})
+        if exclusion_info:
+            result['exclusion_count'] = exclusion_info.get('n_excluded', 0)
+            result['exclusion_rate'] = exclusion_info.get('exclusion_rate', 0.0)
 
         if weights is not None:
             result['weights'] = weights.tolist()
@@ -1593,14 +1690,25 @@ class BaseModelController(OperatorController, ABC):
                     n_features=prediction_data['n_features'],
                     preprocessings=prediction_data['preprocessings'],
                     best_params=prediction_data['best_params'],
-                    scores=prediction_data.get('scores', {})
+                    scores=prediction_data.get('scores', {}),
+                    branch_id=prediction_data.get('branch_id'),
+                    branch_name=prediction_data.get('branch_name'),
+                    exclusion_count=prediction_data.get('exclusion_count'),
+                    exclusion_rate=prediction_data.get('exclusion_rate')
                 )
 
             # Print summary (only once per model)
             if pred_id and mode not in ("predict", "explain"):
                 self._print_prediction_summary(prediction_data, pred_id, mode)
 
-    def _persist_model(self, runtime_context: 'RuntimeContext', model: Any, model_id: str) -> 'ArtifactMeta':
+    def _persist_model(
+        self,
+        runtime_context: 'RuntimeContext',
+        model: Any,
+        model_id: str,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None
+    ) -> 'ArtifactMeta':
         """Persist trained model to disk using serializer infrastructure.
 
         Auto-detects model framework (sklearn, tensorflow, pytorch, xgboost, catboost, lightgbm)
@@ -1610,6 +1718,8 @@ class BaseModelController(OperatorController, ABC):
             runtime_context: Runtime context with saver instance.
             model: Trained model to persist.
             model_id: Unique identifier for the model.
+            branch_id: Optional branch identifier for branched pipelines.
+            branch_name: Optional branch name for branched pipelines.
 
         Returns:
             ArtifactMeta with persistence metadata (path, format, size, etc.).
@@ -1635,7 +1745,9 @@ class BaseModelController(OperatorController, ABC):
             step_number=runtime_context.step_number,
             name=f"{model_id}.pkl",
             obj=model,
-            format_hint=format_hint
+            format_hint=format_hint,
+            branch_id=branch_id,
+            branch_name=branch_name
         )
 
 

@@ -525,6 +525,7 @@ class TestKeywordPrioritization:
             "concat_transform",
             "y_processing",
             "sample_augmentation",
+            "branch",
         ]
 
         assert parser.WORKFLOW_KEYWORDS == expected_priority

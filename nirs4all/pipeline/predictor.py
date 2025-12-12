@@ -154,11 +154,19 @@ class Predictor:
             return res, run_predictions
 
         # Get single prediction matching target model
-        candidates = run_predictions.filter_predictions(
-            model_name=self.target_model.get('model_name', None),
-            step_idx=self.target_model.get('step_idx', None),
-            fold_id=self.target_model.get('fold_id', None)
-        )
+        # Include branch filtering if branch_id is present in target model
+        filter_kwargs = {
+            'model_name': self.target_model.get('model_name', None),
+            'step_idx': self.target_model.get('step_idx', None),
+            'fold_id': self.target_model.get('fold_id', None)
+        }
+
+        # Add branch filtering if target model has branch info
+        target_branch_id = self.target_model.get('branch_id')
+        if target_branch_id is not None:
+            filter_kwargs['branch_id'] = target_branch_id
+
+        candidates = run_predictions.filter_predictions(**filter_kwargs)
 
         # Prefer predictions with non-empty y_pred (in predict mode, train partition may be empty)
         non_empty = [p for p in candidates if len(p['y_pred']) > 0]
