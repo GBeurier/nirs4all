@@ -2,24 +2,20 @@
 
 **Bugs**:
 >   - [MB-PLS] test on multi-source/block ---
->   - [Kernel-PLS] poly and linear are crap ---
->   - Emit a warning if user declare rank_partition, display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
->   - slow down between models: check dataset copy, ensure cache and reuse.
+>   - [Kernel-PLS] poly and linear are crap --- always results far far outside range
+>   - Emit a warning if user declare rank_partition or display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
 >   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
 >   - Charts do not display correctly the wavelength on x-axis - nm cm-1 all messed up. Add force type.
 
 **Features**:
+> [Augmentation] Feature_augmentation with first item replacement
 
-> sauvegarde et numérotation des artifacts et binaires. (en particulier avec le branching)
-
-> [Predictions] as a pipeline context for custom stacking.
-> [Stacking] Use prediction as X for stacking.
+> [Stacking] Review
 
 > [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
 ---- > test interleaved for nitrosorgh on PLS or random forest. and force layout option.
 
 > [TabReport] include > aggregated
-
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 
 > [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
@@ -39,11 +35,22 @@
 
 > [Workspace] review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
 
-**RELEASE** 0.6.0: UI ready
+> [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
-> [PLS] Implement variable selection methods (CARS and MC-UVE done)
+**RELEASE** 0.6.0: MVP
+
+
+> [WEBAPP] full react version - hidden fastapi / nirs4all
+
+> [DEPLOY] standalone installer, web installer
+
+**RELEASE** 0.6.0: UI
+
+
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
+
+> [PLS] Implement variable selection methods (CARS and MC-UVE done)
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators. and more. Both operators and analyzers should be uniformized (inside the pipeline or outside)
 
@@ -68,8 +75,6 @@
 > [Optuna] Allows complex scenarios (random X trials then TPE X trials)
 
 > [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin) _ add data aug operators en masse.
-
-> [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
 
 > [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
 
@@ -96,9 +101,6 @@
 > [Y_pipeline in models]
 
 
-
-> [Transformations] Asymetric processings (PCA in pipelines) > auto/optional padding and cropping
-
 **RELEASE** 0.10 beta: Operators & Controllers rc
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
@@ -118,9 +120,9 @@
 
 > [Pipeline + Optuna] Pipeline as optuna trial. The pp become a choice param. Goal is to stack pp each time score stop progress, select the good ones by feats augmentation and by pp order (1st, 2nd, etc.) and stop once it drops.
 
-> [Transfer] Automate model transfer across machines
+> [Transfer] Automate model transfer across machines (close)
 
-> [Generator] add in-place/internal generation
+> [Generator] add in-place/internal generation > branches
 
 > [Mid Fusion] Multi head models
 
@@ -136,11 +138,9 @@
 
 ## EXCITERS
 - better model naming (with optional pp included) for UX
-- feature_augmentation with first item replacement
 - add NorrisWilliams, Whittaker, BandEnergies, FiniteDiffCentral transformermixin
 - (ui) Clean user interface on datasetConfig/dataset, pipelineConfig/pipeline, predictions
 - Charts in 'raw' y for categorical
-- More tunable and explicit generation > inner generation, constraints, etc.
 - Authorize vertical index (col 1 header - vertical header) in csv
 
 
