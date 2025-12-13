@@ -15,6 +15,16 @@ from .tensorflow_model import TensorFlowModelController
 from .torch_model import PyTorchModelController
 from .jax_model import JaxModelController
 from .autogluon_model import AutoGluonModelController
+from .meta_model import MetaModelController
+
+# Phase 2: Stacking subpackage
+from .stacking import (
+    TrainingSetReconstructor,
+    FoldAlignmentValidator,
+    ValidationResult,
+    ReconstructionResult,
+    ReconstructorConfig,
+)
 
 __all__ = [
     'BaseModelController',
@@ -23,4 +33,11 @@ __all__ = [
     'PyTorchModelController',
     'JaxModelController',
     'AutoGluonModelController',
+    'MetaModelController',
+    # Stacking components
+    'TrainingSetReconstructor',
+    'FoldAlignmentValidator',
+    'ValidationResult',
+    'ReconstructionResult',
+    'ReconstructorConfig',
 ]

@@ -1548,6 +1548,181 @@ class Predictions:
         return self._storage.to_dataframe().to_pandas()
 
     # =========================================================================
+    # META-MODEL STACKING HELPERS
+    # =========================================================================
+
+    def get_predictions_by_step(
+        self,
+        step_idx: int,
+        partition: Optional[str] = None,
+        branch_id: Optional[int] = None,
+        load_arrays: bool = True,
+        **kwargs
+    ) -> List[Dict[str, Any]]:
+        """Get predictions from a specific pipeline step.
+
+        Convenience method for meta-model stacking to retrieve predictions
+        from source models at a specific step index.
+
+        Args:
+            step_idx: Pipeline step index to filter by.
+            partition: Optional partition filter ('train', 'val', 'test').
+            branch_id: Optional branch ID filter.
+            load_arrays: If True, load actual arrays from registry.
+            **kwargs: Additional filter criteria.
+
+        Returns:
+            List of prediction dictionaries from the specified step.
+
+        Examples:
+            >>> # Get all predictions from step 2
+            >>> preds = predictions.get_predictions_by_step(step_idx=2)
+            >>> # Get validation predictions from step 2
+            >>> val_preds = predictions.get_predictions_by_step(
+            ...     step_idx=2, partition='val'
+            ... )
+        """
+        return self.filter_predictions(
+            step_idx=step_idx,
+            partition=partition,
+            branch_id=branch_id,
+            load_arrays=load_arrays,
+            **kwargs
+        )
+
+    def get_oof_predictions(
+        self,
+        model_name: Optional[str] = None,
+        step_idx: Optional[int] = None,
+        branch_id: Optional[int] = None,
+        exclude_averaged: bool = True,
+        load_arrays: bool = True
+    ) -> List[Dict[str, Any]]:
+        """Get out-of-fold (validation partition) predictions.
+
+        Convenience method for meta-model stacking to retrieve OOF predictions
+        that can be used to construct training features without data leakage.
+
+        Args:
+            model_name: Optional filter by model name.
+            step_idx: Optional filter by step index.
+            branch_id: Optional filter by branch ID.
+            exclude_averaged: If True, exclude 'avg' and 'w_avg' fold entries.
+                Default True for OOF reconstruction.
+            load_arrays: If True, load actual arrays from registry.
+
+        Returns:
+            List of validation partition predictions.
+
+        Examples:
+            >>> # Get all OOF predictions
+            >>> oof = predictions.get_oof_predictions()
+            >>> # Get OOF predictions for a specific model
+            >>> oof = predictions.get_oof_predictions(model_name='PLS')
+        """
+        preds = self.filter_predictions(
+            model_name=model_name,
+            step_idx=step_idx,
+            branch_id=branch_id,
+            partition='val',
+            load_arrays=load_arrays
+        )
+
+        if exclude_averaged:
+            preds = [
+                p for p in preds
+                if p.get('fold_id') not in ('avg', 'w_avg')
+            ]
+
+        return preds
+
+    def filter_by_branch(
+        self,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None,
+        include_no_branch: bool = False,
+        load_arrays: bool = True
+    ) -> List[Dict[str, Any]]:
+        """Filter predictions by branch context.
+
+        Convenience method for meta-model stacking to retrieve predictions
+        from a specific branch in branched pipelines.
+
+        Args:
+            branch_id: Branch ID to filter by.
+            branch_name: Branch name to filter by.
+            include_no_branch: If True, include predictions with no branch info.
+            load_arrays: If True, load actual arrays from registry.
+
+        Returns:
+            List of predictions from the specified branch.
+
+        Examples:
+            >>> # Get predictions from branch 0
+            >>> branch_preds = predictions.filter_by_branch(branch_id=0)
+            >>> # Get predictions from named branch
+            >>> branch_preds = predictions.filter_by_branch(branch_name='preprocessing_a')
+        """
+        if branch_id is not None:
+            preds = self.filter_predictions(
+                branch_id=branch_id,
+                load_arrays=load_arrays
+            )
+        elif branch_name is not None:
+            preds = self.filter_predictions(
+                branch_name=branch_name,
+                load_arrays=load_arrays
+            )
+        else:
+            preds = self.filter_predictions(load_arrays=load_arrays)
+
+        if not include_no_branch:
+            # Filter out predictions without branch info
+            preds = [
+                p for p in preds
+                if p.get('branch_id') is not None or p.get('branch_name')
+            ]
+
+        return preds
+
+    def get_models_before_step(
+        self,
+        step_idx: int,
+        branch_id: Optional[int] = None,
+        unique_names: bool = True
+    ) -> List[str]:
+        """Get model names from steps before a given step index.
+
+        Convenience method for meta-model stacking to identify source models
+        that can be used for stacking.
+
+        Args:
+            step_idx: Current step index (models before this are returned).
+            branch_id: Optional filter by branch ID.
+            unique_names: If True, return unique model names only.
+
+        Returns:
+            List of model names from previous steps.
+
+        Examples:
+            >>> # Get models available for stacking at step 5
+            >>> source_models = predictions.get_models_before_step(step_idx=5)
+        """
+        df = self._storage.to_dataframe()
+
+        # Filter to steps before current
+        df = df.filter(pl.col("step_idx") < step_idx)
+
+        # Filter by branch if specified
+        if branch_id is not None:
+            df = df.filter(pl.col("branch_id") == branch_id)
+
+        if unique_names:
+            return df["model_name"].unique().to_list()
+        else:
+            return df["model_name"].to_list()
+
+    # =========================================================================
     # DUNDER METHODS
     # =========================================================================
 

@@ -125,14 +125,22 @@ class ModelLoader:
         """Extract the class name from a model_id.
 
         Model IDs have format: "ClassName_N" or "ClassName_N_foldM"
+        For MetaModel, format is: "MetaModel_InnerClassName_N"
 
         Args:
-            model_id: Model identifier like "Ridge_5" or "PLSRegression_10"
+            model_id: Model identifier like "Ridge_5", "PLSRegression_10",
+                     or "MetaModel_Ridge_1"
 
         Returns:
             Class name or None if cannot be extracted
         """
-        # Pattern: ClassName_Number or ClassName_Number_foldN
+        # Handle MetaModel case: "MetaModel_InnerClassName_N"
+        # The artifact is stored with the inner model's class name, not "MetaModel"
+        metamodel_match = re.match(r'^MetaModel_([A-Za-z][A-Za-z0-9]*)_\d+', model_id)
+        if metamodel_match:
+            return metamodel_match.group(1)
+
+        # Standard pattern: ClassName_Number or ClassName_Number_foldN
         match = re.match(r'^([A-Za-z][A-Za-z0-9]*)_\d+', model_id)
         if match:
             return match.group(1)

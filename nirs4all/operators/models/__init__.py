@@ -20,6 +20,18 @@ from .tensorflow.generic import *
 # from .pytorch.nicon import *
 # from .pytorch.generic import *
 
+# Import meta-model stacking
+from .meta import MetaModel, StackingConfig, CoverageStrategy, TestAggregation, BranchScope
+from .selection import (
+    SourceModelSelector,
+    AllPreviousModelsSelector,
+    ExplicitModelSelector,
+    TopKByMetricSelector,
+    DiversitySelector,
+    SelectorFactory,
+    ModelCandidate,
+)
+
 __all__ = [
     "BaseModelOperator",
     "PLSDA",
@@ -45,4 +57,18 @@ __all__ = [
     "FCKPLS",
     "FractionalPLS",
     "FractionalConvFeaturizer",
+    # Meta-model stacking
+    "MetaModel",
+    "StackingConfig",
+    "CoverageStrategy",
+    "TestAggregation",
+    "BranchScope",
+    # Source model selection
+    "SourceModelSelector",
+    "AllPreviousModelsSelector",
+    "ExplicitModelSelector",
+    "TopKByMetricSelector",
+    "DiversitySelector",
+    "SelectorFactory",
+    "ModelCandidate",
 ]
