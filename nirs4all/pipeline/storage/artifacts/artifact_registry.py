@@ -274,7 +274,8 @@ class ArtifactRegistry:
         depends_on: Optional[List[str]] = None,
         params: Optional[Dict[str, Any]] = None,
         meta_config: Optional[MetaModelConfig] = None,
-        format_hint: Optional[str] = None
+        format_hint: Optional[str] = None,
+        custom_name: Optional[str] = None
     ) -> ArtifactRecord:
         """Register and persist an artifact.
 
@@ -289,6 +290,7 @@ class ArtifactRegistry:
             params: Model parameters for inspection
             meta_config: Meta-model configuration (for stacking)
             format_hint: Optional serialization format hint
+            custom_name: User-defined name for the artifact (e.g., "Q5_PLS_10")
 
         Returns:
             ArtifactRecord with full metadata
@@ -352,6 +354,7 @@ class ArtifactRegistry:
             fold_id=fold_id,
             artifact_type=artifact_type,
             class_name=obj.__class__.__name__,
+            custom_name=custom_name or "",
             depends_on=depends_on,
             format=format_name,
             format_version=_get_library_version(obj),

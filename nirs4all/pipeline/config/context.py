@@ -8,6 +8,7 @@ pattern used throughout the pipeline system. It separates three distinct concern
 2. PipelineState: Mutable pipeline state that evolves through transformations
 3. StepMetadata: Metadata for controller coordination and step tracking
 4. ExecutionContext: Composite context with custom data extensibility
+5. ArtifactProvider: Interface for providing artifacts during prediction replay
 
 The separation enables:
 - Type safety throughout the codebase
@@ -25,9 +26,10 @@ Example:
 """
 
 from dataclasses import dataclass, field, replace as dataclass_replace, fields
-from typing import Any, Dict, List, Optional, Iterator
+from typing import Any, Dict, List, Optional, Iterator, Protocol, Tuple, Union
 from copy import deepcopy
 from collections.abc import MutableMapping
+from abc import ABC, abstractmethod
 
 
 @dataclass
@@ -342,6 +344,383 @@ class StepMetadata:
         self.target_features.clear()
 
 
+class ArtifactProvider(ABC):
+    """Abstract interface for providing artifacts during prediction replay.
+
+    The ArtifactProvider enables controller-agnostic artifact injection:
+    controllers request artifacts by step index rather than by name matching,
+    which is deterministic and works with any controller type.
+
+    This interface is used during prediction mode to provide pre-loaded
+    artifacts (transformers, models, etc.) to controllers without requiring
+    them to know about the artifact storage system.
+
+    Implementations:
+        - MapArtifactProvider: In-memory dictionary-based provider
+        - LoaderArtifactProvider: Wraps ArtifactLoader for lazy loading
+
+    Example:
+        >>> provider = MapArtifactProvider(artifact_map)
+        >>> artifacts = provider.get_artifacts_for_step(step_index=2)
+        >>> for artifact_id, obj in artifacts:
+        ...     process(obj)
+    """
+
+    @abstractmethod
+    def get_artifact(self, step_index: int, fold_id: Optional[int] = None) -> Optional[Any]:
+        """Get a single artifact for a step.
+
+        Args:
+            step_index: 1-based step index
+            fold_id: Optional fold ID for fold-specific artifacts
+
+        Returns:
+            Artifact object or None if not found
+        """
+        pass
+
+    @abstractmethod
+    def get_artifacts_for_step(
+        self,
+        step_index: int,
+        branch_path: Optional[List[int]] = None
+    ) -> List[Tuple[str, Any]]:
+        """Get all artifacts for a step.
+
+        Args:
+            step_index: 1-based step index
+            branch_path: Optional branch path filter
+
+        Returns:
+            List of (artifact_id, artifact_object) tuples
+        """
+        pass
+
+    @abstractmethod
+    def get_fold_artifacts(
+        self,
+        step_index: int,
+        branch_path: Optional[List[int]] = None
+    ) -> List[Tuple[int, Any]]:
+        """Get all fold-specific artifacts for a step.
+
+        Args:
+            step_index: 1-based step index
+            branch_path: Optional branch path filter
+
+        Returns:
+            List of (fold_id, artifact_object) tuples, sorted by fold_id
+        """
+        pass
+
+    @abstractmethod
+    def has_artifacts_for_step(self, step_index: int) -> bool:
+        """Check if artifacts exist for a step.
+
+        Args:
+            step_index: 1-based step index
+
+        Returns:
+            True if artifacts are available for this step
+        """
+        pass
+
+    def get_primary_artifact(self, step_index: int) -> Optional[Any]:
+        """Get the primary artifact for a step.
+
+        The primary artifact is typically the main model or transformer
+        for the step. Default implementation returns the first artifact.
+
+        Args:
+            step_index: 1-based step index
+
+        Returns:
+            Primary artifact object or None if not found
+        """
+        artifacts = self.get_artifacts_for_step(step_index)
+        if artifacts:
+            return artifacts[0][1]
+        return None
+
+
+class MapArtifactProvider(ArtifactProvider):
+    """In-memory artifact provider backed by a dictionary.
+
+    Provides artifacts from a pre-loaded dictionary mapping step indices
+    to artifacts. Used when artifacts are resolved from an ExecutionTrace
+    or when loading from a bundle.
+
+    Attributes:
+        artifact_map: Dictionary mapping step_index to list of (artifact_id, object) tuples
+        fold_weights: Optional fold weights for CV ensemble averaging
+
+    Example:
+        >>> artifact_map = {
+        ...     1: [("0001:1:all", snv_transformer)],
+        ...     2: [("0001:2:0", model_fold0), ("0001:2:1", model_fold1)]
+        ... }
+        >>> provider = MapArtifactProvider(artifact_map)
+        >>> transformer = provider.get_artifact(step_index=1)
+    """
+
+    def __init__(
+        self,
+        artifact_map: Dict[int, List[Tuple[str, Any]]],
+        fold_weights: Optional[Dict[int, float]] = None,
+        primary_artifacts: Optional[Dict[int, str]] = None
+    ):
+        """Initialize map-based artifact provider.
+
+        Args:
+            artifact_map: Mapping of step_index -> list of (artifact_id, object)
+            fold_weights: Optional fold weights for CV models
+            primary_artifacts: Optional mapping of step_index -> primary artifact_id
+        """
+        self.artifact_map = artifact_map
+        self.fold_weights = fold_weights or {}
+        self.primary_artifacts = primary_artifacts or {}
+
+    def get_artifact(self, step_index: int, fold_id: Optional[int] = None) -> Optional[Any]:
+        """Get a single artifact for a step.
+
+        If fold_id is specified, returns the fold-specific artifact.
+        Otherwise, returns the primary or first artifact.
+
+        Args:
+            step_index: 1-based step index
+            fold_id: Optional fold ID for fold-specific artifacts
+
+        Returns:
+            Artifact object or None if not found
+        """
+        artifacts = self.artifact_map.get(step_index, [])
+        if not artifacts:
+            return None
+
+        if fold_id is not None:
+            # Look for fold-specific artifact
+            for artifact_id, obj in artifacts:
+                # Check if artifact_id contains fold info (e.g., "0001:2:0")
+                parts = artifact_id.split(":")
+                if len(parts) >= 3:
+                    try:
+                        artifact_fold = int(parts[-1])
+                        if artifact_fold == fold_id:
+                            return obj
+                    except ValueError:
+                        pass
+            return None
+
+        # Return primary artifact if specified
+        if step_index in self.primary_artifacts:
+            primary_id = self.primary_artifacts[step_index]
+            for artifact_id, obj in artifacts:
+                if artifact_id == primary_id:
+                    return obj
+
+        # Return first artifact
+        return artifacts[0][1] if artifacts else None
+
+    def get_artifacts_for_step(
+        self,
+        step_index: int,
+        branch_path: Optional[List[int]] = None
+    ) -> List[Tuple[str, Any]]:
+        """Get all artifacts for a step.
+
+        Args:
+            step_index: 1-based step index
+            branch_path: Optional branch path filter (not used in map provider)
+
+        Returns:
+            List of (artifact_id, artifact_object) tuples
+        """
+        return self.artifact_map.get(step_index, [])
+
+    def get_fold_artifacts(
+        self,
+        step_index: int,
+        branch_path: Optional[List[int]] = None
+    ) -> List[Tuple[int, Any]]:
+        """Get all fold-specific artifacts for a step.
+
+        Args:
+            step_index: 1-based step index
+            branch_path: Optional branch path filter (not used in map provider)
+
+        Returns:
+            List of (fold_id, artifact_object) tuples, sorted by fold_id
+        """
+        artifacts = self.artifact_map.get(step_index, [])
+        fold_artifacts = []
+
+        for artifact_id, obj in artifacts:
+            parts = artifact_id.split(":")
+            if len(parts) >= 3:
+                fold_part = parts[-1]
+                if fold_part != "all":
+                    try:
+                        fold_id = int(fold_part)
+                        fold_artifacts.append((fold_id, obj))
+                    except ValueError:
+                        pass
+
+        return sorted(fold_artifacts, key=lambda x: x[0])
+
+    def has_artifacts_for_step(self, step_index: int) -> bool:
+        """Check if artifacts exist for a step.
+
+        Args:
+            step_index: 1-based step index
+
+        Returns:
+            True if artifacts are available for this step
+        """
+        return step_index in self.artifact_map and len(self.artifact_map[step_index]) > 0
+
+    def get_fold_weights(self) -> Dict[int, float]:
+        """Get fold weights for CV ensemble averaging.
+
+        Returns:
+            Dictionary mapping fold_id to weight
+        """
+        return self.fold_weights.copy()
+
+
+class LoaderArtifactProvider(ArtifactProvider):
+    """Artifact provider backed by an ArtifactLoader.
+
+    Wraps an ArtifactLoader to provide artifacts on-demand with lazy loading
+    and caching. Used when loading from a manifest for prediction.
+
+    Attributes:
+        loader: The underlying ArtifactLoader
+        trace: Optional ExecutionTrace for step-to-artifact mapping
+    """
+
+    def __init__(
+        self,
+        loader: Any,  # ArtifactLoader
+        trace: Optional[Any] = None  # ExecutionTrace
+    ):
+        """Initialize loader-based artifact provider.
+
+        Args:
+            loader: ArtifactLoader instance for loading artifacts
+            trace: Optional ExecutionTrace for step mapping
+        """
+        self.loader = loader
+        self.trace = trace
+
+    def get_artifact(self, step_index: int, fold_id: Optional[int] = None) -> Optional[Any]:
+        """Get a single artifact for a step.
+
+        If trace is available, uses trace to find artifact IDs.
+        Otherwise, uses loader's step-based lookup.
+
+        Args:
+            step_index: 1-based step index
+            fold_id: Optional fold ID for fold-specific artifacts
+
+        Returns:
+            Artifact object or None if not found
+        """
+        if self.trace is not None:
+            step = self.trace.get_step(step_index)
+            if step and step.artifacts:
+                if fold_id is not None and step.artifacts.fold_artifact_ids:
+                    artifact_id = step.artifacts.fold_artifact_ids.get(fold_id)
+                    if artifact_id:
+                        return self.loader.load_by_id(artifact_id)
+                elif step.artifacts.primary_artifact_id:
+                    return self.loader.load_by_id(step.artifacts.primary_artifact_id)
+                elif step.artifacts.artifact_ids:
+                    return self.loader.load_by_id(step.artifacts.artifact_ids[0])
+            return None
+
+        # Fallback: use loader's step-based lookup
+        artifacts = self.loader.load_for_step(step_index=step_index, fold_id=fold_id)
+        if artifacts:
+            return artifacts[0][1]
+        return None
+
+    def get_artifacts_for_step(
+        self,
+        step_index: int,
+        branch_path: Optional[List[int]] = None
+    ) -> List[Tuple[str, Any]]:
+        """Get all artifacts for a step.
+
+        Args:
+            step_index: 1-based step index
+            branch_path: Optional branch path filter
+
+        Returns:
+            List of (artifact_id, artifact_object) tuples
+        """
+        if self.trace is not None:
+            step = self.trace.get_step(step_index)
+            if step and step.artifacts:
+                results = []
+                for artifact_id in step.artifacts.artifact_ids:
+                    try:
+                        obj = self.loader.load_by_id(artifact_id)
+                        results.append((artifact_id, obj))
+                    except (KeyError, FileNotFoundError):
+                        pass
+                return results
+            return []
+
+        # Fallback: use loader's step-based lookup
+        return self.loader.load_for_step(step_index=step_index, branch_path=branch_path)
+
+    def get_fold_artifacts(
+        self,
+        step_index: int,
+        branch_path: Optional[List[int]] = None
+    ) -> List[Tuple[int, Any]]:
+        """Get all fold-specific artifacts for a step.
+
+        Args:
+            step_index: 1-based step index
+            branch_path: Optional branch path filter
+
+        Returns:
+            List of (fold_id, artifact_object) tuples, sorted by fold_id
+        """
+        if self.trace is not None:
+            step = self.trace.get_step(step_index)
+            if step and step.artifacts and step.artifacts.fold_artifact_ids:
+                results = []
+                for fold_id, artifact_id in step.artifacts.fold_artifact_ids.items():
+                    try:
+                        obj = self.loader.load_by_id(artifact_id)
+                        results.append((fold_id, obj))
+                    except (KeyError, FileNotFoundError):
+                        pass
+                return sorted(results, key=lambda x: x[0])
+            return []
+
+        # Fallback: use loader's fold model lookup
+        return self.loader.load_fold_models(step_index=step_index, branch_path=branch_path)
+
+    def has_artifacts_for_step(self, step_index: int) -> bool:
+        """Check if artifacts exist for a step.
+
+        Args:
+            step_index: 1-based step index
+
+        Returns:
+            True if artifacts are available for this step
+        """
+        if self.trace is not None:
+            step = self.trace.get_step(step_index)
+            return step is not None and step.has_artifacts()
+
+        # Fallback: use loader's step check
+        return self.loader.has_binaries_for_step(step_index)
+
+
 class ExecutionContext:
     """
     Composite execution context with extensibility.
@@ -534,15 +913,19 @@ class RuntimeContext:
         saver: SimulationSaver for file operations
         manifest_manager: ManifestManager for pipeline tracking
         artifact_loader: ArtifactLoader for predict/explain modes
+        artifact_provider: ArtifactProvider for controller-agnostic artifact injection (Phase 3)
         artifact_registry: ArtifactRegistry for artifact management (v2 system)
         pipeline_uid: Current pipeline unique identifier
         step_runner: StepRunner for executing sub-steps
         operation_count: Counter for operation IDs
         substep_number: Current substep number
+        trace_recorder: TraceRecorder for recording execution traces (Phase 2)
+        retrain_config: RetrainConfig for retrain mode control (Phase 7)
     """
     saver: Any = None
     manifest_manager: Any = None
     artifact_loader: Any = None
+    artifact_provider: Optional["ArtifactProvider"] = None  # Phase 3: controller-agnostic artifact injection
     artifact_registry: Any = None
     pipeline_uid: Optional[str] = None
     step_runner: Any = None
@@ -551,8 +934,126 @@ class RuntimeContext:
     substep_number: int = -1
     target_model: Optional[Dict[str, Any]] = None
     explainer: Any = None
+    trace_recorder: Any = None  # TraceRecorder instance for execution trace recording
+    retrain_config: Any = None  # Phase 7: RetrainConfig for retrain mode control
 
     def next_op(self) -> int:
         """Get the next operation ID."""
         self.operation_count += 1
         return self.operation_count
+
+    def should_train_step(self, step_index: int, is_model: bool = False) -> bool:
+        """Determine if a step should train based on retrain configuration.
+
+        Phase 7 Feature:
+            When a retrain_config is present, this method delegates to it
+            to determine whether a step should train or use existing artifacts.
+
+        Args:
+            step_index: 1-based step index
+            is_model: Whether this is the model step
+
+        Returns:
+            True if the step should train, False if it should use existing artifacts
+        """
+        if self.retrain_config is None:
+            # No retrain config: default behavior based on artifact_provider
+            if self.artifact_provider is not None:
+                # If we have artifacts for this step, use them (don't train)
+                return not self.artifact_provider.has_artifacts_for_step(step_index)
+            # No artifacts available: train
+            return True
+
+        # Delegate to retrain_config
+        return self.retrain_config.should_train_step(step_index, is_model)
+
+    def record_step_start(
+        self,
+        step_index: int,
+        operator_type: str = "",
+        operator_class: str = "",
+        operator_config: Optional[Dict[str, Any]] = None,
+        branch_path: Optional[List[int]] = None,
+        branch_name: str = "",
+        mode: str = "train"
+    ) -> None:
+        """Record the start of a step execution in the trace.
+
+        Args:
+            step_index: 1-based step index
+            operator_type: Type of operator (e.g., "transform", "model")
+            operator_class: Class name of operator
+            operator_config: Serialized operator configuration
+            branch_path: Branch indices if in branch context
+            branch_name: Human-readable branch name
+            mode: Execution mode ("train", "predict", "explain")
+        """
+        if self.trace_recorder is not None:
+            from nirs4all.pipeline.trace import StepExecutionMode
+
+            exec_mode = (
+                StepExecutionMode.PREDICT if mode in ("predict", "explain")
+                else StepExecutionMode.TRAIN
+            )
+            self.trace_recorder.start_step(
+                step_index=step_index,
+                operator_type=operator_type,
+                operator_class=operator_class,
+                operator_config=operator_config,
+                execution_mode=exec_mode,
+                branch_path=branch_path,
+                branch_name=branch_name
+            )
+
+    def record_step_artifact(
+        self,
+        artifact_id: str,
+        is_primary: bool = False,
+        fold_id: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Record an artifact created during the current step.
+
+        Args:
+            artifact_id: The artifact ID
+            is_primary: Whether this is the primary artifact (e.g., model)
+            fold_id: CV fold ID if fold-specific artifact
+            metadata: Additional artifact metadata
+        """
+        if self.trace_recorder is not None:
+            self.trace_recorder.record_artifact(
+                artifact_id=artifact_id,
+                is_primary=is_primary,
+                fold_id=fold_id,
+                metadata=metadata
+            )
+
+    def record_step_end(
+        self,
+        is_model: bool = False,
+        fold_weights: Optional[Dict[int, float]] = None,
+        skip_trace: bool = False
+    ) -> None:
+        """Record the end of a step execution.
+
+        Args:
+            is_model: Whether this is the model step
+            fold_weights: Per-fold weights for CV models
+            skip_trace: If True, don't add this step to the trace
+        """
+        if self.trace_recorder is not None:
+            self.trace_recorder.end_step(
+                is_model=is_model,
+                fold_weights=fold_weights,
+                skip_trace=skip_trace
+            )
+
+    def get_trace_id(self) -> Optional[str]:
+        """Get the current trace ID.
+
+        Returns:
+            Trace ID or None if no trace recorder
+        """
+        if self.trace_recorder is not None:
+            return self.trace_recorder.trace_id
+        return None

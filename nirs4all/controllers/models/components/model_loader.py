@@ -8,12 +8,13 @@ Extracted from launch_training() lines 359-390 to centralize model loading logic
 
 For branch-aware pipelines, the model_id generated in predict mode may not match
 the training mode due to different operation counters. The loader handles this by:
-1. First trying exact match patterns
-2. Falling back to class-name based search within branch-specific binaries
+1. First trying to load by artifact_id (deterministic, preferred for v2 system)
+2. Falling back to exact match patterns
+3. Falling back to class-name based search within branch-specific binaries
 """
 
 import re
-from typing import List, Tuple, Optional, Any
+from typing import List, Tuple, Optional, Any, Dict
 
 
 # Mapping of nirs4all model aliases to their underlying class names
@@ -51,11 +52,12 @@ class ModelLoader:
     """Loads models from serialized binaries.
 
     Handles multiple naming patterns for backward compatibility:
-        1. Exact match: "MyModel_10"
-        2. With .pkl extension: "MyModel_10.pkl"
-        3. With .joblib extension: "MyModel_10.joblib"
-        4. With fold suffix: "MyModel_10_fold0"
-        5. Class-name based search for branch-aware loading
+        1. Artifact ID (deterministic, preferred for v2 system)
+        2. Exact match: "MyModel_10"
+        3. With .pkl extension: "MyModel_10.pkl"
+        4. With .joblib extension: "MyModel_10.joblib"
+        5. With fold suffix: "MyModel_10_fold0"
+        6. Class-name based search for branch-aware loading
 
     For branched pipelines, binaries are loaded per-branch, so when the exact
     model_id doesn't match, we search for any binary matching the class name
@@ -63,12 +65,80 @@ class ModelLoader:
 
     Example:
         >>> loader = ModelLoader()
+        >>> # Load by artifact_id (preferred, deterministic)
+        >>> model = loader.load_by_artifact_id("0001:4:0", artifact_loader)
+        >>> # Load by model_id (legacy, with fallback patterns)
         >>> model = loader.load(
         ...     model_id="MyModel_10",
         ...     loaded_binaries=binaries,
         ...     fold_idx=0
         ... )
     """
+
+    def load_by_artifact_id(
+        self,
+        artifact_id: str,
+        artifact_loader: Any
+    ) -> Any:
+        """Load model directly by artifact_id (deterministic, v2 system).
+
+        This is the preferred method for loading models when model_artifact_id
+        is available in the prediction record. It bypasses name-based matching
+        and loads exactly the model that was saved.
+
+        Args:
+            artifact_id: Deterministic artifact ID from prediction record
+            artifact_loader: ArtifactLoader instance with loaded manifest
+
+        Returns:
+            Loaded model instance
+
+        Raises:
+            KeyError: If artifact_id not found
+            FileNotFoundError: If artifact file doesn't exist
+        """
+        return artifact_loader.load_by_id(artifact_id)
+
+    def load_with_artifact_id_fallback(
+        self,
+        model_id: str,
+        loaded_binaries: List[Tuple[str, Any]],
+        fold_idx: Optional[int] = None,
+        model_artifact_id: Optional[str] = None,
+        artifact_loader: Any = None
+    ) -> Any:
+        """Load model with artifact_id as primary method, falling back to name-based.
+
+        This method combines the deterministic artifact_id loading with the legacy
+        name-based loading for backward compatibility.
+
+        Args:
+            model_id: Base model identifier (e.g., "MyModel_10")
+            loaded_binaries: List of (name, binary) tuples
+            fold_idx: Optional fold index for fold-specific models
+            model_artifact_id: Deterministic artifact ID (if available)
+            artifact_loader: ArtifactLoader instance (required if model_artifact_id provided)
+
+        Returns:
+            Loaded model instance
+
+        Raises:
+            ValueError: If model not found in binaries
+        """
+        # Try artifact_id first (deterministic, v2 system)
+        if model_artifact_id and artifact_loader:
+            try:
+                return self.load_by_artifact_id(model_artifact_id, artifact_loader)
+            except (KeyError, FileNotFoundError) as e:
+                # Log warning and fall back to name-based loading
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to load by artifact_id '{model_artifact_id}': {e}. "
+                    f"Falling back to name-based loading."
+                )
+
+        # Fall back to name-based loading
+        return self.load(model_id, loaded_binaries, fold_idx)
 
     def load(
         self,

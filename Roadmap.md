@@ -1,16 +1,30 @@
 ## ROADMAP
 
+
+**Review**:
+> [Predict_Transfer] Review
+> [Stacking] Review
+> [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
+
+
+
+
 **Bugs**:
+>   - [Q30] Na in branches predictions
 >   - [MB-PLS] test on multi-source/block ---
 >   - [Kernel-PLS] poly and linear are crap --- always results far far outside range
 >   - Emit a warning if user declare rank_partition or display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
 >   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
 >   - Charts do not display correctly the wavelength on x-axis - nm cm-1 all messed up. Add force type.
+>   - Branch diagram are out
 
 **Features**:
-> [Augmentation] Feature_augmentation with first item replacement
+> [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
+> [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 
-> [Stacking] Review
+> *[GPU] Reorganize, condition and clean gpu import
+
+> [Augmentation] Feature_augmentation with first item replacement
 
 > [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
 ---- > test interleaved for nitrosorgh on PLS or random forest. and force layout option.
@@ -18,27 +32,22 @@
 > [TabReport] include > aggregated
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 
-> [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
-> [Predict] Verify predict from model, pipeline, folder, file, pred, ...
-> [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
-> [Transfer] Automate model transfer and retraining. Test. Basically, file in pipeline "model".
-
 - [Split] bug + review: fix the "try automatically to set a group even when not specified. Shouldn't do anything if not specified", review doc and explicit also the use of group "y" ?
 - [Split > DONE] add force_group (mean, median, max, min, etc.) before split to be able to split with groups seemlessly. ie: {"split": KFold, "force_group":"ID"} or reuse group if possible to detect that group is not required (I think it's not detectable)
 
-> [Model] How to force params from self best_params
-
-> [Logs] implement feature and update print/log strategy
+> [Model] How to force params from self best_params. How to use directly a model from file (joblib, n4a, folder, pkl, h5, etc.)
 
 > [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
 > [Examples] Clean and document
 
-> [Workspace] review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
-
 > [Errors] Uniformize exception errors (cf RECOMMANDATIONS DATASET.md)
+
+> [Logs] implement feature and update print/log strategy
 
 **RELEASE** 0.6.0: MVP
 
+
+> [Pipeline_Bundle] Change / edit pipeline step
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
 
@@ -46,7 +55,11 @@
 
 **RELEASE** 0.6.0: UI
 
+> [obj_context] On controller compute something (ie. pp selection), put in in the context, another controller use it (ie. set pp).
 
+> [onnx] onnx export
+
+> [Complete_Review] Review modules one by one: pipeline, dataset, controllers, core,
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
 

@@ -116,6 +116,7 @@ class ArtifactRecord:
     # Classification
     artifact_type: ArtifactType = ArtifactType.MODEL
     class_name: str = ""
+    custom_name: str = ""  # User-defined name (e.g., "Q5_PLS_10" vs class_name "PLSRegression")
 
     # Dependencies
     depends_on: List[str] = field(default_factory=list)
@@ -156,6 +157,7 @@ class ArtifactRecord:
             "fold_id": self.fold_id,
             "artifact_type": str(self.artifact_type),
             "class_name": self.class_name,
+            "custom_name": self.custom_name,
             "depends_on": self.depends_on,
             "format": self.format,
             "format_version": self.format_version,
@@ -203,6 +205,7 @@ class ArtifactRecord:
             fold_id=data.get("fold_id"),
             artifact_type=artifact_type,
             class_name=data.get("class_name", ""),
+            custom_name=data.get("custom_name", ""),
             depends_on=data.get("depends_on", []),
             format=data.get("format", "joblib"),
             format_version=data.get("format_version", ""),
@@ -272,8 +275,9 @@ class ArtifactRecord:
         return str(self.fold_id) if self.fold_id is not None else "all"
 
     def __repr__(self) -> str:
+        name_part = self.custom_name if self.custom_name else self.class_name
         return (
             f"ArtifactRecord(id={self.artifact_id!r}, "
             f"type={self.artifact_type.value}, "
-            f"class={self.class_name!r})"
+            f"name={name_part!r})"
         )

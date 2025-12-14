@@ -21,6 +21,8 @@ PREDICTION_SCHEMA = {
     "model_name": pl.Utf8,
     "model_classname": pl.Utf8,
     "model_path": pl.Utf8,
+    "model_artifact_id": pl.Utf8,  # Deterministic artifact ID for model loading (v2)
+    "trace_id": pl.Utf8,  # Execution trace ID for deterministic prediction replay (v2)
     "fold_id": pl.Utf8,
     "partition": pl.Utf8,
     "val_score": pl.Float64,

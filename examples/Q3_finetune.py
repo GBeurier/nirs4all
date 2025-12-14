@@ -46,7 +46,7 @@ pipeline = [
     "chart_2d",
     feature_scaler,
     {"y_processing": target_scaler},
-    {"feature_augmentation": {"_or_": preprocessing_options, "size": [1, (1, 2)], "count": 5}},  # Generate preprocessing combinations
+    {"feature_augmentation": {"_or_": preprocessing_options, "pick": (1, 2), "count": 5}},  # Generate preprocessing combinations
     cross_validation,
     {
         "model": PLSRegression(),

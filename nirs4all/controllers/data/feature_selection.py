@@ -172,12 +172,29 @@ class FeatureSelectionController(OperatorController):
 
                 new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
 
-                if loaded_binaries and (mode == "predict" or mode == "explain"):
-                    # Load pre-fitted selector from binaries
-                    selector = dict(loaded_binaries).get(f"{new_operator_name}")
+                if mode == "predict" or mode == "explain":
+                    selector = None
+
+                    # Phase 4: Try artifact_provider first (controller-agnostic approach)
+                    if runtime_context.artifact_provider is not None:
+                        step_index = runtime_context.step_number
+                        step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                            step_index,
+                            branch_path=context.selector.branch_path
+                        )
+                        # Find artifact by name matching
+                        for artifact_id, obj in step_artifacts:
+                            if new_operator_name in artifact_id:
+                                selector = obj
+                                break
+
+                    # Fallback: Try loaded_binaries (legacy approach)
+                    if selector is None and loaded_binaries:
+                        selector = dict(loaded_binaries).get(new_operator_name)
+
                     if selector is None:
                         raise ValueError(
-                            f"Binary for {new_operator_name} not found in loaded_binaries"
+                            f"Binary for {new_operator_name} not found"
                         )
                 elif master_selector is None:
                     # First preprocessing: fit the master selector

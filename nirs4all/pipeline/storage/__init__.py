@@ -11,7 +11,7 @@ This module handles all I/O operations including:
 from .io import SimulationSaver
 from .io_writer import PipelineWriter
 from .io_exporter import WorkspaceExporter
-from .io_resolver import PredictionResolver
+from .io_resolver import TargetResolver, PredictionResolver  # PredictionResolver is alias for TargetResolver
 from .manifest_manager import ManifestManager
 from .library import PipelineLibrary
 
@@ -19,7 +19,8 @@ __all__ = [
     'SimulationSaver',
     'PipelineWriter',
     'WorkspaceExporter',
-    'PredictionResolver',
+    'TargetResolver',
+    'PredictionResolver',  # Deprecated alias for TargetResolver
     'ManifestManager',
     'PipelineLibrary',
 ]

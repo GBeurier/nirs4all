@@ -50,6 +50,7 @@ MICROSCOPE = emoji("🔬 ", "")
 PALETTE = emoji("🎨 ", "")
 CHECKMARK = emoji("✓ ", "*")
 BRANCH = emoji("🌿 ", "[BRANCH] ")
+BOLT = emoji("⚡ ", "[FAST] ")
 
 # Arrow indicators for metrics
 ARROW_UP = emoji("↑", "^")

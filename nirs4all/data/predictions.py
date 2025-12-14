@@ -145,7 +145,9 @@ class Predictions:
         branch_id: Optional[int] = None,
         branch_name: Optional[str] = None,
         exclusion_count: Optional[int] = None,
-        exclusion_rate: Optional[float] = None
+        exclusion_rate: Optional[float] = None,
+        model_artifact_id: Optional[str] = None,
+        trace_id: Optional[str] = None
     ) -> str:
         """
         Add a single prediction to storage.
@@ -185,6 +187,8 @@ class Predictions:
             branch_name: Human-readable branch name
             exclusion_count: Number of samples excluded during training (outlier_excluder)
             exclusion_rate: Rate of samples excluded (0.0-1.0, outlier_excluder)
+            model_artifact_id: Deterministic artifact ID for model loading (v2 system)
+            trace_id: Execution trace ID for deterministic prediction replay (v2 system)
 
         Returns:
             Prediction ID
@@ -222,6 +226,8 @@ class Predictions:
             "branch_name": branch_name or "",
             "exclusion_count": exclusion_count,
             "exclusion_rate": exclusion_rate,
+            "model_artifact_id": model_artifact_id or "",
+            "trace_id": trace_id or "",
         }
 
         return self._storage.add_row(row_dict)
@@ -256,7 +262,8 @@ class Predictions:
         best_params: Union[Optional[Dict[str, Any]], List[Optional[Dict[str, Any]]]] = None,
         scores: Union[Optional[Dict[str, Dict[str, float]]], List[Optional[Dict[str, Dict[str, float]]]]] = None,
         branch_id: Union[Optional[int], List[Optional[int]]] = None,
-        branch_name: Union[Optional[str], List[Optional[str]]] = None
+        branch_name: Union[Optional[str], List[Optional[str]]] = None,
+        trace_id: Union[Optional[str], List[Optional[str]]] = None
     ) -> None:
         """
         Add multiple predictions to storage (batch operation).
@@ -298,6 +305,7 @@ class Predictions:
             'scores': scores,
             'branch_id': branch_id,
             'branch_name': branch_name,
+            'trace_id': trace_id,
         }
 
         # Find the maximum length (number of predictions)
