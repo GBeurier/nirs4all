@@ -727,9 +727,14 @@ class BaseModelController(OperatorController, ABC):
                         branch_id=context.selector.branch_id,
                         branch_name=context.selector.branch_name,
                         branch_path=context.selector.branch_path,
-                        fold_id=i
+                        fold_id=i,
+                        custom_name=model_name
                     )
                     binaries.append(artifact)
+                    # Attach artifact_id to prediction_data for deterministic loading
+                    artifact_id = getattr(artifact, 'artifact_id', None)
+                    if artifact_id:
+                        prediction_data['model_artifact_id'] = artifact_id
 
             # Compute weights based on scores
             metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
@@ -761,9 +766,14 @@ class BaseModelController(OperatorController, ABC):
                 branch_id=context.selector.branch_id,
                 branch_name=context.selector.branch_name,
                 branch_path=context.selector.branch_path,
-                fold_id=None  # Single model, no folds
+                fold_id=None,  # Single model, no folds
+                custom_name=model_name
             )
             binaries.append(artifact)
+            # Attach artifact_id to prediction_data for deterministic loading
+            artifact_id = getattr(artifact, 'artifact_id', None)
+            if artifact_id:
+                prediction_data['model_artifact_id'] = artifact_id
 
             # Add predictions for single model case (no weights)
             self._add_all_predictions(prediction_store, [prediction_data], None, mode=mode)
@@ -829,10 +839,51 @@ class BaseModelController(OperatorController, ABC):
 
         # === 2. GET OR LOAD MODEL ===
         if mode in ("predict", "explain"):
-            # Load from binaries
-            if loaded_binaries is None:
-                raise ValueError("loaded_binaries must be provided in prediction mode")
-            model = self.model_loader.load(identifiers.model_id, loaded_binaries, fold_idx)
+            model = None
+
+            # Phase 4: Try artifact_provider first (controller-agnostic approach)
+            if runtime_context.artifact_provider is not None:
+                step_index = runtime_context.step_number
+                if fold_idx is not None:
+                    # Get fold-specific artifact
+                    model = runtime_context.artifact_provider.get_artifact(step_index, fold_id=fold_idx)
+                else:
+                    # Get primary artifact (for non-CV or single model case)
+                    model = runtime_context.artifact_provider.get_primary_artifact(step_index)
+
+                if model is not None and self.verbose > 0:
+                    print(f"🔧 Loaded model via artifact_provider for step {step_index}, fold={fold_idx}")
+
+            # Fallback: Try artifact_id-based loading (Phase 1)
+            if model is None:
+                # Load from binaries
+                if loaded_binaries is None:
+                    raise ValueError("loaded_binaries must be provided in prediction mode (artifact_provider returned None)")
+
+                # Try artifact_id-based loading first (Phase 1: deterministic reload)
+                model_artifact_id = None
+                if runtime_context.target_model:
+                    model_artifact_id = runtime_context.target_model.get('model_artifact_id')
+
+                    # For aggregated predictions (avg, w_avg), construct artifact_id for specific fold
+                    if not model_artifact_id and fold_idx is not None:
+                        pipeline_uid = runtime_context.target_model.get('pipeline_uid')
+                        step_idx = runtime_context.target_model.get('step_idx')
+                        if pipeline_uid and step_idx is not None:
+                            model_artifact_id = f"{pipeline_uid}:{step_idx}:{fold_idx}"
+
+                if model_artifact_id and runtime_context.artifact_loader:
+                    # Use artifact_id-based loading with fallback to name-based
+                    model = self.model_loader.load_with_artifact_id_fallback(
+                        model_artifact_id=model_artifact_id,
+                        artifact_loader=runtime_context.artifact_loader,
+                        model_id=identifiers.model_id,
+                        loaded_binaries=loaded_binaries,
+                        fold_idx=fold_idx
+                    )
+                else:
+                    # Fallback to legacy name-based loading
+                    model = self.model_loader.load(identifiers.model_id, loaded_binaries, fold_idx)
 
             # Capture model for SHAP explanation
             if mode == "explain" and self._should_capture_for_explanation(runtime_context, identifiers):
@@ -1699,7 +1750,9 @@ class BaseModelController(OperatorController, ABC):
                     branch_id=prediction_data.get('branch_id'),
                     branch_name=prediction_data.get('branch_name'),
                     exclusion_count=prediction_data.get('exclusion_count'),
-                    exclusion_rate=prediction_data.get('exclusion_rate')
+                    exclusion_rate=prediction_data.get('exclusion_rate'),
+                    model_artifact_id=prediction_data.get('model_artifact_id'),
+                    trace_id=prediction_data.get('trace_id')
                 )
 
             # Print summary (only once per model)
@@ -1715,12 +1768,15 @@ class BaseModelController(OperatorController, ABC):
         branch_name: Optional[str] = None,
         branch_path: Optional[List[int]] = None,
         fold_id: Optional[int] = None,
-        params: Optional[Dict[str, Any]] = None
+        params: Optional[Dict[str, Any]] = None,
+        custom_name: Optional[str] = None
     ) -> 'ArtifactMeta':
         """Persist trained model to disk using registry or legacy saver.
 
         Uses artifact_registry.register() if available (v2 system), otherwise
         falls back to saver.persist_artifact() (legacy).
+
+        Also records the artifact in the execution trace for Phase 2 deterministic replay.
 
         Args:
             runtime_context: Runtime context with saver/registry instances.
@@ -1731,6 +1787,7 @@ class BaseModelController(OperatorController, ABC):
             branch_path: Optional list of branch indices for nested branching.
             fold_id: Optional fold identifier for CV artifacts.
             params: Optional model parameters for inspection.
+            custom_name: User-defined name for the model (e.g., "Q5_PLS_10").
 
         Returns:
             ArtifactMeta or ArtifactRecord with persistence metadata.
@@ -1775,13 +1832,22 @@ class BaseModelController(OperatorController, ABC):
                 artifact_id=artifact_id,
                 artifact_type=ArtifactType.MODEL,
                 params=params or {},
-                format_hint=format_hint
+                format_hint=format_hint,
+                custom_name=custom_name
+            )
+
+            # Record artifact in execution trace (Phase 2)
+            runtime_context.record_step_artifact(
+                artifact_id=artifact_id,
+                is_primary=(fold_id is None),  # Primary if not fold-specific
+                fold_id=fold_id,
+                metadata={"class_name": model.__class__.__name__, "custom_name": custom_name}
             )
 
             return record
 
         # Fallback to legacy saver.persist_artifact()
-        return runtime_context.saver.persist_artifact(
+        result = runtime_context.saver.persist_artifact(
             step_number=runtime_context.step_number,
             name=f"{model_id}.pkl",
             obj=model,
@@ -1789,5 +1855,17 @@ class BaseModelController(OperatorController, ABC):
             branch_id=branch_id,
             branch_name=branch_name
         )
+
+        # Record artifact in execution trace for legacy path (Phase 2)
+        # Use the model_id as a fallback artifact_id
+        legacy_artifact_id = f"{runtime_context.saver.pipeline_id}:{runtime_context.step_number}:{fold_id if fold_id is not None else 'all'}"
+        runtime_context.record_step_artifact(
+            artifact_id=legacy_artifact_id,
+            is_primary=(fold_id is None),
+            fold_id=fold_id,
+            metadata={"class_name": model.__class__.__name__, "custom_name": custom_name, "legacy": True}
+        )
+
+        return result
 
 

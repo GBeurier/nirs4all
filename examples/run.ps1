@@ -23,13 +23,14 @@ param(
 
 $examples = @(
     "Q1_classif.py",
-    "Q1_groupsplit.py",
     "Q1_regression.py",
+    "Q2_groupsplit.py",
     "Q2_multimodel.py",
+    "Q2B_force_group.py",
     "Q3_finetune.py",
     "Q4_multidatasets.py",
-    "Q5_predict_NN.py",
     "Q5_predict.py",
+    "Q5_predict_NN.py",
     "Q6_multisource.py",
     "Q7_discretization.py",
     "Q8_shap.py",
@@ -45,12 +46,25 @@ $examples = @(
     "Q18_stacking.py",
     "Q19_pls_methods.py",
     "Q20_analysis.py",
+    "Q20B_analysis.py",
     "Q21_feature_selection.py",
     "Q22_concat_transform.py",
+    "Q23_generator_syntax.py",
+    "Q23b_generator.py",
+    "Q24_generator_advanced.py",
+    "Q25_complex_pipeline_pls.py",
+    "Q26_nested_or_preprocessing.py",
     "Q27_transfer_analysis.py",
+    "Q28_sample_filtering.py",
+    "Q30_branching.py",
+    "Q31_outlier_branching.py",
+    "Q_meta_stacking.py",
+    "X0_pipeline_sample.py",
     "X1_metadata.py",
     "X2_sample_augmentation.py",
-    "X4_features.py"
+    "X3_hiba_full.py",
+    "X4_features.py",
+    "baseline_sota.py"
 )
 
 # Setup logging if requested

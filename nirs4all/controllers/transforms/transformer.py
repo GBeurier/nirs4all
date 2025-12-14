@@ -191,20 +191,44 @@ class TransformerMixinController(OperatorController):
                 # print(f" Processing {processing_name} (idx {processing_idx}): fit {fit_2d.shape}, all {all_2d.shape}")
                 new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
 
-                if loaded_binaries and (mode == "predict" or mode == "explain"):
-                    binaries_dict = dict(loaded_binaries)
-                    transformer = binaries_dict.get(new_operator_name)
-                    if transformer is None:
-                        # Fallback: search by class name (handles branch op counter mismatch)
-                        transformer = _find_transformer_by_class(
-                            operator_name, binaries_dict, transformer_load_index
+                if mode == "predict" or mode == "explain":
+                    transformer = None
+
+                    # Phase 4: Try artifact_provider first (controller-agnostic approach)
+                    # Use name-based matching from step artifacts
+                    if runtime_context.artifact_provider is not None:
+                        step_index = runtime_context.step_number
+                        step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                            step_index,
+                            branch_path=context.selector.branch_path
                         )
+                        if step_artifacts:
+                            # Create dict for name-based lookup
+                            artifacts_dict = dict(step_artifacts)
+                            # Try exact name match first
+                            transformer = artifacts_dict.get(new_operator_name)
+                            if transformer is None:
+                                # Search by class name pattern (handles op counter mismatch)
+                                transformer = _find_transformer_by_class(
+                                    operator_name, artifacts_dict, transformer_load_index
+                                )
+
+                    # Fallback: Try loaded_binaries (legacy approach)
+                    if transformer is None and loaded_binaries:
+                        binaries_dict = dict(loaded_binaries)
+                        transformer = binaries_dict.get(new_operator_name)
                         if transformer is None:
-                            available = list(binaries_dict.keys())
-                            raise ValueError(
-                                f"Binary for {new_operator_name} not found in loaded_binaries. "
-                                f"Available: {available}"
+                            # Fallback: search by class name (handles branch op counter mismatch)
+                            transformer = _find_transformer_by_class(
+                                operator_name, binaries_dict, transformer_load_index
                             )
+
+                    if transformer is None:
+                        available = list(dict(loaded_binaries).keys()) if loaded_binaries else []
+                        raise ValueError(
+                            f"Binary for {new_operator_name} not found. "
+                            f"Available: {available}"
+                        )
                     transformer_load_index += 1
                 else:
                     transformer = clone(op)
@@ -365,11 +389,29 @@ class TransformerMixinController(OperatorController):
             for proc_idx in range(n_processings):
                 proc_data = source_data[:, proc_idx, :]  # (n_samples, n_features)
 
-                if loaded_binaries and mode in ["predict", "explain"]:
-                    # For predict mode, use cached binaries
-                    transformer = dict(loaded_binaries).get(f"{operator_name}_{source_idx}_{proc_idx}")
+                if mode in ["predict", "explain"]:
+                    transformer = None
+                    artifact_key = f"{operator_name}_{source_idx}_{proc_idx}"
+
+                    # Phase 4: Try artifact_provider first (controller-agnostic approach)
+                    # Use name-based matching from step artifacts
+                    if runtime_context.artifact_provider is not None:
+                        step_index = runtime_context.step_number
+                        step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                            step_index,
+                            branch_path=context.selector.branch_path
+                        )
+                        if step_artifacts:
+                            # Create dict for name-based lookup
+                            artifacts_dict = dict(step_artifacts)
+                            transformer = artifacts_dict.get(artifact_key)
+
+                    # Fallback: Try loaded_binaries (legacy approach)
+                    if transformer is None and loaded_binaries:
+                        transformer = dict(loaded_binaries).get(artifact_key)
+
                     if transformer is None:
-                        raise ValueError(f"Binary for {operator_name}_{source_idx}_{proc_idx} not found")
+                        raise ValueError(f"Binary for {artifact_key} not found")
                 else:
                     # Use pre-fitted transformer from cache
                     cache_key = (source_idx, proc_idx)
@@ -476,10 +518,29 @@ class TransformerMixinController(OperatorController):
 
                     cache_key = (source_idx, proc_idx)
 
-                    if loaded_binaries and mode in ["predict", "explain"]:
-                        transformer = dict(loaded_binaries).get(f"{operator_name}_{source_idx}_{proc_idx}")
+                    if mode in ["predict", "explain"]:
+                        transformer = None
+                        artifact_key = f"{operator_name}_{source_idx}_{proc_idx}"
+
+                        # Phase 4: Try artifact_provider first (controller-agnostic approach)
+                        # Use name-based matching from step artifacts
+                        if runtime_context.artifact_provider is not None:
+                            step_index = runtime_context.step_number
+                            step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                                step_index,
+                                branch_path=context.selector.branch_path
+                            )
+                            if step_artifacts:
+                                # Create dict for name-based lookup
+                                artifacts_dict = dict(step_artifacts)
+                                transformer = artifacts_dict.get(artifact_key)
+
+                        # Fallback: Try loaded_binaries (legacy approach)
+                        if transformer is None and loaded_binaries:
+                            transformer = dict(loaded_binaries).get(artifact_key)
+
                         if transformer is None:
-                            raise ValueError(f"Binary for {operator_name} not found")
+                            raise ValueError(f"Binary for {artifact_key} not found")
                     elif cache_key in fitted_transformers_cache:
                         # Reuse already fitted transformer
                         transformer = fitted_transformers_cache[cache_key]

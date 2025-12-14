@@ -637,6 +637,120 @@ class ArtifactLoader:
 
         return False
 
+    def load_by_artifact_id(self, artifact_id: str) -> Tuple[str, Any]:
+        """Load a single artifact by its deterministic artifact_id.
+
+        This method provides deterministic artifact loading using the artifact_id
+        stored in predictions. Unlike name-based loading which can be ambiguous
+        with custom model names, artifact_id-based loading is always exact.
+
+        Args:
+            artifact_id: The deterministic artifact ID (e.g., "0001:4:0" for fold 0
+                        or "0001:4:all" for shared artifacts)
+
+        Returns:
+            Tuple of (name, loaded_object) where name is built from custom_name
+            if available, otherwise from class_name.
+
+        Raises:
+            KeyError: If artifact_id not found in registry
+            FileNotFoundError: If artifact file doesn't exist on disk
+
+        Example:
+            >>> loader = ArtifactLoader.from_manifest(manifest, results_dir)
+            >>> name, model = loader.load_by_artifact_id("abc123:4:0")
+            >>> predictions = model.predict(X_new)
+        """
+        record = self._artifacts.get(artifact_id)
+        if record is None:
+            raise KeyError(f"Artifact not found: {artifact_id}")
+
+        obj = self.load_by_id(artifact_id)
+
+        # Build name from custom_name if available, otherwise class_name
+        if record.custom_name:
+            name = record.custom_name
+        else:
+            name = record.class_name
+
+        # Append fold info if applicable
+        if record.fold_id is not None:
+            name = f"{name}_fold{record.fold_id}"
+
+        return name, obj
+
+    def get_step_binaries_by_artifact_ids(
+        self,
+        artifact_ids: List[str]
+    ) -> List[Tuple[str, Any]]:
+        """Load multiple artifacts by their deterministic artifact_ids.
+
+        This method is used in prediction mode when model_artifact_id is available
+        in the prediction record. It provides deterministic loading that works
+        correctly with custom model names.
+
+        Args:
+            artifact_ids: List of artifact IDs to load
+
+        Returns:
+            List of (name, loaded_object) tuples
+
+        Raises:
+            KeyError: If any artifact_id is not found
+
+        Example:
+            >>> artifact_ids = ["abc123:4:0", "abc123:4:1"]
+            >>> binaries = loader.get_step_binaries_by_artifact_ids(artifact_ids)
+        """
+        results = []
+        for artifact_id in artifact_ids:
+            try:
+                name, obj = self.load_by_artifact_id(artifact_id)
+                results.append((name, obj))
+            except (KeyError, FileNotFoundError) as e:
+                logger.warning(f"Failed to load artifact {artifact_id}: {e}")
+                raise
+
+        return results
+
+    def find_artifact_by_custom_name(
+        self,
+        custom_name: str,
+        step_index: Optional[int] = None,
+        fold_id: Optional[int] = None,
+        branch_path: Optional[List[int]] = None
+    ) -> Optional[ArtifactRecord]:
+        """Find an artifact by its custom_name.
+
+        Used for reverse lookup when only the model name is known but not
+        the artifact_id. Useful for legacy compatibility.
+
+        Args:
+            custom_name: User-defined model name (e.g., "Q5_PLS_10")
+            step_index: Optional filter by step
+            fold_id: Optional filter by fold
+            branch_path: Optional filter by branch
+
+        Returns:
+            ArtifactRecord if found, None otherwise
+        """
+        for record in self._artifacts.values():
+            if record.custom_name != custom_name:
+                continue
+
+            if step_index is not None and record.step_index != step_index:
+                continue
+
+            if fold_id is not None and record.fold_id != fold_id:
+                continue
+
+            if branch_path is not None and record.branch_path != branch_path:
+                continue
+
+            return record
+
+        return None
+
     def import_from_manifest(
         self,
         manifest: Dict[str, Any],

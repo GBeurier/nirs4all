@@ -189,8 +189,7 @@ def _normalize_kernel_train(K: NDArray) -> tuple[NDArray, NDArray]:
 
 def _normalize_kernel_test(
     K_test: NDArray,
-    X_test: NDArray,
-    kernel_func,
+    diag_sqrt_test: NDArray,
     diag_sqrt_train: NDArray,
 ) -> NDArray:
     """Normalize test kernel matrix using training normalization factors.
@@ -199,10 +198,8 @@ def _normalize_kernel_test(
     ----------
     K_test : ndarray of shape (n_test, n_train)
         Test kernel matrix K(X_test, X_train).
-    X_test : ndarray of shape (n_test, n_features)
-        Test data (for computing K(X_test, X_test) diagonal).
-    kernel_func : callable
-        Kernel function to compute diagonal elements.
+    diag_sqrt_test : ndarray of shape (n_test,)
+        Square root of diagonal elements K(X_test, X_test).
     diag_sqrt_train : ndarray of shape (n_train,)
         Square root of training kernel diagonal.
 
@@ -211,15 +208,62 @@ def _normalize_kernel_test(
     K_normalized : ndarray of shape (n_test, n_train)
         Normalized test kernel matrix.
     """
-    # Compute diagonal of test kernel K(X_test, X_test)
-    K_test_diag = kernel_func(X_test, X_test)
-    diag_test = np.diag(K_test_diag)
-    diag_test = np.maximum(diag_test, 1e-12)
-    diag_sqrt_test = np.sqrt(diag_test)
-
     # Normalize: K_norm(x,y) = K(x,y) / sqrt(K(x,x) * K(y,y))
     K_normalized = K_test / np.outer(diag_sqrt_test, diag_sqrt_train)
     return K_normalized
+
+
+def _compute_kernel_diagonal(
+    X: NDArray,
+    kernel: str,
+    gamma: float = None,
+    degree: int = 3,
+    coef0: float = 1.0,
+) -> NDArray:
+    """Compute diagonal of kernel matrix K(X, X) efficiently.
+
+    For most kernels, the diagonal can be computed without forming
+    the full kernel matrix, which is O(n) instead of O(n^2).
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Input data.
+    kernel : str
+        Kernel type: 'linear', 'rbf', 'poly', 'sigmoid'.
+    gamma : float, optional
+        Kernel coefficient.
+    degree : int, default=3
+        Degree for polynomial kernel.
+    coef0 : float, default=1.0
+        Independent term for polynomial/sigmoid kernels.
+
+    Returns
+    -------
+    diag : ndarray of shape (n_samples,)
+        Diagonal elements K(x_i, x_i).
+    """
+    if gamma is None:
+        gamma = 1.0 / X.shape[1]
+
+    if kernel == 'linear':
+        # K(x,x) = x^T x
+        diag = np.sum(X ** 2, axis=1)
+    elif kernel == 'rbf':
+        # K(x,x) = exp(-gamma * 0) = 1
+        diag = np.ones(X.shape[0], dtype=np.float64)
+    elif kernel == 'poly':
+        # K(x,x) = (gamma * x^T x + coef0)^degree
+        x_norm_sq = np.sum(X ** 2, axis=1)
+        diag = (gamma * x_norm_sq + coef0) ** degree
+    elif kernel == 'sigmoid':
+        # K(x,x) = tanh(gamma * x^T x + coef0)
+        x_norm_sq = np.sum(X ** 2, axis=1)
+        diag = np.tanh(gamma * x_norm_sq + coef0)
+    else:
+        raise ValueError(f"Unknown kernel '{kernel}'")
+
+    return diag
 
 
 # =============================================================================
@@ -350,12 +394,12 @@ def _simpls_fit_numpy(
         t = K @ w
 
         # Loadings
-        ttK = t.T @ K @ t
-        if ttK < 1e-14:
+        tt = t.T @ t
+        if tt < 1e-14:
             break
 
-        p = (K @ t) / ttK  # K loading
-        q = (Y.T @ t) / (t.T @ t)  # Y loading
+        p = (K @ t) / tt  # K loading
+        q = (Y.T @ t) / tt  # Y loading
 
         # Y score
         u = Y @ q
@@ -507,11 +551,11 @@ def _get_jax_kernel_pls_functions():
             t = K @ w
 
             # Loadings
-            ttK = t.T @ K @ t
-            ttK_safe = jnp.where(ttK > 1e-14, ttK, 1.0)
+            tt = t.T @ t
+            tt_safe = jnp.maximum(tt, 1e-14)
 
-            p = (K @ t) / ttK_safe
-            q = (Y.T @ t) / jnp.maximum(t.T @ t, 1e-14)
+            p = (K @ t) / tt_safe
+            q = (Y.T @ t) / tt_safe
 
             # Y score
             u = Y @ q
@@ -864,7 +908,13 @@ class KernelPLS(BaseEstimator, RegressorMixin):
         # Compute kernel matrix
         K = self._compute_kernel(X)
 
-        self.K_train_ = K.copy()  # Store kernel before centering
+        # Normalize kernel for non-RBF kernels (unit-diagonal normalization)
+        if self.kernel != 'rbf':
+            K, self._kdiag_sqrt_train_ = _normalize_kernel_train(K)
+        else:
+            self._kdiag_sqrt_train_ = None
+
+        self.K_train_ = K.copy()  # Store kernel before centering (but after normalization)
 
         # Center kernel
         if self.center_kernel:
@@ -940,6 +990,18 @@ class KernelPLS(BaseEstimator, RegressorMixin):
         # Compute test kernel
         K_test = self._compute_kernel(X, self.X_train_)
 
+        # Normalize test kernel for non-RBF kernels
+        if self.kernel != 'rbf':
+            # Compute diagonal of K(X_test, X_test) efficiently
+            gamma = self.gamma if self.gamma is not None else 1.0 / X.shape[1]
+            diag_test = _compute_kernel_diagonal(
+                X, self.kernel, gamma, self.degree, self.coef0
+            )
+            diag_test = np.maximum(diag_test, 1e-12)
+            diag_sqrt_test = np.sqrt(diag_test)
+            # Type ignore: _kdiag_sqrt_train_ is set in fit() when kernel != 'rbf'
+            K_test = _normalize_kernel_test(K_test, diag_sqrt_test, self._kdiag_sqrt_train_)  # type: ignore[arg-type]
+
         # Center test kernel
         if self.center_kernel:
             if self.backend == 'jax':
@@ -999,6 +1061,18 @@ class KernelPLS(BaseEstimator, RegressorMixin):
 
         # Compute test kernel
         K_test = self._compute_kernel(X, self.X_train_)
+
+        # Normalize test kernel for non-RBF kernels
+        if self.kernel != 'rbf':
+            # Compute diagonal of K(X_test, X_test) efficiently
+            gamma = self.gamma if self.gamma is not None else 1.0 / X.shape[1]
+            diag_test = _compute_kernel_diagonal(
+                X, self.kernel, gamma, self.degree, self.coef0
+            )
+            diag_test = np.maximum(diag_test, 1e-12)
+            diag_sqrt_test = np.sqrt(diag_test)
+            # Type ignore: _kdiag_sqrt_train_ is set in fit() when kernel != 'rbf'
+            K_test = _normalize_kernel_test(K_test, diag_sqrt_test, self._kdiag_sqrt_train_)  # type: ignore[arg-type]
 
         # Center test kernel
         if self.center_kernel:

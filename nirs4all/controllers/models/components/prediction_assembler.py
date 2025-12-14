@@ -85,6 +85,9 @@ class PredictionDataAssembler:
         pipeline_name = runner.saver.pipeline_id
         dataset_name = dataset.name
 
+        # Get trace_id from runtime context (Phase 2)
+        trace_id = runner.get_trace_id() if hasattr(runner, 'get_trace_id') else None
+
         # Ensure task_type is a string (convert from enum if needed)
         task_type_str = str(dataset.task_type.value) if hasattr(dataset.task_type, 'value') else str(dataset.task_type)
 
@@ -103,6 +106,7 @@ class PredictionDataAssembler:
             'config_name': pipeline_name,
             'config_path': f"{dataset_name}/{pipeline_name}",
             'pipeline_uid': pipeline_uid if pipeline_uid else "",
+            'trace_id': trace_id,  # Phase 2: Link to execution trace
             'step_idx': int(identifiers.step_id) if identifiers.step_id else 0,
             'op_counter': int(identifiers.operation_counter),
             'model_name': identifiers.name,

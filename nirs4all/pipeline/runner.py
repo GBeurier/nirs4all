@@ -18,6 +18,7 @@ from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
 from nirs4all.pipeline.predictor import Predictor
 from nirs4all.pipeline.explainer import Explainer
+from nirs4all.pipeline.retrainer import Retrainer, RetrainMode, StepMode, ExtractedPipeline
 
 
 def init_global_random_state(seed: Optional[int] = None):
@@ -157,6 +158,7 @@ class PipelineRunner:
         # Create predictor and explainer
         self.predictor = Predictor(self)
         self.explainer = Explainer(self)
+        self.retrainer = Retrainer(self)
 
         # Expose orchestrator state for convenience
         self.raw_data = self.orchestrator.raw_data
@@ -370,4 +372,215 @@ class PipelineRunner:
         """
         self.operation_count += 1
         return self.operation_count
+
+    def export(
+        self,
+        source: Union[Dict[str, Any], str, Path],
+        output_path: Union[str, Path],
+        format: str = "n4a",
+        include_metadata: bool = True,
+        compress: bool = True
+    ) -> Path:
+        """Export a trained pipeline to a standalone bundle.
+
+        Creates a self-contained prediction bundle that can be used for
+        deployment, sharing, or archival without requiring the original
+        workspace or full nirs4all installation.
+
+        Supported formats:
+            - 'n4a': Full bundle (ZIP archive with artifacts and metadata)
+            - 'n4a.py': Portable Python script with embedded artifacts
+
+        Phase 6 Feature:
+            This method enables exporting trained pipelines as standalone
+            bundles that can be loaded and used for prediction without
+            the original workspace structure.
+
+        Args:
+            source: Prediction source to export. Can be:
+                - prediction dict: From a previous run's Predictions object
+                - folder path: Path to a pipeline directory
+                - Run object: Best prediction from a Run
+            output_path: Path for the output bundle file
+            format: Bundle format ('n4a' or 'n4a.py')
+            include_metadata: Whether to include full metadata in bundle
+            compress: Whether to compress artifacts (for .n4a format)
+
+        Returns:
+            Path to the created bundle file
+
+        Raises:
+            ValueError: If format is not supported
+            FileNotFoundError: If source cannot be resolved
+
+        Example:
+            >>> runner = PipelineRunner()
+            >>> predictions, _ = runner.run(pipeline, dataset)
+            >>> best_pred = predictions.top(n=1)[0]
+            >>>
+            >>> # Export to .n4a bundle
+            >>> runner.export(best_pred, "exports/wheat_model.n4a")
+            >>>
+            >>> # Export to portable Python script
+            >>> runner.export(best_pred, "exports/wheat_model.n4a.py", format='n4a.py')
+            >>>
+            >>> # Later, predict from bundle
+            >>> y_pred, _ = runner.predict("exports/wheat_model.n4a", X_new)
+        """
+        from nirs4all.pipeline.bundle import BundleGenerator
+
+        generator = BundleGenerator(
+            workspace_path=self.workspace_path,
+            verbose=self.verbose
+        )
+
+        return generator.export(
+            source=source,
+            output_path=output_path,
+            format=format,
+            include_metadata=include_metadata,
+            compress=compress
+        )
+
+    def retrain(
+        self,
+        source: Union[Dict[str, Any], str, Path],
+        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        mode: str = "full",
+        dataset_name: str = "retrain_dataset",
+        new_model: Optional[Any] = None,
+        epochs: Optional[int] = None,
+        step_modes: Optional[List[StepMode]] = None,
+        verbose: int = 0,
+        **kwargs
+    ) -> Tuple[Predictions, Dict[str, Any]]:
+        """Retrain a pipeline on new data.
+
+        Enables retraining trained pipelines with various modes:
+        - full: Train from scratch with same pipeline structure
+        - transfer: Use existing preprocessing artifacts, train new model
+        - finetune: Continue training existing model with new data
+
+        Phase 7 Feature:
+            This method enables retraining pipelines without having to
+            reconstruct the pipeline configuration manually. It uses the
+            resolved prediction source (from Phase 3/4) to extract the
+            pipeline structure and optionally reuse preprocessing artifacts.
+
+        Args:
+            source: Prediction source to retrain from. Can be:
+                - prediction dict: From a previous run's Predictions object
+                - folder path: Path to a pipeline directory
+                - Run object: Best prediction from a Run
+                - artifact_id: Direct artifact reference
+                - bundle: Exported prediction bundle (.n4a)
+            dataset: New dataset to train on. Supports same formats as run()
+            mode: Retrain mode:
+                - 'full': Train everything from scratch (same pipeline structure)
+                - 'transfer': Use existing preprocessing, train new model
+                - 'finetune': Continue training existing model
+            dataset_name: Name for the dataset if array-based
+            new_model: Optional new model for transfer mode (replaces original)
+            epochs: Optional epochs for fine-tuning
+            step_modes: Optional per-step mode overrides for fine-grained control
+            verbose: Verbosity level
+            **kwargs: Additional parameters:
+                - learning_rate: Learning rate for fine-tuning
+                - freeze_layers: List of layers to freeze during fine-tuning
+
+        Returns:
+            Tuple of (run_predictions, datasets_predictions)
+
+        Raises:
+            ValueError: If mode is invalid or source cannot be resolved
+            FileNotFoundError: If source references files that don't exist
+
+        Example:
+            >>> runner = PipelineRunner()
+            >>> predictions, _ = runner.run(pipeline, dataset)
+            >>> best_pred = predictions.top(n=1)[0]
+            >>>
+            >>> # Full retrain on new data
+            >>> new_preds, _ = runner.retrain(best_pred, new_data, mode='full')
+            >>>
+            >>> # Transfer: use preprocessing from old model, train new one
+            >>> new_preds, _ = runner.retrain(
+            ...     best_pred, new_data, mode='transfer',
+            ...     new_model=XGBRegressor()
+            ... )
+            >>>
+            >>> # Finetune: continue training existing model
+            >>> new_preds, _ = runner.retrain(
+            ...     best_pred, new_data, mode='finetune', epochs=10
+            ... )
+            >>>
+            >>> # Fine-grained control: specify per-step modes
+            >>> from nirs4all.pipeline import StepMode
+            >>> step_modes = [
+            ...     StepMode(step_index=1, mode='predict'),  # Use existing
+            ...     StepMode(step_index=2, mode='train'),    # Retrain
+            ... ]
+            >>> new_preds, _ = runner.retrain(
+            ...     best_pred, new_data, mode='full', step_modes=step_modes
+            ... )
+        """
+        return self.retrainer.retrain(
+            source=source,
+            dataset=dataset,
+            mode=mode,
+            dataset_name=dataset_name,
+            new_model=new_model,
+            epochs=epochs,
+            step_modes=step_modes,
+            verbose=verbose,
+            **kwargs
+        )
+
+    def extract(
+        self,
+        source: Union[Dict[str, Any], str, Path]
+    ) -> ExtractedPipeline:
+        """Extract a trained pipeline for inspection or modification.
+
+        Loads a trained pipeline from a prediction source and returns an
+        ExtractedPipeline object that can be inspected, modified, and then
+        executed with runner.run().
+
+        Phase 7 Feature:
+            This method enables extracting and modifying trained pipelines
+            without retraining from scratch.
+
+        Args:
+            source: Prediction source to extract. Can be:
+                - prediction dict: From a previous run's Predictions object
+                - folder path: Path to a pipeline directory
+                - Run object: Best prediction from a Run
+                - artifact_id: Direct artifact reference
+                - bundle: Exported prediction bundle (.n4a)
+
+        Returns:
+            ExtractedPipeline object with:
+                - steps: List of pipeline steps (can be modified)
+                - trace: Original execution trace (read-only)
+                - artifact_provider: Provider for original artifacts
+                - model_step_index: Index of the model step
+                - preprocessing_chain: Summary of preprocessing
+
+        Example:
+            >>> runner = PipelineRunner()
+            >>> predictions, _ = runner.run(pipeline, dataset)
+            >>> best_pred = predictions.top(n=1)[0]
+            >>>
+            >>> # Extract for inspection
+            >>> extracted = runner.extract(best_pred)
+            >>> print(f"Steps: {len(extracted.steps)}")
+            >>> print(f"Preprocessing: {extracted.preprocessing_chain}")
+            >>>
+            >>> # Modify and run
+            >>> from sklearn.ensemble import RandomForestRegressor
+            >>> extracted.set_model(RandomForestRegressor())
+            >>> new_preds, _ = runner.run(extracted.steps, new_data)
+        """
+        return self.retrainer.extract(source, verbose=self.verbose)
+
 

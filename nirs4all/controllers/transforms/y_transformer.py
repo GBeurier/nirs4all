@@ -200,23 +200,50 @@ class YTransformerMixinController(OperatorController):
 
         # Handle prediction/explain mode: load pre-fitted transformer
         if mode in ("predict", "explain"):
-            # Try to find the transformer in loaded binaries
-            fitted_transformer = binaries_dict.get(artifact_name)
+            fitted_transformer = None
 
-            if fitted_transformer is None:
-                # Fallback: try without index suffix for backward compatibility
-                legacy_name = f"y_{operator_name}"
-                fitted_transformer = binaries_dict.get(legacy_name)
+            # Phase 4: Try artifact_provider first (controller-agnostic approach)
+            # Use name-based matching from step artifacts
+            if runtime_context.artifact_provider is not None:
+                step_index = runtime_context.step_number
+                step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                    step_index,
+                    branch_path=context.selector.branch_path
+                )
+                if step_artifacts:
+                    # Create dict for name-based lookup
+                    artifacts_dict = dict(step_artifacts)
+                    # Try exact name match first
+                    fitted_transformer = artifacts_dict.get(artifact_name)
 
+                    if fitted_transformer is None:
+                        # Fallback: search by class name pattern (handles op counter mismatch)
+                        import re
+                        pattern = re.compile(rf'^y_{re.escape(operator_name)}_(\d+)$')
+                        for key, obj in artifacts_dict.items():
+                            if pattern.match(key):
+                                fitted_transformer = obj
+                                break
+
+            # Fallback: Try loaded_binaries (legacy approach)
             if fitted_transformer is None:
-                # Fallback: search by class name pattern (handles v2 artifact system)
-                # Look for any key matching y_{class_name}_{number}
-                import re
-                pattern = re.compile(rf'^y_{re.escape(operator_name)}_(\d+)$')
-                for key, obj in binaries_dict.items():
-                    if pattern.match(key):
-                        fitted_transformer = obj
-                        break
+                # Try to find the transformer in loaded binaries
+                fitted_transformer = binaries_dict.get(artifact_name)
+
+                if fitted_transformer is None:
+                    # Fallback: try without index suffix for backward compatibility
+                    legacy_name = f"y_{operator_name}"
+                    fitted_transformer = binaries_dict.get(legacy_name)
+
+                if fitted_transformer is None:
+                    # Fallback: search by class name pattern (handles v2 artifact system)
+                    # Look for any key matching y_{class_name}_{number}
+                    import re
+                    pattern = re.compile(rf'^y_{re.escape(operator_name)}_(\d+)$')
+                    for key, obj in binaries_dict.items():
+                        if pattern.match(key):
+                            fitted_transformer = obj
+                            break
 
             if fitted_transformer is not None:
                 dataset._targets.add_processed_targets(

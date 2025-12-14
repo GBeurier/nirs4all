@@ -28,7 +28,10 @@ import yaml
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.trace import ExecutionTrace
 
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
@@ -290,6 +293,113 @@ class ManifestManager:
         manifest = self.load_manifest(pipeline_id)
         manifest["predictions"].append(prediction)
         self.save_manifest(pipeline_id, manifest)
+
+    def save_execution_trace(self, pipeline_id: str, trace: 'ExecutionTrace') -> None:
+        """
+        Save an execution trace to the pipeline manifest.
+
+        Execution traces record the exact path through the pipeline that produced
+        a prediction, enabling deterministic replay for prediction, transfer, and export.
+
+        Args:
+            pipeline_id: Pipeline ID
+            trace: ExecutionTrace instance to save
+
+        Note:
+            The trace is stored in the manifest under "execution_traces" keyed by trace_id.
+        """
+        from nirs4all.pipeline.trace import ExecutionTrace
+
+        manifest = self.load_manifest(pipeline_id)
+
+        # Initialize execution_traces section if not present
+        if "execution_traces" not in manifest:
+            manifest["execution_traces"] = {}
+
+        # Convert trace to dict and store keyed by trace_id
+        trace_dict = trace.to_dict() if hasattr(trace, 'to_dict') else trace
+        trace_id = trace_dict.get("trace_id", "unknown")
+        manifest["execution_traces"][trace_id] = trace_dict
+
+        self.save_manifest(pipeline_id, manifest)
+
+    def load_execution_trace(self, pipeline_id: str, trace_id: str) -> Optional['ExecutionTrace']:
+        """
+        Load a specific execution trace from the pipeline manifest.
+
+        Args:
+            pipeline_id: Pipeline ID
+            trace_id: Trace ID to load
+
+        Returns:
+            ExecutionTrace instance or None if not found
+        """
+        from nirs4all.pipeline.trace import ExecutionTrace
+
+        try:
+            manifest = self.load_manifest(pipeline_id)
+        except FileNotFoundError:
+            return None
+
+        traces = manifest.get("execution_traces", {})
+        trace_dict = traces.get(trace_id)
+
+        if trace_dict is None:
+            return None
+
+        return ExecutionTrace.from_dict(trace_dict)
+
+    def list_execution_traces(self, pipeline_id: str) -> List[str]:
+        """
+        List all execution trace IDs for a pipeline.
+
+        Args:
+            pipeline_id: Pipeline ID
+
+        Returns:
+            List of trace IDs
+        """
+        try:
+            manifest = self.load_manifest(pipeline_id)
+        except FileNotFoundError:
+            return []
+
+        traces = manifest.get("execution_traces", {})
+        return list(traces.keys())
+
+    def get_latest_execution_trace(self, pipeline_id: str) -> Optional['ExecutionTrace']:
+        """
+        Get the most recent execution trace for a pipeline.
+
+        Args:
+            pipeline_id: Pipeline ID
+
+        Returns:
+            Most recent ExecutionTrace or None if none exist
+        """
+        from nirs4all.pipeline.trace import ExecutionTrace
+
+        try:
+            manifest = self.load_manifest(pipeline_id)
+        except FileNotFoundError:
+            return None
+
+        traces = manifest.get("execution_traces", {})
+        if not traces:
+            return None
+
+        # Sort by created_at to get the latest
+        sorted_traces = sorted(
+            traces.items(),
+            key=lambda x: x[1].get("created_at", ""),
+            reverse=True
+        )
+
+        if sorted_traces:
+            trace_dict = sorted_traces[0][1]
+            return ExecutionTrace.from_dict(trace_dict)
+
+        return None
 
     def list_pipelines(self) -> List[str]:
         """

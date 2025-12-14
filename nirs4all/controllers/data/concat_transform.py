@@ -453,12 +453,29 @@ class ConcatAugmentationController(OperatorController):
         Returns:
             Tuple of (transformed_data, artifact_metadata)
         """
-        if loaded_binaries and mode in ["predict", "explain"]:
-            # Load pre-fitted transformer
-            binaries_dict = dict(loaded_binaries)
-            fitted = binaries_dict.get(binary_key)
+        if mode in ["predict", "explain"]:
+            fitted = None
+
+            # Phase 4: Try artifact_provider first (controller-agnostic approach)
+            if runtime_context.artifact_provider is not None:
+                step_index = runtime_context.step_number
+                step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                    step_index,
+                    branch_path=context.selector.branch_path if context else None
+                )
+                # Find artifact by key matching or by index
+                for artifact_id, obj in step_artifacts:
+                    if binary_key in artifact_id:
+                        fitted = obj
+                        break
+
+            # Fallback: Try loaded_binaries (legacy approach)
+            if fitted is None and loaded_binaries:
+                binaries_dict = dict(loaded_binaries)
+                fitted = binaries_dict.get(binary_key)
+
             if fitted is None:
-                raise ValueError(f"Binary for '{binary_key}' not found in loaded_binaries")
+                raise ValueError(f"Binary for '{binary_key}' not found")
         else:
             # Fit new transformer
             fitted = clone(transformer)
@@ -515,11 +532,29 @@ class ConcatAugmentationController(OperatorController):
         for i, transformer in enumerate(chain):
             binary_key = f"{binary_key_base}_chain{i}"
 
-            if loaded_binaries and mode in ["predict", "explain"]:
-                binaries_dict = dict(loaded_binaries)
-                fitted = binaries_dict.get(binary_key)
+            if mode in ["predict", "explain"]:
+                fitted = None
+
+                # Phase 4: Try artifact_provider first (controller-agnostic approach)
+                if runtime_context.artifact_provider is not None:
+                    step_index = runtime_context.step_number
+                    step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                        step_index,
+                        branch_path=context.selector.branch_path if context else None
+                    )
+                    # Find artifact by key matching
+                    for artifact_id, obj in step_artifacts:
+                        if binary_key in artifact_id:
+                            fitted = obj
+                            break
+
+                # Fallback: Try loaded_binaries (legacy approach)
+                if fitted is None and loaded_binaries:
+                    binaries_dict = dict(loaded_binaries)
+                    fitted = binaries_dict.get(binary_key)
+
                 if fitted is None:
-                    raise ValueError(f"Binary for '{binary_key}' not found in loaded_binaries")
+                    raise ValueError(f"Binary for '{binary_key}' not found")
             else:
                 fitted = clone(transformer)
                 fitted.fit(current_train)
