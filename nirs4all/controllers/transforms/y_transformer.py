@@ -115,8 +115,9 @@ class YTransformerMixinController(OperatorController):
         # Normalize to list and instantiate class types
         operators = self._normalize_operators(operator)
 
-        # Convert loaded_binaries to dict for easy lookup by name
-        binaries_dict = {}
+        # Convert loaded_binaries to dict for easy lookup by name while preserving order
+        binaries_list: List[Tuple[str, Any]] = list(loaded_binaries or [])
+        binaries_dict: Dict[str, Any] = {}
         if loaded_binaries:
             binaries_dict = {name: obj for name, obj in loaded_binaries}
 
@@ -132,7 +133,8 @@ class YTransformerMixinController(OperatorController):
                 context=current_context,
                 runtime_context=runtime_context,
                 mode=mode,
-                binaries_dict=binaries_dict
+                binaries_dict=binaries_dict,
+                binaries_list=binaries_list
             )
             all_artifacts.extend(artifacts)
 
@@ -171,7 +173,8 @@ class YTransformerMixinController(OperatorController):
         context: ExecutionContext,
         runtime_context: 'RuntimeContext',
         mode: str,
-        binaries_dict: Dict[str, Any]
+        binaries_dict: Dict[str, Any],
+        binaries_list: Optional[List[Tuple[str, Any]]] = None
     ) -> Tuple[ExecutionContext, List[Any]]:
         """Execute a single transformer on dataset targets.
 
@@ -225,6 +228,13 @@ class YTransformerMixinController(OperatorController):
                                 fitted_transformer = obj
                                 break
 
+                if fitted_transformer is None and step_artifacts:
+                    fitted_transformer = self._match_transformer_by_class(
+                        operator_name,
+                        step_artifacts,
+                        transformer_index
+                    )
+
             # Fallback: Try loaded_binaries (legacy approach)
             if fitted_transformer is None:
                 # Try to find the transformer in loaded binaries
@@ -244,6 +254,13 @@ class YTransformerMixinController(OperatorController):
                         if pattern.match(key):
                             fitted_transformer = obj
                             break
+
+                if fitted_transformer is None and binaries_list:
+                    fitted_transformer = self._match_transformer_by_class(
+                        operator_name,
+                        binaries_list,
+                        transformer_index
+                    )
 
             if fitted_transformer is not None:
                 dataset._targets.add_processed_targets(
@@ -305,6 +322,21 @@ class YTransformerMixinController(OperatorController):
 
         return updated_context, artifacts
 
+    def _match_transformer_by_class(
+        self,
+        class_name: str,
+        artifacts: List[Tuple[str, Any]],
+        target_index: int = 0
+    ) -> Optional[Any]:
+        """Select the nth transformer whose class matches class_name."""
+        match_count = 0
+        for _, obj in artifacts:
+            if obj.__class__.__name__ == class_name:
+                if match_count == target_index:
+                    return obj
+                match_count += 1
+        return None
+
     def _persist_y_transformer(
         self,
         runtime_context: 'RuntimeContext',
@@ -333,24 +365,44 @@ class YTransformerMixinController(OperatorController):
             step_index = runtime_context.step_number
             branch_path = context.selector.branch_path or []
 
+            # Extract the operation counter from the name (e.g., "y_MinMaxScaler_1" -> 1)
+            sub_index = None
+            if "_" in name:
+                try:
+                    sub_index = int(name.rsplit("_", 1)[1])
+                except (ValueError, IndexError):
+                    pass
+
             # Generate deterministic artifact ID
             artifact_id = registry.generate_id(
                 pipeline_id=pipeline_id,
                 branch_path=branch_path,
                 step_index=step_index,
-                fold_id=None  # Y transformers are shared across folds
+                fold_id=None,  # Y transformers are shared across folds
+                sub_index=sub_index
             )
 
             # Register artifact with registry (use ENCODER type for y transformers)
-            return registry.register(
+            record = registry.register(
                 obj=transformer,
                 artifact_id=artifact_id,
                 artifact_type=ArtifactType.ENCODER,
                 format_hint='sklearn'
             )
 
+            # Record artifact in execution trace
+            # This is critical for minimal pipeline extraction during prediction
+            runtime_context.record_step_artifact(
+                artifact_id=artifact_id,
+                is_primary=False,
+                fold_id=None,
+                metadata={"class_name": transformer.__class__.__name__, "name": name}
+            )
+
+            return record
+
         # Fallback to legacy saver.persist_artifact()
-        return runtime_context.saver.persist_artifact(
+        result = runtime_context.saver.persist_artifact(
             step_number=runtime_context.step_number,
             name=name,
             obj=transformer,
@@ -359,3 +411,16 @@ class YTransformerMixinController(OperatorController):
             branch_name=context.selector.branch_name
         )
 
+        # Record artifact in execution trace for legacy path
+        legacy_artifact_id = (
+            f"{runtime_context.saver.pipeline_id}:"
+            f"{runtime_context.step_number}:all"
+        )
+        runtime_context.record_step_artifact(
+            artifact_id=legacy_artifact_id,
+            is_primary=False,
+            fold_id=None,
+            metadata={"class_name": transformer.__class__.__name__, "name": name, "legacy": True}
+        )
+
+        return result

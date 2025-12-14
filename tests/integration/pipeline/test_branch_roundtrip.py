@@ -406,15 +406,19 @@ class TestMultipleBranchRoundtrip:
 
             target_pred = branch_preds[0]
 
+            # Create fresh dataset for prediction (simulates real-world reload scenario)
+            # Training mutates the dataset, so we need fresh data for prediction
+            fresh_dataset = create_reproducible_dataset(seed=42)
+
             y_pred_reloaded, _ = runner_with_save.predict(
                 prediction_obj=target_pred,
-                dataset=dataset,
+                dataset=fresh_dataset,
                 dataset_name="test_roundtrip"
             )
 
             assert y_pred_reloaded is not None, f"Prediction failed for branch {branch_id}"
-            assert y_pred_reloaded.shape[0] == dataset.num_samples, \
-                f"Expected {dataset.num_samples} predictions for branch {branch_id}"
+            assert y_pred_reloaded.shape[0] == fresh_dataset.num_samples, \
+                f"Expected {fresh_dataset.num_samples} predictions for branch {branch_id}"
 
 
 class TestEdgeCaseRoundtrip:

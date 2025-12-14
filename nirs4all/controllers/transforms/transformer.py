@@ -630,12 +630,23 @@ class TransformerMixinController(OperatorController):
             )
 
             # Register artifact with registry
-            return registry.register(
+            record = registry.register(
                 obj=transformer,
                 artifact_id=artifact_id,
                 artifact_type=ArtifactType.TRANSFORMER,
                 format_hint='sklearn'
             )
+
+            # Record artifact in execution trace
+            # This is critical for minimal pipeline extraction during prediction
+            runtime_context.record_step_artifact(
+                artifact_id=artifact_id,
+                is_primary=False,  # Transformers are not primary artifacts
+                fold_id=None,
+                metadata={"class_name": transformer.__class__.__name__, "name": name}
+            )
+
+            return record
 
         # Fallback to legacy saver.persist_artifact()
         return runtime_context.saver.persist_artifact(

@@ -235,12 +235,18 @@ class BranchController(OperatorController):
                     branch_context = result.updated_context
                     all_artifacts.extend(result.artifacts)
 
+            # Snapshot features AFTER branch processing completes
+            # This captures the feature state produced by this branch's transformers
+            # Post-branch steps (e.g., model) need this to use correct features per branch
+            branch_features_snapshot = self._snapshot_features(dataset)
+
             # Store the final context for this branch
             branch_contexts.append({
                 "branch_id": branch_id,
                 "name": branch_name,
                 "context": branch_context,
-                "generator_choice": branch_def.get("generator_choice")
+                "generator_choice": branch_def.get("generator_choice"),
+                "features_snapshot": branch_features_snapshot
             })
 
             print(f"  {CHECK} Branch {branch_id} ({branch_name}) completed")

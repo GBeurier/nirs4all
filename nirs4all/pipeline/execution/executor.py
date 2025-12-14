@@ -350,6 +350,14 @@ class PipelineExecutor:
             branch_name = branch_info["name"]
             branch_context = branch_info["context"]
 
+            # Restore dataset features from branch snapshot if available
+            # This ensures each branch's post-branch steps (like model) use the correct
+            # feature data that was produced by that branch's preprocessing steps
+            features_snapshot = branch_info.get("features_snapshot")
+            if features_snapshot is not None:
+                import copy
+                dataset._features.sources = copy.deepcopy(features_snapshot)
+
             if self.verbose > 0:
                 print(f"  {BRANCH}Branch {branch_id} ({branch_name})")
 
@@ -826,8 +834,25 @@ class PipelineExecutor:
         if hasattr(minimal_pipeline, 'get_step_indices'):
             minimal_step_indices = set(minimal_pipeline.get_step_indices())
 
-        # Execute each step
-        for step_idx, step in enumerate(steps, start=1):
+        # Get target branch_path from the model step
+        # All steps need to use this branch for filtering artifacts
+        target_branch_path = None
+        if minimal_pipeline and hasattr(minimal_pipeline, 'model_step_index'):
+            model_idx = minimal_pipeline.model_step_index
+            if model_idx and hasattr(minimal_pipeline, 'get_step'):
+                model_step = minimal_pipeline.get_step(model_idx)
+                if model_step and model_step.branch_path:
+                    target_branch_path = model_step.branch_path
+
+        # Execute each step using original step indices from MinimalPipeline
+        # This ensures step_number matches training-time indices for artifact lookups
+        for list_idx, step in enumerate(steps):
+            # Get original step index from minimal pipeline
+            if hasattr(minimal_pipeline, 'steps') and list_idx < len(minimal_pipeline.steps):
+                step_idx = minimal_pipeline.steps[list_idx].step_index
+            else:
+                step_idx = list_idx + 1  # Fallback to 1-based enumeration
+
             if step is None:
                 if self.verbose > 1:
                     print(f"  ⏭️  Step {step_idx}: skipped (no config)")
@@ -846,11 +871,21 @@ class PipelineExecutor:
             # Update context with step number
             context = context.with_step_number(self.step_number)
 
+            # For branch steps, don't pre-filter artifacts by branch_path
+            # The branch controller needs all artifacts, and internal transformers
+            # will filter by their branch context when looking up artifacts
+            is_branch_step = isinstance(step, dict) and "branch" in step
+            branch_path = None if is_branch_step else target_branch_path
+
             # Get binaries from artifact_provider instead of artifact_loader
             loaded_binaries = None
             if runtime_context and runtime_context.artifact_provider:
                 # Use artifact_provider for minimal pipeline prediction
-                artifacts = runtime_context.artifact_provider.get_artifacts_for_step(step_idx)
+                # Pass branch_path to filter artifacts for multi-branch pipelines
+                # (except for branch steps which need all artifacts)
+                artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                    step_idx, branch_path=branch_path
+                )
                 if artifacts:
                     loaded_binaries = artifacts  # Already in (name, obj) format
                     if self.verbose > 1:
@@ -859,9 +894,8 @@ class PipelineExecutor:
                 # Fallback to artifact_loader
                 loaded_binaries = self.artifact_loader.get_step_binaries(self.step_number)
 
-            # Check for branch contexts
+            # Check for branch contexts (already computed is_branch_step above)
             branch_contexts = context.custom.get("branch_contexts", [])
-            is_branch_step = isinstance(step, dict) and "branch" in step
 
             if branch_contexts and not is_branch_step:
                 # Execute on each branch

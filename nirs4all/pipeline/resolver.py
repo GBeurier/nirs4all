@@ -948,7 +948,7 @@ class PredictionResolver:
                 if step_index not in artifact_map:
                     artifact_map[step_index] = []
                 artifact_map[step_index].append((artifact_id, obj))
-            except (KeyError, FileNotFoundError) as e:
+            except (KeyError, FileNotFoundError, IsADirectoryError, OSError) as e:
                 logger.warning(f"Failed to load artifact {artifact_id}: {e}")
 
         return artifact_map
