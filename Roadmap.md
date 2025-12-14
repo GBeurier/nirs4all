@@ -1,18 +1,19 @@
 ## ROADMAP
 
-
 **Review**:
 > [Predict_Transfer] Review
+
 > [Stacking] Review
+
 > [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
 
-
+> [multisource] with reload, branches and stack
+> Implement branching per source for differential preprocessings and models. Ensure split per source on reload. Fix sample augmentation.
 
 
 **Bugs**:
 >   - [Q30] Na in branches predictions
 >   - [MB-PLS] test on multi-source/block ---
->   - [Kernel-PLS] poly and linear are crap --- always results far far outside range
 >   - Emit a warning if user declare rank_partition or display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
 >   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
 >   - Charts do not display correctly the wavelength on x-axis - nm cm-1 all messed up. Add force type.
@@ -22,7 +23,7 @@
 > [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
 > [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
 
-> *[GPU] Reorganize, condition and clean gpu import
+> *[GPU] Reorganize, condition and clean gpu import - Reset GPU between models correctly.
 
 > [Augmentation] Feature_augmentation with first item replacement
 
@@ -44,10 +45,11 @@
 
 > [Logs] implement feature and update print/log strategy
 
+> [Pipeline_Bundle] Change / edit pipeline step
+
 **RELEASE** 0.6.0: MVP
 
-
-> [Pipeline_Bundle] Change / edit pipeline step
+> [Design] Define all services
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
 

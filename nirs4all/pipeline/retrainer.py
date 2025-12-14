@@ -487,18 +487,39 @@ class Retrainer:
 
         # Optionally replace model step with new model
         if config.new_model is not None and self._resolved.model_step_index:
-            model_idx = self._resolved.model_step_index - 1  # Convert to 0-based
-            if 0 <= model_idx < len(steps):
-                # Replace model in the step
-                old_step = steps[model_idx]
-                if isinstance(old_step, dict) and 'model' in old_step:
-                    new_step = dict(old_step)
-                    new_step['model'] = config.new_model
-                    steps[model_idx] = new_step
-                else:
-                    steps[model_idx] = {'model': config.new_model}
-                if verbose > 0:
-                    print(f"  Replaced model with: {type(config.new_model).__name__}")
+            model_step_index = self._resolved.model_step_index
+            # Find the step in the list by its step_index (1-based)
+            from nirs4all.pipeline.trace.extractor import MinimalPipelineStep
+            for i, step in enumerate(steps):
+                if isinstance(step, MinimalPipelineStep) and step.step_index == model_step_index:
+                    # MinimalPipelineStep - modify the step_config
+                    old_config = step.step_config
+                    if isinstance(old_config, dict):
+                        new_config = dict(old_config)
+                        new_config['model'] = config.new_model
+                        # Update model name to reflect new model
+                        new_config['name'] = type(config.new_model).__name__
+                        step.step_config = new_config
+                    else:
+                        step.step_config = {'model': config.new_model}
+                    if verbose > 0:
+                        print(f"  Replaced model with: {type(config.new_model).__name__}")
+                    break
+            else:
+                # Fallback: try list-based indexing (for non-MinimalPipelineStep cases)
+                model_idx = model_step_index - 1  # Convert to 0-based
+                if 0 <= model_idx < len(steps):
+                    old_step = steps[model_idx]
+                    if isinstance(old_step, dict) and 'model' in old_step:
+                        new_step = dict(old_step)
+                        new_step['model'] = config.new_model
+                        # Update model name to reflect new model
+                        new_step['name'] = type(config.new_model).__name__
+                        steps[model_idx] = new_step
+                    else:
+                        steps[model_idx] = {'model': config.new_model}
+                    if verbose > 0:
+                        print(f"  Replaced model with: {type(config.new_model).__name__}")
 
         # Execute with transfer artifact provider
         return self._execute_with_retrain_config(
@@ -606,11 +627,24 @@ class Retrainer:
             saver = SimulationSaver(current_run_dir, save_files=self.runner.save_files)
             manifest_manager = ManifestManager(current_run_dir)
 
+            # Create pipeline in manifest system
+            pipeline_config = {"steps": steps}
+            pipeline_hash = hash(str(steps)) % (2**32)  # Simple hash for identification
+            pipeline_uid, pipeline_dir = manifest_manager.create_pipeline(
+                name=pipeline_name,
+                dataset=name,
+                pipeline_config=pipeline_config,
+                pipeline_hash=f"{pipeline_hash:08x}"
+            )
+
+            # Register with saver
+            saver.register(pipeline_uid)
+
             # Create artifact registry for new artifacts
             artifact_registry = ArtifactRegistry(
                 workspace=self.runner.workspace_path,
                 dataset=name,
-                manifest_manager=None
+                manifest_manager=manifest_manager
             )
             artifact_registry.start_run()
 
@@ -626,9 +660,6 @@ class Retrainer:
                 .with_plots_visible(self.runner.plots_visible)
                 .with_artifact_registry(artifact_registry)
                 .build())
-
-            # Update artifact registry with manifest manager
-            artifact_registry.manifest_manager = manifest_manager
 
             # Get dataset
             dataset = dataset_configs.get_dataset(data_config, name)

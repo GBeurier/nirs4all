@@ -83,7 +83,7 @@ class TestRetrainIntegration:
         # Verify we got predictions
         assert retrain_preds.num_predictions > 0
 
-        best_retrain = retrain_preds.top(n=1, rank_partition="test")[0]
+        best_retrain = retrain_preds.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
         assert 'rmse' in best_retrain
         assert best_retrain['rmse'] > 0
         assert np.isfinite(best_retrain['rmse'])
@@ -108,7 +108,7 @@ class TestRetrainIntegration:
         # Verify we got predictions
         assert transfer_preds.num_predictions > 0
 
-        best_transfer = transfer_preds.top(n=1, rank_partition="test")[0]
+        best_transfer = transfer_preds.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
         assert 'rmse' in best_transfer
         assert np.isfinite(best_transfer['rmse'])
 
@@ -135,7 +135,7 @@ class TestRetrainIntegration:
         # Verify we got predictions
         assert transfer_preds.num_predictions > 0
 
-        best_transfer = transfer_preds.top(n=1, rank_partition="test")[0]
+        best_transfer = transfer_preds.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
         assert 'rmse' in best_transfer
         # Model should be different from original
         assert best_transfer['model_name'] != best_pred['model_name']
@@ -161,7 +161,7 @@ class TestRetrainIntegration:
         # Verify we got predictions
         assert finetune_preds.num_predictions > 0
 
-        best_finetune = finetune_preds.top(n=1, rank_partition="test")[0]
+        best_finetune = finetune_preds.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
         assert 'rmse' in best_finetune
         assert np.isfinite(best_finetune['rmse'])
 

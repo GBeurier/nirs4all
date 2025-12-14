@@ -51,6 +51,8 @@ PALETTE = emoji("🎨 ", "")
 CHECKMARK = emoji("✓ ", "*")
 BRANCH = emoji("🌿 ", "[BRANCH] ")
 BOLT = emoji("⚡ ", "[FAST] ")
+TRANSFER = emoji("🔀 ", "[TRANSFER] ")
+SPARKLE = emoji("✨ ", "[FINETUNE] ")
 
 # Arrow indicators for metrics
 ARROW_UP = emoji("↑", "^")

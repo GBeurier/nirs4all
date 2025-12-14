@@ -844,6 +844,8 @@ class BaseModelController(OperatorController, ABC):
             # Phase 4: Try artifact_provider first (controller-agnostic approach)
             if runtime_context.artifact_provider is not None:
                 step_index = runtime_context.step_number
+                import logging
+                logging.debug(f"MODEL: loading from artifact_provider step={step_index}, fold={fold_idx}")
                 if fold_idx is not None:
                     # Get fold-specific artifact
                     model = runtime_context.artifact_provider.get_artifact(step_index, fold_id=fold_idx)
@@ -851,8 +853,10 @@ class BaseModelController(OperatorController, ABC):
                     # Get primary artifact (for non-CV or single model case)
                     model = runtime_context.artifact_provider.get_primary_artifact(step_index)
 
-                if model is not None and self.verbose > 0:
-                    print(f"🔧 Loaded model via artifact_provider for step {step_index}, fold={fold_idx}")
+                if model is not None:
+                    logging.debug(f"MODEL: loaded model type={type(model).__name__}")
+                    if self.verbose > 0:
+                        print(f"🔧 Loaded model via artifact_provider for step {step_index}, fold={fold_idx}")
 
             # Fallback: Try artifact_id-based loading (Phase 1)
             if model is None:

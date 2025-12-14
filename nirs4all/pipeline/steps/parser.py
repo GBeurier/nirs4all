@@ -84,6 +84,12 @@ class StepParser:
                 metadata={"skip": True}
             )
 
+        # Handle MinimalPipelineStep (from trace extractor)
+        from nirs4all.pipeline.trace.extractor import MinimalPipelineStep
+        if isinstance(step, MinimalPipelineStep):
+            # Extract the step_config and parse it
+            return self.parse(step.step_config)
+
         # Handle dictionary steps
         if isinstance(step, dict):
             return self._parse_dict_step(step)

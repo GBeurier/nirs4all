@@ -109,6 +109,10 @@ class Predictor:
         print(f"\033[94m{ROCKET}Starting Nirs4all prediction(s)\033[0m")
         print("=" * 120)
 
+        # Handle bundle files (.n4a) through PredictionResolver
+        if isinstance(prediction_obj, str) and (prediction_obj.endswith('.n4a') or prediction_obj.endswith('.n4a.py')):
+            return self._predict_from_bundle(prediction_obj, dataset, dataset_name, all_predictions, verbose)
+
         # Normalize dataset
         dataset_config = self.runner.orchestrator._normalize_dataset(
             dataset, dataset_name
@@ -416,6 +420,77 @@ class Predictor:
 
         return single_pred["y_pred"], run_predictions
 
+    def _predict_from_bundle(
+        self,
+        bundle_path: str,
+        dataset: Union[DatasetConfigs, 'SpectroDataset', np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        dataset_name: str,
+        all_predictions: bool,
+        verbose: int
+    ) -> Union[Tuple[np.ndarray, Predictions], Tuple[Dict[str, Any], Predictions]]:
+        """Predict from an exported bundle file.
+
+        Args:
+            bundle_path: Path to .n4a bundle file
+            dataset: Dataset to predict on
+            dataset_name: Name for the dataset
+            all_predictions: Whether to return all predictions
+            verbose: Verbosity level
+
+        Returns:
+            Predictions
+        """
+        from nirs4all.pipeline.bundle import BundleLoader
+        from nirs4all.utils.emoji import CHECK
+
+        if verbose > 0:
+            print(f"  Loading bundle: {bundle_path}")
+
+        loader = BundleLoader(bundle_path)
+
+        # Get X data from dataset
+        dataset_config = self.runner.orchestrator._normalize_dataset(dataset, dataset_name)
+        X_data = None
+
+        for data_config, name in dataset_config.configs:
+            dataset_obj = dataset_config.get_dataset(data_config, name)
+            X_data = dataset_obj.x({})  # Get all features
+            break
+
+        if X_data is None:
+            raise ValueError("No data found in dataset for prediction")
+
+        # Predict using bundle
+        y_pred = loader.predict(X_data)
+
+        # Get model name from metadata
+        model_name = 'bundle_model'
+        if loader.metadata:
+            model_name = loader.metadata.original_manifest.get("name", "bundle_model")
+
+        # Create Predictions object for compatibility
+        run_predictions = Predictions()
+        prediction_entry = {
+            'model_name': model_name,
+            'id': 'bundle_prediction',
+            'y_pred': y_pred,
+            'y_true': np.array([]),
+            'partition': 'test',
+            'step_idx': loader.metadata.model_step_index if loader.metadata else 0,
+            'dataset_name': dataset_name,
+            'config_path': str(bundle_path),
+            'fold_id': 'all'
+        }
+        run_predictions.add_prediction(prediction_entry)
+
+        if verbose > 0:
+            print(f"{CHECK}Predicted with bundle: {model_name}")
+
+        if all_predictions:
+            return {'bundle': {'prediction': y_pred}}, run_predictions
+
+        return y_pred, run_predictions
+
     def _load_pipeline_steps(self) -> List[Any]:
         """Load full pipeline steps from pipeline.json.
 
@@ -505,6 +580,14 @@ class Predictor:
 
         # Get configuration path and target model
         config_path, target_model = self.saver.get_predict_targets(selection_obj)
+
+        # Handle case where target_model is None (no model_name in input)
+        if target_model is None:
+            raise ValueError(
+                "No model information found in prediction. "
+                "Please provide a prediction dict with 'model_name' and 'pipeline_uid' keys."
+            )
+
         target_model.pop("y_pred", None)
         target_model.pop("y_true", None)
 

@@ -79,6 +79,113 @@ class MinimalArtifactProvider(ArtifactProvider):
         self.artifact_loader = artifact_loader
         self._cache: Dict[str, Any] = {}
 
+    def _parse_branch_from_artifact_id(self, artifact_id: str) -> Optional[int]:
+        """Parse branch index from artifact ID.
+
+        Artifact IDs encode branch information in the format:
+            "{pipeline_id}:{branch_path}:{step_index}:{fold_id}"
+
+        For branch artifacts:
+            - "0001_pls:0:4.1:all" → branch=0
+            - "0001_pls:1:4.2:all" → branch=1
+
+        For non-branch artifacts (no branch in path):
+            - "0001_pls:3:all" → branch=None
+
+        Args:
+            artifact_id: Artifact ID to parse.
+
+        Returns:
+            Branch index (0, 1, ...) if artifact is from a branch,
+            None if artifact is shared (pre-branch).
+        """
+        parts = artifact_id.split(":")
+        if len(parts) < 3:
+            return None
+
+        # Format: pipeline_id:branch_path...:step_index:fold_id
+        # Minimum without branch: "pipeline:step:fold" (3 parts)
+        # With one branch level: "pipeline:branch:step:fold" (4 parts)
+        # The branch_path is between pipeline_id (first) and step:fold (last 2)
+
+        if len(parts) == 3:
+            # No branch in path: "pipeline:step:fold"
+            return None
+
+        # More than 3 parts means there's branch info
+        # parts[1:-2] contains the branch path
+        # First element of branch path is the top-level branch index
+        try:
+            return int(parts[1])
+        except ValueError:
+            return None
+
+    def _parse_sub_index_from_artifact_id(self, artifact_id: str) -> Optional[int]:
+        """Parse sub_index (operation counter) from artifact ID.
+
+        Artifact IDs include a sub_index for transformers:
+            "{pipeline_id}:{step_index}.{sub_index}:{fold_id}"
+
+        For example:
+            - "0001_pls:1.1:all" → sub_index=1
+            - "0001_pls:1.2:all" → sub_index=2
+            - "0001_pls:0:4.3:all" → sub_index=3 (with branch)
+
+        Args:
+            artifact_id: Artifact ID to parse.
+
+        Returns:
+            Sub_index (operation counter) or None if not present.
+        """
+        parts = artifact_id.split(":")
+        if len(parts) < 3:
+            return None
+
+        # The step.sub_index is in the second-to-last part
+        step_part = parts[-2]
+
+        if "." in step_part:
+            try:
+                return int(step_part.split(".")[-1])
+            except ValueError:
+                return None
+        return None
+
+    def _derive_operator_name(
+        self, obj: Any, artifact_id: str, step_index: Optional[int] = None
+    ) -> str:
+        """Derive operator name from object class and artifact sub_index.
+
+        Reconstructs names like "MinMaxScaler_1" from the object's class
+        and the sub_index encoded in the artifact ID. For y_processing
+        steps, adds "y_" prefix to match the naming convention used
+        during training (e.g., "y_MinMaxScaler_1").
+
+        Args:
+            obj: The loaded artifact object.
+            artifact_id: The artifact ID.
+            step_index: Optional step index for checking if y_processing.
+
+        Returns:
+            Operator name in format "{ClassName}_{sub_index}" or class name.
+            For y_processing steps: "y_{ClassName}_{sub_index}".
+        """
+        class_name = obj.__class__.__name__
+        sub_index = self._parse_sub_index_from_artifact_id(artifact_id)
+
+        # Check if this is a y_processing step
+        is_y_processing = False
+        if step_index is not None and self.minimal_pipeline:
+            minimal_step = self.minimal_pipeline.get_step(step_index)
+            if minimal_step and minimal_step.operator_type == "y_processing":
+                is_y_processing = True
+
+        # Build name with optional y_ prefix
+        prefix = "y_" if is_y_processing else ""
+        if sub_index is not None:
+            return f"{prefix}{class_name}_{sub_index}"
+        return f"{prefix}{class_name}"
+
     def get_artifact(
         self,
         step_index: int,
@@ -121,37 +228,63 @@ class MinimalArtifactProvider(ArtifactProvider):
     ) -> List[Tuple[str, Any]]:
         """Get all artifacts for a step.
 
+        Filters artifacts by branch using the branch information encoded
+        in the artifact ID. This is critical for multisource + branching
+        reload, where branch substep artifacts are lumped together in the
+        execution trace but can be distinguished by their artifact IDs.
+
+        Returns tuples of (operator_name, artifact_object) where operator_name
+        is derived from the object class and sub_index (e.g., "MinMaxScaler_1").
+        This allows transformer controllers to look up artifacts by name.
+
         Args:
             step_index: 1-based step index
-            branch_path: Optional branch path filter
+            branch_path: Optional branch path filter (e.g., [0] for branch 0)
             branch_id: Optional branch ID filter (used when branch_path not available)
 
         Returns:
-            List of (artifact_id, artifact_object) tuples
+            List of (operator_name, artifact_object) tuples
         """
         step_artifacts = self.minimal_pipeline.get_artifacts_for_step(step_index)
         if not step_artifacts:
             return []
 
-        # Get the step to check branch matching
-        step = self.minimal_pipeline.get_step(step_index)
+        # Determine target branch to filter by
+        target_branch: Optional[int] = None
+        if branch_path is not None and len(branch_path) > 0:
+            target_branch = branch_path[0]
+        elif branch_id is not None:
+            target_branch = branch_id
 
         results = []
         for artifact_id in step_artifacts.artifact_ids:
-            # Filter by branch path if specified
-            if branch_path is not None and step:
-                # Check if artifact belongs to this branch
-                if step.branch_path and step.branch_path != branch_path:
-                    continue
-            elif branch_id is not None and step:
-                # Check by branch_id (first element of branch_path)
-                if step.branch_path and step.branch_path[0] != branch_id:
+            # Filter by branch if specified
+            # Parse the branch from artifact_id since execution trace step
+            # doesn't properly track branch info for branch substeps
+            if target_branch is not None:
+                artifact_branch = self._parse_branch_from_artifact_id(artifact_id)
+                # Include artifact if:
+                # - It has no branch (shared/pre-branch artifact)
+                # - Its branch matches the target branch
+                if artifact_branch is not None and artifact_branch != target_branch:
+                    logger.debug(
+                        f"Filtering artifact {artifact_id} (branch={artifact_branch}) "
+                        f"- target branch is {target_branch}"
+                    )
                     continue
 
             obj = self._load_artifact(artifact_id)
             if obj is not None:
-                results.append((artifact_id, obj))
+                # Derive operator name from object class and artifact sub_index
+                # This allows transformer controllers to look up by name
+                # Pass step_index to check if y_processing (needs y_ prefix)
+                operator_name = self._derive_operator_name(obj, artifact_id, step_index)
+                results.append((operator_name, obj))
 
+        logger.debug(
+            f"get_artifacts_for_step({step_index}, branch_path={branch_path}) "
+            f"-> {len(results)} artifacts from {len(step_artifacts.artifact_ids)} total"
+        )
         return results
 
     def get_fold_artifacts(
