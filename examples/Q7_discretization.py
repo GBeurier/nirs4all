@@ -51,7 +51,7 @@ pipeline = [
     "chart_3d",
 
     # Feature augmentation with preprocessing combinations
-    {"feature_augmentation": {"_or_": preprocessing_options, "size": [1, (1, 2)], "count": 5}},
+    {"feature_augmentation": {"_or_": preprocessing_options, "pick": 1, "then_pick": [1, 2], "count": 5}},
 
     # Cross-validation setup
     cross_validation,

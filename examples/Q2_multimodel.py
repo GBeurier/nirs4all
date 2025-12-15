@@ -79,10 +79,10 @@ if XGBRegressor:
     pipeline.append({"model": XGBRegressor(n_estimators=5, verbosity=0), "name": "XGBoost"})
 
 if LGBMRegressor:
-    pipeline.append({"model": LGBMRegressor(n_estimators=20, verbose=-1, verbosity=-1), "name": "LightGBM"})
+    pipeline.append({"model": LGBMRegressor(n_estimators=5, verbose=-1, verbosity=-1), "name": "LightGBM"})
 
 if CatBoostRegressor:
-    pipeline.append({"model": CatBoostRegressor(iterations=15, verbose=0, allow_writing_files=False), "name": "CatBoost"})
+    pipeline.append({"model": CatBoostRegressor(iterations=5, verbose=0, allow_writing_files=False), "name": "CatBoost"})
 
 # Create pipeline configuration
 pipeline_config = PipelineConfigs(pipeline, name="Q2")

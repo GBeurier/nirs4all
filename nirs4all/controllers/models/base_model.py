@@ -1822,12 +1822,17 @@ class BaseModelController(OperatorController, ABC):
             # Use branch_path or convert branch_id to branch_path
             bp = branch_path or ([branch_id] if branch_id is not None else [])
 
+            # Use substep_number as sub_index when in a subpipeline (list of steps)
+            # substep_number = -1 means not in a subpipeline, so don't use sub_index
+            sub_index = runtime_context.substep_number if runtime_context.substep_number >= 0 else None
+
             # Generate deterministic artifact ID
             artifact_id = registry.generate_id(
                 pipeline_id=pipeline_id,
                 branch_path=bp,
                 step_index=step_index,
-                fold_id=fold_id
+                fold_id=fold_id,
+                sub_index=sub_index
             )
 
             # Register artifact with registry

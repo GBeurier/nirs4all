@@ -67,16 +67,27 @@ class MinimalArtifactProvider(ArtifactProvider):
     def __init__(
         self,
         minimal_pipeline: MinimalPipeline,
-        artifact_loader: Any  # ArtifactLoader
+        artifact_loader: Any,  # ArtifactLoader
+        target_sub_index: Optional[int] = None,
+        target_model_name: Optional[str] = None
     ):
         """Initialize minimal artifact provider.
 
         Args:
             minimal_pipeline: MinimalPipeline with artifact mappings
             artifact_loader: ArtifactLoader for loading artifact objects
+            target_sub_index: Optional sub_index to filter model artifacts.
+                              Used when a subpipeline contains multiple models
+                              (e.g., [JaxMLPRegressor, nicon]) and we need to
+                              load artifacts for a specific one.
+            target_model_name: Optional model name to filter artifacts by.
+                               Used as fallback when sub_index is not available
+                               (e.g., for avg/w_avg predictions).
         """
         self.minimal_pipeline = minimal_pipeline
         self.artifact_loader = artifact_loader
+        self.target_sub_index = target_sub_index
+        self.target_model_name = target_model_name
         self._cache: Dict[str, Any] = {}
 
     def _parse_branch_from_artifact_id(self, artifact_id: str) -> Optional[int]:
@@ -256,6 +267,12 @@ class MinimalArtifactProvider(ArtifactProvider):
         elif branch_id is not None:
             target_branch = branch_id
 
+        # Debug: log filtering params
+        logger.debug(
+            f"get_artifacts_for_step({step_index}): target_sub_index={self.target_sub_index}, "
+            f"model_step_index={self.minimal_pipeline.model_step_index}"
+        )
+
         results = []
         for artifact_id in step_artifacts.artifact_ids:
             # Filter by branch if specified
@@ -272,6 +289,49 @@ class MinimalArtifactProvider(ArtifactProvider):
                         f"- target branch is {target_branch}"
                     )
                     continue
+
+            # Filter model artifacts to only load the correct model in subpipelines
+            # This is critical when a list like [JaxMLPRegressor, nicon] creates
+            # artifacts with different sub_index values
+            # We try two filtering strategies:
+            # 1. Filter by sub_index (from model_artifact_id) - most reliable
+            # 2. Filter by custom_name (model name) - fallback for avg/w_avg predictions
+            should_filter = self.target_sub_index is not None or self.target_model_name is not None
+
+            if should_filter:
+                # Check if this artifact is a model by querying its type from the registry
+                is_model_artifact = False
+                record = None
+                try:
+                    record = self.artifact_loader.get_record(artifact_id)
+                    if record is not None:
+                        from nirs4all.pipeline.storage.artifacts.types import ArtifactType
+                        is_model_artifact = record.artifact_type in (
+                            ArtifactType.MODEL, ArtifactType.META_MODEL
+                        )
+                except Exception:
+                    pass
+
+                if is_model_artifact:
+                    # Strategy 1: Filter by sub_index if available
+                    if self.target_sub_index is not None:
+                        artifact_sub_index = self._parse_sub_index_from_artifact_id(artifact_id)
+                        if artifact_sub_index is not None and artifact_sub_index != self.target_sub_index:
+                            logger.debug(
+                                f"Filtering artifact {artifact_id} (sub_index={artifact_sub_index}) "
+                                f"- target sub_index is {self.target_sub_index}"
+                            )
+                            continue
+                    # Strategy 2: Filter by model name (fallback for avg/w_avg predictions)
+                    elif self.target_model_name is not None and record is not None:
+                        # Check if artifact's custom_name matches target model name
+                        artifact_custom_name = getattr(record, 'custom_name', None)
+                        if artifact_custom_name and artifact_custom_name != self.target_model_name:
+                            logger.debug(
+                                f"Filtering artifact {artifact_id} (custom_name={artifact_custom_name}) "
+                                f"- target model is {self.target_model_name}"
+                            )
+                            continue
 
             obj = self._load_artifact(artifact_id)
             if obj is not None:
@@ -402,6 +462,36 @@ class MinimalPredictor:
         self.manifest_manager = manifest_manager
         self.verbose = verbose
 
+    def _parse_sub_index_from_artifact_id(self, artifact_id: str) -> Optional[int]:
+        """Parse sub_index (substep number) from artifact ID.
+
+        Artifact IDs include a sub_index for models in subpipelines:
+            "{pipeline_id}:{step_index}.{sub_index}:{fold_id}"
+
+        For example:
+            - "0001_pls:3.0:0" → sub_index=0 (first model in subpipeline)
+            - "0001_pls:3.1:1" → sub_index=1 (second model in subpipeline)
+
+        Args:
+            artifact_id: Artifact ID to parse.
+
+        Returns:
+            Sub_index (substep number) or None if not present.
+        """
+        parts = artifact_id.split(":")
+        if len(parts) < 3:
+            return None
+
+        # The step.sub_index is in the second-to-last part
+        step_part = parts[-2]
+
+        if "." in step_part:
+            try:
+                return int(step_part.split(".")[-1])
+            except ValueError:
+                return None
+        return None
+
     def predict(
         self,
         minimal_pipeline: MinimalPipeline,
@@ -427,10 +517,19 @@ class MinimalPredictor:
         if self.verbose > 0:
             print(f"{ROCKET} Minimal prediction: {minimal_pipeline.get_step_count()} steps")
 
+        # Extract target_sub_index from model_artifact_id if present
+        # This is critical for subpipelines with multiple models
+        target_sub_index = None
+        if target_model:
+            model_artifact_id = target_model.get('model_artifact_id')
+            if model_artifact_id:
+                target_sub_index = self._parse_sub_index_from_artifact_id(model_artifact_id)
+
         # Create artifact provider from minimal pipeline
         artifact_provider = MinimalArtifactProvider(
             minimal_pipeline=minimal_pipeline,
-            artifact_loader=self.artifact_loader
+            artifact_loader=self.artifact_loader,
+            target_sub_index=target_sub_index
         )
 
         # Initialize context for prediction

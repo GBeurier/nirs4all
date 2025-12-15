@@ -1,16 +1,5 @@
 ## ROADMAP
 
-**Review**:
-> [Predict_Transfer] Review
-
-> [Stacking] Review
-
-> [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
-
-> [multisource] with reload, branches and stack
-> Implement branching per source for differential preprocessings and models. Ensure split per source on reload. Fix sample augmentation.
-
-
 **Bugs**:
 >   - [Q30] Na in branches predictions
 >   - [MB-PLS] test on multi-source/block ---
@@ -18,10 +7,17 @@
 >   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
 >   - Charts do not display correctly the wavelength on x-axis - nm cm-1 all messed up. Add force type.
 >   - Branch diagram are out
+>   - [LightGBM] [Warning] No further splits with positive gain, best gain: -inf   >> look if parameters is passed on cloning (maybe there is a hidden bug)
+>   - [Generator] Verify count = 1
+>   - [Predict] Q5_predict is slow as hell
 
 **Features**:
+> [headers/wavelengths] charts bug on wavelenghts. Add force format + review conversion. + Add to reflectance/absorbance
+
+> [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
 > [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
-> [Pipeline] verify and clean type for input in pipeline (launch from model, folder, file, etc.)
+
+
 
 > *[GPU] Reorganize, condition and clean gpu import - Reset GPU between models correctly.
 
@@ -47,6 +43,16 @@
 
 > [Pipeline_Bundle] Change / edit pipeline step
 
+
+**Review**:
+> [Predict_Transfer] Review
+
+> [Stacking] Review
+
+> [multisource] Review
+
+> [Pipeline] Review and clean type for input in pipeline (launch from model, folder, file, etc.)
+
 **RELEASE** 0.6.0: MVP
 
 > [Design] Define all services
@@ -56,6 +62,8 @@
 > [DEPLOY] standalone installer, web installer
 
 **RELEASE** 0.6.0: UI
+
+> [SHAP] verify shap for tf, torch, jax, Fix imports and np compat
 
 > [obj_context] On controller compute something (ie. pp selection), put in in the context, another controller use it (ie. set pp).
 
@@ -80,8 +88,6 @@
 > [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
 
 > [Dummy_Controller] remove totally and manage exceptions
-
-> [SHAP] verify shap for tf, torch, jax, Fix imports and np compat
 
 > [Models] extend the scope of custom model fallback (sklearn only for now), to include custom layouts (ie. custom NN without framework and 3D data, spectrograms, etc.)
 
