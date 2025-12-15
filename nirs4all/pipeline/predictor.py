@@ -258,10 +258,24 @@ class Predictor:
                 .with_manifest_manager(self.manifest_manager)
                 .build())
 
+            # Extract target_sub_index from model_artifact_id if present
+            # This is critical for subpipelines with multiple models
+            target_sub_index = None
+            target_model_name = None
+            if self.target_model:
+                model_artifact_id = self.target_model.get('model_artifact_id')
+                if model_artifact_id:
+                    target_sub_index = self._parse_sub_index_from_artifact_id(model_artifact_id)
+                else:
+                    # Fallback for avg/w_avg predictions: use model_name to filter
+                    target_model_name = self.target_model.get('model_name')
+
             # Create artifact provider from minimal pipeline
             artifact_provider = MinimalArtifactProvider(
                 minimal_pipeline=minimal_pipeline,
-                artifact_loader=self.artifact_loader
+                artifact_loader=self.artifact_loader,
+                target_sub_index=target_sub_index,
+                target_model_name=target_model_name
             )
 
             # Create RuntimeContext with artifact_provider
@@ -549,6 +563,36 @@ class Predictor:
         if run_dirs:
             return run_dirs[0]
         raise ValueError("No run directories found")
+
+    def _parse_sub_index_from_artifact_id(self, artifact_id: str) -> Optional[int]:
+        """Parse sub_index (substep number) from artifact ID.
+
+        Artifact IDs include a sub_index for models in subpipelines:
+            "{pipeline_id}:{step_index}.{sub_index}:{fold_id}"
+
+        For example:
+            - "0001_pls:3.0:0" → sub_index=0 (first model in subpipeline)
+            - "0001_pls:3.1:1" → sub_index=1 (second model in subpipeline)
+
+        Args:
+            artifact_id: Artifact ID to parse.
+
+        Returns:
+            Sub_index (substep number) or None if not present.
+        """
+        parts = artifact_id.split(":")
+        if len(parts) < 3:
+            return None
+
+        # The step.sub_index is in the second-to-last part
+        step_part = parts[-2]
+
+        if "." in step_part:
+            try:
+                return int(step_part.split(".")[-1])
+            except ValueError:
+                return None
+        return None
 
     def _prepare_replay(
         self,

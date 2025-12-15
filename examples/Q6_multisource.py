@@ -50,7 +50,8 @@ pipeline = [
     {
         "feature_augmentation": {
             "_or_": [StandardNormalVariate(), SavitzkyGolay(), Gaussian(), Haar()],
-            "size": [(2, 3), (1, 3)],
+            "pick": [2, 3],
+            "then_pick": [1, 3],
             "count": 2
         }
     },

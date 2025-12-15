@@ -39,7 +39,7 @@ pipeline_reg = [
         {
             'model': JaxMLPRegressor(features=[64, 32]),
             'finetune_params': {
-                'n_trials': 6,
+                'n_trials': 4,
                 'verbose': 2,
                 'sample': 'tpe',
                 'model_params': {

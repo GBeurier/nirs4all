@@ -93,7 +93,12 @@ class StepRunner:
             current_context = context
             all_artifacts = []
 
-            for substep in substeps:
+            # Track substep index for artifact ID uniqueness
+            for substep_idx, substep in enumerate(substeps):
+                # Update runtime_context substep_number for each substep
+                if runtime_context:
+                    runtime_context.substep_number = substep_idx
+
                 result = self.execute(
                     step=substep,
                     dataset=dataset,
@@ -104,6 +109,10 @@ class StepRunner:
                 )
                 current_context = result.updated_context
                 all_artifacts.extend(result.artifacts)
+
+            # Reset substep_number after processing subpipeline
+            if runtime_context:
+                runtime_context.substep_number = -1
 
             return StepResult(updated_context=current_context, artifacts=all_artifacts)
 
