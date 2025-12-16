@@ -742,6 +742,21 @@ class PredictionRanker:
         if base.height == 0:
             return PredictionResultsList([])
 
+        # Check if rank_partition and display_partition exist in data
+        available_partitions = set(base["partition"].unique().to_list())
+        if rank_partition and rank_partition not in available_partitions:
+            warnings.warn(
+                f"rank_partition '{rank_partition}' not found in data. "
+                f"Available partitions: {sorted(available_partitions)}.",
+                UserWarning
+            )
+        if display_partition and display_partition not in available_partitions:
+            warnings.warn(
+                f"display_partition '{display_partition}' not found in data. "
+                f"Available partitions: {sorted(available_partitions)}.",
+                UserWarning
+            )
+
         # Default rank_metric from data if not provided
         if rank_metric == "":
             rank_metric = base[0, "metric"]

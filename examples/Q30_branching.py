@@ -404,14 +404,12 @@ print(f"Predictions for branch_id=0: {len(branch_0_preds)}")
 # Get top models per branch
 print("\n--- Top Model per Branch ---")
 for branch_name in analyzer.get_branches():
-    top = predictions.top(n=1, rank_metric='rmse', branch_name=branch_name)
+    top = predictions.top(n=1, rank_metric='rmse', display_metrics=['rmse'], branch_name=branch_name)
     if top:
         best = top[0]
-        # Get val score from partitions
-        partitions = best.get('partitions', {})
-        val_data = partitions.get('val', {})
-        score = val_data.get('rmse', 'N/A')
-        if score != 'N/A':
+        # Get val score from the result's val_score field (default partition is 'test' for display)
+        score = best.get('val_score')
+        if score is not None:
             print(f"  {branch_name}: RMSE = {score:.4f}")
         else:
             print(f"  {branch_name}: RMSE = N/A")

@@ -92,6 +92,11 @@ class ModelIdentifierGenerator:
                 # Handle nested model structure
                 model_obj = model_config['model']
                 if isinstance(model_obj, dict):
+                    # Handle dict wrapper from deserialize_component for @framework functions
+                    if 'func' in model_obj:
+                        func = model_obj['func']
+                        if callable(func) and hasattr(func, '__name__'):
+                            return func.__name__
                     if 'function' in model_obj:
                         function_path = model_obj['function']
                         return function_path.split('.')[-1] if isinstance(function_path, str) else str(function_path)
@@ -118,6 +123,11 @@ class ModelIdentifierGenerator:
         model_instance = self._get_model_instance_from_config(model_config)
 
         if model_instance is not None:
+            # Handle dict wrapper from deserialize_component for @framework functions
+            if isinstance(model_instance, dict) and 'func' in model_instance:
+                func = model_instance['func']
+                if callable(func) and hasattr(func, '__name__'):
+                    return func.__name__
             # Handle functions
             if callable(model_instance) and hasattr(model_instance, '__name__'):
                 return model_instance.__name__
@@ -167,6 +177,12 @@ class ModelIdentifierGenerator:
             str: Class or function name.
         """
         import inspect
+
+        # Handle dict wrapper from deserialize_component for @framework functions
+        if isinstance(model, dict) and 'func' in model:
+            func = model['func']
+            if callable(func) and hasattr(func, '__name__'):
+                return func.__name__
 
         if inspect.isclass(model):
             return f"{model.__qualname__}"
