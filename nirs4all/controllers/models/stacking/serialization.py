@@ -458,19 +458,21 @@ class MetaModelSerializer:
         candidate: 'ModelCandidate',
         context: Optional['ExecutionContext'] = None
     ) -> str:
-        """Generate artifact ID for a source model.
+        """Get or generate artifact ID for a source model.
 
-        Uses the step_idx and branch info to construct a valid artifact ID.
+        First tries to look up the actual artifact ID from the registry.
+        Falls back to generating a V2-style ID for compatibility.
 
         Args:
             candidate: Source model candidate.
             context: Optional execution context for pipeline info.
 
         Returns:
-            Artifact ID string.
+            Artifact ID string (V3 format if found in registry, V2 fallback otherwise).
         """
         # Get pipeline_id from context if available
         pipeline_id = "pipeline"
+        runtime_context = None
         if context is not None:
             # Try to get from custom context
             runtime_context = context.custom.get('_runtime_context')
@@ -479,7 +481,33 @@ class MetaModelSerializer:
                 if saver is not None:
                     pipeline_id = getattr(saver, 'pipeline_id', 'pipeline')
 
-        # Build artifact ID components
+        # Try to look up actual artifact ID from registry (V3 approach)
+        if runtime_context is not None and runtime_context.artifact_registry is not None:
+            registry = runtime_context.artifact_registry
+            # Build branch_path from candidate
+            branch_path = [candidate.branch_id] if candidate.branch_id is not None else []
+            # Parse fold_id (may be "avg", "w_avg", or numeric)
+            fold_id = None
+            if candidate.fold_id is not None:
+                if isinstance(candidate.fold_id, int):
+                    fold_id = candidate.fold_id
+                elif isinstance(candidate.fold_id, str) and candidate.fold_id.isdigit():
+                    fold_id = int(candidate.fold_id)
+                # "avg" and "w_avg" remain as None fold_id
+
+            # Look up artifacts for this step
+            step_artifacts = registry.get_artifacts_for_step(
+                pipeline_id=pipeline_id,
+                step_index=candidate.step_idx
+            )
+            for record in step_artifacts:
+                # Match by class name, branch, and fold
+                if record.class_name == candidate.model_classname:
+                    record_branch = record.branch_path or []
+                    if record_branch == branch_path and record.fold_id == fold_id:
+                        return record.artifact_id
+
+        # Fallback: generate V2-style ID for compatibility
         branch_path = []
         if candidate.branch_id is not None:
             branch_path = [candidate.branch_id]

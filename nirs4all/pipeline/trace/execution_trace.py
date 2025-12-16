@@ -1,34 +1,40 @@
 """
-Execution Trace - Records the exact path through pipeline that produced a prediction.
+Execution Trace V3 - Records the exact path through pipeline that produced a prediction.
 
 This module provides the core data structures for recording execution traces,
 which enable deterministic prediction replay and pipeline extraction.
 
-The execution trace is controller-agnostic: it records what steps were executed
-and what artifacts were produced, without encoding specific controller logic.
+V3 improvements:
+- OperatorChain tracking for complete execution path
+- Per-branch and per-source artifact indexing
+- Support for nested branches and multi-source pipelines
+- Chain-based artifact lookup for deterministic replay
 
 Key Classes:
-    - StepArtifacts: Artifacts produced by a single step
-    - ExecutionStep: Record of a single step's execution
+    - StepArtifacts: Artifacts produced by a single step with V3 indexes
+    - ExecutionStep: Record of a single step's execution with chain tracking
     - ExecutionTrace: Complete trace of a pipeline execution path
 
 Architecture:
     During training, each step execution is recorded in the trace:
-    1. Step starts -> record step_index, operator info
-    2. Step completes -> record artifacts and output info
+    1. Step starts -> record step_index, operator info, input chain
+    2. Step completes -> record artifacts and output chains
     3. Model produces prediction -> trace_id is attached to prediction
 
     During prediction, the trace is used to:
     1. Identify the minimal set of steps needed
-    2. Load the correct artifacts for each step
+    2. Load the correct artifacts for each step via chain lookup
     3. Execute only required steps via existing controllers
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain
 
 
 class StepExecutionMode(str, Enum):
@@ -50,21 +56,35 @@ class StepExecutionMode(str, Enum):
 
 @dataclass
 class StepArtifacts:
-    """Artifacts produced by a single step.
+    """Artifacts produced by a single step (V3).
 
-    Records all artifacts created during step execution, enabling
-    artifact injection during prediction replay.
+    Records all artifacts created during step execution, with V3 indexes
+    for efficient lookup by chain path, branch, source, and fold.
 
     Attributes:
         artifact_ids: List of artifact IDs produced by this step
         primary_artifact_id: Main artifact (e.g., model) if applicable
         fold_artifact_ids: Per-fold artifacts for CV models
+
+        # V3 indexes
+        primary_artifacts: Map of chain_path to artifact_id for shared artifacts
+        by_branch: Artifacts indexed by branch path tuple
+        by_source: Artifacts indexed by source index
+        by_chain: Artifacts indexed by chain path
+
         metadata: Additional artifact metadata (types, paths, etc.)
     """
 
     artifact_ids: List[str] = field(default_factory=list)
     primary_artifact_id: Optional[str] = None
     fold_artifact_ids: Dict[int, str] = field(default_factory=dict)
+
+    # V3 indexes
+    primary_artifacts: Dict[str, str] = field(default_factory=dict)
+    by_branch: Dict[Tuple[int, ...], List[str]] = field(default_factory=dict)
+    by_source: Dict[int, List[str]] = field(default_factory=dict)
+    by_chain: Dict[str, str] = field(default_factory=dict)
+
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -73,10 +93,20 @@ class StepArtifacts:
         Returns:
             Dictionary suitable for manifest storage
         """
+        # Convert tuple keys to string for YAML compatibility
+        by_branch_serialized = {
+            ".".join(str(b) for b in k): v
+            for k, v in self.by_branch.items()
+        }
+
         return {
             "artifact_ids": self.artifact_ids,
             "primary_artifact_id": self.primary_artifact_id,
             "fold_artifact_ids": self.fold_artifact_ids,
+            "primary_artifacts": self.primary_artifacts,
+            "by_branch": by_branch_serialized,
+            "by_source": self.by_source,
+            "by_chain": self.by_chain,
             "metadata": self.metadata,
         }
 
@@ -95,43 +125,165 @@ class StepArtifacts:
         if fold_artifacts:
             fold_artifacts = {int(k): v for k, v in fold_artifacts.items()}
 
+        # Handle by_branch with string keys from YAML
+        by_branch_raw = data.get("by_branch", {})
+        by_branch: Dict[Tuple[int, ...], List[str]] = {}
+        for k, v in by_branch_raw.items():
+            if isinstance(k, str):
+                branch_tuple = tuple(int(b) for b in k.split(".")) if k else ()
+            else:
+                branch_tuple = tuple(k) if k else ()
+            by_branch[branch_tuple] = v
+
+        # Handle by_source with potential string keys
+        by_source_raw = data.get("by_source", {})
+        by_source = {int(k): v for k, v in by_source_raw.items()} if by_source_raw else {}
+
         return cls(
             artifact_ids=data.get("artifact_ids", []),
             primary_artifact_id=data.get("primary_artifact_id"),
             fold_artifact_ids=fold_artifacts,
+            primary_artifacts=data.get("primary_artifacts", {}),
+            by_branch=by_branch,
+            by_source=by_source,
+            by_chain=data.get("by_chain", {}),
             metadata=data.get("metadata", {}),
         )
 
-    def add_artifact(self, artifact_id: str, is_primary: bool = False) -> None:
-        """Add an artifact ID to this step's artifacts.
+    def add_artifact(
+        self,
+        artifact_id: str,
+        is_primary: bool = False,
+        chain_path: Optional[str] = None,
+        branch_path: Optional[List[int]] = None,
+        source_index: Optional[int] = None,
+    ) -> None:
+        """Add an artifact ID to this step's artifacts (V3).
 
         Args:
             artifact_id: The artifact ID to add
             is_primary: Whether this is the primary artifact
+            chain_path: V3 operator chain path
+            branch_path: Branch path for indexing
+            source_index: Source index for multi-source indexing
         """
         if artifact_id not in self.artifact_ids:
             self.artifact_ids.append(artifact_id)
+
         if is_primary:
             self.primary_artifact_id = artifact_id
 
-    def add_fold_artifact(self, fold_id: int, artifact_id: str) -> None:
+        # V3 indexing
+        if chain_path:
+            self.by_chain[chain_path] = artifact_id
+            if is_primary:
+                self.primary_artifacts[chain_path] = artifact_id
+
+        if branch_path is not None:
+            branch_key = tuple(branch_path)
+            if branch_key not in self.by_branch:
+                self.by_branch[branch_key] = []
+            if artifact_id not in self.by_branch[branch_key]:
+                self.by_branch[branch_key].append(artifact_id)
+
+        if source_index is not None:
+            if source_index not in self.by_source:
+                self.by_source[source_index] = []
+            if artifact_id not in self.by_source[source_index]:
+                self.by_source[source_index].append(artifact_id)
+
+    def add_fold_artifact(
+        self,
+        fold_id: int,
+        artifact_id: str,
+        chain_path: Optional[str] = None,
+        branch_path: Optional[List[int]] = None,
+    ) -> None:
         """Add a fold-specific artifact.
 
         Args:
             fold_id: CV fold index
             artifact_id: Artifact ID for this fold
+            chain_path: V3 operator chain path
+            branch_path: Branch path for indexing
         """
         self.fold_artifact_ids[fold_id] = artifact_id
-        if artifact_id not in self.artifact_ids:
-            self.artifact_ids.append(artifact_id)
+        self.add_artifact(
+            artifact_id,
+            is_primary=False,
+            chain_path=chain_path,
+            branch_path=branch_path,
+        )
+
+    def get_artifacts_for_branch(
+        self,
+        branch_path: List[int]
+    ) -> List[str]:
+        """Get artifact IDs matching a branch path.
+
+        Includes artifacts from:
+        - Exact branch match
+        - Empty branch (shared/pre-branch)
+        - Parent branches (for nested branches)
+
+        Args:
+            branch_path: Target branch path
+
+        Returns:
+            List of matching artifact IDs
+        """
+        results: List[str] = []
+        target_tuple = tuple(branch_path)
+
+        for branch_key, ids in self.by_branch.items():
+            # Include if exact match, empty (shared), or prefix
+            if not branch_key:  # Empty = shared
+                results.extend(ids)
+            elif branch_key == target_tuple:
+                results.extend(ids)
+            elif len(branch_key) < len(target_tuple) and target_tuple[:len(branch_key)] == branch_key:
+                # Parent branch
+                results.extend(ids)
+
+        # Deduplicate while preserving order
+        seen = set()
+        return [x for x in results if not (x in seen or seen.add(x))]
+
+    def get_artifacts_for_source(self, source_index: int) -> List[str]:
+        """Get artifact IDs for a specific source.
+
+        Args:
+            source_index: Source index to filter
+
+        Returns:
+            List of artifact IDs for that source
+        """
+        return self.by_source.get(source_index, []).copy()
+
+    def get_artifact_by_chain(self, chain_path: str) -> Optional[str]:
+        """Get artifact ID by exact chain path match.
+
+        Args:
+            chain_path: Operator chain path
+
+        Returns:
+            Artifact ID or None if not found
+        """
+        return self.by_chain.get(chain_path)
 
 
 @dataclass
 class ExecutionStep:
-    """Record of a single step's execution in the trace.
+    """Record of a single step's execution in the trace (V3).
 
     Captures all information needed to replay this step during prediction,
     including operator configuration, execution mode, and produced artifacts.
+
+    V3 additions:
+    - input_chain: Operator chain up to this step's input
+    - output_chains: Chains produced by this step (for branching)
+    - source_count: Number of X sources at this step
+    - produces_branches: Whether this is a branch operator
 
     Attributes:
         step_index: 1-based step number in the pipeline
@@ -144,6 +296,13 @@ class ExecutionStep:
         branch_name: Human-readable branch name
         duration_ms: Execution duration in milliseconds
         metadata: Additional step-specific metadata
+
+        # V3 chain tracking
+        input_chain_path: Serialized operator chain up to this step's input
+        output_chain_paths: List of chains produced by this step
+        source_count: Number of X sources processed
+        produces_branches: True if this is a branch operator
+        substep_index: Index within substep (for [model1, model2])
     """
 
     step_index: int
@@ -156,6 +315,13 @@ class ExecutionStep:
     branch_name: str = ""
     duration_ms: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # V3 chain tracking
+    input_chain_path: str = ""
+    output_chain_paths: List[str] = field(default_factory=list)
+    source_count: int = 1
+    produces_branches: bool = False
+    substep_index: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for YAML serialization.
@@ -174,6 +340,11 @@ class ExecutionStep:
             "branch_name": self.branch_name,
             "duration_ms": self.duration_ms,
             "metadata": self.metadata,
+            "input_chain_path": self.input_chain_path,
+            "output_chain_paths": self.output_chain_paths,
+            "source_count": self.source_count,
+            "produces_branches": self.produces_branches,
+            "substep_index": self.substep_index,
         }
 
     @classmethod
@@ -211,6 +382,11 @@ class ExecutionStep:
             branch_name=data.get("branch_name", ""),
             duration_ms=data.get("duration_ms", 0.0),
             metadata=data.get("metadata", {}),
+            input_chain_path=data.get("input_chain_path", ""),
+            output_chain_paths=data.get("output_chain_paths", []),
+            source_count=data.get("source_count", 1),
+            produces_branches=data.get("produces_branches", False),
+            substep_index=data.get("substep_index"),
         )
 
     def has_artifacts(self) -> bool:
@@ -220,6 +396,15 @@ class ExecutionStep:
             True if the step has at least one artifact
         """
         return len(self.artifacts.artifact_ids) > 0
+
+    def add_output_chain(self, chain_path: str) -> None:
+        """Add an output chain path to this step.
+
+        Args:
+            chain_path: Operator chain path to add
+        """
+        if chain_path and chain_path not in self.output_chain_paths:
+            self.output_chain_paths.append(chain_path)
 
 
 @dataclass

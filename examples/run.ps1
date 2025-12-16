@@ -45,8 +45,6 @@ $examples = @(
     "Q17_nicon_comparison.py",
     "Q18_stacking.py",
     "Q19_pls_methods.py",
-    "Q20_analysis.py",
-    "Q20B_analysis.py",
     "Q21_feature_selection.py",
     "Q22_concat_transform.py",
     "Q23_generator_syntax.py",
@@ -61,10 +59,8 @@ $examples = @(
     "Q_meta_stacking.py",
     "X0_pipeline_sample.py",
     "X1_metadata.py",
-    "X2_sample_augmentation.py",
-    "X3_hiba_full.py",
+    "X2_sample_augmentation.py",,
     "X4_features.py",
-    "baseline_sota.py"
 )
 
 # Setup logging if requested

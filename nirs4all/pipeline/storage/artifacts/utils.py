@@ -1,193 +1,121 @@
 """
-Utility functions for artifact identification and path handling.
+Utility functions for artifact identification and path handling (V3).
 
-This module provides functions for generating and parsing deterministic
-artifact IDs based on execution path. The execution path captures the
-full context of artifact creation:
+This module provides utility functions for the V3 artifact system,
+primarily for file path handling, content hashing, and artifact ID
+utilities.
 
-- pipeline_id: Which pipeline created this artifact
-- branch_path: Hierarchy of branch indices for nested branching
-- step_index: Logical step number within the branch
-- fold_id: CV fold for per-fold artifacts
+For the core V3 artifact ID functions (compute_chain_hash, generate_artifact_id_v3,
+parse_artifact_id_v3, is_v3_artifact_id), use the operator_chain module directly.
 
-Artifact ID Format:
-    "{pipeline_id}:{branch_path}:{step_index}:{fold_id}"
+V3 Artifact ID Format:
+    "{pipeline_id}${chain_hash}:{fold_id}"
 
 Examples:
-    - "0001_pls:3:all"         - Step 3, no branch, shared across folds
-    - "0001_pls:0:3:0"         - Branch 0, step 3, fold 0
-    - "0001_pls:0:2:3:all"     - Branch 0→2, step 3, shared across folds
+    - "0001_pls$a1b2c3d4e5f6:all"  - Shared artifact
+    - "0001_pls$7f8e9d0c1b2a:0"    - Fold 0 artifact
+    - "0001_pls$3c4d5e6f7a8b:1"    - Fold 1 artifact
 """
 
 import hashlib
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
+# Import core V3 functions from operator_chain to avoid duplication
+from nirs4all.pipeline.storage.artifacts.operator_chain import (
+    compute_chain_hash,
+    generate_artifact_id_v3,
+    parse_artifact_id_v3,
+    is_v3_artifact_id,
+)
+
 
 @dataclass
 class ExecutionPath:
-    """Represents the execution context for an artifact.
+    """Represents the execution context for an artifact (V3).
 
     Captures all context needed to uniquely identify an artifact
     within a pipeline execution.
 
     Attributes:
         pipeline_id: Pipeline identifier (e.g., "0001_pls_abc123")
+        chain_path: Full operator chain path string
         branch_path: List of branch indices for nested branching
         step_index: Logical step number within current branch
+        source_index: Multi-source index (None for single source)
         fold_id: CV fold identifier (None for shared artifacts)
+        substep_index: Substep index (for [model1, model2])
     """
 
     pipeline_id: str
-    branch_path: List[int]
-    step_index: int
+    chain_path: str = ""
+    branch_path: List[int] = None
+    step_index: int = 0
+    source_index: Optional[int] = None
     fold_id: Optional[int] = None
+    substep_index: Optional[int] = None
+
+    def __post_init__(self):
+        if self.branch_path is None:
+            self.branch_path = []
 
     def to_artifact_id(self) -> str:
-        """Convert execution path to artifact ID string.
+        """Convert execution path to V3 artifact ID string.
 
         Returns:
-            Artifact ID in format "{pipeline_id}:{branch_path}:{step_index}:{fold_id}"
+            V3 Artifact ID in format "{pipeline_id}${chain_hash}:{fold_id}"
         """
-        return generate_artifact_id(
-            pipeline_id=self.pipeline_id,
-            branch_path=self.branch_path,
-            step_index=self.step_index,
-            fold_id=self.fold_id
-        )
+        chain_hash = compute_chain_hash(self.chain_path)
+        fold_str = str(self.fold_id) if self.fold_id is not None else "all"
+        return f"{self.pipeline_id}${chain_hash}:{fold_str}"
 
     @classmethod
-    def from_artifact_id(cls, artifact_id: str) -> "ExecutionPath":
-        """Create ExecutionPath from artifact ID string.
+    def from_artifact_id_v3(cls, artifact_id: str, chain_path: str = "") -> "ExecutionPath":
+        """Create ExecutionPath from V3 artifact ID string.
 
         Args:
-            artifact_id: Artifact ID to parse
+            artifact_id: V3 artifact ID to parse
+            chain_path: Full chain path (required for complete reconstruction)
 
         Returns:
             ExecutionPath instance
         """
-        pipeline_id, branch_path, step_index, fold_id, _sub_index = parse_artifact_id(artifact_id)
+        pipeline_id, chain_hash, fold_id = parse_artifact_id_v3(artifact_id)
         return cls(
             pipeline_id=pipeline_id,
-            branch_path=branch_path,
-            step_index=step_index,
-            fold_id=fold_id
+            chain_path=chain_path,
+            fold_id=fold_id,
         )
-
-
-def generate_artifact_id(
-    pipeline_id: str,
-    branch_path: List[int],
-    step_index: int,
-    fold_id: Optional[int] = None,
-    sub_index: Optional[int] = None
-) -> str:
-    """Generate a deterministic artifact ID from execution context.
-
-    The artifact ID uniquely identifies an artifact within a pipeline
-    execution, encoding the full execution path.
-
-    Format: "{pipeline_id}:{branch_path_str}:{step_index}:{fold_str}"
-    Or with sub_index: "{pipeline_id}:{branch_path_str}:{step_index}.{sub_index}:{fold_str}"
-
-    Args:
-        pipeline_id: Pipeline identifier (e.g., "0001_pls_abc123")
-        branch_path: List of branch indices (e.g., [0, 2] for nested branching)
-        step_index: Step number within the current branch
-        fold_id: CV fold identifier (None for shared artifacts)
-        sub_index: Sub-operation index for multiple artifacts at same step
-
-    Returns:
-        Artifact ID string
-
-    Examples:
-        >>> generate_artifact_id("0001_pls", [], 3, None)
-        "0001_pls:3:all"
-        >>> generate_artifact_id("0001_pls", [0], 3, 0)
-        "0001_pls:0:3:0"
-        >>> generate_artifact_id("0001_pls", [0, 2], 3, None)
-        "0001_pls:0:2:3:all"
-        >>> generate_artifact_id("0001_pls", [], 3, None, sub_index=0)
-        "0001_pls:3.0:all"
-    """
-    # Build components
-    parts = [pipeline_id]
-
-    # Add branch path components
-    for branch_idx in branch_path:
-        parts.append(str(branch_idx))
-
-    # Add step index (with optional sub_index)
-    if sub_index is not None:
-        parts.append(f"{step_index}.{sub_index}")
-    else:
-        parts.append(str(step_index))
-
-    # Add fold ID
-    fold_str = str(fold_id) if fold_id is not None else "all"
-    parts.append(fold_str)
-
-    return ":".join(parts)
 
 
 def parse_artifact_id(
     artifact_id: str
 ) -> Tuple[str, List[int], int, Optional[int], Optional[int]]:
-    """Parse an artifact ID into its components.
+    """Parse an artifact ID into its components (V3 only).
+
+    V3 format: {pipeline_id}${chain_hash}:{fold_id}
 
     Args:
-        artifact_id: Artifact ID to parse
+        artifact_id: V3 artifact ID to parse
 
     Returns:
         Tuple of (pipeline_id, branch_path, step_index, fold_id, sub_index)
+        For V3: step_index will be 0, branch_path empty (use ArtifactRecord for full info)
 
     Raises:
-        ValueError: If artifact ID format is invalid
-
-    Examples:
-        >>> parse_artifact_id("0001_pls:3:all")
-        ("0001_pls", [], 3, None, None)
-        >>> parse_artifact_id("0001_pls:0:3:0")
-        ("0001_pls", [0], 3, 0, None)
-        >>> parse_artifact_id("0001_pls:0:2:3:all")
-        ("0001_pls", [0, 2], 3, None, None)
-        >>> parse_artifact_id("0001_pls:3.1:all")
-        ("0001_pls", [], 3, None, 1)
+        ValueError: If artifact ID format is not V3
     """
-    parts = artifact_id.split(":")
-
-    if len(parts) < 3:
+    if not is_v3_artifact_id(artifact_id):
         raise ValueError(
             f"Invalid artifact ID format: {artifact_id!r}. "
-            "Expected at least 3 parts: pipeline_id:step_index:fold_id"
+            f"Expected V3 format: pipeline_id$chain_hash:fold_id. "
+            f"V2 artifact format is no longer supported."
         )
 
-    # First part is always pipeline_id
-    pipeline_id = parts[0]
-
-    # Last part is always fold_id
-    fold_str = parts[-1]
-    fold_id = None if fold_str == "all" else int(fold_str)
-
-    # Second to last is step_index (may include sub_index as step.sub)
-    step_str = parts[-2]
-    sub_index = None
-    if "." in step_str:
-        step_part, sub_part = step_str.split(".", 1)
-        step_index = int(step_part)
-        sub_index = int(sub_part)
-    else:
-        step_index = int(step_str)
-
-    # Everything in between is branch_path
-    branch_path = []
-    if len(parts) > 3:
-        branch_parts = parts[1:-2]
-        branch_path = [int(b) for b in branch_parts]
-
-    return pipeline_id, branch_path, step_index, fold_id, sub_index
+    pipeline_id, chain_hash, fold_id = parse_artifact_id_v3(artifact_id)
+    # For V3, detailed info (step, branch, substep) is in ArtifactRecord
+    return pipeline_id, [], 0, fold_id, None
 
 
 def generate_filename(
@@ -300,23 +228,25 @@ def get_binaries_path(workspace: Path, dataset: str) -> Path:
 
 
 def validate_artifact_id(artifact_id: str) -> bool:
-    """Validate artifact ID format.
+    """Validate artifact ID format (V3 only).
 
     Args:
         artifact_id: Artifact ID to validate
 
     Returns:
-        True if valid, False otherwise
+        True if valid V3 format, False otherwise
     """
+    if not is_v3_artifact_id(artifact_id):
+        return False
     try:
-        parse_artifact_id(artifact_id)
+        parse_artifact_id_v3(artifact_id)
         return True
     except (ValueError, IndexError):
         return False
 
 
 def extract_pipeline_id_from_artifact_id(artifact_id: str) -> str:
-    """Extract pipeline ID from artifact ID.
+    """Extract pipeline ID from artifact ID (V2 or V3).
 
     Args:
         artifact_id: Full artifact ID
@@ -324,7 +254,24 @@ def extract_pipeline_id_from_artifact_id(artifact_id: str) -> str:
     Returns:
         Pipeline ID component
     """
+    if is_v3_artifact_id(artifact_id):
+        return artifact_id.split("$")[0]
     return artifact_id.split(":")[0]
+
+
+def extract_fold_id_from_artifact_id(artifact_id: str) -> Optional[int]:
+    """Extract fold ID from artifact ID (V2 or V3).
+
+    Args:
+        artifact_id: Full artifact ID
+
+    Returns:
+        Fold ID or None if "all"
+    """
+    if is_v3_artifact_id(artifact_id):
+        _, _, fold_id = parse_artifact_id_v3(artifact_id)
+        return fold_id
+    raise ValueError(f"V2 artifact format not supported: {artifact_id}")
 
 
 def artifact_id_matches_context(
@@ -334,35 +281,31 @@ def artifact_id_matches_context(
     step_index: Optional[int] = None,
     fold_id: Optional[int] = None
 ) -> bool:
-    """Check if an artifact ID matches a given context.
+    """Check if a V3 artifact ID matches a given context.
 
     Partial matching is supported - only specified parameters are checked.
+    Note: branch_path and step_index matching requires ArtifactRecord access.
 
     Args:
-        artifact_id: Artifact ID to check
+        artifact_id: V3 artifact ID to check
         pipeline_id: Expected pipeline ID (None = don't check)
-        branch_path: Expected branch path (None = don't check)
-        step_index: Expected step index (None = don't check)
+        branch_path: Expected branch path (ignored for V3 - use ArtifactRecord)
+        step_index: Expected step index (ignored for V3 - use ArtifactRecord)
         fold_id: Expected fold ID (None = don't check)
 
     Returns:
-        True if artifact matches all specified criteria
+        True if artifact matches specified criteria, False otherwise
     """
+    if not is_v3_artifact_id(artifact_id):
+        return False  # V2 not supported
+
     try:
-        aid_pipeline, aid_branch, aid_step, aid_fold, _sub = parse_artifact_id(artifact_id)
+        aid_pipeline, _, aid_fold = parse_artifact_id_v3(artifact_id)
+        if pipeline_id is not None and aid_pipeline != pipeline_id:
+            return False
+        if fold_id is not None and aid_fold != fold_id:
+            return False
+        # branch_path and step_index require ArtifactRecord for V3
+        return True
     except ValueError:
         return False
-
-    if pipeline_id is not None and aid_pipeline != pipeline_id:
-        return False
-
-    if branch_path is not None and aid_branch != branch_path:
-        return False
-
-    if step_index is not None and aid_step != step_index:
-        return False
-
-    if fold_id is not None and aid_fold != fold_id:
-        return False
-
-    return True

@@ -32,9 +32,12 @@ import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 
 from nirs4all.pipeline.config.context import (
     ArtifactProvider,
@@ -42,6 +45,7 @@ from nirs4all.pipeline.config.context import (
 )
 from nirs4all.pipeline.trace import ExecutionTrace, StepArtifacts
 from nirs4all.pipeline.trace.execution_trace import StepExecutionMode
+from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
 
 
 logger = logging.getLogger(__name__)
@@ -828,6 +832,185 @@ class BundleLoader:
             f"pipeline_uid={pipeline_uid!r}, "
             f"artifacts={len(self._artifact_index)})"
         )
+
+    def get_chain_for_artifact(self, artifact_key: str) -> Optional[OperatorChain]:
+        """Get the operator chain for an artifact from the bundle.
+
+        Args:
+            artifact_key: Artifact key (e.g., "step_1", "step_4_fold0")
+
+        Returns:
+            OperatorChain for the artifact or None if not found
+        """
+        if not self.trace:
+            return None
+
+        # Parse step and fold from key
+        parts = artifact_key.split("_")
+        if len(parts) < 2 or parts[0] != "step":
+            return None
+
+        try:
+            step_index = int(parts[1])
+        except ValueError:
+            return None
+
+        # Get step from trace
+        step = self.trace.get_step(step_index)
+        if not step:
+            return None
+
+        # Build chain from step's chain path or construct from step info
+        if step.input_chain_path:
+            chain = OperatorChain.from_path(
+                step.input_chain_path,
+                pipeline_id=self.metadata.pipeline_uid if self.metadata else ""
+            )
+            # Add this step's node
+            node = OperatorNode(
+                step_index=step.step_index,
+                operator_class=step.operator_class,
+                branch_path=step.branch_path,
+                substep_index=step.substep_index,
+            )
+            return chain.append(node)
+        else:
+            # Construct a simple chain from step info
+            node = OperatorNode(
+                step_index=step.step_index,
+                operator_class=step.operator_class,
+                branch_path=step.branch_path,
+                substep_index=step.substep_index,
+            )
+            return OperatorChain(
+                nodes=[node],
+                pipeline_id=self.metadata.pipeline_uid if self.metadata else ""
+            )
+
+    def get_merged_chains(
+        self,
+        import_context_chain: OperatorChain,
+        step_offset: int = 0
+    ) -> Dict[str, OperatorChain]:
+        """Get all artifact chains merged with an import context chain.
+
+        Used when importing a bundle into another pipeline. Each artifact's
+        chain is prefixed with the import context chain.
+
+        Args:
+            import_context_chain: Chain from the importing pipeline context
+            step_offset: Step offset to apply to bundle steps
+
+        Returns:
+            Dict mapping artifact keys to merged chains
+        """
+        merged_chains: Dict[str, OperatorChain] = {}
+
+        for artifact_key in self._artifact_index:
+            artifact_chain = self.get_chain_for_artifact(artifact_key)
+            if artifact_chain:
+                merged = artifact_chain.merge_with_prefix(
+                    import_context_chain,
+                    step_offset=step_offset
+                )
+                merged_chains[artifact_key] = merged
+
+        return merged_chains
+
+    def import_artifacts_to_registry(
+        self,
+        registry: 'ArtifactRegistry',
+        import_context_chain: Optional[OperatorChain] = None,
+        step_offset: int = 0,
+        new_pipeline_id: Optional[str] = None
+    ) -> Dict[str, str]:
+        """Import bundle artifacts into an artifact registry.
+
+        Registers all artifacts from this bundle into the target registry,
+        optionally merging with an import context chain for proper V3 tracking.
+
+        Args:
+            registry: Target ArtifactRegistry to import into
+            import_context_chain: Optional chain from import context to prefix
+            step_offset: Step offset for imported artifacts
+            new_pipeline_id: New pipeline ID for imported artifacts
+
+        Returns:
+            Dict mapping original artifact keys to new artifact IDs
+        """
+        from nirs4all.pipeline.storage.artifacts.types import ArtifactType
+
+        id_mapping: Dict[str, str] = {}
+
+        # Determine pipeline_id
+        pipeline_id = new_pipeline_id or (
+            self.metadata.pipeline_uid if self.metadata else "imported"
+        )
+
+        # Get merged chains if import context provided
+        if import_context_chain:
+            merged_chains = self.get_merged_chains(import_context_chain, step_offset)
+        else:
+            merged_chains = {}
+
+        # Import each artifact
+        for artifact_key in self._artifact_index:
+            artifact = self._load_artifact(artifact_key)
+            if artifact is None:
+                continue
+
+            # Get chain for this artifact
+            if artifact_key in merged_chains:
+                chain = merged_chains[artifact_key]
+            else:
+                chain = self.get_chain_for_artifact(artifact_key)
+                if chain:
+                    chain = chain.with_pipeline_id(pipeline_id)
+
+            if chain is None:
+                # Fallback: create minimal chain
+                parts = artifact_key.split("_")
+                step_idx = int(parts[1]) if len(parts) >= 2 else 0
+                chain = OperatorChain(
+                    nodes=[OperatorNode(
+                        step_index=step_idx + step_offset,
+                        operator_class=artifact.__class__.__name__,
+                    )],
+                    pipeline_id=pipeline_id
+                )
+
+            # Determine fold_id from key
+            fold_id = None
+            if "_fold" in artifact_key:
+                try:
+                    fold_id = int(artifact_key.split("_fold")[1])
+                except (ValueError, IndexError):
+                    pass
+
+            # Determine artifact type
+            if hasattr(artifact, 'predict'):
+                artifact_type = ArtifactType.MODEL
+            elif hasattr(artifact, 'transform'):
+                artifact_type = ArtifactType.TRANSFORMER
+            else:
+                artifact_type = ArtifactType.MODEL
+
+            # Generate chain path
+            chain_path = chain.to_path()
+
+            # Register with registry
+            artifact_id = registry.generate_id(chain_path, fold_id, pipeline_id)
+            record = registry.register(
+                obj=artifact,
+                artifact_id=artifact_id,
+                artifact_type=artifact_type,
+                chain_path=chain_path,
+            )
+
+            id_mapping[artifact_key] = artifact_id
+            logger.debug(f"Imported bundle artifact {artifact_key} as {artifact_id}")
+
+        return id_mapping
 
 
 def load_bundle(bundle_path: Union[str, Path]) -> BundleLoader:

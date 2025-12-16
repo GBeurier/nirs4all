@@ -1588,21 +1588,41 @@ class MetaModelController(SklearnModelController):
         # Build MetaModelArtifact
         serializer = MetaModelSerializer()
 
-        # Generate artifact ID
+        # Generate artifact ID using V3 chain-based approach
         pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
         step_index = runtime_context.step_number
         bp = branch_path or ([branch_id] if branch_id is not None else [])
 
         if runtime_context.artifact_registry is not None:
-            artifact_id = runtime_context.artifact_registry.generate_id(
-                pipeline_id=pipeline_id,
-                branch_path=bp,
+            # V3: Build operator chain for this meta-model
+            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+
+            # Get the current chain from trace recorder or build new one
+            if runtime_context.trace_recorder is not None:
+                current_chain = runtime_context.trace_recorder.current_chain()
+            else:
+                current_chain = OperatorChain(pipeline_id=pipeline_id)
+
+            # Create node for this meta-model
+            meta_node = OperatorNode(
                 step_index=step_index,
-                fold_id=fold_id
+                operator_class=f"Meta_{model.__class__.__name__}",
+                branch_path=bp,
+                source_index=None,
+                fold_id=fold_id,
+                substep_index=None,
             )
+
+            # Build chain path for this artifact
+            artifact_chain = current_chain.append(meta_node)
+            chain_path = artifact_chain.to_path()
+
+            # Generate V3 artifact ID using chain
+            artifact_id = runtime_context.artifact_registry.generate_id(chain_path, fold_id, pipeline_id)
         else:
-            # Fallback artifact ID
+            # Fallback artifact ID (for tests without registry)
             artifact_id = f"{pipeline_id}:{step_index}:{fold_id or 'all'}"
+            chain_path = ""
 
         meta_artifact = serializer.build_artifact(
             meta_operator=meta_operator,
@@ -1632,7 +1652,7 @@ class MetaModelController(SklearnModelController):
             # Create MetaModelConfig for registry
             meta_config = serializer.to_meta_model_config(meta_artifact)
 
-            # Register meta-model with dependencies
+            # Register meta-model with dependencies (V3 with chain_path)
             record = registry.register(
                 obj=model,
                 artifact_id=artifact_id,
@@ -1640,14 +1660,17 @@ class MetaModelController(SklearnModelController):
                 depends_on=source_artifact_ids,
                 params=meta_operator.model.get_params() if hasattr(meta_operator.model, 'get_params') else {},
                 meta_config=meta_config,
-                format_hint='sklearn'
+                format_hint='sklearn',
+                chain_path=chain_path,
             )
 
-            # Record artifact in execution trace (Phase 2)
+            # Record artifact in execution trace (Phase 2) with V3 chain info
             runtime_context.record_step_artifact(
                 artifact_id=artifact_id,
                 is_primary=(fold_id is None),
                 fold_id=fold_id,
+                chain_path=chain_path,
+                branch_path=bp,
                 metadata={
                     "class_name": model.__class__.__name__,
                     "custom_name": meta_operator.name,

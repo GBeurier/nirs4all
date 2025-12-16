@@ -43,7 +43,7 @@ from sklearn.model_selection import KFold
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # Import nirs4all components
-from nirs4all.data.dataset import DatasetConfigs
+from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.storage.workspace import Workspace
 

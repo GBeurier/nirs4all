@@ -456,7 +456,7 @@ class ConcatAugmentationController(OperatorController):
         if mode in ["predict", "explain"]:
             fitted = None
 
-            # Phase 4: Try artifact_provider first (controller-agnostic approach)
+            # V3: Use artifact_provider for chain-based loading
             if runtime_context.artifact_provider is not None:
                 step_index = runtime_context.step_number
                 step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
@@ -469,13 +469,8 @@ class ConcatAugmentationController(OperatorController):
                         fitted = obj
                         break
 
-            # Fallback: Try loaded_binaries (legacy approach)
-            if fitted is None and loaded_binaries:
-                binaries_dict = dict(loaded_binaries)
-                fitted = binaries_dict.get(binary_key)
-
             if fitted is None:
-                raise ValueError(f"Binary for '{binary_key}' not found")
+                raise ValueError(f"Transformer '{binary_key}' not found at step {runtime_context.step_number}")
         else:
             # Fit new transformer
             fitted = clone(transformer)
@@ -535,7 +530,7 @@ class ConcatAugmentationController(OperatorController):
             if mode in ["predict", "explain"]:
                 fitted = None
 
-                # Phase 4: Try artifact_provider first (controller-agnostic approach)
+                # V3: Use artifact_provider for chain-based loading
                 if runtime_context.artifact_provider is not None:
                     step_index = runtime_context.step_number
                     step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
@@ -548,13 +543,8 @@ class ConcatAugmentationController(OperatorController):
                             fitted = obj
                             break
 
-                # Fallback: Try loaded_binaries (legacy approach)
-                if fitted is None and loaded_binaries:
-                    binaries_dict = dict(loaded_binaries)
-                    fitted = binaries_dict.get(binary_key)
-
                 if fitted is None:
-                    raise ValueError(f"Binary for '{binary_key}' not found")
+                    raise ValueError(f"Transformer '{binary_key}' not found at step {runtime_context.step_number}")
             else:
                 fitted = clone(transformer)
                 fitted.fit(current_train)

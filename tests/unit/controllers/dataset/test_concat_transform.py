@@ -282,15 +282,18 @@ class TestSerialization:
         assert mock_runtime_context.saver.persist_artifact.called
 
     def test_predict_mode_loads_binaries(self, simple_dataset, mock_runtime_context):
-        """Test that predict mode loads pre-fitted transformers."""
+        """Test that predict mode loads pre-fitted transformers via artifact_provider."""
         controller = ConcatAugmentationController()
 
         # First train to get fitted PCA
         pca = PCA(n_components=10)
         pca.fit(simple_dataset.x({"partition": "train"}))
 
-        # Simulate loaded binaries
-        loaded_binaries = [("raw_PCA_0", pca)]
+        # Configure artifact_provider mock to return the fitted transformer
+        mock_runtime_context.artifact_provider = Mock()
+        mock_runtime_context.artifact_provider.get_artifacts_for_step = Mock(
+            return_value=[("raw_PCA_0", pca)]
+        )
 
         step = {"concat_transform": [PCA(n_components=10)]}
         step_info = make_step_info(step)
@@ -303,11 +306,13 @@ class TestSerialization:
 
         updated_context, artifacts = controller.execute(
             step_info, simple_dataset, context, mock_runtime_context,
-            mode="predict", loaded_binaries=loaded_binaries
+            mode="predict"
         )
 
         # Should not create new artifacts in predict mode
         assert not mock_runtime_context.saver.persist_artifact.called
+        # Should have called artifact_provider
+        assert mock_runtime_context.artifact_provider.get_artifacts_for_step.called
 
 
 class TestConfigParsing:

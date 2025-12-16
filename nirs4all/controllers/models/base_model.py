@@ -34,7 +34,6 @@ from .components import (
     ModelIdentifierGenerator,
     PredictionTransformer,
     PredictionDataAssembler,
-    ModelLoader,
     ScoreCalculator,
     IndexNormalizer
 )
@@ -66,7 +65,6 @@ class BaseModelController(OperatorController, ABC):
         identifier_generator (ModelIdentifierGenerator): Component for model naming.
         prediction_transformer (PredictionTransformer): Component for prediction scaling.
         prediction_assembler (PredictionDataAssembler): Component for assembling prediction records.
-        model_loader (ModelLoader): Component for loading persisted models.
         score_calculator (ScoreCalculator): Component for calculating evaluation scores.
         index_normalizer (IndexNormalizer): Component for normalizing sample indices.
         prediction_store (Predictions): External storage for predictions.
@@ -83,7 +81,6 @@ class BaseModelController(OperatorController, ABC):
         self.identifier_generator = ModelIdentifierGenerator()
         self.prediction_transformer = PredictionTransformer()
         self.prediction_assembler = PredictionDataAssembler()
-        self.model_loader = ModelLoader()
         self.score_calculator = ScoreCalculator()
         self.index_normalizer = IndexNormalizer()
 
@@ -668,6 +665,34 @@ class BaseModelController(OperatorController, ABC):
             n_jobs = multiprocessing.cpu_count()
 
         binaries = []
+
+        # In predict/explain mode, skip fold iteration entirely
+        # Just load the model and predict on X_test (which contains all prediction samples)
+        if mode in ("predict", "explain"):
+            # For prediction, we run once per fold to match training fold structure
+            # but we predict on X_test (all samples) not X_train
+            n_folds = len(folds) if folds else 1
+            all_fold_predictions = []
+
+            for fold_iter in range(n_folds):
+                # Use X_test as both val and test data (for prediction on all samples)
+                # X_train and y_train are empty in predict mode
+                # When no folds exist (folds is empty), pass fold_idx=None to load shared artifact
+                # When folds exist, pass the actual fold index
+                actual_fold_idx = fold_iter if folds else None
+                model, model_id, score, model_name, prediction_data = self.launch_training(
+                    dataset, model_config, context, runtime_context, prediction_store,
+                    X_train, y_train, X_test, y_test, X_test,
+                    y_train_unscaled, y_test_unscaled, y_test_unscaled,
+                    train_indices=None, val_indices=None,
+                    fold_idx=actual_fold_idx, best_params=best_params,
+                    loaded_binaries=loaded_binaries, mode=mode
+                )
+                all_fold_predictions.append(prediction_data)
+
+            self._add_all_predictions(prediction_store, all_fold_predictions, None, mode=mode)
+            return binaries
+
         if len(folds) > 0:
             folds_models = []
             fold_val_indices = []
@@ -841,53 +866,44 @@ class BaseModelController(OperatorController, ABC):
         if mode in ("predict", "explain"):
             model = None
 
-            # Phase 4: Try artifact_provider first (controller-agnostic approach)
+            # V3: Use artifact_provider for chain-based loading
             if runtime_context.artifact_provider is not None:
                 step_index = runtime_context.step_number
                 import logging
                 logging.debug(f"MODEL: loading from artifact_provider step={step_index}, fold={fold_idx}")
+
+                # Get artifact with branch awareness
+                branch_path = context.selector.branch_path if hasattr(context.selector, 'branch_path') else None
+
                 if fold_idx is not None:
-                    # Get fold-specific artifact
-                    model = runtime_context.artifact_provider.get_artifact(step_index, fold_id=fold_idx)
+                    # Get fold-specific artifact using get_fold_artifacts (supports branch_path)
+                    fold_artifacts = runtime_context.artifact_provider.get_fold_artifacts(
+                        step_index, branch_path=branch_path
+                    )
+                    # Find artifact for this specific fold
+                    for fid, artifact_obj in fold_artifacts:
+                        if fid == fold_idx:
+                            model = artifact_obj
+                            break
                 else:
                     # Get primary artifact (for non-CV or single model case)
-                    model = runtime_context.artifact_provider.get_primary_artifact(step_index)
+                    # Use get_artifacts_for_step which supports branch_path
+                    step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                        step_index, branch_path=branch_path
+                    )
+                    if step_artifacts:
+                        model = step_artifacts[0][1]
 
                 if model is not None:
                     logging.debug(f"MODEL: loaded model type={type(model).__name__}")
                     if self.verbose > 0:
                         print(f"🔧 Loaded model via artifact_provider for step {step_index}, fold={fold_idx}")
 
-            # Fallback: Try artifact_id-based loading (Phase 1)
             if model is None:
-                # Load from binaries
-                if loaded_binaries is None:
-                    raise ValueError("loaded_binaries must be provided in prediction mode (artifact_provider returned None)")
-
-                # Try artifact_id-based loading first (Phase 1: deterministic reload)
-                model_artifact_id = None
-                if runtime_context.target_model:
-                    model_artifact_id = runtime_context.target_model.get('model_artifact_id')
-
-                    # For aggregated predictions (avg, w_avg), construct artifact_id for specific fold
-                    if not model_artifact_id and fold_idx is not None:
-                        pipeline_uid = runtime_context.target_model.get('pipeline_uid')
-                        step_idx = runtime_context.target_model.get('step_idx')
-                        if pipeline_uid and step_idx is not None:
-                            model_artifact_id = f"{pipeline_uid}:{step_idx}:{fold_idx}"
-
-                if model_artifact_id and runtime_context.artifact_loader:
-                    # Use artifact_id-based loading with fallback to name-based
-                    model = self.model_loader.load_with_artifact_id_fallback(
-                        model_artifact_id=model_artifact_id,
-                        artifact_loader=runtime_context.artifact_loader,
-                        model_id=identifiers.model_id,
-                        loaded_binaries=loaded_binaries,
-                        fold_idx=fold_idx
-                    )
-                else:
-                    # Fallback to legacy name-based loading
-                    model = self.model_loader.load(identifiers.model_id, loaded_binaries, fold_idx)
+                raise ValueError(
+                    f"Model not found at step {runtime_context.step_number}, fold={fold_idx}. "
+                    f"Ensure artifact_provider is properly configured."
+                )
 
             # Capture model for SHAP explanation
             if mode == "explain" and self._should_capture_for_explanation(runtime_context, identifiers):
@@ -1777,10 +1793,10 @@ class BaseModelController(OperatorController, ABC):
     ) -> 'ArtifactMeta':
         """Persist trained model to disk using registry or legacy saver.
 
-        Uses artifact_registry.register() if available (v2 system), otherwise
-        falls back to saver.persist_artifact() (legacy).
+        Uses artifact_registry.register_with_chain() for V3 chain-based identification,
+        enabling complete execution path tracking for deterministic reload.
 
-        Also records the artifact in the execution trace for Phase 2 deterministic replay.
+        Also records the artifact in the execution trace for deterministic replay.
 
         Args:
             runtime_context: Runtime context with saver/registry instances.
@@ -1813,7 +1829,7 @@ class BaseModelController(OperatorController, ABC):
         else:
             format_hint = None  # Let serializer auto-detect
 
-        # Use artifact registry if available (v2 system)
+        # Use artifact registry if available (V3 system)
         if runtime_context.artifact_registry is not None:
             registry = runtime_context.artifact_registry
             pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
@@ -1822,59 +1838,61 @@ class BaseModelController(OperatorController, ABC):
             # Use branch_path or convert branch_id to branch_path
             bp = branch_path or ([branch_id] if branch_id is not None else [])
 
-            # Use substep_number as sub_index when in a subpipeline (list of steps)
-            # substep_number = -1 means not in a subpipeline, so don't use sub_index
-            sub_index = runtime_context.substep_number if runtime_context.substep_number >= 0 else None
+            # Use substep_number as substep_index when in a subpipeline
+            substep_index = runtime_context.substep_number if runtime_context.substep_number >= 0 else None
 
-            # Generate deterministic artifact ID
-            artifact_id = registry.generate_id(
-                pipeline_id=pipeline_id,
-                branch_path=bp,
+            # V3: Build operator chain for this artifact
+            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+
+            # Get the current chain from trace recorder or build new one
+            if runtime_context.trace_recorder is not None:
+                current_chain = runtime_context.trace_recorder.current_chain()
+            else:
+                current_chain = OperatorChain(pipeline_id=pipeline_id)
+
+            # Create node for this model
+            model_node = OperatorNode(
                 step_index=step_index,
+                operator_class=model.__class__.__name__,
+                branch_path=bp,
                 fold_id=fold_id,
-                sub_index=sub_index
+                substep_index=substep_index,
+                operator_name=custom_name,
             )
 
-            # Register artifact with registry
+            # Build chain path for this artifact
+            artifact_chain = current_chain.append(model_node)
+            chain_path = artifact_chain.to_path()
+
+            # Generate V3 artifact ID using chain
+            artifact_id = registry.generate_id(chain_path, fold_id, pipeline_id)
+
+            # Register artifact with V3 chain tracking
             record = registry.register(
                 obj=model,
                 artifact_id=artifact_id,
                 artifact_type=ArtifactType.MODEL,
                 params=params or {},
                 format_hint=format_hint,
-                custom_name=custom_name
+                custom_name=custom_name,
+                chain_path=chain_path,
+                source_index=None,  # Models don't have source_index
             )
 
-            # Record artifact in execution trace (Phase 2)
+            # Record artifact in execution trace with chain_path
             runtime_context.record_step_artifact(
                 artifact_id=artifact_id,
                 is_primary=(fold_id is None),  # Primary if not fold-specific
                 fold_id=fold_id,
+                chain_path=chain_path,
+                branch_path=bp,
                 metadata={"class_name": model.__class__.__name__, "custom_name": custom_name}
             )
 
             return record
 
-        # Fallback to legacy saver.persist_artifact()
-        result = runtime_context.saver.persist_artifact(
-            step_number=runtime_context.step_number,
-            name=f"{model_id}.pkl",
-            obj=model,
-            format_hint=format_hint,
-            branch_id=branch_id,
-            branch_name=branch_name
-        )
-
-        # Record artifact in execution trace for legacy path (Phase 2)
-        # Use the model_id as a fallback artifact_id
-        legacy_artifact_id = f"{runtime_context.saver.pipeline_id}:{runtime_context.step_number}:{fold_id if fold_id is not None else 'all'}"
-        runtime_context.record_step_artifact(
-            artifact_id=legacy_artifact_id,
-            is_primary=(fold_id is None),
-            fold_id=fold_id,
-            metadata={"class_name": model.__class__.__name__, "custom_name": custom_name, "legacy": True}
-        )
-
-        return result
+        # No registry available - skip persistence (for unit tests)
+        # In production, artifact_registry should always be set by the runner
+        return None
 
 
