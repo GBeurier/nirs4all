@@ -21,7 +21,7 @@ from .tensorflow.generic import *
 # from .pytorch.generic import *
 
 # Import meta-model stacking
-from .meta import MetaModel, StackingConfig, CoverageStrategy, TestAggregation, BranchScope
+from .meta import MetaModel, StackingConfig, CoverageStrategy, TestAggregation, BranchScope, StackingLevel
 from .selection import (
     SourceModelSelector,
     AllPreviousModelsSelector,
@@ -63,6 +63,7 @@ __all__ = [
     "CoverageStrategy",
     "TestAggregation",
     "BranchScope",
+    "StackingLevel",
     # Source model selection
     "SourceModelSelector",
     "AllPreviousModelsSelector",

@@ -54,7 +54,6 @@ __all__ = [
     # Pipeline components
     "PipelineRunner",
     "PipelineConfigs",
-    "PipelineHistory",
 
     # Controller system
     "register_controller",

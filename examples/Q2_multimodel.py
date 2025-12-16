@@ -68,11 +68,11 @@ pipeline = [
     {"model": PLSRegression(7), "name": "PLS_7"},
     {"model": PLSRegression(13), "name": "PLS_13"},
     # {"model": RandomForestRegressor(n_estimators=10)},
-    # {"model": ElasticNet()},
+    {"model": ElasticNet()},
     # {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1), "name": "SVR_Custom_Model"},
     # {"model": MLPRegressor(hidden_layer_sizes=(20,20), max_iter=50), "name": "MLP_Custom_Model"},
     # {"model": GradientBoostingRegressor(n_estimators=20)},
-    {"model": AdaBoostRegressor(n_estimators=5), "name": "AdaBoost"},
+    # {"model": AdaBoostRegressor(n_estimators=5), "name": "AdaBoost"},
 ]
 
 if XGBRegressor:

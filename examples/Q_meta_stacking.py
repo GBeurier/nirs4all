@@ -45,7 +45,6 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 # Import nirs4all components
 from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline import PipelineRunner
-from nirs4all.pipeline.storage.workspace import Workspace
 
 # Import meta-model stacking components
 from nirs4all.operators.models import (
@@ -55,7 +54,8 @@ from nirs4all.operators.models import (
     TestAggregation,
     BranchScope,
 )
-from nirs4all.operators.preprocessing import DerivativeTransform
+from nirs4all.operators.models.meta import StackingLevel
+from nirs4all.operators.transforms import FirstDerivative, SecondDerivative
 
 
 def example_basic_stacking():
@@ -72,7 +72,7 @@ def example_basic_stacking():
     print("=" * 70)
 
     # Load sample dataset
-    dataset = DatasetConfigs("examples/sample_data/")
+    dataset = DatasetConfigs("sample_data/regression")
 
     # Pipeline with base models and meta-learner
     pipeline = [
@@ -91,11 +91,10 @@ def example_basic_stacking():
     ]
 
     # Run training
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest="workspace/meta_stacking_basic")
+    runner = PipelineRunner(workspace_path="workspace/meta_stacking_basic")
+    predictions, _ = runner.run(pipeline, dataset)
 
     # Get and display results
-    predictions = runner.predictions
     top_models = predictions.top(n=5, rank_partition="val")
 
     print("\nTop 5 models by validation score:")
@@ -105,17 +104,26 @@ def example_basic_stacking():
         print(f"  {pred['model_name']:40s}: {score:.4f}")
 
     # Compare meta-model with base models
-    pls_score = predictions.filter(model_name_contains="PLS")[0]['val_score']
-    rf_score = predictions.filter(model_name_contains="RandomForest")[0]['val_score']
-    meta_score = predictions.filter(model_name_contains="MetaModel")[0]['val_score']
-
     print("\n📊 Score Comparison:")
-    print(f"  PLS:         {pls_score:.4f}")
-    print(f"  RF:          {rf_score:.4f}")
-    print(f"  MetaModel:   {meta_score:.4f}")
+    pls_score = rf_score = meta_score = None
+    for pred in top_models:
+        name = pred.get('model_name', '')
+        score = pred.get('val_score', 0)
+        if 'PLS' in name and pls_score is None:
+            pls_score = score
+            print(f"  PLS:         {pls_score:.4f}")
+        elif 'RandomForest' in name and rf_score is None:
+            rf_score = score
+            print(f"  RF:          {rf_score:.4f}")
+        elif 'MetaModel' in name and meta_score is None:
+            meta_score = score
+            print(f"  MetaModel:   {meta_score:.4f}")
 
-    improvement = (meta_score - max(pls_score, rf_score)) / abs(max(pls_score, rf_score)) * 100
-    print(f"  Improvement: {improvement:+.2f}%")
+    if pls_score and rf_score and meta_score:
+        best_base = max(pls_score, rf_score)
+        if best_base != 0:
+            improvement = (meta_score - best_base) / abs(best_base) * 100
+            print(f"  Improvement: {improvement:+.2f}%")
 
 
 def example_explicit_source_selection():
@@ -129,7 +137,7 @@ def example_explicit_source_selection():
     print("Example 2: Explicit Source Model Selection")
     print("=" * 70)
 
-    dataset = DatasetConfigs("examples/sample_data/")
+    dataset = DatasetConfigs("sample_data/regression")
 
     pipeline = [
         MinMaxScaler(),
@@ -150,17 +158,18 @@ def example_explicit_source_selection():
         ), "name": "PLS_Ensemble"},
     ]
 
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest="workspace/meta_explicit")
+    runner = PipelineRunner(workspace_path="workspace/meta_explicit")
+    predictions, _ = runner.run(pipeline, dataset)
 
-    predictions = runner.predictions
     print("\nModel performances:")
     print("-" * 50)
 
+    all_preds = predictions.top(n=10, rank_partition="val")
     for name in ["PLS_3", "PLS_5", "PLS_10", "RandomForest", "PLS_Ensemble"]:
-        preds = predictions.filter(model_name_contains=name, partition="val")
-        if preds:
-            print(f"  {name:30s}: {preds[0]['val_score']:.4f}")
+        for pred in all_preds:
+            if name in pred.get('model_name', ''):
+                print(f"  {name:30s}: {pred.get('val_score', 0):.4f}")
+                break
 
 
 def example_topk_source_selection():
@@ -174,7 +183,7 @@ def example_topk_source_selection():
     print("Example 3: Top-K Source Selection")
     print("=" * 70)
 
-    dataset = DatasetConfigs("examples/sample_data/")
+    dataset = DatasetConfigs("sample_data/regression")
 
     pipeline = [
         MinMaxScaler(),
@@ -196,21 +205,18 @@ def example_topk_source_selection():
         ), "name": "Top3_Meta"},
     ]
 
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest="workspace/meta_topk")
+    runner = PipelineRunner(workspace_path="workspace/meta_topk")
+    predictions, _ = runner.run(pipeline, dataset)
 
-    predictions = runner.predictions
-
-    # Show all model scores
-    all_preds = predictions.filter(partition="val")
-    all_preds = sorted(all_preds, key=lambda p: p.get('val_score', 0), reverse=True)
+    # Show all model scores (top() already sorts by score)
+    all_preds = predictions.top(n=20, rank_partition="val")
 
     print("\nAll models ranked by validation score:")
     print("-" * 50)
     for pred in all_preds:
         is_meta = "MetaModel" in pred['model_name'] or "Top3" in pred['model_name']
         marker = "⭐" if is_meta else "  "
-        print(f"  {marker} {pred['model_name']:35s}: {pred['val_score']:.4f}")
+        print(f"  {marker} {pred['model_name']:35s}: {pred.get('val_score', 0):.4f}")
 
 
 def example_custom_stacking_config():
@@ -226,7 +232,7 @@ def example_custom_stacking_config():
     print("Example 4: Custom Stacking Configuration")
     print("=" * 70)
 
-    dataset = DatasetConfigs("examples/sample_data/")
+    dataset = DatasetConfigs("sample_data/regression")
 
     # Custom stacking config for robust handling
     stacking_config = StackingConfig(
@@ -257,10 +263,8 @@ def example_custom_stacking_config():
         )},
     ]
 
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest="workspace/meta_config")
-
-    predictions = runner.predictions
+    runner = PipelineRunner(workspace_path="workspace/meta_config")
+    predictions, _ = runner.run(pipeline, dataset)
 
     print("\n📋 Stacking Configuration Used:")
     print(f"  Coverage Strategy: {stacking_config.coverage_strategy.value}")
@@ -271,7 +275,7 @@ def example_custom_stacking_config():
     print("-" * 50)
     top_models = predictions.top(n=5, rank_partition="val")
     for pred in top_models:
-        print(f"  {pred['model_name']:40s}: {pred['val_score']:.4f}")
+        print(f"  {pred['model_name']:40s}: {pred.get('val_score', 0):.4f}")
 
 
 def example_stacking_with_branches():
@@ -285,36 +289,31 @@ def example_stacking_with_branches():
     print("Example 5: Stacking with Preprocessing Branches")
     print("=" * 70)
 
-    from nirs4all.operators.control.branching import Branch
-
-    dataset = DatasetConfigs("examples/sample_data/")
+    dataset = DatasetConfigs("sample_data/regression")
 
     pipeline = [
         MinMaxScaler(),
         KFold(n_splits=5, shuffle=True, random_state=42),
 
-        # Branching with different preprocessing
-        Branch(
-            branches=[
-                # Branch 0: Raw spectra
-                [
-                    {"model": PLSRegression(n_components=5), "name": "PLS_Raw"},
-                    RandomForestRegressor(n_estimators=30, random_state=42),
-                ],
-                # Branch 1: First derivative
-                [
-                    DerivativeTransform(order=1),
-                    {"model": PLSRegression(n_components=5), "name": "PLS_D1"},
-                    RandomForestRegressor(n_estimators=30, random_state=42),
-                ],
-                # Branch 2: Second derivative
-                [
-                    DerivativeTransform(order=2),
-                    {"model": PLSRegression(n_components=5), "name": "PLS_D2"},
-                ],
+        # Branching with different preprocessing using dict syntax
+        {"branch": [
+            # Branch 0: Raw spectra
+            [
+                {"model": PLSRegression(n_components=5), "name": "PLS_Raw"},
+                RandomForestRegressor(n_estimators=30, random_state=42),
             ],
-            merge_predictions=True,  # Merge predictions for stacking
-        ),
+            # Branch 1: First derivative
+            [
+                FirstDerivative(),
+                {"model": PLSRegression(n_components=5), "name": "PLS_D1"},
+                RandomForestRegressor(n_estimators=30, random_state=42),
+            ],
+            # Branch 2: Second derivative
+            [
+                SecondDerivative(),
+                {"model": PLSRegression(n_components=5), "name": "PLS_D2"},
+            ],
+        ]},
 
         # Meta-model after branch merge - uses ALL branch models
         {"model": MetaModel(
@@ -325,16 +324,14 @@ def example_stacking_with_branches():
         ), "name": "BranchMeta"},
     ]
 
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest="workspace/meta_branches")
-
-    predictions = runner.predictions
+    runner = PipelineRunner(workspace_path="workspace/meta_branches")
+    predictions, _ = runner.run(pipeline, dataset)
 
     print("\nModels from all branches:")
     print("-" * 50)
-    all_preds = predictions.filter(partition="val")
-    for pred in sorted(all_preds, key=lambda p: p.get('val_score', 0), reverse=True):
-        print(f"  {pred['model_name']:40s}: {pred['val_score']:.4f}")
+    all_preds = predictions.top(n=20, rank_partition="val")
+    for pred in all_preds:
+        print(f"  {pred['model_name']:40s}: {pred.get('val_score', 0):.4f}")
 
 
 def example_diverse_estimators():
@@ -350,7 +347,7 @@ def example_diverse_estimators():
     print("Example 6: Stacking Diverse Estimators")
     print("=" * 70)
 
-    dataset = DatasetConfigs("examples/sample_data/")
+    dataset = DatasetConfigs("sample_data/regression")
 
     pipeline = [
         StandardScaler(),  # Better for diverse models
@@ -369,16 +366,14 @@ def example_diverse_estimators():
         ), "name": "DiverseStack"},
     ]
 
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest="workspace/meta_diverse")
-
-    predictions = runner.predictions
+    runner = PipelineRunner(workspace_path="workspace/meta_diverse")
+    predictions, _ = runner.run(pipeline, dataset)
 
     print("\nDiverse ensemble results:")
     print("-" * 50)
     top_models = predictions.top(n=10, rank_partition="val")
     for pred in top_models:
-        print(f"  {pred['model_name']:45s}: {pred['val_score']:.4f}")
+        print(f"  {pred['model_name']:45s}: {pred.get('val_score', 0):.4f}")
 
 
 def example_save_and_reload():
@@ -394,7 +389,7 @@ def example_save_and_reload():
     print("Example 7: Save and Reload Stacking Model")
     print("=" * 70)
 
-    dataset = DatasetConfigs("examples/sample_data/")
+    dataset = DatasetConfigs("sample_data/regression")
     workspace_path = "workspace/meta_persistence"
 
     # --- TRAINING PHASE ---
@@ -409,55 +404,26 @@ def example_save_and_reload():
         {"model": MetaModel(model=Ridge(alpha=1.0))},
     ]
 
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest=workspace_path)
+    runner = PipelineRunner(workspace_path=workspace_path, save_files=True)
+    predictions, _ = runner.run(pipeline, dataset)
 
-    # Store original test predictions
-    original_preds = runner.predictions.filter(
-        model_name_contains="MetaModel", partition="test"
-    )
-    original_score = original_preds[0]['val_score'] if original_preds else None
+    # Get meta-model results
+    all_preds = predictions.top(n=10, rank_partition="val")
+    original_score = None
+    for pred in all_preds:
+        if 'MetaModel' in pred.get('model_name', ''):
+            original_score = pred.get('val_score')
+            break
 
     print("  Training complete")
-    print(f"  MetaModel test score: {original_score:.4f}" if original_score else "")
+    if original_score is not None:
+        print(f"  MetaModel test score: {original_score:.4f}")
 
     # --- RELOAD PHASE ---
-    print("\n🔄 Reload Phase:")
-    print("-" * 50)
-
-    workspace = Workspace(workspace_path)
-
-    # List saved artifacts
-    artifacts = workspace.list_artifacts()
-    meta_artifacts = [a for a in artifacts if "MetaModel" in str(a.get('class_name', ''))]
-    print(f"  Found {len(artifacts)} artifacts")
-    print(f"  Meta-model artifacts: {len(meta_artifacts)}")
-
-    # Load pipeline for prediction
-    loaded_pipeline = workspace.load_pipeline()
-    if loaded_pipeline:
-        print("  Pipeline loaded successfully")
-
-        # --- PREDICTION PHASE ---
-        print("\n🔮 Prediction Phase:")
-        print("-" * 50)
-
-        runner2 = PipelineRunner()
-        runner2.run(dataset, loaded_pipeline, dest=workspace_path, mode="predict")
-
-        new_preds = runner2.predictions.filter(
-            model_name_contains="MetaModel", partition="test"
-        )
-
-        if new_preds and original_preds:
-            # Compare predictions
-            orig_y = original_preds[0].get('y_pred')
-            new_y = new_preds[0].get('y_pred')
-
-            if orig_y is not None and new_y is not None:
-                diff = np.abs(orig_y - new_y).max()
-                print(f"  Max prediction difference: {diff:.2e}")
-                print(f"  ✅ Predictions {'match' if diff < 1e-6 else 'differ'}")
+    # Note: Full workspace reload functionality for prediction mode
+    # can be done using runner.predict() with a saved model
+    print("\n📌 Pipeline saved to:", workspace_path)
+    print("   Use runner.predict() to make predictions on new data")
 
 
 def example_multi_level_stacking():
@@ -482,9 +448,7 @@ def example_multi_level_stacking():
     print("Example 8: Multi-Level Stacking")
     print("=" * 70)
 
-    from nirs4all.operators.models.meta import StackingLevel
-
-    dataset = DatasetConfigs("examples/sample_data/")
+    dataset = DatasetConfigs("sample_data/regression")
 
     pipeline = [
         MinMaxScaler(),
@@ -515,28 +479,34 @@ def example_multi_level_stacking():
         ), "name": "Meta_L2_Final"},
     ]
 
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest="workspace/meta_multilevel")
-
-    predictions = runner.predictions
+    runner = PipelineRunner(workspace_path="workspace/meta_multilevel")
+    predictions, _ = runner.run(pipeline, dataset)
 
     print("\nMulti-level stacking results:")
     print("-" * 50)
+    all_preds = predictions.top(n=20, rank_partition="val")
+
+    # Build a lookup dict for scores
+    scores = {pred.get('model_name', ''): pred.get('val_score', 0) for pred in all_preds}
+
     print("  Level 0 (Base):")
     for name in ["PLS_L0", "PLS10_L0", "RandomForest"]:
-        preds = predictions.filter(model_name_contains=name, partition="val")
-        if preds:
-            print(f"    {name:30s}: {preds[0]['val_score']:.4f}")
+        for model_name, score in scores.items():
+            if name in model_name:
+                print(f"    {name:30s}: {score:.4f}")
+                break
 
     print("\n  Level 1 (First Stack):")
-    meta_l1 = predictions.filter(model_name_contains="Meta_L1_PLS", partition="val")
-    if meta_l1:
-        print(f"    {'Meta_L1_PLS':30s}: {meta_l1[0]['val_score']:.4f}")
+    for model_name, score in scores.items():
+        if "Meta_L1_PLS" in model_name:
+            print(f"    {'Meta_L1_PLS':30s}: {score:.4f}")
+            break
 
     print("\n  Level 2 (Final Stack):")
-    meta_l2 = predictions.filter(model_name_contains="Meta_L2_Final", partition="val")
-    if meta_l2:
-        print(f"    {'Meta_L2_Final':30s}: {meta_l2[0]['val_score']:.4f}")
+    for model_name, score in scores.items():
+        if "Meta_L2_Final" in model_name:
+            print(f"    {'Meta_L2_Final':30s}: {score:.4f}")
+            break
 
 
 def example_cross_branch_stacking():
@@ -555,36 +525,31 @@ def example_cross_branch_stacking():
     print("Example 9: Cross-Branch Stacking")
     print("=" * 70)
 
-    from nirs4all.operators.control.branching import Branch
-
-    dataset = DatasetConfigs("examples/sample_data/")
+    dataset = DatasetConfigs("sample_data/regression")
 
     pipeline = [
         MinMaxScaler(),
         KFold(n_splits=5, shuffle=True, random_state=42),
 
-        # Branching with different preprocessing
-        Branch(
-            branches=[
-                # Branch 0: Raw spectra processing
-                [
-                    {"model": PLSRegression(n_components=5), "name": "PLS_Raw"},
-                    {"model": Ridge(alpha=1.0), "name": "Ridge_Raw"},
-                ],
-                # Branch 1: First derivative processing
-                [
-                    DerivativeTransform(order=1),
-                    {"model": PLSRegression(n_components=5), "name": "PLS_D1"},
-                    {"model": Ridge(alpha=1.0), "name": "Ridge_D1"},
-                ],
-                # Branch 2: Second derivative processing
-                [
-                    DerivativeTransform(order=2),
-                    {"model": PLSRegression(n_components=3), "name": "PLS_D2"},
-                ],
+        # Branching with different preprocessing using dict syntax
+        {"branch": [
+            # Branch 0: Raw spectra processing
+            [
+                {"model": PLSRegression(n_components=5), "name": "PLS_Raw"},
+                {"model": Ridge(alpha=1.0), "name": "Ridge_Raw"},
             ],
-            merge_predictions=True,
-        ),
+            # Branch 1: First derivative processing
+            [
+                FirstDerivative(),
+                {"model": PLSRegression(n_components=5), "name": "PLS_D1"},
+                {"model": Ridge(alpha=1.0), "name": "Ridge_D1"},
+            ],
+            # Branch 2: Second derivative processing
+            [
+                SecondDerivative(),
+                {"model": PLSRegression(n_components=3), "name": "PLS_D2"},
+            ],
+        ]},
 
         # Cross-branch meta-model - uses models from ALL branches
         {"model": MetaModel(
@@ -596,23 +561,26 @@ def example_cross_branch_stacking():
         ), "name": "CrossBranch_Meta"},
     ]
 
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest="workspace/meta_crossbranch")
-
-    predictions = runner.predictions
+    runner = PipelineRunner(workspace_path="workspace/meta_crossbranch")
+    predictions, _ = runner.run(pipeline, dataset)
 
     print("\nModels from all branches:")
     print("-" * 50)
+    all_preds = predictions.top(n=20, rank_partition="val")
+    scores = {pred.get('model_name', ''): pred.get('val_score', 0) for pred in all_preds}
+
     branch_models = ["PLS_Raw", "Ridge_Raw", "PLS_D1", "Ridge_D1", "PLS_D2"]
     for name in branch_models:
-        preds = predictions.filter(model_name_contains=name, partition="val")
-        if preds:
-            print(f"  {name:35s}: {preds[0]['val_score']:.4f}")
+        for model_name, score in scores.items():
+            if name in model_name:
+                print(f"  {name:35s}: {score:.4f}")
+                break
 
     print("\nCross-branch meta-model:")
-    meta = predictions.filter(model_name_contains="CrossBranch_Meta", partition="val")
-    if meta:
-        print(f"  {'CrossBranch_Meta':35s}: {meta[0]['val_score']:.4f}")
+    for model_name, score in scores.items():
+        if "CrossBranch_Meta" in model_name:
+            print(f"  {'CrossBranch_Meta':35s}: {score:.4f}")
+            break
 
 
 def example_finetune_integration():
@@ -631,7 +599,7 @@ def example_finetune_integration():
     print("Example 10: Finetune Integration")
     print("=" * 70)
 
-    dataset = DatasetConfigs("examples/sample_data/")
+    dataset = DatasetConfigs("sample_data/regression")
 
     # Define finetune space for the meta-model
     finetune_space = {
@@ -659,10 +627,8 @@ def example_finetune_integration():
         ), "name": "Tunable_Meta"},
     ]
 
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest="workspace/meta_finetune")
-
-    predictions = runner.predictions
+    runner = PipelineRunner(workspace_path="workspace/meta_finetune")
+    predictions, _ = runner.run(pipeline, dataset)
 
     print("\n📋 Finetune Configuration:")
     print("-" * 50)
@@ -683,7 +649,7 @@ def example_finetune_integration():
     print("-" * 50)
     top_models = predictions.top(n=5, rank_partition="val")
     for pred in top_models:
-        print(f"  {pred['model_name']:40s}: {pred['val_score']:.4f}")
+        print(f"  {pred['model_name']:40s}: {pred.get('val_score', 0):.4f}")
 
 
 def example_advanced_multi_level():
@@ -701,10 +667,7 @@ def example_advanced_multi_level():
     print("Example 11: Advanced Multi-Level with Validation")
     print("=" * 70)
 
-    from nirs4all.operators.models.meta import StackingLevel
-
-    dataset = DatasetConfigs("examples/sample_data/")
-
+    dataset = DatasetConfigs("sample_data/regression")
     pipeline = [
         MinMaxScaler(),
         KFold(n_splits=5, shuffle=True, random_state=42),
@@ -743,29 +706,33 @@ def example_advanced_multi_level():
         ), "name": "Meta_Final"},
     ]
 
-    runner = PipelineRunner()
-    runner.run(dataset, pipeline, dest="workspace/meta_advanced_multilevel")
-
-    predictions = runner.predictions
+    runner = PipelineRunner(workspace_path="workspace/meta_advanced_multilevel")
+    predictions, _ = runner.run(pipeline, dataset)
 
     print("\nHierarchical stacking structure:")
     print("-" * 50)
+    all_preds = predictions.top(n=20, rank_partition="val")
+    scores = {pred.get('model_name', ''): pred.get('val_score', 0) for pred in all_preds}
+
     print("  Level 0 (Base Models):")
     for name in ["PLS_Base", "Ridge_Base", "RandomForest"]:
-        preds = predictions.filter(model_name_contains=name, partition="val")
-        if preds:
-            print(f"    └─ {name:28s}: {preds[0]['val_score']:.4f}")
+        for model_name, score in scores.items():
+            if name in model_name:
+                print(f"    └─ {name:28s}: {score:.4f}")
+                break
 
     print("\n  Level 1 (First Stack):")
     for name in ["Meta_Linear", "Meta_Tree"]:
-        preds = predictions.filter(model_name_contains=name, partition="val")
-        if preds:
-            print(f"    └─ {name:28s}: {preds[0]['val_score']:.4f}")
+        for model_name, score in scores.items():
+            if name in model_name:
+                print(f"    └─ {name:28s}: {score:.4f}")
+                break
 
     print("\n  Level 2 (Final Stack):")
-    final = predictions.filter(model_name_contains="Meta_Final", partition="val")
-    if final:
-        print(f"    └─ {'Meta_Final':28s}: {final[0]['val_score']:.4f}")
+    for model_name, score in scores.items():
+        if "Meta_Final" in model_name:
+            print(f"    └─ {'Meta_Final':28s}: {score:.4f}")
+            break
 
 
 if __name__ == "__main__":

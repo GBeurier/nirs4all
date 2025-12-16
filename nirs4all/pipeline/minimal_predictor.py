@@ -346,7 +346,18 @@ class MinimalArtifactProvider(ArtifactProvider):
                 # This allows transformer controllers to look up by name
                 # Pass step_index to check if y_processing (needs y_ prefix)
                 operator_name = self._derive_operator_name(obj, artifact_id, step_index)
-                results.append((operator_name, obj))
+                # Get substep_index for sorting
+                artifact_substep = record.substep_index if record else None
+                results.append((operator_name, obj, artifact_substep))
+
+        # Sort by substep_index to ensure artifacts are returned in the same order
+        # they were created during training. This is critical for multi-source
+        # pipelines with feature_augmentation where transformers are loaded
+        # by index position.
+        results.sort(key=lambda x: (x[2] if x[2] is not None else float('inf')))
+
+        # Remove substep_index from results (keep only operator_name, obj tuples)
+        results = [(name, obj) for name, obj, _ in results]
 
         logger.debug(
             f"get_artifacts_for_step({step_index}, branch_path={branch_path}) "
