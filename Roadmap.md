@@ -1,19 +1,17 @@
 ## ROADMAP
 
 **Bugs**:
->   - [Q30] Na in branches predictions
->   - [MB-PLS] test on multi-source/block ---
->   - Emit a warning if user declare rank_partition or display_partition that doesn't exist (because the filter work but no results comes out) incharts or top
->   - "Model_classname" in prediction has a value "dict" for models built with a function/callable with no type (should be at least the framework)
 >   - Charts do not display correctly the wavelength on x-axis - nm cm-1 all messed up. Add force type.
->   - Branch diagram are out
+>     [headers/wavelengths] charts bug on wavelenghts. Add force format + review conversion. + Add to reflectance/absorbance
+
 >   - [LightGBM] [Warning] No further splits with positive gain, best gain: -inf   >> look if parameters is passed on cloning (maybe there is a hidden bug)
 >   - [Generator] Verify count = 1
 >   - [Predict] Q5_predict is slow as hell
+
+>   - Branch diagram are out
 >   - [Charts] check dataviz. Missing histograms, inverted heatmap color scale, --> Branching ?
 
 **Features**:
-> [headers/wavelengths] charts bug on wavelenghts. Add force format + review conversion. + Add to reflectance/absorbance
 
 > [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
 > [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
@@ -65,6 +63,9 @@
 > [DEPLOY] standalone installer, web installer
 
 **RELEASE** 0.6.0: UI
+
+**Bugs**:
+>   - [MB-PLS] test on multi-source/block ---
 
 > [SHAP] verify shap for tf, torch, jax, Fix imports and np compat
 
