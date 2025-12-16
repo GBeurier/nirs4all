@@ -45,7 +45,7 @@ from matplotlib.figure import Figure
 # NIRS4All imports
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.workspace.library_manager import LibraryManager
+from nirs4all.workspace import LibraryManager
 
 
 # ========================================

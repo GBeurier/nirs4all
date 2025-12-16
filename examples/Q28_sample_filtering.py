@@ -37,6 +37,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.operators.filters import YOutlierFilter, FilteringReportGenerator
 from nirs4all.operators.filters.base import CompositeFilter
+from nirs4all.operators.transforms import StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from sklearn.model_selection import KFold
 from sklearn.cross_decomposition import PLSRegression
@@ -241,7 +242,7 @@ The filter:
             }
         },
         "chart_y",  # Show y distribution after filtering
-        "snv",
+        StandardNormalVariate(),
         {"split": KFold(n_splits=3)},
         {"model": PLSRegression(n_components=5)},
     ]
@@ -391,7 +392,7 @@ Features:
         {"exclusion_chart": {"color_by": "status"}},  # Color by included/excluded
         {"exclusion_chart": {"color_by": "y"}},       # Color by target value
         {"exclusion_chart": {"color_by": "reason"}},  # Color by exclusion reason
-        "snv",
+        StandardNormalVariate(),
         {"split": KFold(n_splits=3)},
         {"model": PLSRegression(n_components=5)},
     ]
@@ -513,7 +514,7 @@ This allows visualizing the effect of filtering on your data.
         # 2D spectra chart with excluded samples highlighted
         {"chart_2d": {"include_excluded": True, "highlight_excluded": True}},
 
-        "snv",
+        StandardNormalVariate(),
         {"split": KFold(n_splits=3)},
         {"model": PLSRegression(n_components=5)},
     ]
