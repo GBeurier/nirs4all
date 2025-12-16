@@ -47,6 +47,8 @@ class PredictionIndexer:
         model_name: Optional[str] = None,
         fold_id: Optional[str] = None,
         step_idx: Optional[int] = None,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None,
         **kwargs
     ) -> pl.DataFrame:
         """
@@ -59,6 +61,8 @@ class PredictionIndexer:
             model_name: Filter by model name
             fold_id: Filter by fold ID
             step_idx: Filter by step index
+            branch_id: Filter by branch ID (for pipeline branching)
+            branch_name: Filter by branch name (for pipeline branching)
             **kwargs: Additional filter criteria
 
         Returns:
@@ -67,6 +71,7 @@ class PredictionIndexer:
         Examples:
             >>> df = indexer.filter(dataset_name="wheat", partition="test")
             >>> df = indexer.filter(model_name="PLS", fold_id="0")
+            >>> df = indexer.filter(branch_id=0)  # Get all from first branch
         """
         df = self._storage.to_dataframe()
 
@@ -83,6 +88,10 @@ class PredictionIndexer:
             df = df.filter(pl.col("fold_id") == str(fold_id))
         if step_idx is not None:
             df = df.filter(pl.col("step_idx") == step_idx)
+        if branch_id is not None:
+            df = df.filter(pl.col("branch_id") == branch_id)
+        if branch_name is not None:
+            df = df.filter(pl.col("branch_name") == branch_name)
 
         # Apply additional filters from kwargs
         for key, value in kwargs.items():

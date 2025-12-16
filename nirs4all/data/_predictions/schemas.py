@@ -21,6 +21,8 @@ PREDICTION_SCHEMA = {
     "model_name": pl.Utf8,
     "model_classname": pl.Utf8,
     "model_path": pl.Utf8,
+    "model_artifact_id": pl.Utf8,  # Deterministic artifact ID for model loading (v2)
+    "trace_id": pl.Utf8,  # Execution trace ID for deterministic prediction replay (v2)
     "fold_id": pl.Utf8,
     "partition": pl.Utf8,
     "val_score": pl.Float64,
@@ -34,6 +36,12 @@ PREDICTION_SCHEMA = {
     "best_params": pl.Utf8,  # JSON serialized
     "metadata": pl.Utf8,  # JSON serialized
     "scores": pl.Utf8,  # JSON serialized: {"train": {"rmse": 0.1}, "val": ...}
+    # Branch tracking for pipeline branching
+    "branch_id": pl.Int64,  # Branch identifier (0-indexed, None if not branching)
+    "branch_name": pl.Utf8,  # Human-readable branch name
+    # Outlier exclusion tracking for outlier_excluder branches
+    "exclusion_count": pl.Int64,  # Number of samples excluded during training
+    "exclusion_rate": pl.Float64,  # Rate of samples excluded (0.0-1.0)
     # Array references (IDs pointing to ArrayRegistry)
     "y_true_id": pl.Utf8,
     "y_pred_id": pl.Utf8,

@@ -1,14 +1,24 @@
-"""Prediction target resolver - resolves prediction targets for predict mode."""
+"""Prediction target resolver - resolves prediction targets for predict mode.
+
+Note: This is the legacy target resolver for finding predictions by ID.
+For the comprehensive Phase 3 prediction source resolver that normalizes
+sources to all components needed for replay, see:
+    nirs4all.pipeline.resolver.PredictionResolver
+"""
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 from nirs4all.data.predictions import Predictions
 
 
-class PredictionResolver:
+class TargetResolver:
     """Resolves prediction targets for predict mode.
 
-    Focused responsibility: Finding and resolving prediction targets.
+    Focused responsibility: Finding and resolving prediction targets by ID.
+
+    Note: For the comprehensive Phase 3 resolver that handles multiple
+    source types (prediction dict, folder, Run, artifact_id, bundle),
+    see nirs4all.pipeline.resolver.PredictionResolver.
     """
 
     def __init__(self, workspace_path: Path):
@@ -152,3 +162,8 @@ class PredictionResolver:
 
         except Exception:
             return None
+
+
+# Backward compatibility alias
+# Deprecated: Use nirs4all.pipeline.resolver.PredictionResolver for Phase 3+ features
+PredictionResolver = TargetResolver

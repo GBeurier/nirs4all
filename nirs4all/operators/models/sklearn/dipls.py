@@ -168,10 +168,29 @@ class DiPLS(BaseEstimator, RegressorMixin):
         -------
         y_pred : ndarray of shape (n_samples,) or (n_samples, n_targets)
             Predicted values.
+
+        Notes
+        -----
+        DiPLS uses Hankelization which may produce fewer predictions than
+        input samples. This implementation pads the beginning with the first
+        predicted value to maintain compatibility with sklearn cross-validation.
         """
         X = np.asarray(X)
+        n_samples = X.shape[0]
 
         y_pred = self._model.predict(X)
+
+        # DiPLS may return fewer predictions due to Hankelization
+        # Pad beginning with first prediction to match input length for sklearn compatibility
+        n_pred = y_pred.shape[0]
+        if n_pred < n_samples:
+            n_pad = n_samples - n_pred
+            if y_pred.ndim == 1:
+                pad_value = y_pred[0]
+                y_pred = np.concatenate([np.full(n_pad, pad_value), y_pred])
+            else:
+                pad_value = y_pred[0:1]
+                y_pred = np.concatenate([np.tile(pad_value, (n_pad, 1)), y_pred], axis=0)
 
         # Flatten if single target
         if y_pred.ndim > 1 and y_pred.shape[1] == 1:

@@ -1,6 +1,6 @@
 """Data manipulation controllers.
 
-Controllers for data manipulation operators (branch, merge, resampler, augmentation, feature selection).
+Controllers for data manipulation operators (branch, merge, resampler, augmentation, feature selection, sample filtering, outlier excluder, sample partitioner).
 """
 
 from .feature_augmentation import FeatureAugmentationController
@@ -9,6 +9,9 @@ from .resampler import ResamplerController
 from .feature_selection import FeatureSelectionController
 from .concat_transform import ConcatAugmentationController
 from .auto_transfer_preproc import AutoTransferPreprocessingController
+from .sample_filter import SampleFilterController
+from .outlier_excluder import OutlierExcluderController
+from .sample_partitioner import SamplePartitionerController
 
 __all__ = [
     "FeatureAugmentationController",
@@ -17,4 +20,7 @@ __all__ = [
     "FeatureSelectionController",
     "ConcatAugmentationController",
     "AutoTransferPreprocessingController",
+    "SampleFilterController",
+    "OutlierExcluderController",
+    "SamplePartitionerController",
 ]

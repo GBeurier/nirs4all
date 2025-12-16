@@ -49,7 +49,7 @@ class StepParser:
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     # Reserved keywords that are not operators
-    RESERVED_KEYWORDS = ["params", "metadata", "steps", "name", "finetune_params", "train_params"]
+    RESERVED_KEYWORDS = ["params", "metadata", "steps", "name", "finetune_params", "train_params", "fit_on_all"]
 
     # Priority workflow keywords (ordered by priority, highest first)
     WORKFLOW_KEYWORDS = [
@@ -60,6 +60,7 @@ class StepParser:
         "concat_transform",
         "y_processing",
         "sample_augmentation",
+        "branch",
     ]
 
     def parse(self, step: Any) -> ParsedStep:
@@ -82,6 +83,12 @@ class StepParser:
                 original_step=step,
                 metadata={"skip": True}
             )
+
+        # Handle MinimalPipelineStep (from trace extractor)
+        from nirs4all.pipeline.trace.extractor import MinimalPipelineStep
+        if isinstance(step, MinimalPipelineStep):
+            # Extract the step_config and parse it
+            return self.parse(step.step_config)
 
         # Handle dictionary steps
         if isinstance(step, dict):
@@ -192,11 +199,25 @@ class StepParser:
 
 
     def _deserialize_operator(self, value: Any) -> Optional[Any]:
-        """Deserialize an operator value if needed."""
+        """Deserialize an operator value if needed.
+
+        Handles:
+        - None: returns None
+        - Instances: returns as-is
+        - Class types: returns as-is (controller will instantiate)
+        - Dict with 'class'/'function': deserializes component
+        - String: deserializes as module path
+        - List/tuple: recursively deserializes each element
+        """
         if value is None:
             return None
 
-        # Already an instance
+        # Handle lists/tuples (for chained operators like y_processing)
+        if isinstance(value, (list, tuple)):
+            deserialized = [self._deserialize_operator(v) for v in value]
+            return deserialized if isinstance(value, list) else tuple(deserialized)
+
+        # Already an instance or class type - return as-is
         if not isinstance(value, (dict, str)):
             return value
 

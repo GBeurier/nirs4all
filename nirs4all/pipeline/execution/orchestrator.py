@@ -8,7 +8,7 @@ import numpy as np
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.storage.artifacts.manager import ArtifactManager
+from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.execution.executor import PipelineExecutor
@@ -104,7 +104,7 @@ class PipelineOrchestrator:
         pipeline_name: str = "",
         dataset_name: str = "dataset",
         max_generation_count: int = 10000,
-        binary_loader: Any = None,
+        artifact_loader: Any = None,
         target_model: Optional[Dict[str, Any]] = None,
         explainer: Any = None
     ) -> Tuple[Predictions, Dict[str, Any]]:
@@ -116,7 +116,7 @@ class PipelineOrchestrator:
             pipeline_name: Optional name for the pipeline
             dataset_name: Optional name for array-based datasets
             max_generation_count: Maximum number of pipeline combinations to generate
-            binary_loader: BinaryLoader for predict/explain modes
+            artifact_loader: ArtifactLoader for predict/explain modes
             target_model: Target model for predict/explain modes
             explainer: Explainer instance for explain mode
 
@@ -154,21 +154,37 @@ class PipelineOrchestrator:
             current_run_dir = self.runs_dir / f"{date_str}_{name}"
             current_run_dir.mkdir(parents=True, exist_ok=True)
 
+            # Create artifact registry for this dataset (v2 artifact system)
+            artifact_registry = None
+            if self.mode == "train":
+                artifact_registry = ArtifactRegistry(
+                    workspace=self.workspace_path,
+                    dataset=name,
+                    manifest_manager=None  # Set per-pipeline below
+                )
+                artifact_registry.start_run()
+
             # Build executor using ExecutorBuilder
             executor = (ExecutorBuilder()
                 .with_run_directory(current_run_dir)
+                .with_workspace(self.workspace_path)
                 .with_verbose(self.verbose)
                 .with_mode(self.mode)
                 .with_save_files(self.save_files)
                 .with_continue_on_error(self.continue_on_error)
                 .with_show_spinner(self.show_spinner)
                 .with_plots_visible(self.plots_visible)
-                .with_binary_loader(binary_loader)
+                .with_artifact_loader(artifact_loader)
+                .with_artifact_registry(artifact_registry)
                 .build())
 
             # Get components from executor for compatibility
             saver = executor.saver
             manifest_manager = executor.manifest_manager
+
+            # Update artifact registry with manifest manager
+            if artifact_registry is not None:
+                artifact_registry.manifest_manager = manifest_manager
 
             # Store saver for post-run operations (e.g., export_best_for_dataset)
             self.last_saver = saver
@@ -180,7 +196,11 @@ class PipelineOrchestrator:
             run_dataset_predictions = Predictions()
 
             # Execute each pipeline configuration on this dataset
-            for i, (steps, config_name) in enumerate(zip(pipeline_configs.steps, pipeline_configs.names)):
+            for i, (steps, config_name, gen_choices) in enumerate(zip(
+                pipeline_configs.steps,
+                pipeline_configs.names,
+                pipeline_configs.generator_choices
+            )):
                 dataset = dataset_configs.get_dataset(config, name)
 
                 # Capture raw data BEFORE any preprocessing happens
@@ -193,26 +213,34 @@ class PipelineOrchestrator:
                 # Initialize execution context via executor
                 context = executor.initialize_context(dataset)
 
-                # Create RuntimeContext
+                # Create RuntimeContext with artifact_registry
                 runtime_context = RuntimeContext(
                     saver=saver,
                     manifest_manager=manifest_manager,
-                    binary_loader=binary_loader,
+                    artifact_loader=artifact_loader,
+                    artifact_registry=artifact_registry,
                     step_runner=executor.step_runner,
                     target_model=target_model,
                     explainer=explainer
                 )
 
-                # Execute pipeline
+                # Execute pipeline with cleanup on failure
                 config_predictions = Predictions()
-                executor.execute(
-                    steps=steps,
-                    config_name=config_name,
-                    dataset=dataset,
-                    context=context,
-                    runtime_context=runtime_context,
-                    prediction_store=config_predictions
-                )
+                try:
+                    executor.execute(
+                        steps=steps,
+                        config_name=config_name,
+                        dataset=dataset,
+                        context=context,
+                        runtime_context=runtime_context,
+                        prediction_store=config_predictions,
+                        generator_choices=gen_choices
+                    )
+                except Exception as e:
+                    # Cleanup artifacts from failed run
+                    if artifact_registry is not None:
+                        artifact_registry.cleanup_failed_run()
+                    raise
 
                 # Capture last pipeline_uid and manifest_manager for syncing back to runner
                 if runtime_context.pipeline_uid:
@@ -230,6 +258,10 @@ class PipelineOrchestrator:
                     global_dataset_predictions.merge_predictions(config_predictions)
                     run_dataset_predictions.merge_predictions(config_predictions)
                     run_predictions.merge_predictions(config_predictions)
+
+            # Mark run as completed successfully
+            if artifact_registry is not None:
+                artifact_registry.end_run()
 
             # Print best results for this dataset
             self._print_best_predictions(
@@ -285,6 +317,7 @@ class PipelineOrchestrator:
             configs = DatasetConfigs.__new__(DatasetConfigs)
             configs.configs = [({"_preloaded_dataset": dataset}, dataset.name)]
             configs.cache = {dataset.name: self._extract_dataset_cache(dataset)}
+            configs._task_types = ["auto"]  # Default task type for wrapped datasets
             return configs
 
         # Handle numpy arrays and tuples
@@ -311,6 +344,7 @@ class PipelineOrchestrator:
         configs = DatasetConfigs.__new__(DatasetConfigs)
         configs.configs = [({"_preloaded_dataset": spectro_dataset}, dataset_name)]
         configs.cache = {dataset_name: self._extract_dataset_cache(spectro_dataset)}
+        configs._task_types = ["auto"]  # Default task type for wrapped datasets
         return configs
 
     def _split_and_add_data(self, dataset: SpectroDataset, X: np.ndarray, y: Optional[np.ndarray], partition_info: Dict) -> None:

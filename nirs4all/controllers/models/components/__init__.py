@@ -8,7 +8,6 @@ Components:
     - identifier_generator: Generate model identifiers and names
     - prediction_transformer: Handle scaling/unscaling of predictions
     - prediction_assembler: Assemble prediction data for storage
-    - model_loader: Load models from serialized binaries
     - score_calculator: Calculate evaluation scores
     - index_normalizer: Normalize and validate sample indices
 """
@@ -20,7 +19,6 @@ from .prediction_assembler import (
     PartitionPrediction,
     PredictionRecord
 )
-from .model_loader import ModelLoader
 from .score_calculator import ScoreCalculator, PartitionScores
 from .index_normalizer import IndexNormalizer
 
@@ -31,7 +29,6 @@ __all__ = [
     'PredictionDataAssembler',
     'PartitionPrediction',
     'PredictionRecord',
-    'ModelLoader',
     'ScoreCalculator',
     'PartitionScores',
     'IndexNormalizer',

@@ -93,7 +93,37 @@ class StepRunner:
             current_context = context
             all_artifacts = []
 
-            for substep in substeps:
+            # In predict mode, check if we should only execute a specific substep
+            # This is critical for subpipelines with multiple models like [JaxMLPRegressor, nicon]
+            # where we want to run only the model that was selected as best during training
+            #
+            # IMPORTANT: Only apply target_sub_index filtering for MODEL subpipelines.
+            # For TRANSFORMER subpipelines (e.g., from feature_augmentation like [SNV, SG]),
+            # all substeps must execute because they represent parallel feature channels.
+            target_sub_index = None
+            if (self.mode in ("predict", "explain") and
+                runtime_context and
+                hasattr(runtime_context, 'artifact_provider') and
+                runtime_context.artifact_provider is not None and
+                hasattr(runtime_context.artifact_provider, 'target_sub_index')):
+                # Only use target_sub_index filtering if this subpipeline contains models
+                # Check if any substep is a model by parsing and routing
+                has_model_substep = self._subpipeline_contains_model(substeps)
+                if has_model_substep:
+                    target_sub_index = runtime_context.artifact_provider.target_sub_index
+
+            # Track substep index for artifact ID uniqueness
+            for substep_idx, substep in enumerate(substeps):
+                # In predict mode with target_sub_index, skip substeps that don't match
+                if target_sub_index is not None and substep_idx != target_sub_index:
+                    if self.verbose > 1:
+                        print(f"  ⏭️  Skipping substep {substep_idx} (target is {target_sub_index})")
+                    continue
+
+                # Update runtime_context substep_number for each substep
+                if runtime_context:
+                    runtime_context.substep_number = substep_idx
+
                 result = self.execute(
                     step=substep,
                     dataset=dataset,
@@ -104,6 +134,10 @@ class StepRunner:
                 )
                 current_context = result.updated_context
                 all_artifacts.extend(result.artifacts)
+
+            # Reset substep_number after processing subpipeline
+            if runtime_context:
+                runtime_context.substep_number = -1
 
             return StepResult(updated_context=current_context, artifacts=all_artifacts)
 
@@ -208,3 +242,35 @@ class StepRunner:
         finally:
             # Reset ephemeral metadata flags to prevent leakage between steps
             context.metadata.reset_ephemeral_flags()
+
+    def _subpipeline_contains_model(self, substeps: list) -> bool:
+        """Check if a subpipeline contains any model substeps.
+
+        This is used to determine whether target_sub_index filtering should
+        be applied during prediction. Model subpipelines (e.g., [model1, model2])
+        need filtering to run only the best model. Transformer subpipelines
+        (e.g., [SNV, SavGol] from feature_augmentation) need to run all substeps.
+
+        Args:
+            substeps: List of substep configurations
+
+        Returns:
+            True if any substep is a model, False otherwise
+        """
+        from nirs4all.controllers.models.base_model import BaseModelController
+
+        for substep in substeps:
+            parsed = self.parser.parse(substep)
+            if parsed.metadata.get("skip", False):
+                continue
+
+            # Check if this substep would route to a model controller
+            try:
+                controller = self.router.route(parsed, substep)
+                if isinstance(controller, BaseModelController):
+                    return True
+            except Exception:
+                # If routing fails, assume it's not a model
+                pass
+
+        return False

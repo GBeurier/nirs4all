@@ -46,13 +46,13 @@ pipeline = [
     "chart_2d",
     feature_scaler,
     {"y_processing": target_scaler},
-    {"feature_augmentation": {"_or_": preprocessing_options, "size": [1, (1, 2)], "count": 5}},  # Generate preprocessing combinations
+    {"feature_augmentation": {"_or_": preprocessing_options, "pick": (1, 2), "count": 2}},  # Generate preprocessing combinations
     cross_validation,
     {
         "model": PLSRegression(),
         "name": "PLS-Finetuned",
         "finetune_params": {
-            "n_trials": 10,
+            "n_trials": 5,
             "verbose": 2,                           # 0=silent, 1=basic, 2=detailed
             "approach": "single",                                  # "grouped", "individual", or "single"
             "eval_mode": "best",                    # "best" or "avg" (for grouped approach)
@@ -66,7 +66,7 @@ pipeline = [
         "model": customizable_nicon,
         "name": "PLS-Default",
         "finetune_params": {
-            "n_trials": 10,
+            "n_trials": 2,
             "verbose": 2,
             "sample": "hyperband",
             "approach": "single",
@@ -81,7 +81,7 @@ pipeline = [
             }
         },
         "train_params": {
-            "epochs": 25,
+            "epochs": 5,
             "verbose": 0
         }
     }

@@ -242,22 +242,51 @@ class TestNestedOrWithPickArrange:
 
 
 class TestSecondOrderWithPickArrange:
-    """Tests for second-order (nested) pick/arrange syntax."""
+    """Tests for second-order (nested) pick/arrange syntax.
 
-    def test_pick_nested_syntax(self):
-        """Pick with [outer, inner] nested syntax."""
-        # This uses the existing size=[outer, inner] behavior
-        result = expand_spec({"_or_": ["A", "B", "C"], "pick": [2, 2]})
-        # Inner: P(3,2) = 6 arrangements
-        # Outer: C(6,2) = 15 combinations of those
-        assert len(result) == 15
+    Note: The [outer, inner] syntax like pick: [2, 2] is ambiguous with
+    serialized tuples (pick: (1, 2) becomes pick: [1, 2] in YAML).
 
-    def test_arrange_nested_syntax(self):
-        """Arrange with [outer, inner] nested syntax."""
-        result = expand_spec({"_or_": ["A", "B", "C"], "arrange": [2, 2]})
+    For second-order operations, use explicit then_pick/then_arrange syntax:
+    - pick: 2, then_pick: 2 (equivalent to old [2, 2])
+
+    See also: _handle_nested_combinations and related methods in or_strategy.py
+    """
+
+    def test_pick_then_pick_syntax(self):
+        """Pick with then_pick for second-order selection."""
+        # This uses explicit then_pick for second-order operations
+        # Primary: C(3,2) = 3 combinations (AB, AC, BC)
+        # Then: C(3,2) = 3 combinations of those pairs
+        result = expand_spec({"_or_": ["A", "B", "C"], "pick": 2, "then_pick": 2})
+        assert len(result) == 3
+        # Each result is a pair of 2-combinations
+        for r in result:
+            assert len(r) == 2  # Each outer result has 2 elements
+            for inner in r:
+                assert len(inner) == 2  # Each inner element is a 2-combination
+
+    def test_arrange_then_arrange_syntax(self):
+        """Arrange with then_arrange for second-order selection."""
+        # This uses explicit then_arrange for second-order operations
         # Inner: P(3,2) = 6 arrangements
         # Outer: P(6,2) = 30 arrangements of those
+        result = expand_spec({"_or_": ["A", "B", "C"], "arrange": 2, "then_arrange": 2})
         assert len(result) == 30
+
+    def test_pick_range_after_serialization(self):
+        """Verify that [1, 2] (serialized from tuple) is treated as range, not nested."""
+        # This is crucial: after YAML serialization, (1, 2) becomes [1, 2]
+        # The generator should treat [int, int] as a range specification
+        result = expand_spec({"_or_": ["A", "B", "C"], "pick": [1, 2]})
+        # Expected: C(3,1) + C(3,2) = 3 + 3 = 6 results
+        assert len(result) == 6
+
+        # Verify we get singles and pairs, not nested arrangements
+        singles = [r for r in result if len(r) == 1]
+        pairs = [r for r in result if len(r) == 2]
+        assert len(singles) == 3  # A, B, C
+        assert len(pairs) == 3    # AB, AC, BC
 
 
 class TestKeywordConstants:

@@ -26,11 +26,13 @@ class ArtifactMeta(TypedDict):
     name: str           # Original name for reference
     path: str           # Relative path from results root
     format: str         # Serialization format used
-    format_version: str # Version of the library used (e.g., 'sklearn==1.3.0')
-    nirs4all_version: str # Version of nirs4all (e.g., '0.4.1')
+    format_version: str  # Version of the library used (e.g., 'sklearn==1.3.0')
+    nirs4all_version: str  # Version of nirs4all (e.g., '0.4.1')
     size: int           # Size in bytes
     saved_at: str       # ISO timestamp
     step: int           # Pipeline step number (set by caller)
+    branch_id: Optional[int]      # Branch ID for pipeline branching (None if not in branch)
+    branch_name: Optional[str]    # Human-readable branch name
 
 
 # Framework detection cache
@@ -449,7 +451,9 @@ def persist(
     obj: Any,
     artifacts_dir: Union[str, Path],
     name: str,
-    format_hint: Optional[str] = None
+    format_hint: Optional[str] = None,
+    branch_id: Optional[int] = None,
+    branch_name: Optional[str] = None
 ) -> ArtifactMeta:
     """
     Persist object to _binaries storage with meaningful names.
@@ -459,9 +463,11 @@ def persist(
         artifacts_dir: Path to run _binaries/ directory
         name: Artifact name (e.g., "scaler", "model")
         format_hint: Optional format hint ('sklearn', 'tensorflow', etc.)
+        branch_id: Optional branch ID for pipeline branching
+        branch_name: Optional human-readable branch name
 
     Returns:
-        ArtifactMeta with hash, path, format, size
+        ArtifactMeta with hash, path, format, size, and branch info
 
     Raises:
         ValueError: If object cannot be serialized
@@ -511,20 +517,24 @@ def persist(
         "nirs4all_version": _get_nirs4all_version(),
         "size": len(data),
         "saved_at": datetime.now(timezone.utc).isoformat(),
-        "step": -1  # Caller must set this
+        "step": -1,  # Caller must set this
+        "branch_id": branch_id,
+        "branch_name": branch_name
     }
 
 
 def load(
     artifact_meta: ArtifactMeta,
-    results_dir: Union[str, Path]
+    results_dir: Union[str, Path],
+    binaries_dir: Optional[Union[str, Path]] = None
 ) -> Any:
     """
     Load object from artifact metadata.
 
     Args:
         artifact_meta: Artifact metadata dictionary
-        results_dir: Path to run directory (contains _binaries/ subdirectory)
+        results_dir: Path to run directory
+        binaries_dir: Optional path to centralized binaries directory
 
     Returns:
         Deserialized object
@@ -535,23 +545,21 @@ def load(
     """
     results_dir = Path(results_dir)
 
-    # Handle legacy artifacts (backward compatibility)
-    if artifact_meta["format"] == "legacy_pickle":
-        # Old pipeline: path is relative to results_dir without _binaries/ prefix
-        artifact_path = results_dir / artifact_meta["path"]
-    elif "/" in artifact_meta["path"]:
-        # Old content-addressed format: artifacts/objects/<hash[:2]>/<hash>.<ext>
-        artifact_path = results_dir / "artifacts" / artifact_meta["path"]
-    else:
-        # New format: _binaries/<ClassName>_<hash>.<ext>
-        artifact_path = results_dir / "_binaries" / artifact_meta["path"]
+    # Try centralized binaries first (v2 architecture)
+    if binaries_dir is not None:
+        binaries_path = Path(binaries_dir)
+        artifact_path = binaries_path / artifact_meta["path"]
+        if artifact_path.exists():
+            data = artifact_path.read_bytes()
+            return from_bytes(data, artifact_meta["format"])
 
-    if not artifact_path.exists():
-        raise FileNotFoundError(f"Artifact not found: {artifact_path}")
+    # Fall back to _binaries in results_dir
+    artifact_path = results_dir / "_binaries" / artifact_meta["path"]
+    if artifact_path.exists():
+        data = artifact_path.read_bytes()
+        return from_bytes(data, artifact_meta["format"])
 
-    # Read bytes and deserialize
-    data = artifact_path.read_bytes()
-    return from_bytes(data, artifact_meta["format"])
+    raise FileNotFoundError(f"Artifact not found: {artifact_path}")
 
 
 def get_artifact_size(artifact_meta: ArtifactMeta, results_dir: Union[str, Path]) -> int:

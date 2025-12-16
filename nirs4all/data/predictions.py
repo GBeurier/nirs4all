@@ -141,7 +141,13 @@ class Predictions:
         n_features: int = 0,
         preprocessings: str = "",
         best_params: Optional[Dict[str, Any]] = None,
-        scores: Optional[Dict[str, Dict[str, float]]] = None
+        scores: Optional[Dict[str, Dict[str, float]]] = None,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None,
+        exclusion_count: Optional[int] = None,
+        exclusion_rate: Optional[float] = None,
+        model_artifact_id: Optional[str] = None,
+        trace_id: Optional[str] = None
     ) -> str:
         """
         Add a single prediction to storage.
@@ -177,6 +183,12 @@ class Predictions:
             preprocessings: Preprocessing steps applied
             best_params: Best hyperparameters
             scores: Dictionary of pre-computed scores per partition
+            branch_id: Branch identifier for pipeline branching (0-indexed)
+            branch_name: Human-readable branch name
+            exclusion_count: Number of samples excluded during training (outlier_excluder)
+            exclusion_rate: Rate of samples excluded (0.0-1.0, outlier_excluder)
+            model_artifact_id: Deterministic artifact ID for model loading (v2 system)
+            trace_id: Execution trace ID for deterministic prediction replay (v2 system)
 
         Returns:
             Prediction ID
@@ -210,6 +222,12 @@ class Predictions:
             "preprocessings": preprocessings,
             "best_params": best_params if best_params is not None else {},
             "scores": scores if scores is not None else {},
+            "branch_id": branch_id,
+            "branch_name": branch_name or "",
+            "exclusion_count": exclusion_count,
+            "exclusion_rate": exclusion_rate,
+            "model_artifact_id": model_artifact_id or "",
+            "trace_id": trace_id or "",
         }
 
         return self._storage.add_row(row_dict)
@@ -242,7 +260,10 @@ class Predictions:
         n_features: Union[int, List[int]] = 0,
         preprocessings: Union[str, List[str]] = "",
         best_params: Union[Optional[Dict[str, Any]], List[Optional[Dict[str, Any]]]] = None,
-        scores: Union[Optional[Dict[str, Dict[str, float]]], List[Optional[Dict[str, Dict[str, float]]]]] = None
+        scores: Union[Optional[Dict[str, Dict[str, float]]], List[Optional[Dict[str, Dict[str, float]]]]] = None,
+        branch_id: Union[Optional[int], List[Optional[int]]] = None,
+        branch_name: Union[Optional[str], List[Optional[str]]] = None,
+        trace_id: Union[Optional[str], List[Optional[str]]] = None
     ) -> None:
         """
         Add multiple predictions to storage (batch operation).
@@ -282,6 +303,9 @@ class Predictions:
             'preprocessings': preprocessings,
             'best_params': best_params,
             'scores': scores,
+            'branch_id': branch_id,
+            'branch_name': branch_name,
+            'trace_id': trace_id,
         }
 
         # Find the maximum length (number of predictions)
@@ -320,6 +344,8 @@ class Predictions:
         model_name: Optional[str] = None,
         fold_id: Optional[str] = None,
         step_idx: Optional[int] = None,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None,
         load_arrays: bool = True,
         **kwargs
     ) -> List[Dict[str, Any]]:
@@ -336,6 +362,8 @@ class Predictions:
             model_name: Filter by model name
             fold_id: Filter by fold ID
             step_idx: Filter by step index
+            branch_id: Filter by branch ID (for pipeline branching)
+            branch_name: Filter by branch name (for pipeline branching)
             load_arrays: If True, loads actual arrays from registry (slower).
                         If False, returns metadata only with array references (fast).
             **kwargs: Additional filter criteria
@@ -349,6 +377,8 @@ class Predictions:
             >>> preds = predictions.filter_predictions(dataset_name="wheat", load_arrays=False)
             >>> # Full query with arrays
             >>> preds = predictions.filter_predictions(dataset_name="wheat", load_arrays=True)
+            >>> # Filter by branch
+            >>> branch_preds = predictions.filter_predictions(branch_id=0)
         """
         df_filtered = self._indexer.filter(
             dataset_name=dataset_name,
@@ -357,6 +387,8 @@ class Predictions:
             model_name=model_name,
             fold_id=fold_id,
             step_idx=step_idx,
+            branch_id=branch_id,
+            branch_name=branch_name,
             **kwargs
         )
 
@@ -1307,7 +1339,7 @@ class Predictions:
             'model_name': entry['model_name'],
             'fold_id': entry['fold_id'],
             'step_idx': entry['step_idx'],
-            'op_counter': entry['op_counter']
+            'op_counter': entry.get('op_counter', entry.get('id', 0))
         }
 
         for partition in ['train', 'val', 'test']:
@@ -1522,6 +1554,181 @@ class Predictions:
     def to_pandas(self):
         """Get predictions as pandas DataFrame."""
         return self._storage.to_dataframe().to_pandas()
+
+    # =========================================================================
+    # META-MODEL STACKING HELPERS
+    # =========================================================================
+
+    def get_predictions_by_step(
+        self,
+        step_idx: int,
+        partition: Optional[str] = None,
+        branch_id: Optional[int] = None,
+        load_arrays: bool = True,
+        **kwargs
+    ) -> List[Dict[str, Any]]:
+        """Get predictions from a specific pipeline step.
+
+        Convenience method for meta-model stacking to retrieve predictions
+        from source models at a specific step index.
+
+        Args:
+            step_idx: Pipeline step index to filter by.
+            partition: Optional partition filter ('train', 'val', 'test').
+            branch_id: Optional branch ID filter.
+            load_arrays: If True, load actual arrays from registry.
+            **kwargs: Additional filter criteria.
+
+        Returns:
+            List of prediction dictionaries from the specified step.
+
+        Examples:
+            >>> # Get all predictions from step 2
+            >>> preds = predictions.get_predictions_by_step(step_idx=2)
+            >>> # Get validation predictions from step 2
+            >>> val_preds = predictions.get_predictions_by_step(
+            ...     step_idx=2, partition='val'
+            ... )
+        """
+        return self.filter_predictions(
+            step_idx=step_idx,
+            partition=partition,
+            branch_id=branch_id,
+            load_arrays=load_arrays,
+            **kwargs
+        )
+
+    def get_oof_predictions(
+        self,
+        model_name: Optional[str] = None,
+        step_idx: Optional[int] = None,
+        branch_id: Optional[int] = None,
+        exclude_averaged: bool = True,
+        load_arrays: bool = True
+    ) -> List[Dict[str, Any]]:
+        """Get out-of-fold (validation partition) predictions.
+
+        Convenience method for meta-model stacking to retrieve OOF predictions
+        that can be used to construct training features without data leakage.
+
+        Args:
+            model_name: Optional filter by model name.
+            step_idx: Optional filter by step index.
+            branch_id: Optional filter by branch ID.
+            exclude_averaged: If True, exclude 'avg' and 'w_avg' fold entries.
+                Default True for OOF reconstruction.
+            load_arrays: If True, load actual arrays from registry.
+
+        Returns:
+            List of validation partition predictions.
+
+        Examples:
+            >>> # Get all OOF predictions
+            >>> oof = predictions.get_oof_predictions()
+            >>> # Get OOF predictions for a specific model
+            >>> oof = predictions.get_oof_predictions(model_name='PLS')
+        """
+        preds = self.filter_predictions(
+            model_name=model_name,
+            step_idx=step_idx,
+            branch_id=branch_id,
+            partition='val',
+            load_arrays=load_arrays
+        )
+
+        if exclude_averaged:
+            preds = [
+                p for p in preds
+                if p.get('fold_id') not in ('avg', 'w_avg')
+            ]
+
+        return preds
+
+    def filter_by_branch(
+        self,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None,
+        include_no_branch: bool = False,
+        load_arrays: bool = True
+    ) -> List[Dict[str, Any]]:
+        """Filter predictions by branch context.
+
+        Convenience method for meta-model stacking to retrieve predictions
+        from a specific branch in branched pipelines.
+
+        Args:
+            branch_id: Branch ID to filter by.
+            branch_name: Branch name to filter by.
+            include_no_branch: If True, include predictions with no branch info.
+            load_arrays: If True, load actual arrays from registry.
+
+        Returns:
+            List of predictions from the specified branch.
+
+        Examples:
+            >>> # Get predictions from branch 0
+            >>> branch_preds = predictions.filter_by_branch(branch_id=0)
+            >>> # Get predictions from named branch
+            >>> branch_preds = predictions.filter_by_branch(branch_name='preprocessing_a')
+        """
+        if branch_id is not None:
+            preds = self.filter_predictions(
+                branch_id=branch_id,
+                load_arrays=load_arrays
+            )
+        elif branch_name is not None:
+            preds = self.filter_predictions(
+                branch_name=branch_name,
+                load_arrays=load_arrays
+            )
+        else:
+            preds = self.filter_predictions(load_arrays=load_arrays)
+
+        if not include_no_branch:
+            # Filter out predictions without branch info
+            preds = [
+                p for p in preds
+                if p.get('branch_id') is not None or p.get('branch_name')
+            ]
+
+        return preds
+
+    def get_models_before_step(
+        self,
+        step_idx: int,
+        branch_id: Optional[int] = None,
+        unique_names: bool = True
+    ) -> List[str]:
+        """Get model names from steps before a given step index.
+
+        Convenience method for meta-model stacking to identify source models
+        that can be used for stacking.
+
+        Args:
+            step_idx: Current step index (models before this are returned).
+            branch_id: Optional filter by branch ID.
+            unique_names: If True, return unique model names only.
+
+        Returns:
+            List of model names from previous steps.
+
+        Examples:
+            >>> # Get models available for stacking at step 5
+            >>> source_models = predictions.get_models_before_step(step_idx=5)
+        """
+        df = self._storage.to_dataframe()
+
+        # Filter to steps before current
+        df = df.filter(pl.col("step_idx") < step_idx)
+
+        # Filter by branch if specified
+        if branch_id is not None:
+            df = df.filter(pl.col("branch_id") == branch_id)
+
+        if unique_names:
+            return df["model_name"].unique().to_list()
+        else:
+            return df["model_name"].to_list()
 
     # =========================================================================
     # DUNDER METHODS

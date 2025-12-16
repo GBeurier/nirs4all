@@ -1,8 +1,7 @@
 """
 Splitters module for presets.
 
-This module contains data splitting presets.
-Note: This directory is currently empty.
+This module contains data splitting presets and utilities.
 """
 from .splitters import (
     KennardStoneSplitter,
@@ -14,6 +13,7 @@ from .splitters import (
     KBinsStratifiedSplitter,
     BinnedStratifiedGroupKFold,
 )
+from .grouped_wrapper import GroupedSplitterWrapper
 
 __all__ = [
     "KennardStoneSplitter",
@@ -24,4 +24,5 @@ __all__ = [
     "SystematicCircularSplitter",
     "KBinsStratifiedSplitter",
     "BinnedStratifiedGroupKFold",
+    "GroupedSplitterWrapper",
 ]

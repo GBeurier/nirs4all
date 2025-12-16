@@ -66,7 +66,7 @@ class TestStateInitialization:
         assert runner.current_run_dir is None
         assert runner.saver is None
         assert runner.manifest_manager is None
-        assert runner.binary_loader is None
+        assert runner.artifact_loader is None
         assert runner.target_model is None
 
     def test_boolean_flags(self):

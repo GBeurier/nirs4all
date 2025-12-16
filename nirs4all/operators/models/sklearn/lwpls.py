@@ -45,6 +45,15 @@ def _check_jax_available():
         return False
 
 
+def _check_torch_available():
+    """Check if PyTorch is available."""
+    try:
+        import torch
+        return True
+    except ImportError:
+        return False
+
+
 def _lwpls_predict(
     x_train: NDArray[np.floating],
     y_train: NDArray[np.floating],
@@ -421,6 +430,244 @@ def _get_jax_lwpls_functions():
 _JAX_LWPLS_FUNC = None
 
 
+# =============================================================================
+# PyTorch Backend Implementation
+# =============================================================================
+
+def _get_torch_lwpls_functions():
+    """Lazy import and create PyTorch LWPLS functions.
+
+    Returns the PyTorch-accelerated prediction function. This is done lazily
+    to avoid importing PyTorch unless needed.
+
+    Returns
+    -------
+    lwpls_predict_torch : callable
+        PyTorch-accelerated LWPLS prediction function with batching support.
+    """
+    import torch
+
+    def _lwpls_single_query_torch(
+        x_train: torch.Tensor,
+        y_train: torch.Tensor,
+        query_x: torch.Tensor,
+        max_components: int,
+        lambda_sim: float,
+    ) -> torch.Tensor:
+        """LWPLS prediction for a single query sample using PyTorch.
+
+        Parameters
+        ----------
+        x_train : torch.Tensor of shape (n_train, n_features)
+            Training X data.
+        y_train : torch.Tensor of shape (n_train, 1)
+            Training y data.
+        query_x : torch.Tensor of shape (n_features,)
+            Single query sample.
+        max_components : int
+            Maximum number of PLS components.
+        lambda_sim : float
+            Kernel width parameter.
+
+        Returns
+        -------
+        predictions : torch.Tensor of shape (max_components,)
+            Predictions for each number of components.
+        """
+        n_train, n_features = x_train.shape
+        device = x_train.device
+        dtype = x_train.dtype
+
+        # Compute Euclidean distances from query to all training samples
+        diff = x_train - query_x.unsqueeze(0)
+        distances = torch.sqrt(torch.sum(diff ** 2, dim=1))
+
+        # Compute distance std (with Bessel correction, matching NumPy)
+        dist_mean = torch.mean(distances)
+        dist_std = torch.sqrt(torch.sum((distances - dist_mean) ** 2) / (n_train - 1))
+        dist_std = torch.clamp(dist_std, min=1e-10)  # Avoid division by zero
+
+        # Gaussian kernel weights
+        weights = torch.exp(-distances / dist_std / lambda_sim)
+        weight_sum = torch.sum(weights)
+
+        # Handle degenerate case
+        if weight_sum < 1e-10:
+            weights = torch.ones(n_train, device=device, dtype=dtype) / n_train
+            weight_sum = torch.tensor(1.0, device=device, dtype=dtype)
+
+        # Weighted means
+        y_w = torch.sum(y_train[:, 0] * weights) / weight_sum
+        x_w = torch.sum(x_train * weights.unsqueeze(1), dim=0) / weight_sum
+
+        # Center data
+        centered_x = x_train - x_w.unsqueeze(0)
+        centered_y = y_train - y_w
+        centered_query = query_x - x_w
+
+        # Initialize predictions with weighted mean
+        predictions = torch.full((max_components,), y_w.item(), device=device, dtype=dtype)
+
+        # Build PLS components
+        for comp_idx in range(max_components):
+            # Weighted loading direction: X^T @ W @ y
+            numerator = torch.sum(
+                centered_x * (weights * centered_y[:, 0]).unsqueeze(1),
+                dim=0,
+            )
+            norm_val = torch.linalg.norm(numerator)
+
+            if norm_val < 1e-10:
+                break
+
+            w_a = numerator / norm_val
+
+            # Scores: t = X @ w
+            t_a = centered_x @ w_a  # shape: (n_train,)
+
+            # Weighted denominator: t^T @ W @ t
+            denom = torch.sum(t_a ** 2 * weights)
+            if denom < 1e-10:
+                break
+
+            # Loadings
+            p_a = torch.sum(centered_x * (weights * t_a).unsqueeze(1), dim=0) / denom
+            q_a = torch.sum(centered_y[:, 0] * weights * t_a) / denom
+
+            # Query score
+            t_q = torch.dot(centered_query, w_a)
+
+            # Update predictions for this and all subsequent components
+            contribution = t_q * q_a
+            predictions[comp_idx:] = predictions[comp_idx:] + contribution
+
+            # Deflate for next component
+            if comp_idx < max_components - 1:
+                centered_x = centered_x - torch.outer(t_a, p_a)
+                centered_y = centered_y - (t_a * q_a).unsqueeze(1)
+                centered_query = centered_query - t_q * p_a
+
+        return predictions
+
+    def _lwpls_batch_torch(
+        x_train: torch.Tensor,
+        y_train: torch.Tensor,
+        x_test: torch.Tensor,
+        max_components: int,
+        lambda_sim: float,
+    ) -> torch.Tensor:
+        """Batched LWPLS prediction for multiple test samples.
+
+        Parameters
+        ----------
+        x_train : torch.Tensor of shape (n_train, n_features)
+            Training X data.
+        y_train : torch.Tensor of shape (n_train, 1)
+            Training y data.
+        x_test : torch.Tensor of shape (batch_size, n_features)
+            Batch of test samples.
+        max_components : int
+            Maximum number of PLS components.
+        lambda_sim : float
+            Kernel width parameter.
+
+        Returns
+        -------
+        predictions : torch.Tensor of shape (batch_size, max_components)
+            Predictions for each test sample in the batch.
+        """
+        batch_size = x_test.shape[0]
+        device = x_train.device
+        dtype = x_train.dtype
+
+        results = torch.zeros((batch_size, max_components), device=device, dtype=dtype)
+
+        for i in range(batch_size):
+            results[i] = _lwpls_single_query_torch(
+                x_train, y_train, x_test[i], max_components, lambda_sim
+            )
+
+        return results
+
+    def lwpls_predict_torch(
+        x_train: torch.Tensor,
+        y_train: torch.Tensor,
+        x_test: torch.Tensor,
+        max_components: int,
+        lambda_sim: float,
+        batch_size: int = 64,
+        device: str = 'auto',
+    ) -> torch.Tensor:
+        """Batched LWPLS prediction to control memory usage.
+
+        Processes test samples in batches to avoid OOM on large datasets.
+
+        Parameters
+        ----------
+        x_train : torch.Tensor of shape (n_train, n_features)
+            Training X data.
+        y_train : torch.Tensor of shape (n_train, 1)
+            Training y data.
+        x_test : torch.Tensor of shape (n_test, n_features)
+            Test X data.
+        max_components : int
+            Maximum number of PLS components.
+        lambda_sim : float
+            Kernel width parameter.
+        batch_size : int, default=64
+            Number of test samples to process at once.
+        device : str, default='auto'
+            Device to use ('auto', 'cpu', 'cuda', 'mps').
+            'auto' will use CUDA if available, otherwise CPU.
+
+        Returns
+        -------
+        predictions : torch.Tensor of shape (n_test, max_components)
+            Predictions for each test sample and number of components.
+        """
+        # Determine device
+        if device == 'auto':
+            if torch.cuda.is_available():
+                device = 'cuda'
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device = 'mps'
+            else:
+                device = 'cpu'
+
+        torch_device = torch.device(device)
+
+        # Move data to device
+        x_train_t = x_train.to(torch_device)
+        y_train_t = y_train.to(torch_device)
+        x_test_t = x_test.to(torch_device)
+
+        n_test = x_test_t.shape[0]
+
+        if n_test <= batch_size:
+            # Small enough to process in one go
+            return _lwpls_batch_torch(
+                x_train_t, y_train_t, x_test_t, max_components, lambda_sim
+            )
+
+        # Process in batches to control memory
+        results = []
+        for start_idx in range(0, n_test, batch_size):
+            end_idx = min(start_idx + batch_size, n_test)
+            batch = x_test_t[start_idx:end_idx]
+            batch_pred = _lwpls_batch_torch(
+                x_train_t, y_train_t, batch, max_components, lambda_sim
+            )
+            results.append(batch_pred)
+
+        return torch.cat(results, dim=0)
+
+    return lwpls_predict_torch
+
+
+# Cache the PyTorch function to avoid re-creating it
+_TORCH_LWPLS_FUNC = None
+
+
 def _lwpls_predict_jax(
     x_train: NDArray[np.floating],
     y_train: NDArray[np.floating],
@@ -483,6 +730,73 @@ def _lwpls_predict_jax(
     return np.asarray(predictions_jax)
 
 
+def _lwpls_predict_torch(
+    x_train: NDArray[np.floating],
+    y_train: NDArray[np.floating],
+    x_test: NDArray[np.floating],
+    max_component_number: int,
+    lambda_in_similarity: float,
+    batch_size: int = 64,
+    device: str = 'auto',
+) -> NDArray[np.floating]:
+    """PyTorch-accelerated LWPLS prediction with batching.
+
+    Same interface as _lwpls_predict but uses PyTorch for GPU acceleration.
+    Processes test samples in batches to avoid OOM on large datasets.
+
+    Parameters
+    ----------
+    x_train : ndarray of shape (n_train, n_features)
+        Autoscaled training X data.
+    y_train : ndarray of shape (n_train,) or (n_train, 1)
+        Autoscaled training y data.
+    x_test : ndarray of shape (n_test, n_features)
+        Autoscaled test X data.
+    max_component_number : int
+        Maximum number of PLS components to extract.
+    lambda_in_similarity : float
+        Parameter controlling the kernel width.
+    batch_size : int, default=64
+        Number of test samples to process per batch.
+        Reduce this if running out of memory.
+    device : str, default='auto'
+        Device to use ('auto', 'cpu', 'cuda', 'mps').
+        'auto' will use CUDA if available, otherwise CPU.
+
+    Returns
+    -------
+    estimated_y_test : ndarray of shape (n_test, max_component_number)
+        Predictions for each number of components.
+    """
+    global _TORCH_LWPLS_FUNC
+
+    if _TORCH_LWPLS_FUNC is None:
+        _TORCH_LWPLS_FUNC = _get_torch_lwpls_functions()
+
+    import torch
+
+    # Convert to PyTorch tensors
+    x_train_t = torch.tensor(x_train, dtype=torch.float64)
+    y_train_t = torch.tensor(y_train, dtype=torch.float64)
+    if y_train_t.ndim == 1:
+        y_train_t = y_train_t.reshape(-1, 1)
+    x_test_t = torch.tensor(x_test, dtype=torch.float64)
+
+    # Run PyTorch prediction with batching
+    predictions_torch = _TORCH_LWPLS_FUNC(
+        x_train_t,
+        y_train_t,
+        x_test_t,
+        max_component_number,
+        lambda_in_similarity,
+        batch_size,
+        device,
+    )
+
+    # Convert back to NumPy
+    return predictions_torch.cpu().numpy()
+
+
 class LWPLS(BaseEstimator, RegressorMixin):
     """Locally-Weighted Partial Least Squares (LWPLS) regressor.
 
@@ -512,10 +826,13 @@ class LWPLS(BaseEstimator, RegressorMixin):
         Computational backend to use. Options are:
         - 'numpy': NumPy backend (CPU only, default).
         - 'jax': JAX backend (supports GPU/TPU acceleration).
+        - 'torch': PyTorch backend (supports GPU acceleration).
         JAX backend requires JAX to be installed: ``pip install jax``
         For GPU support: ``pip install jax[cuda12]``
+        PyTorch backend requires PyTorch: ``pip install torch``
+        For GPU support: ``pip install torch`` with CUDA.
     batch_size : int, default=64
-        Number of test samples to process per batch (JAX backend only).
+        Number of test samples to process per batch (JAX/torch backends).
         Reduce this if running out of GPU memory on large datasets.
         Ignored for NumPy backend.
 
@@ -554,6 +871,10 @@ class LWPLS(BaseEstimator, RegressorMixin):
     >>> model_jax = LWPLS(n_components=5, lambda_in_similarity=0.25, backend='jax')
     >>> model_jax.fit(X_train, y_train)
     >>> y_pred_jax = model_jax.predict(X_test)
+    >>> # Use PyTorch backend for GPU acceleration
+    >>> model_torch = LWPLS(n_components=5, lambda_in_similarity=0.25, backend='torch')
+    >>> model_torch.fit(X_train, y_train)
+    >>> y_pred_torch = model_torch.predict(X_test)
 
     Notes
     -----
@@ -565,6 +886,11 @@ class LWPLS(BaseEstimator, RegressorMixin):
     - Vectorizing the per-sample loop using ``jax.vmap``
     - JIT-compiling the prediction function
     - Running on GPU/TPU when available
+
+    The PyTorch backend provides GPU acceleration by:
+    - Running tensor operations on CUDA or MPS devices
+    - Batched processing to control memory usage
+    - Automatic device selection when device='auto'
 
     The optimal `lambda_in_similarity` should be tuned via cross-validation.
     Typical search range is 2^k for k in [-9, 6].
@@ -606,9 +932,9 @@ class LWPLS(BaseEstimator, RegressorMixin):
         scale : bool, default=True
             Whether to standardize X and y.
         backend : str, default='numpy'
-            Computational backend ('numpy' or 'jax').
+            Computational backend ('numpy', 'jax', or 'torch').
         batch_size : int, default=64
-            Batch size for JAX backend to control memory usage.
+            Batch size for JAX/torch backend to control memory usage.
         """
         self.n_components = n_components
         self.lambda_in_similarity = lambda_in_similarity
@@ -641,14 +967,15 @@ class LWPLS(BaseEstimator, RegressorMixin):
         Raises
         ------
         ValueError
-            If backend is not 'numpy' or 'jax'.
+            If backend is not 'numpy', 'jax', or 'torch'.
         ImportError
-            If backend is 'jax' and JAX is not installed.
+            If backend is 'jax' and JAX is not installed, or
+            if backend is 'torch' and PyTorch is not installed.
         """
         # Validate backend
-        if self.backend not in ('numpy', 'jax'):
+        if self.backend not in ('numpy', 'jax', 'torch'):
             raise ValueError(
-                f"backend must be 'numpy' or 'jax', got '{self.backend}'"
+                f"backend must be 'numpy', 'jax', or 'torch', got '{self.backend}'"
             )
 
         if self.backend == 'jax' and not _check_jax_available():
@@ -656,6 +983,13 @@ class LWPLS(BaseEstimator, RegressorMixin):
                 "JAX is required for LWPLS with backend='jax'. "
                 "Install it with: pip install jax\n"
                 "For GPU support: pip install jax[cuda12]"
+            )
+
+        if self.backend == 'torch' and not _check_torch_available():
+            raise ImportError(
+                "PyTorch is required for LWPLS with backend='torch'. "
+                "Install it with: pip install torch\n"
+                "For GPU support, see: https://pytorch.org/get-started/locally/"
             )
 
         X = np.asarray(X, dtype=np.float64)
@@ -731,6 +1065,15 @@ class LWPLS(BaseEstimator, RegressorMixin):
                 self.lambda_in_similarity,
                 self.batch_size,
             )
+        elif self.backend == 'torch':
+            all_predictions = _lwpls_predict_torch(
+                self.X_train_,
+                self.y_train_,
+                X_scaled,
+                n_components,
+                self.lambda_in_similarity,
+                self.batch_size,
+            )
         else:
             all_predictions = _lwpls_predict(
                 self.X_train_,
@@ -785,6 +1128,15 @@ class LWPLS(BaseEstimator, RegressorMixin):
         # Get predictions for all component numbers using appropriate backend
         if self.backend == 'jax':
             all_predictions = _lwpls_predict_jax(
+                self.X_train_,
+                self.y_train_,
+                X_scaled,
+                self.n_components_,
+                self.lambda_in_similarity,
+                self.batch_size,
+            )
+        elif self.backend == 'torch':
+            all_predictions = _lwpls_predict_torch(
                 self.X_train_,
                 self.y_train_,
                 X_scaled,

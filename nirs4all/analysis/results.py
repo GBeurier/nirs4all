@@ -4,6 +4,8 @@ Transfer Selection Result Classes.
 This module provides dataclasses for storing and visualizing transfer
 preprocessing selection results.
 
+Supports both object-based and string-based preprocessing definitions.
+
 Classes:
     TransferResult: Result from evaluating a single preprocessing.
     TransferSelectionResults: Full results from selection process with
@@ -16,7 +18,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from nirs4all.analysis.transfer_utils import format_pipeline_name, get_base_preprocessings
+from nirs4all.analysis.transfer_utils import (
+    format_pipeline_name,
+    get_base_preprocessings,
+    get_transform_name,
+    normalize_preprocessing,
+)
 
 
 # =============================================================================
@@ -30,13 +37,14 @@ class TransferResult:
     Result from evaluating a single preprocessing for transfer.
 
     Attributes:
-        name: Pipeline name (e.g., 'snv>d1').
+        name: Pipeline display name (e.g., 'StandardNormalVariate>FirstDerivative').
         pipeline_type: Type of pipeline ('single', 'stacked', or 'augmented').
-        components: List of component names (e.g., ['snv', 'd1']).
+        components: List of component names (e.g., ['StandardNormalVariate', 'FirstDerivative']).
         transfer_score: Combined transfer metric score (higher is better).
         metrics: Dictionary of individual metric values.
         improvement_pct: Percentage improvement over raw baseline.
         signal_score: Optional supervised validation score (Stage 4).
+        transforms: Optional list of actual transformer objects (for object-based results).
     """
 
     name: str
@@ -46,6 +54,7 @@ class TransferResult:
     metrics: Dict[str, float]
     improvement_pct: float
     signal_score: Optional[float] = None
+    transforms: Optional[List[Any]] = None
 
     def __post_init__(self):
         """Validate fields after initialization."""
@@ -67,6 +76,34 @@ class TransferResult:
             "improvement_pct": self.improvement_pct,
             "signal_score": self.signal_score,
         }
+
+    def get_transforms(
+        self,
+        preprocessings: Optional[Dict[str, Any]] = None,
+    ) -> List[Any]:
+        """
+        Get the transformer objects for this result.
+
+        If transforms are already stored, returns them directly.
+        Otherwise, resolves component names from the preprocessings dict.
+
+        Args:
+            preprocessings: Optional name->object mapping for resolution.
+
+        Returns:
+            List of transformer instances.
+        """
+        if self.transforms is not None:
+            return [deepcopy(t) for t in self.transforms]
+
+        # Resolve from component names
+        if preprocessings is None:
+            preprocessings = get_base_preprocessings()
+
+        return [
+            deepcopy(normalize_preprocessing(name, preprocessings))
+            for name in self.components
+        ]
 
 
 @dataclass
@@ -129,10 +166,11 @@ class TransferSelectionResults:
             top_k: Number of top results to convert.
             preprocessings: Optional dict mapping names to transformers.
                 Uses get_base_preprocessings() if not provided.
+                Not needed if results already store transform objects.
 
         Returns:
             List of preprocessing pipelines, where each pipeline is a list
-            of transformer instances. For stacked pipelines like "snv>d1",
+            of transformer instances. For stacked pipelines like SNV>D1,
             returns [[SNV(), D1()], ...].
 
         Example:
@@ -153,21 +191,14 @@ class TransferSelectionResults:
         top_results = self.ranking[:top_k]
 
         for r in top_results:
-            # Parse the pipeline name (e.g., "snv>d1>msc" or "snv")
-            component_names = r.name.split(">") if ">" in r.name else [r.name]
-
-            # Convert each component name to its transformer instance
-            pipeline_transforms: List[Any] = []
-            for name in component_names:
-                if name in preprocessings:
-                    # Use deepcopy to ensure each pipeline gets fresh instances
-                    pipeline_transforms.append(deepcopy(preprocessings[name]))
-                else:
-                    # If name not found, skip this result
-                    break
-            else:
-                # Only add if all components were found
-                result_list.append(pipeline_transforms)
+            try:
+                # Use the result's get_transforms method
+                pipeline_transforms = r.get_transforms(preprocessings)
+                if pipeline_transforms:
+                    result_list.append(pipeline_transforms)
+            except (KeyError, ValueError):
+                # Skip if transforms can't be resolved
+                continue
 
         return result_list
 

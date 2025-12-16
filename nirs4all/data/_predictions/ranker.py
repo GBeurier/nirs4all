@@ -940,6 +940,8 @@ class PredictionRanker:
                                 "pipeline_uid": row.get("pipeline_uid"),
                                 "model_classname": row.get("model_classname"),
                                 "model_path": row.get("model_path"),
+                                "model_artifact_id": row.get("model_artifact_id"),
+                                "trace_id": row.get("trace_id"),
                                 "fold_id": row.get("fold_id"),
                                 "op_counter": row.get("op_counter"),
                                 "sample_indices": sample_indices if sample_indices is not None else np.array([]),
@@ -954,7 +956,9 @@ class PredictionRanker:
                                 "train_score": row.get("train_score"),
                                 "val_score": row.get("val_score"),
                                 "test_score": row.get("test_score"),
-                                "aggregated": was_aggregated
+                                "aggregated": was_aggregated,
+                                "branch_id": row.get("branch_id"),
+                                "branch_name": row.get("branch_name"),
                             })
                             result["id"] = result["rank_id"]
 
@@ -1054,6 +1058,8 @@ class PredictionRanker:
                         "pipeline_uid": row.get("pipeline_uid"),
                         "model_classname": row.get("model_classname"),
                         "model_path": row.get("model_path"),
+                        "model_artifact_id": row.get("model_artifact_id"),
+                        "trace_id": row.get("trace_id"),
                         "fold_id": row.get("fold_id"),
                         "op_counter": row.get("op_counter"),
                         "sample_indices": sample_indices if sample_indices is not None else np.array([]),
@@ -1071,7 +1077,9 @@ class PredictionRanker:
                         "train_score": row.get("train_score"),
                         "val_score": row.get("val_score"),
                         "test_score": row.get("test_score"),
-                        "aggregated": was_aggregated
+                        "aggregated": was_aggregated,
+                        "branch_id": row.get("branch_id"),
+                        "branch_name": row.get("branch_name"),
                     })
                     result["id"] = result["rank_id"]
 

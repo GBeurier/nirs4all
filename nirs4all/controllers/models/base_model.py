@@ -29,11 +29,11 @@ from .utilities import ModelControllerUtils as ModelUtils
 from nirs4all.core import metrics as evaluator
 from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING, TARGET
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
+from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 from .components import (
     ModelIdentifierGenerator,
     PredictionTransformer,
     PredictionDataAssembler,
-    ModelLoader,
     ScoreCalculator,
     IndexNormalizer
 )
@@ -65,7 +65,6 @@ class BaseModelController(OperatorController, ABC):
         identifier_generator (ModelIdentifierGenerator): Component for model naming.
         prediction_transformer (PredictionTransformer): Component for prediction scaling.
         prediction_assembler (PredictionDataAssembler): Component for assembling prediction records.
-        model_loader (ModelLoader): Component for loading persisted models.
         score_calculator (ScoreCalculator): Component for calculating evaluation scores.
         index_normalizer (IndexNormalizer): Component for normalizing sample indices.
         prediction_store (Predictions): External storage for predictions.
@@ -82,7 +81,6 @@ class BaseModelController(OperatorController, ABC):
         self.identifier_generator = ModelIdentifierGenerator()
         self.prediction_transformer = PredictionTransformer()
         self.prediction_assembler = PredictionDataAssembler()
-        self.model_loader = ModelLoader()
         self.score_calculator = ScoreCalculator()
         self.index_normalizer = IndexNormalizer()
 
@@ -245,6 +243,8 @@ class BaseModelController(OperatorController, ABC):
 
         In prediction mode, uses all available data (partition=None) instead of splitting.
 
+        Also handles sample_partitioner branches, which restrict data to a subset of samples.
+
         Args:
             dataset: SpectroDataset with partitioned data.
             context: Execution context with partition and preprocessing info.
@@ -257,6 +257,12 @@ class BaseModelController(OperatorController, ABC):
         # Check if we're in prediction/explain mode
         mode = context.state.mode
 
+        # Check for sample partition (from sample_partitioner branches)
+        sample_partition = context.custom.get("sample_partition")
+        partition_sample_indices = None
+        if sample_partition:
+            partition_sample_indices = set(sample_partition.get("sample_indices", []))
+
         if mode in ("predict", "explain"):
             # In prediction mode, use all available data (no partition split)
             pred_context = context.with_partition(None)
@@ -266,6 +272,15 @@ class BaseModelController(OperatorController, ABC):
             # Build selector for y with processing from state
             pred_context.selector['y'] = pred_context.state.y_processing
             y_all = dataset.y(pred_context.selector)
+
+            # If sample partition is active, filter to partition samples
+            if partition_sample_indices:
+                all_sample_ids = dataset._indexer.x_indices(
+                    pred_context.selector, include_augmented=True, include_excluded=False
+                )
+                mask = np.array([int(sid) in partition_sample_indices for sid in all_sample_ids])
+                X_all = X_all[mask]
+                y_all = y_all[mask]
 
             # Return empty training data and all data as "test" for prediction
             empty_X = np.array([]).reshape(0, X_all.shape[1] if len(X_all.shape) > 1 else 0)
@@ -278,6 +293,8 @@ class BaseModelController(OperatorController, ABC):
                 # For regression, get numeric (unscaled) targets
                 pred_context.selector['y'] = 'numeric'
                 y_all_unscaled = dataset.y(pred_context.selector)
+                if partition_sample_indices:
+                    y_all_unscaled = y_all_unscaled[mask]
 
             return empty_X, empty_y, X_all, y_all, empty_y, y_all_unscaled
 
@@ -286,15 +303,32 @@ class BaseModelController(OperatorController, ABC):
         test_context = context.with_partition('test')
 
         X_train = dataset.x(train_context.selector, layout=layout)
+        X_test = dataset.x(test_context.selector, layout=layout)
 
         # Build selectors for y with processing from state
         train_context.selector['y'] = train_context.state.y_processing
         y_train = dataset.y(train_context.selector)
 
-        X_test = dataset.x(test_context.selector, layout=layout)
-
         test_context.selector['y'] = test_context.state.y_processing
         y_test = dataset.y(test_context.selector)
+
+        # If sample partition is active, filter train and test data
+        if partition_sample_indices:
+            # Get sample IDs for train partition
+            train_sample_ids = dataset._indexer.x_indices(
+                train_context.selector, include_augmented=True, include_excluded=False
+            )
+            train_mask = np.array([int(sid) in partition_sample_indices for sid in train_sample_ids])
+            X_train = X_train[train_mask]
+            y_train = y_train[train_mask]
+
+            # Get sample IDs for test partition
+            test_sample_ids = dataset._indexer.x_indices(
+                test_context.selector, include_augmented=True, include_excluded=False
+            )
+            test_mask = np.array([int(sid) in partition_sample_indices for sid in test_sample_ids])
+            X_test = X_test[test_mask]
+            y_test = y_test[test_mask]
 
         # For classification tasks, use the transformed targets for evaluation
         # For regression tasks, use the original "numeric" targets
@@ -302,6 +336,10 @@ class BaseModelController(OperatorController, ABC):
             # Use the same y context as the model training (transformed targets)
             y_train_unscaled = dataset.y(train_context.selector)
             y_test_unscaled = dataset.y(test_context.selector)
+            # Apply partition mask if active
+            if partition_sample_indices:
+                y_train_unscaled = y_train_unscaled[train_mask]
+                y_test_unscaled = y_test_unscaled[test_mask]
         else:
             # Use numeric targets for regression
             train_context.selector['y'] = 'numeric'
@@ -309,7 +347,95 @@ class BaseModelController(OperatorController, ABC):
 
             y_train_unscaled = dataset.y(train_context.selector)
             y_test_unscaled = dataset.y(test_context.selector)
+            # Apply partition mask if active
+            if partition_sample_indices:
+                y_train_unscaled = y_train_unscaled[train_mask]
+                y_test_unscaled = y_test_unscaled[test_mask]
         return X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled
+
+    def _remap_folds_to_positions(
+        self,
+        dataset: 'SpectroDataset',
+        context: 'ExecutionContext',
+        mode: str
+    ) -> List[Tuple[List[int], List[int]]]:
+        """Convert fold sample IDs to positional indices for the current active samples.
+
+        Folds are stored with absolute sample IDs (from the indexer), which remain
+        valid even after sample filtering excludes samples. This method converts
+        those sample IDs to positional indices into the current X_train array.
+
+        Also handles:
+        - Branch-specific outlier exclusion masks from outlier_excluder branches
+        - Sample partitioning from sample_partitioner branches
+
+        Args:
+            dataset: SpectroDataset with the fold information.
+            context: Execution context with partition info.
+            mode: Execution mode ('train', 'predict', 'explain').
+
+        Returns:
+            List of (train_indices, val_indices) tuples with positional indices.
+        """
+        raw_folds = dataset.folds
+
+        if not raw_folds:
+            return []
+
+        # In predict/explain mode, folds are not used for training, just return as-is
+        if mode in ("predict", "explain"):
+            return raw_folds
+
+        # Get current active sample IDs for train partition (respecting indexer exclusions)
+        train_context = context.with_partition("train")
+        active_sample_ids = dataset._indexer.x_indices(  # noqa: SLF001
+            train_context.selector, include_augmented=True, include_excluded=False
+        )
+
+        # Check for sample partition (from sample_partitioner branches)
+        # When active, we need to filter active_sample_ids to only those in the partition
+        sample_partition = context.custom.get("sample_partition")
+        partition_sample_ids_set = None
+        if sample_partition:
+            partition_sample_ids_set = set(sample_partition.get("sample_indices", []))
+            # Filter active_sample_ids to only those in the partition
+            active_sample_ids = np.array([
+                sid for sid in active_sample_ids
+                if int(sid) in partition_sample_ids_set
+            ])
+
+        # Build a mapping from sample ID to positional index
+        id_to_pos = {int(sid): pos for pos, sid in enumerate(active_sample_ids)}
+
+        # Check for branch-specific outlier exclusion (from outlier_excluder branches)
+        outlier_exclusion = context.custom.get("outlier_exclusion")
+        excluded_sample_ids_set = set()
+        if outlier_exclusion:
+            # The outlier_exclusion stores:
+            # - mask: boolean array where True = keep, False = exclude
+            # - sample_indices: the sample IDs corresponding to the mask
+            mask = outlier_exclusion.get("mask")
+            sample_indices = outlier_exclusion.get("sample_indices", [])
+            if mask is not None and len(sample_indices) > 0:
+                # Get sample IDs that are excluded by this branch's outlier detection
+                for i, sid in enumerate(sample_indices):
+                    if i < len(mask) and not mask[i]:
+                        excluded_sample_ids_set.add(int(sid))
+
+        # Remap each fold's sample IDs to positional indices
+        # Only include samples that are still active (in partition, not excluded by indexer or outlier_excluder)
+        remapped_folds = []
+        for train_ids, val_ids in raw_folds:
+            # For train indices: filter to partition and exclude outlier_excluder samples
+            train_indices = [
+                id_to_pos[int(sid)] for sid in train_ids
+                if int(sid) in id_to_pos and int(sid) not in excluded_sample_ids_set
+            ]
+            # For val indices: filter to partition (keep all samples in partition for evaluation)
+            val_indices = [id_to_pos[int(sid)] for sid in val_ids if int(sid) in id_to_pos]
+            remapped_folds.append((train_indices, val_indices))
+
+        return remapped_folds
 
 
     def execute(
@@ -359,7 +485,11 @@ class BaseModelController(OperatorController, ABC):
                 dataset.set_task_type(task_type_str)
 
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
-        folds = dataset.folds
+
+        # Convert fold sample IDs to positional indices
+        # Folds now store absolute sample IDs, which remain valid even after sample filtering
+        # We need to convert them to positional indices into the current X_train array
+        folds = self._remap_folds_to_positions(dataset, context, mode)
 
         if self.verbose > 0:
             print(f"{SEARCH} Model config: {model_config}")
@@ -535,6 +665,34 @@ class BaseModelController(OperatorController, ABC):
             n_jobs = multiprocessing.cpu_count()
 
         binaries = []
+
+        # In predict/explain mode, skip fold iteration entirely
+        # Just load the model and predict on X_test (which contains all prediction samples)
+        if mode in ("predict", "explain"):
+            # For prediction, we run once per fold to match training fold structure
+            # but we predict on X_test (all samples) not X_train
+            n_folds = len(folds) if folds else 1
+            all_fold_predictions = []
+
+            for fold_iter in range(n_folds):
+                # Use X_test as both val and test data (for prediction on all samples)
+                # X_train and y_train are empty in predict mode
+                # When no folds exist (folds is empty), pass fold_idx=None to load shared artifact
+                # When folds exist, pass the actual fold index
+                actual_fold_idx = fold_iter if folds else None
+                model, model_id, score, model_name, prediction_data = self.launch_training(
+                    dataset, model_config, context, runtime_context, prediction_store,
+                    X_train, y_train, X_test, y_test, X_test,
+                    y_train_unscaled, y_test_unscaled, y_test_unscaled,
+                    train_indices=None, val_indices=None,
+                    fold_idx=actual_fold_idx, best_params=best_params,
+                    loaded_binaries=loaded_binaries, mode=mode
+                )
+                all_fold_predictions.append(prediction_data)
+
+            self._add_all_predictions(prediction_store, all_fold_predictions, None, mode=mode)
+            return binaries
+
         if len(folds) > 0:
             folds_models = []
             fold_val_indices = []
@@ -589,8 +747,19 @@ class BaseModelController(OperatorController, ABC):
 
                 # Only persist in train mode, not in predict/explain modes
                 if mode == "train":
-                    artifact = self._persist_model(runtime_context, model, model_id)
+                    artifact = self._persist_model(
+                        runtime_context, model, model_id,
+                        branch_id=context.selector.branch_id,
+                        branch_name=context.selector.branch_name,
+                        branch_path=context.selector.branch_path,
+                        fold_id=i,
+                        custom_name=model_name
+                    )
                     binaries.append(artifact)
+                    # Attach artifact_id to prediction_data for deterministic loading
+                    artifact_id = getattr(artifact, 'artifact_id', None)
+                    if artifact_id:
+                        prediction_data['model_artifact_id'] = artifact_id
 
             # Compute weights based on scores
             metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
@@ -617,8 +786,19 @@ class BaseModelController(OperatorController, ABC):
                 y_train_unscaled, y_test_unscaled, y_test_unscaled,
                 loaded_binaries=loaded_binaries, mode=mode
             )
-            artifact = self._persist_model(runtime_context, model, model_id)
+            artifact = self._persist_model(
+                runtime_context, model, model_id,
+                branch_id=context.selector.branch_id,
+                branch_name=context.selector.branch_name,
+                branch_path=context.selector.branch_path,
+                fold_id=None,  # Single model, no folds
+                custom_name=model_name
+            )
             binaries.append(artifact)
+            # Attach artifact_id to prediction_data for deterministic loading
+            artifact_id = getattr(artifact, 'artifact_id', None)
+            if artifact_id:
+                prediction_data['model_artifact_id'] = artifact_id
 
             # Add predictions for single model case (no weights)
             self._add_all_predictions(prediction_store, [prediction_data], None, mode=mode)
@@ -684,10 +864,46 @@ class BaseModelController(OperatorController, ABC):
 
         # === 2. GET OR LOAD MODEL ===
         if mode in ("predict", "explain"):
-            # Load from binaries
-            if loaded_binaries is None:
-                raise ValueError("loaded_binaries must be provided in prediction mode")
-            model = self.model_loader.load(identifiers.model_id, loaded_binaries, fold_idx)
+            model = None
+
+            # V3: Use artifact_provider for chain-based loading
+            if runtime_context.artifact_provider is not None:
+                step_index = runtime_context.step_number
+                import logging
+                logging.debug(f"MODEL: loading from artifact_provider step={step_index}, fold={fold_idx}")
+
+                # Get artifact with branch awareness
+                branch_path = context.selector.branch_path if hasattr(context.selector, 'branch_path') else None
+
+                if fold_idx is not None:
+                    # Get fold-specific artifact using get_fold_artifacts (supports branch_path)
+                    fold_artifacts = runtime_context.artifact_provider.get_fold_artifacts(
+                        step_index, branch_path=branch_path
+                    )
+                    # Find artifact for this specific fold
+                    for fid, artifact_obj in fold_artifacts:
+                        if fid == fold_idx:
+                            model = artifact_obj
+                            break
+                else:
+                    # Get primary artifact (for non-CV or single model case)
+                    # Use get_artifacts_for_step which supports branch_path
+                    step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                        step_index, branch_path=branch_path
+                    )
+                    if step_artifacts:
+                        model = step_artifacts[0][1]
+
+                if model is not None:
+                    logging.debug(f"MODEL: loaded model type={type(model).__name__}")
+                    if self.verbose > 0:
+                        print(f"🔧 Loaded model via artifact_provider for step {step_index}, fold={fold_idx}")
+
+            if model is None:
+                raise ValueError(
+                    f"Model not found at step {runtime_context.step_number}, fold={fold_idx}. "
+                    f"Ensure artifact_provider is properly configured."
+                )
 
             # Capture model for SHAP explanation
             if mode == "explain" and self._should_capture_for_explanation(runtime_context, identifiers):
@@ -813,7 +1029,8 @@ class BaseModelController(OperatorController, ABC):
             indices=indices,
             runner=runtime_context,
             X_shape=X_train.shape,
-            best_params=best_params
+            best_params=best_params,
+            context=context
         )
 
         # Add full scores to prediction data
@@ -1473,8 +1690,16 @@ class BaseModelController(OperatorController, ABC):
             'preprocessings': dataset.short_preprocessings_str(),
             'partitions': partitions,
             'partition_metadata': partition_metadata,
-            'best_params': best_params if best_params else {}
+            'best_params': best_params if best_params else {},
+            'branch_id': getattr(context.selector, 'branch_id', None),
+            'branch_name': getattr(context.selector, 'branch_name', None) or "",
         }
+
+        # Add outlier exclusion info if available (from outlier_excluder branches)
+        exclusion_info = context.custom.get('exclusion_info', {})
+        if exclusion_info:
+            result['exclusion_count'] = exclusion_info.get('n_excluded', 0)
+            result['exclusion_rate'] = exclusion_info.get('exclusion_rate', 0.0)
 
         if weights is not None:
             result['weights'] = weights.tolist()
@@ -1541,26 +1766,51 @@ class BaseModelController(OperatorController, ABC):
                     n_features=prediction_data['n_features'],
                     preprocessings=prediction_data['preprocessings'],
                     best_params=prediction_data['best_params'],
-                    scores=prediction_data.get('scores', {})
+                    scores=prediction_data.get('scores', {}),
+                    branch_id=prediction_data.get('branch_id'),
+                    branch_name=prediction_data.get('branch_name'),
+                    exclusion_count=prediction_data.get('exclusion_count'),
+                    exclusion_rate=prediction_data.get('exclusion_rate'),
+                    model_artifact_id=prediction_data.get('model_artifact_id'),
+                    trace_id=prediction_data.get('trace_id')
                 )
 
             # Print summary (only once per model)
             if pred_id and mode not in ("predict", "explain"):
                 self._print_prediction_summary(prediction_data, pred_id, mode)
 
-    def _persist_model(self, runtime_context: 'RuntimeContext', model: Any, model_id: str) -> 'ArtifactMeta':
-        """Persist trained model to disk using serializer infrastructure.
+    def _persist_model(
+        self,
+        runtime_context: 'RuntimeContext',
+        model: Any,
+        model_id: str,
+        branch_id: Optional[int] = None,
+        branch_name: Optional[str] = None,
+        branch_path: Optional[List[int]] = None,
+        fold_id: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        custom_name: Optional[str] = None
+    ) -> 'ArtifactMeta':
+        """Persist trained model to disk using registry or legacy saver.
 
-        Auto-detects model framework (sklearn, tensorflow, pytorch, xgboost, catboost, lightgbm)
-        and delegates to appropriate serializer for optimal storage format.
+        Uses artifact_registry.register_with_chain() for V3 chain-based identification,
+        enabling complete execution path tracking for deterministic reload.
+
+        Also records the artifact in the execution trace for deterministic replay.
 
         Args:
-            runtime_context: Runtime context with saver instance.
+            runtime_context: Runtime context with saver/registry instances.
             model: Trained model to persist.
             model_id: Unique identifier for the model.
+            branch_id: Optional branch identifier for branched pipelines.
+            branch_name: Optional branch name for branched pipelines.
+            branch_path: Optional list of branch indices for nested branching.
+            fold_id: Optional fold identifier for CV artifacts.
+            params: Optional model parameters for inspection.
+            custom_name: User-defined name for the model (e.g., "Q5_PLS_10").
 
         Returns:
-            ArtifactMeta with persistence metadata (path, format, size, etc.).
+            ArtifactMeta or ArtifactRecord with persistence metadata.
         """
         # Detect framework hint from model type
         model_type = type(model).__module__
@@ -1579,11 +1829,70 @@ class BaseModelController(OperatorController, ABC):
         else:
             format_hint = None  # Let serializer auto-detect
 
-        return runtime_context.saver.persist_artifact(
-            step_number=runtime_context.step_number,
-            name=f"{model_id}.pkl",
-            obj=model,
-            format_hint=format_hint
-        )
+        # Use artifact registry if available (V3 system)
+        if runtime_context.artifact_registry is not None:
+            registry = runtime_context.artifact_registry
+            pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
+            step_index = runtime_context.step_number
+
+            # Use branch_path or convert branch_id to branch_path
+            bp = branch_path or ([branch_id] if branch_id is not None else [])
+
+            # Use substep_number as substep_index when in a subpipeline
+            substep_index = runtime_context.substep_number if runtime_context.substep_number >= 0 else None
+
+            # V3: Build operator chain for this artifact
+            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+
+            # Get the current chain from trace recorder or build new one
+            if runtime_context.trace_recorder is not None:
+                current_chain = runtime_context.trace_recorder.current_chain()
+            else:
+                current_chain = OperatorChain(pipeline_id=pipeline_id)
+
+            # Create node for this model
+            model_node = OperatorNode(
+                step_index=step_index,
+                operator_class=model.__class__.__name__,
+                branch_path=bp,
+                fold_id=fold_id,
+                substep_index=substep_index,
+                operator_name=custom_name,
+            )
+
+            # Build chain path for this artifact
+            artifact_chain = current_chain.append(model_node)
+            chain_path = artifact_chain.to_path()
+
+            # Generate V3 artifact ID using chain
+            artifact_id = registry.generate_id(chain_path, fold_id, pipeline_id)
+
+            # Register artifact with V3 chain tracking
+            record = registry.register(
+                obj=model,
+                artifact_id=artifact_id,
+                artifact_type=ArtifactType.MODEL,
+                params=params or {},
+                format_hint=format_hint,
+                custom_name=custom_name,
+                chain_path=chain_path,
+                source_index=None,  # Models don't have source_index
+            )
+
+            # Record artifact in execution trace with chain_path
+            runtime_context.record_step_artifact(
+                artifact_id=artifact_id,
+                is_primary=(fold_id is None),  # Primary if not fold-specific
+                fold_id=fold_id,
+                chain_path=chain_path,
+                branch_path=bp,
+                metadata={"class_name": model.__class__.__name__, "custom_name": custom_name}
+            )
+
+            return record
+
+        # No registry available - skip persistence (for unit tests)
+        # In production, artifact_registry should always be set by the runner
+        return None
 
 

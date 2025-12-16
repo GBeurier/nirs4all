@@ -37,6 +37,9 @@ from .utils.sampling import sample_with_seed
 # Type alias
 GeneratorNode = Union[Dict[str, Any], List[Any], str, int, float, bool, None]
 
+# Type for expansion with choices: list of (config, choices) tuples
+ExpandedWithChoices = List[tuple]  # List[Tuple[Any, List[Dict[str, Any]]]]
+
 
 def expand_spec(node: GeneratorNode, seed: Optional[int] = None) -> ExpandedResult:
     """Expand a specification node to all possible combinations.
@@ -66,6 +69,39 @@ def expand_spec(node: GeneratorNode, seed: Optional[int] = None) -> ExpandedResu
         [{'x': 1, 'y': 'fixed'}, {'x': 2, 'y': 'fixed'}]
     """
     return _expand_internal(node, seed)
+
+
+def expand_spec_with_choices(
+    node: GeneratorNode,
+    seed: Optional[int] = None
+) -> List[tuple]:
+    """Expand a specification node and track generator choices.
+
+    Like expand_spec, but also returns the choices made at each generator
+    node (_or_, _range_, etc.) for each expanded variant. This is useful
+    for tracking which specific values were selected to produce each
+    pipeline configuration.
+
+    Args:
+        node: Configuration node to expand.
+        seed: Optional random seed for reproducible generation.
+
+    Returns:
+        List of (expanded_config, generator_choices) tuples.
+        Each generator_choices is a list of dicts like:
+        [{"_or_": selected_value}, {"_range_": 18}, ...]
+        in the order they were encountered during expansion.
+
+    Examples:
+        >>> results = expand_spec_with_choices({"_or_": ["A", "B"]})
+        >>> results
+        [('A', [{'_or_': 'A'}]), ('B', [{'_or_': 'B'}])]
+
+        >>> results = expand_spec_with_choices({"x": {"_or_": [1, 2]}, "y": 3})
+        >>> results
+        [({'x': 1, 'y': 3}, [{'_or_': 1}]), ({'x': 2, 'y': 3}, [{'_or_': 2}])]
+    """
+    return _expand_with_choices_internal(node, seed)
 
 
 def _expand_internal(node: GeneratorNode, seed: Optional[int] = None) -> ExpandedResult:
@@ -243,6 +279,252 @@ def _expand_value(v: Any, seed: Optional[int]) -> ExpandedResult:
     else:
         # Scalar value
         return [v]
+
+
+# =============================================================================
+# Expansion with Choice Tracking
+# =============================================================================
+
+# Type for a single result with its choices
+ResultWithChoices = tuple  # Tuple[Any, List[Dict[str, Any]]]
+
+
+def _expand_with_choices_internal(
+    node: GeneratorNode,
+    seed: Optional[int] = None
+) -> List[ResultWithChoices]:
+    """Internal recursive expansion that tracks generator choices.
+
+    Args:
+        node: Node to expand.
+        seed: Random seed.
+
+    Returns:
+        List of (expanded_value, choices_list) tuples.
+    """
+    # Handle lists: Cartesian product of expanded elements with merged choices
+    if isinstance(node, list):
+        return _expand_list_with_choices(node, seed)
+
+    # Handle non-dict types: wrap as single-element list with no choices
+    if not isinstance(node, Mapping):
+        return [(node, [])]
+
+    # Try strategy dispatch for pure generator nodes
+    strategy = get_strategy(node)
+    if strategy:
+        return _expand_strategy_with_choices(node, strategy, seed)
+
+    # Handle mixed dict with _or_ key (has other keys too)
+    if has_or_keyword(node):
+        return _expand_mixed_or_with_choices(node, seed)
+
+    # Normal dict: Cartesian product over key values with merged choices
+    return _expand_dict_with_choices(node, seed)
+
+
+def _expand_strategy_with_choices(
+    node: Dict[str, Any],
+    strategy: Any,
+    seed: Optional[int]
+) -> List[ResultWithChoices]:
+    """Expand a generator node using its strategy and track the choice.
+
+    Args:
+        node: Generator node (_or_, _range_, etc.).
+        strategy: The strategy to use for expansion.
+        seed: Random seed.
+
+    Returns:
+        List of (value, choices) tuples.
+    """
+    # Determine the keyword for this generator
+    keyword = _get_generator_keyword(node)
+
+    # Expand the node
+    expanded = strategy.expand(
+        node,
+        seed=seed,
+        expand_nested=lambda n: _expand_internal(n, seed)
+    )
+
+    # Each expanded value gets recorded as a choice
+    results = []
+    for value in expanded:
+        # The choice records the keyword and the selected value
+        choice = {keyword: value}
+        results.append((value, [choice]))
+
+    return results
+
+
+def _get_generator_keyword(node: Dict[str, Any]) -> str:
+    """Get the primary generator keyword from a node.
+
+    Args:
+        node: Generator node.
+
+    Returns:
+        The keyword string (e.g., "_or_", "_range_").
+    """
+    from .keywords import (
+        OR_KEYWORD, RANGE_KEYWORD, LOG_RANGE_KEYWORD,
+        GRID_KEYWORD, ZIP_KEYWORD, CHAIN_KEYWORD,
+        SAMPLE_KEYWORD, CARTESIAN_KEYWORD
+    )
+
+    keyword_priority = [
+        OR_KEYWORD, RANGE_KEYWORD, LOG_RANGE_KEYWORD,
+        GRID_KEYWORD, ZIP_KEYWORD, CHAIN_KEYWORD,
+        SAMPLE_KEYWORD, CARTESIAN_KEYWORD
+    ]
+
+    for kw in keyword_priority:
+        if kw in node:
+            return kw
+
+    return "_unknown_"
+
+
+def _expand_list_with_choices(
+    node: list,
+    seed: Optional[int]
+) -> List[ResultWithChoices]:
+    """Expand a list with choice tracking.
+
+    Args:
+        node: List to expand.
+        seed: Random seed.
+
+    Returns:
+        List of (list_value, merged_choices) tuples.
+    """
+    if not node:
+        return [([], [])]
+
+    # Special case: single element
+    if len(node) == 1:
+        element_results = _expand_with_choices_internal(node[0], seed)
+        # If results contain lists, return directly
+        if element_results and isinstance(element_results[0][0], list):
+            return element_results
+
+    # Expand each element with choices
+    expanded_elements = [_expand_with_choices_internal(element, seed) for element in node]
+
+    # Cartesian product with merged choices
+    results = []
+    for combo in product(*expanded_elements):
+        # combo is tuple of (value, choices) pairs
+        values = [item[0] for item in combo]
+        # Merge all choices in order
+        merged_choices = []
+        for item in combo:
+            merged_choices.extend(item[1])
+        results.append((values, merged_choices))
+
+    return results
+
+
+def _expand_mixed_or_with_choices(
+    node: Dict[str, Any],
+    seed: Optional[int]
+) -> List[ResultWithChoices]:
+    """Expand a mixed OR node with choice tracking.
+
+    Args:
+        node: Dict containing _or_ and other keys.
+        seed: Random seed.
+
+    Returns:
+        List of (dict_value, merged_choices) tuples.
+    """
+    or_modifier_keys = {
+        "_or_", "size", "count", "pick", "arrange", "then_pick", "then_arrange"
+    }
+
+    base = {k: v for k, v in node.items() if k not in or_modifier_keys}
+    or_node = {k: node[k] for k in or_modifier_keys if k in node}
+
+    # Expand both parts with choices
+    base_expanded = _expand_dict_with_choices(base, seed)
+    choice_expanded = _expand_with_choices_internal(or_node, seed)
+
+    # Merge results
+    results = []
+    for b_val, b_choices in base_expanded:
+        for c_val, c_choices in choice_expanded:
+            if isinstance(c_val, Mapping):
+                merged_val = {**b_val, **c_val}
+                merged_choices = b_choices + c_choices
+                results.append((merged_val, merged_choices))
+            else:
+                raise ValueError(
+                    "Top-level '_or_' choices in a mixed dict must be dicts, "
+                    f"not {type(c_val).__name__}. Got: {c_val}"
+                )
+
+    return results
+
+
+def _expand_dict_with_choices(
+    node: Dict[str, Any],
+    seed: Optional[int]
+) -> List[ResultWithChoices]:
+    """Expand a dict with choice tracking.
+
+    Args:
+        node: Dict to expand.
+        seed: Random seed.
+
+    Returns:
+        List of (dict_value, merged_choices) tuples.
+    """
+    if not node:
+        return [({}, [])]
+
+    # Expand each value with choices
+    keys = []
+    value_options = []
+    for k, v in node.items():
+        keys.append(k)
+        value_options.append(_expand_value_with_choices(v, seed))
+
+    # Cartesian product with merged choices
+    results = []
+    for combo in product(*value_options):
+        # combo is tuple of (value, choices) pairs
+        values = [item[0] for item in combo]
+        result_dict = dict(zip(keys, values))
+        # Merge all choices in order
+        merged_choices = []
+        for item in combo:
+            merged_choices.extend(item[1])
+        results.append((result_dict, merged_choices))
+
+    return results
+
+
+def _expand_value_with_choices(
+    v: Any,
+    seed: Optional[int]
+) -> List[ResultWithChoices]:
+    """Expand a value in a dict position with choice tracking.
+
+    Args:
+        v: Value to expand.
+        seed: Random seed.
+
+    Returns:
+        List of (value, choices) tuples.
+    """
+    if isinstance(v, Mapping):
+        return _expand_with_choices_internal(v, seed)
+    elif isinstance(v, list):
+        return _expand_with_choices_internal(v, seed)
+    else:
+        # Scalar value - no choices
+        return [(v, [])]
 
 
 # =============================================================================
