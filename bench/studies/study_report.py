@@ -46,6 +46,7 @@ from matplotlib.figure import Figure
 from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
 from nirs4all.workspace import LibraryManager
+from nirs4all.utils.header_units import get_x_values_and_label
 
 
 # ========================================
@@ -347,23 +348,9 @@ class ReportGenerator:
             # Create figure
             fig, ax = plt.subplots(figsize=(12, 6))
 
-            # Create feature indices or use headers
+            # Get x-values and label using centralized utility
             n_features = x_sorted.shape[1]
-            if headers and len(headers) == n_features:
-                try:
-                    x_values = np.array([float(h) for h in headers])
-                    if header_unit == "cm-1":
-                        x_label = 'Wavenumber (cm⁻¹)'
-                    elif header_unit == "nm":
-                        x_label = 'Wavelength (nm)'
-                    else:
-                        x_label = 'Features'
-                except (ValueError, TypeError):
-                    x_values = np.arange(n_features)
-                    x_label = 'Features'
-            else:
-                x_values = np.arange(n_features)
-                x_label = 'Features'
+            x_values, x_label = get_x_values_and_label(headers, header_unit, n_features)
 
             # Create colormap
             if is_classification:

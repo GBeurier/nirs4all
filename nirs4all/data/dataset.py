@@ -16,6 +16,12 @@ from nirs4all.data.indexer import Indexer
 from nirs4all.data.metadata import Metadata
 from nirs4all.data.predictions import Predictions
 from nirs4all.data._dataset import FeatureAccessor, TargetAccessor, MetadataAccessor
+from nirs4all.data.signal_type import (
+    SignalType,
+    SignalTypeInput,
+    normalize_signal_type,
+    detect_signal_type,
+)
 from nirs4all.utils.emoji import CHART, REFRESH, TARGET
 from nirs4all.core.task_type import TaskType
 from sklearn.base import TransformerMixin
@@ -57,6 +63,10 @@ class SpectroDataset:
         self._indexer = Indexer()
         self._folds: List[Tuple[List[int], List[int]]] = []
         self.name = name
+
+        # Signal type per source (for multi-source support)
+        self._signal_types: List[SignalType] = []
+        self._signal_type_forced: List[bool] = []
 
         # Initialize internal blocks
         _features_block = Features()
@@ -276,6 +286,137 @@ class SpectroDataset:
             ValueError: If headers cannot be converted to wavelengths
         """
         return self._feature_accessor.wavelengths_nm(src)
+
+    # ========== Signal Type Management ==========
+
+    def signal_type(self, src: int = 0) -> SignalType:
+        """
+        Get the signal type for a data source.
+
+        If not set, attempts auto-detection based on value ranges and
+        optionally wavelength band analysis.
+
+        Args:
+            src: Source index (default: 0)
+
+        Returns:
+            SignalType enum value
+
+        Example:
+            >>> signal = dataset.signal_type(0)
+            >>> if signal == SignalType.REFLECTANCE:
+            ...     dataset.convert_to_absorbance(0)
+        """
+        # Ensure signal type list is initialized for this source
+        self._ensure_signal_type_initialized(src)
+
+        # Return cached value if forced or already detected
+        if self._signal_type_forced[src] or self._signal_types[src] != SignalType.AUTO:
+            return self._signal_types[src]
+
+        # Auto-detect
+        detected, confidence, reason = self._detect_signal_type(src)
+        if confidence >= 0.5:
+            self._signal_types[src] = detected
+        else:
+            self._signal_types[src] = SignalType.UNKNOWN
+
+        return self._signal_types[src]
+
+    def set_signal_type(
+        self,
+        signal_type: SignalTypeInput,
+        src: int = 0,
+        forced: bool = True
+    ) -> None:
+        """
+        Set the signal type for a data source.
+
+        Args:
+            signal_type: Signal type (string or SignalType enum)
+            src: Source index (default: 0)
+            forced: If True, prevents auto-detection from overriding (default: True)
+
+        Example:
+            >>> dataset.set_signal_type("absorbance", src=0)
+            >>> dataset.set_signal_type(SignalType.REFLECTANCE_PERCENT, src=1)
+        """
+        self._ensure_signal_type_initialized(src)
+        self._signal_types[src] = normalize_signal_type(signal_type)
+        self._signal_type_forced[src] = forced
+
+    def detect_signal_type(
+        self,
+        src: int = 0,
+        force_redetect: bool = False
+    ) -> Tuple[SignalType, float, str]:
+        """
+        Detect signal type using heuristics.
+
+        Uses value range analysis and optionally wavelength band direction
+        to determine the most likely signal type.
+
+        Args:
+            src: Source index (default: 0)
+            force_redetect: If True, ignores cached/forced values and re-runs detection
+
+        Returns:
+            Tuple of (SignalType, confidence, reason_string)
+
+        Example:
+            >>> signal_type, confidence, reason = dataset.detect_signal_type()
+            >>> print(f"Detected {signal_type.value} ({confidence:.0%}): {reason}")
+        """
+        if not force_redetect:
+            self._ensure_signal_type_initialized(src)
+            if self._signal_type_forced[src]:
+                return self._signal_types[src], 1.0, "User-specified"
+
+        return self._detect_signal_type(src)
+
+    def _detect_signal_type(self, src: int) -> Tuple[SignalType, float, str]:
+        """Internal detection logic."""
+        if self._feature_accessor.num_samples == 0:
+            return SignalType.UNKNOWN, 0.0, "No data available"
+
+        # Get raw features for detection
+        spectra = self.x({"partition": "train"}, layout="2d")
+        if isinstance(spectra, list):
+            spectra = spectra[src] if src < len(spectra) else spectra[0]
+
+        # Get wavelengths if available
+        wavelengths = None
+        wavelength_unit = "nm"
+        try:
+            unit = self.header_unit(src)
+            headers = self.headers(src)
+            if unit in ("nm", "cm-1") and headers is not None and len(headers) > 0:
+                wavelengths = self.wavelengths_nm(src) if unit == "nm" else self.wavelengths_cm1(src)
+                wavelength_unit = unit
+        except (ValueError, IndexError, TypeError):
+            pass
+
+        return detect_signal_type(spectra, wavelengths, wavelength_unit)
+
+    def _ensure_signal_type_initialized(self, src: int) -> None:
+        """Ensure signal type lists are large enough for the given source."""
+        while len(self._signal_types) <= src:
+            self._signal_types.append(SignalType.AUTO)
+        while len(self._signal_type_forced) <= src:
+            self._signal_type_forced.append(False)
+
+    @property
+    def signal_types(self) -> List[SignalType]:
+        """
+        Get signal types for all sources.
+
+        Returns:
+            List of SignalType values, one per source
+        """
+        # Ensure all sources are initialized
+        for src in range(self._feature_accessor.num_sources):
+            self._ensure_signal_type_initialized(src)
+        return self._signal_types[:self._feature_accessor.num_sources]
 
     def short_preprocessings_str(self) -> str:
         """Get shortened processing string for display."""
@@ -561,6 +702,14 @@ class SpectroDataset:
             print(f"{CHART}Features: {total_samples} samples, {n_sources} source(s)")
             print(f"Features: {self._feature_accessor.num_features}, processings: {self._features.num_processings}")
             print(f"Processing IDs: {self._features.preprocessing_str}")
+
+            # Signal types per source
+            signal_types_str = []
+            for src in range(n_sources):
+                sig_type = self.signal_type(src)
+                forced_marker = "*" if self._signal_type_forced[src] else ""
+                signal_types_str.append(f"{sig_type.value}{forced_marker}")
+            print(f"Signal types: [{', '.join(signal_types_str)}] (* = user-specified)")
         else:
             print(f"{CHART}Features: No data")
         print()

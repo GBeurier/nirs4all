@@ -81,6 +81,14 @@ from .scalers import (
     RobustStandardNormalVariate,
 )
 from .signal import Baseline, Detrend, Gaussian, baseline, detrend, gaussian
+from .signal_conversion import (
+    ToAbsorbance,
+    FromAbsorbance,
+    PercentToFraction,
+    FractionToPercent,
+    KubelkaMunk,
+    SignalTypeConverter,
+)
 from .features import CropTransformer, ResampleTransformer
 from .resampler import Resampler
 from .feature_selection import CARS, MCUVE
@@ -190,6 +198,14 @@ __all__ = [
     "baseline",
     "detrend",
     "gaussian",
+
+    # Signal type conversion
+    "ToAbsorbance",
+    "FromAbsorbance",
+    "PercentToFraction",
+    "FractionToPercent",
+    "KubelkaMunk",
+    "SignalTypeConverter",
 
     # Features
     "CropTransformer",

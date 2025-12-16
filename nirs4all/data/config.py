@@ -10,12 +10,13 @@ import json
 import hashlib
 from pathlib import Path
 from tabnanny import verbose
-from typing import List, Union, Dict, Any
+from typing import List, Union, Dict, Any, Optional
 
 from nirs4all.utils.emoji import CROSS
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.loaders.loader import handle_data
 from nirs4all.data.config_parser import parse_config
+from nirs4all.data.signal_type import SignalType, SignalTypeInput, normalize_signal_type
 
 
 class DatasetConfigs:
@@ -23,20 +24,49 @@ class DatasetConfigs:
     def __init__(
         self,
         configurations: Union[Dict[str, Any], List[Dict[str, Any]], str, List[str]],
-        task_type: Union[str, List[str]] = "auto"
+        task_type: Union[str, List[str]] = "auto",
+        signal_type: Union[SignalTypeInput, List[SignalTypeInput], None] = None
     ):
         '''Initialize dataset configurations.
 
         Args:
-            configurations: Dataset configuration(s) as path(s), dict(s), or list of either
+            configurations: Dataset configuration(s) as path(s), dict(s), or list of either.
+                Configuration dicts can include 'train_x_params' or 'global_params' with:
+                - header_unit: "cm-1", "nm", "none", "text", "index"
+                - signal_type: "absorbance", "reflectance", "reflectance%", "transmittance", etc.
+                - delimiter, decimal_separator, has_header, na_policy, etc.
+
             task_type: Force task type. Can be:
-                      - A single string applied to all datasets
-                      - A list of strings (one per dataset)
-                      Valid values per dataset:
-                      - 'auto': Automatic detection based on target values (default)
-                      - 'regression': Force regression task
-                      - 'binary_classification': Force binary classification task
-                      - 'multiclass_classification': Force multiclass classification task
+                - A single string applied to all datasets
+                - A list of strings (one per dataset)
+                Valid values per dataset:
+                - 'auto': Automatic detection based on target values (default)
+                - 'regression': Force regression task
+                - 'binary_classification': Force binary classification task
+                - 'multiclass_classification': Force multiclass classification task
+
+            signal_type: Override signal type for spectral data (applied after config loading).
+                - A single value applied to all datasets/sources
+                - A list of values (one per dataset)
+                - None: Use config value or auto-detect (default)
+                This parameter overrides any signal_type specified in the config.
+                Valid values: 'absorbance', 'reflectance', 'reflectance%',
+                'transmittance', 'transmittance%', 'auto', etc.
+
+        Example:
+            # Via config dict (preferred for per-source control):
+            config = {
+                "train_x": "/path/to/data.csv",
+                "train_x_params": {
+                    "header_unit": "nm",
+                    "signal_type": "reflectance",
+                    "delimiter": ";"
+                }
+            }
+            configs = DatasetConfigs(config)
+
+            # Or via constructor parameter (overrides config):
+            configs = DatasetConfigs("/path/to/folder", signal_type="absorbance")
         '''
         user_configs = configurations if isinstance(configurations, list) else [configurations]
         self.configs = []
@@ -59,51 +89,98 @@ class DatasetConfigs:
                     f"number of datasets ({len(self.configs)})"
                 )
             self._task_types = list(task_type)
-        # print(f"✅ {len(self.configs)} dataset configuration(s).")
+
+        # Normalize signal_type override to a list matching configs length
+        # Note: This is an override; config-level signal_type is handled during loading
+        if signal_type is None:
+            self._signal_type_overrides: List[Optional[SignalType]] = [None] * len(self.configs)
+        elif isinstance(signal_type, (str, SignalType)):
+            normalized = normalize_signal_type(signal_type)
+            self._signal_type_overrides = [normalized] * len(self.configs)
+        else:
+            if len(signal_type) != len(self.configs):
+                raise ValueError(
+                    f"signal_type list length ({len(signal_type)}) must match "
+                    f"number of datasets ({len(self.configs)})"
+                )
+            self._signal_type_overrides = [
+                normalize_signal_type(st) if st is not None else None
+                for st in signal_type
+            ]
 
     def iter_datasets(self):
         for idx, (config, name) in enumerate(self.configs):
-            dataset = self._get_dataset_with_task_type(config, name, self._task_types[idx])
+            dataset = self._get_dataset_with_types(
+                config, name, self._task_types[idx], self._signal_type_overrides[idx]
+            )
             yield dataset
 
-    def _get_dataset_with_task_type(self, config, name, task_type: str) -> SpectroDataset:
-        """Internal method to get dataset with specific task type."""
+    def _get_dataset_with_types(
+        self,
+        config,
+        name,
+        task_type: str,
+        signal_type_override: Optional[SignalType]
+    ) -> SpectroDataset:
+        """Internal method to get dataset with specific task and signal types.
+
+        Args:
+            config: Dataset configuration dict
+            name: Dataset name
+            task_type: Task type to force ('auto' for no override)
+            signal_type_override: Signal type override from constructor (None for no override)
+        """
         dataset = self._load_dataset(config, name)
 
         # Apply forced task type if specified (not 'auto')
         if task_type != "auto":
             dataset.set_task_type(task_type, forced=True)
 
+        # Apply constructor-level signal type override if specified
+        # This overrides any signal_type from config params
+        if signal_type_override is not None and signal_type_override != SignalType.AUTO:
+            for src in range(dataset.n_sources):
+                dataset.set_signal_type(signal_type_override, src=src, forced=True)
+
         return dataset
 
+    def _get_dataset_with_task_type(self, config, name, task_type: str) -> SpectroDataset:
+        """Internal method to get dataset with specific task type (backward compat)."""
+        return self._get_dataset_with_types(config, name, task_type, None)
+
     def _load_dataset(self, config, name) -> SpectroDataset:
+        """Load dataset from config, applying config-level signal_type if specified."""
         # Handle preloaded datasets
         if isinstance(config, dict) and "_preloaded_dataset" in config:
             return config["_preloaded_dataset"]
 
         dataset = SpectroDataset(name=name)
         if name in self.cache:
-            x_train, y_train, m_train, train_headers, m_train_headers, train_unit, x_test, y_test, m_test, test_headers, m_test_headers, test_unit = self.cache[name]
+            (x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type,
+             x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type) = self.cache[name]
         else:
             # Try to load train data
             try:
-                x_train, y_train, m_train, train_headers, m_train_headers, train_unit = handle_data(config, "train")
+                x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type = handle_data(config, "train")
             except (ValueError, FileNotFoundError) as e:
                 if "x_path is None" in str(e) or "train_x" in str(e):
-                    x_train, y_train, m_train, train_headers, m_train_headers, train_unit = None, None, None, None, None, None
+                    x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type = None, None, None, None, None, None, None
                 else:
                     raise
 
             # Try to load test data
             try:
-                x_test, y_test, m_test, test_headers, m_test_headers, test_unit = handle_data(config, "test")
+                x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type = handle_data(config, "test")
             except (ValueError, FileNotFoundError) as e:
                 if "x_path is None" in str(e) or "test_x" in str(e):
-                    x_test, y_test, m_test, test_headers, m_test_headers, test_unit = None, None, None, None, None, None
+                    x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type = None, None, None, None, None, None, None
                 else:
                     raise
 
-            self.cache[name] = (x_train, y_train, m_train, train_headers, m_train_headers, train_unit, x_test, y_test, m_test, test_headers, m_test_headers, test_unit)
+            self.cache[name] = (
+                x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type,
+                x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type
+            )
 
         # Add samples and targets only if they exist
         train_count = 0
@@ -112,6 +189,16 @@ class DatasetConfigs:
         if x_train is not None:
             dataset.add_samples(x_train, {"partition": "train"}, headers=train_headers, header_unit=train_unit)
             train_count = len(x_train) if not isinstance(x_train, list) else len(x_train[0])
+
+            # Apply signal types from config (per source if multi-source)
+            if train_signal_type is not None:
+                if isinstance(train_signal_type, list):
+                    for src, sig_type in enumerate(train_signal_type):
+                        if sig_type is not None:
+                            dataset.set_signal_type(sig_type, src=src, forced=False)
+                else:
+                    dataset.set_signal_type(train_signal_type, src=0, forced=False)
+
             if y_train is not None:
                 dataset.add_targets(y_train)
             if m_train is not None:
@@ -120,12 +207,23 @@ class DatasetConfigs:
         if x_test is not None:
             dataset.add_samples(x_test, {"partition": "test"}, headers=test_headers, header_unit=test_unit)
             test_count = len(x_test) if not isinstance(x_test, list) else len(x_test[0])
+
+            # Apply signal types from config (per source if multi-source)
+            # Note: test data adds to existing sources, so signal types should already match
+            if test_signal_type is not None and x_train is None:
+                # Only apply if we didn't load train data (test-only case)
+                if isinstance(test_signal_type, list):
+                    for src, sig_type in enumerate(test_signal_type):
+                        if sig_type is not None:
+                            dataset.set_signal_type(sig_type, src=src, forced=False)
+                else:
+                    dataset.set_signal_type(test_signal_type, src=0, forced=False)
+
             if y_test is not None:
                 dataset.add_targets(y_test)
             if m_test is not None:
                 dataset.add_metadata(m_test, headers=m_test_headers)
 
-        # print(f"📊 Loaded dataset '{dataset.name}' with {train_count} training and {test_count} test samples.")
         return dataset
 
     def get_dataset(self, config, name) -> SpectroDataset:
@@ -134,18 +232,22 @@ class DatasetConfigs:
         Note: When called directly, uses the first task_type (or 'auto' if single dataset).
         For proper per-dataset task_type handling, use iter_datasets() or get_dataset_at().
         """
-        # Find the index of this config to get the right task_type
+        # Find the index of this config to get the right task_type and signal_type
         for idx, (cfg, cfg_name) in enumerate(self.configs):
             if cfg_name == name:
-                return self._get_dataset_with_task_type(config, name, self._task_types[idx])
-        # Fallback: load without forced task_type
+                return self._get_dataset_with_types(
+                    config, name, self._task_types[idx], self._signal_type_overrides[idx]
+                )
+        # Fallback: load without forced types
         return self._load_dataset(config, name)
 
     def get_dataset_at(self, index) -> SpectroDataset:
         if index < 0 or index >= len(self.configs):
             raise IndexError(f"Dataset index {index} out of range. Available datasets: 0 to {len(self.configs)-1}.")
         config, name = self.configs[index]
-        return self._get_dataset_with_task_type(config, name, self._task_types[index])
+        return self._get_dataset_with_types(
+            config, name, self._task_types[index], self._signal_type_overrides[index]
+        )
 
     def get_datasets(self) -> List[SpectroDataset]:
         return list(self.iter_datasets())

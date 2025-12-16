@@ -7,6 +7,7 @@ import numpy as np
 import io
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.header_units import get_x_values_and_label, apply_x_axis_limits
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -299,24 +300,14 @@ class AugmentationChartController(OperatorController):
         x_2d = x[:, 0, :]  # First processing
         n_features = x_2d.shape[1]
 
-        # Get headers
+        # Get headers and determine x-axis values using centralized utility
         spectra_headers = dataset.headers(source_idx)
         try:
             header_unit = dataset.header_unit(source_idx)
         except (AttributeError, IndexError):
             header_unit = "cm-1"
 
-        # Determine x-axis values
-        if spectra_headers and len(spectra_headers) == n_features:
-            try:
-                x_values = np.array([float(h) for h in spectra_headers])
-                x_label = 'Wavenumber (cm⁻¹)' if header_unit == "cm-1" else 'Wavelength (nm)' if header_unit == "nm" else 'Features'
-            except (ValueError, TypeError):
-                x_values = np.arange(n_features)
-                x_label = 'Features'
-        else:
-            x_values = np.arange(n_features)
-            x_label = 'Features'
+        x_values, x_label = get_x_values_and_label(spectra_headers, header_unit, n_features)
 
         base_indices_list = base_indices.tolist() if hasattr(base_indices, 'tolist') else list(base_indices)
 
@@ -332,8 +323,7 @@ class AugmentationChartController(OperatorController):
                 pos = idx_to_pos[idx]
                 ax1.plot(x_values, x_2d[pos], color='steelblue', alpha=alpha_original, linewidth=0.8)
 
-        if len(x_values) > 1 and x_values[0] > x_values[-1]:
-            ax1.set_xlim(x_values[0], x_values[-1])
+        apply_x_axis_limits(ax1, x_values)
 
         ax1.set_xlabel(x_label, fontsize=9)
         ax1.set_ylabel('Intensity', fontsize=9)
@@ -366,8 +356,7 @@ class AugmentationChartController(OperatorController):
                     pos = idx_to_pos[idx]
                     ax.plot(x_values, x_2d[pos], color=colors[t_idx], alpha=alpha_augmented, linewidth=0.8)
 
-            if len(x_values) > 1 and x_values[0] > x_values[-1]:
-                ax.set_xlim(x_values[0], x_values[-1])
+            apply_x_axis_limits(ax, x_values)
 
             ax.set_xlabel(x_label, fontsize=9)
             ax.set_ylabel('Intensity', fontsize=9)
