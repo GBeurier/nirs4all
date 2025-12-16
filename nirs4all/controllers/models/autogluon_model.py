@@ -628,8 +628,8 @@ class AutoGluonModelController(BaseModelController):
             Tuple[ExecutionContext, List[ArtifactMeta]]: Updated context
                 and list of model binaries.
         """
-        # Set layout preference
-        context = context.with_layout(self.get_preferred_layout())
+        # Set layout preference (force_layout overrides preferred)
+        context = context.with_layout(self.get_effective_layout(step_info))
 
         # Call parent execute method
         return super().execute(

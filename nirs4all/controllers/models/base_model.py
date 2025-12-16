@@ -252,7 +252,8 @@ class BaseModelController(OperatorController, ABC):
         Returns:
             Tuple of (X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled).
         """
-        layout = self.get_preferred_layout()
+        # Use layout from context (set by controller, may include force_layout)
+        layout = context.selector.layout if hasattr(context, 'selector') and hasattr(context.selector, 'layout') else self.get_preferred_layout()
 
         # Check if we're in prediction/explain mode
         mode = context.state.mode
@@ -1100,6 +1101,22 @@ class BaseModelController(OperatorController, ABC):
             Override in subclasses for framework-specific layouts.
         """
         return "2d"
+
+    def get_effective_layout(self, step_info: Optional['ParsedStep'] = None) -> str:
+        """Get effective data layout, respecting force_layout if specified.
+
+        This method checks if the step configuration has a force_layout override.
+        If not, it falls back to the controller's preferred layout.
+
+        Args:
+            step_info: ParsedStep containing potential force_layout override.
+
+        Returns:
+            Data layout string to use for this step.
+        """
+        if step_info is not None and hasattr(step_info, 'force_layout') and step_info.force_layout is not None:
+            return step_info.force_layout
+        return self.get_preferred_layout()
 
     def _calculate_and_print_scores(
         self,
