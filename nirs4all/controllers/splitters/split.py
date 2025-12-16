@@ -179,7 +179,8 @@ class CrossValidatorController(OperatorController):
 
         # In predict/explain mode, skip fold splitting entirely
         if mode == "predict" or mode == "explain":
-            local_context = context.with_partition("train")
+            # Don't filter by partition - prediction data may be in "test" partition
+            local_context = context.with_partition(None)
             needs_y, needs_g = _needs(op)
             X = dataset.x(local_context, layout="2d", concat_source=True)
             n_samples = X.shape[0]

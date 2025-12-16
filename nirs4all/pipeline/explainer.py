@@ -12,7 +12,7 @@ from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
-from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
+from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata, LoaderArtifactProvider
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.storage.io import SimulationSaver
 from nirs4all.pipeline.storage.manifest_manager import ManifestManager
@@ -150,12 +150,19 @@ class Explainer:
                 .with_manifest_manager(self.manifest_manager)
                 .build())
 
-            # Create RuntimeContext
+            # Create RuntimeContext with artifact_provider for V3 loading
             from nirs4all.pipeline.config.context import RuntimeContext
+            
+            # Create artifact_provider from artifact_loader for V3 artifact loading
+            artifact_provider = None
+            if self.artifact_loader:
+                artifact_provider = LoaderArtifactProvider(loader=self.artifact_loader)
+            
             runtime_context = RuntimeContext(
                 saver=self.saver,
                 manifest_manager=self.manifest_manager,
                 artifact_loader=self.artifact_loader,
+                artifact_provider=artifact_provider,
                 step_runner=executor.step_runner,
                 target_model=self.target_model,
                 explainer=self.runner.explainer

@@ -7,6 +7,11 @@ while sharing common upstream state (splits, initial preprocessing).
 
 Steps declared after a branch block execute on each branch independently.
 
+V3 improvements:
+- Uses trace_recorder.enter_branch() / exit_branch() for automatic branch path tracking
+- Records each branch substep individually in the execution trace
+- Builds proper operator chains for artifact identification
+
 Example:
     >>> pipeline = [
     ...     ShuffleSplit(n_splits=5),
@@ -98,13 +103,18 @@ class BranchController(OperatorController):
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Any] = None
     ) -> Tuple["ExecutionContext", StepOutput]:
-        """Execute the branch step.
+        """Execute the branch step with V3 chain tracking.
 
         Creates independent contexts for each branch, executes branch-specific
         steps, and stores branch contexts for post-branch iteration.
 
         In predict/explain mode, only executes the target branch specified in
         runtime_context.target_model.branch_id for efficiency.
+
+        V3 improvements:
+        - Uses trace_recorder.enter_branch() / exit_branch() for branch path tracking
+        - Records each substep individually for complete trace fidelity
+        - Builds proper operator chains for artifact identification
 
         Args:
             step_info: Parsed step containing branch definitions
@@ -127,6 +137,15 @@ class BranchController(OperatorController):
             return context, StepOutput()
 
         n_branches = len(branch_defs)
+
+        # V3: Start branch step recording in trace
+        recorder = runtime_context.trace_recorder
+        if recorder is not None:
+            recorder.start_branch_step(
+                step_index=runtime_context.step_number,
+                branch_count=n_branches,
+                operator_config={"branch_definitions": len(branch_defs)},
+            )
 
         # In predict/explain mode, filter to only the target branch
         target_branch_id = None
@@ -159,14 +178,12 @@ class BranchController(OperatorController):
         # This is necessary because branches modify the shared dataset
         initial_features_snapshot = self._snapshot_features(dataset)
 
+        # V3: Snapshot the chain state before branching
+        initial_chain = recorder.current_chain() if recorder else None
+
         # Initialize list to collect branch contexts
         branch_contexts: List[Dict[str, Any]] = []
         all_artifacts = []
-
-        # In predict mode, we need to set the operation counter to match training.
-        # Each branch should start at the operation count it had during training.
-        # We calculate this by counting operations in prior branches.
-        initial_op_count = runtime_context.operation_count
 
         # Execute each branch
         # In predict mode with filtered branches, we need to preserve original branch_id
@@ -174,14 +191,6 @@ class BranchController(OperatorController):
             # Use original branch_id if we're in predict mode and have filtered
             if target_branch_id is not None:
                 branch_id = target_branch_id
-                # In predict mode for a specific branch, set operation counter to match training
-                # Each processing in a branch increments the op counter by 1
-                # We need to advance the counter as if prior branches had run
-                if mode in ("predict", "explain"):
-                    # Advance operation counter for skipped branches
-                    # Each branch with one transformer step uses 1 operation per processing
-                    # For branch N, we need initial_op_count + N operations from prior branches
-                    runtime_context.operation_count = initial_op_count + branch_id
             else:
                 branch_id = idx
 
@@ -189,6 +198,13 @@ class BranchController(OperatorController):
             branch_steps = branch_def.get("steps", [])
 
             print(f"  {BRANCH}Branch {branch_id}: {branch_name}")
+
+            # V3: Enter branch context in trace recorder
+            if recorder is not None:
+                recorder.enter_branch(branch_id)
+                # Reset chain to initial state for this branch
+                if initial_chain is not None:
+                    recorder.reset_chain_to(initial_chain)
 
             # Create isolated context for this branch
             branch_context = initial_context.copy()
@@ -221,9 +237,10 @@ class BranchController(OperatorController):
                     branch_binaries = loaded_binaries
 
             # Execute branch steps sequentially
-            for substep in branch_steps:
+            # V3: Each substep is recorded individually
+            for substep_idx, substep in enumerate(branch_steps):
                 if runtime_context.step_runner:
-                    runtime_context.substep_number += 1
+                    runtime_context.substep_number = substep_idx
                     result = runtime_context.step_runner.execute(
                         step=substep,
                         dataset=dataset,
@@ -234,6 +251,10 @@ class BranchController(OperatorController):
                     )
                     branch_context = result.updated_context
                     all_artifacts.extend(result.artifacts)
+
+            # V3: Exit branch context in trace recorder
+            if recorder is not None:
+                recorder.exit_branch()
 
             # Snapshot features AFTER branch processing completes
             # This captures the feature state produced by this branch's transformers
@@ -250,6 +271,10 @@ class BranchController(OperatorController):
             })
 
             print(f"  {CHECK} Branch {branch_id} ({branch_name}) completed")
+
+        # V3: End branch step in trace
+        if recorder is not None:
+            recorder.end_step()
 
         # Store branch contexts in custom dict for post-branch iteration
         # Merge with any existing branch contexts (for nested branches)

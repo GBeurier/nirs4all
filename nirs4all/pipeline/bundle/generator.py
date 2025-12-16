@@ -378,8 +378,15 @@ class BundleGenerator:
                     # Serialize artifact
                     artifact_bytes = self._serialize_artifact(artifact_obj)
 
-                    # Create filename from artifact info
-                    artifact_name = self._artifact_filename(artifact_id, artifact_obj)
+                    # Get artifact record for accurate step/fold info
+                    record = None
+                    if hasattr(resolved.artifact_provider, 'artifact_loader'):
+                        record = resolved.artifact_provider.artifact_loader.get_record(artifact_id)
+
+                    # Create filename from artifact info (pass step_index from loop)
+                    artifact_name = self._artifact_filename(
+                        artifact_id, artifact_obj, record, step_index=step_index
+                    )
                     archive_path = f"artifacts/{artifact_name}"
 
                     # Write to ZIP
@@ -410,27 +417,48 @@ class BundleGenerator:
         joblib.dump(artifact, buffer)
         return buffer.getvalue()
 
-    def _artifact_filename(self, artifact_id: str, artifact_obj: Any) -> str:
+    def _artifact_filename(
+        self,
+        artifact_id: str,
+        artifact_obj: Any,
+        record: Optional[Any] = None,
+        step_index: Optional[int] = None
+    ) -> str:
         """Generate filename for artifact.
 
         Args:
-            artifact_id: Artifact ID
+            artifact_id: Artifact ID (V2 or V3 format)
             artifact_obj: Artifact object
+            record: Optional ArtifactRecord for step/fold info
+            step_index: Optional step index (from loop context)
 
         Returns:
             Filename for artifact
         """
-        # Parse artifact_id for step and fold info
-        parts = artifact_id.split(":")
-        step_idx = 0
+        # Get step_idx and fold_part from artifact record if available (V3)
+        step_idx = step_index if step_index is not None else 0
         fold_part = "all"
 
-        if len(parts) >= 2:
-            try:
-                step_idx = int(parts[-2])
-                fold_part = parts[-1]
-            except ValueError:
-                pass
+        if record is not None:
+            step_idx = getattr(record, 'step_index', step_idx) or step_idx
+            fold_id = getattr(record, 'fold_id', None)
+            fold_part = str(fold_id) if fold_id is not None else "all"
+        else:
+            # Fallback: parse from artifact_id
+            # Check V3 format (contains $)
+            if "$" in artifact_id:
+                # V3: pipeline$hash:fold
+                fold_part = artifact_id.split(":")[-1] if ":" in artifact_id else "all"
+                # step_idx already set from parameter
+            else:
+                # V2: pipeline:branch:step:fold or pipeline:step:fold
+                parts = artifact_id.split(":")
+                if len(parts) >= 2:
+                    try:
+                        step_idx = int(parts[-2]) if step_index is None else step_idx
+                        fold_part = parts[-1]
+                    except ValueError:
+                        pass
 
         # Get class name
         class_name = artifact_obj.__class__.__name__

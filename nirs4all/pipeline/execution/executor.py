@@ -263,6 +263,7 @@ class PipelineExecutor:
                 runtime_context.step_number = self.step_number
                 runtime_context.substep_number = self.substep_number
                 runtime_context.operation_count = self.operation_count
+                runtime_context.reset_processing_counter()  # Reset for unique artifact IDs within step
 
             # Update context with current step number
             if isinstance(context, ExecutionContext):
@@ -867,6 +868,7 @@ class PipelineExecutor:
                 runtime_context.step_number = self.step_number
                 runtime_context.substep_number = self.substep_number
                 runtime_context.operation_count = self.operation_count
+                runtime_context.reset_processing_counter()  # Reset for unique artifact IDs within step
 
             # Update context with step number
             context = context.with_step_number(self.step_number)

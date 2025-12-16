@@ -345,26 +345,29 @@ class AutoTransferPreprocessingController(OperatorController):
             context: Execution context.
             runtime_context: Runtime infrastructure.
             source: Source index.
-            loaded_binaries: Pre-loaded artifacts containing recommendation.
+            loaded_binaries: Pre-loaded artifacts (deprecated, use artifact_provider).
 
         Returns:
             Tuple of (updated_context, artifacts).
         """
         verbose = config["verbose"]
 
-        if loaded_binaries is None:
-            raise ValueError(
-                "No loaded_binaries provided for predict mode. "
-                "The trained preprocessing recommendation is required."
-            )
+        recommendation_data = None
 
-        # Find the recommendation artifact
-        binaries_dict = dict(loaded_binaries)
-        recommendation_data = binaries_dict.get("transfer_preprocessing_recommendation")
+        # V3: Try artifact_provider first
+        if runtime_context.artifact_provider is not None:
+            step_index = runtime_context.step_number
+            step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                step_index,
+                branch_path=context.selector.branch_path
+            )
+            if step_artifacts:
+                artifacts_dict = dict(step_artifacts)
+                recommendation_data = artifacts_dict.get("transfer_preprocessing_recommendation")
 
         if recommendation_data is None:
             raise ValueError(
-                "transfer_preprocessing_recommendation not found in loaded_binaries. "
+                "transfer_preprocessing_recommendation not found. "
                 "Ensure the model was trained with auto_transfer_preproc."
             )
 
@@ -379,7 +382,7 @@ class AutoTransferPreprocessingController(OperatorController):
         if config["apply_recommendation"]:
             context, artifacts = self._apply_recommendation(
                 pipeline_spec, dataset, context, runtime_context, source,
-                mode="predict", loaded_binaries=loaded_binaries
+                mode="predict"
             )
         else:
             artifacts = []
@@ -479,8 +482,7 @@ class AutoTransferPreprocessingController(OperatorController):
         context: "ExecutionContext",
         runtime_context: "RuntimeContext",
         source: int = -1,
-        mode: str = "train",
-        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
+        mode: str = "train"
     ) -> Tuple["ExecutionContext", List[Tuple[str, Any]]]:
         """
         Apply the recommended preprocessing to the dataset.
@@ -497,15 +499,11 @@ class AutoTransferPreprocessingController(OperatorController):
             runtime_context: Runtime infrastructure.
             source: Source index.
             mode: Execution mode.
-            loaded_binaries: Pre-loaded artifacts for predict mode.
 
         Returns:
             Tuple of (updated_context, artifacts).
         """
         from nirs4all.analysis import get_base_preprocessings
-
-        # loaded_binaries is reserved for predict mode (future extension)
-        _ = loaded_binaries
 
         artifacts = []
         verbose = getattr(context.metadata, "verbose", 1) if hasattr(context.metadata, "verbose") else 1

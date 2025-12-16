@@ -1,5 +1,4 @@
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING, Union
-import re
 
 from sklearn.base import TransformerMixin
 
@@ -16,51 +15,6 @@ import numpy as np
 from sklearn.base import clone
 import pickle
 ## TODO add parrallel support for multi-source datasets and multi-processing datasets
-
-
-def _find_transformer_by_class(
-    class_name: str,
-    binaries_dict: Dict[str, Any],
-    search_index: int = 0
-) -> Optional[Any]:
-    """Find a transformer binary by class name when exact match fails.
-
-    For branched pipelines, operation counters may differ between train and
-    predict modes. This function searches for any binary matching the class
-    name and returns the nth match based on search_index.
-
-    Args:
-        class_name: Transformer class name (e.g., "StandardScaler", "PCA")
-        binaries_dict: Dict of binary name -> transformer object
-        search_index: Which match to return (0 for first, 1 for second, etc.)
-
-    Returns:
-        Transformer object or None if not found
-    """
-    # Pattern: ClassName_N (any operation counter)
-    pattern = re.compile(rf'^{re.escape(class_name)}_(\d+)$')
-
-    # Find matching binaries with their operation numbers
-    matches = []
-    for name, obj in binaries_dict.items():
-        match = pattern.match(name)
-        if match:
-            op_num = int(match.group(1))
-            matches.append((op_num, name, obj))
-
-    if not matches:
-        return None
-
-    # Sort by operation number (ascending)
-    matches.sort(key=lambda x: x[0])
-
-    if search_index < len(matches):
-        return matches[search_index][2]
-    elif matches:
-        # Fallback: return first match
-        return matches[0][2]
-
-    return None
 
 
 @register_controller
@@ -160,6 +114,10 @@ class TransformerMixinController(OperatorController):
         new_processing_names = []
         processing_names = []
 
+        # Note: We use runtime_context.next_processing_index() to track processing counter
+        # across all sources for unique artifact IDs. This ensures each (source, processing)
+        # pair gets a unique substep_index even across feature_augmentation sub-operations.
+
         # Loop through each data source
         for sd_idx, (fit_x, all_x) in enumerate(zip(fit_data, all_data)):
             # print(f"Processing source {sd_idx}: fit shape {fit_x.shape}, all shape {all_x.shape}")
@@ -174,9 +132,6 @@ class TransformerMixinController(OperatorController):
             source_transformed_features = []
             source_new_processing_names = []
             source_processing_names = []
-
-            # Track how many transformers of this class we've loaded (for fallback search)
-            transformer_load_index = 0
 
             # Loop through each processing in the 3D data (samples, processings, features)
             for processing_idx in range(fit_x.shape[1]):
@@ -194,42 +149,37 @@ class TransformerMixinController(OperatorController):
                 if mode == "predict" or mode == "explain":
                     transformer = None
 
-                    # Phase 4: Try artifact_provider first (controller-agnostic approach)
-                    # Use name-based matching from step artifacts
+                    # V3: Use artifact_provider for chain-based loading
                     if runtime_context.artifact_provider is not None:
                         step_index = runtime_context.step_number
+                        # Load all artifacts for this source, then pick by global index
+                        # The global index persists across feature_augmentation sub-operations
                         step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
                             step_index,
-                            branch_path=context.selector.branch_path
+                            branch_path=context.selector.branch_path,
+                            source_index=sd_idx,
+                            substep_index=None  # Load all artifacts for this source
                         )
                         if step_artifacts:
-                            # Create dict for name-based lookup
-                            artifacts_dict = dict(step_artifacts)
-                            # Try exact name match first
-                            transformer = artifacts_dict.get(new_operator_name)
-                            if transformer is None:
-                                # Search by class name pattern (handles op counter mismatch)
-                                transformer = _find_transformer_by_class(
-                                    operator_name, artifacts_dict, transformer_load_index
-                                )
-
-                    # Fallback: Try loaded_binaries (legacy approach)
-                    if transformer is None and loaded_binaries:
-                        binaries_dict = dict(loaded_binaries)
-                        transformer = binaries_dict.get(new_operator_name)
-                        if transformer is None:
-                            # Fallback: search by class name (handles branch op counter mismatch)
-                            transformer = _find_transformer_by_class(
-                                operator_name, binaries_dict, transformer_load_index
-                            )
+                            artifacts_list = list(step_artifacts)
+                            # Use global artifact load index for this source to handle
+                            # feature_augmentation sub-operations correctly
+                            artifact_idx = runtime_context.next_artifact_load_index(sd_idx)
+                            if artifact_idx < len(artifacts_list):
+                                _, transformer = artifacts_list[artifact_idx]
 
                     if transformer is None:
-                        available = list(dict(loaded_binaries).keys()) if loaded_binaries else []
+                        available = []
+                        if runtime_context.artifact_provider is not None:
+                            step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                                runtime_context.step_number,
+                                branch_path=context.selector.branch_path
+                            )
+                            available = [name for name, _ in step_artifacts] if step_artifacts else []
                         raise ValueError(
-                            f"Binary for {new_operator_name} not found. "
-                            f"Available: {available}"
+                            f"Transformer for {new_operator_name} not found at step {runtime_context.step_number}. "
+                            f"Available artifacts: {available}"
                         )
-                    transformer_load_index += 1
                 else:
                     transformer = clone(op)
                     transformer.fit(fit_2d)
@@ -244,13 +194,15 @@ class TransformerMixinController(OperatorController):
                 source_new_processing_names.append(new_processing_name)
                 source_processing_names.append(processing_name)
 
-                # Persist fitted transformer using artifact registry or legacy saver
+                # Persist fitted transformer using artifact registry
                 if mode == "train":
                     artifact = self._persist_transformer(
                         runtime_context=runtime_context,
                         transformer=transformer,
                         name=new_operator_name,
-                        context=context
+                        context=context,
+                        source_index=sd_idx,
+                        processing_index=runtime_context.next_processing_index()
                     )
                     fitted_transformers.append(artifact)
 
@@ -374,7 +326,8 @@ class TransformerMixinController(OperatorController):
                             runtime_context=runtime_context,
                             transformer=transformer,
                             name=f"{operator_name}_{source_idx}_{proc_idx}",
-                            context=context
+                            context=context,
+                            source_index=source_idx
                         )
                         fitted_transformers.append(artifact)
 
@@ -393,25 +346,25 @@ class TransformerMixinController(OperatorController):
                     transformer = None
                     artifact_key = f"{operator_name}_{source_idx}_{proc_idx}"
 
-                    # Phase 4: Try artifact_provider first (controller-agnostic approach)
-                    # Use name-based matching from step artifacts
+                    # V3: Use artifact_provider for chain-based loading
                     if runtime_context.artifact_provider is not None:
                         step_index = runtime_context.step_number
                         step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
                             step_index,
-                            branch_path=context.selector.branch_path
+                            branch_path=context.selector.branch_path,
+                            source_index=source_idx
                         )
                         if step_artifacts:
-                            # Create dict for name-based lookup
                             artifacts_dict = dict(step_artifacts)
                             transformer = artifacts_dict.get(artifact_key)
-
-                    # Fallback: Try loaded_binaries (legacy approach)
-                    if transformer is None and loaded_binaries:
-                        transformer = dict(loaded_binaries).get(artifact_key)
+                            # Also try matching by proc_idx position if name doesn't match
+                            if transformer is None:
+                                artifacts_list = list(step_artifacts)
+                                if proc_idx < len(artifacts_list):
+                                    _, transformer = artifacts_list[proc_idx]
 
                     if transformer is None:
-                        raise ValueError(f"Binary for {artifact_key} not found")
+                        raise ValueError(f"Transformer for {artifact_key} not found at step {runtime_context.step_number}")
                 else:
                     # Use pre-fitted transformer from cache
                     cache_key = (source_idx, proc_idx)
@@ -522,25 +475,25 @@ class TransformerMixinController(OperatorController):
                         transformer = None
                         artifact_key = f"{operator_name}_{source_idx}_{proc_idx}"
 
-                        # Phase 4: Try artifact_provider first (controller-agnostic approach)
-                        # Use name-based matching from step artifacts
+                        # V3: Use artifact_provider for chain-based loading
                         if runtime_context.artifact_provider is not None:
                             step_index = runtime_context.step_number
                             step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
                                 step_index,
-                                branch_path=context.selector.branch_path
+                                branch_path=context.selector.branch_path,
+                                source_index=source_idx
                             )
                             if step_artifacts:
-                                # Create dict for name-based lookup
                                 artifacts_dict = dict(step_artifacts)
                                 transformer = artifacts_dict.get(artifact_key)
-
-                        # Fallback: Try loaded_binaries (legacy approach)
-                        if transformer is None and loaded_binaries:
-                            transformer = dict(loaded_binaries).get(artifact_key)
+                                # Also try matching by proc_idx position if name doesn't match
+                                if transformer is None:
+                                    artifacts_list = list(step_artifacts)
+                                    if proc_idx < len(artifacts_list):
+                                        _, transformer = artifacts_list[proc_idx]
 
                         if transformer is None:
-                            raise ValueError(f"Binary for {artifact_key} not found")
+                            raise ValueError(f"Transformer for {artifact_key} not found at step {runtime_context.step_number}")
                     elif cache_key in fitted_transformers_cache:
                         # Reuse already fitted transformer
                         transformer = fitted_transformers_cache[cache_key]
@@ -557,7 +510,8 @@ class TransformerMixinController(OperatorController):
                                 runtime_context=runtime_context,
                                 transformer=transformer,
                                 name=f"{operator_name}_{source_idx}_{proc_idx}",
-                                context=context
+                                context=context,
+                                source_index=source_idx
                             )
                             fitted_transformers.append(artifact)
 
@@ -588,72 +542,93 @@ class TransformerMixinController(OperatorController):
         runtime_context: 'RuntimeContext',
         transformer: Any,
         name: str,
-        context: ExecutionContext
+        context: ExecutionContext,
+        source_index: Optional[int] = None,
+        processing_index: Optional[int] = None
     ) -> Any:
-        """Persist fitted transformer using artifact registry or legacy saver.
+        """Persist fitted transformer using V3 chain-based artifact registry.
 
-        Uses artifact_registry.register() if available (v2 system), otherwise
-        falls back to saver.persist_artifact() (legacy).
+        Uses artifact_registry.register() with V3 chain-based identification
+        for complete execution path tracking, including multi-source support.
 
         Args:
             runtime_context: Runtime context with saver/registry instances.
             transformer: Fitted transformer to persist.
             name: Operator name for the transformer (e.g., "StandardScaler_3").
             context: Execution context with branch information.
+            source_index: Source index for multi-source transformers.
+            processing_index: Index of processing within source (for multi-processing steps).
 
         Returns:
-            ArtifactRecord (v2) or ArtifactMeta (legacy) with persistence metadata.
+            ArtifactRecord with V3 chain-based metadata.
         """
-        # Use artifact registry if available (v2 system)
+        # Use artifact registry (V3 system)
         if runtime_context.artifact_registry is not None:
             registry = runtime_context.artifact_registry
             pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
             step_index = runtime_context.step_number
             branch_path = context.selector.branch_path or []
 
-            # Extract the operation counter from the name (e.g., "StandardScaler_3" -> 3)
-            # This ensures unique IDs for multiple transformers at the same step
-            sub_index = None
-            if "_" in name:
-                try:
-                    sub_index = int(name.rsplit("_", 1)[1])
-                except (ValueError, IndexError):
-                    pass
+            # Use processing_index for substep_index to ensure unique artifact IDs
+            # for each processing within a source. This is critical for multi-source
+            # pipelines with feature augmentation where multiple transformers are
+            # fit per source. Falls back to substep_number for branch contexts.
+            if processing_index is not None:
+                substep_index = processing_index
+            elif runtime_context.substep_number >= 0:
+                substep_index = runtime_context.substep_number
+            else:
+                substep_index = None
 
-            # Generate deterministic artifact ID
-            artifact_id = registry.generate_id(
-                pipeline_id=pipeline_id,
-                branch_path=branch_path,
+            # V3: Build operator chain for this artifact
+            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+
+            # Get the current chain from trace recorder or build new one
+            if runtime_context.trace_recorder is not None:
+                current_chain = runtime_context.trace_recorder.current_chain()
+            else:
+                current_chain = OperatorChain(pipeline_id=pipeline_id)
+
+            # Create node for this transformer with source_index for multi-source
+            transformer_node = OperatorNode(
                 step_index=step_index,
+                operator_class=transformer.__class__.__name__,
+                branch_path=branch_path,
+                source_index=source_index,
                 fold_id=None,  # Transformers are shared across folds
-                sub_index=sub_index
+                substep_index=substep_index,
             )
 
-            # Register artifact with registry
+            # Build chain path for this artifact
+            artifact_chain = current_chain.append(transformer_node)
+            chain_path = artifact_chain.to_path()
+
+            # Generate V3 artifact ID using chain
+            artifact_id = registry.generate_id(chain_path, None, pipeline_id)
+
+            # Register artifact with V3 chain tracking
             record = registry.register(
                 obj=transformer,
                 artifact_id=artifact_id,
                 artifact_type=ArtifactType.TRANSFORMER,
-                format_hint='sklearn'
+                format_hint='sklearn',
+                chain_path=chain_path,
+                source_index=source_index,
             )
 
-            # Record artifact in execution trace
-            # This is critical for minimal pipeline extraction during prediction
+            # Record artifact in execution trace with V3 chain info
             runtime_context.record_step_artifact(
                 artifact_id=artifact_id,
                 is_primary=False,  # Transformers are not primary artifacts
                 fold_id=None,
+                chain_path=chain_path,
+                branch_path=branch_path,
+                source_index=source_index,
                 metadata={"class_name": transformer.__class__.__name__, "name": name}
             )
 
             return record
 
-        # Fallback to legacy saver.persist_artifact()
-        return runtime_context.saver.persist_artifact(
-            step_number=runtime_context.step_number,
-            name=name,
-            obj=transformer,
-            format_hint='sklearn',
-            branch_id=context.selector.branch_id,
-            branch_name=context.selector.branch_name
-        )
+        # No registry available - skip persistence (for unit tests)
+        # In production, artifact_registry should always be set by the runner
+        return None

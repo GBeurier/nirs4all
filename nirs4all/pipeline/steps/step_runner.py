@@ -93,8 +93,25 @@ class StepRunner:
             current_context = context
             all_artifacts = []
 
+            # In predict mode, check if we should only execute a specific substep
+            # This is critical for subpipelines with multiple models like [JaxMLPRegressor, nicon]
+            # where we want to run only the model that was selected as best during training
+            target_sub_index = None
+            if (self.mode in ("predict", "explain") and
+                runtime_context and
+                hasattr(runtime_context, 'artifact_provider') and
+                runtime_context.artifact_provider is not None and
+                hasattr(runtime_context.artifact_provider, 'target_sub_index')):
+                target_sub_index = runtime_context.artifact_provider.target_sub_index
+
             # Track substep index for artifact ID uniqueness
             for substep_idx, substep in enumerate(substeps):
+                # In predict mode with target_sub_index, skip substeps that don't match
+                if target_sub_index is not None and substep_idx != target_sub_index:
+                    if self.verbose > 1:
+                        print(f"  ⏭️  Skipping substep {substep_idx} (target is {target_sub_index})")
+                    continue
+
                 # Update runtime_context substep_number for each substep
                 if runtime_context:
                     runtime_context.substep_number = substep_idx

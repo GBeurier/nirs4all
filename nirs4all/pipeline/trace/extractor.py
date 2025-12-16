@@ -91,6 +91,25 @@ class MinimalPipelineStep:
         """
         return list(self.artifacts.artifact_ids)
 
+    def get_artifact_by_chain(self, chain_path: str) -> Optional[str]:
+        """Get artifact ID by V3 chain path.
+
+        Args:
+            chain_path: Operator chain path
+
+        Returns:
+            Artifact ID or None if not found
+        """
+        return self.artifacts.get_artifact_by_chain(chain_path)
+
+    def get_artifacts_by_chain(self) -> Dict[str, str]:
+        """Get all artifacts indexed by chain path.
+
+        Returns:
+            Dict mapping chain_path to artifact_id
+        """
+        return dict(self.artifacts.by_chain) if self.artifacts.by_chain else {}
+
 
 @dataclass
 class MinimalPipeline:
@@ -181,6 +200,33 @@ class MinimalPipeline:
             List of step indices
         """
         return [s.step_index for s in self.steps]
+
+    def get_artifact_by_chain(self, chain_path: str) -> Optional[str]:
+        """Get artifact ID by V3 chain path across all steps.
+
+        Args:
+            chain_path: Operator chain path
+
+        Returns:
+            Artifact ID or None if not found
+        """
+        for step_artifacts in self.artifact_map.values():
+            artifact_id = step_artifacts.get_artifact_by_chain(chain_path)
+            if artifact_id:
+                return artifact_id
+        return None
+
+    def get_all_chain_paths(self) -> Dict[str, str]:
+        """Get all artifacts indexed by chain path.
+
+        Returns:
+            Dict mapping chain_path to artifact_id
+        """
+        chain_map = {}
+        for step_artifacts in self.artifact_map.values():
+            if step_artifacts.by_chain:
+                chain_map.update(step_artifacts.by_chain)
+        return chain_map
 
     def __repr__(self) -> str:
         n_steps = len(self.steps)

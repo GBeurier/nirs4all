@@ -265,7 +265,7 @@ class Predictor:
             if self.target_model:
                 model_artifact_id = self.target_model.get('model_artifact_id')
                 if model_artifact_id:
-                    target_sub_index = self._parse_sub_index_from_artifact_id(model_artifact_id)
+                    target_sub_index = self._get_substep_from_artifact(model_artifact_id)
                 else:
                     # Fallback for avg/w_avg predictions: use model_name to filter
                     target_model_name = self.target_model.get('model_name')
@@ -406,11 +406,22 @@ class Predictor:
             return res, run_predictions
 
         # Get single prediction matching target model
+        target_fold_id = self.target_model.get('fold_id', None)
+
+        # Handle aggregated fold predictions (avg, w_avg)
+        # These are computed from individual fold predictions during training,
+        # but during prediction mode, we only have individual fold predictions.
+        # We need to compute the average ourselves.
+        is_aggregated_fold = target_fold_id in ('avg', 'w_avg')
+
         filter_kwargs = {
             'model_name': self.target_model.get('model_name', None),
             'step_idx': self.target_model.get('step_idx', None),
-            'fold_id': self.target_model.get('fold_id', None)
         }
+
+        # Only filter by fold_id if it's not an aggregated fold
+        if not is_aggregated_fold:
+            filter_kwargs['fold_id'] = target_fold_id
 
         # Add branch filtering if target model has branch info
         target_branch_id = self.target_model.get('branch_id')
@@ -421,7 +432,56 @@ class Predictor:
 
         # Prefer predictions with non-empty y_pred (in predict mode, train partition may be empty)
         non_empty = [p for p in candidates if len(p['y_pred']) > 0]
-        single_pred = non_empty[0] if non_empty else (candidates[0] if candidates else None)
+
+        # For aggregated fold predictions, compute weighted/simple average
+        if is_aggregated_fold and len(non_empty) > 1:
+            # Get fold weights from target model metadata
+            fold_weights = self.target_model.get('weights')
+
+            # Collect predictions by fold for averaging (sorted by fold_id)
+            fold_preds = {}
+            for p in non_empty:
+                fid = p.get('fold_id')
+                if fid not in ('avg', 'w_avg') and fid is not None:
+                    if fid not in fold_preds:
+                        fold_preds[fid] = p['y_pred']
+
+            if fold_preds:
+                # Sort by fold_id to ensure consistent ordering with weights array
+                sorted_folds = sorted(fold_preds.keys())
+                y_arrays = [fold_preds[fid] for fid in sorted_folds]
+
+                # Check if we have valid weights for weighted average
+                has_valid_weights = (
+                    target_fold_id == 'w_avg' and
+                    fold_weights is not None and
+                    len(fold_weights) >= len(sorted_folds)
+                )
+
+                if has_valid_weights:
+                    # Weighted average - weights can be a list, array, or dict
+                    if isinstance(fold_weights, dict):
+                        weights_list = [fold_weights.get(fid, 1.0) for fid in sorted_folds]
+                    else:
+                        # Assume array/list indexed by fold position
+                        weights_list = [fold_weights[i] for i in range(len(sorted_folds))]
+
+                    total_weight = sum(weights_list)
+                    y_pred = sum(
+                        w * np.array(y) for w, y in zip(weights_list, y_arrays)
+                    ) / total_weight
+                else:
+                    # Simple average
+                    y_pred = np.mean(y_arrays, axis=0)
+
+                # Use the first candidate as template for the result
+                single_pred = non_empty[0].copy()
+                single_pred['y_pred'] = y_pred
+                single_pred['fold_id'] = target_fold_id
+            else:
+                single_pred = non_empty[0] if non_empty else (candidates[0] if candidates else None)
+        else:
+            single_pred = non_empty[0] if non_empty else (candidates[0] if candidates else None)
 
         if single_pred is None:
             raise ValueError("No matching prediction found for the specified model criteria.")
@@ -564,34 +624,23 @@ class Predictor:
             return run_dirs[0]
         raise ValueError("No run directories found")
 
-    def _parse_sub_index_from_artifact_id(self, artifact_id: str) -> Optional[int]:
-        """Parse sub_index (substep number) from artifact ID.
-
-        Artifact IDs include a sub_index for models in subpipelines:
-            "{pipeline_id}:{step_index}.{sub_index}:{fold_id}"
-
-        For example:
-            - "0001_pls:3.0:0" → sub_index=0 (first model in subpipeline)
-            - "0001_pls:3.1:1" → sub_index=1 (second model in subpipeline)
+    def _get_substep_from_artifact(self, artifact_id: str) -> Optional[int]:
+        """Get substep_index from artifact record (V3).
 
         Args:
-            artifact_id: Artifact ID to parse.
+            artifact_id: Artifact ID to look up.
 
         Returns:
-            Sub_index (substep number) or None if not present.
+            substep_index or None if not found.
         """
-        parts = artifact_id.split(":")
-        if len(parts) < 3:
+        if self.artifact_loader is None:
             return None
-
-        # The step.sub_index is in the second-to-last part
-        step_part = parts[-2]
-
-        if "." in step_part:
-            try:
-                return int(step_part.split(".")[-1])
-            except ValueError:
-                return None
+        try:
+            record = self.artifact_loader.get_record(artifact_id)
+            if record is not None:
+                return record.substep_index
+        except (KeyError, AttributeError):
+            pass
         return None
 
     def _prepare_replay(

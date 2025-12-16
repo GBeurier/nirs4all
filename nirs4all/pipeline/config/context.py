@@ -383,13 +383,19 @@ class ArtifactProvider(ABC):
     def get_artifacts_for_step(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
+        branch_path: Optional[List[int]] = None,
+        branch_id: Optional[int] = None,
+        source_index: Optional[int] = None,
+        substep_index: Optional[int] = None
     ) -> List[Tuple[str, Any]]:
         """Get all artifacts for a step.
 
         Args:
             step_index: 1-based step index
             branch_path: Optional branch path filter
+            branch_id: Optional branch ID filter
+            source_index: Optional source/dataset index filter for multi-source
+            substep_index: Optional substep index filter for branch substeps
 
         Returns:
             List of (artifact_id, artifact_object) tuples
@@ -441,6 +447,31 @@ class ArtifactProvider(ABC):
         if artifacts:
             return artifacts[0][1]
         return None
+
+    def get_artifact_by_chain(self, chain_path: str) -> Optional[Any]:
+        """Get artifact by V3 chain path (optional V3 method).
+
+        Args:
+            chain_path: Full operator chain path (e.g., "s1.MinMaxScaler>s3.PLS")
+
+        Returns:
+            Artifact object or None if not found
+        """
+        return None  # Default implementation returns None
+
+    def get_artifacts_for_chain_prefix(
+        self,
+        chain_prefix: str
+    ) -> List[Tuple[str, Any]]:
+        """Get all artifacts matching a chain path prefix (optional V3 method).
+
+        Args:
+            chain_prefix: Chain path prefix to match
+
+        Returns:
+            List of (chain_path, artifact_object) tuples
+        """
+        return []  # Default implementation returns empty list
 
 
 class MapArtifactProvider(ArtifactProvider):
@@ -524,13 +555,19 @@ class MapArtifactProvider(ArtifactProvider):
     def get_artifacts_for_step(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
+        branch_path: Optional[List[int]] = None,
+        branch_id: Optional[int] = None,
+        source_index: Optional[int] = None,
+        substep_index: Optional[int] = None
     ) -> List[Tuple[str, Any]]:
         """Get all artifacts for a step.
 
         Args:
             step_index: 1-based step index
             branch_path: Optional branch path filter (not used in map provider)
+            branch_id: Optional branch ID filter (not used in map provider)
+            source_index: Optional source/dataset index filter (not used in map provider)
+            substep_index: Optional substep index filter (not used in map provider)
 
         Returns:
             List of (artifact_id, artifact_object) tuples
@@ -647,13 +684,19 @@ class LoaderArtifactProvider(ArtifactProvider):
     def get_artifacts_for_step(
         self,
         step_index: int,
-        branch_path: Optional[List[int]] = None
+        branch_path: Optional[List[int]] = None,
+        branch_id: Optional[int] = None,
+        source_index: Optional[int] = None,
+        substep_index: Optional[int] = None
     ) -> List[Tuple[str, Any]]:
         """Get all artifacts for a step.
 
         Args:
             step_index: 1-based step index
             branch_path: Optional branch path filter
+            branch_id: Optional branch ID filter
+            source_index: Optional source index filter for multi-source pipelines
+            substep_index: Optional substep index filter (not used in loader provider)
 
         Returns:
             List of (artifact_id, artifact_object) tuples
@@ -661,8 +704,16 @@ class LoaderArtifactProvider(ArtifactProvider):
         if self.trace is not None:
             step = self.trace.get_step(step_index)
             if step and step.artifacts:
+                # Get artifact IDs, optionally filtered by source_index
+                if source_index is not None and step.artifacts.by_source:
+                    # Use by_source index for filtering
+                    artifact_ids = step.artifacts.by_source.get(source_index, [])
+                else:
+                    # Use all artifact IDs
+                    artifact_ids = step.artifacts.artifact_ids
+
                 results = []
-                for artifact_id in step.artifacts.artifact_ids:
+                for artifact_id in artifact_ids:
                     try:
                         obj = self.loader.load_by_id(artifact_id)
                         results.append((artifact_id, obj))
@@ -719,6 +770,35 @@ class LoaderArtifactProvider(ArtifactProvider):
 
         # Fallback: use loader's step check
         return self.loader.has_binaries_for_step(step_index)
+
+    def get_artifact_by_chain(self, chain_path: str) -> Optional[Any]:
+        """Get artifact by V3 chain path.
+
+        Args:
+            chain_path: Full operator chain path (e.g., "s1.MinMaxScaler>s3.PLS")
+
+        Returns:
+            Artifact object or None if not found
+        """
+        if hasattr(self.loader, 'load_by_chain'):
+            return self.loader.load_by_chain(chain_path)
+        return None
+
+    def get_artifacts_for_chain_prefix(
+        self,
+        chain_prefix: str
+    ) -> List[Tuple[str, Any]]:
+        """Get all artifacts matching a chain path prefix.
+
+        Args:
+            chain_prefix: Chain path prefix to match
+
+        Returns:
+            List of (chain_path, artifact_object) tuples
+        """
+        if hasattr(self.loader, 'load_by_chain_prefix'):
+            return self.loader.load_by_chain_prefix(chain_prefix)
+        return []
 
 
 class ExecutionContext:
@@ -932,6 +1012,8 @@ class RuntimeContext:
     step_number: int = 0
     operation_count: int = 0
     substep_number: int = -1
+    processing_counter: int = 0  # Global counter for unique processing indices within a step
+    artifact_load_counter: Dict[int, int] = field(default_factory=dict)  # Per-source artifact load counter
     target_model: Optional[Dict[str, Any]] = None
     explainer: Any = None
     trace_recorder: Any = None  # TraceRecorder instance for execution trace recording
@@ -941,6 +1023,43 @@ class RuntimeContext:
         """Get the next operation ID."""
         self.operation_count += 1
         return self.operation_count
+
+    def next_processing_index(self) -> int:
+        """Get the next unique processing index for artifact identification.
+
+        This counter persists across all sub-operations within a step (e.g.,
+        feature_augmentation), ensuring each transformer gets a unique substep_index.
+        The counter is reset at the start of each step.
+
+        Returns:
+            int: A unique processing index within the current step.
+        """
+        idx = self.processing_counter
+        self.processing_counter += 1
+        return idx
+
+    def reset_processing_counter(self) -> None:
+        """Reset the processing counter at the start of each step."""
+        self.processing_counter = 0
+        self.artifact_load_counter = {}  # Also reset artifact load counter
+
+    def next_artifact_load_index(self, source_index: int) -> int:
+        """Get the next artifact load index for a source during prediction.
+
+        This counter tracks how many artifacts have been loaded for each source
+        across all sub-operations within a step (e.g., feature_augmentation).
+
+        Args:
+            source_index: The source index to track.
+
+        Returns:
+            int: The next artifact index to load for this source.
+        """
+        if source_index not in self.artifact_load_counter:
+            self.artifact_load_counter[source_index] = 0
+        idx = self.artifact_load_counter[source_index]
+        self.artifact_load_counter[source_index] += 1
+        return idx
 
     def should_train_step(self, step_index: int, is_model: bool = False) -> bool:
         """Determine if a step should train based on retrain configuration.
@@ -1010,14 +1129,20 @@ class RuntimeContext:
         artifact_id: str,
         is_primary: bool = False,
         fold_id: Optional[int] = None,
+        chain_path: Optional[str] = None,
+        branch_path: Optional[List[int]] = None,
+        source_index: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> None:
-        """Record an artifact created during the current step.
+        """Record an artifact created during the current step (V3).
 
         Args:
-            artifact_id: The artifact ID
+            artifact_id: The V3 artifact ID
             is_primary: Whether this is the primary artifact (e.g., model)
             fold_id: CV fold ID if fold-specific artifact
+            chain_path: V3 operator chain path for this artifact
+            branch_path: Branch path for indexing
+            source_index: Source index for multi-source artifacts
             metadata: Additional artifact metadata
         """
         if self.trace_recorder is not None:
@@ -1025,6 +1150,9 @@ class RuntimeContext:
                 artifact_id=artifact_id,
                 is_primary=is_primary,
                 fold_id=fold_id,
+                chain_path=chain_path,
+                branch_path=branch_path,
+                source_index=source_index,
                 metadata=metadata
             )
 

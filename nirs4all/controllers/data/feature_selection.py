@@ -175,12 +175,13 @@ class FeatureSelectionController(OperatorController):
                 if mode == "predict" or mode == "explain":
                     selector = None
 
-                    # Phase 4: Try artifact_provider first (controller-agnostic approach)
+                    # V3: Use artifact_provider for chain-based loading
                     if runtime_context.artifact_provider is not None:
                         step_index = runtime_context.step_number
                         step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
                             step_index,
-                            branch_path=context.selector.branch_path
+                            branch_path=context.selector.branch_path,
+                            source_index=sd_idx
                         )
                         # Find artifact by name matching
                         for artifact_id, obj in step_artifacts:
@@ -188,13 +189,9 @@ class FeatureSelectionController(OperatorController):
                                 selector = obj
                                 break
 
-                    # Fallback: Try loaded_binaries (legacy approach)
-                    if selector is None and loaded_binaries:
-                        selector = dict(loaded_binaries).get(new_operator_name)
-
                     if selector is None:
                         raise ValueError(
-                            f"Binary for {new_operator_name} not found"
+                            f"Feature selector {new_operator_name} not found at step {runtime_context.step_number}"
                         )
                 elif master_selector is None:
                     # First preprocessing: fit the master selector

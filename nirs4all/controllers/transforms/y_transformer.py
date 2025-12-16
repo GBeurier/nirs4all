@@ -115,12 +115,6 @@ class YTransformerMixinController(OperatorController):
         # Normalize to list and instantiate class types
         operators = self._normalize_operators(operator)
 
-        # Convert loaded_binaries to dict for easy lookup by name while preserving order
-        binaries_list: List[Tuple[str, Any]] = list(loaded_binaries or [])
-        binaries_dict: Dict[str, Any] = {}
-        if loaded_binaries:
-            binaries_dict = {name: obj for name, obj in loaded_binaries}
-
         # Execute each transformer sequentially
         current_context = context
         all_artifacts = []
@@ -132,9 +126,7 @@ class YTransformerMixinController(OperatorController):
                 dataset=dataset,
                 context=current_context,
                 runtime_context=runtime_context,
-                mode=mode,
-                binaries_dict=binaries_dict,
-                binaries_list=binaries_list
+                mode=mode
             )
             all_artifacts.extend(artifacts)
 
@@ -172,9 +164,7 @@ class YTransformerMixinController(OperatorController):
         dataset: 'SpectroDataset',
         context: ExecutionContext,
         runtime_context: 'RuntimeContext',
-        mode: str,
-        binaries_dict: Dict[str, Any],
-        binaries_list: Optional[List[Tuple[str, Any]]] = None
+        mode: str
     ) -> Tuple[ExecutionContext, List[Any]]:
         """Execute a single transformer on dataset targets.
 
@@ -185,7 +175,6 @@ class YTransformerMixinController(OperatorController):
             context: Current execution context
             runtime_context: Runtime context for artifact persistence
             mode: Execution mode
-            binaries_dict: Pre-loaded binaries dict for predict/explain mode
 
         Returns:
             Tuple of (updated_context, artifacts_list)
@@ -205,8 +194,7 @@ class YTransformerMixinController(OperatorController):
         if mode in ("predict", "explain"):
             fitted_transformer = None
 
-            # Phase 4: Try artifact_provider first (controller-agnostic approach)
-            # Use name-based matching from step artifacts
+            # V3: Use artifact_provider for chain-based loading
             if runtime_context.artifact_provider is not None:
                 step_index = runtime_context.step_number
                 step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
@@ -235,33 +223,6 @@ class YTransformerMixinController(OperatorController):
                         transformer_index
                     )
 
-            # Fallback: Try loaded_binaries (legacy approach)
-            if fitted_transformer is None:
-                # Try to find the transformer in loaded binaries
-                fitted_transformer = binaries_dict.get(artifact_name)
-
-                if fitted_transformer is None:
-                    # Fallback: try without index suffix for backward compatibility
-                    legacy_name = f"y_{operator_name}"
-                    fitted_transformer = binaries_dict.get(legacy_name)
-
-                if fitted_transformer is None:
-                    # Fallback: search by class name pattern (handles v2 artifact system)
-                    # Look for any key matching y_{class_name}_{number}
-                    import re
-                    pattern = re.compile(rf'^y_{re.escape(operator_name)}_(\d+)$')
-                    for key, obj in binaries_dict.items():
-                        if pattern.match(key):
-                            fitted_transformer = obj
-                            break
-
-                if fitted_transformer is None and binaries_list:
-                    fitted_transformer = self._match_transformer_by_class(
-                        operator_name,
-                        binaries_list,
-                        transformer_index
-                    )
-
             if fitted_transformer is not None:
                 dataset._targets.add_processed_targets(
                     processing_name=new_processing_name,
@@ -275,8 +236,7 @@ class YTransformerMixinController(OperatorController):
             else:
                 # No pre-fitted transformer found - this shouldn't happen in proper predict mode
                 raise ValueError(
-                    f"No fitted transformer found for '{artifact_name}' in loaded binaries. "
-                    f"Available: {list(binaries_dict.keys())}"
+                    f"No fitted transformer found for '{artifact_name}' at step {runtime_context.step_number}"
                 )
 
         # Training mode: fit and transform
@@ -344,10 +304,10 @@ class YTransformerMixinController(OperatorController):
         name: str,
         context: ExecutionContext
     ) -> Any:
-        """Persist fitted Y transformer using artifact registry or legacy saver.
+        """Persist fitted Y transformer using V3 artifact registry.
 
-        Uses artifact_registry.register() if available (v2 system), otherwise
-        falls back to saver.persist_artifact() (legacy).
+        Uses artifact_registry.register() with V3 chain-based identification
+        for complete execution path tracking.
 
         Args:
             runtime_context: Runtime context with saver/registry instances.
@@ -356,9 +316,9 @@ class YTransformerMixinController(OperatorController):
             context: Execution context with branch information.
 
         Returns:
-            ArtifactRecord (v2) or ArtifactMeta (legacy) with persistence metadata.
+            ArtifactRecord with V3 chain-based metadata, or None if no registry.
         """
-        # Use artifact registry if available (v2 system)
+        # Use artifact registry (V3 system)
         if runtime_context.artifact_registry is not None:
             registry = runtime_context.artifact_registry
             pipeline_id = runtime_context.saver.pipeline_id if runtime_context.saver else "unknown"
@@ -366,61 +326,59 @@ class YTransformerMixinController(OperatorController):
             branch_path = context.selector.branch_path or []
 
             # Extract the operation counter from the name (e.g., "y_MinMaxScaler_1" -> 1)
-            sub_index = None
+            substep_index = None
             if "_" in name:
                 try:
-                    sub_index = int(name.rsplit("_", 1)[1])
+                    substep_index = int(name.rsplit("_", 1)[1])
                 except (ValueError, IndexError):
                     pass
 
-            # Generate deterministic artifact ID
-            artifact_id = registry.generate_id(
-                pipeline_id=pipeline_id,
-                branch_path=branch_path,
+            # V3: Build operator chain for this artifact
+            from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorNode, OperatorChain
+
+            # Get the current chain from trace recorder or build new one
+            if runtime_context.trace_recorder is not None:
+                current_chain = runtime_context.trace_recorder.current_chain()
+            else:
+                current_chain = OperatorChain(pipeline_id=pipeline_id)
+
+            # Create node for this Y transformer
+            transformer_node = OperatorNode(
                 step_index=step_index,
-                fold_id=None,  # Y transformers are shared across folds
-                sub_index=sub_index
+                operator_class=f"y_{transformer.__class__.__name__}",  # Prefix with y_ to distinguish
+                branch_path=branch_path,
+                source_index=None,  # Y transformers don't have source index
+                fold_id=None,  # Shared across folds
+                substep_index=substep_index,
             )
+
+            # Build chain path for this artifact
+            artifact_chain = current_chain.append(transformer_node)
+            chain_path = artifact_chain.to_path()
+
+            # Generate V3 artifact ID using chain
+            artifact_id = registry.generate_id(chain_path, None, pipeline_id)
 
             # Register artifact with registry (use ENCODER type for y transformers)
             record = registry.register(
                 obj=transformer,
                 artifact_id=artifact_id,
                 artifact_type=ArtifactType.ENCODER,
-                format_hint='sklearn'
+                format_hint='sklearn',
+                chain_path=chain_path,
             )
 
-            # Record artifact in execution trace
-            # This is critical for minimal pipeline extraction during prediction
+            # Record artifact in execution trace with V3 chain info
             runtime_context.record_step_artifact(
                 artifact_id=artifact_id,
                 is_primary=False,
                 fold_id=None,
+                chain_path=chain_path,
+                branch_path=branch_path,
                 metadata={"class_name": transformer.__class__.__name__, "name": name}
             )
 
             return record
 
-        # Fallback to legacy saver.persist_artifact()
-        result = runtime_context.saver.persist_artifact(
-            step_number=runtime_context.step_number,
-            name=name,
-            obj=transformer,
-            format_hint='sklearn',
-            branch_id=context.selector.branch_id,
-            branch_name=context.selector.branch_name
-        )
-
-        # Record artifact in execution trace for legacy path
-        legacy_artifact_id = (
-            f"{runtime_context.saver.pipeline_id}:"
-            f"{runtime_context.step_number}:all"
-        )
-        runtime_context.record_step_artifact(
-            artifact_id=legacy_artifact_id,
-            is_primary=False,
-            fold_id=None,
-            metadata={"class_name": transformer.__class__.__name__, "name": name, "legacy": True}
-        )
-
-        return result
+        # No registry available - skip persistence (for unit tests)
+        return None

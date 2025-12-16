@@ -1,22 +1,27 @@
 """
-Artifact Loader - Load artifacts by ID or execution context.
+Artifact Loader V3 - Chain-based artifact loading for prediction replay.
 
-This module provides the ArtifactLoader class which replaces the legacy BinaryLoader.
-It supports:
-- Loading by artifact ID
-- Loading by step/branch/fold context
+This module provides the ArtifactLoader class which loads artifacts using
+the V3 chain-based identification system. It supports:
+
+- Loading by V3 artifact ID (pipeline$hash:fold)
+- Loading by operator chain path
+- Loading by step/branch/source/fold context
 - Transitive dependency resolution for stacking
 - Per-fold model loading for CV averaging
 - LRU caching for efficient reuse
-- Lazy loading (artifacts only loaded when accessed)
+
+V3 Key Features:
+- Chain path indexing for deterministic artifact lookup
+- Source index tracking for multi-source pipelines
+- Unified handling of branching, stacking, and bundles
 
 The loader works with centralized storage at workspace/binaries/<dataset>/
-and reads artifact metadata from v2 manifests.
+and reads artifact metadata from V3 manifests.
 """
 
 import logging
 from collections import OrderedDict
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -25,11 +30,12 @@ from nirs4all.pipeline.storage.artifacts.types import (
     ArtifactRecord,
     ArtifactType,
 )
-from nirs4all.pipeline.storage.artifacts.utils import (
-    get_binaries_path,
-    parse_artifact_id,
-    artifact_id_matches_context,
+from nirs4all.pipeline.storage.artifacts.operator_chain import (
+    OperatorChain,
+    OperatorNode,
+    is_v3_artifact_id,
 )
+from nirs4all.pipeline.storage.artifacts.utils import get_binaries_path
 
 
 logger = logging.getLogger(__name__)
@@ -118,15 +124,21 @@ class LRUCache:
 
 
 class ArtifactLoader:
-    """Load artifacts by ID or execution context.
+    """Load artifacts using V3 chain-based identification.
 
     This class provides efficient loading of artifacts from centralized storage,
     with support for:
-    - Direct loading by artifact ID
-    - Context-based loading (step/branch/fold)
+    - Direct loading by V3 artifact ID (pipeline$hash:fold)
+    - Chain path-based loading for deterministic replay
+    - Context-based loading (step/branch/source/fold)
     - Dependency resolution for stacking meta-models
     - Per-fold model loading for cross-validation ensemble
     - LRU caching to avoid redundant I/O
+
+    V3 Key Features:
+    - Chain path indexing for O(1) lookup by chain
+    - Source index support for multi-source pipelines
+    - Branch path filtering using chain metadata
 
     The loader uses lazy loading - artifacts are only deserialized when
     actually accessed via load_by_id() or related methods.
@@ -136,12 +148,11 @@ class ArtifactLoader:
         dataset: Dataset name
         binaries_dir: Path to centralized binaries
         results_dir: Path to results directory (for manifest reference)
-        artifacts: Dictionary mapping artifact_id to ArtifactRecord
 
     Example:
         >>> loader = ArtifactLoader.from_manifest(manifest, results_dir)
-        >>> model = loader.load_by_id("0001:3:all")
-        >>> fold_models = loader.load_fold_models(step_index=3)
+        >>> model = loader.load_by_id("0001_pls$abc123def456:0")
+        >>> artifacts = loader.load_by_chain("s1.MinMaxScaler>s3.PLS[br=0]")
     """
 
     # Default cache size (number of artifacts)
@@ -169,11 +180,12 @@ class ArtifactLoader:
         # Centralized binaries directory
         self.binaries_dir = get_binaries_path(self.workspace, dataset)
 
-        # Artifact index
+        # Artifact index by artifact_id
         self._artifacts: Dict[str, ArtifactRecord] = {}
 
-        # Content hash to artifact ID mapping (for deduplication)
-        self._by_content_hash: Dict[str, str] = {}
+        # V3 indexes for efficient lookup
+        self._by_chain_path: Dict[str, str] = {}  # chain_path -> artifact_id
+        self._by_content_hash: Dict[str, str] = {}  # content_hash -> artifact_id
 
         # LRU cache for loaded objects (artifact_id -> object)
         self._cache = LRUCache(max_size=cache_size)
@@ -181,14 +193,120 @@ class ArtifactLoader:
         # Dependency graph for resolution
         self._dependencies: Dict[str, List[str]] = {}
 
+    # =========================================================================
+    # V3 Chain-Based Loading
+    # =========================================================================
+
+    def load_by_chain(
+        self,
+        chain: str,
+        fold_id: Optional[int] = None
+    ) -> Optional[Any]:
+        """Load artifact by exact chain path match.
+
+        Args:
+            chain: Operator chain path string (e.g., "s1.MinMaxScaler>s3.PLS[br=0]")
+            fold_id: Optional fold ID filter
+
+        Returns:
+            Loaded artifact object or None if not found
+        """
+        artifact_id = self._by_chain_path.get(chain)
+        if artifact_id:
+            record = self._artifacts.get(artifact_id)
+            if record and (fold_id is None or record.fold_id == fold_id):
+                return self.load_by_id(artifact_id)
+        return None
+
+    def load_by_chain_prefix(
+        self,
+        prefix: str,
+        branch_path: Optional[List[int]] = None,
+        source_index: Optional[int] = None
+    ) -> List[Tuple[str, Any]]:
+        """Load all artifacts whose chain path starts with the given prefix.
+
+        Useful for loading all artifacts in a chain for prediction replay.
+
+        Args:
+            prefix: Chain path prefix to match
+            branch_path: Optional branch path filter
+            source_index: Optional source index filter
+
+        Returns:
+            List of (artifact_id, loaded_object) tuples
+        """
+        results = []
+        for chain_path, artifact_id in self._by_chain_path.items():
+            if chain_path.startswith(prefix):
+                record = self._artifacts.get(artifact_id)
+                if record:
+                    # Apply filters
+                    if branch_path is not None and record.branch_path != branch_path:
+                        continue
+                    if source_index is not None and record.source_index != source_index:
+                        continue
+                    try:
+                        obj = self.load_by_id(artifact_id)
+                        results.append((artifact_id, obj))
+                    except (KeyError, FileNotFoundError) as e:
+                        logger.warning(f"Failed to load artifact {artifact_id}: {e}")
+
+        return results
+
+    def get_record_by_chain(self, chain_path: str) -> Optional[ArtifactRecord]:
+        """Get artifact record by chain path.
+
+        Args:
+            chain_path: Operator chain path
+
+        Returns:
+            ArtifactRecord or None if not found
+        """
+        artifact_id = self._by_chain_path.get(chain_path)
+        if artifact_id:
+            return self._artifacts.get(artifact_id)
+        return None
+
+    def get_artifacts_by_chain_filter(
+        self,
+        step_index: Optional[int] = None,
+        branch_path: Optional[List[int]] = None,
+        source_index: Optional[int] = None,
+        fold_id: Optional[int] = None
+    ) -> List[ArtifactRecord]:
+        """Get artifact records matching chain-based filters.
+
+        Uses the chain_path information stored in V3 records to filter.
+
+        Args:
+            step_index: Filter by step index
+            branch_path: Filter by branch path
+            source_index: Filter by source index
+            fold_id: Filter by fold ID
+
+        Returns:
+            List of matching ArtifactRecords
+        """
+        results = []
+        for record in self._artifacts.values():
+            if not record.matches_context(step_index, branch_path, source_index, fold_id):
+                continue
+            results.append(record)
+        return results
+
+    # =========================================================================
+    # Primary Loading Methods
+    # =========================================================================
+
     def load_by_id(self, artifact_id: str) -> Any:
-        """Load a single artifact by its ID.
+        """Load a single artifact by its V3 ID.
 
         Uses LRU cache to avoid redundant disk I/O. Artifacts are loaded
         lazily on first access.
 
         Args:
-            artifact_id: Unique artifact identifier
+            artifact_id: V3 artifact identifier (pipeline$hash:fold)
 
         Returns:
             Deserialized artifact object
@@ -220,18 +338,20 @@ class ArtifactLoader:
         self,
         step_index: int,
         branch_path: Optional[List[int]] = None,
+        source_index: Optional[int] = None,
         fold_id: Optional[int] = None,
         pipeline_id: Optional[str] = None
     ) -> List[Tuple[str, Any]]:
         """Load all artifacts for a step context.
 
-        Returns artifacts matching the specified step, branch path, and fold.
+        Returns artifacts matching the specified step, branch path, source, and fold.
         If branch_path is provided, includes both branch-specific and shared
         (pre-branch) artifacts.
 
         Args:
             step_index: Step number to load
             branch_path: Optional branch path filter
+            source_index: Optional source index filter
             fold_id: Optional fold ID filter
             pipeline_id: Optional pipeline ID filter
 
@@ -256,6 +376,11 @@ class ArtifactLoader:
             # - record branch matches request
             if record.branch_path:
                 if record.branch_path != branch_path:
+                    continue
+
+            # Check source_index if specified
+            if source_index is not None and record.source_index is not None:
+                if record.source_index != source_index:
                     continue
 
             # Check fold_id
@@ -295,7 +420,6 @@ class ArtifactLoader:
             KeyError: If artifact or dependency not found
             ValueError: If cycle detected in dependencies
         """
-        # Resolve all dependencies (topologically sorted)
         dep_ids = self._resolve_dependencies(artifact_id)
 
         # Load in order
@@ -756,9 +880,9 @@ class ArtifactLoader:
         manifest: Dict[str, Any],
         results_dir: Optional[Path] = None
     ) -> None:
-        """Import artifact records from a manifest.
+        """Import artifact records from a V3 manifest.
 
-        Loads v2 format manifests into the loader's index.
+        Builds all indexes including chain_path index for V3 lookups.
 
         Args:
             manifest: Manifest dictionary
@@ -769,27 +893,23 @@ class ArtifactLoader:
 
         artifacts_section = manifest.get("artifacts", {})
 
-        # Handle v2 format with "items" list
+        # Handle V3 format with "items" list
         if isinstance(artifacts_section, dict) and "items" in artifacts_section:
             items = artifacts_section.get("items", [])
         elif isinstance(artifacts_section, list):
-            # Legacy v1 format - list directly
             items = artifacts_section
         else:
             items = []
 
         for item in items:
-            # Handle both v1 and v2 formats
             if isinstance(item, dict):
-                # Try v2 format first
-                if "artifact_id" in item:
-                    record = ArtifactRecord.from_dict(item)
-                else:
-                    # v1 format - convert
-                    record = self._convert_v1_artifact(item)
-
+                record = ArtifactRecord.from_dict(item)
                 self._artifacts[record.artifact_id] = record
                 self._by_content_hash[record.content_hash] = record.artifact_id
+
+                # V3: Index by chain_path
+                if record.chain_path:
+                    self._by_chain_path[record.chain_path] = record.artifact_id
 
                 # Track dependencies
                 if record.depends_on:
@@ -822,14 +942,7 @@ class ArtifactLoader:
         """Get information about the current cache state.
 
         Returns:
-            Dictionary with cache statistics including:
-            - cached_count: Number of cached artifacts
-            - max_size: Maximum cache size
-            - hits: Number of cache hits
-            - misses: Number of cache misses
-            - hit_rate: Cache hit rate (0.0 to 1.0)
-            - total_artifacts: Total number of registered artifacts
-            - artifacts_by_type: Count by artifact type
+            Dictionary with cache statistics
         """
         cache_stats = self._cache.stats
         return {
@@ -973,24 +1086,12 @@ class ArtifactLoader:
         Raises:
             FileNotFoundError: If artifact file doesn't exist
         """
-        # Try centralized binaries first (v2)
         artifact_path = self.binaries_dir / record.path
         if artifact_path.exists():
             content = artifact_path.read_bytes()
             return from_bytes(content, record.format)
 
-        # Fallback: try _binaries in results_dir (v1 compatibility)
-        legacy_path = self.results_dir / "_binaries" / record.path
-        if legacy_path.exists():
-            content = legacy_path.read_bytes()
-            return from_bytes(content, record.format)
-
-        raise FileNotFoundError(
-            f"Artifact not found: {record.path}\n"
-            f"Searched in:\n"
-            f"  - {artifact_path}\n"
-            f"  - {legacy_path}"
-        )
+        raise FileNotFoundError(f"Artifact not found: {artifact_path}")
 
     def _resolve_dependencies(
         self,
@@ -1005,11 +1106,10 @@ class ArtifactLoader:
             artifact_id: Starting artifact
             visited: Set of already-processed artifacts
             stack: Stack for cycle detection
-            _is_root: Internal flag to track if this is the top-level call
+            _is_root: Internal flag
 
         Returns:
             List of dependency artifact IDs in topological order
-            (excludes the starting artifact itself)
 
         Raises:
             ValueError: If cycle detected
@@ -1043,62 +1143,6 @@ class ArtifactLoader:
         if _is_root:
             return result[:-1]
         return result
-
-    def _convert_v1_artifact(self, item: Dict[str, Any]) -> ArtifactRecord:
-        """Convert v1 artifact format to ArtifactRecord.
-
-        Args:
-            item: v1 format artifact dictionary
-
-        Returns:
-            ArtifactRecord instance
-        """
-        # Build a synthetic artifact_id from v1 fields
-        step = item.get("step", 0)
-        branch_id = item.get("branch_id")
-        branch_path = [branch_id] if branch_id is not None else []
-
-        # For v1, we don't have pipeline_id, so use a placeholder
-        pipeline_id = "legacy"
-        artifact_id = f"{pipeline_id}:{step}:all"
-        if branch_path:
-            artifact_id = f"{pipeline_id}:{':'.join(map(str, branch_path))}:{step}:all"
-
-        # Determine artifact type from name or format
-        name = item.get("name", "")
-        if "model" in name.lower():
-            artifact_type = ArtifactType.MODEL
-        elif "scaler" in name.lower() or "transform" in name.lower():
-            artifact_type = ArtifactType.TRANSFORMER
-        elif "split" in name.lower():
-            artifact_type = ArtifactType.SPLITTER
-        elif "encoder" in name.lower():
-            artifact_type = ArtifactType.ENCODER
-        else:
-            artifact_type = ArtifactType.MODEL
-
-        # Extract class name from path if available
-        path = item.get("path", "")
-        class_name = path.split("_")[0] if "_" in path else name
-
-        return ArtifactRecord(
-            artifact_id=artifact_id,
-            content_hash=item.get("hash", ""),
-            path=path,
-            pipeline_id=pipeline_id,
-            branch_path=branch_path,
-            step_index=step,
-            fold_id=None,
-            artifact_type=artifact_type,
-            class_name=class_name,
-            depends_on=[],
-            format=item.get("format", "joblib"),
-            format_version=item.get("format_version", ""),
-            nirs4all_version=item.get("nirs4all_version", ""),
-            size_bytes=item.get("size", 0),
-            created_at=item.get("saved_at", ""),
-            params={},
-        )
 
     def _count_by_type(self) -> Dict[str, int]:
         """Count artifacts by type.

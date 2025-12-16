@@ -22,6 +22,13 @@ from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType
+from nirs4all.pipeline.storage.artifacts import generate_artifact_id_v3
+
+
+def make_v3_id(pipeline_id: str, step: int, fold_id=None, operator: str = "Model"):
+    """Helper to generate V3 artifact IDs for tests."""
+    chain_path = f"s{step}.{operator}"
+    return generate_artifact_id_v3(pipeline_id, chain_path, fold_id)
 
 
 def create_test_dataset(n_samples: int = 100, n_features: int = 50) -> SpectroDataset:
@@ -64,10 +71,13 @@ class TestFoldModelRegistration:
             model = Ridge(alpha=1.0)
             model.fit(np.array([[0], [1], [2]]), np.array([0, 1, 2]))
 
+            chain_path = f"s3.Ridge"
+            artifact_id = make_v3_id("0001", 3, fold_id, "Ridge")
             record = registry.register(
                 obj=model,
-                artifact_id=f"0001:3:{fold_id}",
-                artifact_type=ArtifactType.MODEL
+                artifact_id=artifact_id,
+                artifact_type=ArtifactType.MODEL,
+                chain_path=chain_path
             )
 
             assert record.fold_id == fold_id
@@ -81,10 +91,13 @@ class TestFoldModelRegistration:
             model = Ridge(alpha=1.0)
             model.fit(np.array([[fold_id], [fold_id + 1]]), np.array([0, 1]))
 
+            chain_path = f"s3.Ridge"
+            artifact_id = make_v3_id("0001", 3, fold_id, "Ridge")
             registry.register(
                 obj=model,
-                artifact_id=f"0001:3:{fold_id}",
-                artifact_type=ArtifactType.MODEL
+                artifact_id=artifact_id,
+                artifact_type=ArtifactType.MODEL,
+                chain_path=chain_path
             )
 
         # Retrieve fold models
@@ -110,10 +123,13 @@ class TestFoldModelRegistration:
             y = X.ravel()
             model.fit(X, y)
 
+            chain_path = f"s3.Ridge"
+            artifact_id = make_v3_id("0001", 3, fold_id, "Ridge")
             record = registry.register(
                 obj=model,
-                artifact_id=f"0001:3:{fold_id}",
-                artifact_type=ArtifactType.MODEL
+                artifact_id=artifact_id,
+                artifact_type=ArtifactType.MODEL,
+                chain_path=chain_path
             )
             records.append(record)
 
@@ -148,8 +164,10 @@ class TestFoldModelLoading:
             model.fit(X, y)
 
             meta = persist(model, binaries_dir, f"model_fold{fold_id}")
+            chain_path = "s3.Ridge"
+            artifact_id = make_v3_id("0001", 3, fold_id, "Ridge")
             items.append({
-                "artifact_id": f"0001:3:{fold_id}",
+                "artifact_id": artifact_id,
                 "content_hash": meta["hash"],
                 "path": meta["path"],
                 "pipeline_id": "0001",
@@ -159,6 +177,7 @@ class TestFoldModelLoading:
                 "artifact_type": "model",
                 "class_name": "Ridge",
                 "format": meta["format"],
+                "chain_path": chain_path,
             })
 
         manifest = {
@@ -198,8 +217,10 @@ class TestFoldModelLoading:
             model.fit(X, y)
 
             meta = persist(model, binaries_dir, f"model_fold{fold_id}")
+            chain_path = "s3.Ridge"
+            artifact_id = make_v3_id("0001", 3, fold_id, "Ridge")
             items.append({
-                "artifact_id": f"0001:3:{fold_id}",
+                "artifact_id": artifact_id,
                 "content_hash": meta["hash"],
                 "path": meta["path"],
                 "pipeline_id": "0001",
@@ -209,6 +230,7 @@ class TestFoldModelLoading:
                 "artifact_type": "model",
                 "class_name": "Ridge",
                 "format": meta["format"],
+                "chain_path": chain_path,
             })
 
         manifest = {

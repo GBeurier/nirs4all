@@ -21,6 +21,16 @@ from nirs4all.pipeline.storage.artifacts.types import (
     ArtifactType,
     MetaModelConfig,
 )
+from nirs4all.pipeline.storage.artifacts import generate_artifact_id_v3
+
+
+def make_v3_id(pipeline_id: str, step: int, fold_id=None, operator: str = "Model", branch_path=None):
+    """Helper to generate V3 artifact IDs for tests."""
+    branch_str = ""
+    if branch_path:
+        branch_str = f"[br={','.join(map(str, branch_path))}]"
+    chain_path = f"s{step}.{operator}{branch_str}"
+    return generate_artifact_id_v3(pipeline_id, chain_path, fold_id)
 
 
 class TestDependencyGraph:
@@ -142,14 +152,17 @@ class TestArtifactRegistry:
         assert registry.binaries_dir.exists()
 
     def test_generate_id(self, registry):
-        """Test ID generation."""
+        """Test ID generation with V3 chain-based format."""
+        chain_path = "s3.PLS[br=0]"
         artifact_id = registry.generate_id(
-            pipeline_id="0001_pls",
-            branch_path=[0],
-            step_index=3,
-            fold_id=0
+            chain=chain_path,
+            fold_id=0,
+            pipeline_id="0001_pls"
         )
-        assert artifact_id == "0001_pls:0:3:0"
+        # V3 format: {pipeline_id}${chain_hash}:{fold_id}
+        assert artifact_id.startswith("0001_pls$")
+        assert artifact_id.endswith(":0")
+        assert "$" in artifact_id
 
     def test_register_artifact(self, registry):
         """Test registering an artifact."""
@@ -251,15 +264,19 @@ class TestArtifactRegistry:
         """Test getting artifacts for a step."""
         from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
+        chain0 = "s0.StandardScaler"
+        chain1 = "s1.MinMaxScaler"
         registry.register(
             obj=StandardScaler(),
-            artifact_id="0001:0:all",
-            artifact_type=ArtifactType.TRANSFORMER
+            artifact_id=make_v3_id("0001", 0, None, "StandardScaler"),
+            artifact_type=ArtifactType.TRANSFORMER,
+            chain_path=chain0
         )
         registry.register(
             obj=MinMaxScaler(),
-            artifact_id="0001:1:all",
-            artifact_type=ArtifactType.TRANSFORMER
+            artifact_id=make_v3_id("0001", 1, None, "MinMaxScaler"),
+            artifact_type=ArtifactType.TRANSFORMER,
+            chain_path=chain1
         )
 
         step0_artifacts = registry.get_artifacts_for_step(
@@ -275,10 +292,12 @@ class TestArtifactRegistry:
 
         # Register models for different folds
         for fold_id in range(3):
+            chain_path = "s3.LinearRegression"
             registry.register(
                 obj=LinearRegression(),
-                artifact_id=f"0001:3:{fold_id}",
-                artifact_type=ArtifactType.MODEL
+                artifact_id=make_v3_id("0001", 3, fold_id, "LinearRegression"),
+                artifact_type=ArtifactType.MODEL,
+                chain_path=chain_path
             )
 
         fold_models = registry.get_fold_models(
@@ -293,17 +312,21 @@ class TestArtifactRegistry:
         """Test exporting registry to manifest format."""
         from sklearn.preprocessing import StandardScaler
 
+        chain_path = "s0.StandardScaler"
+        artifact_id = make_v3_id("0001", 0, None, "StandardScaler")
         registry.register(
             obj=StandardScaler(),
-            artifact_id="0001:0:all",
-            artifact_type=ArtifactType.TRANSFORMER
+            artifact_id=artifact_id,
+            artifact_type=ArtifactType.TRANSFORMER,
+            chain_path=chain_path
         )
 
         manifest_section = registry.export_to_manifest()
 
-        assert manifest_section["schema_version"] == "2.0"
+        assert manifest_section["schema_version"] == "3.0"
         assert len(manifest_section["items"]) == 1
-        assert manifest_section["items"][0]["artifact_id"] == "0001:0:all"
+        # V3 format artifact ID
+        assert manifest_section["items"][0]["artifact_id"] == artifact_id
 
     def test_import_from_manifest(self, registry):
         """Test importing from manifest format."""

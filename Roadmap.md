@@ -10,6 +10,7 @@
 >   - [LightGBM] [Warning] No further splits with positive gain, best gain: -inf   >> look if parameters is passed on cloning (maybe there is a hidden bug)
 >   - [Generator] Verify count = 1
 >   - [Predict] Q5_predict is slow as hell
+>   - [Charts] check dataviz. Missing histograms, inverted heatmap color scale, --> Branching ?
 
 **Features**:
 > [headers/wavelengths] charts bug on wavelenghts. Add force format + review conversion. + Add to reflectance/absorbance
@@ -17,7 +18,7 @@
 > [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
 > [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
 
-
+> [Generator] Inner generation ?
 
 > *[GPU] Reorganize, condition and clean gpu import - Reset GPU between models correctly.
 
@@ -54,6 +55,8 @@
 > [Pipeline] Review and clean type for input in pipeline (launch from model, folder, file, etc.)
 
 **RELEASE** 0.6.0: MVP
+
+> [Aggregation] Outlier dedicated exclusion T²
 
 > [Design] Define all services
 

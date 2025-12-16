@@ -1,5 +1,5 @@
 """
-Minimal Pipeline Predictor - Execute minimal pipeline for prediction.
+Minimal Pipeline Predictor - Execute minimal pipeline for prediction (V3).
 
 This module provides the MinimalPredictor class which executes a minimal
 pipeline extracted from an execution trace. It reuses existing controllers
@@ -7,6 +7,11 @@ in predict mode with artifact injection.
 
 The MinimalPredictor is the key component of Phase 5: it ensures that
 prediction only runs the required steps, not the entire original pipeline.
+
+V3 Features:
+    - Chain-based artifact identification using chain_path
+    - ArtifactRecord metadata for branch/substep info (no ID parsing)
+    - Support for multi-source pipelines via source_index
 
 Design Principles:
     1. Controller-Agnostic: Uses existing controllers without hardcoding types
@@ -44,6 +49,7 @@ from nirs4all.pipeline.config.context import (
     ArtifactProvider,
     LoaderArtifactProvider,
 )
+from nirs4all.pipeline.storage.artifacts.types import ArtifactRecord, ArtifactType
 from nirs4all.pipeline.trace import MinimalPipeline, MinimalPipelineStep
 
 
@@ -51,17 +57,19 @@ logger = logging.getLogger(__name__)
 
 
 class MinimalArtifactProvider(ArtifactProvider):
-    """Artifact provider backed by a MinimalPipeline.
+    """Artifact provider backed by a MinimalPipeline (V3).
 
     Provides artifacts from the minimal pipeline's artifact map, which
     contains StepArtifacts extracted from the execution trace.
 
-    This provider is used during minimal pipeline prediction to inject
-    the correct artifacts into controllers by step index.
+    This provider uses V3 ArtifactRecord metadata (chain_path, branch_path,
+    substep_index) instead of parsing V2-style artifact IDs.
 
     Attributes:
         minimal_pipeline: The source MinimalPipeline
         artifact_loader: ArtifactLoader for loading actual artifact objects
+        target_sub_index: Filter artifacts by substep_index
+        target_model_name: Filter artifacts by custom_name
     """
 
     def __init__(
@@ -76,7 +84,7 @@ class MinimalArtifactProvider(ArtifactProvider):
         Args:
             minimal_pipeline: MinimalPipeline with artifact mappings
             artifact_loader: ArtifactLoader for loading artifact objects
-            target_sub_index: Optional sub_index to filter model artifacts.
+            target_sub_index: Optional substep_index to filter model artifacts.
                               Used when a subpipeline contains multiple models
                               (e.g., [JaxMLPRegressor, nicon]) and we need to
                               load artifacts for a specific one.
@@ -90,85 +98,63 @@ class MinimalArtifactProvider(ArtifactProvider):
         self.target_model_name = target_model_name
         self._cache: Dict[str, Any] = {}
 
-    def _parse_branch_from_artifact_id(self, artifact_id: str) -> Optional[int]:
-        """Parse branch index from artifact ID.
-
-        Artifact IDs encode branch information in the format:
-            "{pipeline_id}:{branch_path}:{step_index}:{fold_id}"
-
-        For branch artifacts:
-            - "0001_pls:0:4.1:all" → branch=0
-            - "0001_pls:1:4.2:all" → branch=1
-
-        For non-branch artifacts (no branch in path):
-            - "0001_pls:3:all" → branch=None
+    def _get_record(self, artifact_id: str) -> Optional[ArtifactRecord]:
+        """Get artifact record from loader.
 
         Args:
-            artifact_id: Artifact ID to parse.
+            artifact_id: Artifact ID to look up
 
         Returns:
-            Branch index (0, 1, ...) if artifact is from a branch,
+            ArtifactRecord or None if not found
+        """
+        try:
+            return self.artifact_loader.get_record(artifact_id)
+        except (KeyError, AttributeError):
+            return None
+
+    def _get_branch_from_record(self, artifact_id: str) -> Optional[int]:
+        """Get branch index from artifact record.
+
+        Uses ArtifactRecord.branch_path for V3 artifacts.
+
+        Args:
+            artifact_id: Artifact ID to look up
+
+        Returns:
+            First branch index (0, 1, ...) if artifact is from a branch,
             None if artifact is shared (pre-branch).
         """
-        parts = artifact_id.split(":")
-        if len(parts) < 3:
+        record = self._get_record(artifact_id)
+        if record is None:
             return None
 
-        # Format: pipeline_id:branch_path...:step_index:fold_id
-        # Minimum without branch: "pipeline:step:fold" (3 parts)
-        # With one branch level: "pipeline:branch:step:fold" (4 parts)
-        # The branch_path is between pipeline_id (first) and step:fold (last 2)
+        if record.branch_path and len(record.branch_path) > 0:
+            return record.branch_path[0]
+        return None
 
-        if len(parts) == 3:
-            # No branch in path: "pipeline:step:fold"
-            return None
+    def _get_substep_from_record(self, artifact_id: str) -> Optional[int]:
+        """Get substep_index from artifact record.
 
-        # More than 3 parts means there's branch info
-        # parts[1:-2] contains the branch path
-        # First element of branch path is the top-level branch index
-        try:
-            return int(parts[1])
-        except ValueError:
-            return None
-
-    def _parse_sub_index_from_artifact_id(self, artifact_id: str) -> Optional[int]:
-        """Parse sub_index (operation counter) from artifact ID.
-
-        Artifact IDs include a sub_index for transformers:
-            "{pipeline_id}:{step_index}.{sub_index}:{fold_id}"
-
-        For example:
-            - "0001_pls:1.1:all" → sub_index=1
-            - "0001_pls:1.2:all" → sub_index=2
-            - "0001_pls:0:4.3:all" → sub_index=3 (with branch)
+        Uses ArtifactRecord.substep_index for V3 artifacts.
 
         Args:
-            artifact_id: Artifact ID to parse.
+            artifact_id: Artifact ID to look up
 
         Returns:
-            Sub_index (operation counter) or None if not present.
+            Substep index or None if not present.
         """
-        parts = artifact_id.split(":")
-        if len(parts) < 3:
+        record = self._get_record(artifact_id)
+        if record is None:
             return None
-
-        # The step.sub_index is in the second-to-last part
-        step_part = parts[-2]
-
-        if "." in step_part:
-            try:
-                return int(step_part.split(".")[-1])
-            except ValueError:
-                return None
-        return None
+        return record.substep_index
 
     def _derive_operator_name(
         self, obj: Any, artifact_id: str, step_index: Optional[int] = None
     ) -> str:
-        """Derive operator name from object class and artifact sub_index.
+        """Derive operator name from object class and artifact metadata.
 
         Reconstructs names like "MinMaxScaler_1" from the object's class
-        and the sub_index encoded in the artifact ID. For y_processing
+        and the substep_index from the artifact record. For y_processing
         steps, adds "y_" prefix to match the naming convention used
         during training (e.g., "y_MinMaxScaler_1").
 
@@ -178,11 +164,13 @@ class MinimalArtifactProvider(ArtifactProvider):
             step_index: Optional step index for checking if y_processing.
 
         Returns:
-            Operator name in format "{ClassName}_{sub_index}" or class name.
-            For y_processing steps: "y_{ClassName}_{sub_index}".
+            Operator name in format "{ClassName}_{substep_index}" or class name.
+            For y_processing steps: "y_{ClassName}_{substep_index}".
         """
         class_name = obj.__class__.__name__
-        sub_index = self._parse_sub_index_from_artifact_id(artifact_id)
+
+        # Get substep_index from artifact record (V3 approach)
+        sub_index = self._get_substep_from_record(artifact_id)
 
         # Check if this is a y_processing step
         is_y_processing = False
@@ -235,23 +223,27 @@ class MinimalArtifactProvider(ArtifactProvider):
         self,
         step_index: int,
         branch_path: Optional[List[int]] = None,
-        branch_id: Optional[int] = None
+        branch_id: Optional[int] = None,
+        source_index: Optional[int] = None,
+        substep_index: Optional[int] = None
     ) -> List[Tuple[str, Any]]:
-        """Get all artifacts for a step.
+        """Get all artifacts for a step (V3).
 
-        Filters artifacts by branch using the branch information encoded
-        in the artifact ID. This is critical for multisource + branching
-        reload, where branch substep artifacts are lumped together in the
-        execution trace but can be distinguished by their artifact IDs.
+        Filters artifacts by branch using the branch_path from ArtifactRecord.
+        This is critical for multisource + branching reload, where branch
+        substep artifacts are lumped together in the execution trace but can
+        be distinguished by their artifact records.
 
         Returns tuples of (operator_name, artifact_object) where operator_name
-        is derived from the object class and sub_index (e.g., "MinMaxScaler_1").
+        is derived from the object class and substep_index (e.g., "MinMaxScaler_1").
         This allows transformer controllers to look up artifacts by name.
 
         Args:
             step_index: 1-based step index
             branch_path: Optional branch path filter (e.g., [0] for branch 0)
             branch_id: Optional branch ID filter (used when branch_path not available)
+            source_index: Optional source/dataset index filter for multi-source
+            substep_index: Optional substep index filter for branch substeps
 
         Returns:
             List of (operator_name, artifact_object) tuples
@@ -270,16 +262,20 @@ class MinimalArtifactProvider(ArtifactProvider):
         # Debug: log filtering params
         logger.debug(
             f"get_artifacts_for_step({step_index}): target_sub_index={self.target_sub_index}, "
-            f"model_step_index={self.minimal_pipeline.model_step_index}"
+            f"substep_index={substep_index}, model_step_index={self.minimal_pipeline.model_step_index}"
         )
 
         results = []
         for artifact_id in step_artifacts.artifact_ids:
-            # Filter by branch if specified
-            # Parse the branch from artifact_id since execution trace step
-            # doesn't properly track branch info for branch substeps
+            # Get artifact record for V3 metadata
+            record = self._get_record(artifact_id)
+
+            # Filter by branch if specified - use record.branch_path
             if target_branch is not None:
-                artifact_branch = self._parse_branch_from_artifact_id(artifact_id)
+                artifact_branch = None
+                if record and record.branch_path:
+                    artifact_branch = record.branch_path[0] if len(record.branch_path) > 0 else None
+
                 # Include artifact if:
                 # - It has no branch (shared/pre-branch artifact)
                 # - Its branch matches the target branch
@@ -290,45 +286,56 @@ class MinimalArtifactProvider(ArtifactProvider):
                     )
                     continue
 
+            # Filter by substep_index if specified (for branch substeps)
+            # This ensures each transformer controller gets only its own artifact
+            if substep_index is not None and record is not None:
+                artifact_substep = record.substep_index
+                if artifact_substep is not None and artifact_substep != substep_index:
+                    logger.debug(
+                        f"Filtering artifact {artifact_id} (substep_index={artifact_substep}) "
+                        f"- target substep is {substep_index}"
+                    )
+                    continue
+
+            # Filter by source_index if specified (for multi-source datasets)
+            # Each source gets its own transformer artifact, and we need to select
+            # the correct one for the current source being processed
+            if source_index is not None and record is not None:
+                artifact_source = record.source_index
+                if artifact_source is not None and artifact_source != source_index:
+                    logger.debug(
+                        f"Filtering artifact {artifact_id} (source_index={artifact_source}) "
+                        f"- target source is {source_index}"
+                    )
+                    continue
+
             # Filter model artifacts to only load the correct model in subpipelines
             # This is critical when a list like [JaxMLPRegressor, nicon] creates
-            # artifacts with different sub_index values
-            # We try two filtering strategies:
-            # 1. Filter by sub_index (from model_artifact_id) - most reliable
-            # 2. Filter by custom_name (model name) - fallback for avg/w_avg predictions
+            # artifacts with different substep_index values
             should_filter = self.target_sub_index is not None or self.target_model_name is not None
 
-            if should_filter:
-                # Check if this artifact is a model by querying its type from the registry
-                is_model_artifact = False
-                record = None
-                try:
-                    record = self.artifact_loader.get_record(artifact_id)
-                    if record is not None:
-                        from nirs4all.pipeline.storage.artifacts.types import ArtifactType
-                        is_model_artifact = record.artifact_type in (
-                            ArtifactType.MODEL, ArtifactType.META_MODEL
-                        )
-                except Exception:
-                    pass
+            if should_filter and record is not None:
+                # Check if this artifact is a model by querying its type from the record
+                is_model_artifact = record.artifact_type in (
+                    ArtifactType.MODEL, ArtifactType.META_MODEL
+                )
 
                 if is_model_artifact:
-                    # Strategy 1: Filter by sub_index if available
+                    # Strategy 1: Filter by substep_index if available
                     if self.target_sub_index is not None:
-                        artifact_sub_index = self._parse_sub_index_from_artifact_id(artifact_id)
+                        artifact_sub_index = record.substep_index
                         if artifact_sub_index is not None and artifact_sub_index != self.target_sub_index:
                             logger.debug(
-                                f"Filtering artifact {artifact_id} (sub_index={artifact_sub_index}) "
+                                f"Filtering artifact {artifact_id} (substep_index={artifact_sub_index}) "
                                 f"- target sub_index is {self.target_sub_index}"
                             )
                             continue
                     # Strategy 2: Filter by model name (fallback for avg/w_avg predictions)
-                    elif self.target_model_name is not None and record is not None:
+                    elif self.target_model_name is not None:
                         # Check if artifact's custom_name matches target model name
-                        artifact_custom_name = getattr(record, 'custom_name', None)
-                        if artifact_custom_name and artifact_custom_name != self.target_model_name:
+                        if record.custom_name and record.custom_name != self.target_model_name:
                             logger.debug(
-                                f"Filtering artifact {artifact_id} (custom_name={artifact_custom_name}) "
+                                f"Filtering artifact {artifact_id} (custom_name={record.custom_name}) "
                                 f"- target model is {self.target_model_name}"
                             )
                             continue
@@ -354,6 +361,11 @@ class MinimalArtifactProvider(ArtifactProvider):
     ) -> List[Tuple[int, Any]]:
         """Get all fold-specific artifacts for a step.
 
+        Filters by target_sub_index when set (for subpipelines with multiple models).
+        When target_sub_index is set, looks through all artifact_ids instead of
+        fold_artifact_ids because fold_artifact_ids only stores the last model's
+        artifacts when multiple models exist in a subpipeline.
+
         Args:
             step_index: 1-based step index
             branch_path: Optional branch path filter
@@ -362,14 +374,59 @@ class MinimalArtifactProvider(ArtifactProvider):
             List of (fold_id, artifact_object) tuples, sorted by fold_id
         """
         step_artifacts = self.minimal_pipeline.get_artifacts_for_step(step_index)
-        if not step_artifacts or not step_artifacts.fold_artifact_ids:
+        if not step_artifacts:
             return []
 
         results = []
-        for fold_id, artifact_id in step_artifacts.fold_artifact_ids.items():
-            obj = self._load_artifact(artifact_id)
-            if obj is not None:
-                results.append((fold_id, obj))
+
+        # When target_sub_index is set, we need to search through all artifact_ids
+        # because fold_artifact_ids gets overwritten when multiple models exist in a subpipeline
+        if self.target_sub_index is not None:
+            for artifact_id in step_artifacts.artifact_ids:
+                record = self._get_record(artifact_id)
+                if record is None:
+                    continue
+
+                # Check if this is a model artifact with matching substep_index
+                is_model_artifact = record.artifact_type in (
+                    ArtifactType.MODEL, ArtifactType.META_MODEL
+                )
+                if not is_model_artifact:
+                    continue
+
+                artifact_sub_index = record.substep_index
+                if artifact_sub_index is not None and artifact_sub_index != self.target_sub_index:
+                    logger.debug(
+                        f"Filtering artifact {artifact_id} (substep_index={artifact_sub_index}) "
+                        f"- target sub_index is {self.target_sub_index}"
+                    )
+                    continue
+
+                # Extract fold_id from artifact_id (format: pipeline_uid$hash:fold_id)
+                fold_id = None
+                if ':' in artifact_id:
+                    parts = artifact_id.rsplit(':', 1)
+                    if len(parts) == 2:
+                        try:
+                            fold_id = int(parts[1])
+                        except ValueError:
+                            pass
+
+                if fold_id is None:
+                    continue
+
+                obj = self._load_artifact(artifact_id)
+                if obj is not None:
+                    results.append((fold_id, obj))
+        else:
+            # Standard case: use fold_artifact_ids
+            if not step_artifacts.fold_artifact_ids:
+                return []
+
+            for fold_id, artifact_id in step_artifacts.fold_artifact_ids.items():
+                obj = self._load_artifact(artifact_id)
+                if obj is not None:
+                    results.append((fold_id, obj))
 
         return sorted(results, key=lambda x: x[0])
 
@@ -462,34 +519,21 @@ class MinimalPredictor:
         self.manifest_manager = manifest_manager
         self.verbose = verbose
 
-    def _parse_sub_index_from_artifact_id(self, artifact_id: str) -> Optional[int]:
-        """Parse sub_index (substep number) from artifact ID.
-
-        Artifact IDs include a sub_index for models in subpipelines:
-            "{pipeline_id}:{step_index}.{sub_index}:{fold_id}"
-
-        For example:
-            - "0001_pls:3.0:0" → sub_index=0 (first model in subpipeline)
-            - "0001_pls:3.1:1" → sub_index=1 (second model in subpipeline)
+    def _get_substep_from_artifact(self, artifact_id: str) -> Optional[int]:
+        """Get substep_index from artifact record (V3).
 
         Args:
-            artifact_id: Artifact ID to parse.
+            artifact_id: Artifact ID to look up.
 
         Returns:
-            Sub_index (substep number) or None if not present.
+            substep_index or None if not found.
         """
-        parts = artifact_id.split(":")
-        if len(parts) < 3:
-            return None
-
-        # The step.sub_index is in the second-to-last part
-        step_part = parts[-2]
-
-        if "." in step_part:
-            try:
-                return int(step_part.split(".")[-1])
-            except ValueError:
-                return None
+        try:
+            record = self.artifact_loader.get_record(artifact_id)
+            if record is not None:
+                return record.substep_index
+        except (KeyError, AttributeError):
+            pass
         return None
 
     def predict(
@@ -523,7 +567,7 @@ class MinimalPredictor:
         if target_model:
             model_artifact_id = target_model.get('model_artifact_id')
             if model_artifact_id:
-                target_sub_index = self._parse_sub_index_from_artifact_id(model_artifact_id)
+                target_sub_index = self._get_substep_from_artifact(model_artifact_id)
 
         # Create artifact provider from minimal pipeline
         artifact_provider = MinimalArtifactProvider(
