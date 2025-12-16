@@ -25,12 +25,14 @@ class ParsedStep:
         step_type: Type of step (workflow, serialized, etc.)
         original_step: Original step configuration
         metadata: Additional parsing metadata
+        force_layout: Optional forced data layout (overrides controller's preferred layout)
     """
     operator: Any
     keyword: str
     step_type: StepType
     original_step: Any
     metadata: Dict[str, Any]
+    force_layout: Optional[str] = None
 
 
 class StepParser:
@@ -49,7 +51,10 @@ class StepParser:
     SERIALIZATION_OPERATORS = ["class", "function", "module", "object", "pipeline", "instance"]
 
     # Reserved keywords that are not operators
-    RESERVED_KEYWORDS = ["params", "metadata", "steps", "name", "finetune_params", "train_params", "fit_on_all"]
+    RESERVED_KEYWORDS = ["params", "metadata", "steps", "name", "finetune_params", "train_params", "fit_on_all", "force_layout"]
+
+    # Valid layout values for force_layout
+    VALID_LAYOUTS = {"2d", "2d_interleaved", "3d", "3d_transpose"}
 
     # Priority workflow keywords (ordered by priority, highest first)
     WORKFLOW_KEYWORDS = [
@@ -119,6 +124,14 @@ class StepParser:
 
     def _parse_dict_step(self, step: Dict[str, Any]) -> ParsedStep:
         """Parse dictionary step configuration."""
+        # Extract and validate force_layout if present
+        force_layout = step.get("force_layout")
+        if force_layout is not None and force_layout not in self.VALID_LAYOUTS:
+            raise ValueError(
+                f"Invalid force_layout '{force_layout}'. "
+                f"Valid options: {self.VALID_LAYOUTS}"
+            )
+
         # Check for serialization operators first
         for key in self.SERIALIZATION_OPERATORS:
             if key in step:
@@ -128,7 +141,8 @@ class StepParser:
                     keyword=key,
                     step_type=StepType.SERIALIZED,
                     original_step=step,
-                    metadata={}
+                    metadata={},
+                    force_layout=force_layout
                 )
 
         # Look for potential workflow operators
@@ -156,7 +170,8 @@ class StepParser:
                 keyword=key,
                 step_type=StepType.WORKFLOW,
                 original_step=step,
-                metadata={"params": step.get("params", {})}
+                metadata={"params": step.get("params", {})},
+                force_layout=force_layout
             )
 
         # No recognized key - try to deserialize the whole dict
@@ -166,7 +181,8 @@ class StepParser:
             keyword="",
             step_type=StepType.SERIALIZED,
             original_step=step,
-            metadata={}
+            metadata={},
+            force_layout=force_layout
         )
 
     def _parse_string_step(self, step: str) -> ParsedStep:

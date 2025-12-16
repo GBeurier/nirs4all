@@ -1214,8 +1214,8 @@ class MetaModelController(SklearnModelController):
         if verbose > 0:
             print(f"{STACK} MetaModel stacking step {context.state.step_number}")
 
-        # Set layout preference
-        context = context.with_layout("2d")
+        # Set layout preference (force_layout overrides preferred)
+        context = context.with_layout(self.get_effective_layout(step_info))
 
         # Call parent execute (SklearnModelController.execute)
         return SklearnModelController.execute(

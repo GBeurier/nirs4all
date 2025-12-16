@@ -1,32 +1,22 @@
 ## ROADMAP
 
-**Bugs**:
->   - Charts do not display correctly the wavelength on x-axis - nm cm-1 all messed up. Add force type.
->     [headers/wavelengths] charts bug on wavelenghts. Add force format + review conversion. + Add to reflectance/absorbance
 
->   - [LightGBM] [Warning] No further splits with positive gain, best gain: -inf   >> look if parameters is passed on cloning (maybe there is a hidden bug)
->   - [Generator] Verify count = 1
->   - [Predict] Q5_predict is slow as hell
-
->   - Branch diagram are out
->   - [Charts] check dataviz. Missing histograms, inverted heatmap color scale, --> Branching ?
 
 **Features**:
 
-> [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
-> [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
+> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
+---- > test interleaved for nitrosorgh on PLS or random forest. and force layout option.
 
 > [Generator] Inner generation ?
 
 > *[GPU] Reorganize, condition and clean gpu import - Reset GPU between models correctly.
 
-> [Augmentation] Feature_augmentation with first item replacement
-
-> [Layout] review layouts (tests) and add operators params; be careful of hidden transpose or dataset transformations
----- > test interleaved for nitrosorgh on PLS or random forest. and force layout option.
-
-> [TabReport] include > aggregated
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
+> [TabReport] include > aggregated
+
+> [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
+> [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
+
 
 - [Split] bug + review: fix the "try automatically to set a group even when not specified. Shouldn't do anything if not specified", review doc and explicit also the use of group "y" ?
 - [Split > DONE] add force_group (mean, median, max, min, etc.) before split to be able to split with groups seemlessly. ie: {"split": KFold, "force_group":"ID"} or reuse group if possible to detect that group is not required (I think it's not detectable)
@@ -42,6 +32,9 @@
 
 > [Pipeline_Bundle] Change / edit pipeline step
 
+**Bugs**:
+>   - Branch diagram are out
+>   - [Charts] check dataviz. Missing histograms, inverted heatmap color scale, --> Branching ?
 
 **Review**:
 > [Predict_Transfer] Review
@@ -66,6 +59,9 @@
 
 **Bugs**:
 >   - [MB-PLS] test on multi-source/block ---
+>   - [Predict] Q5_predict is slow as hell
+>   - [LightGBM] [Warning] No further splits with positive gain, best gain: -inf   >> look if parameters is passed on cloning (maybe there is a hidden bug)
+
 
 > [SHAP] verify shap for tf, torch, jax, Fix imports and np compat
 

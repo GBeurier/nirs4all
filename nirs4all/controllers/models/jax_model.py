@@ -389,8 +389,8 @@ class JaxModelController(BaseModelController):
         """Execute JAX model controller."""
         check_backend_available('jax')
 
-        # Set layout preference
-        context = context.with_layout(self.get_preferred_layout())
+        # Set layout preference (force_layout overrides preferred)
+        context = context.with_layout(self.get_effective_layout(step_info))
 
         # Call parent execute method
         return super().execute(step_info, dataset, context, runtime_context, source, mode, loaded_binaries, prediction_store)

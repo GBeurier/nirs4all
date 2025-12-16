@@ -569,9 +569,10 @@ class SklearnModelController(BaseModelController):
         Note:
             - Automatically sets context['layout'] = '2d' for sklearn compatibility
             - Inherits full training, evaluation, and prediction logic from BaseModelController
+            - Respects force_layout if specified in step configuration
         """
-        # Set layout preference for sklearn models
-        context = context.with_layout(self.get_preferred_layout())
+        # Set layout preference for sklearn models (force_layout overrides preferred)
+        context = context.with_layout(self.get_effective_layout(step_info))
 
         # Call parent execute method
         return super().execute(step_info, dataset, context, runtime_context, source, mode, loaded_binaries, prediction_store)
