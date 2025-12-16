@@ -68,21 +68,21 @@ pipeline = [
     {"model": PLSRegression(7), "name": "PLS_7"},
     {"model": PLSRegression(13), "name": "PLS_13"},
     # {"model": RandomForestRegressor(n_estimators=10)},
-    # {"model": ElasticNet()},
+    {"model": ElasticNet()},
     # {"model": SVR(kernel='rbf', C=1.0, epsilon=0.1), "name": "SVR_Custom_Model"},
     # {"model": MLPRegressor(hidden_layer_sizes=(20,20), max_iter=50), "name": "MLP_Custom_Model"},
     # {"model": GradientBoostingRegressor(n_estimators=20)},
-    {"model": AdaBoostRegressor(n_estimators=5), "name": "AdaBoost"},
+    # {"model": AdaBoostRegressor(n_estimators=5), "name": "AdaBoost"},
 ]
 
 if XGBRegressor:
     pipeline.append({"model": XGBRegressor(n_estimators=5, verbosity=0), "name": "XGBoost"})
 
 if LGBMRegressor:
-    pipeline.append({"model": LGBMRegressor(n_estimators=20, verbose=-1, verbosity=-1), "name": "LightGBM"})
+    pipeline.append({"model": LGBMRegressor(n_estimators=5, verbose=-1, verbosity=-1), "name": "LightGBM"})
 
 if CatBoostRegressor:
-    pipeline.append({"model": CatBoostRegressor(iterations=15, verbose=0, allow_writing_files=False), "name": "CatBoost"})
+    pipeline.append({"model": CatBoostRegressor(iterations=5, verbose=0, allow_writing_files=False), "name": "CatBoost"})
 
 # Create pipeline configuration
 pipeline_config = PipelineConfigs(pipeline, name="Q2")

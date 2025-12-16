@@ -9,7 +9,11 @@ from .context import (
     ExecutionContext,
     DataSelector,
     PipelineState,
-    StepMetadata
+    StepMetadata,
+    RuntimeContext,
+    ArtifactProvider,
+    MapArtifactProvider,
+    LoaderArtifactProvider,
 )
 from .component_serialization import serialize_component
 from .generator import expand_spec, count_combinations
@@ -20,6 +24,10 @@ __all__ = [
     'DataSelector',
     'PipelineState',
     'StepMetadata',
+    'RuntimeContext',
+    'ArtifactProvider',
+    'MapArtifactProvider',
+    'LoaderArtifactProvider',
     'serialize_component',
     'expand_spec',
     'count_combinations',

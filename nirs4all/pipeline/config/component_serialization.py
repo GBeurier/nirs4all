@@ -1,4 +1,5 @@
 import inspect
+from enum import Enum
 from typing import Any, get_type_hints, get_origin, get_args, Annotated, Union
 import importlib
 import json
@@ -146,6 +147,14 @@ def serialize_component(obj: Any) -> Any:
                 # If import fails, pass through as-is (e.g., controller names, invalid paths)
                 pass
         return obj
+
+    # Handle Enum instances - serialize as class path + value
+    if isinstance(obj, Enum):
+        return {
+            "enum": f"{obj.__class__.__module__}.{obj.__class__.__qualname__}",
+            "value": obj.value
+        }
+
     if isinstance(obj, dict):
         return {k: serialize_component(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -201,10 +210,13 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
     """Turn the output of serialize_component back into live objects."""
     # --- trivial cases ------------------------------------------------------ #
     if blob is None or isinstance(blob, (bool, int, float)):
+        # Type validation - int and float are considered compatible for numeric values
         if infer_type is not None and infer_type is not type(None):
             if not isinstance(blob, infer_type):
-                print(f"Type mismatch: {type(blob)} != {infer_type}")
-                return blob
+                # Allow int/float cross-compatibility for numeric types
+                if not (isinstance(blob, (int, float)) and infer_type in (int, float)):
+                    # Debug-level info only - the value is still returned as-is
+                    pass  # Removed verbose warning - type mismatch is handled gracefully
         return blob
 
     if isinstance(blob, str):
@@ -266,6 +278,18 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
         return [deserialize_component(x) for x in blob]
 
     if isinstance(blob, dict):
+        # Handle Enum deserialization
+        if "enum" in blob and "value" in blob:
+            enum_path = blob["enum"]
+            mod_name, _, enum_name = enum_path.rpartition(".")
+            try:
+                mod = importlib.import_module(mod_name)
+                enum_cls = getattr(mod, enum_name)
+                return enum_cls(blob["value"])
+            except (ImportError, AttributeError, ValueError) as e:
+                print(f"Failed to deserialize enum {enum_path}: {e}")
+                return blob
+
         if any(key in blob for key in ("class", "function", "instance")):
             key = "class" if "class" in blob else "function" if "function" in blob else "instance"
 

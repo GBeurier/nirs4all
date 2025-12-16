@@ -75,7 +75,7 @@ class SpectroDataset:
 
     # ========== PRIMARY API: Feature Methods ==========
 
-    def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True, include_augmented: bool = True) -> OutputData:
+    def x(self, selector: Selector, layout: Layout = "2d", concat_source: bool = True, include_augmented: bool = True, include_excluded: bool = False) -> OutputData:
         """
         Get feature data with automatic augmented sample aggregation.
 
@@ -86,6 +86,9 @@ class SpectroDataset:
             include_augmented: If True, include augmented versions of selected samples.
                              If False, return only base samples (origin=null).
                              Default True for backward compatibility.
+            include_excluded: If True, include samples marked as excluded.
+                            If False (default), exclude samples marked as excluded=True.
+                            Use True when transforming ALL features (e.g., preprocessing).
 
         Returns:
             Feature data array(s)
@@ -95,8 +98,10 @@ class SpectroDataset:
             >>> X_train = dataset.x({"partition": "train"})
             >>> # Get only base train samples (for splitting)
             >>> X_base = dataset.x({"partition": "train"}, include_augmented=False)
+            >>> # Get all features including excluded (for transformations)
+            >>> X_all = dataset.x({"partition": "train"}, include_excluded=True)
         """
-        return self._feature_accessor.x(selector, layout, concat_source, include_augmented)
+        return self._feature_accessor.x(selector, layout, concat_source, include_augmented, include_excluded)
 
     # def x_train(self, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
     #     selector = {"partition": "train"}
@@ -106,7 +111,7 @@ class SpectroDataset:
     #     selector = {"partition": "test"}
     #     return self.x(selector, layout, concat_source)
 
-    def y(self, selector: Selector, include_augmented: bool = True) -> np.ndarray:
+    def y(self, selector: Selector, include_augmented: bool = True, include_excluded: bool = False) -> np.ndarray:
         """
         Get target data - automatically maps augmented samples to their origin for y values.
 
@@ -116,6 +121,9 @@ class SpectroDataset:
                              Augmented samples are automatically mapped to their origin's y value.
                              If False, return only base samples.
                              Default True for backward compatibility.
+            include_excluded: If True, include samples marked as excluded.
+                            If False (default), exclude samples marked as excluded=True.
+                            Use True when transforming ALL targets (e.g., y_processing).
 
         Returns:
             Target values array
@@ -125,8 +133,10 @@ class SpectroDataset:
             >>> y_train = dataset.y({"partition": "train"})
             >>> # Get only base train targets (for splitting)
             >>> y_base = dataset.y({"partition": "train"}, include_augmented=False)
+            >>> # Get all targets including excluded (for y_processing)
+            >>> y_all = dataset.y({"partition": "train"}, include_excluded=True)
         """
-        return self._target_accessor.y(selector, include_augmented)
+        return self._target_accessor.y(selector, include_augmented, include_excluded)
 
     def add_samples(self,
                     data: InputData,
@@ -324,11 +334,13 @@ class SpectroDataset:
         """Get the detected task type."""
         return self._target_accessor.task_type
 
-    def set_task_type(self, task_type: Union[str, TaskType]) -> None:
+    def set_task_type(self, task_type: Union[str, TaskType], forced: bool = True) -> None:
         """Set the task type explicitly.
 
         Args:
             task_type: Task type as string ('regression', 'binary_classification', 'multiclass_classification') or TaskType enum
+            forced: If True, prevents auto-detection from overriding this value
+                   in subsequent y_processing steps (e.g., after MinMaxScaler). Default True.
         """
         if isinstance(task_type, str):
             # Map common string values to TaskType enum
@@ -340,7 +352,7 @@ class SpectroDataset:
                 'multiclass_classification': TaskType.MULTICLASS_CLASSIFICATION,
             }
             task_type = task_map.get(task_type.lower(), TaskType.REGRESSION)
-        self._targets._task_type = task_type
+        self._targets.set_task_type(task_type, forced)
 
     @property
     def num_classes(self) -> int:

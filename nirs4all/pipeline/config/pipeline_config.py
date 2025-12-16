@@ -9,7 +9,7 @@ from typing import List, Any, Dict, Union
 import yaml
 
 from .component_serialization import serialize_component
-from .generator import expand_spec, count_combinations
+from .generator import expand_spec, expand_spec_with_choices, count_combinations
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,16 +30,26 @@ class PipelineConfigs:
 
         ## Generation
         self.has_configurations = False
+        self.generator_choices: List[List[Dict[str, Any]]] = []  # Choices for each pipeline
+        was_expanded = False
+
         if self._has_gen_keys(self.steps):
             count = count_combinations(self.steps)
             if count > max_generation_count:
                 raise ValueError(f"Configuration expansion would generate {count} configurations, exceeding the limit of {max_generation_count}. Please simplify your configuration.")
-            if count > 1:
-                self.has_configurations = True
-                self.steps = expand_spec(self.steps)
+            # Always expand generator syntax, even if count=1
+            # The _or_, _range_ etc. must be replaced with actual values
+            if count >= 1:
+                self.has_configurations = count > 1
+                # Use expand_spec_with_choices to track generator choices
+                expanded_with_choices = expand_spec_with_choices(self.steps)
+                self.steps = [config for config, choices in expanded_with_choices]
+                self.generator_choices = [choices for config, choices in expanded_with_choices]
+                was_expanded = True
 
-        if not self.has_configurations:
+        if not was_expanded:
             self.steps = [self.steps]  # Wrap single configuration in a list
+            self.generator_choices = [[]]  # No choices for single config
 
         ## Name and hash
         if name == "":
@@ -52,14 +62,32 @@ class PipelineConfigs:
         # print(f"✅ {len(self.steps)} pipeline configuration(s).")
 
     @staticmethod
-    def _has_gen_keys(obj: Any) -> bool:
-        """Recursively check if the configuration contains 'or' keys."""
+    def _has_gen_keys(obj: Any, skip_branch: bool = True) -> bool:
+        """Recursively check if the configuration contains generator keys.
+
+        Args:
+            obj: Configuration object to check
+            skip_branch: If True, skip generator detection inside 'branch' keys
+                         (these are handled by BranchController at runtime)
+
+        Returns:
+            True if generator keys are found at the pipeline level
+        """
         if isinstance(obj, dict):
+            # Skip content inside 'branch' key - BranchController handles those
+            if skip_branch and "branch" in obj:
+                # Check other keys but skip branch content
+                return any(
+                    PipelineConfigs._has_gen_keys(v, skip_branch)
+                    for k, v in obj.items()
+                    if k != "branch"
+                )
+
             if "_or_" in obj or "_range_" in obj:
                 return True
-            return any(PipelineConfigs._has_gen_keys(v) for v in obj.values())
+            return any(PipelineConfigs._has_gen_keys(v, skip_branch) for v in obj.values())
         elif isinstance(obj, list):
-            return any(PipelineConfigs._has_gen_keys(item) for item in obj)
+            return any(PipelineConfigs._has_gen_keys(item, skip_branch) for item in obj)
         return False
 
     @staticmethod

@@ -272,11 +272,8 @@ class OrStrategy(ExpansionStrategy):
         if then_arrange is not None:
             return self._handle_pick_then_arrange(choices, pick_spec, then_arrange)
 
-        # Handle nested [outer, inner] syntax
-        if isinstance(pick_spec, list) and len(pick_spec) == 2:
-            return self._handle_nested_combinations(choices, pick_spec)
-
         # Standard pick expansion
+        # pick_spec can be: int (exact), tuple/list of 2 ints (range from, to)
         from_size, to_size = self._normalize_spec(pick_spec)
         result = []
 
@@ -322,11 +319,8 @@ class OrStrategy(ExpansionStrategy):
         if then_arrange is not None:
             return self._count_pick_then_arrange(n, pick_spec, then_arrange)
 
-        # Handle nested [outer, inner] syntax
-        if isinstance(pick_spec, list) and len(pick_spec) == 2:
-            return self._count_nested_combinations(n, pick_spec)
-
         # Standard count
+        # pick_spec can be: int (exact), tuple/list of 2 ints (range from, to)
         from_size, to_size = self._normalize_spec(pick_spec)
         total = 0
         for s in range(from_size, to_size + 1):
@@ -368,11 +362,8 @@ class OrStrategy(ExpansionStrategy):
         if then_arrange is not None:
             return self._handle_arrange_then_arrange(choices, arrange_spec, then_arrange)
 
-        # Handle nested [outer, inner] syntax
-        if isinstance(arrange_spec, list) and len(arrange_spec) == 2:
-            return self._handle_nested_arrangements(choices, arrange_spec)
-
         # Standard arrange expansion
+        # arrange_spec can be: int (exact), tuple/list of 2 ints (range from, to)
         from_size, to_size = self._normalize_spec(arrange_spec)
         result = []
 
@@ -418,145 +409,14 @@ class OrStrategy(ExpansionStrategy):
         if then_arrange is not None:
             return self._count_arrange_then_arrange(n, arrange_spec, then_arrange)
 
-        # Handle nested [outer, inner] syntax
-        if isinstance(arrange_spec, list) and len(arrange_spec) == 2:
-            return self._count_nested_arrangements(n, arrange_spec)
-
         # Standard count: P(n, k) = n! / (n-k)!
+        # arrange_spec can be: int (exact), tuple/list of 2 ints (range from, to)
         from_size, to_size = self._normalize_spec(arrange_spec)
         total = 0
         for s in range(from_size, to_size + 1):
             if s <= n:
                 total += factorial(n) // factorial(n - s)
         return total
-
-    # -------------------------------------------------------------------------
-    # Nested Second-Order (Array Syntax)
-    # -------------------------------------------------------------------------
-
-    def _handle_nested_combinations(
-        self,
-        choices: List[Any],
-        nested_size: List[int]
-    ) -> ExpandedResult:
-        """Handle [outer, inner] combinations syntax.
-
-        Inner: permutations (order matters)
-        Outer: combinations (which sub-arrays to pick)
-
-        Args:
-            choices: List of items.
-            nested_size: [outer_size, inner_size]
-
-        Returns:
-            List of nested results.
-        """
-        outer_size, inner_size = nested_size
-        outer_from, outer_to = self._normalize_spec(outer_size)
-        inner_from, inner_to = self._normalize_spec(inner_size)
-
-        # Step 1: Generate inner arrangements (permutations)
-        inner_items = []
-        for s in range(inner_from, inner_to + 1):
-            if s > len(choices):
-                continue
-            for perm in permutations(choices, s):
-                if len(perm) == 1:
-                    inner_items.append(perm[0])
-                else:
-                    inner_items.append(list(perm))
-
-        # Step 2: Select outer combinations
-        result = []
-        for s in range(outer_from, outer_to + 1):
-            if s > len(inner_items):
-                continue
-            for combo in combinations(inner_items, s):
-                result.append(list(combo))
-
-        return result
-
-    def _count_nested_combinations(self, n: int, nested_size: List[int]) -> int:
-        """Count nested combinations."""
-        outer_size, inner_size = nested_size
-        outer_from, outer_to = self._normalize_spec(outer_size)
-        inner_from, inner_to = self._normalize_spec(inner_size)
-
-        # Count inner permutations
-        total_inner = 0
-        for s in range(inner_from, inner_to + 1):
-            if s <= n:
-                total_inner += factorial(n) // factorial(n - s)
-
-        # Count outer combinations
-        total = 0
-        for s in range(outer_from, outer_to + 1):
-            if s <= total_inner:
-                total += comb(total_inner, s)
-
-        return total
-
-    def _handle_nested_arrangements(
-        self,
-        choices: List[Any],
-        nested_size: List[int]
-    ) -> ExpandedResult:
-        """Handle [outer, inner] arrangements syntax.
-
-        Both inner and outer use permutations.
-
-        Args:
-            choices: List of items.
-            nested_size: [outer_size, inner_size]
-
-        Returns:
-            List of nested results.
-        """
-        outer_size, inner_size = nested_size
-        outer_from, outer_to = self._normalize_spec(outer_size)
-        inner_from, inner_to = self._normalize_spec(inner_size)
-
-        # Step 1: Generate inner arrangements (permutations)
-        inner_items = []
-        for s in range(inner_from, inner_to + 1):
-            if s > len(choices):
-                continue
-            for perm in permutations(choices, s):
-                if len(perm) == 1:
-                    inner_items.append(perm[0])
-                else:
-                    inner_items.append(list(perm))
-
-        # Step 2: Select outer arrangements (permutations)
-        result = []
-        for s in range(outer_from, outer_to + 1):
-            if s > len(inner_items):
-                continue
-            for perm in permutations(inner_items, s):
-                result.append(list(perm))
-
-        return result
-
-    def _count_nested_arrangements(self, n: int, nested_size: List[int]) -> int:
-        """Count nested arrangements."""
-        outer_size, inner_size = nested_size
-        outer_from, outer_to = self._normalize_spec(outer_size)
-        inner_from, inner_to = self._normalize_spec(inner_size)
-
-        # Count inner permutations
-        total_inner = 0
-        for s in range(inner_from, inner_to + 1):
-            if s <= n:
-                total_inner += factorial(n) // factorial(n - s)
-
-        # Count outer permutations
-        total = 0
-        for s in range(outer_from, outer_to + 1):
-            if s <= total_inner:
-                total += factorial(total_inner) // factorial(total_inner - s)
-
-        return total
-
     # -------------------------------------------------------------------------
     # Second-Order (then_pick / then_arrange)
     # -------------------------------------------------------------------------

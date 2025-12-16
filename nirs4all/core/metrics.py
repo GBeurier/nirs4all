@@ -13,6 +13,8 @@ from typing import Dict, Any, Union, Optional, List
 import numpy as np
 import warnings
 
+from nirs4all.utils.emoji import WARNING
+
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
 

@@ -60,7 +60,7 @@ pipeline = [
     {"y_processing": MinMaxScaler},
 
     # Machine learning models
-    {"model": PLSRegression(15)},
+    {"model": PLSRegression(5)},
     {"model": ElasticNet()},
 
 

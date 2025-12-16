@@ -20,9 +20,29 @@ from sklearn.base import is_classifier, is_regressor
 
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN
+from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN, WARNING
 from .utilities import ModelControllerUtils as ModelUtils
 from .factory import ModelFactory
+
+
+def _reset_gpu_memory() -> bool:
+    """Reset GPU memory using PyTorch CUDA.
+
+    Clears cached memory and synchronizes GPU operations.
+    Useful for preventing memory leaks with GPU-based models like CatBoost.
+
+    Returns:
+        bool: True if GPU was successfully reset, False if torch/CUDA unavailable.
+    """
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            return True
+    except ImportError:
+        pass
+    return False
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -216,6 +236,16 @@ class SklearnModelController(BaseModelController):
         task_type = train_params.pop('task_type', None)
         # verbose controls controller output, we don't want to force it on the model
         verbose = train_params.pop('verbose', 0)
+        # reset_gpu: if True, reset GPU memory before/after training (helps with CatBoost GPU memory leaks)
+        reset_gpu = train_params.pop('reset_gpu', False)
+
+        # Reset GPU memory BEFORE training to ensure clean state
+        if reset_gpu:
+            if _reset_gpu_memory():
+                if verbose > 1:
+                    print(f"🔄 GPU memory cleared before training {model.__class__.__name__}")
+            elif verbose > 0:
+                print(f"{WARNING} reset_gpu=True but PyTorch/CUDA not available")
 
         # if verbose > 1 and train_params:
             # print(f"🔧 Training {model.__class__.__name__} with params: {train_params}")
@@ -239,6 +269,10 @@ class SklearnModelController(BaseModelController):
 
         # Fit the model
         trained_model.fit(X_train, y_train.ravel())  # Ensure y is 1D for sklearn
+
+        # Reset GPU memory AFTER training as well to free model's training buffers
+        if reset_gpu:
+            _reset_gpu_memory()
 
         # Always calculate and display final test scores, regardless of verbose level
         # But control the detail level based on verbose

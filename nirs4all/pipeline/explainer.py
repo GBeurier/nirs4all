@@ -11,8 +11,8 @@ import numpy as np
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
-from nirs4all.pipeline.storage.artifacts.binary_loader import BinaryLoader
-from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata
+from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
+from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, PipelineState, StepMetadata, LoaderArtifactProvider
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.storage.io import SimulationSaver
 from nirs4all.pipeline.storage.manifest_manager import ManifestManager
@@ -30,7 +30,7 @@ class Explainer:
         saver: File saver for managing outputs
         manifest_manager: Manager for pipeline manifests
         pipeline_uid: Unique identifier for the pipeline
-        binary_loader: Loader for trained model artifacts
+        artifact_loader: Loader for trained model artifacts
         config_path: Path to the pipeline configuration
         target_model: Metadata for the target model
         captured_model: Tuple of (model, controller) captured during replay
@@ -46,7 +46,7 @@ class Explainer:
         self.saver: Optional[SimulationSaver] = None
         self.manifest_manager: Optional[ManifestManager] = None
         self.pipeline_uid: Optional[str] = None
-        self.binary_loader: Optional[BinaryLoader] = None
+        self.artifact_loader: Optional[ArtifactLoader] = None
         self.config_path: Optional[str] = None
         self.target_model: Optional[Dict[str, Any]] = None
         self.captured_model: Optional[Tuple[Any, Any]] = None
@@ -145,17 +145,24 @@ class Explainer:
                 .with_continue_on_error(self.runner.continue_on_error)
                 .with_show_spinner(self.runner.show_spinner)
                 .with_plots_visible(plots_visible)
-                .with_binary_loader(self.binary_loader)
+                .with_artifact_loader(self.artifact_loader)
                 .with_saver(self.saver)
                 .with_manifest_manager(self.manifest_manager)
                 .build())
 
-            # Create RuntimeContext
+            # Create RuntimeContext with artifact_provider for V3 loading
             from nirs4all.pipeline.config.context import RuntimeContext
+            
+            # Create artifact_provider from artifact_loader for V3 artifact loading
+            artifact_provider = None
+            if self.artifact_loader:
+                artifact_provider = LoaderArtifactProvider(loader=self.artifact_loader)
+            
             runtime_context = RuntimeContext(
                 saver=self.saver,
                 manifest_manager=self.manifest_manager,
-                binary_loader=self.binary_loader,
+                artifact_loader=self.artifact_loader,
+                artifact_provider=artifact_provider,
                 step_runner=executor.step_runner,
                 target_model=self.target_model,
                 explainer=self.runner.explainer
@@ -341,6 +348,6 @@ class Explainer:
 
         print(f"{SEARCH}Loading from manifest: {pipeline_uid}")
         manifest = self.manifest_manager.load_manifest(pipeline_uid)
-        self.binary_loader = BinaryLoader.from_manifest(manifest, self.saver.base_path)
+        self.artifact_loader = ArtifactLoader.from_manifest(manifest, self.saver.base_path)
 
         return steps

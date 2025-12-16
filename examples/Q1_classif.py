@@ -52,18 +52,18 @@ pipeline = [
     "fold_chart",
     RandomForestClassifier(
         n_estimators=25,
-        max_depth=13,
+        max_depth=8,
         verbose=0
     ),
     {
         "model": nicon_classification,
         "train_params": {
-            'epochs': 25,
+            'epochs': 5,
             'batch_size': 1024,
             'verbose': 0
         }
     },
-    XGBClassifier(n_estimators=25, verbosity=0)
+    XGBClassifier(n_estimators=5, verbosity=0)
 ]
 
 

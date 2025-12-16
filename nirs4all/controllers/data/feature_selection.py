@@ -172,12 +172,26 @@ class FeatureSelectionController(OperatorController):
 
                 new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
 
-                if loaded_binaries and (mode == "predict" or mode == "explain"):
-                    # Load pre-fitted selector from binaries
-                    selector = dict(loaded_binaries).get(f"{new_operator_name}")
+                if mode == "predict" or mode == "explain":
+                    selector = None
+
+                    # V3: Use artifact_provider for chain-based loading
+                    if runtime_context.artifact_provider is not None:
+                        step_index = runtime_context.step_number
+                        step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                            step_index,
+                            branch_path=context.selector.branch_path,
+                            source_index=sd_idx
+                        )
+                        # Find artifact by name matching
+                        for artifact_id, obj in step_artifacts:
+                            if new_operator_name in artifact_id:
+                                selector = obj
+                                break
+
                     if selector is None:
                         raise ValueError(
-                            f"Binary for {new_operator_name} not found in loaded_binaries"
+                            f"Feature selector {new_operator_name} not found at step {runtime_context.step_number}"
                         )
                 elif master_selector is None:
                     # First preprocessing: fit the master selector
@@ -211,7 +225,9 @@ class FeatureSelectionController(OperatorController):
                         step_number=runtime_context.step_number,
                         name=new_operator_name,
                         obj=selector,
-                        format_hint='sklearn'
+                        format_hint='sklearn',
+                        branch_id=context.selector.branch_id,
+                        branch_name=context.selector.branch_name
                     )
                     fitted_selectors.append(artifact)
 

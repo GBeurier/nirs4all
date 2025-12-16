@@ -46,14 +46,14 @@ data_path = 'sample_data/regression'
 pipeline = [
     feature_scaler,
     {"y_processing": target_scaler},
-    {"feature_augmentation": {"_or_": [Detrend, FirstDerivative, Gaussian, SavitzkyGolay, Haar], "size": 2, "count": 30}},  # Generate combinations of preprocessing techniques
+    {"feature_augmentation": {"_or_": [Detrend, FirstDerivative, Gaussian, SavitzkyGolay, Haar], "pick": 2, "count": 2}},  # Generate combinations of preprocessing techniques
     "chart_2d",
     cross_validation,
 
 ]
 
 # Add PLS models with different numbers of components
-for n_components in range(1, 30, 5):
+for n_components in range(1, 30, 10):
     model_config = {
         "name": f"PLS-{n_components}_components",
         "model": PLSRegression(n_components=n_components)

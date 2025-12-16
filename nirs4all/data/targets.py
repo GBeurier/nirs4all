@@ -72,6 +72,7 @@ class Targets:
 
         # Task type detection
         self._task_type: Optional[TaskType] = None
+        self._task_type_forced: bool = False  # If True, task type was explicitly set and should not be re-detected
         self._task_type_by_processing: Dict[str, TaskType] = {}  # Track task_type per processing
 
     def __repr__(self) -> str:
@@ -230,6 +231,23 @@ class Targets:
         """
         return self._task_type
 
+    @property
+    def task_type_forced(self) -> bool:
+        """Check if task type was explicitly forced (disabling auto-detection)."""
+        return self._task_type_forced
+
+    def set_task_type(self, task_type: TaskType, forced: bool = True) -> None:
+        """
+        Set the task type explicitly.
+
+        Args:
+            task_type: TaskType enum value
+            forced: If True, prevents auto-detection from overriding this value
+                   in subsequent processing (e.g., after MinMaxScaler). Default True.
+        """
+        self._task_type = task_type
+        self._task_type_forced = forced
+
     def get_task_type_for_processing(self, processing: str) -> Optional[TaskType]:
         """
         Get the task type for a specific processing.
@@ -382,12 +400,13 @@ class Targets:
         self._stats_cache.clear()
 
         # Re-detect task type after adding processed targets (e.g., discretization may change regression to classification)
+        # But only if task type was not explicitly forced
         if targets.size > 0:
             new_task_type = detect_task_type(targets)
             self._task_type_by_processing[processing_name] = new_task_type
 
-            # Update global task_type (for current processing)
-            if self._task_type != new_task_type:
+            # Only update global task_type if not forced
+            if not self._task_type_forced and self._task_type != new_task_type:
                 print(f"⚠️  Task type changed: {self._task_type.value if self._task_type else 'None'} → {new_task_type.value} "
                       f"(processing '{processing_name}')")
                 self._task_type = new_task_type

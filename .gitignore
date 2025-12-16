@@ -57,5 +57,16 @@ examples/out
 bench/_datasets/
 bench/synthetic/charts/
 bench/workspace/
+*.ckpt
+bench/reports/
+bench/studies/reports/
+bench/studies/_datasets/
+bench/studies/workspace/
+bench/studies/wk
+examples/catboost_info
+examples/charts/
+examples/sample_data/Hiba/
+examples/sample_data/redox/
+
 bench/nirs4all_logo.png
 bench/wk/

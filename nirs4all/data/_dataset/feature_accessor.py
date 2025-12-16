@@ -68,7 +68,8 @@ class FeatureAccessor:
           selector: Optional[Selector] = None,
           layout: Layout = "2d",
           concat_source: bool = True,
-          include_augmented: bool = True) -> OutputData:
+          include_augmented: bool = True,
+          include_excluded: bool = False) -> OutputData:
         """
         Get feature data with filtering and layout control.
 
@@ -84,6 +85,9 @@ class FeatureAccessor:
                 - "3d": Shape (n_samples, n_processings, n_features)
             concat_source: If True, concatenate multiple sources along feature axis
             include_augmented: If True, include augmented versions of selected samples
+            include_excluded: If True, include samples marked as excluded.
+                            If False (default), exclude samples marked as excluded=True.
+                            Use True when transforming ALL features (e.g., preprocessing).
 
         Returns:
             Feature array(s) matching the selector criteria.
@@ -106,10 +110,12 @@ class FeatureAccessor:
             ...     layout="3d",
             ...     include_augmented=True
             ... )
+            >>> # Get all features including excluded (for transformations)
+            >>> X_all = dataset.x({"partition": "train"}, include_excluded=True)
         """
         # Convert selector to dict format for internal use
         selector_dict = _selector_to_dict(selector)
-        indices = self._indexer.x_indices(selector_dict, include_augmented)
+        indices = self._indexer.x_indices(selector_dict, include_augmented, include_excluded)
         return self._block.x(indices, layout, concat_source)
 
     def add_samples(self,

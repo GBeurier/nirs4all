@@ -73,7 +73,8 @@ class TargetAccessor:
 
     def y(self,
           selector: Optional[Selector] = None,
-          include_augmented: bool = True) -> np.ndarray:
+          include_augmented: bool = True,
+          include_excluded: bool = False) -> np.ndarray:
         """
         Get target values with filtering.
 
@@ -89,6 +90,9 @@ class TargetAccessor:
                 - y: processing version (default "numeric")
             include_augmented: If True, include augmented versions of selected samples.
                              Augmented samples are automatically mapped to their origin's y value.
+            include_excluded: If True, include samples marked as excluded.
+                            If False (default), exclude samples marked as excluded=True.
+                            Use True when transforming ALL targets (e.g., y_processing).
 
         Returns:
             Target array of shape (n_samples, n_targets)
@@ -103,18 +107,24 @@ class TargetAccessor:
             ...     {"partition": "train", "y": "scaled"},
             ...     include_augmented=True
             ... )
+            >>> # Get all targets including excluded (for y_processing)
+            >>> y_all = dataset.y({"partition": "train"}, include_excluded=True)
         """
         selector_dict = _selector_to_dict(selector)
 
         if include_augmented:
-            x_indices = self._indexer.x_indices(selector_dict, include_augmented=True)
+            x_indices = self._indexer.x_indices(
+                selector_dict, include_augmented=True, include_excluded=include_excluded
+            )
             # Map each sample to its y index (augmented → origin)
             y_indices = np.array([
                 self._indexer.get_origin_for_sample(int(sample_id))
                 for sample_id in x_indices
             ], dtype=np.int32)
         else:
-            y_indices = self._indexer.x_indices(selector_dict, include_augmented=False)
+            y_indices = self._indexer.x_indices(
+                selector_dict, include_augmented=False, include_excluded=include_excluded
+            )
 
         processing = selector_dict.get("y", "numeric") if selector_dict else "numeric"
         return self._block.y(y_indices, processing)

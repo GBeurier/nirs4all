@@ -25,10 +25,14 @@ from nirs4all.analysis.transfer_metrics import (
 from nirs4all.analysis.transfer_utils import (
     apply_augmentation,
     apply_pipeline,
+    apply_preprocessing_objects,
     apply_stacked_pipeline,
     generate_augmentation_combinations,
     generate_top_k_stacked_pipelines,
     get_base_preprocessings,
+    get_transform_name,
+    get_transform_signature,
+    normalize_preprocessing,
     validate_datasets,
 )
 
@@ -218,9 +222,10 @@ class TransferPreprocessingSelector:
         )
 
         # Expanded preprocessing lists (populated when use_generator=True)
-        self._expanded_singles: Optional[List[str]] = None
-        self._expanded_stacked: Optional[List[str]] = None
-        self._expanded_augmented: Optional[List[List[str]]] = None
+        # Now stores objects/transforms instead of just names
+        self._expanded_singles: Optional[List[Any]] = None
+        self._expanded_stacked: Optional[List[List[Any]]] = None
+        self._expanded_augmented: Optional[List[List[Any]]] = None
 
         # Initialize metrics computer
         self.metrics_computer = TransferMetricsComputer(
@@ -273,10 +278,16 @@ class TransferPreprocessingSelector:
         2. No need to serialize/pickle sklearn transformers
         3. Shared memory avoids copying large datasets to workers
 
+        Supports both object-based and string-based preprocessings:
+        - Objects: Applied directly via apply_preprocessing_objects
+        - Strings: Resolved via preprocessings dict (legacy support)
+
         Args:
             X_source: Source dataset.
             X_target: Target dataset.
             pp_items: List of (name, transform_or_transforms) tuples.
+                For object-based: (display_name, transform_object_or_list)
+                For string-based: (name, name_or_list_of_names)
             pipeline_type: Type of pipeline ('single', 'stacked', 'augmented').
 
         Returns:
@@ -289,9 +300,12 @@ class TransferPreprocessingSelector:
             """Worker function to evaluate a single preprocessing."""
             pp_name, pp_item = args
             try:
-                # Determine how to apply the preprocessing
+                # Track the actual transforms used for storing in result
+                actual_transforms: List[Any] = []
+
+                # Determine how to apply the preprocessing based on item type
                 if pipeline_type == "augmented":
-                    # pp_item is list of component names
+                    # pp_item is list of components (objects or strings)
                     components = pp_item if isinstance(pp_item, list) else [pp_item]
                     X_src_pp = apply_augmentation(
                         X_source, components, self.preprocessings
@@ -299,21 +313,56 @@ class TransferPreprocessingSelector:
                     X_tgt_pp = apply_augmentation(
                         X_target, components, self.preprocessings
                     )
-                elif pipeline_type == "stacked" or ">" in pp_name:
-                    # Stacked pipeline - apply sequentially
-                    X_src_pp = apply_stacked_pipeline(
-                        X_source, pp_name, self.preprocessings
-                    )
-                    X_tgt_pp = apply_stacked_pipeline(
-                        X_target, pp_name, self.preprocessings
-                    )
-                    components = pp_name.split(">")
+                    # Component names for result
+                    comp_names = [
+                        get_transform_name(c) if not isinstance(c, str) else c
+                        for c in components
+                    ]
+                    # Store actual transforms
+                    actual_transforms = [
+                        c if not isinstance(c, str) else self.preprocessings.get(c)
+                        for c in components
+                    ]
+                elif pipeline_type == "stacked":
+                    # Check if pp_item is object-based (list of transforms) or string
+                    if isinstance(pp_item, list) and len(pp_item) > 0 and not isinstance(pp_item[0], str):
+                        # Object-based stacked pipeline
+                        X_src_pp = apply_preprocessing_objects(X_source, pp_item)
+                        X_tgt_pp = apply_preprocessing_objects(X_target, pp_item)
+                        comp_names = [get_transform_name(t) for t in pp_item]
+                        actual_transforms = list(pp_item)
+                    elif isinstance(pp_item, str) and ">" in pp_item:
+                        # String-based stacked pipeline
+                        X_src_pp = apply_stacked_pipeline(
+                            X_source, pp_item, self.preprocessings
+                        )
+                        X_tgt_pp = apply_stacked_pipeline(
+                            X_target, pp_item, self.preprocessings
+                        )
+                        comp_names = pp_item.split(">")
+                        actual_transforms = [self.preprocessings[n] for n in comp_names]
+                    else:
+                        # Single transform passed as stacked
+                        transforms = [pp_item] if not isinstance(pp_item, list) else pp_item
+                        X_src_pp = apply_preprocessing_objects(X_source, transforms)
+                        X_tgt_pp = apply_preprocessing_objects(X_target, transforms)
+                        comp_names = [get_transform_name(t) for t in transforms]
+                        actual_transforms = list(transforms)
                 else:
                     # Single preprocessing
-                    transforms = [pp_item] if not isinstance(pp_item, list) else pp_item
+                    if isinstance(pp_item, str):
+                        # String name - resolve from dict
+                        transforms = [self.preprocessings[pp_item]]
+                        actual_transforms = transforms
+                    elif isinstance(pp_item, list):
+                        transforms = pp_item
+                        actual_transforms = transforms
+                    else:
+                        transforms = [pp_item]
+                        actual_transforms = transforms
                     X_src_pp = apply_pipeline(X_source, transforms)
                     X_tgt_pp = apply_pipeline(X_target, transforms)
-                    components = [pp_name]
+                    comp_names = [pp_name]
 
                 # Compute transfer metrics
                 metrics = self.metrics_computer.compute(
@@ -337,10 +386,11 @@ class TransferPreprocessingSelector:
                 return TransferResult(
                     name=pp_name,
                     pipeline_type=pipeline_type,
-                    components=components,
+                    components=comp_names,
                     transfer_score=score,
                     metrics=metrics.to_dict(),
                     improvement_pct=improvement_pct,
+                    transforms=actual_transforms if actual_transforms else None,
                 )
 
             except Exception as e:
@@ -379,15 +429,18 @@ class TransferPreprocessingSelector:
 
     def _expand_preprocessing_spec(
         self,
-    ) -> Tuple[List[str], List[str], List[List[str]]]:
+    ) -> Tuple[List[Any], List[List[Any]], List[List[Any]]]:
         """
         Expand preprocessing_spec using the nirs4all generator.
 
+        Handles both object-based and string-based preprocessing specs.
+        Objects are used directly; strings are resolved via the preprocessings dict.
+
         Returns:
             Tuple of:
-            - single_preprocessings: List of single names ["snv", "d1"]
-            - stacked_pipelines: List of stacked names ["snv>d1", "msc>d1"]
-            - augmented_combinations: List of combinations [["snv", "d1"], ...]
+            - single_preprocessings: List of single transforms [SNV(), D1()]
+            - stacked_pipelines: List of stacked transforms [[SNV(), D1()], ...]
+            - augmented_combinations: List of augmentation combos [[SNV()], [D1()], ...]
         """
         from nirs4all.pipeline.config.generator import (
             ARRANGE_KEYWORD,
@@ -405,51 +458,73 @@ class TransferPreprocessingSelector:
         uses_pick = PICK_KEYWORD in spec if isinstance(spec, dict) else False
         uses_arrange = ARRANGE_KEYWORD in spec if isinstance(spec, dict) else False
 
-        singles: List[str] = []
-        stacked: List[str] = []
-        augmented: List[List[str]] = []
+        singles: List[Any] = []
+        stacked: List[List[Any]] = []
+        augmented: List[List[Any]] = []
+
+        # Helper to normalize an item (object or string) to a transform object
+        def to_transform(item: Any) -> Any:
+            """Convert item to transform object."""
+            if item is None:
+                return None
+            if isinstance(item, str):
+                if item == "None":
+                    return None
+                # Try to resolve from preprocessings dict
+                return normalize_preprocessing(item, self.preprocessings)
+            # Already an object
+            return item
 
         for item in expanded:
             if isinstance(item, list):
-                # Filter out None values from the combination
-                str_combo = [x for x in item if x is not None and x != "None"]
+                # Convert each element to a transform
+                transforms = [to_transform(x) for x in item]
+                # Filter out None values
+                transforms = [t for t in transforms if t is not None]
 
                 # Skip empty combinations (all None)
-                if len(str_combo) == 0:
+                if len(transforms) == 0:
                     continue
 
-                if len(str_combo) == 1:
-                    singles.append(str_combo[0])
+                if len(transforms) == 1:
+                    singles.append(transforms[0])
                 elif uses_pick and not uses_arrange:
-                    augmented.append(str_combo)
+                    # Augmentation: keep as separate transforms
+                    augmented.append(transforms)
                 else:
-                    stacked_name = ">".join(str_combo)
-                    stacked.append(stacked_name)
+                    # Stacking: keep as ordered sequence
+                    stacked.append(transforms)
 
-            elif isinstance(item, str):
-                if item == "None" or item is None:
-                    continue  # Skip None strings
-                if ">" in item:
-                    stacked.append(item)
-                else:
-                    singles.append(item)
-            elif isinstance(item, dict):
-                self._log(
-                    f"  Warning: Unexpected dict in expanded spec: {item}",
-                    level=2
-                )
-            elif item is not None:
-                singles.append(str(item))
+            else:
+                # Single item (could be object or string)
+                transform = to_transform(item)
+                if transform is not None:
+                    singles.append(transform)
 
-        # Remove duplicates while preserving order
-        singles = list(dict.fromkeys(singles))
-        stacked = list(dict.fromkeys(stacked))
+        # Remove duplicates while preserving order (using signature for identity)
+        seen_singles: set = set()
+        unique_singles: List[Any] = []
+        for t in singles:
+            sig = get_transform_signature(t)
+            if sig not in seen_singles:
+                seen_singles.add(sig)
+                unique_singles.append(t)
+        singles = unique_singles
+
+        seen_stacked: set = set()
+        unique_stacked: List[List[Any]] = []
+        for pipeline in stacked:
+            sig = ">".join(get_transform_signature(t) for t in pipeline)
+            if sig not in seen_stacked:
+                seen_stacked.add(sig)
+                unique_stacked.append(pipeline)
+        stacked = unique_stacked
 
         # For augmented, use order-independent key for deduplication
         seen_aug: set = set()
-        unique_augmented: List[List[str]] = []
+        unique_augmented: List[List[Any]] = []
         for combo in augmented:
-            key = tuple(sorted(combo))
+            key = tuple(sorted(get_transform_signature(t) for t in combo))
             if key not in seen_aug:
                 seen_aug.add(key)
                 unique_augmented.append(combo)
@@ -649,7 +724,19 @@ class TransferPreprocessingSelector:
             timing["stage4"] = time.time() - t0
             self._log(f"Stage 4 complete in {timing['stage4']:.2f}s")
 
-        # Sort by transfer score
+        # Filter out results with NaN transfer scores (invalid preprocessing results)
+        valid_results = [
+            r for r in all_results
+            if r.transfer_score is not None and not np.isnan(r.transfer_score)
+        ]
+        invalid_count = len(all_results) - len(valid_results)
+        if invalid_count > 0:
+            self._log(
+                f"  Filtered {invalid_count} results with invalid transfer scores"
+            )
+        all_results = valid_results
+
+        # Sort by transfer score (higher is better)
         all_results.sort(key=lambda r: r.transfer_score, reverse=True)
 
         # Create results object
@@ -682,10 +769,10 @@ class TransferPreprocessingSelector:
         """
         # Determine which preprocessings to evaluate
         if self.use_generator and self._expanded_singles:
+            # Object-based: use expanded transforms directly
             pp_items = [
-                (name, self.preprocessings[name])
-                for name in self._expanded_singles
-                if name in self.preprocessings
+                (get_transform_name(t), t)
+                for t in self._expanded_singles
             ]
             self._log(
                 f"  Using generator-specified preprocessings: {len(pp_items)} items"
@@ -730,8 +817,12 @@ class TransferPreprocessingSelector:
         if self._effective_n_jobs > 1:
             self._log(f"  Parallel evaluation with {self._effective_n_jobs} workers...")
 
-        # Prepare items for parallel evaluation: (name, name) since stacked uses name for lookup
-        pp_items = [(name, name) for name in self._expanded_stacked]
+        # Prepare items for parallel evaluation: (name, transforms_list)
+        # Name is derived from transform types for display
+        pp_items = [
+            (">".join(get_transform_name(t) for t in transforms), transforms)
+            for transforms in self._expanded_stacked
+        ]
 
         return self._parallel_evaluate_preprocessings(
             X_source, X_target, pp_items, pipeline_type="stacked"
@@ -766,10 +857,10 @@ class TransferPreprocessingSelector:
         if self._effective_n_jobs > 1:
             self._log(f"  Parallel evaluation with {self._effective_n_jobs} workers...")
 
-        # Prepare items for parallel evaluation: (name, components_list)
+        # Prepare items for parallel evaluation: (name, transforms_list)
         pp_items = [
-            ("+".join(components), components)
-            for components in self._expanded_augmented
+            ("+".join(get_transform_name(t) for t in transforms), transforms)
+            for transforms in self._expanded_augmented
         ]
 
         return self._parallel_evaluate_preprocessings(

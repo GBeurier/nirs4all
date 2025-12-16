@@ -176,3 +176,27 @@ class QueryBuilder:
             >>> # expr: sample != origin
         """
         return pl.col("sample") != pl.col("origin")
+
+    def build_excluded_filter(self, include_excluded: bool = False) -> pl.Expr:
+        """
+        Build a filter expression for excluded samples.
+
+        Args:
+            include_excluded: If True, return expression that matches all rows.
+                            If False (default), return expression that excludes
+                            samples marked as excluded=True.
+
+        Returns:
+            pl.Expr: Expression for filtering excluded samples.
+
+        Examples:
+            >>> expr = builder.build_excluded_filter(include_excluded=False)
+            >>> # expr: (excluded == False) | excluded.is_null()
+
+            >>> expr = builder.build_excluded_filter(include_excluded=True)
+            >>> # expr: pl.lit(True)  # Match all
+        """
+        if include_excluded:
+            return pl.lit(True)
+        # Include samples where excluded is False OR null (not set)
+        return (pl.col("excluded") == False) | pl.col("excluded").is_null()  # noqa: E712

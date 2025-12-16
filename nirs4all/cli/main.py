@@ -55,8 +55,12 @@ def main():
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
     # Add workspace commands
-    from .workspace import add_workspace_commands
+    from .commands.workspace import add_workspace_commands
     add_workspace_commands(subparsers)
+
+    # Add artifacts commands
+    from .commands.artifacts import add_artifacts_commands
+    add_artifacts_commands(subparsers)
 
     args = parser.parse_args()
 

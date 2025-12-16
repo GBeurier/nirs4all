@@ -78,6 +78,13 @@ class SpectraChartController(OperatorController):
         Execute spectra visualization for both 2D and 3D plots.
         Skips execution in prediction mode.
 
+        Supports optional parameters via dict syntax:
+            {"chart_2d": {"include_excluded": True, "highlight_excluded": True}}
+
+        Args:
+            include_excluded: If True, include excluded samples in visualization
+            highlight_excluded: If True, highlight excluded samples with different style
+
         Returns:
             Tuple of (context, StepOutput)
         """
@@ -90,13 +97,51 @@ class SpectraChartController(OperatorController):
         if mode == "predict" or mode == "explain":
             return context, StepOutput()
 
-        is_3d = (step == "chart_3d") or (step == "3d_chart")
+        # Check if step is a dict with configuration
+        is_3d = False
+        include_excluded = False
+        highlight_excluded = False
+
+        if isinstance(step, dict):
+            for key in ["chart_2d", "chart_3d", "2d_chart", "3d_chart"]:
+                if key in step:
+                    is_3d = key in ["chart_3d", "3d_chart"]
+                    config = step[key] if isinstance(step[key], dict) else {}
+                    include_excluded = config.get("include_excluded", False)
+                    highlight_excluded = config.get("highlight_excluded", False)
+                    break
+        else:
+            is_3d = (step == "chart_3d") or (step == "3d_chart")
 
         # Initialize image list to track generated plots
         img_list = []
+
+        # Get sample indices (respecting include_excluded setting)
+        sample_indices = dataset._indexer.x_indices(  # noqa: SLF001
+            context.selector, include_augmented=True, include_excluded=include_excluded
+        )
+
+        # Get excluded mask for highlighting if needed
+        excluded_mask = None
+        if highlight_excluded and include_excluded:
+            # Get indices of excluded samples
+            all_indices = dataset._indexer.x_indices(  # noqa: SLF001
+                context.selector, include_augmented=True, include_excluded=True
+            )
+            included_indices = dataset._indexer.x_indices(  # noqa: SLF001
+                context.selector, include_augmented=True, include_excluded=False
+            )
+            excluded_mask = np.isin(all_indices, included_indices, invert=True)
+
         # Use context directly as it is immutable-ish and we only read from it
-        spectra_data = dataset.x(context.selector, "3d", False)
-        y = dataset.y(context.selector)
+        # Use include_excluded for data retrieval if specified
+        selector_with_excluded = context.selector
+        if include_excluded:
+            # Modify selector to include excluded samples
+            selector_with_excluded = {"sample": sample_indices.tolist()}
+
+        spectra_data = dataset.x(selector_with_excluded, "3d", False, include_excluded=include_excluded)
+        y = dataset.y(selector_with_excluded, include_excluded=include_excluded)
 
         if not isinstance(spectra_data, list):
             spectra_data = [spectra_data]
@@ -105,6 +150,11 @@ class SpectraChartController(OperatorController):
         y_flat = y.flatten() if y.ndim > 1 else y
         sorted_indices = np.argsort(y_flat)
         y_sorted = y_flat[sorted_indices]
+
+        # Sort excluded mask if present
+        excluded_sorted = None
+        if excluded_mask is not None:
+            excluded_sorted = excluded_mask[sorted_indices]
 
         for sd_idx, x in enumerate(spectra_data):
             processing_ids = dataset.features_processings(sd_idx)
@@ -166,10 +216,10 @@ class SpectraChartController(OperatorController):
                 is_classification = dataset.is_classification
                 if is_3d:
                     ax = fig.add_subplot(n_rows, n_cols, processing_idx + 1, projection='3d')
-                    self._plot_3d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit, is_classification)
+                    self._plot_3d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit, is_classification, excluded_sorted)
                 else:
                     ax = fig.add_subplot(n_rows, n_cols, processing_idx + 1)
-                    self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit, is_classification)
+                    self._plot_2d_spectra(ax, x_sorted, y_sorted, short_name, processing_headers, header_unit, is_classification, excluded_sorted)
 
             # Adjust layout to prevent overlap
             plt.tight_layout(rect=[0, 0, 1, 0.96])
@@ -220,8 +270,30 @@ class SpectraChartController(OperatorController):
 
         return context, StepOutput(outputs=img_list)
 
-    def _plot_2d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None, header_unit: str = "cm-1", is_classification: bool = False) -> None:
-        """Plot 2D spectra on given axis."""
+    def _plot_2d_spectra(
+        self,
+        ax,
+        x_sorted: np.ndarray,
+        y_sorted: np.ndarray,
+        processing_name: str,
+        headers: Optional[List[str]] = None,
+        header_unit: str = "cm-1",
+        is_classification: bool = False,
+        excluded_mask: Optional[np.ndarray] = None
+    ) -> None:
+        """
+        Plot 2D spectra on given axis.
+
+        Args:
+            ax: Matplotlib axis
+            x_sorted: Sorted spectra data
+            y_sorted: Sorted target values
+            processing_name: Name of processing for title
+            headers: Optional wavelength headers
+            header_unit: Unit for headers (cm-1, nm, etc.)
+            is_classification: Whether this is a classification task
+            excluded_mask: Optional boolean mask where True = excluded sample
+        """
         # Create feature indices (wavelengths)
         n_features = x_sorted.shape[1]
 
@@ -273,11 +345,23 @@ class SpectraChartController(OperatorController):
             else:
                 y_normalized = np.zeros_like(y_sorted)
 
+        # Count excluded samples for subtitle
+        n_excluded = 0
+        if excluded_mask is not None:
+            n_excluded = excluded_mask.sum()
+
         # Plot each spectrum as a 2D line with gradient colors
         for i, spectrum in enumerate(x_sorted):
             color = colormap(y_normalized[i])
-            ax.plot(x_values, spectrum,
-                    color=color, alpha=0.7, linewidth=1)
+
+            # Check if this sample is excluded and should be highlighted
+            if excluded_mask is not None and excluded_mask[i]:
+                # Highlight excluded samples with dashed red line
+                ax.plot(x_values, spectrum,
+                        color='red', alpha=0.8, linewidth=1.5, linestyle='--')
+            else:
+                ax.plot(x_values, spectrum,
+                        color=color, alpha=0.7, linewidth=1)
 
         # Force axis order to prevent matplotlib from auto-sorting
         if len(x_values) > 1 and x_values[0] > x_values[-1]:
@@ -289,6 +373,8 @@ class SpectraChartController(OperatorController):
 
         # Subtitle with preprocessing name and dimensions
         subtitle = f"{processing_name} - ({len(y_sorted)} samples × {x_sorted.shape[1]} features)"
+        if n_excluded > 0:
+            subtitle += f" [{n_excluded} excluded]"
         ax.set_title(subtitle, fontsize=10)
 
         # Add colorbar to show the y-value gradient
@@ -297,15 +383,16 @@ class SpectraChartController(OperatorController):
             unique_values = np.unique(y_sorted)
             n_unique = len(unique_values)
 
-            import matplotlib.colors as mcolors
             boundaries = np.arange(n_unique + 1) - 0.5
             norm = mcolors.BoundaryNorm(boundaries, colormap.N)
 
             mappable = cm.ScalarMappable(cmap=colormap, norm=norm)
             mappable.set_array(np.arange(n_unique))
 
-            cbar = plt.colorbar(mappable, ax=ax, shrink=0.8, aspect=10,
-                              boundaries=boundaries, ticks=np.arange(n_unique))
+            cbar = plt.colorbar(
+                mappable, ax=ax, shrink=0.8, aspect=10,
+                boundaries=boundaries, ticks=np.arange(n_unique)
+            )
 
             # Set tick labels to actual class values
             if n_unique <= 20:
@@ -323,8 +410,30 @@ class SpectraChartController(OperatorController):
         cbar.set_label('y', fontsize=8)
         cbar.ax.tick_params(labelsize=7)
 
-    def _plot_3d_spectra(self, ax, x_sorted: np.ndarray, y_sorted: np.ndarray, processing_name: str, headers: Optional[List[str]] = None, header_unit: str = "cm-1", is_classification: bool = False) -> None:
-        """Plot 3D spectra on given axis."""
+    def _plot_3d_spectra(
+        self,
+        ax,
+        x_sorted: np.ndarray,
+        y_sorted: np.ndarray,
+        processing_name: str,
+        headers: Optional[List[str]] = None,
+        header_unit: str = "cm-1",
+        is_classification: bool = False,
+        excluded_mask: Optional[np.ndarray] = None
+    ) -> None:
+        """
+        Plot 3D spectra on given axis.
+
+        Args:
+            ax: Matplotlib 3D axis
+            x_sorted: Sorted spectra data
+            y_sorted: Sorted target values
+            processing_name: Name of processing for title
+            headers: Optional wavelength headers
+            header_unit: Unit for headers (cm-1, nm, etc.)
+            is_classification: Whether this is a classification task
+            excluded_mask: Optional boolean mask where True = excluded sample
+        """
         # Create feature indices (wavelengths)
         n_features = x_sorted.shape[1]
 
@@ -376,11 +485,23 @@ class SpectraChartController(OperatorController):
             else:
                 y_normalized = np.zeros_like(y_sorted)
 
+        # Count excluded samples for subtitle
+        n_excluded = 0
+        if excluded_mask is not None:
+            n_excluded = excluded_mask.sum()
+
         # Plot each spectrum as a line in 3D space with gradient colors
         for i, (spectrum, y_val) in enumerate(zip(x_sorted, y_sorted)):
             color = colormap(y_normalized[i])
-            ax.plot(x_values, [y_val] * n_features, spectrum,
-                    color=color, alpha=0.7, linewidth=1)
+
+            # Check if this sample is excluded and should be highlighted
+            if excluded_mask is not None and excluded_mask[i]:
+                # Highlight excluded samples with dashed red line
+                ax.plot(x_values, [y_val] * n_features, spectrum,
+                        color='red', alpha=0.8, linewidth=1.5, linestyle='--')
+            else:
+                ax.plot(x_values, [y_val] * n_features, spectrum,
+                        color=color, alpha=0.7, linewidth=1)
 
         # Force axis order to prevent matplotlib from auto-sorting
         if len(x_values) > 1 and x_values[0] > x_values[-1]:
@@ -393,6 +514,8 @@ class SpectraChartController(OperatorController):
 
         # Subtitle with preprocessing name and dimensions
         subtitle = f"{processing_name} - ({len(y_sorted)} samples × {x_sorted.shape[1]} features)"
+        if n_excluded > 0:
+            subtitle += f" [{n_excluded} excluded]"
         ax.set_title(subtitle, fontsize=10)
 
         # Add colorbar to show the y-value gradient
@@ -401,15 +524,16 @@ class SpectraChartController(OperatorController):
             unique_values = np.unique(y_sorted)
             n_unique = len(unique_values)
 
-            import matplotlib.colors as mcolors
             boundaries = np.arange(n_unique + 1) - 0.5
             norm = mcolors.BoundaryNorm(boundaries, colormap.N)
 
             mappable = cm.ScalarMappable(cmap=colormap, norm=norm)
             mappable.set_array(np.arange(n_unique))
 
-            cbar = plt.colorbar(mappable, ax=ax, shrink=0.8, aspect=10, pad=0.1,
-                              boundaries=boundaries, ticks=np.arange(n_unique))
+            cbar = plt.colorbar(
+                mappable, ax=ax, shrink=0.8, aspect=10, pad=0.1,
+                boundaries=boundaries, ticks=np.arange(n_unique)
+            )
 
             # Set tick labels to actual class values
             if n_unique <= 20:
