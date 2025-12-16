@@ -8,6 +8,7 @@ Core functionality has been moved to appropriate modules:
 - Binning → nirs4all.data.binning
 - Balancing → nirs4all.controllers.data.balancing
 - Artifact serialization → nirs4all.pipeline.artifact_serialization
+- Header units → nirs4all.utils.header_units
 """
 
 from .backend import (
@@ -21,6 +22,15 @@ from .backend import (
     is_gpu_available
 )
 
+from .header_units import (
+    AXIS_LABELS,
+    DEFAULT_AXIS_LABEL,
+    get_axis_label,
+    get_x_values_and_label,
+    should_invert_x_axis,
+    apply_x_axis_limits,
+)
+
 __all__ = [
     'TF_AVAILABLE',
     # 'TORCH_AVAILABLE',
@@ -30,4 +40,11 @@ __all__ = [
     'is_keras_available',
     'is_jax_available',
     'is_gpu_available',
+    # Header unit utilities
+    'AXIS_LABELS',
+    'DEFAULT_AXIS_LABEL',
+    'get_axis_label',
+    'get_x_values_and_label',
+    'should_invert_x_axis',
+    'apply_x_axis_limits',
 ]

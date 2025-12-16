@@ -9,6 +9,7 @@ import numpy as np
 import re
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.header_units import get_x_values_and_label, apply_x_axis_limits
 import io
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -294,28 +295,9 @@ class SpectraChartController(OperatorController):
             is_classification: Whether this is a classification task
             excluded_mask: Optional boolean mask where True = excluded sample
         """
-        # Create feature indices (wavelengths)
+        # Get feature x-values and axis label using centralized utility
         n_features = x_sorted.shape[1]
-
-        # Use headers if available, otherwise fall back to indices
-        if headers and len(headers) == n_features:
-            # Try to convert headers to numeric values for wavelengths
-            try:
-                x_values = np.array([float(h) for h in headers])
-                # Determine x-axis label based on header unit
-                if header_unit == "cm-1":
-                    x_label = 'Wavenumber (cm⁻¹)'
-                elif header_unit == "nm":
-                    x_label = 'Wavelength (nm)'
-                else:
-                    x_label = 'Features'
-            except (ValueError, TypeError):
-                # If headers are not numeric, use them as categorical labels
-                x_values = np.arange(n_features)
-                x_label = 'Features'
-        else:
-            x_values = np.arange(n_features)
-            x_label = 'Features'
+        x_values, x_label = get_x_values_and_label(headers, header_unit, n_features)
 
         # Create colormap - discrete for classification, continuous for regression
         if is_classification:
@@ -363,10 +345,8 @@ class SpectraChartController(OperatorController):
                 ax.plot(x_values, spectrum,
                         color=color, alpha=0.7, linewidth=1)
 
-        # Force axis order to prevent matplotlib from auto-sorting
-        if len(x_values) > 1 and x_values[0] > x_values[-1]:
-            # Descending order - set limits to force this display
-            ax.set_xlim(x_values[0], x_values[-1])
+        # Apply x-axis limits to preserve data ordering
+        apply_x_axis_limits(ax, x_values)
 
         ax.set_xlabel(x_label, fontsize=9)
         ax.set_ylabel('Intensity', fontsize=9)
@@ -434,28 +414,9 @@ class SpectraChartController(OperatorController):
             is_classification: Whether this is a classification task
             excluded_mask: Optional boolean mask where True = excluded sample
         """
-        # Create feature indices (wavelengths)
+        # Get feature x-values and axis label using centralized utility
         n_features = x_sorted.shape[1]
-
-        # Use headers if available, otherwise fall back to indices
-        if headers and len(headers) == n_features:
-            # Try to convert headers to numeric values for wavelengths
-            try:
-                x_values = np.array([float(h) for h in headers])
-                # Determine x-axis label based on header unit
-                if header_unit == "cm-1":
-                    x_label = 'Wavenumber (cm⁻¹)'
-                elif header_unit == "nm":
-                    x_label = 'Wavelength (nm)'
-                else:
-                    x_label = 'Features'
-            except (ValueError, TypeError):
-                # If headers are not numeric, use them as categorical labels
-                x_values = np.arange(n_features)
-                x_label = 'Features'
-        else:
-            x_values = np.arange(n_features)
-            x_label = 'Features'
+        x_values, x_label = get_x_values_and_label(headers, header_unit, n_features)
 
         # Create colormap - discrete for classification, continuous for regression
         if is_classification:
@@ -503,10 +464,8 @@ class SpectraChartController(OperatorController):
                 ax.plot(x_values, [y_val] * n_features, spectrum,
                         color=color, alpha=0.7, linewidth=1)
 
-        # Force axis order to prevent matplotlib from auto-sorting
-        if len(x_values) > 1 and x_values[0] > x_values[-1]:
-            # Descending order - set limits to force this display
-            ax.set_xlim(x_values[0], x_values[-1])
+        # Apply x-axis limits to preserve data ordering
+        apply_x_axis_limits(ax, x_values)
 
         ax.set_xlabel(x_label, fontsize=9)
         ax.set_ylabel('y (sorted)', fontsize=9)

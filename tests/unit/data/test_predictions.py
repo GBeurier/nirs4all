@@ -472,8 +472,8 @@ class TestVisualizationHeaderUnit:
         fig, ax = plt.subplots()
         controller._plot_2d_spectra(ax, x_data, y_data, "raw", headers, header_unit="index")
 
-        # Check that x-axis label is correct
-        assert ax.get_xlabel() == 'Features'
+        # Check that x-axis label is correct for index unit
+        assert ax.get_xlabel() == 'Feature Index'
         plt.close(fig)
 
     def test_plot_title_includes_processing_name(self):

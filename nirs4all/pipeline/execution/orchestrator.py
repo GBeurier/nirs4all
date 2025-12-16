@@ -318,6 +318,7 @@ class PipelineOrchestrator:
             configs.configs = [({"_preloaded_dataset": dataset}, dataset.name)]
             configs.cache = {dataset.name: self._extract_dataset_cache(dataset)}
             configs._task_types = ["auto"]  # Default task type for wrapped datasets
+            configs._signal_type_overrides = [None]  # No override for wrapped datasets
             return configs
 
         # Handle numpy arrays and tuples
@@ -345,6 +346,7 @@ class PipelineOrchestrator:
         configs.configs = [({"_preloaded_dataset": spectro_dataset}, dataset_name)]
         configs.cache = {dataset_name: self._extract_dataset_cache(spectro_dataset)}
         configs._task_types = ["auto"]  # Default task type for wrapped datasets
+        configs._signal_type_overrides = [None]  # No override for wrapped datasets
         return configs
 
     def _split_and_add_data(self, dataset: SpectroDataset, X: np.ndarray, y: Optional[np.ndarray], partition_info: Dict) -> None:
@@ -406,23 +408,33 @@ class PipelineOrchestrator:
                     dataset.add_targets(y_partition)
 
     def _extract_dataset_cache(self, dataset: SpectroDataset) -> Tuple:
-        """Extract cache tuple from a SpectroDataset."""
+        """Extract cache tuple from a SpectroDataset.
+
+        Returns a 14-tuple matching the format expected by DatasetConfigs:
+        (x_train, y_train, m_train, train_headers, m_train_headers, train_unit, train_signal_type,
+         x_test, y_test, m_test, test_headers, m_test_headers, test_unit, test_signal_type)
+        """
         try:
             x_train = dataset.x({"partition": "train"}, layout="2d")
             y_train = dataset.y({"partition": "train"})
             m_train = None
+            train_signal_type = dataset.signal_type(0) if dataset.n_sources > 0 else None
         except:
             x_train = y_train = m_train = None
+            train_signal_type = None
 
         try:
             x_test = dataset.x({"partition": "test"}, layout="2d")
             y_test = dataset.y({"partition": "test"})
             m_test = None
+            test_signal_type = dataset.signal_type(0) if dataset.n_sources > 0 else None
         except:
             x_test = y_test = m_test = None
+            test_signal_type = None
 
-        return (x_train, y_train, m_train, None, None,
-                x_test, y_test, m_test, None, None)
+        # Return 14-tuple with signal_type included
+        return (x_train, y_train, m_train, None, None, None, train_signal_type,
+                x_test, y_test, m_test, None, None, None, test_signal_type)
 
     def _print_best_predictions(
         self,

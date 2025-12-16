@@ -390,7 +390,7 @@ class TestLoadXYHeaderUnit:
     """Test header unit threading through load_XY"""
 
     def test_load_xy_returns_header_unit(self):
-        """Test that load_XY returns header_unit"""
+        """Test that load_XY returns header_unit and signal_type"""
         # Create temporary CSVs
         with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as fx:
             fx.write("4000;5000;6000\n")
@@ -408,7 +408,7 @@ class TestLoadXYHeaderUnit:
             x_params = {'delimiter': ';', 'has_header': True}
             y_params = {'delimiter': ';', 'has_header': True}
 
-            x, y, m, x_headers, m_headers, x_unit = load_XY(
+            x, y, m, x_headers, m_headers, x_unit, x_signal_type = load_XY(
                 x_path, None, x_params,
                 y_path, None, y_params
             )
@@ -435,7 +435,7 @@ class TestLoadXYHeaderUnit:
                 'header_unit': 'nm'  # Specify nm unit
             }
 
-            x, y, m, x_headers, m_headers, x_unit = load_XY(
+            x, y, m, x_headers, m_headers, x_unit, x_signal_type = load_XY(
                 x_path, None, x_params,
                 None, None, {}
             )
@@ -459,7 +459,7 @@ class TestLoadXYHeaderUnit:
                 'header_unit': 'none'
             }
 
-            x, y, m, x_headers, m_headers, x_unit = load_XY(
+            x, y, m, x_headers, m_headers, x_unit, x_signal_type = load_XY(
                 x_path, None, x_params,
                 None, None, {}
             )
@@ -495,7 +495,7 @@ class TestHandleDataHeaderUnit:
                 }
             }
 
-            x, y, m, x_headers, m_headers, x_unit = handle_data(config, 'train')
+            x, y, m, x_headers, m_headers, x_unit, x_signal_type = handle_data(config, 'train')
 
             assert x_unit == "cm-1"  # Default
             assert x_headers == ["4000", "5000"]
@@ -520,7 +520,7 @@ class TestHandleDataHeaderUnit:
                 }
             }
 
-            x, y, m, x_headers, m_headers, x_unit = handle_data(config, 'train')
+            x, y, m, x_headers, m_headers, x_unit, x_signal_type = handle_data(config, 'train')
 
             assert x_unit == "nm"
             assert x_headers == ["780", "800"]
@@ -555,13 +555,17 @@ class TestHandleDataHeaderUnit:
                 }
             }
 
-            x, y, m, x_headers, m_headers, x_units = handle_data(config, 'train')
+            x, y, m, x_headers, m_headers, x_units, x_signal_types = handle_data(config, 'train')
 
             # Should return list of units
             assert isinstance(x_units, list)
             assert len(x_units) == 2
             assert x_units[0] == "cm-1"
             assert x_units[1] == "cm-1"
+
+            # Signal types should also be a list
+            assert isinstance(x_signal_types, list)
+            assert len(x_signal_types) == 2
 
             # Headers should be list of lists
             assert isinstance(x_headers, list)
@@ -581,7 +585,126 @@ class TestHandleDataHeaderUnit:
             'train_y': y_array
         }
 
-        x, y, m, x_headers, m_headers, x_unit = handle_data(config, 'train')
+        x, y, m, x_headers, m_headers, x_unit, x_signal_type = handle_data(config, 'train')
 
         assert x_unit == "cm-1"  # Default for pre-loaded arrays
         assert x_headers == ["feature_0", "feature_1", "feature_2", "feature_3", "feature_4"]
+
+
+class TestSignalTypeFlow:
+    """Test signal type threading through the loader chain like header_unit."""
+
+    def test_handle_data_signal_type_in_config(self):
+        """Test that signal_type can be specified in config and flows through."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as fx:
+            fx.write("4000;5000\n")
+            fx.write("0.5;0.6\n")
+            x_path = fx.name
+
+        try:
+            config = {
+                'train_x': x_path,
+                'global_params': {
+                    'delimiter': ';',
+                    'has_header': True,
+                    'signal_type': 'reflectance'  # Specify signal type in config
+                }
+            }
+
+            x, y, m, x_headers, m_headers, x_unit, x_signal_type = handle_data(config, 'train')
+
+            # Signal type should be returned
+            assert x_signal_type is not None
+            assert x_signal_type.value == 'reflectance'
+        finally:
+            Path(x_path).unlink()
+
+    def test_load_xy_signal_type_param(self):
+        """Test that load_XY accepts and returns signal_type."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as fx:
+            fx.write("4000;5000;6000\n")
+            fx.write("1.1;1.2;1.3\n")
+            x_path = fx.name
+
+        try:
+            x_params = {
+                'delimiter': ';',
+                'has_header': True,
+                'signal_type': 'absorbance'
+            }
+
+            x, y, m, x_headers, m_headers, x_unit, x_signal_type = load_XY(
+                x_path, None, x_params,
+                None, None, {}
+            )
+
+            assert x_signal_type is not None
+            assert x_signal_type.value == 'absorbance'
+        finally:
+            Path(x_path).unlink()
+
+    def test_handle_data_multi_source_signal_types(self):
+        """Test signal_type works with multi-source configs."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as fx1:
+            fx1.write("4000;5000\n")
+            fx1.write("1.1;1.2\n")
+            x1_path = fx1.name
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as fx2:
+            fx2.write("780;800\n")
+            fx2.write("0.5;0.6\n")
+            x2_path = fx2.name
+
+        try:
+            config = {
+                'train_x': [x1_path, x2_path],
+                'train_x_params': {
+                    'delimiter': ';',
+                    'has_header': True,
+                    'signal_type': 'reflectance'  # Specify for all sources
+                }
+            }
+
+            x, y, m, x_headers, m_headers, x_units, x_signal_types = handle_data(config, 'train')
+
+            # Signal types should be a list
+            assert isinstance(x_signal_types, list)
+            assert len(x_signal_types) == 2
+            assert x_signal_types[0].value == 'reflectance'
+            assert x_signal_types[1].value == 'reflectance'
+        finally:
+            Path(x1_path).unlink()
+            Path(x2_path).unlink()
+
+    def test_handle_data_multi_source_per_source_signal_types(self):
+        """Test different signal_type per source in multi-source config."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as fx1:
+            fx1.write("4000;5000\n")
+            fx1.write("1.1;1.2\n")
+            x1_path = fx1.name
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as fx2:
+            fx2.write("780;800\n")
+            fx2.write("0.5;0.6\n")
+            x2_path = fx2.name
+
+        try:
+            config = {
+                'train_x': [x1_path, x2_path],
+                'train_x_params': {
+                    'delimiter': ';',
+                    'has_header': True,
+                    'signal_type': ['absorbance', 'reflectance']  # Different per source
+                }
+            }
+
+            x, y, m, x_headers, m_headers, x_units, x_signal_types = handle_data(config, 'train')
+
+            # Signal types should be different per source
+            assert isinstance(x_signal_types, list)
+            assert len(x_signal_types) == 2
+            assert x_signal_types[0].value == 'absorbance'
+            assert x_signal_types[1].value == 'reflectance'
+        finally:
+            Path(x1_path).unlink()
+            Path(x2_path).unlink()

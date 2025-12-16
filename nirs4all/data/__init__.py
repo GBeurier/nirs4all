@@ -19,6 +19,15 @@ from ._features import (
     normalize_header_unit,
 )
 
+# Signal type management
+from .signal_type import (
+    SignalType,
+    SignalTypeInput,
+    normalize_signal_type,
+    SignalTypeDetector,
+    detect_signal_type,
+)
+
 __all__ = [
     "SpectroDataset",
     "DatasetConfigs",
@@ -31,4 +40,10 @@ __all__ = [
     "HeaderUnit",
     "normalize_layout",
     "normalize_header_unit",
+    # Signal type
+    "SignalType",
+    "SignalTypeInput",
+    "normalize_signal_type",
+    "SignalTypeDetector",
+    "detect_signal_type",
 ]

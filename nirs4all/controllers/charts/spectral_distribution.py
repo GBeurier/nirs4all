@@ -6,6 +6,7 @@ import matplotlib.cm as cm
 import numpy as np
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.header_units import get_axis_label
 import io
 
 if TYPE_CHECKING:
@@ -141,13 +142,9 @@ class SpectralDistributionController(OperatorController):
         """Get appropriate x-axis label based on header unit."""
         try:
             header_unit = dataset.header_unit(source_idx)
-            if header_unit == "cm-1":
-                return 'Wavenumber (cm⁻¹)'
-            elif header_unit == "nm":
-                return 'Wavelength (nm)'
+            return get_axis_label(header_unit)
         except (AttributeError, IndexError):
-            pass
-        return 'Feature Index'
+            return 'Feature Index'
 
     def _create_simple_spectral(
         self,
