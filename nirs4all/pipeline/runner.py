@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+from nirs4all.core.logging import configure_logging
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
@@ -69,7 +70,7 @@ class PipelineRunner:
 
     Attributes:
         workspace_path (Path): Root workspace directory
-        verbose (int): Verbosity level (0=quiet, 1=info, 2=debug)
+        verbose (int): Verbosity level (0=quiet, 1=info, 2=debug, 3=trace)
         mode (str): Execution mode ('train', 'predict', 'explain')
         save_files (bool): Whether to save output files
         enable_tab_reports (bool): Whether to generate tabular reports
@@ -110,13 +111,20 @@ class PipelineRunner:
         show_spinner: bool = True,
         keep_datasets: bool = True,
         plots_visible: bool = False,
-        random_state: Optional[int] = None
+        random_state: Optional[int] = None,
+        # Logging configuration
+        log_file: bool = True,
+        log_format: str = "pretty",
+        use_unicode: Optional[bool] = None,
+        use_colors: Optional[bool] = None,
+        show_progress_bar: bool = True,
+        json_output: bool = False,
     ):
         """Initialize pipeline runner.
 
         Args:
             workspace_path: Workspace root directory. Defaults to './workspace'
-            verbose: Verbosity level (0=quiet, 1=info, 2=debug)
+            verbose: Verbosity level (0=quiet, 1=info, 2=debug, 3=trace)
             mode: Execution mode ('train', 'predict', 'explain')
             save_files: Whether to save output files
             enable_tab_reports: Whether to generate tabular reports
@@ -125,6 +133,14 @@ class PipelineRunner:
             keep_datasets: Whether to keep data snapshots (raw/preprocessed)
             plots_visible: Whether to display plots interactively
             random_state: Random seed for reproducibility
+            log_file: Whether to write logs to workspace/logs/ directory
+            log_format: Output format: "pretty" (default), "minimal", or "json"
+            use_unicode: Use Unicode symbols (auto-detected if None). Set to False
+                for HPC/cluster environments without Unicode support.
+            use_colors: Use ANSI colors (auto-detected if None). Set to False to
+                disable colored output.
+            show_progress_bar: Whether to show TTY-aware progress bars
+            json_output: Also write JSON Lines log file for machine parsing
         """
         if random_state is not None:
             init_global_random_state(random_state)
@@ -141,6 +157,28 @@ class PipelineRunner:
         self.show_spinner = show_spinner
         self.keep_datasets = keep_datasets
         self.plots_visible = plots_visible
+
+        # Store logging configuration
+        self.log_file = log_file
+        self.log_format = log_format
+        self.use_unicode = use_unicode
+        self.use_colors = use_colors
+        self.show_progress_bar = show_progress_bar
+        self.json_output = json_output
+
+        # Configure logging system
+        log_dir = self.workspace_path / "logs" if log_file else None
+        configure_logging(
+            verbose=verbose,
+            log_file=log_file,
+            log_dir=log_dir,
+            log_format=log_format,
+            use_unicode=use_unicode,
+            use_colors=use_colors,
+            show_progress=True,
+            show_progress_bar=show_progress_bar,
+            json_output=json_output,
+        )
 
         # Create orchestrator
         self.orchestrator = PipelineOrchestrator(

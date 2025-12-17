@@ -12,7 +12,9 @@ import argparse
 import sys
 from pathlib import Path
 from typing import List, Optional
+from nirs4all.core.logging import get_logger
 
+logger = get_logger(__name__)
 
 def _format_bytes(size_bytes: int) -> str:
     """Format bytes as human-readable string."""
@@ -46,7 +48,7 @@ def artifacts_list_orphaned(args):
     binaries_dir = workspace_path / "binaries"
 
     if not binaries_dir.exists():
-        print("No artifacts found (binaries/ directory does not exist)")
+        logger.info("No artifacts found (binaries/ directory does not exist)")
         return
 
     # Get datasets to check
@@ -56,7 +58,7 @@ def artifacts_list_orphaned(args):
         datasets = _get_all_datasets(workspace_path)
 
     if not datasets:
-        print("No datasets with artifacts found")
+        logger.info("No datasets with artifacts found")
         return
 
     total_orphans = 0
@@ -71,26 +73,26 @@ def artifacts_list_orphaned(args):
         orphans = registry.find_orphaned_artifacts(scan_all_manifests=True)
 
         if orphans:
-            print(f"\n📦 Dataset: {dataset}")
-            print("-" * 60)
+            logger.info(f"\nDataset: {dataset}")
+            logger.info("-" * 60)
 
             for filename in orphans:
                 filepath = registry.binaries_dir / filename
                 if filepath.exists():
                     size = filepath.stat().st_size
                     total_size += size
-                    print(f"  • {filename} ({_format_bytes(size)})")
+                    logger.info(f"  * {filename} ({_format_bytes(size)})")
                 else:
-                    print(f"  • {filename} (file missing)")
+                    logger.info(f"  * {filename} (file missing)")
 
             total_orphans += len(orphans)
 
     if total_orphans == 0:
-        print("✓ No orphaned artifacts found")
+        logger.success("No orphaned artifacts found")
     else:
-        print(f"\n{'='*60}")
-        print(f"Total orphaned: {total_orphans} files ({_format_bytes(total_size)})")
-        print(f"\nRun 'nirs4all artifacts cleanup' to remove orphaned artifacts")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Total orphaned: {total_orphans} files ({_format_bytes(total_size)})")
+        logger.info(f"\nRun 'nirs4all artifacts cleanup' to remove orphaned artifacts")
 
 
 def artifacts_cleanup(args):
@@ -101,7 +103,7 @@ def artifacts_cleanup(args):
     binaries_dir = workspace_path / "binaries"
 
     if not binaries_dir.exists():
-        print("No artifacts found (binaries/ directory does not exist)")
+        logger.info("No artifacts found (binaries/ directory does not exist)")
         return
 
     # Get datasets to clean
@@ -111,7 +113,7 @@ def artifacts_cleanup(args):
         datasets = _get_all_datasets(workspace_path)
 
     if not datasets:
-        print("No datasets with artifacts found")
+        logger.info("No datasets with artifacts found")
         return
 
     dry_run = not args.force
@@ -119,8 +121,8 @@ def artifacts_cleanup(args):
     total_freed = 0
 
     if dry_run:
-        print("🔍 DRY RUN - No files will be deleted")
-        print("   Use --force to actually delete files\n")
+        logger.info("DRY RUN - No files will be deleted")
+        logger.info("   Use --force to actually delete files\n")
 
     for dataset in datasets:
         registry = ArtifactRegistry(
@@ -135,22 +137,22 @@ def artifacts_cleanup(args):
 
         if deleted:
             action = "Would delete" if dry_run else "Deleted"
-            print(f"\n📦 Dataset: {dataset}")
-            print(f"   {action} {len(deleted)} orphaned artifacts ({_format_bytes(bytes_freed)})")
+            logger.info(f"\nDataset: {dataset}")
+            logger.info(f"   {action} {len(deleted)} orphaned artifacts ({_format_bytes(bytes_freed)})")
 
             if args.verbose:
                 for filename in deleted:
-                    print(f"   • {filename}")
+                    logger.info(f"   * {filename}")
 
             total_deleted += len(deleted)
             total_freed += bytes_freed
 
     if total_deleted == 0:
-        print("✓ No orphaned artifacts to clean up")
+        logger.success("No orphaned artifacts to clean up")
     else:
         action = "Would free" if dry_run else "Freed"
-        print(f"\n{'='*60}")
-        print(f"Total: {total_deleted} files, {action} {_format_bytes(total_freed)}")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Total: {total_deleted} files, {action} {_format_bytes(total_freed)}")
 
 
 def artifacts_stats(args):
@@ -161,7 +163,7 @@ def artifacts_stats(args):
     binaries_dir = workspace_path / "binaries"
 
     if not binaries_dir.exists():
-        print("No artifacts found (binaries/ directory does not exist)")
+        logger.info("No artifacts found (binaries/ directory does not exist)")
         return
 
     # Get datasets to report on
@@ -171,11 +173,11 @@ def artifacts_stats(args):
         datasets = _get_all_datasets(workspace_path)
 
     if not datasets:
-        print("No datasets with artifacts found")
+        logger.info("No datasets with artifacts found")
         return
 
-    print("📊 Artifact Storage Statistics")
-    print("=" * 70)
+    logger.info("Artifact Storage Statistics")
+    logger.info("=" * 70)
 
     grand_total_files = 0
     grand_total_size = 0
@@ -190,25 +192,25 @@ def artifacts_stats(args):
 
         stats = registry.get_stats(scan_all_manifests=True)
 
-        print(f"\n📦 Dataset: {dataset}")
-        print("-" * 60)
-        print(f"   Binaries path:     {stats['binaries_path']}")
-        print(f"   Files on disk:     {stats['disk_file_count']}")
-        print(f"   Disk usage:        {_format_bytes(stats['disk_usage_bytes'])}")
+        logger.info(f"\nDataset: {dataset}")
+        logger.info("-" * 60)
+        logger.info(f"   Binaries path:     {stats['binaries_path']}")
+        logger.info(f"   Files on disk:     {stats['disk_file_count']}")
+        logger.info(f"   Disk usage:        {_format_bytes(stats['disk_usage_bytes'])}")
 
         if stats['total_artifacts'] > 0:
-            print(f"   Registered refs:   {stats['total_artifacts']}")
-            print(f"   Unique files:      {stats['unique_files']}")
+            logger.info(f"   Registered refs:   {stats['total_artifacts']}")
+            logger.info(f"   Unique files:      {stats['unique_files']}")
             dedup_pct = stats['deduplication_ratio'] * 100
-            print(f"   Deduplication:     {dedup_pct:.1f}%")
+            logger.info(f"   Deduplication:     {dedup_pct:.1f}%")
 
         if stats['by_type']:
-            print(f"   By type:")
+            logger.info(f"   By type:")
             for type_name, count in sorted(stats['by_type'].items()):
-                print(f"      {type_name}: {count}")
+                logger.info(f"      {type_name}: {count}")
 
         if stats['orphaned_count'] > 0:
-            print(f"   ⚠️  Orphaned:       {stats['orphaned_count']} files ({_format_bytes(stats['orphaned_size_bytes'])})")
+            logger.warning(f"   Orphaned:       {stats['orphaned_count']} files ({_format_bytes(stats['orphaned_size_bytes'])})")
             grand_total_orphans += stats['orphaned_count']
             grand_orphan_size += stats['orphaned_size_bytes']
 
@@ -217,13 +219,13 @@ def artifacts_stats(args):
 
     # Print grand totals if multiple datasets
     if len(datasets) > 1:
-        print(f"\n{'='*70}")
-        print("📊 Grand Total")
-        print(f"   Datasets:          {len(datasets)}")
-        print(f"   Total files:       {grand_total_files}")
-        print(f"   Total disk usage:  {_format_bytes(grand_total_size)}")
+        logger.info(f"\n{'='*70}")
+        logger.info("Grand Total")
+        logger.info(f"   Datasets:          {len(datasets)}")
+        logger.info(f"   Total files:       {grand_total_files}")
+        logger.info(f"   Total disk usage:  {_format_bytes(grand_total_size)}")
         if grand_total_orphans > 0:
-            print(f"   ⚠️  Total orphaned:  {grand_total_orphans} files ({_format_bytes(grand_orphan_size)})")
+            logger.warning(f"   Total orphaned:  {grand_total_orphans} files ({_format_bytes(grand_orphan_size)})")
 
 
 def artifacts_purge(args):
@@ -234,7 +236,7 @@ def artifacts_purge(args):
     dataset = args.dataset
 
     if not dataset:
-        print("Error: --dataset is required for purge command")
+        logger.error("--dataset is required for purge command")
         sys.exit(1)
 
     registry = ArtifactRegistry(
@@ -243,7 +245,7 @@ def artifacts_purge(args):
     )
 
     if not registry.binaries_dir.exists():
-        print(f"No artifacts found for dataset '{dataset}'")
+        logger.info(f"No artifacts found for dataset '{dataset}'")
         return
 
     # Count files that would be deleted
@@ -253,27 +255,27 @@ def artifacts_purge(args):
     )
 
     if file_count == 0:
-        print(f"No artifacts to purge for dataset '{dataset}'")
+        logger.info(f"No artifacts to purge for dataset '{dataset}'")
         return
 
     if not args.force:
-        print(f"⚠️  This will delete ALL {file_count} artifacts for dataset '{dataset}'")
-        print(f"   Total size: {_format_bytes(total_size)}")
-        print(f"\n   This action cannot be undone!")
-        print(f"\n   Use --force to confirm deletion")
+        logger.warning(f"This will delete ALL {file_count} artifacts for dataset '{dataset}'")
+        logger.info(f"   Total size: {_format_bytes(total_size)}")
+        logger.info(f"\n   This action cannot be undone!")
+        logger.info(f"\n   Use --force to confirm deletion")
         return
 
     # Confirm with user if interactive
     if not args.yes:
         response = input(f"\nDelete all {file_count} artifacts for '{dataset}'? [y/N]: ")
         if response.lower() not in ('y', 'yes'):
-            print("Aborted")
+            logger.info("Aborted")
             return
 
     files_deleted, bytes_freed = registry.purge_dataset_artifacts(confirm=True)
 
-    print(f"✓ Purged {files_deleted} artifacts for dataset '{dataset}'")
-    print(f"   Freed: {_format_bytes(bytes_freed)}")
+    logger.success(f"Purged {files_deleted} artifacts for dataset '{dataset}'")
+    logger.info(f"   Freed: {_format_bytes(bytes_freed)}")
 
 
 def add_artifacts_commands(subparsers):

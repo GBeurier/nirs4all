@@ -2,6 +2,10 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 from matplotlib.patches import FancyBboxPatch
 import matplotlib.cm as cm
 from sklearn.decomposition import PCA
@@ -459,7 +463,7 @@ class PreprocPCAEvaluator:
             metric: 'centroid' or 'spread' - which distance metric to display
         """
         if self.cross_dataset_df_ is None or self.cross_dataset_df_.empty:
-            print("{WARNING} No cross-dataset analysis available. Need multiple datasets.")
+            logger.warning("No cross-dataset analysis available. Need multiple datasets.")
             return None
 
         datasets = sorted(set(self.cross_dataset_df_['dataset_1']).union(
@@ -581,7 +585,7 @@ class PreprocPCAEvaluator:
             log_scale: If True, use log scale for the right plot (absolute distances) to handle extreme values
         """
         if self.cross_dataset_df_ is None or self.cross_dataset_df_.empty:
-            print("{WARNING} No cross-dataset analysis available. Need multiple datasets.")
+            logger.warning("No cross-dataset analysis available. Need multiple datasets.")
             return None
 
         # Compute average distance reduction for each preprocessing
@@ -693,7 +697,7 @@ class PreprocPCAEvaluator:
         Lower variance after preprocessing = datasets behave more similarly = better for transfer learning.
         """
         if self.df_ is None or self.df_.empty or len(self.df_['dataset'].unique()) < 2:
-            print("{WARNING} Need at least 2 datasets for quality metric convergence analysis.")
+            logger.warning("Need at least 2 datasets for quality metric convergence analysis.")
             return None
 
         convergence_df = self.get_quality_metric_convergence()
@@ -886,7 +890,7 @@ class PreprocPCAEvaluator:
         Shows which preprocessing methods bring datasets closer together.
         """
         if self.cross_dataset_df_ is None or self.cross_dataset_df_.empty:
-            print("{WARNING} No cross-dataset analysis available. Need multiple datasets.")
+            logger.warning("No cross-dataset analysis available. Need multiple datasets.")
             return None
 
         summary = self.get_cross_dataset_summary()
@@ -981,7 +985,7 @@ class PreprocPCAEvaluator:
             metric: 'centroid_improvement', 'centroid_dist_pp', 'spread_improvement', or 'spread_dist_pp'
         """
         if self.cross_dataset_df_ is None or self.cross_dataset_df_.empty:
-            print("{WARNING} No cross-dataset analysis available. Need multiple datasets.")
+            logger.warning("No cross-dataset analysis available. Need multiple datasets.")
             return None
 
         # Get unique datasets and preprocessings

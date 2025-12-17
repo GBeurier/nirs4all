@@ -2,6 +2,7 @@
 
 import logging
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -10,14 +11,21 @@ import pytest
 from nirs4all.core.logging import (
     BranchContext,
     ConsoleFormatter,
+    EvaluationProgress,
     FileFormatter,
     JsonFormatter,
     LogContext,
+    MultiLevelProgress,
     Phase,
+    ProgressBar,
+    ProgressConfig,
+    SpinnerProgress,
     Status,
     Symbols,
     ThrottledHandler,
     configure_logging,
+    configure_progress,
+    evaluation_progress,
     format_duration,
     format_number,
     format_run_footer,
@@ -27,7 +35,9 @@ from nirs4all.core.logging import (
     get_logger,
     get_run_id,
     is_configured,
+    progress_bar,
     reset_logging,
+    spinner,
 )
 
 
@@ -379,3 +389,164 @@ class TestFileLogging:
             assert log_file.exists()
 
             reset_logging()
+
+
+class TestProgressBar:
+    """Test progress bar functionality."""
+
+    def test_basic_progress_bar(self) -> None:
+        """Test basic progress bar creation and update."""
+        with ProgressBar(total=10, description="Test", disable=True) as pbar:
+            for i in range(10):
+                pbar.update(1)
+            assert pbar.current == 10
+
+    def test_progress_bar_with_best_score(self) -> None:
+        """Test progress bar with best score tracking."""
+        with ProgressBar(total=5, description="Test", disable=True) as pbar:
+            pbar.update(1, best_score=0.5)
+            assert pbar._best_score == 0.5
+            pbar.update(1, best_score=0.3)
+            assert pbar._best_score == 0.3
+
+    def test_progress_bar_wrap(self) -> None:
+        """Test ProgressBar.wrap() iterator."""
+        items = [1, 2, 3, 4, 5]
+        result = []
+        for item in ProgressBar.wrap(items, description="Wrapping", disable=True):
+            result.append(item)
+        assert result == items
+
+    def test_progress_bar_factory(self) -> None:
+        """Test progress_bar() factory function."""
+        pbar = progress_bar(total=10, description="Factory test", disable=True)
+        assert pbar.total == 10
+        assert pbar.description == "Factory test"
+
+
+class TestEvaluationProgress:
+    """Test ML-specific evaluation progress."""
+
+    def test_basic_evaluation_progress(self) -> None:
+        """Test basic evaluation progress tracking."""
+        with EvaluationProgress(
+            total_pipelines=5,
+            metric_name="RMSE",
+            higher_is_better=False,
+            disable=True,
+        ) as progress:
+            # First score should be best
+            is_best = progress.update(score=0.5, pipeline_name="pipeline-1")
+            assert is_best is True
+            assert progress.best_score == 0.5
+            assert progress.best_pipeline == "pipeline-1"
+
+            # Lower score should be new best (higher_is_better=False)
+            is_best = progress.update(score=0.3, pipeline_name="pipeline-2")
+            assert is_best is True
+            assert progress.best_score == 0.3
+            assert progress.best_pipeline == "pipeline-2"
+
+            # Higher score should not be best
+            is_best = progress.update(score=0.4, pipeline_name="pipeline-3")
+            assert is_best is False
+            assert progress.best_score == 0.3  # Unchanged
+
+    def test_evaluation_progress_higher_is_better(self) -> None:
+        """Test evaluation with higher_is_better=True."""
+        with EvaluationProgress(
+            total_pipelines=3,
+            metric_name="R2",
+            higher_is_better=True,
+            disable=True,
+        ) as progress:
+            progress.update(score=0.7)
+            progress.update(score=0.9)  # Should be new best
+            progress.update(score=0.8)  # Not best
+
+            assert progress.best_score == 0.9
+
+    def test_evaluation_progress_factory(self) -> None:
+        """Test evaluation_progress() factory function."""
+        progress = evaluation_progress(
+            total_pipelines=10,
+            metric_name="MAE",
+            higher_is_better=False,
+            disable=True,
+        )
+        assert progress.total_pipelines == 10
+        assert progress.metric_name == "MAE"
+        assert progress.higher_is_better is False
+
+
+class TestMultiLevelProgress:
+    """Test multi-level progress tracking."""
+
+    def test_multilevel_creation(self) -> None:
+        """Test multi-level progress creation."""
+        progress = MultiLevelProgress(
+            run_total=5,
+            run_description="Test",
+            disable=True,
+        )
+        assert progress._run_total == 5
+        assert progress._run_description == "Test"
+
+    def test_multilevel_levels(self) -> None:
+        """Test different progress levels."""
+        progress = MultiLevelProgress(disable=True)
+
+        # Test run level
+        run_bar = progress.run_level(total=5, description="Run")
+        assert run_bar.total == 5
+        run_bar.close()
+
+        # Test pipeline level
+        pipe_bar = progress.pipeline_level(total=10)
+        assert pipe_bar.total == 10
+        pipe_bar.close()
+
+        # Test fold level
+        fold_bar = progress.fold_level(total=3)
+        assert fold_bar.total == 3
+        fold_bar.close()
+
+        progress.close_all()
+
+
+class TestSpinnerProgress:
+    """Test spinner for indeterminate progress."""
+
+    def test_spinner_creation(self) -> None:
+        """Test spinner creation."""
+        s = SpinnerProgress(description="Loading", disable=True)
+        assert s.description == "Loading"
+        assert s._running is False
+
+    def test_spinner_factory(self) -> None:
+        """Test spinner() factory function."""
+        s = spinner(description="Processing", disable=True)
+        assert s.description == "Processing"
+
+
+class TestProgressConfig:
+    """Test progress configuration."""
+
+    def test_default_config(self) -> None:
+        """Test default progress configuration."""
+        config = ProgressConfig()
+        assert config.bar_width == 30
+        assert config.show_percentage is True
+        assert config.show_count is True
+        assert config.show_elapsed is True
+        assert config.show_eta is True
+
+    def test_configure_progress(self) -> None:
+        """Test configure_progress() function."""
+        configure_progress(
+            bar_width=40,
+            show_percentage=False,
+            use_unicode=False,
+        )
+        # Configuration is applied globally
+        # We can verify by checking a new progress bar uses the settings

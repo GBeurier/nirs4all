@@ -85,7 +85,14 @@ pipeline_config = PipelineConfigs(pipeline, "Q1_classification")
 dataset_config = DatasetConfigs([data_binary])
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=display_pipeline_plots)
+# Logging configuration: verbose=1 shows INFO level (key milestones)
+runner = PipelineRunner(
+    save_files=False,
+    verbose=1,
+    plots_visible=display_pipeline_plots,
+    use_unicode=True,       # Use Unicode symbols
+    show_progress_bar=True, # Show progress bars
+)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization

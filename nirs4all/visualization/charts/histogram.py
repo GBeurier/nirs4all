@@ -9,6 +9,9 @@ from matplotlib.figure import Figure
 from typing import Literal, Optional, TYPE_CHECKING
 from nirs4all.visualization.charts.base import BaseChart
 from nirs4all.visualization.chart_utils.annotator import ChartAnnotator
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.visualization.predictions import PredictionAnalyzer
@@ -155,7 +158,7 @@ class ScoreHistogramChart(BaseChart):
         scores = df["score"].to_list()
 
         t1 = time.time()
-        print(f"Histogram data wrangling time: {t1 - t0:.4f} seconds")
+        logger.debug(f"Histogram data wrangling time: {t1 - t0:.4f} seconds")
 
         # --- POLARS OPTIMIZATION END ---
 
@@ -211,7 +214,7 @@ class ScoreHistogramChart(BaseChart):
         plt.tight_layout()
 
         t2 = time.time()
-        print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
+        logger.debug(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
 
@@ -291,7 +294,7 @@ class ScoreHistogramChart(BaseChart):
             )
 
         t1 = time.time()
-        print(f"Histogram data wrangling time (with aggregation): {t1 - t0:.4f} seconds")
+        logger.debug(f"Histogram data wrangling time (with aggregation): {t1 - t0:.4f} seconds")
 
         # Create figure
         fig, ax = plt.subplots(figsize=figsize)
@@ -346,7 +349,7 @@ class ScoreHistogramChart(BaseChart):
         plt.tight_layout()
 
         t2 = time.time()
-        print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
+        logger.debug(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
 

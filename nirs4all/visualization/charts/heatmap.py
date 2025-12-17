@@ -21,6 +21,9 @@ from nirs4all.visualization.chart_utils.annotator import ChartAnnotator
 from nirs4all.visualization.chart_utils.matrix_builder import MatrixBuilder
 from nirs4all.core import metrics as evaluator
 from nirs4all.core.metrics import abbreviate_metric
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.visualization.predictions import PredictionAnalyzer
@@ -625,7 +628,7 @@ class HeatmapChart(BaseChart):
                 count_matrix[y_map[y_val], x_map[x_val]] = count
 
         t1 = time.time()
-        print(f"Data wrangling time: {t1 - t0:.4f} seconds")
+        logger.debug(f"Data wrangling time: {t1 - t0:.4f} seconds")
 
         # --- POLARS OPTIMIZATION END ---
 
@@ -675,7 +678,7 @@ class HeatmapChart(BaseChart):
         )
 
         t2 = time.time()
-        print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
+        logger.debug(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
 
@@ -1124,7 +1127,7 @@ class HeatmapChart(BaseChart):
                             count_matrix[y_idx, x_idx] = len(y_pred_arr) if y_pred_arr is not None else 1
 
         t1 = time.time()
-        print(f"Data wrangling time (with aggregation): {t1 - t0:.4f} seconds")
+        logger.debug(f"Data wrangling time (with aggregation): {t1 - t0:.4f} seconds")
 
         # Determine if higher is better for display/ranking metric
         display_higher_better = self._is_higher_better(display_metric)
@@ -1168,7 +1171,7 @@ class HeatmapChart(BaseChart):
         )
 
         t2 = time.time()
-        print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
+        logger.debug(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
 

@@ -10,6 +10,10 @@ import time
 from typing import Dict, List, Tuple
 import numpy as np
 
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def check_dependency(name: str, min_version: str = None) -> Tuple[bool, str]:
     """
@@ -48,8 +52,8 @@ def test_installation() -> bool:
     Returns:
         True if all required dependencies are available, False otherwise.
     """
-    print("🔍 Testing NIRS4ALL Installation...")
-    print("=" * 50)
+    logger.info("Testing NIRS4ALL Installation...")
+    logger.info("=" * 50)
 
     # Core required dependencies from pyproject.toml
     required_deps = {
@@ -80,87 +84,89 @@ def test_installation() -> bool:
 
     # Test Python version
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    print(f"✓ Python: {python_version}")
+    logger.success(f"Python: {python_version}")
 
     if sys.version_info < (3, 7):
-        print(f"❌ Python version {python_version} is not supported (requires >=3.7)")
+        logger.error(f"Python version {python_version} is not supported (requires >=3.7)")
         return False
 
-    print()
+    logger.info("")
 
     # Test required dependencies
-    print("\n📦 Required Dependencies:")
+    logger.info("\nRequired Dependencies:")
     all_required_ok = True
 
     for dep_name, min_version in required_deps.items():
         is_available, version = check_dependency(dep_name, min_version)
-        status = "✓" if is_available else "❌"
-        print(f"  {status} {dep_name}: {version}")
-
-        if not is_available:
+        if is_available:
+            logger.success(f"  {dep_name}: {version}")
+        else:
+            logger.error(f"  {dep_name}: {version}")
             all_required_ok = False
 
-    print()
+    logger.info("")
 
     # Test optional dependencies
-    print("\n🔧 Optional ML Frameworks:")
+    logger.info("\nOptional ML Frameworks:")
     optional_available = {}
 
     for dep_name, min_version in optional_deps.items():
         is_available, version = check_dependency(dep_name, min_version)
-        status = "✓" if is_available else "⚠️"
-        print(f"  {status} {dep_name}: {version}")
+        if is_available:
+            logger.success(f"  {dep_name}: {version}")
+        else:
+            logger.warning(f"  {dep_name}: {version}")
         optional_available[dep_name] = is_available
 
-    print()
+    logger.info("")
 
     # Test nirs4all itself
-    print("\n🎯 NIRS4ALL Components:")
+    logger.info("\nNIRS4ALL Components:")
     try:
         # Test core pipeline components
         from nirs4all.pipeline.runner import PipelineRunner
-        print("  ✓ nirs4all.pipeline.runner: OK")
+        logger.success("  nirs4all.pipeline.runner: OK")
 
         from nirs4all.data.dataset import SpectroDataset
-        print("  ✓ nirs4all.dataset.dataset: OK")
+        logger.success("  nirs4all.dataset.dataset: OK")
 
         # Test controller system
         from nirs4all.controllers import register_controller, CONTROLLER_REGISTRY
-        print(f"  ✓ nirs4all.controllers: OK ({len(CONTROLLER_REGISTRY)} controllers registered)")
+        logger.success(f"  nirs4all.controllers: OK ({len(CONTROLLER_REGISTRY)} controllers registered)")
 
         # Test operators
         from nirs4all.operators.transforms import StandardNormalVariate, SavitzkyGolay
-        print("  ✓ nirs4all.operators.transforms: OK")
+        logger.success("  nirs4all.operators.transforms: OK")
 
         # Test backend utils
         from nirs4all.utils.backend import (
             is_tensorflow_available, is_torch_available,
             is_gpu_available
         )
-        print("  ✓ nirs4all.utils.backend_utils: OK")
+        logger.success("  nirs4all.utils.backend_utils: OK")
 
     except ImportError as e:
-        print(f"  ❌ nirs4all import error: {e}")
+        logger.error(f"  nirs4all import error: {e}")
         all_required_ok = False
 
-    print()
+    logger.info("")
 
     # Summary
     if all_required_ok:
-        print("Basic installation test PASSED!")
-        print("All required dependencies are available")
+        logger.success("Basic installation test PASSED!")
+        logger.info("All required dependencies are available")
 
         available_frameworks = [name for name, available in optional_available.items() if available]
         if available_frameworks:
-            print(f"Available ML frameworks: {', '.join(available_frameworks)}")
+            logger.info(f"Available ML frameworks: {', '.join(available_frameworks)}")
         else:
-            print("No optional ML frameworks detected")
+            logger.info("No optional ML frameworks detected")
 
         return True
     else:
-        print("Basic installation test FAILED!")
-        print("Please install missing dependencies using:")
-        print("  pip install nirs4all")
+        logger.error("Basic installation test FAILED!")
+        logger.info("Please install missing dependencies using:")
+        logger.info("  pip install nirs4all")
         return False
 
 
@@ -173,19 +179,19 @@ def test_integration() -> bool:
     Returns:
         True if integration test passes, False otherwise.
     """
-    print("🧪 NIRS4ALL Integration Test...")
-    print("=" * 50)
+    logger.info("NIRS4ALL Integration Test...")
+    logger.info("=" * 50)
 
     # # First check if basic installation is working
     # basic_ok = test_installation()
     # if not basic_ok:
-    #     print("{CROSS} Integration test FAILED!")
-    #     print("Please fix installation issues first.")
+    #     logger.error("Integration test FAILED!")
+    #     logger.info("Please fix installation issues first.")
     #     return False
 
-    print("\n" + "=" * 50)
-    print("🔄 Running Pipeline Integration Tests...")
-    print("=" * 50)
+    logger.info("\n" + "=" * 50)
+    logger.info("Running Pipeline Integration Tests...")
+    logger.info("=" * 50)
 
     # Store test results with timing
     test_results = []
@@ -200,10 +206,10 @@ def test_integration() -> bool:
         from sklearn.cross_decomposition import PLSRegression
         from nirs4all.operators.transforms import StandardNormalVariate
 
-        print("✓ Successfully imported NIRS4ALL modules")
+        logger.success("Successfully imported NIRS4ALL modules")
 
     except ImportError as e:
-        print(f"❌ Failed to import required modules: {e}")
+        logger.error(f"Failed to import required modules: {e}")
         return False
 
     def create_synthetic_dataset_files(temp_dir, task_type="regression", n_samples=100, n_features=500):
@@ -262,7 +268,7 @@ def test_integration() -> bool:
 
     def run_test(test_name, test_func):
         """Run a test with timing and error handling."""
-        print(f"\n🔹 Test: {test_name}")
+        logger.info(f"\nTest: {test_name}")
         start_time = time.time()
 
         try:
@@ -271,18 +277,18 @@ def test_integration() -> bool:
             elapsed = end_time - start_time
 
             if success:
-                print(f"  ✓ {test_name} completed successfully ({elapsed:.2f}s)")
+                logger.success(f"  {test_name} completed successfully ({elapsed:.2f}s)")
                 test_results.append((test_name, True, elapsed, None))
                 return True
             else:
-                print(f"  ❌ {test_name} failed ({elapsed:.2f}s)")
+                logger.error(f"  {test_name} failed ({elapsed:.2f}s)")
                 test_results.append((test_name, False, elapsed, "Test function returned False"))
                 return False
 
         except Exception as e:
             end_time = time.time()
             elapsed = end_time - start_time
-            print(f"  ❌ {test_name} failed with error ({elapsed:.2f}s): {e}")
+            logger.error(f"  {test_name} failed with error ({elapsed:.2f}s): {e}")
             test_results.append((test_name, False, elapsed, str(e)))
             return False
 
@@ -314,7 +320,7 @@ def test_integration() -> bool:
             # Verify results
             assert predictions is not None, "No predictions returned"
             num_predictions = predictions.num_predictions
-            print(f"    📈 Pipeline executed successfully, {num_predictions} predictions generated")
+            logger.info(f"    Pipeline executed successfully, {num_predictions} predictions generated")
 
             # Additional validation
             assert num_predictions >= 10, f"Expected at least 10 predictions, got {num_predictions}"
@@ -332,7 +338,7 @@ def test_integration() -> bool:
             import tensorflow as tf
             from nirs4all.operators.models.tensorflow.nicon import nicon
         except ImportError:
-            print("    ⚠️ TensorFlow/NIRS models not available, skipping test")
+            logger.warning("    TensorFlow/NIRS models not available, skipping test")
             return True  # Skip but don't fail
 
         # Create temporary dataset
@@ -363,7 +369,7 @@ def test_integration() -> bool:
 
             # Verify results
             assert predictions is not None, "No predictions returned"
-            print("    🧠 TensorFlow model trained successfully")
+            logger.info("    TensorFlow model trained successfully")
 
             return True
 
@@ -377,7 +383,7 @@ def test_integration() -> bool:
         try:
             import optuna
         except ImportError:
-            print("    ⚠️ Optuna not available, skipping test")
+            logger.warning("    Optuna not available, skipping test")
             return True  # Skip but don't fail
 
         # Create temporary dataset with more samples
@@ -427,7 +433,7 @@ def test_integration() -> bool:
             # Verify results
             assert predictions is not None, "No predictions returned"
             num_predictions = predictions.num_predictions
-            print(f"    🔧 Optuna optimization completed, {num_predictions} predictions generated")
+            logger.info(f"    Optuna optimization completed, {num_predictions} predictions generated")
 
             # Additional validation - should have predictions from both optimizations
             assert num_predictions >= 4, f"Expected at least 4 predictions from optimization, got {num_predictions}"
@@ -450,34 +456,36 @@ def test_integration() -> bool:
             success_count += 1
 
     # Print summary with timing
-    print("\n" + "=" * 50)
-    print(f"{CLIPBOARD}Integration Test Summary")
-    print("=" * 50)
+    logger.info("\n" + "=" * 50)
+    logger.info("Integration Test Summary")
+    logger.info("=" * 50)
 
     total_time = sum(result[2] for result in test_results)
 
     for name, success, elapsed, error in test_results:
-        status = "✓ PASS" if success else "❌ FAIL"
-        print(f"{status} {name}: {elapsed:.2f}s")
+        if success:
+            logger.success(f"PASS {name}: {elapsed:.2f}s")
+        else:
+            logger.error(f"FAIL {name}: {elapsed:.2f}s")
         if error and not success:
-            print(f"     Error: {error}")
+            logger.info(f"     Error: {error}")
 
-    print(f"\nTotal execution time: {total_time:.2f}s")
+    logger.info(f"\nTotal execution time: {total_time:.2f}s")
 
     if success_count == len(tests):
-        print("🎉 Integration test PASSED!")
-        print(f"✓ All {len(tests)} pipeline tests completed successfully")
-        print("🚀 NIRS4ALL is ready for use!")
+        logger.success("Integration test PASSED!")
+        logger.success(f"All {len(tests)} pipeline tests completed successfully")
+        logger.info("NIRS4ALL is ready for use!")
         return True
     else:
-        print(f"⚠️ Partial success: {success_count}/{len(tests)} tests passed")
+        logger.warning(f"Partial success: {success_count}/{len(tests)} tests passed")
         if success_count > 0:
-            print("✓ Basic pipeline functionality is working")
-            print("⚠️ Some optional features may have issues")
+            logger.success("Basic pipeline functionality is working")
+            logger.warning("Some optional features may have issues")
             return True  # Return True for partial success
         else:
-            print("❌ Integration test FAILED!")
-            print("❌ Pipeline execution is not working properly")
+            logger.error("Integration test FAILED!")
+            logger.error("Pipeline execution is not working properly")
             return False
 
 

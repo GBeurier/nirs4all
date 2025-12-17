@@ -15,6 +15,9 @@ import io
 import nirs4all.core.metrics as evaluator
 from nirs4all.core.task_type import TaskType
 from nirs4all.core.task_detection import detect_task_type
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class TabReportManager:
@@ -97,7 +100,7 @@ class TabReportManager:
                 pass  # Fall through to detection
 
         # Fallback: detect from y_true (for backward compatibility)
-        print("⚠️  Warning: task_type not found in prediction metadata, detecting from data")
+        logger.warning("task_type not found in prediction metadata, detecting from data")
         y_true = np.array(entry.get('y_true', []))
         if len(y_true) == 0:
             return TaskType.REGRESSION

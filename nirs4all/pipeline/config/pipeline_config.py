@@ -11,7 +11,23 @@ import yaml
 from .component_serialization import serialize_component
 from .generator import expand_spec, expand_spec_with_choices, count_combinations
 
-logging.basicConfig(level=logging.INFO)
+
+class _ShortNameFormatter(logging.Formatter):
+    """Formatter that strips 'nirs4all.' prefix from logger names."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        # Strip nirs4all prefix for cleaner output
+        if record.name.startswith("nirs4all."):
+            record.name = record.name[9:]  # len("nirs4all.") = 9
+        return super().format(record)
+
+
+# Configure logging with simplified module names
+_handler = logging.StreamHandler()
+_handler.setFormatter(_ShortNameFormatter("%(levelname)s: %(name)s: %(message)s"))
+logging.root.addHandler(_handler)
+logging.root.setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 class PipelineConfigs:

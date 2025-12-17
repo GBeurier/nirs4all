@@ -46,12 +46,19 @@ class LogConfig:
         self.use_colors: bool = True
         self.show_elapsed: bool = False
         self.show_progress: bool = True
+        self.show_progress_bar: bool = True
         self.json_output: bool = False
         self.run_id: Optional[str] = None
 
+        # File rotation settings
+        self.max_log_runs: int = 100
+        self.max_log_age_days: Optional[int] = 30
+        self.max_log_bytes: Optional[int] = None
+        self.compress_logs: bool = True
+
         # Handlers
         self._console_handler: Optional[logging.Handler] = None
-        self._file_handler: Optional[logging.Handler] = None
+        self._file_handler: Optional[RotatingRunFileHandler] = None
         self._throttle_handler: Optional[ThrottledHandler] = None
 
         # Configured flag
@@ -148,8 +155,13 @@ def configure_logging(
     use_colors: Optional[bool] = None,
     show_elapsed: bool = False,
     show_progress: bool = True,
+    show_progress_bar: bool = True,
     json_output: bool = False,
     run_id: Optional[str] = None,
+    max_log_runs: int = 100,
+    max_log_age_days: Optional[int] = 30,
+    max_log_bytes: Optional[int] = None,
+    compress_logs: bool = True,
 ) -> None:
     """Configure the nirs4all logging system.
 
@@ -165,8 +177,13 @@ def configure_logging(
         use_colors: Use ANSI colors (auto-detected if None).
         show_elapsed: Show elapsed time since run start.
         show_progress: Show progress updates for long operations.
+        show_progress_bar: Show TTY-aware progress bars.
         json_output: Also write JSON Lines log file.
         run_id: Override run ID (auto-generated if not provided).
+        max_log_runs: Maximum number of run logs to keep (count-based rotation).
+        max_log_age_days: Maximum age of logs in days (None to disable).
+        max_log_bytes: Maximum log file size before rotation (None to disable).
+        compress_logs: Whether to gzip rotated log files.
     """
     global _config
 
@@ -191,11 +208,23 @@ def configure_logging(
     _config.use_colors = use_colors
     _config.show_elapsed = show_elapsed
     _config.show_progress = show_progress
+    _config.show_progress_bar = show_progress_bar
     _config.json_output = json_output
     _config.run_id = run_id
+    _config.max_log_runs = max_log_runs
+    _config.max_log_age_days = max_log_age_days
+    _config.max_log_bytes = max_log_bytes
+    _config.compress_logs = compress_logs
 
     # Configure global symbols
     configure_symbols(use_unicode=use_unicode)
+
+    # Configure progress bar settings
+    from .progress import configure_progress
+    configure_progress(
+        use_unicode=use_unicode,
+        use_colors=use_colors,
+    )
 
     # Get the root nirs4all logger
     root_logger = logging.getLogger("nirs4all")
@@ -247,6 +276,10 @@ def configure_logging(
         file_handler = RotatingRunFileHandler(
             log_dir=Path(log_dir),
             run_id=actual_run_id,
+            max_runs=max_log_runs,
+            max_age_days=max_log_age_days,
+            max_bytes=max_log_bytes,
+            compress_rotated=compress_logs,
             json_output=json_output,
         )
         file_handler.setLevel(logging.DEBUG)  # Capture all levels to file

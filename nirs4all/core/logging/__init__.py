@@ -8,6 +8,7 @@ that replaces all print() statements with proper logging. It supports:
 - Context tracking for runs, phases, branches, and sources
 - ASCII-safe output for HPC/cluster environments
 - Progress throttling to avoid terminal flooding
+- TTY-aware progress bars with multi-level support
 
 Usage:
     >>> from nirs4all.core.logging import get_logger, configure_logging, LogContext
@@ -24,10 +25,25 @@ Usage:
     ...     with LogContext.branch("snv", index=0, total=4):
     ...         logger.success("SNV preprocessing complete")
 
+Progress Bars:
+    >>> from nirs4all.core.logging import ProgressBar, EvaluationProgress
+    >>>
+    >>> # Simple progress bar
+    >>> with ProgressBar(total=100, description="Processing") as pbar:
+    ...     for i in range(100):
+    ...         pbar.update(1)
+    >>>
+    >>> # ML-specific evaluation progress
+    >>> with EvaluationProgress(total_pipelines=42, metric_name="RMSE") as progress:
+    ...     for pipeline in pipelines:
+    ...         score = evaluate(pipeline)
+    ...         progress.update(score=score)
+
 See Also:
     - :mod:`nirs4all.core.logging.config` for configuration details
     - :mod:`nirs4all.core.logging.context` for context management
     - :mod:`nirs4all.core.logging.formatters` for output formatting
+    - :mod:`nirs4all.core.logging.progress` for progress bars
 """
 
 from .config import (
@@ -72,6 +88,17 @@ from .handlers import (
     RotatingRunFileHandler,
     ThrottledHandler,
 )
+from .progress import (
+    EvaluationProgress,
+    MultiLevelProgress,
+    ProgressBar,
+    ProgressConfig,
+    SpinnerProgress,
+    configure_progress,
+    evaluation_progress,
+    progress_bar,
+    spinner,
+)
 
 __all__ = [
     # Main API
@@ -112,4 +139,14 @@ __all__ = [
     "RotatingRunFileHandler",
     "BufferedHandler",
     "NullHandler",
+    # Progress bars
+    "ProgressBar",
+    "ProgressConfig",
+    "EvaluationProgress",
+    "MultiLevelProgress",
+    "SpinnerProgress",
+    "configure_progress",
+    "progress_bar",
+    "evaluation_progress",
+    "spinner",
 ]
