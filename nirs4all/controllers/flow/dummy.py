@@ -6,7 +6,9 @@ import inspect
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import FOLDER, TARGET, ALERT, PIN, CLIPBOARD, WRENCH, BULB, KEY
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -180,46 +182,46 @@ class DummyController(OperatorController):
         op = step_info.operator
         config = step_info.original_step
 
-        print("\n" + "="*80)
-        print(f"{ALERT}DUMMY CONTROLLER ACTIVATED - UNHANDLED OPERATOR DETECTED")
-        print("="*80)
+        logger.warning("" + "="*80)
+        logger.warning("DUMMY CONTROLLER ACTIVATED - UNHANDLED OPERATOR DETECTED")
+        logger.warning("="*80)
 
         # Basic execution info
-        print(f"{PIN}Execution Context:")
-        print(f"   Mode: {mode}")
-        print(f"   Source: {source}")
-        print(f"   Dataset: {dataset.name if hasattr(dataset, 'name') else 'unknown'}")
+        logger.warning("Execution Context:")
+        logger.warning(f"   Mode: {mode}")
+        logger.warning(f"   Source: {source}")
+        logger.warning(f"   Dataset: {dataset.name if hasattr(dataset, 'name') else 'unknown'}")
 
         # Step analysis
-        print(f"\n{CLIPBOARD}Step Analysis:")
+        logger.warning("Step Analysis:")
         step_analysis = self._analyze_step_structure(config)
         for key, value in step_analysis.items():
-            print(f"   {key}: {value}")
+            logger.warning(f"   {key}: {value}")
 
         # Operator analysis
-        print(f"\n{WRENCH}Operator Analysis:")
+        logger.warning("Operator Analysis:")
         if op is not None:
             operator_analysis = self._analyze_step_structure(op)
             for key, value in operator_analysis.items():
-                print(f"   {key}: {value}")
+                logger.warning(f"   {key}: {value}")
         else:
-            print("   operator: None")
+            logger.warning("   operator: None")
 
         # Context analysis
-        print(f"\n{FOLDER}Context Analysis:")
+        logger.warning("Context Analysis:")
         context_info = self._get_context_info(context)
         for key, value in context_info.items():
-            print(f"   {key}: {value}")
+            logger.warning(f"   {key}: {value}")
 
         # Keyword analysis
         if hasattr(context, 'metadata'):
              keyword = context.metadata.keyword
         else:
              keyword = 'unknown'
-        print(f"\n{KEY}Keyword: '{keyword}'")
+        logger.warning(f"Keyword: '{keyword}'")
 
         # Suggestions
-        print(f"\n{BULB}Possible Issues:")
+        logger.warning("Possible Issues:")
         suggestions = []
 
         if isinstance(config, dict):
@@ -251,17 +253,17 @@ class DummyController(OperatorController):
             suggestions.append("- No obvious issues detected - may need new controller or controller priority adjustment")
 
         for suggestion in suggestions:
-            print(f"   {suggestion}")
+            logger.warning(f"   {suggestion}")
 
         # Controller registry info
-        print(f"\n{TARGET} Debugging Info:")
-        print(f"   - Check controller priorities and matches() methods")
-        print(f"   - Verify step format matches expected controller patterns")
-        print(f"   - Consider adding specific controller for this operator type")
+        logger.warning("Debugging Info:")
+        logger.warning("   - Check controller priorities and matches() methods")
+        logger.warning("   - Verify step format matches expected controller patterns")
+        logger.warning("   - Consider adding specific controller for this operator type")
 
-        print("="*80)
-        print("🚨 END DUMMY CONTROLLER REPORT")
-        print("="*80 + "\n")
+        logger.warning("="*80)
+        logger.warning("END DUMMY CONTROLLER REPORT")
+        logger.warning("="*80)
 
         # Return unchanged context - this is just for debugging
         return context, []

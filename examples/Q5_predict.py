@@ -23,7 +23,10 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.operators.models.tensorflow.nicon import nicon
-from nirs4all.utils.emoji import CHECK, CROSS
+
+# Simple status symbols
+CHECK = "[OK]"
+CROSS = "[X]"
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q5 Predict Example')

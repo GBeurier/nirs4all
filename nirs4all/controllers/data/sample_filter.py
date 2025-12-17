@@ -11,8 +11,11 @@ import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.operators.filters.base import SampleFilter, CompositeFilter
 from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -153,7 +156,7 @@ class SampleFilterController(OperatorController):
 
         if len(base_sample_indices) == 0:
             if runtime_context.step_runner.verbose > 0:
-                print("   SampleFilter: No training samples to filter")
+                logger.info("   SampleFilter: No training samples to filter")
             return context, []
 
         # Get X and y for base train samples
@@ -165,7 +168,7 @@ class SampleFilterController(OperatorController):
         # Handle empty or None y_train
         if y_train is None or len(y_train) == 0:
             if runtime_context.step_runner.verbose > 0:
-                print("   SampleFilter: No target values available for filtering")
+                logger.info("   SampleFilter: No target values available for filtering")
             return context, []
 
         # Flatten y if needed
@@ -192,7 +195,7 @@ class SampleFilterController(OperatorController):
             except ValueError as e:
                 # Handle edge cases like insufficient data
                 if runtime_context.step_runner.verbose > 0:
-                    print(f"   SampleFilter: Warning - {filter_obj.__class__.__name__} "
+                    logger.warning(f"   SampleFilter: {filter_obj.__class__.__name__} "
                           f"could not be applied: {e}")
                 # Create a neutral mask (keep all)
                 masks.append(np.ones(len(X_train), dtype=bool))
@@ -289,21 +292,21 @@ class SampleFilterController(OperatorController):
         verbose: int
     ) -> None:
         """Print filtering report to console."""
-        print("\n--- Sample Filtering Report ---")
-        print(f"Total base samples: {n_total}")
-        print(f"Samples excluded: {n_excluded} ({100 * n_excluded / n_total:.1f}%)" if n_total > 0 else "Samples excluded: 0")
+        logger.debug("--- Sample Filtering Report ---")
+        logger.debug(f"Total base samples: {n_total}")
+        logger.debug(f"Samples excluded: {n_excluded} ({100 * n_excluded / n_total:.1f}%)" if n_total > 0 else "Samples excluded: 0")
         if n_cascaded > 0:
-            print(f"Augmented samples also excluded: {n_cascaded}")
-        print(f"Combination mode: {mode}")
+            logger.debug(f"Augmented samples also excluded: {n_cascaded}")
+        logger.debug(f"Combination mode: {mode}")
 
         if filter_reports:
-            print("\nPer-filter breakdown:")
+            logger.debug("Per-filter breakdown:")
             for i, stats in enumerate(filter_reports):
-                print(f"  Filter {i + 1}: {stats.get('reason', 'unknown')}")
-                print(f"    - Excluded: {stats.get('n_excluded', 0)} samples")
+                logger.debug(f"  Filter {i + 1}: {stats.get('reason', 'unknown')}")
+                logger.debug(f"    - Excluded: {stats.get('n_excluded', 0)} samples")
                 if 'method' in stats:
-                    print(f"    - Method: {stats['method']}")
+                    logger.debug(f"    - Method: {stats['method']}")
                 if 'lower_bound' in stats and stats['lower_bound'] is not None:
-                    print(f"    - Bounds: [{stats['lower_bound']:.4f}, {stats['upper_bound']:.4f}]")
+                    logger.debug(f"    - Bounds: [{stats['lower_bound']:.4f}, {stats['upper_bound']:.4f}]")
 
-        print("-------------------------------\n")
+        logger.debug("-------------------------------")

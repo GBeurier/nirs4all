@@ -14,8 +14,10 @@ from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.execution.executor import PipelineExecutor
 from nirs4all.pipeline.storage.io import SimulationSaver
 from nirs4all.pipeline.storage.manifest_manager import ManifestManager
-from nirs4all.utils.emoji import ROCKET, TROPHY
+from nirs4all.core.logging import get_logger
 from nirs4all.visualization.reports import TabReportManager
+
+logger = get_logger(__name__)
 
 
 class PipelineOrchestrator:
@@ -137,12 +139,12 @@ class PipelineOrchestrator:
         self._figure_refs.clear()
 
         nb_combinations = len(pipeline_configs.steps) * len(dataset_configs.configs)
-        print("=" * 120)
-        print(
-            f"\033[94m{ROCKET}Starting Nirs4all run(s) with {len(pipeline_configs.steps)} "
-            f"pipeline on {len(dataset_configs.configs)} dataset ({nb_combinations} total runs).\033[0m"
+        logger.info("=" * 120)
+        logger.starting(
+            f"Starting Nirs4all run(s) with {len(pipeline_configs.steps)} "
+            f"pipeline on {len(dataset_configs.configs)} dataset ({nb_combinations} total runs)."
         )
-        print("=" * 120)
+        logger.info("=" * 120)
 
         datasets_predictions = {}
         run_predictions = Predictions()
@@ -451,12 +453,12 @@ class PipelineOrchestrator:
             best = run_dataset_predictions.get_best(
                 ascending=None
             )
-            print(f"{TROPHY}Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
+            logger.success(f"Best prediction in run for dataset '{name}': {Predictions.pred_long_string(best)}")
 
             if self.enable_tab_reports:
                 best_by_partition = run_dataset_predictions.get_entry_partitions(best)
                 tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
-                print(tab_report)
+                logger.info(tab_report)
                 if tab_report_csv_file:
                     filename = f"Report_best_{best['config_name']}_{best['model_name']}_{best['id']}.csv"
                     saver.save_file(filename, tab_report_csv_file)
@@ -471,4 +473,4 @@ class PipelineOrchestrator:
         if global_dataset_predictions.num_predictions > 0:
             global_dataset_predictions.save_to_file(dataset_prediction_path)
 
-        print("=" * 120)
+        logger.info("=" * 120)

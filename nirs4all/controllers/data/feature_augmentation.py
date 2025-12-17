@@ -4,7 +4,9 @@ from sklearn.base import TransformerMixin
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import CROSS
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -164,7 +166,7 @@ class FeatureAugmentationController(OperatorController):
             return context, all_artifacts
 
         except Exception as e:
-            print(f"{CROSS} Error applying feature augmentation: {e}")
+            logger.error(f"Error applying feature augmentation: {e}")
             raise
 
     def _execute_extend_mode(

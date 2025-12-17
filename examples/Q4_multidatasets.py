@@ -27,7 +27,9 @@ from nirs4all.operators.transforms import (
     Gaussian, SavitzkyGolay, StandardNormalVariate, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.utils.emoji import REFRESH
+
+# Simple status symbols
+REFRESH = "[~]"
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q4 Multi-Datasets Example')

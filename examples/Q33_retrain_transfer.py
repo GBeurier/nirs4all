@@ -44,7 +44,14 @@ from nirs4all.operators.transforms import (
     SavitzkyGolay,
     Gaussian,
 )
-from nirs4all.utils.emoji import CHECK, CROSS, ROCKET, REFRESH, TRANSFER, SPARKLE
+
+# Simple status symbols
+CHECK = "[OK]"
+CROSS = "[X]"
+ROCKET = ">"
+REFRESH = "[~]"
+TRANSFER = "[->]"
+SPARKLE = "*"
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q33 Retrain and Transfer Example')

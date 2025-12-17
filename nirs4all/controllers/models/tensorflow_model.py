@@ -22,8 +22,10 @@ if TYPE_CHECKING:
 
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import WARNING
+from nirs4all.core.logging import get_logger
 from nirs4all.core.task_type import TaskType
+
+logger = get_logger(__name__)
 from .utilities import ModelControllerUtils as ModelUtils
 from .factory import ModelFactory
 from .tensorflow import (
@@ -278,7 +280,7 @@ class TensorFlowModelController(BaseModelController):
             raise ValueError("task_type must be provided in train_params")
 
         if not is_gpu_available() and verbose > 0:
-            print(f"{WARNING} No GPU detected. Training TensorFlow model on CPU may be slow.")
+            logger.warning("No GPU detected. Training TensorFlow model on CPU may be slow.")
 
         # 1. Prepare compilation configuration
         compile_config = TensorFlowCompilationConfig.prepare(train_params, task_type)
@@ -472,7 +474,7 @@ class TensorFlowModelController(BaseModelController):
                 return loss
 
         except (ValueError, TypeError, AttributeError) as e:
-            print(f"{WARNING} Error in TensorFlow model evaluation: {e}")
+            logger.warning(f"Error in TensorFlow model evaluation: {e}")
             try:
                 # Fallback: use predictions and calculate MSE
                 y_pred = model.predict(X_val, verbose=0)

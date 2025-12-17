@@ -17,6 +17,9 @@ import io
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -123,7 +126,7 @@ class ExclusionChartController(OperatorController):
 
         if summary["total_excluded"] == 0:
             if runtime_context.step_runner.verbose > 0:
-                print("   ExclusionChart: No excluded samples to visualize")
+                logger.info("   ExclusionChart: No excluded samples to visualize")
             return context, StepOutput()
 
         # Create the visualization

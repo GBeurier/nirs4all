@@ -9,8 +9,11 @@ import numpy as np
 import re
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.utils.header_units import get_x_values_and_label, apply_x_axis_limits
 import io
+
+logger = get_logger(__name__)
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
@@ -163,8 +166,8 @@ class SpectraChartController(OperatorController):
 
             # Debug: print what we got
             if runtime_context.step_runner.verbose > 0:
-                print(f"   Source {sd_idx}: {n_processings} processings: {processing_ids}")
-                print(f"   Data shape: {x.shape}")
+                logger.debug(f"   Source {sd_idx}: {n_processings} processings: {processing_ids}")
+                logger.debug(f"   Data shape: {x.shape}")
 
             # Calculate subplot grid (prefer horizontal layout)
             n_cols = min(3, n_processings)  # Max 3 columns
@@ -204,7 +207,7 @@ class SpectraChartController(OperatorController):
                     processing_headers = None
 
                 if runtime_context.step_runner.verbose > 0 and processing_idx == 0:
-                    print(f"   Headers available: {len(spectra_headers) if spectra_headers else 0}, features: {current_n_features}")
+                    logger.debug(f"   Headers available: {len(spectra_headers) if spectra_headers else 0}, features: {current_n_features}")
 
                 # Get header unit for this source
                 try:

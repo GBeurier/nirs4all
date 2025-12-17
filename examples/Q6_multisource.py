@@ -26,7 +26,9 @@ from nirs4all.data.predictions import Predictions
 from nirs4all.visualization.predictions import PredictionAnalyzer
 # from nirs4all.operators.models.tensorflow.nicon import nicon
 from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
-from nirs4all.utils.emoji import CHECK, CROSS
+# Simple status symbols
+CHECK = "[OK]"
+CROSS = "[X]"
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from sklearn.linear_model import ElasticNet
 

@@ -12,7 +12,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from nirs4all.utils.emoji import CHECK, WARNING, FOLDER
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class PipelineLibrary:
@@ -112,7 +114,7 @@ class PipelineLibrary:
         readme_file = template_path / "README.md"
         readme_file.write_text(readme_content, encoding='utf-8')
 
-        print(f"{CHECK} Template '{name}' saved to library/{category}/{safe_name}")
+        logger.success(f"Template '{name}' saved to library/{category}/{safe_name}")
         return template_path
 
     def load_template(self, name: str, category: Optional[str] = None) -> Dict[str, Any]:
@@ -137,7 +139,7 @@ class PipelineLibrary:
         with open(pipeline_file, 'r', encoding='utf-8') as f:
             config = json.load(f)
 
-        print(f"{CHECK} Loaded template '{name}' from library")
+        logger.success(f"Loaded template '{name}' from library")
         return config
 
     def get_template_metadata(
@@ -231,7 +233,7 @@ class PipelineLibrary:
             raise FileNotFoundError(f"Template '{name}' not found{cat_msg}")
 
         shutil.rmtree(template_path)
-        print(f"{CHECK} Template '{name}' deleted from library")
+        logger.success(f"Template '{name}' deleted from library")
 
     def copy_from_pipeline(
         self,
@@ -309,7 +311,7 @@ class PipelineLibrary:
 
         export_path = Path(export_path)
         shutil.copytree(template_path, export_path, dirs_exist_ok=True)
-        print(f"{CHECK} Template '{name}' exported to {export_path}")
+        logger.success(f"Template '{name}' exported to {export_path}")
         return export_path
 
     def import_template(
@@ -353,7 +355,7 @@ class PipelineLibrary:
 
         # Copy template
         shutil.copytree(import_path, template_path, dirs_exist_ok=True)
-        print(f"{CHECK} Template '{name}' imported to library/{category}/{safe_name}")
+        logger.success(f"Template '{name}' imported to library/{category}/{safe_name}")
         return template_path
 
     def _find_template(self, name: str, category: Optional[str] = None) -> Optional[Path]:

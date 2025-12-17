@@ -35,12 +35,14 @@ from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.generator import (
     expand_spec,
     is_generator_node,
 )
 from nirs4all.pipeline.execution.result import StepOutput
-from nirs4all.utils.emoji import BRANCH, CHECK, CROSS
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -133,7 +135,7 @@ class BranchController(OperatorController):
         branch_defs = self._parse_branch_definitions(step_info)
 
         if not branch_defs:
-            print(f"{CROSS} No branch definitions found, skipping branch step")
+            logger.warning("No branch definitions found, skipping branch step")
             return context, StepOutput()
 
         n_branches = len(branch_defs)
@@ -158,7 +160,7 @@ class BranchController(OperatorController):
                 # Filter branch_defs to only the target branch
                 if target_branch_id < len(branch_defs):
                     branch_defs = [branch_defs[target_branch_id]]
-                    print(f"{BRANCH}Predict mode: executing only branch {target_branch_id} ({target_branch_name or 'unnamed'})")
+                    logger.info(f"Predict mode: executing only branch {target_branch_id} ({target_branch_name or 'unnamed'})")
                 else:
                     raise ValueError(
                         f"Target branch_id={target_branch_id} not found in pipeline. "
@@ -166,9 +168,9 @@ class BranchController(OperatorController):
                         f"The model may have been trained with a different branch configuration."
                     )
             else:
-                print(f"{BRANCH}Creating {n_branches} branches (predict mode, no target branch specified)")
+                logger.info(f"Creating {n_branches} branches (predict mode, no target branch specified)")
         else:
-            print(f"{BRANCH}Creating {n_branches} branches")
+            logger.info(f"Creating {n_branches} branches")
 
         # Store the initial context as a snapshot point
         initial_context = context.copy()
@@ -197,7 +199,7 @@ class BranchController(OperatorController):
             branch_name = branch_def.get("name", f"branch_{branch_id}")
             branch_steps = branch_def.get("steps", [])
 
-            print(f"  {BRANCH}Branch {branch_id}: {branch_name}")
+            logger.info(f"  Branch {branch_id}: {branch_name}")
 
             # V3: Enter branch context in trace recorder
             if recorder is not None:
@@ -270,7 +272,7 @@ class BranchController(OperatorController):
                 "features_snapshot": branch_features_snapshot
             })
 
-            print(f"  {CHECK} Branch {branch_id} ({branch_name}) completed")
+            logger.success(f"  Branch {branch_id} ({branch_name}) completed")
 
         # V3: End branch step in trace
         if recorder is not None:
@@ -303,7 +305,7 @@ class BranchController(OperatorController):
             if branch_def.get("generator_choice") is not None
         ]
 
-        print(f"{CHECK} Branch step completed with {len(new_branch_contexts)} branch(es)")
+        logger.success(f"Branch step completed with {len(new_branch_contexts)} branch(es)")
 
         return result_context, StepOutput(
             artifacts=all_artifacts,

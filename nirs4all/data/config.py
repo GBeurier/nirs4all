@@ -12,8 +12,10 @@ from pathlib import Path
 from tabnanny import verbose
 from typing import List, Union, Dict, Any, Optional
 
-from nirs4all.utils.emoji import CROSS
+from nirs4all.core.logging import get_logger
 from nirs4all.data.dataset import SpectroDataset
+
+logger = get_logger(__name__)
 from nirs4all.data.loaders.loader import handle_data
 from nirs4all.data.config_parser import parse_config
 from nirs4all.data.signal_type import SignalType, SignalTypeInput, normalize_signal_type
@@ -75,7 +77,7 @@ class DatasetConfigs:
             if parsed_config is not None:
                 self.configs.append((parsed_config, dataset_name))
             else:
-                print(f"{CROSS} Skipping invalid dataset config: {config}")
+                logger.error(f"Skipping invalid dataset config: {config}")
 
         self.cache: Dict[str, Any] = {}
 

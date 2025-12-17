@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+from nirs4all.core.logging import get_logger
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
@@ -22,6 +23,8 @@ from nirs4all.pipeline.config.context import ExecutionContext, DataSelector, Pip
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.storage.io import SimulationSaver
 from nirs4all.pipeline.storage.manifest_manager import ManifestManager
+
+logger = get_logger(__name__)
 
 
 class Predictor:
@@ -103,11 +106,7 @@ class Predictor:
             ...     X_new
             ... )
         """
-        from nirs4all.utils.emoji import ROCKET, CHECK, SEARCH, BOLT
-
-        print("=" * 120)
-        print(f"\033[94m{ROCKET}Starting Nirs4all prediction(s)\033[0m")
-        print("=" * 120)
+        logger.starting("Starting Nirs4all prediction(s)")
 
         # Handle bundle files (.n4a) through PredictionResolver
         if isinstance(prediction_obj, str) and (prediction_obj.endswith('.n4a') or prediction_obj.endswith('.n4a.py')):
@@ -163,12 +162,11 @@ class Predictor:
         Returns:
             Same as predict() method
         """
-        from nirs4all.utils.emoji import CHECK, BOLT
         from nirs4all.pipeline.trace import TraceBasedExtractor
         from nirs4all.pipeline.minimal_predictor import MinimalPredictor, MinimalArtifactProvider
         from nirs4all.pipeline.config.context import RuntimeContext
 
-        print(f"{BOLT} Using minimal pipeline execution (Phase 5)")
+        logger.info("Using minimal pipeline execution (Phase 5)")
 
         # Extract minimal pipeline from trace
         extractor = TraceBasedExtractor()
@@ -189,8 +187,7 @@ class Predictor:
                 branch_name=target_branch_name,
                 full_pipeline=full_steps
             )
-            if verbose > 0:
-                print(f"  Extracting for branch: {target_branch_name}")
+            logger.debug(f"Extracting for branch: {target_branch_name}")
         elif target_branch_path:
             # Use explicit branch path
             minimal_pipeline = extractor.extract_for_branch(
@@ -198,8 +195,7 @@ class Predictor:
                 branch_path=target_branch_path,
                 full_pipeline=full_steps
             )
-            if verbose > 0:
-                print(f"  Extracting for branch path: {target_branch_path}")
+            logger.debug(f"Extracting for branch path: {target_branch_path}")
         elif target_branch_id is not None:
             # Fallback: convert branch_id to path (only works for single-level branches)
             branch_path = [target_branch_id]
@@ -208,8 +204,7 @@ class Predictor:
                 branch_path=branch_path,
                 full_pipeline=full_steps
             )
-            if verbose > 0:
-                print(f"  Extracting for branch_id: {target_branch_id}")
+            logger.debug(f"Extracting for branch_id: {target_branch_id}")
         else:
             # No branch filter, extract all steps up to model
             minimal_pipeline = extractor.extract(
@@ -220,10 +215,11 @@ class Predictor:
 
         self._minimal_pipeline = minimal_pipeline
 
-        if verbose > 0:
-            print(f"  Minimal pipeline: {minimal_pipeline.get_step_count()} steps "
-                  f"(from {len(full_steps)} total)")
-            print(f"  Artifacts: {len(minimal_pipeline.get_artifact_ids())}")
+        logger.debug(
+            f"Minimal pipeline: {minimal_pipeline.get_step_count()} steps "
+            f"(from {len(full_steps)} total)"
+        )
+        logger.debug(f"Artifacts: {len(minimal_pipeline.get_artifact_ids())}")
 
         # Execute prediction using MinimalPredictor
         run_predictions = Predictions()
@@ -395,8 +391,6 @@ class Predictor:
         Returns:
             Formatted prediction results
         """
-        from nirs4all.utils.emoji import CHECK
-
         if all_predictions:
             res = {}
             for pred in run_predictions.to_dicts():
@@ -486,7 +480,7 @@ class Predictor:
         if single_pred is None:
             raise ValueError("No matching prediction found for the specified model criteria.")
 
-        print(f"{CHECK}Predicted with: {single_pred['model_name']} [{single_pred['id']}]")
+        logger.success(f"Predicted with: {single_pred['model_name']} [{single_pred['id']}]")
         filename = f"Predict_[{single_pred['id']}].csv"
         y_pred = single_pred["y_pred"]
         prediction_path = self.saver.base_path / filename
@@ -515,10 +509,8 @@ class Predictor:
             Predictions
         """
         from nirs4all.pipeline.bundle import BundleLoader
-        from nirs4all.utils.emoji import CHECK
 
-        if verbose > 0:
-            print(f"  Loading bundle: {bundle_path}")
+        logger.debug(f"Loading bundle: {bundle_path}")
 
         loader = BundleLoader(bundle_path)
 
@@ -557,8 +549,7 @@ class Predictor:
         }
         run_predictions.add_prediction(prediction_entry)
 
-        if verbose > 0:
-            print(f"{CHECK}Predicted with bundle: {model_name}")
+        logger.success(f"Predicted with bundle: {model_name}")
 
         if all_predictions:
             return {'bundle': {'prediction': y_pred}}, run_predictions
@@ -668,7 +659,6 @@ class Predictor:
             ValueError: If pipeline_uid is missing or invalid
             FileNotFoundError: If pipeline configuration or manifest not found
         """
-        from nirs4all.utils.emoji import SEARCH
         import json
 
         # Get configuration path and target model
@@ -703,8 +693,7 @@ class Predictor:
         config_dir = self.saver.base_path / pipeline_dir_name
         pipeline_json = config_dir / "pipeline.json"
 
-        if verbose > 0:
-            print(f"{SEARCH}Loading {pipeline_json}")
+        logger.debug(f"Loading {pipeline_json}")
 
         if not pipeline_json.exists():
             raise FileNotFoundError(f"Pipeline not found: {pipeline_json}")
@@ -723,7 +712,7 @@ class Predictor:
                 f"The model artifacts may have been deleted or moved."
             )
 
-        print(f"{SEARCH}Loading from manifest: {pipeline_uid}")
+        logger.info(f"Loading from manifest: {pipeline_uid}")
         manifest = self.manifest_manager.load_manifest(pipeline_uid)
         self.artifact_loader = ArtifactLoader.from_manifest(manifest, self.saver.base_path)
 
@@ -736,17 +725,17 @@ class Predictor:
                 self._execution_trace = self.manifest_manager.load_execution_trace(
                     pipeline_uid, trace_id
                 )
-                if verbose > 0 and self._execution_trace:
-                    print(f"{SEARCH}Loaded execution trace: {trace_id}")
+                if self._execution_trace:
+                    logger.debug(f"Loaded execution trace: {trace_id}")
             else:
                 # Try to load latest trace for this pipeline
                 self._execution_trace = self.manifest_manager.get_latest_execution_trace(
                     pipeline_uid
                 )
-                if verbose > 0 and self._execution_trace:
-                    print(f"{SEARCH}Loaded latest execution trace: {self._execution_trace.trace_id}")
+                if self._execution_trace:
+                    logger.debug(f"Loaded latest execution trace: {self._execution_trace.trace_id}")
 
-            if verbose > 0 and not self._execution_trace:
-                print("  No execution trace available, using full pipeline replay")
+            if not self._execution_trace:
+                logger.debug("No execution trace available, using full pipeline replay")
 
         return steps

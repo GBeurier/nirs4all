@@ -17,8 +17,10 @@ import copy
 
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import WARNING
+from nirs4all.core.logging import get_logger
 from .utilities import ModelControllerUtils as ModelUtils
+
+logger = get_logger(__name__)
 from .factory import ModelFactory
 from .torch.data_prep import PyTorchDataPreparation
 from nirs4all.utils.backend import TORCH_AVAILABLE, check_backend_available, is_gpu_available
@@ -123,7 +125,7 @@ class PyTorchModelController(BaseModelController):
         verbose = train_params.get('verbose', 0)
 
         if not is_gpu_available() and verbose > 0:
-            print(f"{WARNING} No GPU detected. Training PyTorch model on CPU may be slow.")
+            logger.warning("No GPU detected. Training PyTorch model on CPU may be slow.")
 
         # Setup device
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -223,15 +225,15 @@ class PyTorchModelController(BaseModelController):
                     patience_counter += 1
 
                 if verbose > 1 and (epoch + 1) % 10 == 0:
-                    print(f"   Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+                    logger.debug(f"Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
                 if patience_counter >= patience:
                     if verbose > 0:
-                        print(f"   Early stopping at epoch {epoch+1}")
+                        logger.info(f"Early stopping at epoch {epoch+1}")
                     break
             else:
                 if verbose > 1 and (epoch + 1) % 10 == 0:
-                    print(f"   Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss:.4f}")
+                    logger.debug(f"Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss:.4f}")
 
         # Load best model weights if we have them
         if best_model_state is not None:
@@ -335,7 +337,7 @@ class PyTorchModelController(BaseModelController):
                 return loss.item()
 
         except Exception as e:
-            print(f"{WARNING}Error in PyTorch model evaluation: {e}")
+            logger.warning(f"Error in PyTorch model evaluation: {e}")
             return float('inf')
 
     def get_preferred_layout(self) -> str:

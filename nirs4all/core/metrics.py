@@ -13,7 +13,9 @@ from typing import Dict, Any, Union, Optional, List
 import numpy as np
 import warnings
 
-from nirs4all.utils.emoji import WARNING
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
@@ -548,7 +550,7 @@ def eval_list(y_true: np.ndarray, y_pred: np.ndarray, metrics: list) -> list:
             scores.append(score)
         except Exception as e:
             # Handle individual metric failures gracefully
-            print(f"{WARNING}Failed to calculate {metric}: {str(e)}")
+            logger.warning(f"Failed to calculate {metric}: {str(e)}")
             scores.append(None)
 
     return scores

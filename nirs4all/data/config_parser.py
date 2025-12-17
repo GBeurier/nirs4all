@@ -1,7 +1,10 @@
 from pathlib import Path
 from typing import Dict, Any
-from nirs4all.utils.emoji import CHART, CROSS
 import numpy as np
+
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 def normalize_config_keys(config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -88,7 +91,7 @@ def browse_folder(folder_path, global_params=None):
 
     dataset_dir = Path(folder_path)
     if not dataset_dir.exists():
-        print(f"\033[91m{CROSS} Folder does not exist: {folder_path}\033[0m")
+        logger.error(f"Folder does not exist: {folder_path}")
         return config
 
     for key, patterns in files_re.items():
@@ -108,7 +111,7 @@ def browse_folder(folder_path, global_params=None):
             config[key] = _s_(matched_files[0])
         else:
             # Multi-source - store as array of paths
-            print(f"{CHART}Multiple {key} files found for {folder_path}: {len(matched_files)} sources detected.")
+            logger.info(f"Multiple {key} files found for {folder_path}: {len(matched_files)} sources detected.")
             config[key] = _s_(matched_files)
 
     return config
@@ -171,7 +174,7 @@ def parse_config(data_config):
                 dataset_name = f"{test_file.parent.name}_{test_file.stem}"
                 return normalized_config, dataset_name
 
-    print(f"{CROSS} Error in config: unsupported dataset config >> {type(data_config)}: {data_config}")
+    logger.error(f"Error in config: unsupported dataset config >> {type(data_config)}: {data_config}")
     return None, 'Unknown_dataset'
 
 

@@ -84,11 +84,10 @@ from nirs4all.operators.models.selection import (
     ModelCandidate,
     SelectorFactory,
 )
-from nirs4all.utils.emoji import WARNING, CHECK, SEARCH
+from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType, MetaModelConfig
 
-# Define STACK emoji if not available
-STACK = "📚"
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -388,7 +387,7 @@ class MetaModelController(SklearnModelController):
         context.custom['_detected_stacking_level'] = level_result.detected_level
 
         if verbose > 0 and level_result.detected_level > 1:
-            print(f"  {STACK} Multi-level stacking detected: level {level_result.detected_level}")
+            logger.info(f"Multi-level stacking detected: level {level_result.detected_level}")
 
     def _raise_multi_level_error(
         self,
@@ -455,7 +454,7 @@ class MetaModelController(SklearnModelController):
 
         if cross_branch_result.compatibility == CrossBranchCompatibility.COMPATIBLE_WITH_ALIGNMENT:
             if verbose > 0:
-                print(f"  {WARNING} Cross-branch stacking requires feature alignment")
+                logger.warning("Cross-branch stacking requires feature alignment")
 
         # Store aligned sources for later use
         aligned_sources = cross_branch_validator.get_cross_branch_sources(
@@ -523,7 +522,7 @@ class MetaModelController(SklearnModelController):
         )
 
         if verbose > 0:
-            print(f"  {SEARCH} Branch type: {branch_type.value}, "
+            logger.debug(f"Branch type: {branch_type.value}, "
                   f"compatibility: {branch_result.compatibility.value}")
 
         if not branch_result.is_valid:
@@ -531,7 +530,7 @@ class MetaModelController(SklearnModelController):
 
         for warning in branch_result.warnings:
             if verbose > 0:
-                print(f"  {WARNING} {warning}")
+                logger.warning(warning)
             warnings.warn(warning)
 
         if branch_type == BranchType.SAMPLE_PARTITIONER:
@@ -643,7 +642,7 @@ class MetaModelController(SklearnModelController):
         )
 
         if verbose > 0:
-            print(f"  {CHECK} OOF reconstruction: {result.n_folds} folds, "
+            logger.success(f"OOF reconstruction: {result.n_folds} folds, "
                   f"{len(result.source_models)} sources, "
                   f"coverage={result.coverage_ratio:.1%}")
 
@@ -1212,7 +1211,7 @@ class MetaModelController(SklearnModelController):
 
         verbose = getattr(self, 'verbose', 0)
         if verbose > 0:
-            print(f"{STACK} MetaModel stacking step {context.state.step_number}")
+            logger.info(f"MetaModel stacking step {context.state.step_number}")
 
         # Set layout preference (force_layout overrides preferred)
         context = context.with_layout(self.get_effective_layout(step_info))
@@ -1317,7 +1316,7 @@ class MetaModelController(SklearnModelController):
         verbose = model_config.get('train_params', {}).get('verbose', 0)
 
         if verbose > 0:
-            print(f"{STACK} MetaModel prediction mode")
+            logger.info("MetaModel prediction mode")
 
         # Get meta operator from context
         try:
@@ -1345,7 +1344,7 @@ class MetaModelController(SklearnModelController):
         )
 
         if verbose > 0:
-            print(f"  {CHECK} Built meta-features: shape={X_test_meta.shape}")
+            logger.success(f"Built meta-features: shape={X_test_meta.shape}")
 
         # Update X_test with meta-features (training data is empty in prediction mode)
         # Store original for reference

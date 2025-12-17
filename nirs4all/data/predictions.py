@@ -23,8 +23,10 @@ from uuid import uuid4
 import numpy as np
 import polars as pl
 
-from nirs4all.utils.emoji import DISK, CHECK, WARNING
+from nirs4all.core.logging import get_logger
 from nirs4all.core import metrics as evaluator
+
+logger = get_logger(__name__)
 
 # Import components
 from ._predictions import (
@@ -957,7 +959,7 @@ class Predictions:
             merged.merge_predictions(temp)
             loaded = len(temp)
             total_loaded += loaded
-            print(f"{DISK} Loaded {loaded} predictions from {filepath}")
+            logger.info(f"Loaded {loaded} predictions from {filepath}")
 
         # Deduplicate if requested
         if deduplicate:
@@ -965,11 +967,11 @@ class Predictions:
             merged._storage._df = merged._storage._df.unique(subset=["id"], keep="first")
             count_after = len(merged)
             if count_before != count_after:
-                print(f"{CHECK} Removed {count_before - count_after} duplicate predictions")
+                logger.success(f"Removed {count_before - count_after} duplicate predictions")
 
         # Save merged result
         merged.save_to_file(output_file)
-        print(f"{CHECK} Merged {len(merged)} predictions to {output_file}")
+        logger.success(f"Merged {len(merged)} predictions to {output_file}")
 
         return merged
 
@@ -1206,7 +1208,7 @@ class Predictions:
         df_csv = pl.DataFrame(data_dict)
         Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         df_csv.write_csv(filepath)
-        print(f"{DISK}Saved predictions to {filepath}")
+        logger.info(f"Saved predictions to {filepath}")
 
     @staticmethod
     def save_all_to_csv(
@@ -1244,9 +1246,9 @@ class Predictions:
                 result.save_to_csv(path)
             except Exception as e:
                 model_id = result.get('id', 'unknown')
-                print(f"{WARNING}Failed to save prediction {model_id}: {e}")
+                logger.warning(f"Failed to save prediction {model_id}: {e}")
 
-        print(f"{CHECK}Saved {len(all_results)} files to {path}")
+        logger.success(f"Saved {len(all_results)} files to {path}")
 
     @classmethod
     def pred_short_string(cls, entry: Dict, metrics: Optional[List[str]] = None, partition: str | List[str] = "test") -> str:

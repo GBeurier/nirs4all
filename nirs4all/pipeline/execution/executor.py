@@ -6,11 +6,13 @@ from typing import Any, Dict, List, Optional, Union
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
+from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 from nirs4all.pipeline.steps.step_runner import StepRunner
 from nirs4all.pipeline.trace import TraceRecorder
-from nirs4all.utils.emoji import ROCKET, MEDAL_GOLD, FLAG, CROSS
+
+logger = get_logger(__name__)
 
 
 class PipelineExecutor:
@@ -129,8 +131,7 @@ class PipelineExecutor:
         self.substep_number = -1
         self.operation_count = 0
 
-        print(f"\033[94m{ROCKET}Starting pipeline {config_name} on dataset {dataset.name}\033[0m")
-        print("-" * 120)
+        logger.starting(f"Starting pipeline {config_name} on dataset {dataset.name}")
 
         # Compute pipeline hash for identification
         pipeline_hash = self._compute_pipeline_hash(steps)
@@ -206,20 +207,17 @@ class PipelineExecutor:
                     ascending=None
                 )
                 if pipeline_best:
-                    print(f"{MEDAL_GOLD}Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
+                    logger.success(f"Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
 
-                if self.verbose > 0:
-                    print(
-                        f"\033[94m{FLAG}Pipeline {config_name} completed successfully "
-                        f"on dataset {dataset.name}\033[0m"
-                    )
-
-            print("=" * 120)
+                logger.debug(
+                    f"Pipeline {config_name} completed successfully "
+                    f"on dataset {dataset.name}"
+                )
 
         except Exception as e:
-            print(
-                f"\033[91m{CROSS}Pipeline {config_name} on dataset {dataset.name} "
-                f"failed: \n{str(e)}\033[0m"
+            logger.error(
+                f"Pipeline {config_name} on dataset {dataset.name} "
+                f"failed: {str(e)}"
             )
             import traceback
             traceback.print_exc()
@@ -251,7 +249,6 @@ class PipelineExecutor:
             Updated execution context
         """
         from nirs4all.pipeline.execution.result import ArtifactMeta
-        from nirs4all.utils.emoji import BRANCH
 
         for step in steps:
             self.step_number += 1
@@ -330,7 +327,6 @@ class PipelineExecutor:
             Updated context with updated branch contexts
         """
         from nirs4all.pipeline.execution.result import ArtifactMeta
-        from nirs4all.utils.emoji import BRANCH
 
         branch_contexts = context.custom.get("branch_contexts", [])
 
@@ -341,8 +337,7 @@ class PipelineExecutor:
                 loaded_binaries, prediction_store, all_artifacts
             )
 
-        if self.verbose > 0:
-            print(f"{BRANCH}Executing step on {len(branch_contexts)} branch(es)")
+        logger.debug(f"Executing step on {len(branch_contexts)} branch(es)")
 
         updated_branch_contexts = []
 
@@ -359,8 +354,7 @@ class PipelineExecutor:
                 import copy
                 dataset._features.sources = copy.deepcopy(features_snapshot)
 
-            if self.verbose > 0:
-                print(f"  {BRANCH}Branch {branch_id} ({branch_name})")
+            logger.debug(f"Branch {branch_id} ({branch_name})")
 
             # Update step number on branch context
             branch_context = branch_context.with_step_number(self.step_number)
@@ -467,7 +461,7 @@ class PipelineExecutor:
                 if runtime_context:
                     runtime_context.record_step_end(skip_trace=True)
                 if self.continue_on_error:
-                    print(f"⚠️  Branch {branch_id} step {self.step_number} failed: {str(e)}")
+                    logger.warning(f"Branch {branch_id} step {self.step_number} failed: {str(e)}")
                     # Keep original context on failure
                     updated_branch_contexts.append(branch_info)
                 else:
@@ -539,9 +533,9 @@ class PipelineExecutor:
                 prediction_store=prediction_store
             )
 
+            logger.debug(f"Step {self.step_number} completed with {len(step_result.artifacts)} artifacts")
             if self.verbose > 1:
-                print(f"✅ Step {self.step_number} completed with {len(step_result.artifacts)} artifacts")
-                print(dataset)
+                logger.debug(str(dataset))
 
             # Process artifacts (persist if needed)
             processed_artifacts = self._process_step_artifacts(step_result.artifacts)
@@ -580,8 +574,7 @@ class PipelineExecutor:
                     runtime_context.pipeline_uid,
                     processed_artifacts
                 )
-                if self.verbose > 1:
-                    print(f"📦 Appended {len(processed_artifacts)} artifacts to manifest")
+                logger.debug(f"Appended {len(processed_artifacts)} artifacts to manifest")
 
             # Record step end in execution trace
             if runtime_context:
@@ -594,7 +587,7 @@ class PipelineExecutor:
             if runtime_context:
                 runtime_context.record_step_end(skip_trace=True)
             if self.continue_on_error:
-                print(f"⚠️  Step {self.step_number} failed but continuing: {str(e)}")
+                logger.warning(f"Step {self.step_number} failed but continuing: {str(e)}")
             else:
                 raise RuntimeError(f"Pipeline step {self.step_number} failed: {str(e)}") from e
 
@@ -816,11 +809,8 @@ class PipelineExecutor:
             that provides artifacts by step index from the MinimalPipeline.
         """
         from nirs4all.pipeline.execution.result import ArtifactMeta
-        from nirs4all.utils.emoji import ROCKET, CHECK
 
-        if self.verbose > 0:
-            print(f"{ROCKET} Executing minimal pipeline: {len(steps)} steps")
-            print("-" * 60)
+        logger.info(f"Executing minimal pipeline: {len(steps)} steps")
 
         # Reset state
         self.step_number = 0
@@ -855,8 +845,7 @@ class PipelineExecutor:
                 step_idx = list_idx + 1  # Fallback to 1-based enumeration
 
             if step is None:
-                if self.verbose > 1:
-                    print(f"  ⏭️  Step {step_idx}: skipped (no config)")
+                logger.debug(f"Step {step_idx}: skipped (no config)")
                 continue
 
             self.step_number = step_idx
@@ -890,8 +879,7 @@ class PipelineExecutor:
                 )
                 if artifacts:
                     loaded_binaries = artifacts  # Already in (name, obj) format
-                    if self.verbose > 1:
-                        print(f"  📦 Loaded {len(artifacts)} artifact(s) for step {step_idx}")
+                    logger.debug(f"Loaded {len(artifacts)} artifact(s) for step {step_idx}")
             elif self.mode in ("predict", "explain") and self.artifact_loader:
                 # Fallback to artifact_loader
                 loaded_binaries = self.artifact_loader.get_step_binaries(self.step_number)
@@ -922,7 +910,5 @@ class PipelineExecutor:
                     all_artifacts=[]
                 )
 
-        if self.verbose > 0:
-            print("-" * 60)
-            print(f"{CHECK} Minimal pipeline completed: {prediction_store.num_predictions} predictions")
+        logger.success(f"Minimal pipeline completed: {prediction_store.num_predictions} predictions")
 

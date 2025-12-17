@@ -20,9 +20,11 @@ from sklearn.base import is_classifier, is_regressor
 
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN, WARNING
+from nirs4all.core.logging import get_logger
 from .utilities import ModelControllerUtils as ModelUtils
 from .factory import ModelFactory
+
+logger = get_logger(__name__)
 
 
 def _reset_gpu_memory() -> bool:
@@ -243,9 +245,9 @@ class SklearnModelController(BaseModelController):
         if reset_gpu:
             if _reset_gpu_memory():
                 if verbose > 1:
-                    print(f"🔄 GPU memory cleared before training {model.__class__.__name__}")
+                    logger.debug(f"GPU memory cleared before training {model.__class__.__name__}")
             elif verbose > 0:
-                print(f"{WARNING} reset_gpu=True but PyTorch/CUDA not available")
+                logger.warning("reset_gpu=True but PyTorch/CUDA not available")
 
         # if verbose > 1 and train_params:
             # print(f"🔧 Training {model.__class__.__name__} with params: {train_params}")
@@ -294,9 +296,9 @@ class SklearnModelController(BaseModelController):
                 best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                 best_score = train_scores.get(best_metric)
                 if best_score is not None:
-                    direction = ARROW_UP if higher_is_better else ARROW_DOWN
+                    direction = "↑" if higher_is_better else "↓"
                     all_scores_str = ModelUtils.format_scores(train_scores)
-                    # print(f"✅ {trained_model.__class__.__name__} - train: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
+                    # Commented out - using logger instead when needed
 
             # Validation scores if available
             if X_val is not None and y_val is not None:
@@ -310,9 +312,9 @@ class SklearnModelController(BaseModelController):
                     best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
                     best_score = val_scores.get(best_metric)
                     if best_score is not None:
-                        direction = ARROW_UP if higher_is_better else ARROW_DOWN
+                        direction = "↑" if higher_is_better else "↓"
                         all_scores_str = ModelUtils.format_scores(val_scores)
-                        # print(f"✅ {trained_model.__class__.__name__} - validation: {best_metric}={best_score:.4f} {direction} ({all_scores_str})")
+                        # Commented out - using logger instead when needed
 
         return trained_model
 
@@ -460,7 +462,7 @@ class SklearnModelController(BaseModelController):
                     return mean_squared_error(y_val_1d, y_pred)
 
         except Exception as e:
-            print(f"{WARNING}Error in model evaluation: {e}")
+            logger.warning(f"Error in model evaluation: {e}")
             # Fallback evaluation
             try:
                 y_pred = model.predict(X_val)

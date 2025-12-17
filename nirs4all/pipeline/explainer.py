@@ -17,6 +17,10 @@ from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.storage.io import SimulationSaver
 from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class Explainer:
     """Handles SHAP explanation generation for trained models.
@@ -81,12 +85,9 @@ class Explainer:
             ...     shap_params={"n_samples": 200, "visualizations": ["spectral", "summary"]}
             ... )
         """
-        from nirs4all.utils.emoji import SEARCH, CHECK
         from nirs4all.visualization.analysis.shap import ShapAnalyzer
 
-        print("=" * 120)
-        print(f"\033[94m{SEARCH}Starting SHAP Explanation Analysis\033[0m")
-        print("=" * 120)
+        logger.starting("Starting SHAP Explanation Analysis")
 
         # Setup SHAP parameters
         if shap_params is None:
@@ -152,12 +153,12 @@ class Explainer:
 
             # Create RuntimeContext with artifact_provider for V3 loading
             from nirs4all.pipeline.config.context import RuntimeContext
-            
+
             # Create artifact_provider from artifact_loader for V3 artifact loading
             artifact_provider = None
             if self.artifact_loader:
                 artifact_provider = LoaderArtifactProvider(loader=self.artifact_loader)
-            
+
             runtime_context = RuntimeContext(
                 saver=self.saver,
                 manifest_manager=self.manifest_manager,
@@ -193,8 +194,7 @@ class Explainer:
             output_dir = self.saver.base_path / dataset_obj.name / self.config_path / "explanations" / model_id
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            if verbose > 0:
-                print(f"📁 Output directory: {output_dir}")
+            logger.debug(f"Output directory: {output_dir}")
 
             # Run SHAP analysis
             analyzer = ShapAnalyzer()
@@ -218,12 +218,10 @@ class Explainer:
             shap_results['model_id'] = model_id
             shap_results['dataset_name'] = dataset_obj.name
 
-            if verbose > 0:
-                print(f"\n{CHECK}SHAP explanation completed!")
-                print(f"📁 Visualizations saved to: {output_dir}")
-                for viz in shap_params['visualizations']:
-                    print(f"   • {viz}.png")
-                print("=" * 120)
+            logger.success("SHAP explanation completed!")
+            logger.artifact(f"Visualizations saved to: {output_dir}")
+            for viz in shap_params['visualizations']:
+                logger.debug(f"  • {viz}.png")
 
             return shap_results, str(output_dir)
 
@@ -299,7 +297,6 @@ class Explainer:
             ValueError: If pipeline_uid is missing or invalid
             FileNotFoundError: If pipeline configuration or manifest not found
         """
-        from nirs4all.utils.emoji import SEARCH
         import json
 
         # Get configuration path and target model
@@ -326,8 +323,7 @@ class Explainer:
         config_dir = self.saver.base_path / pipeline_dir_name
         pipeline_json = config_dir / "pipeline.json"
 
-        if verbose > 0:
-            print(f"{SEARCH}Loading {pipeline_json}")
+        logger.debug(f"Loading {pipeline_json}")
 
         if not pipeline_json.exists():
             raise FileNotFoundError(f"Pipeline not found: {pipeline_json}")
@@ -346,7 +342,7 @@ class Explainer:
                 f"The model artifacts may have been deleted or moved."
             )
 
-        print(f"{SEARCH}Loading from manifest: {pipeline_uid}")
+        logger.info(f"Loading from manifest: {pipeline_uid}")
         manifest = self.manifest_manager.load_manifest(pipeline_uid)
         self.artifact_loader = ArtifactLoader.from_manifest(manifest, self.saver.base_path)
 

@@ -35,6 +35,9 @@ from nirs4all.analysis.transfer_utils import (
     normalize_preprocessing,
     validate_datasets,
 )
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class TransferPreprocessingSelector:
@@ -239,9 +242,12 @@ class TransferPreprocessingSelector:
         self.raw_metrics_: Optional[TransferMetrics] = None
 
     def _log(self, msg: str, level: int = 1) -> None:
-        """Print message if verbosity level is sufficient."""
+        """Log message if verbosity level is sufficient."""
         if self.verbose >= level:
-            print(msg)
+            if level >= 2:
+                logger.debug(msg)
+            else:
+                logger.info(msg)
 
     @staticmethod
     def _compute_effective_n_jobs(n_jobs: int) -> int:
