@@ -1686,12 +1686,16 @@ class BaseModelController(OperatorController, ABC):
                 except (KeyError, AttributeError, ValueError, TypeError, IndexError):
                     pass
 
+        # Get trace_id from runtime context (Phase 2)
+        trace_id = runner.get_trace_id() if hasattr(runner, 'get_trace_id') else None
+
         result = {
             'dataset_name': dataset.name,
             'dataset_path': dataset.name,
             'config_name': runner.saver.pipeline_id,
             'config_path': f"{dataset.name}/{runner.saver.pipeline_id}",
             'pipeline_uid': getattr(runner, 'pipeline_uid', None),
+            'trace_id': trace_id,  # Phase 2: Link to execution trace
             'step_idx': context.state.step_number,  # Use step_number (int) not step_id (str)
             'op_counter': op_counter,
             'model_name': model_name,

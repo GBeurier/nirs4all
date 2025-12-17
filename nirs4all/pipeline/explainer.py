@@ -219,7 +219,7 @@ class Explainer:
             shap_results['dataset_name'] = dataset_obj.name
 
             logger.success("SHAP explanation completed!")
-            logger.artifact(f"Visualizations saved to: {output_dir}")
+            logger.artifact("visualization", path=output_dir)
             for viz in shap_params['visualizations']:
                 logger.debug(f"  • {viz}.png")
 

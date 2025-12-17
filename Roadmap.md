@@ -3,7 +3,6 @@
 **Features**:
 
 > [Errors] Uniformize exception errors
-> [Logs] implement feature and update print/log strategy
 
 > [Model] How to force params from self best_params. How to use directly a model from file (joblib, n4a, folder, pkl, h5, etc.)
 
