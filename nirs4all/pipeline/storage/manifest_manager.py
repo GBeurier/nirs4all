@@ -599,7 +599,7 @@ class ManifestManager:
             # Skip if we already have this preprocessing (deduplication)
             if pp_display in seen_display_strings:
                 if verbose:
-                    print(f"  [extract] Skipping duplicate: {pp_display}")
+                    logger.debug(f"[extract] Skipping duplicate: {pp_display}")
                 continue
 
             # Parse the display string to extract preprocessings
@@ -610,7 +610,7 @@ class ManifestManager:
 
             if not deserialized:
                 if verbose:
-                    print(f"  [extract] Empty after parsing: {pp_display}")
+                    logger.debug(f"[extract] Empty after parsing: {pp_display}")
                 continue
 
             # Success - add to results and mark as seen
@@ -619,10 +619,10 @@ class ManifestManager:
 
             if verbose:
                 names = [type(t).__name__ for t in deserialized]
-                print(f"  [extract] #{len(result)}: {names} (from {pp_display})")
+                logger.debug(f"[extract] #{len(result)}: {names} (from {pp_display})")
 
         if verbose:
-            print(f"  [extract] Extracted {len(result)} unique preprocessing(s)")
+            logger.debug(f"[extract] Extracted {len(result)} unique preprocessing(s)")
 
         return result
 
@@ -679,7 +679,7 @@ class ManifestManager:
         pipeline_uid = prediction.get("pipeline_uid")
         if not pipeline_uid:
             if verbose:
-                print("[extract_choice] No pipeline_uid in prediction")
+                logger.debug("[extract_choice] No pipeline_uid in prediction")
             return None
 
         # Load manifest
@@ -687,20 +687,20 @@ class ManifestManager:
             manifest = self.load_manifest(pipeline_uid)
         except FileNotFoundError:
             if verbose:
-                print(f"[extract_choice] Manifest not found for {pipeline_uid}")
+                logger.debug(f"[extract_choice] Manifest not found for {pipeline_uid}")
             return None
 
         # Get generator_choices
         choices = manifest.get("generator_choices", [])
         if not choices:
             if verbose:
-                print(f"[extract_choice] No generator_choices in manifest for {pipeline_uid}")
+                logger.debug(f"[extract_choice] No generator_choices in manifest for {pipeline_uid}")
             return None
 
         # Check index bounds
         if choice_index < 0 or choice_index >= len(choices):
             if verbose:
-                print(f"[extract_choice] Index {choice_index} out of range (0-{len(choices)-1})")
+                logger.debug(f"[extract_choice] Index {choice_index} out of range (0-{len(choices)-1})")
             return None
 
         # Get the choice entry
@@ -716,7 +716,7 @@ class ManifestManager:
             value = choice_entry
 
         if verbose:
-            print(f"[extract_choice] Choice {choice_index}: {value}")
+            logger.debug(f"[extract_choice] Choice {choice_index}: {value}")
 
         # Optionally instantiate
         if instantiate:
@@ -753,14 +753,14 @@ class ManifestManager:
         pipeline_uid = prediction.get("pipeline_uid")
         if not pipeline_uid:
             if verbose:
-                print("[extract_choices] No pipeline_uid in prediction")
+                logger.debug("[extract_choices] No pipeline_uid in prediction")
             return []
 
         try:
             manifest = self.load_manifest(pipeline_uid)
         except FileNotFoundError:
             if verbose:
-                print(f"[extract_choices] Manifest not found for {pipeline_uid}")
+                logger.debug(f"[extract_choices] Manifest not found for {pipeline_uid}")
             return []
 
         choices = manifest.get("generator_choices", [])
@@ -781,13 +781,13 @@ class ManifestManager:
                     results.append(deserialize_component(value))
                 except Exception as e:
                     if verbose:
-                        print(f"[extract_choices] Failed to deserialize: {value} - {e}")
+                        logger.debug(f"[extract_choices] Failed to deserialize: {value} - {e}")
                     results.append(value)  # Return raw value on failure
             else:
                 results.append(value)
 
         if verbose:
-            print(f"[extract_choices] Extracted {len(results)} choice(s)")
+            logger.debug(f"[extract_choices] Extracted {len(results)} choice(s)")
 
         return results
 
@@ -858,9 +858,9 @@ class ManifestManager:
                     transformers.append(instance)
                 except Exception as e:
                     if verbose:
-                        print(f"  [parse] Failed to deserialize {name}: {e}")
+                        logger.debug(f"[parse] Failed to deserialize {name}: {e}")
             elif verbose and name:
-                print(f"  [parse] Unknown transformer: {name}")
+                logger.debug(f"[parse] Unknown transformer: {name}")
 
         return transformers
 
@@ -1044,13 +1044,13 @@ class ManifestManager:
         while result and type(result[-1]).__name__ in scaler_names:
             removed = result.pop()
             if verbose:
-                print(f"    [extract_preprocessings] Stripped trailing scaler: {type(removed).__name__}")
+                logger.debug(f"[extract_preprocessings] Stripped trailing scaler: {type(removed).__name__}")
 
         # Also remove scalers from the beginning (often added before preprocessing)
         while result and type(result[0]).__name__ in scaler_names:
             removed = result.pop(0)
             if verbose:
-                print(f"    [extract_preprocessings] Stripped leading scaler: {type(removed).__name__}")
+                logger.debug(f"[extract_preprocessings] Stripped leading scaler: {type(removed).__name__}")
 
         return result
 

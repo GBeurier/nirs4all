@@ -11,7 +11,9 @@ import matplotlib.pyplot as plt
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 
-from nirs4all.utils.emoji import CHART, CHECK, CROSS, DISK, BRAIN, WRENCH, MICROSCOPE, PALETTE, CHECKMARK
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Try to import SHAP
 try:
@@ -92,9 +94,9 @@ class ShapAnalyzer:
         Returns:
             Dictionary with SHAP results
         """
-        print("=" * 80)
-        print(f"{BRAIN}SHAP Analysis Starting")
-        print("=" * 80)
+        logger.info("=" * 80)
+        logger.info("SHAP Analysis Starting")
+        logger.info("=" * 80)
 
         # Select samples if specified
         if sample_indices is not None:
@@ -102,23 +104,23 @@ class ShapAnalyzer:
         else:
             X_explain = X
 
-        print(f"{CHART}Analyzing {X_explain.shape[0]} samples with {X_explain.shape[1]} features")
+        logger.info(f"Analyzing {X_explain.shape[0]} samples with {X_explain.shape[1]} features")
 
         # Step 1: Select and create explainer
-        print(f"{WRENCH}Creating SHAP explainer (type: {explainer_type})...")
+        logger.info(f"Creating SHAP explainer (type: {explainer_type})...")
         self.explainer = self._create_explainer(
             model, X, explainer_type, n_background, task_type
         )
 
         # Step 2: Compute SHAP values
-        print(f"{MICROSCOPE}Computing SHAP values...")
+        logger.info("Computing SHAP values...")
 
         # No need to reshape - the predict function wrapper handles it
         self.shap_values = self.explainer.shap_values(X_explain)
 
         # Handle multi-output case (e.g., multi-class classification)
         if isinstance(self.shap_values, list):
-            print(f"   Multi-output detected: {len(self.shap_values)} outputs")
+            logger.info(f"   Multi-output detected: {len(self.shap_values)} outputs")
             # For now, use first output
             self.shap_values = self.shap_values[0]
 
@@ -159,19 +161,19 @@ class ShapAnalyzer:
         self.bin_stride_dict = normalize_param(bin_stride, 10)
         self.bin_aggregation_dict = normalize_param(bin_aggregation, 'sum')
 
-        print(f"{CHECK}SHAP values computed: shape={self.shap_values.shape}")
-        print(f"   Base value: {self.base_value:.4f}")
-        print(f"   Binning config:")
+        logger.success(f"SHAP values computed: shape={self.shap_values.shape}")
+        logger.info(f"   Base value: {self.base_value:.4f}")
+        logger.info("   Binning config:")
         for viz in ['spectral', 'waterfall', 'beeswarm']:
             if viz in self.bin_size_dict:
-                print(f"     {viz}: size={self.bin_size_dict[viz]}, stride={self.bin_stride_dict[viz]}, agg={self.bin_aggregation_dict[viz]}")
+                logger.info(f"     {viz}: size={self.bin_size_dict[viz]}, stride={self.bin_stride_dict[viz]}, agg={self.bin_aggregation_dict[viz]}")
 
         # Step 3: Generate visualizations
         if output_dir and visualizations:
             output_path = Path(output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
 
-            print(f"\n{PALETTE}Generating visualizations...")
+            logger.info("Generating visualizations...")
 
             if 'spectral' in visualizations:
                 # Set binning for spectral
@@ -184,7 +186,7 @@ class ShapAnalyzer:
                     output_path=str(output_path / "spectral_importance.png"),
                     plots_visible=plots_visible
                 )
-                print(f"   {CHECKMARK}Spectral importance")
+                logger.success("   Spectral importance")
 
             if 'summary' in visualizations:
                 self.plot_summary(
@@ -192,7 +194,7 @@ class ShapAnalyzer:
                     output_path=str(output_path / "summary.png"),
                     plots_visible=plots_visible
                 )
-                print(f"   {CHECKMARK}Summary plot")
+                logger.success("   Summary plot")
 
             if 'waterfall' in visualizations:
                 # Set binning for waterfall
@@ -205,7 +207,7 @@ class ShapAnalyzer:
                     output_path=str(output_path / "waterfall_binned.png"),
                     plots_visible=plots_visible
                 )
-                print(f"   {CHECKMARK}Waterfall plot (binned)")
+                logger.success("   Waterfall plot (binned)")
 
             if 'force' in visualizations:
                 self.plot_force(
@@ -214,7 +216,7 @@ class ShapAnalyzer:
                     output_path=str(output_path / "force.html"),
                     plots_visible=plots_visible
                 )
-                print(f"   {CHECKMARK}Force plot")
+                logger.success("   Force plot")
 
             if 'beeswarm' in visualizations:
                 # Set binning for beeswarm
@@ -226,7 +228,7 @@ class ShapAnalyzer:
                     output_path=str(output_path / "beeswarm_binned.png"),
                     plots_visible=plots_visible
                 )
-                print(f"   {CHECKMARK}Beeswarm plot (binned)")
+                logger.success("   Beeswarm plot (binned)")
 
         # Prepare results dictionary
         results = {
@@ -239,8 +241,8 @@ class ShapAnalyzer:
             'n_features': self.shap_values.shape[1]
         }
 
-        print(f"\n{CHECK}SHAP analysis completed!")
-        print("=" * 80)
+        logger.success("SHAP analysis completed!")
+        logger.info("=" * 80)
 
         return results
 
@@ -273,7 +275,7 @@ class ShapAnalyzer:
             else:
                 explainer_type = "kernel"
 
-            print(f"   Auto-selected explainer: {explainer_type}")
+            logger.info(f"   Auto-selected explainer: {explainer_type}")
 
         # Create explainer
         if explainer_type == "tree":
@@ -281,7 +283,7 @@ class ShapAnalyzer:
                 return shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
             except Exception as e:
                 error_msg = str(e).split('\n')[0]
-                print(f"   {WARNING}TreeExplainer failed: {error_msg}, falling back to Kernel")
+                logger.warning(f"   TreeExplainer failed: {error_msg}, falling back to Kernel")
                 explainer_type = "kernel"
 
         if explainer_type == "linear":
@@ -289,7 +291,7 @@ class ShapAnalyzer:
                 return shap.LinearExplainer(model, X)
             except Exception as e:
                 error_msg = str(e).split('\n')[0]
-                print(f"   {WARNING}LinearExplainer failed: {error_msg}, falling back to Kernel")
+                logger.warning(f"   LinearExplainer failed: {error_msg}, falling back to Kernel")
                 explainer_type = "kernel"
 
         if explainer_type == "deep":
@@ -314,7 +316,7 @@ class ShapAnalyzer:
             except Exception as e:
                 # Clean error message without stack trace
                 error_msg = str(e).split('\n')[0]  # First line only
-                print(f"   {WARNING}DeepExplainer failed: {error_msg}, falling back to Kernel")
+                logger.warning(f"   DeepExplainer failed: {error_msg}, falling back to Kernel")
                 explainer_type = "kernel"
 
         # Fallback to KernelExplainer (works with any model)
@@ -517,7 +519,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   {DISK}Saved: {output_path}")
+            logger.info(f"   Saved: {output_path}")
 
         if not plots_visible:
             plt.close(fig)
@@ -548,7 +550,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   {DISK}Saved: {output_path}")
+            logger.info(f"   Saved: {output_path}")
 
         if not plots_visible:
             plt.close()
@@ -581,7 +583,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   {DISK}Saved: {output_path}")
+            logger.info(f"   Saved: {output_path}")
 
         if not plots_visible:
             plt.close()
@@ -617,7 +619,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   {DISK}Saved: {output_path}")
+            logger.info(f"   Saved: {output_path}")
 
         if not plots_visible:
             plt.close()
@@ -654,8 +656,7 @@ class ShapAnalyzer:
                 feature_names=feature_names
             )
         if output_path:
-            print(f"   💾 Saved: {output_path}"
-                  if plots_visible and output_path is None else "")
+            logger.info(f"   Saved: {output_path}")
         if plots_visible and output_path is None:
             plt.show()  # Blocking
             plt.close()
@@ -802,7 +803,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   {DISK}Saved: {output_path}")
+            logger.info(f"   Saved: {output_path}")
 
         if plots_visible:
             plt.show()  # Blocking
@@ -861,7 +862,7 @@ class ShapAnalyzer:
 
         if output_path:
             plt.savefig(output_path, dpi=300, bbox_inches='tight')
-            print(f"   {DISK}Saved: {output_path}")
+            logger.info(f"   Saved: {output_path}")
 
         if not plots_visible:
             plt.close()
@@ -896,7 +897,7 @@ class ShapAnalyzer:
         data, _ = to_bytes(results, format_hint=None)
         with open(output_path, 'wb') as f:
             f.write(data)
-        print(f"{DISK}Results saved to: {output_path}")
+        logger.info(f"Results saved to: {output_path}")
 
     @staticmethod
     def load_results(input_path: str) -> Dict[str, Any]:

@@ -5,7 +5,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from nirs4all.utils.emoji import CHECK, WARNING
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class WorkspaceExporter:
@@ -118,14 +120,14 @@ class WorkspaceExporter:
         if not predictions_file.exists():
             predictions_file = self.workspace_path / f"{dataset_name}.json"
             if not predictions_file.exists():
-                print(f"{WARNING} No predictions found for dataset '{dataset_name}'")
+                logger.warning(f"No predictions found for dataset '{dataset_name}'")
                 return None
 
         from nirs4all.data.predictions import Predictions
 
         predictions = Predictions.load_from_file_cls(str(predictions_file))
         if predictions.num_predictions == 0:
-            print(f"{WARNING} No predictions in database for '{dataset_name}'")
+            logger.warning(f"No predictions in database for '{dataset_name}'")
             return None
 
         # Get best prediction
@@ -138,7 +140,7 @@ class WorkspaceExporter:
         # Get run date from run directory name
         run_dirs = list(runs_dir.glob(f"*_{dataset_name}"))
         if not run_dirs:
-            print(f"{WARNING} No run directory found for dataset '{dataset_name}'")
+            logger.warning(f"No run directory found for dataset '{dataset_name}'")
             return None
 
         run_dir = run_dirs[-1]  # Get most recent run
@@ -153,14 +155,14 @@ class WorkspaceExporter:
                 break
 
         if not pipeline_dir:
-            print(f"{WARNING} Pipeline directory not found for config '{config_name}'")
+            logger.warning(f"Pipeline directory not found for config '{config_name}'")
             return None
 
         # Export predictions
         pred_filename = f"{run_date}_{best['model_name']}_predictions.csv"
         pred_path = exports_dir / pred_filename
         Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], pred_path)
-        print(f"{CHECK} Exported predictions: {pred_path}")
+        logger.success(f"Exported predictions: {pred_path}")
 
         # Export pipeline config
         pipeline_json = pipeline_dir / "pipeline.json"
@@ -168,14 +170,14 @@ class WorkspaceExporter:
             config_filename = f"{run_date}_{best['model_name']}_pipeline.json"
             config_path = exports_dir / config_filename
             shutil.copy(pipeline_json, config_path)
-            print(f"{CHECK} Exported pipeline config: {config_path}")
+            logger.success(f"Exported pipeline config: {config_path}")
 
         # Export charts if they exist
         for chart_file in pipeline_dir.glob("*.png"):
             chart_filename = f"{run_date}_{best['model_name']}_{chart_file.name}"
             chart_path = exports_dir / chart_filename
             shutil.copy(chart_file, chart_path)
-            print(f"{CHECK} Exported chart: {chart_path}")
+            logger.success(f"Exported chart: {chart_path}")
 
         # Handle different export modes for binaries
         if mode in ["trained", "full"]:
@@ -198,7 +200,7 @@ class WorkspaceExporter:
                         if src.exists():
                             shutil.copy(src, export_binaries_dir / binary_name)
 
-                    print(f"{CHECK} Exported {len(list(export_binaries_dir.iterdir()))} binaries")
+                    logger.success(f"Exported {len(list(export_binaries_dir.iterdir()))} binaries")
 
         # Create summary metadata
         summary = {
@@ -215,6 +217,6 @@ class WorkspaceExporter:
         summary_path = exports_dir / f"{run_date}_{best['model_name']}_summary.json"
         with open(summary_path, 'w') as f:
             json.dump(summary, f, indent=2)
-        print(f"{CHECK} Exported summary: {summary_path}")
+        logger.success(f"Exported summary: {summary_path}")
 
         return exports_dir

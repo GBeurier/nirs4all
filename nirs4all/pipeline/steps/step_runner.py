@@ -4,10 +4,12 @@ from typing import Any, List, Optional, Tuple
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.execution.result import ArtifactMeta, StepResult
 from nirs4all.pipeline.steps.parser import ParsedStep, StepParser, StepType
 from nirs4all.pipeline.steps.router import ControllerRouter
-from nirs4all.utils.emoji import WARNING, SMALL_DIAMOND
+
+logger = get_logger(__name__)
 
 
 class StepRunner:
@@ -83,8 +85,7 @@ class StepRunner:
 
         # Handle None/skip steps
         if parsed_step.metadata.get("skip", False):
-            if self.verbose > 0:
-                print(f"{WARNING}No operation defined for this step, skipping.")
+            logger.warning("No operation defined for this step, skipping.")
             return StepResult(updated_context=context, artifacts=[])
 
         # Handle subpipelines (nested lists)
@@ -116,8 +117,7 @@ class StepRunner:
             for substep_idx, substep in enumerate(substeps):
                 # In predict mode with target_sub_index, skip substeps that don't match
                 if target_sub_index is not None and substep_idx != target_sub_index:
-                    if self.verbose > 1:
-                        print(f"  ⏭️  Skipping substep {substep_idx} (target is {target_sub_index})")
+                    logger.debug(f"Skipping substep {substep_idx} (target is {target_sub_index})")
                     continue
 
                 # Update runtime_context substep_number for each substep
@@ -144,26 +144,24 @@ class StepRunner:
         # Route to controller
         controller = self.router.route(parsed_step, step)
 
-        if self.verbose > 1:
-            operator_name = (
-                parsed_step.operator.__class__.__name__
-                if parsed_step.operator is not None
-                else ""
-            )
-            controller_name = controller.__class__.__name__
+        operator_name = (
+            parsed_step.operator.__class__.__name__
+            if parsed_step.operator is not None
+            else ""
+        )
+        controller_name = controller.__class__.__name__
 
-            if parsed_step.operator is not None:
-                print(f"{SMALL_DIAMOND}Executing controller {controller_name} with operator {operator_name}")
-            else:
-                print(f"{SMALL_DIAMOND}Executing controller {controller_name} without operator")
+        if parsed_step.operator is not None:
+            logger.debug(f"Executing controller {controller_name} with operator {operator_name}")
+        else:
+            logger.debug(f"Executing controller {controller_name} without operator")
 
         # Check if controller supports prediction mode
         if (self.mode == "predict" or self.mode == "explain") and not controller.supports_prediction_mode():
-            if self.verbose > 0:
-                print(
-                    f"{WARNING}Controller {controller.__class__.__name__} "
-                    f"does not support prediction mode, skipping step"
-                )
+            logger.warning(
+                f"Controller {controller.__class__.__name__} "
+                f"does not support prediction mode, skipping step"
+            )
             return StepResult(updated_context=context, artifacts=[])
 
         # Update context with step metadata

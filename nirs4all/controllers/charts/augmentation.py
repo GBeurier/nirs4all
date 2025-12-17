@@ -7,7 +7,10 @@ import numpy as np
 import io
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.utils.header_units import get_x_values_and_label, apply_x_axis_limits
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -102,7 +105,7 @@ class AugmentationChartController(OperatorController):
             n_augmented = len(augmented_indices)
 
             if runtime_context.step_runner.verbose > 0:
-                print(f"   Source {sd_idx}: {n_base} base samples, {n_augmented} augmented samples")
+                logger.debug(f"   Source {sd_idx}: {n_base} base samples, {n_augmented} augmented samples")
 
             # Get first processing (raw or first preprocessed)
             processing_ids = dataset.features_processings(sd_idx)

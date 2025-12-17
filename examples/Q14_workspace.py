@@ -25,8 +25,13 @@ from nirs4all.pipeline.config import PipelineConfigs
 from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.predictions import Predictions
-from nirs4all.utils.emoji import DISK, TROPHY, SEARCH, ROCKET
 from nirs4all.workspace.library_manager import LibraryManager
+
+# Simple status symbols
+DISK = "[D]"
+TROPHY = "[1]"
+SEARCH = "[?]"
+ROCKET = ">"
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q14 Workspace Example')

@@ -13,8 +13,10 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from nirs4all.utils.emoji import DISK, WARNING
+from nirs4all.core.logging import get_logger
 from nirs4all.core import metrics as evaluator
+
+logger = get_logger(__name__)
 
 
 class PredictionResult(dict):
@@ -188,9 +190,9 @@ class PredictionResult(dict):
                 # Create directory if it doesn't exist
                 filepath.parent.mkdir(parents=True, exist_ok=True)
                 df_csv.write_csv(str(filepath))
-                print(f"{DISK}Saved prediction result to {filepath}")
+                logger.info(f"Saved prediction result to {filepath}")
         else:
-            print(f"{WARNING}No prediction data found to save")
+            logger.warning("No prediction data found to save")
 
     def eval_score(self, metrics: Optional[List[str]] = None) -> Dict[str, Any]:
         """
@@ -370,7 +372,7 @@ class PredictionResultsList(list):
             >>> results.save("output", "my_predictions.csv")
         """
         if not self:
-            print(f"{WARNING}No predictions to save")
+            logger.warning("No predictions to save")
             return
 
         # Generate filename if not provided
@@ -480,7 +482,7 @@ class PredictionResultsList(list):
             f.write(output.getvalue())
 
         output.close()
-        print(f"{DISK}Saved {len(self)} predictions to {filepath}")
+        logger.info(f"Saved {len(self)} predictions to {filepath}")
 
     def get(self, prediction_id: str) -> Optional[PredictionResult]:
         """

@@ -22,8 +22,10 @@ from nirs4all.data.signal_type import (
     normalize_signal_type,
     detect_signal_type,
 )
-from nirs4all.utils.emoji import CHART, REFRESH, TARGET
+from nirs4all.core.logging import get_logger
 from nirs4all.core.task_type import TaskType
+
+logger = get_logger(__name__)
 from sklearn.base import TransformerMixin
 from typing import Optional, Union, List, Tuple, Dict, Any, Literal
 
@@ -666,7 +668,7 @@ class SpectroDataset:
 
     def __str__(self):
         """Return readable dataset summary."""
-        txt = f"{CHART}Dataset: {self.name}"
+        txt = f"[Dataset] {self.name}"
         if self._target_accessor.task_type:
             txt += f" ({self._target_accessor.task_type})"
         txt += "\n" + str(self._features)
@@ -684,24 +686,22 @@ class SpectroDataset:
 
         Shows counts, dimensions, number of sources, target versions, etc.
         """
-        print("=== SpectroDataset Summary ===")
-        print()
+        logger.info("=== SpectroDataset Summary ===")
 
         # Task type
         task_type = self._target_accessor.task_type
         if task_type:
-            print(f"{TARGET} Task Type: {task_type}")
+            logger.info(f"Task Type: {task_type}")
         else:
-            print(f"{TARGET} Task Type: Not detected (no targets added yet)")
-        print()
+            logger.info("Task Type: Not detected (no targets added yet)")
 
         # Features summary
         if self._features.sources:
             total_samples = self._feature_accessor.num_samples
             n_sources = self._feature_accessor.num_sources
-            print(f"{CHART}Features: {total_samples} samples, {n_sources} source(s)")
-            print(f"Features: {self._feature_accessor.num_features}, processings: {self._features.num_processings}")
-            print(f"Processing IDs: {self._features.preprocessing_str}")
+            logger.info(f"Features: {total_samples} samples, {n_sources} source(s)")
+            logger.info(f"Features: {self._feature_accessor.num_features}, processings: {self._features.num_processings}")
+            logger.info(f"Processing IDs: {self._features.preprocessing_str}")
 
             # Signal types per source
             signal_types_str = []
@@ -709,16 +709,13 @@ class SpectroDataset:
                 sig_type = self.signal_type(src)
                 forced_marker = "*" if self._signal_type_forced[src] else ""
                 signal_types_str.append(f"{sig_type.value}{forced_marker}")
-            print(f"Signal types: [{', '.join(signal_types_str)}] (* = user-specified)")
+            logger.info(f"Signal types: [{', '.join(signal_types_str)}] (* = user-specified)")
         else:
-            print(f"{CHART}Features: No data")
-        print()
+            logger.info("Features: No data")
 
         # Metadata summary
         if self._metadata.num_rows > 0:
-            print(f"📋 Metadata: {self._metadata.num_rows} rows, {len(self._metadata.columns)} columns")
-            print(f"Columns: {self._metadata.columns}")
-            print()
+            logger.info(f"Metadata: {self._metadata.num_rows} rows, {len(self._metadata.columns)} columns")
+            logger.info(f"Columns: {self._metadata.columns}")
         else:
-            print("📋 Metadata: None")
-            print()
+            logger.info("Metadata: None")

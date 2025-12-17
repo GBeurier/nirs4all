@@ -33,7 +33,9 @@ from copy import deepcopy
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import CHECK, INFO
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
@@ -263,9 +265,9 @@ class AutoTransferPreprocessingController(OperatorController):
         )
 
         if verbose >= 1:
-            print(f"{INFO} Auto Transfer Preprocessing Selection")
-            print(f"    Source: {X_source.shape[0]} samples from '{config['source_partition']}' partition")
-            print(f"    Target: {X_target.shape[0]} samples from '{config['target_partition']}' partition")
+            logger.info("Auto Transfer Preprocessing Selection")
+            logger.info(f"    Source: {X_source.shape[0]} samples from '{config['source_partition']}' partition")
+            logger.info(f"    Target: {X_target.shape[0]} samples from '{config['target_partition']}' partition")
 
         # Build selector kwargs from config
         selector_kwargs = self._build_selector_kwargs(config)
@@ -284,11 +286,11 @@ class AutoTransferPreprocessingController(OperatorController):
 
         if verbose >= 1:
             best = results.best
-            print(f"{CHECK} Best recommendation: {best.name}")
-            print(f"    Transfer score: {best.transfer_score:.4f}")
-            print(f"    Improvement: {best.improvement_pct:.1f}%")
+            logger.success(f"Best recommendation: {best.name}")
+            logger.info(f"    Transfer score: {best.transfer_score:.4f}")
+            logger.info(f"    Improvement: {best.improvement_pct:.1f}%")
             if top_k > 1:
-                print(f"    Pipeline spec (top {top_k}): {pipeline_spec}")
+                logger.info(f"    Pipeline spec (top {top_k}): {pipeline_spec}")
 
         # Store recommendation as artifact
         recommendation_data = {
@@ -374,9 +376,9 @@ class AutoTransferPreprocessingController(OperatorController):
         pipeline_spec = recommendation_data["pipeline_spec"]
 
         if verbose >= 1:
-            print(f"{INFO} Loading saved transfer preprocessing recommendation")
-            print(f"    Best: {recommendation_data['best_name']}")
-            print(f"    Pipeline spec: {pipeline_spec}")
+            logger.info("Loading saved transfer preprocessing recommendation")
+            logger.info(f"    Best: {recommendation_data['best_name']}")
+            logger.info(f"    Pipeline spec: {pipeline_spec}")
 
         # Apply recommendation
         if config["apply_recommendation"]:
@@ -514,7 +516,7 @@ class AutoTransferPreprocessingController(OperatorController):
         if isinstance(pipeline_spec, str):
             # Single preprocessing or stacked (e.g., "snv" or "snv>d1")
             if verbose >= 1:
-                print(f"    Applying preprocessing: {pipeline_spec}")
+                logger.info(f"    Applying preprocessing: {pipeline_spec}")
 
             context, apply_artifacts = self._apply_stacked_preprocessing(
                 pipeline_spec, preprocessings, dataset, context, runtime_context, source, mode
@@ -525,7 +527,7 @@ class AutoTransferPreprocessingController(OperatorController):
             # List of preprocessings to apply sequentially
             for pp_name in pipeline_spec:
                 if verbose >= 2:
-                    print(f"    Applying preprocessing: {pp_name}")
+                    logger.debug(f"    Applying preprocessing: {pp_name}")
 
                 context, apply_artifacts = self._apply_stacked_preprocessing(
                     pp_name, preprocessings, dataset, context, runtime_context, source, mode
@@ -536,7 +538,7 @@ class AutoTransferPreprocessingController(OperatorController):
             # Feature augmentation - delegate to feature_augmentation controller
             if verbose >= 1:
                 pp_list = pipeline_spec["feature_augmentation"]
-                print(f"    Applying feature augmentation: {pp_list}")
+                logger.info(f"    Applying feature augmentation: {pp_list}")
 
             context, apply_artifacts = self._apply_feature_augmentation(
                 pipeline_spec["feature_augmentation"],

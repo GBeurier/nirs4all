@@ -48,7 +48,7 @@ def test_installation() -> bool:
     Returns:
         True if all required dependencies are available, False otherwise.
     """
-    print("{SEARCH} Testing NIRS4ALL Installation...")
+    print("🔍 Testing NIRS4ALL Installation...")
     print("=" * 50)
 
     # Core required dependencies from pyproject.toml
@@ -83,7 +83,7 @@ def test_installation() -> bool:
     print(f"✓ Python: {python_version}")
 
     if sys.version_info < (3, 7):
-        print(f"{CROSS} Python version {python_version} is not supported (requires >=3.7)")
+        print(f"❌ Python version {python_version} is not supported (requires >=3.7)")
         return False
 
     print()
@@ -94,7 +94,7 @@ def test_installation() -> bool:
 
     for dep_name, min_version in required_deps.items():
         is_available, version = check_dependency(dep_name, min_version)
-        status = "✓" if is_available else "{CROSS}"
+        status = "✓" if is_available else "❌"
         print(f"  {status} {dep_name}: {version}")
 
         if not is_available:
@@ -115,7 +115,7 @@ def test_installation() -> bool:
     print()
 
     # Test nirs4all itself
-    print("\n{TARGET} NIRS4ALL Components:")
+    print("\n🎯 NIRS4ALL Components:")
     try:
         # Test core pipeline components
         from nirs4all.pipeline.runner import PipelineRunner
@@ -140,7 +140,7 @@ def test_installation() -> bool:
         print("  ✓ nirs4all.utils.backend_utils: OK")
 
     except ImportError as e:
-        print(f"  {CROSS} nirs4all import error: {e}")
+        print(f"  ❌ nirs4all import error: {e}")
         all_required_ok = False
 
     print()
@@ -184,7 +184,7 @@ def test_integration() -> bool:
     #     return False
 
     print("\n" + "=" * 50)
-    print("{REFRESH} Running Pipeline Integration Tests...")
+    print("🔄 Running Pipeline Integration Tests...")
     print("=" * 50)
 
     # Store test results with timing
@@ -203,13 +203,11 @@ def test_integration() -> bool:
         print("✓ Successfully imported NIRS4ALL modules")
 
     except ImportError as e:
-        print(f"{CROSS} Failed to import required modules: {e}")
+        print(f"❌ Failed to import required modules: {e}")
         return False
 
     def create_synthetic_dataset_files(temp_dir, task_type="regression", n_samples=100, n_features=500):
         """Create synthetic CSV files matching the expected format."""
-
-from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, ROCKET
         np.random.seed(42)
 
         # Create realistic spectral-like data
@@ -264,8 +262,6 @@ from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, R
 
     def run_test(test_name, test_func):
         """Run a test with timing and error handling."""
-
-from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, ROCKET
         print(f"\n🔹 Test: {test_name}")
         start_time = time.time()
 
@@ -275,25 +271,23 @@ from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, R
             elapsed = end_time - start_time
 
             if success:
-                print(f"  {CHECK} {test_name} completed successfully ({elapsed:.2f}s)")
+                print(f"  ✓ {test_name} completed successfully ({elapsed:.2f}s)")
                 test_results.append((test_name, True, elapsed, None))
                 return True
             else:
-                print(f"  {CROSS} {test_name} failed ({elapsed:.2f}s)")
+                print(f"  ❌ {test_name} failed ({elapsed:.2f}s)")
                 test_results.append((test_name, False, elapsed, "Test function returned False"))
                 return False
 
         except Exception as e:
             end_time = time.time()
             elapsed = end_time - start_time
-            print(f"  {CROSS} {test_name} failed with error ({elapsed:.2f}s): {e}")
+            print(f"  ❌ {test_name} failed with error ({elapsed:.2f}s): {e}")
             test_results.append((test_name, False, elapsed, str(e)))
             return False
 
     def test_sklearn_pipeline():
         """Test sklearn-based pipeline (based on Q2.py) - Extended version."""
-
-from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, ROCKET
         # Create temporary dataset with more samples for thorough testing
         temp_dir = tempfile.mkdtemp()
         try:
@@ -320,7 +314,7 @@ from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, R
             # Verify results
             assert predictions is not None, "No predictions returned"
             num_predictions = predictions.num_predictions
-            print(f"    {CHART} Pipeline executed successfully, {num_predictions} predictions generated")
+            print(f"    📈 Pipeline executed successfully, {num_predictions} predictions generated")
 
             # Additional validation
             assert num_predictions >= 10, f"Expected at least 10 predictions, got {num_predictions}"
@@ -334,13 +328,11 @@ from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, R
 
     def test_tensorflow_pipeline():
         """Test TensorFlow-based pipeline (based on Q2.py)."""
-
-from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, ROCKET
         try:
             import tensorflow as tf
             from nirs4all.operators.models.tensorflow.nicon import nicon
         except ImportError:
-            print("    {WARNING}TensorFlow/NIRS models not available, skipping test")
+            print("    ⚠️ TensorFlow/NIRS models not available, skipping test")
             return True  # Skip but don't fail
 
         # Create temporary dataset
@@ -382,12 +374,10 @@ from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, R
 
     def test_optuna_pipeline():
         """Test Optuna hyperparameter optimization (based on Q1_finetune.py) - Extended version."""
-
-from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, ROCKET
         try:
             import optuna
         except ImportError:
-            print("    {WARNING}Optuna not available, skipping test")
+            print("    ⚠️ Optuna not available, skipping test")
             return True  # Skip but don't fail
 
         # Create temporary dataset with more samples
@@ -467,7 +457,7 @@ from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, R
     total_time = sum(result[2] for result in test_results)
 
     for name, success, elapsed, error in test_results:
-        status = "{CHECK} PASS" if success else "{CROSS} FAIL"
+        status = "✓ PASS" if success else "❌ FAIL"
         print(f"{status} {name}: {elapsed:.2f}s")
         if error and not success:
             print(f"     Error: {error}")
@@ -476,18 +466,18 @@ from nirs4all.utils.emoji import SEARCH, TARGET, CROSS, REFRESH, CHECK, CHART, R
 
     if success_count == len(tests):
         print("🎉 Integration test PASSED!")
-        print(f"{CHECK} All {len(tests)} pipeline tests completed successfully")
-        print("{ROCKET} NIRS4ALL is ready for use!")
+        print(f"✓ All {len(tests)} pipeline tests completed successfully")
+        print("🚀 NIRS4ALL is ready for use!")
         return True
     else:
-        print(f"{WARNING}Partial success: {success_count}/{len(tests)} tests passed")
+        print(f"⚠️ Partial success: {success_count}/{len(tests)} tests passed")
         if success_count > 0:
-            print("{CHECK} Basic pipeline functionality is working")
-            print("{WARNING}Some optional features may have issues")
+            print("✓ Basic pipeline functionality is working")
+            print("⚠️ Some optional features may have issues")
             return True  # Return True for partial success
         else:
-            print("{CROSS} Integration test FAILED!")
-            print("{CROSS} Pipeline execution is not working properly")
+            print("❌ Integration test FAILED!")
+            print("❌ Pipeline execution is not working properly")
             return False
 
 

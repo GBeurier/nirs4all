@@ -6,8 +6,11 @@ from typing import Any, Dict, Tuple, TYPE_CHECKING, List, Union
 import copy
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 from nirs4all.operators.splitters import GroupedSplitterWrapper
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover
     from nirs4all.data.dataset import SpectroDataset
@@ -349,8 +352,8 @@ class CrossValidatorController(OperatorController):
             elif hasattr(dataset, 'metadata_columns') and dataset.metadata_columns:
                 # No explicit group column, but metadata available - use first column as default
                 group_column = dataset.metadata_columns[0]
-                print(
-                    f"⚠️ {op.__class__.__name__} has 'groups' parameter but no 'group' specified. "
+                logger.warning(
+                    f"{op.__class__.__name__} has 'groups' parameter but no 'group' specified. "
                     f"Using default: '{group_column}'"
                 )
                 try:

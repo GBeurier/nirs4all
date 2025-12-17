@@ -567,10 +567,8 @@ class MinimalPredictor:
             Tuple of (y_pred array, Predictions object)
         """
         from nirs4all.pipeline.execution.builder import ExecutorBuilder
-        from nirs4all.utils.emoji import ROCKET, CHECK
 
-        if self.verbose > 0:
-            print(f"{ROCKET} Minimal prediction: {minimal_pipeline.get_step_count()} steps")
+        logger.info(f"Minimal prediction: {minimal_pipeline.get_step_count()} steps")
 
         # Extract target_sub_index from model_artifact_id if present
         # This is critical for subpipelines with multiple models
@@ -657,8 +655,7 @@ class MinimalPredictor:
             non_empty = [p for p in candidates if len(p.get("y_pred", [])) > 0]
             if non_empty:
                 y_pred = non_empty[0]["y_pred"]
-                if self.verbose > 0:
-                    print(f"{CHECK} Prediction complete: {len(y_pred)} samples")
+                logger.success(f"Prediction complete: {len(y_pred)} samples")
                 return np.array(y_pred), predictions
 
         # Return empty if no predictions

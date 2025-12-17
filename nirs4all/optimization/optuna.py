@@ -11,7 +11,9 @@ os.environ['DISABLE_EMOJIS'] = '1'  # Set to '1' to disable emojis in print stat
 
 from typing import Any, Dict, List, Optional, Callable, Union, TYPE_CHECKING
 import numpy as np
-from nirs4all.utils.emoji import TARGET, ROCKET, TROPHY, CHART, WARNING
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -45,7 +47,7 @@ class OptunaManager:
         """Initialize the Optuna manager."""
         self.is_available = OPTUNA_AVAILABLE
         if not self.is_available:
-            print("{WARNING}Optuna not available - finetuning will be skipped")
+            logger.warning("Optuna not available - finetuning will be skipped")
 
     def finetune(
         self,
@@ -78,7 +80,7 @@ class OptunaManager:
             Best parameters (dict) or list of best parameters per fold
         """
         if not self.is_available:
-            print("{WARNING}Optuna not available, skipping finetuning")
+            logger.warning("Optuna not available, skipping finetuning")
             return {}
 
         # Extract configuration
@@ -88,11 +90,11 @@ class OptunaManager:
         verbose = finetune_params.get('verbose', 0)
 
         if verbose > 1:
-            print(f"{TARGET}Starting hyperparameter optimization:")
-            print(f"   Strategy: {strategy}")
-            print(f"   Eval mode: {eval_mode}")
-            print(f"   Trials: {n_trials}")
-            print(f"   Folds: {len(folds) if folds else 0}")
+            logger.info("Starting hyperparameter optimization:")
+            logger.info(f"   Strategy: {strategy}")
+            logger.info(f"   Eval mode: {eval_mode}")
+            logger.info(f"   Trials: {n_trials}")
+            logger.info(f"   Folds: {len(folds) if folds else 0}")
 
         # Route to appropriate optimization strategy
         if folds and strategy == 'individual':
@@ -143,7 +145,7 @@ class OptunaManager:
 
         for fold_idx, (train_indices, val_indices) in enumerate(folds):
             if verbose > 1:
-                print(f"{TARGET}Optimizing fold {fold_idx + 1}/{len(folds)}")
+                logger.info(f"Optimizing fold {fold_idx + 1}/{len(folds)}")
 
             # Extract fold data
             X_train_fold = X_train[train_indices]
@@ -161,7 +163,7 @@ class OptunaManager:
             best_params_list.append(fold_best_params)
 
             if verbose > 1:
-                print(f"   Fold {fold_idx + 1} best: {fold_best_params}")
+                logger.info(f"   Fold {fold_idx + 1} best: {fold_best_params}")
 
         return best_params_list
 
@@ -194,7 +196,7 @@ class OptunaManager:
                 sampled_params = controller.process_hyperparameters(sampled_params)
 
             if verbose > 2:
-                print(f"Trial params: {sampled_params}")
+                logger.debug(f"Trial params: {sampled_params}")
 
             # Train on all folds and collect scores
             scores = []
@@ -226,7 +228,7 @@ class OptunaManager:
 
                 except Exception as e:
                     if verbose >= 2:
-                        print(f"   Fold failed: {e}")
+                        logger.debug(f"   Fold failed: {e}")
                     scores.append(float('inf'))
 
             # Return evaluation based on eval_mode
@@ -237,13 +239,13 @@ class OptunaManager:
         self._configure_logging(verbose)
 
         if verbose > 1:
-            print(f"{ROCKET}Running grouped optimization ({n_trials} trials)...")
+            logger.starting(f"Running grouped optimization ({n_trials} trials)...")
 
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
 
         if verbose > 1:
-            print(f"{TROPHY}Best score: {study.best_value:.4f}")
-            print(f"{CHART}Best parameters: {study.best_params}")
+            logger.success(f"Best score: {study.best_value:.4f}")
+            logger.info(f"Best parameters: {study.best_params}")
 
         return study.best_params
 
@@ -296,7 +298,7 @@ class OptunaManager:
                 sampled_params = controller.process_hyperparameters(sampled_params)
 
             if verbose > 2:
-                print(f"Trial params: {sampled_params}")
+                logger.debug(f"Trial params: {sampled_params}")
 
             try:
                 model = controller._get_model_instance(dataset, model_config, force_params=sampled_params)  # noqa: SLF001
@@ -321,7 +323,7 @@ class OptunaManager:
 
             except Exception as e:
                 if verbose >= 2:
-                    print(f"{WARNING}Trial failed: {e}")
+                    logger.warning(f"Trial failed: {e}")
                 return float('inf')
 
         # Create and run optimization
@@ -329,13 +331,13 @@ class OptunaManager:
         self._configure_logging(verbose)
 
         if verbose > 1:
-            print(f"{ROCKET}Running optimization ({n_trials} trials)...")
+            logger.starting(f"Running optimization ({n_trials} trials)...")
 
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
 
         if verbose > 1:
-            print(f"{TROPHY}Best score: {study.best_value:.4f}")
-            print(f"{CHART}Best parameters: {study.best_params}")
+            logger.success(f"Best score: {study.best_value:.4f}")
+            logger.info(f"Best parameters: {study.best_params}")
 
         return study.best_params
 
@@ -360,7 +362,7 @@ class OptunaManager:
             # Verify grid is suitable even if explicitly requested
             is_grid_suitable = self._is_grid_search_suitable(finetune_params)
             if not is_grid_suitable:
-                print("Warning: Grid sampler requested but parameters are not all categorical. Using TPE sampler instead.")
+                logger.warning("Grid sampler requested but parameters are not all categorical. Using TPE sampler instead.")
                 sampler_type = 'tpe'
 
         # Create sampler instance

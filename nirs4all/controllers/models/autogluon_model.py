@@ -24,8 +24,10 @@ import os
 
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import ARROW_UP, ARROW_DOWN, WARNING, CHECK, CHART
+from nirs4all.core.logging import get_logger
 from .utilities import ModelControllerUtils as ModelUtils
+
+logger = get_logger(__name__)
 from nirs4all.pipeline.steps.parser import ParsedStep
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
@@ -313,18 +315,18 @@ class AutoGluonModelController(BaseModelController):
 
         # Fit the predictor
         if verbose > 0:
-            print("🚀 Training AutoGluon TabularPredictor...")
-            print(f"   Presets: {fit_kwargs.get('presets', 'default')}")
-            print(f"   Time limit: {fit_kwargs.get('time_limit', 'None')}")
+            logger.starting("Training AutoGluon TabularPredictor...")
+            logger.info(f"Presets: {fit_kwargs.get('presets', 'default')}")
+            logger.info(f"Time limit: {fit_kwargs.get('time_limit', 'None')}")
 
         predictor.fit(train_df, **fit_kwargs)
 
         if verbose > 0:
             # Print leaderboard
-            print(f"\n{CHART} AutoGluon Model Leaderboard:")
+            logger.info("AutoGluon Model Leaderboard:")
             try:
                 leaderboard = predictor.leaderboard(silent=True)
-                print(leaderboard.to_string())
+                logger.info(leaderboard.to_string())
             except Exception:
                 pass
 
@@ -462,7 +464,7 @@ class AutoGluonModelController(BaseModelController):
             return -score
 
         except Exception as e:
-            print(f"{WARNING} Error in AutoGluon evaluation: {e}")
+            logger.warning(f"Error in AutoGluon evaluation: {e}")
             return float('inf')
 
     def get_preferred_layout(self) -> str:

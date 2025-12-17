@@ -14,7 +14,6 @@ Design Principles:
     2. Reuses Existing Infrastructure: Leverages resolver, artifact provider, executor
     3. Composable: Same infrastructure for all retrain modes
 """
-import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -22,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+from nirs4all.core.logging import get_logger
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
@@ -45,7 +45,7 @@ from nirs4all.pipeline.storage.manifest_manager import ManifestManager
 from nirs4all.pipeline.resolver import PredictionResolver, ResolvedPrediction
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RetrainMode(str, Enum):
@@ -368,11 +368,9 @@ class Retrainer:
             >>> # Finetune: continue training
             >>> preds, _ = retrainer.retrain(best_pred, new_data, mode='finetune', epochs=10)
         """
-        from nirs4all.utils.emoji import ROCKET, CHECK, REFRESH
-
-        print("=" * 120)
-        print(f"\033[94m{REFRESH}Starting Nirs4all retrain ({mode} mode)\033[0m")
-        print("=" * 120)
+        logger.info("=" * 120)
+        logger.starting(f"Starting Nirs4all retrain ({mode} mode)")
+        logger.info("=" * 120)
 
         # Convert mode string to enum
         if isinstance(mode, str):
@@ -393,10 +391,10 @@ class Retrainer:
         self._resolved = self.resolver.resolve(source, verbose=verbose)
 
         if verbose > 0:
-            print(f"  Source type: {self._resolved.source_type}")
-            print(f"  Pipeline UID: {self._resolved.pipeline_uid}")
+            logger.info(f"  Source type: {self._resolved.source_type}")
+            logger.info(f"  Pipeline UID: {self._resolved.pipeline_uid}")
             if self._resolved.has_trace():
-                print(f"  Has execution trace: yes")
+                logger.info("  Has execution trace: yes")
 
         # Normalize dataset
         dataset_configs = self.runner.orchestrator._normalize_dataset(
@@ -431,10 +429,8 @@ class Retrainer:
         Returns:
             Tuple of (predictions, dataset_predictions_dict)
         """
-        from nirs4all.utils.emoji import ROCKET
-
         if verbose > 0:
-            print(f"{ROCKET} Full retrain: training all steps from scratch")
+            logger.starting("Full retrain: training all steps from scratch")
 
         # Get pipeline steps from resolved source
         steps = self._resolved.minimal_pipeline
@@ -466,13 +462,12 @@ class Retrainer:
         Returns:
             Tuple of (predictions, dataset_predictions_dict)
         """
-        from nirs4all.utils.emoji import TRANSFER, CHECK
         from nirs4all.pipeline.execution.builder import ExecutorBuilder
         from nirs4all.pipeline.storage.io import SimulationSaver
         from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 
         if verbose > 0:
-            print(f"{TRANSFER} Transfer mode: reusing preprocessing, training new model")
+            logger.starting("Transfer mode: reusing preprocessing, training new model")
 
         # We need the execution trace or manifest to know which steps are preprocessing
         if not self._resolved.has_trace():
@@ -503,7 +498,7 @@ class Retrainer:
                     else:
                         step.step_config = {'model': config.new_model}
                     if verbose > 0:
-                        print(f"  Replaced model with: {type(config.new_model).__name__}")
+                        logger.info(f"  Replaced model with: {type(config.new_model).__name__}")
                     break
             else:
                 # Fallback: try list-based indexing (for non-MinimalPipelineStep cases)
@@ -519,7 +514,7 @@ class Retrainer:
                     else:
                         steps[model_idx] = {'model': config.new_model}
                     if verbose > 0:
-                        print(f"  Replaced model with: {type(config.new_model).__name__}")
+                        logger.info(f"  Replaced model with: {type(config.new_model).__name__}")
 
         # Execute with transfer artifact provider
         return self._execute_with_retrain_config(
@@ -548,12 +543,10 @@ class Retrainer:
         Returns:
             Tuple of (predictions, dataset_predictions_dict)
         """
-        from nirs4all.utils.emoji import SPARKLE
-
         if verbose > 0:
-            print(f"{SPARKLE} Finetune mode: continuing training on new data")
+            logger.starting("Finetune mode: continuing training on new data")
             if config.epochs:
-                print(f"  Additional epochs: {config.epochs}")
+                logger.info(f"  Additional epochs: {config.epochs}")
 
         # Get pipeline steps
         steps = list(self._resolved.minimal_pipeline)

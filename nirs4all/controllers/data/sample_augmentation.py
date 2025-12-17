@@ -4,9 +4,12 @@ import numpy as np  # noqa: F401
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.controllers.data.balancing import BalancingCalculator
 from nirs4all.data.binning import BinningCalculator  # noqa: F401 - used in _execute_balanced
 from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+logger = get_logger(__name__)
 
 try:
     import joblib  # noqa: F401 - used to check availability
@@ -310,13 +313,13 @@ class SampleAugmentationController(OperatorController):
             )
 
         # --- Debug Print ---
-        print("\n--- Sample Augmentation Class Distribution ---")
-        print("Before Augmentation:")
+        logger.debug("--- Sample Augmentation Class Distribution ---")
+        logger.debug("Before Augmentation:")
         before_counts = Counter(labels_all_train)
         for label, count in sorted(before_counts.items()):
-            print(f"  Class {label}: {count}")
+            logger.debug(f"  Class {label}: {count}")
 
-        print("\nPlanned Augmentation:")
+        logger.debug("Planned Augmentation:")
         sample_to_label = {sid: lbl for sid, lbl in zip(base_train_samples, labels_base_train)}
         added_counts = Counter()
         for sample_id, count in augmentation_counts.items():
@@ -325,14 +328,14 @@ class SampleAugmentationController(OperatorController):
                 if lbl is not None:
                     added_counts[lbl] += count
 
-        print("After Augmentation (Expected):")
+        logger.debug("After Augmentation (Expected):")
         all_labels = set(before_counts.keys()) | set(added_counts.keys())
         for label in sorted(all_labels):
             before = before_counts[label]
             added = added_counts[label]
             total = before + added
-            print(f"  Class {label}: {before} + {added} = {total}")
-        print("----------------------------------------------\n")
+            logger.debug(f"  Class {label}: {before} + {added} = {total}")
+        logger.debug("----------------------------------------------")
         # -------------------
 
         # Check if any augmentation is needed

@@ -50,7 +50,13 @@ from nirs4all.operators.transforms import (
     SavitzkyGolay,
     Gaussian,
 )
-from nirs4all.utils.emoji import CHECK, CROSS, ROCKET, PACKAGE, SPARKLE
+
+# Simple status symbols
+CHECK = "[OK]"
+CROSS = "[X]"
+ROCKET = ">"
+PACKAGE = "[PKG]"
+SPARKLE = "*"
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q32 Export Bundle Example')

@@ -10,7 +10,10 @@ import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.operators.transforms.resampler import Resampler
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -319,8 +322,8 @@ class ResamplerController(OperatorController):
             dataset._features.sources[sd_idx].set_headers(new_headers, unit="cm-1")  # noqa: SLF001
 
             if runtime_context.saver.save_files:
-                print(f"Exporting resampled features for dataset '{dataset.name}', source {sd_idx} to CSV...")
-                print(dataset.features_processings(sd_idx))
+                logger.debug(f"Exporting resampled features for dataset '{dataset.name}', source {sd_idx} to CSV...")
+                logger.debug(dataset.features_processings(sd_idx))
                 train_context = context.with_partition("train")
                 train_x_full = dataset.x(train_context.selector, "2d", concat_source=True)
                 test_context = context.with_partition("test")

@@ -13,6 +13,9 @@ import numpy as np
 from nirs4all.core.task_type import TaskType
 from ..utilities import ModelControllerUtils as ModelUtils
 from nirs4all.utils.backend import TF_AVAILABLE, check_backend_available
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     try:
@@ -315,7 +318,7 @@ class TensorFlowCallbackFactory:
 
             def on_train_begin(self, logs=None):
                 if self.verbose > 0:
-                    print(f"   Cyclic LR: base={self.base_lr}, max={self.max_lr}, step_size={self.step_size}")
+                    logger.debug(f"Cyclic LR: base={self.base_lr}, max={self.max_lr}, step_size={self.step_size}")
 
             def on_batch_end(self, batch, logs=None):
                 self.clr_iterations += 1
@@ -328,7 +331,7 @@ class TensorFlowCallbackFactory:
                         keras.backend.set_value(self.model.optimizer.learning_rate, lr)
                 except (AttributeError, TypeError) as e:
                     if self.verbose > 0 and self.clr_iterations == 1:
-                        print(f"   Warning: Could not set learning rate for CyclicLR: {e}")
+                        logger.warning(f"Could not set learning rate for CyclicLR: {e}")
 
         return CyclicLR(
             base_lr=cyclic_lr_params.get('base_lr', 0.001),
@@ -391,12 +394,12 @@ class TensorFlowCallbackFactory:
                     self.best_loss = current_loss
                     self.best_weights = self.model.get_weights()
                     if self.verbose > 1:
-                        print(f"   Best model saved at epoch {epoch + 1} with loss {current_loss:.4f}")
+                        logger.debug(f"Best model saved at epoch {epoch + 1} with loss {current_loss:.4f}")
 
             def on_train_end(self, logs=None):
                 if self.best_weights is not None:
                     self.model.set_weights(self.best_weights)
                     if self.verbose > 0:
-                        print(f"   Restored best model with loss {self.best_loss:.4f}")
+                        logger.info(f"Restored best model with loss {self.best_loss:.4f}")
 
         return BestModelMemory(verbose)

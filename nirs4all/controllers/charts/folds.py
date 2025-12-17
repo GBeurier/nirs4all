@@ -9,9 +9,11 @@ import numpy as np
 import copy
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import INFO, WARNING
+from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.context import ExecutionContext
 import io
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -70,12 +72,12 @@ class FoldChartController(OperatorController):
         if keyword.startswith("fold_") and keyword != "chart_fold" and keyword != "fold_chart":
             metadata_column = keyword[5:]  # Extract column name after "fold_"
             if runtime_context.step_runner.verbose > 0:
-                print(f"{INFO} Using metadata column '{metadata_column}' for color coding")
+                logger.info(f"Using metadata column '{metadata_column}' for color coding")
 
         # Determine which partition to use (default to train if not specified)
         partition = context.selector.partition or "train"
         if partition not in ["train", "test"]:
-            print(f"{WARNING}Invalid partition '{partition}'. Using 'train' instead.")
+            logger.warning(f"Invalid partition '{partition}'. Using 'train' instead.")
             partition = "train"
 
         # Get data for visualization
@@ -123,13 +125,13 @@ class FoldChartController(OperatorController):
                 train_abs = list(range(len(train_indices)))
                 test_abs = list(range(len(train_indices), len(train_indices) + len(test_indices)))
                 folds = [(train_abs, test_abs)]
-                print(f"  Using train ({len(train_indices)} samples including augmented) and test ({len(test_indices)} samples) partitions.")
+                logger.debug(f"  Using train ({len(train_indices)} samples including augmented) and test ({len(test_indices)} samples) partitions.")
             elif len(train_indices) > 0:
                 # Only train data exists - show it as a single bar
                 folds = [(list(range(len(train_indices))), [])]
-                print(f"  Only train partition available ({len(train_indices)} samples including augmented).")
+                logger.debug(f"  Only train partition available ({len(train_indices)} samples including augmented).")
             else:
-                print("{WARNING}No data available for visualization.")
+                logger.warning("No data available for visualization.")
                 return context, StepOutput()
 
         # Get values for color coding (either y or metadata column)
@@ -189,7 +191,7 @@ class FoldChartController(OperatorController):
         color_values_flat = color_values.flatten() if color_values.ndim > 1 else color_values
 
         # --- Debug Print ---
-        print("\n--- Fold Chart Class Distribution (Train Partition) ---")
+        logger.debug("--- Fold Chart Class Distribution (Train Partition) ---")
         # Always fetch train partition for this debug print to compare with sample augmentation
         train_debug_context = context.with_partition("train")
 
@@ -204,10 +206,10 @@ class FoldChartController(OperatorController):
         if len(unique_vals) < 50:
             counts = Counter(debug_values_flat)
             for label, count in sorted(counts.items()):
-                print(f"  Class {label}: {count}")
+                logger.debug(f"  Class {label}: {count}")
         else:
-            print(f"  Continuous values: {len(debug_values_flat)} samples, {len(unique_vals)} unique values.")
-        print("-------------------------------------\n")
+            logger.debug(f"  Continuous values: {len(debug_values_flat)} samples, {len(unique_vals)} unique values.")
+        logger.debug("-------------------------------------")
         # -------------------
 
         # Create fold visualization
@@ -370,7 +372,7 @@ class FoldChartController(OperatorController):
                         test_origins = base_sample_ids[test_idx_arr]
                     except IndexError:
                         # Fallback if indices don't match
-                        print(f"{WARNING} Fold indices out of bounds for partition '{partition}'. Using indices as origins.")
+                        logger.warning(f"Fold indices out of bounds for partition '{partition}'. Using indices as origins.")
                         train_origins = train_idx_arr
                         test_origins = test_idx_arr
                 else:

@@ -11,7 +11,10 @@ import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -203,7 +206,7 @@ class FeatureSelectionController(OperatorController):
                     selector = master_selector
 
                     if runtime_context.step_runner.verbose > 0:
-                        print(f"   {operator_name}: Selected {selector.n_features_out_} "
+                        logger.info(f"   {operator_name}: Selected {selector.n_features_out_} "
                               f"from {selector.n_features_in_} features (applied to all preprocessings)")
                 else:
                     # Use master selector for subsequent preprocessings
@@ -269,7 +272,7 @@ class FeatureSelectionController(OperatorController):
 
             if runtime_context.step_runner.verbose > 0:
                 n_features = source_features[0].shape[1] if source_features else 0
-                print(f"   Source {sd_idx}: Updated to {n_features} features")
+                logger.info(f"   Source {sd_idx}: Updated to {n_features} features")
 
         context = context.with_processing(new_processing_list)
         context = context.with_metadata(add_feature=False)

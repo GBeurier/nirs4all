@@ -16,8 +16,10 @@ import copy
 
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
-from nirs4all.utils.emoji import WARNING
+from nirs4all.core.logging import get_logger
 from .utilities import ModelControllerUtils as ModelUtils
+
+logger = get_logger(__name__)
 from .factory import ModelFactory
 from .jax.data_prep import JaxDataPreparation
 from .jax_wrapper import JaxModelWrapper
@@ -141,7 +143,7 @@ class JaxModelController(BaseModelController):
         verbose = train_params.get('verbose', 0)
 
         if not is_gpu_available() and verbose > 0:
-            print(f"{WARNING} No GPU detected. Training JAX model on CPU may be slow.")
+            logger.warning("No GPU detected. Training JAX model on CPU may be slow.")
 
         epochs = train_params.get('epochs', 100)
         batch_size = train_params.get('batch_size', 32)
@@ -267,15 +269,15 @@ class JaxModelController(BaseModelController):
                     patience_counter += 1
 
                 if verbose > 1 and (epoch + 1) % 10 == 0:
-                    print(f"   Epoch {epoch+1}/{epochs}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
+                    logger.debug(f"Epoch {epoch+1}/{epochs}, Train Loss: {epoch_loss:.4f}, Val Loss: {val_loss:.4f}")
 
                 if patience_counter >= patience:
                     if verbose > 0:
-                        print(f"   Early stopping at epoch {epoch+1}")
+                        logger.info(f"Early stopping at epoch {epoch+1}")
                     break
             else:
                 if verbose > 1 and (epoch + 1) % 10 == 0:
-                    print(f"   Epoch {epoch+1}/{epochs}, Train Loss: {epoch_loss:.4f}")
+                    logger.debug(f"Epoch {epoch+1}/{epochs}, Train Loss: {epoch_loss:.4f}")
 
         # Restore best params
         if best_params is not None:

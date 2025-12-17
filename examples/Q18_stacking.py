@@ -43,7 +43,9 @@ from nirs4all.operators.transforms import (
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.visualization.predictions import PredictionAnalyzer
-from nirs4all.utils.emoji import CHECK, CROSS
+# Simple status symbols
+CHECK = "[OK]"
+CROSS = "[X]"
 
 
 # Parse command-line arguments

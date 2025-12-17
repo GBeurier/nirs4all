@@ -19,8 +19,14 @@ from nirs4all.operators.transforms import (
     StandardNormalVariate, SavitzkyGolay, Haar, MultiplicativeScatterCorrection
 )
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.utils.emoji import REFRESH, TROPHY, TARGET, CHART, MICROSCOPE
 from nirs4all.visualization.analysis.transfer import PreprocPCAEvaluator
+
+# Simple status symbols
+REFRESH = "[~]"
+TROPHY = "[1]"
+TARGET = "[*]"
+CHART = "[#]"
+MICROSCOPE = "[?]"
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Q9 ACP Spread Example')

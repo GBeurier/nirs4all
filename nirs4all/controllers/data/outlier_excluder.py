@@ -33,10 +33,12 @@ import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.operators.filters.base import SampleFilter
 from nirs4all.operators.filters.x_outlier import XOutlierFilter
 from nirs4all.pipeline.execution.result import StepOutput
-from nirs4all.utils.emoji import BRANCH, CHECK, WARNING
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -256,7 +258,7 @@ class OutlierExcluderController(OperatorController):
         strategies = branch_def.get("strategies", [])
 
         if not strategies:
-            print(f"{WARNING} No outlier strategies defined, skipping outlier excluder")
+            logger.warning("No outlier strategies defined, skipping outlier excluder")
             return context, StepOutput()
 
         n_strategies = len(strategies)
@@ -272,9 +274,9 @@ class OutlierExcluderController(OperatorController):
                         f"Pipeline has {n_strategies} strategies (0-{n_strategies-1})."
                     )
                 strategies = [strategies[target_branch_id]]
-                print(f"{BRANCH}Predict mode: using outlier strategy {target_branch_id}")
+                logger.info(f"Predict mode: using outlier strategy {target_branch_id}")
 
-        print(f"{BRANCH}Creating {len(strategies)} outlier excluder branches")
+        logger.info(f"Creating {len(strategies)} outlier excluder branches")
 
         # Store initial context as snapshot
         initial_context = context.copy()
@@ -317,7 +319,7 @@ class OutlierExcluderController(OperatorController):
             # Generate branch name from strategy
             branch_name = _strategy_to_name(strategy, branch_id)
 
-            print(f"  {BRANCH}Branch {branch_id}: {branch_name}")
+            logger.info(f"  Branch {branch_id}: {branch_name}")
 
             # Create isolated context for this branch
             branch_context = initial_context.copy()
@@ -363,7 +365,7 @@ class OutlierExcluderController(OperatorController):
                         "strategy": strategy,
                     }
 
-                    print(f"    Excluded {result.n_excluded}/{result.n_total} samples "
+                    logger.info(f"    Excluded {result.n_excluded}/{result.n_total} samples "
                           f"({100 * exclusion_info['exclusion_rate']:.1f}%)")
 
                     # Persist the fitted filter for prediction mode reference
@@ -381,11 +383,11 @@ class OutlierExcluderController(OperatorController):
                         all_artifacts.append(artifact)
 
                 except Exception as e:
-                    print(f"    {WARNING} Outlier detection failed: {e}")
+                    logger.warning(f"Outlier detection failed: {e}")
                     # Continue with no exclusion on failure
 
             elif strategy is None:
-                print(f"    No exclusion (baseline)")
+                logger.info("    No exclusion (baseline)")
 
             # Store exclusion info in context for downstream use
             branch_context.custom["exclusion_info"] = exclusion_info
@@ -398,7 +400,7 @@ class OutlierExcluderController(OperatorController):
                 "exclusion_info": exclusion_info,
             })
 
-            print(f"  {CHECK} Branch {branch_id} ({branch_name}) completed")
+            logger.success(f"  Branch {branch_id} ({branch_name}) completed")
 
         # Handle nested branching (multiply with existing branches)
         existing_branches = context.custom.get("branch_contexts", [])
@@ -415,7 +417,7 @@ class OutlierExcluderController(OperatorController):
         result_context.custom["in_branch_mode"] = True
         result_context.custom["outlier_excluder_active"] = True
 
-        print(f"{CHECK} Outlier excluder completed with {len(new_branch_contexts)} branch(es)")
+        logger.success(f"Outlier excluder completed with {len(new_branch_contexts)} branch(es)")
 
         return result_context, StepOutput(
             artifacts=all_artifacts,

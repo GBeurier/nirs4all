@@ -32,11 +32,13 @@ import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
 from nirs4all.operators.filters.base import SampleFilter
 from nirs4all.operators.filters.x_outlier import XOutlierFilter
 from nirs4all.operators.filters.y_outlier import YOutlierFilter
 from nirs4all.pipeline.execution.result import StepOutput
-from nirs4all.utils.emoji import BRANCH, CHECK, WARNING
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -235,7 +237,7 @@ class SamplePartitionerController(OperatorController):
         branch_def = step_info.original_step.get("branch", {})
         filter_config = branch_def.get("filter", {"method": "y_outlier"})
 
-        print(f"{BRANCH}Creating sample partitioner branches")
+        logger.info("Creating sample partitioner branches")
 
         # Store initial context as snapshot
         initial_context = context.copy()
@@ -254,7 +256,7 @@ class SamplePartitionerController(OperatorController):
         )
 
         if len(train_sample_indices) == 0:
-            print(f"{WARNING} No training samples found, skipping partitioner")
+            logger.warning("No training samples found, skipping partitioner")
             return context, StepOutput()
 
         # Get X and Y data for filter
@@ -276,7 +278,7 @@ class SamplePartitionerController(OperatorController):
         n_inliers = len(inliers_indices := inlier_indices)  # alias for clarity
         n_total = len(train_sample_indices)
 
-        print(f"  Partition: {n_outliers} outliers, {n_inliers} inliers "
+        logger.info(f"  Partition: {n_outliers} outliers, {n_inliers} inliers "
               f"({100 * n_outliers / n_total:.1f}% / {100 * n_inliers / n_total:.1f}%)")
 
         # Generate branch names
@@ -319,7 +321,7 @@ class SamplePartitionerController(OperatorController):
                 }
             })
 
-            print(f"  {BRANCH}Branch 0: {outliers_name} ({n_outliers} samples)")
+            logger.info(f"  Branch 0: {outliers_name} ({n_outliers} samples)")
 
         # Branch 1: Inliers
         if target_branch_id is None or target_branch_id == 1:
@@ -351,7 +353,7 @@ class SamplePartitionerController(OperatorController):
                 }
             })
 
-            print(f"  {BRANCH}Branch 1: {inliers_name} ({n_inliers} samples)")
+            logger.info(f"  Branch 1: {inliers_name} ({n_inliers} samples)")
 
         # Persist filter for prediction mode
         if mode == "train" and runtime_context.saver is not None:
@@ -378,7 +380,7 @@ class SamplePartitionerController(OperatorController):
         result_context.custom["in_branch_mode"] = True
         result_context.custom["sample_partitioner_active"] = True
 
-        print(f"{CHECK} Sample partitioner completed with {len(new_branch_contexts)} branch(es)")
+        logger.success(f"Sample partitioner completed with {len(new_branch_contexts)} branch(es)")
 
         return result_context, StepOutput(
             artifacts=all_artifacts,

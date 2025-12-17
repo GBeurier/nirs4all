@@ -27,8 +27,10 @@ from nirs4all.data.ensemble_utils import EnsembleUtils
 from nirs4all.core.task_type import TaskType
 from .utilities import ModelControllerUtils as ModelUtils
 from nirs4all.core import metrics as evaluator
-from nirs4all.utils.emoji import CHECK, ARROW_UP, ARROW_DOWN, SEARCH, FOLDER, CHART, WEIGHT_LIFT, WARNING, TARGET
+from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
+
+logger = get_logger(__name__)
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 from .components import (
     ModelIdentifierGenerator,
@@ -493,7 +495,7 @@ class BaseModelController(OperatorController, ABC):
         folds = self._remap_folds_to_positions(dataset, context, mode)
 
         if self.verbose > 0:
-            print(f"{SEARCH} Model config: {model_config}")
+            logger.debug(f"Model config: {model_config}")
 
         finetune_params = model_config.get('finetune_params')
 
@@ -525,14 +527,14 @@ class BaseModelController(OperatorController, ABC):
     ):
         self.mode = "finetune"
         if self.verbose > 0:
-            print(f"{TARGET} Starting finetuning...")
+            logger.info("Starting finetuning...")
 
         best_model_params = self.finetune(
             dataset,
             model_config, X_train, y_train, X_test, y_test,
             folds, finetune_params, self.prediction_store, context, runtime_context
         )
-        print(f"{CHART} Best parameters: {best_model_params}")
+        logger.info(f"Best parameters: {best_model_params}")
 
         binaries = self.train(
             dataset, model_config, context, runtime_context, prediction_store,
@@ -547,7 +549,7 @@ class BaseModelController(OperatorController, ABC):
         loaded_binaries
     ):
         if self.verbose > 0:
-            print(f"{WEIGHT_LIFT}Starting training...")
+            logger.starting("Starting training...")
 
         binaries = self.train(
             dataset, model_config, context, runtime_context, prediction_store,
@@ -728,7 +730,7 @@ class BaseModelController(OperatorController, ABC):
                 ))
 
             if verbose > 0:
-                print(f"{FOLDER} Training {len(folds)} folds (n_jobs={n_jobs})...")
+                logger.info(f"Training {len(folds)} folds (n_jobs={n_jobs})...")
 
             # Execute folds (parallel or sequential)
             if n_jobs > 1 and mode == "train": # Only parallelize training, not prediction/finetuning for now to avoid complexity
@@ -779,7 +781,7 @@ class BaseModelController(OperatorController, ABC):
             self._add_all_predictions(prediction_store, all_fold_predictions, weights, mode=mode)
 
         else:
-            print(f"\033[91m{WARNING}{WARNING}{WARNING}{WARNING} WARNING: Using test set as validation set (no folds provided) {WARNING}{WARNING}{WARNING}{WARNING}{WARNING}{WARNING}\033[0m")
+            logger.warning("WARNING: Using test set as validation set (no folds provided)")
 
             model, model_id, score, model_name, prediction_data = self.launch_training(
                 dataset, model_config, context, runtime_context, prediction_store,
@@ -860,8 +862,8 @@ class BaseModelController(OperatorController, ABC):
 
         # Debug: check identifiers
         if identifiers.step_id == '' or identifiers.step_id == 0:
-            print(f"\n⚠️  WARNING in launch_training: step_id={identifiers.step_id}")
-            print(f"   context.state.step_number={context.state.step_number}")
+            logger.warning(f"WARNING in launch_training: step_id={identifiers.step_id}")
+            logger.warning(f"context.state.step_number={context.state.step_number}")
 
         # === 2. GET OR LOAD MODEL ===
         if mode in ("predict", "explain"):
@@ -898,8 +900,7 @@ class BaseModelController(OperatorController, ABC):
                 if model is not None:
                     logging.debug(f"MODEL: loaded model type={type(model).__name__}")
                     if self.verbose > 0:
-                        print(f"🔧 Loaded model via artifact_provider for step {step_index}, fold={fold_idx}")
-
+                        logger.debug(f"Loaded model via artifact_provider for step {step_index}, fold={fold_idx}")
             if model is None:
                 raise ValueError(
                     f"Model not found at step {runtime_context.step_number}, fold={fold_idx}. "
@@ -929,7 +930,7 @@ class BaseModelController(OperatorController, ABC):
 
             # Log data shapes before training
             if self.verbose > 0:
-                print(f"📊 Training data shapes - X_train: {X_train_prep.shape}, y_train: {y_train_prep.shape if y_train_prep is not None else 'None'}, "
+                logger.debug(f"Training data shapes - X_train: {X_train_prep.shape}, y_train: {y_train_prep.shape if y_train_prep is not None else 'None'}, "
                       f"X_val: {X_val_prep.shape}, y_val: {y_val_prep.shape if y_val_prep is not None else 'None'}, "
                       f"X_test: {X_test_prep.shape}")
 
@@ -1081,15 +1082,15 @@ class BaseModelController(OperatorController, ABC):
         val_score = prediction_data['val_score']
         test_score = prediction_data['test_score']
         metric = prediction_data['metric']
-        direction = ARROW_UP if metric in ['r2', 'accuracy', 'balanced_accuracy'] else ARROW_DOWN
+        direction = "↑" if metric in ['r2', 'accuracy', 'balanced_accuracy'] else "↓"
 
-        summary = f"{CHECK}{model_name} {metric} {direction} [test: {test_score:.4f}], [val: {val_score:.4f}]"
+        summary = f"{model_name} {metric} {direction} [test: {test_score:.4f}], [val: {val_score:.4f}]"
         if fold_id not in [None, 'None', 'avg', 'w_avg']:
             summary += f", (fold: {fold_id}, id: {op_counter})"
         elif fold_id in ['avg', 'w_avg']:
             summary += f", ({fold_id}, id: {op_counter})"
         summary += f" - [{pred_id}]"
-        print(summary)
+        logger.success(summary)
 
     def get_preferred_layout(self) -> str:
         """Get preferred data layout for the framework.
@@ -1149,7 +1150,7 @@ class BaseModelController(OperatorController, ABC):
 
         if scores and show_detailed_scores:
             score_str = ModelUtils.format_scores(scores)
-            print(f"{CHART} {model_name} {partition} scores: {score_str}")
+            logger.info(f"{model_name} {partition} scores: {score_str}")
         return scores
 
     def _extract_model_config(self, step: Any, operator: Any = None) -> Dict[str, Any]:
