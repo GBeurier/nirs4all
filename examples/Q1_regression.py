@@ -66,7 +66,18 @@ dataset_config = DatasetConfigs(data_path)
 
 
 # Run the pipeline
-runner = PipelineRunner(save_files=True, verbose=0, plots_visible=args.plots)
+# New logging parameters: log_file, log_format, use_unicode, use_colors, json_output
+runner = PipelineRunner(
+    save_files=True,
+    verbose=1,  # INFO level - shows key milestones
+    plots_visible=args.plots,
+    # Logging options (new in Phase 4)
+    log_file=True,          # Write logs to workspace/logs/
+    log_format="pretty",    # Human-readable format
+    use_unicode=True,       # Unicode symbols (False for HPC)
+    use_colors=True,        # ANSI colors
+    show_progress_bar=True, # TTY-aware progress bars
+)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 

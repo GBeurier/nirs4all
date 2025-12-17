@@ -31,6 +31,9 @@ from nirs4all.visualization.charts import (
 )
 from nirs4all.core import metrics as evaluator
 from nirs4all.core.metrics import abbreviate_metric
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class PredictionAnalyzer:
@@ -296,9 +299,9 @@ class PredictionAnalyzer:
 
         try:
             fig.savefig(filepath, bbox_inches='tight')
-            print(f"Saved chart to {filepath}")
+            logger.info(f"Saved chart to {filepath}")
         except Exception as e:
-            print(f"Failed to save chart to {filepath}: {e}")
+            logger.error(f"Failed to save chart to {filepath}: {e}")
 
     def plot_top_k(
         self,
@@ -1678,7 +1681,7 @@ class PredictionAnalyzer:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(html_parts))
 
-        print(f"Report generated: {output_path}")
+        logger.info(f"Report generated: {output_path}")
         return output_path
 
     def _get_report_styles(self) -> str:

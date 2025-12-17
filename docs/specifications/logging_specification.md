@@ -679,7 +679,7 @@ Replace `print()` calls in:
 
 ### Phase 4: Polish (Week 4)
 
-1. Add progress bar support (optional, TTY-aware)
+1. Add progress bar support (TTY-aware) decompose in pipeline level and run level (and if possible training level also)
 2. Implement file rotation
 3. Add JSON Lines output
 4. Update documentation

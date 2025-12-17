@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from typing import Optional, Dict, Any, TYPE_CHECKING
 from nirs4all.visualization.charts.base import BaseChart
+from nirs4all.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from nirs4all.visualization.predictions import PredictionAnalyzer
@@ -172,7 +175,7 @@ class CandlestickChart(BaseChart):
         var_values = [d[variable] for d in stats_data]
 
         t1 = time.time()
-        print(f"Candlestick data wrangling time: {t1 - t0:.4f} seconds")
+        logger.debug(f"Candlestick data wrangling time: {t1 - t0:.4f} seconds")
 
         # --- POLARS OPTIMIZATION END ---
 
@@ -229,7 +232,7 @@ class CandlestickChart(BaseChart):
         plt.tight_layout()
 
         t2 = time.time()
-        print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
+        logger.debug(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
 
@@ -333,7 +336,7 @@ class CandlestickChart(BaseChart):
         var_values = [d[variable] for d in stats_data]
 
         t1 = time.time()
-        print(f"Candlestick data wrangling time (with aggregation): {t1 - t0:.4f} seconds")
+        logger.debug(f"Candlestick data wrangling time (with aggregation): {t1 - t0:.4f} seconds")
 
         # Create figure
         fig, ax = plt.subplots(figsize=figsize)
@@ -387,7 +390,7 @@ class CandlestickChart(BaseChart):
         plt.tight_layout()
 
         t2 = time.time()
-        print(f"Matplotlib render time: {t2 - t1:.4f} seconds")
+        logger.debug(f"Matplotlib render time: {t2 - t1:.4f} seconds")
 
         return fig
 
