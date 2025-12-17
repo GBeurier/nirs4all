@@ -290,7 +290,7 @@ class TestDatasetStringRepresentations:
 
         str_repr = str(dataset)
         assert "test_dataset" in str_repr
-        assert "Dataset:" in str_repr
+        assert "[Dataset]" in str_repr
 
     def test_str_with_task_type(self):
         """Test __str__ includes task type when targets added."""
@@ -306,6 +306,10 @@ class TestDatasetStringRepresentations:
 
     def test_print_summary(self, capsys):
         """Test print_summary method."""
+        # Configure logging to INFO level to ensure output is captured
+        from nirs4all.core.logging import configure_logging
+        configure_logging(verbose=1)
+
         dataset = SpectroDataset("test")
         data = np.random.rand(5, 50)
         targets = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -316,8 +320,10 @@ class TestDatasetStringRepresentations:
         dataset.print_summary()
 
         captured = capsys.readouterr()
-        assert "SpectroDataset Summary" in captured.out
-        assert "Task Type" in captured.out
+        # Output may go to stdout or stderr depending on logger configuration
+        all_output = captured.out + captured.err
+        assert "SpectroDataset Summary" in all_output
+        assert "Task Type" in all_output
 
 
 class TestBackwardCompatibility:
