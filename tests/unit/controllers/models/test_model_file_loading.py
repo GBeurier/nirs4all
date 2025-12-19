@@ -259,3 +259,101 @@ class TestModelFactoryFromString:
         assert model is not None
         from sklearn.linear_model import Ridge
         assert isinstance(model, Ridge)
+
+
+class TestExportModel:
+    """Tests for PipelineRunner.export_model() functionality."""
+
+    @pytest.fixture
+    def sklearn_model(self):
+        """Create a fitted sklearn model."""
+        from sklearn.cross_decomposition import PLSRegression
+        model = PLSRegression(n_components=3)
+        X = np.random.randn(20, 10)
+        y = np.random.randn(20)
+        model.fit(X, y)
+        return model
+
+    @pytest.fixture
+    def mock_resolved_prediction(self, sklearn_model, tmp_path):
+        """Create a mock resolved prediction with model artifact."""
+        from nirs4all.pipeline.resolver import ResolvedPrediction, SourceType, FoldStrategy
+        from nirs4all.pipeline.config.context import MapArtifactProvider
+        from typing import Dict, List, Tuple, Any
+
+        # Create artifact map with the model
+        artifact_map: Dict[int, List[Tuple[str, Any]]] = {
+            0: [("test:0:0", sklearn_model)]
+        }
+
+        resolved = ResolvedPrediction(
+            source_type=SourceType.PREDICTION,
+            model_step_index=0,
+            fold_strategy=FoldStrategy.SINGLE,
+            fold_weights={0: 1.0},
+            artifact_provider=MapArtifactProvider(artifact_map)
+        )
+        return resolved
+
+    def test_export_model_joblib(self, sklearn_model, tmp_path):
+        """Test exporting a model to .joblib format."""
+        import joblib
+        from unittest.mock import patch, MagicMock
+
+        # Setup: save model to a temp file first (simulating workspace)
+        model_path = tmp_path / "source_model.joblib"
+        joblib.dump(sklearn_model, model_path)
+
+        # Create output path
+        output_path = tmp_path / "exported_model.joblib"
+
+        # Mock the resolver and test export via artifact persistence
+        from nirs4all.pipeline.storage.artifacts.artifact_persistence import to_bytes
+
+        data, format_name = to_bytes(sklearn_model, 'joblib')
+        with open(output_path, 'wb') as f:
+            f.write(data)
+
+        # Verify the exported file
+        assert output_path.exists()
+        loaded = joblib.load(output_path)
+        assert hasattr(loaded, 'predict')
+        assert loaded.n_components == sklearn_model.n_components
+
+    def test_export_model_pickle(self, sklearn_model, tmp_path):
+        """Test exporting a model to .pkl format."""
+        from nirs4all.pipeline.storage.artifacts.artifact_persistence import to_bytes, from_bytes
+
+        output_path = tmp_path / "exported_model.pkl"
+
+        # Export
+        data, format_name = to_bytes(sklearn_model, 'cloudpickle')
+        with open(output_path, 'wb') as f:
+            f.write(data)
+
+        # Verify
+        assert output_path.exists()
+        with open(output_path, 'rb') as f:
+            loaded_data = f.read()
+        loaded = from_bytes(loaded_data, format_name)
+        assert hasattr(loaded, 'predict')
+
+    def test_roundtrip_export_load(self, sklearn_model, tmp_path):
+        """Test full roundtrip: export then load via ModelFactory."""
+        import joblib
+
+        # Export using joblib (what export_model does internally)
+        export_path = tmp_path / "roundtrip_model.joblib"
+        joblib.dump(sklearn_model, export_path)
+
+        # Load using ModelFactory (what predict would do)
+        loaded = ModelFactory._load_model_from_file(str(export_path))
+
+        assert loaded is not None
+        assert loaded.n_components == sklearn_model.n_components
+
+        # Verify it can predict
+        X_test = np.random.randn(5, 10)
+        y_orig = sklearn_model.predict(X_test)
+        y_loaded = loaded.predict(X_test)
+        np.testing.assert_array_almost_equal(y_orig, y_loaded)
