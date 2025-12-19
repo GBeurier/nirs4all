@@ -101,6 +101,7 @@ class PipelineOrchestrator:
         self.last_pipeline_uid: Optional[str] = None
         self.last_manifest_manager: Any = None
         self.last_executor: Any = None  # For syncing step_number, substep_number, operation_count
+        self.last_aggregate_column: Optional[str] = None  # Last dataset's aggregate setting
 
     def execute(
         self,
@@ -269,6 +270,9 @@ class PipelineOrchestrator:
             if artifact_registry is not None:
                 artifact_registry.end_run()
 
+            # Store last aggregate column for visualization integration
+            self.last_aggregate_column = dataset.aggregate
+
             # Print best results for this dataset
             self._print_best_predictions(
                 run_dataset_predictions,
@@ -325,6 +329,9 @@ class PipelineOrchestrator:
             configs.cache = {dataset.name: self._extract_dataset_cache(dataset)}
             configs._task_types = ["auto"]  # Default task type for wrapped datasets
             configs._signal_type_overrides = [None]  # No override for wrapped datasets
+            configs._aggregates = [None]  # No aggregation for wrapped datasets
+            configs._config_task_types = [None]  # No config-level task type
+            configs._config_aggregates = [None]  # No config-level aggregate
             return configs
 
         # Handle numpy arrays and tuples
@@ -353,6 +360,9 @@ class PipelineOrchestrator:
         configs.cache = {dataset_name: self._extract_dataset_cache(spectro_dataset)}
         configs._task_types = ["auto"]  # Default task type for wrapped datasets
         configs._signal_type_overrides = [None]  # No override for wrapped datasets
+        configs._aggregates = [None]  # No aggregation for wrapped datasets
+        configs._config_task_types = [None]  # No config-level task type
+        configs._config_aggregates = [None]  # No config-level aggregate
         return configs
 
     def _split_and_add_data(self, dataset: SpectroDataset, X: np.ndarray, y: Optional[np.ndarray], partition_info: Dict) -> None:
@@ -465,7 +475,19 @@ class PipelineOrchestrator:
 
             if self.enable_tab_reports:
                 best_by_partition = run_dataset_predictions.get_entry_partitions(best)
-                tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(best_by_partition)
+
+                # Get aggregation setting from dataset for reporting
+                aggregate_column = dataset.aggregate  # Could be None, 'y', or column name
+
+                # Log aggregation info if enabled
+                if aggregate_column:
+                    agg_label = "y (target values)" if aggregate_column == 'y' else f"'{aggregate_column}'"
+                    logger.info(f"Including aggregated scores (by {agg_label}) in report")
+
+                tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(
+                    best_by_partition,
+                    aggregate=aggregate_column
+                )
                 logger.info(tab_report)
                 if tab_report_csv_file:
                     filename = f"Report_best_{best['config_name']}_{best['model_name']}_{best['id']}.csv"

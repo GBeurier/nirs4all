@@ -819,6 +819,10 @@ class ExecutionContext:
         state: Mutable pipeline state
         metadata: Mutable step metadata
         custom: Dict for controller-specific custom data
+        aggregate_column: Sample aggregation column for prediction aggregation.
+            - None: No aggregation (default)
+            - 'y': Aggregate by y_true values
+            - str: Aggregate by specified metadata column
 
     Example:
         >>> context = ExecutionContext(
@@ -835,7 +839,8 @@ class ExecutionContext:
         selector: Optional[DataSelector] = None,
         state: Optional[PipelineState] = None,
         metadata: Optional[StepMetadata] = None,
-        custom: Optional[Dict[str, Any]] = None
+        custom: Optional[Dict[str, Any]] = None,
+        aggregate_column: Optional[str] = None
     ):
         """
         Initialize execution context.
@@ -845,11 +850,16 @@ class ExecutionContext:
             state: Pipeline state (default: PipelineState())
             metadata: Step metadata (default: StepMetadata())
             custom: Custom data dict (default: {})
+            aggregate_column: Sample aggregation column for prediction aggregation.
+                - None: No aggregation (default)
+                - 'y': Aggregate by y_true values
+                - str: Aggregate by specified metadata column
         """
         self.selector = selector if selector is not None else DataSelector()
         self.state = state if state is not None else PipelineState()
         self.metadata = metadata if metadata is not None else StepMetadata()
         self.custom = custom if custom is not None else {}
+        self.aggregate_column = aggregate_column
 
     def copy(self) -> "ExecutionContext":
         """
@@ -864,7 +874,8 @@ class ExecutionContext:
             selector=self.selector.copy(),
             state=self.state.copy(),
             metadata=self.metadata.copy(),
-            custom=deepcopy(self.custom)
+            custom=deepcopy(self.custom),
+            aggregate_column=self.aggregate_column
         )
 
     def with_partition(self, partition: str) -> "ExecutionContext":

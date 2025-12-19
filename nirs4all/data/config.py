@@ -27,25 +27,30 @@ class DatasetConfigs:
         self,
         configurations: Union[Dict[str, Any], List[Dict[str, Any]], str, List[str]],
         task_type: Union[str, List[str]] = "auto",
-        signal_type: Union[SignalTypeInput, List[SignalTypeInput], None] = None
+        signal_type: Union[SignalTypeInput, List[SignalTypeInput], None] = None,
+        aggregate: Union[str, bool, List[Union[str, bool, None]], None] = None
     ):
         '''Initialize dataset configurations.
 
         Args:
             configurations: Dataset configuration(s) as path(s), dict(s), or list of either.
-                Configuration dicts can include 'train_x_params' or 'global_params' with:
-                - header_unit: "cm-1", "nm", "none", "text", "index"
-                - signal_type: "absorbance", "reflectance", "reflectance%", "transmittance", etc.
-                - delimiter, decimal_separator, has_header, na_policy, etc.
+                Configuration dicts can include:
+                - 'task_type': "regression", "binary_classification", "multiclass_classification", "auto"
+                - 'aggregate': Sample aggregation column name, True for y-based, or None
+                - 'train_x_params' or 'global_params' with:
+                    - header_unit: "cm-1", "nm", "none", "text", "index"
+                    - signal_type: "absorbance", "reflectance", "reflectance%", "transmittance", etc.
+                    - delimiter, decimal_separator, has_header, na_policy, etc.
 
             task_type: Force task type. Can be:
                 - A single string applied to all datasets
                 - A list of strings (one per dataset)
                 Valid values per dataset:
-                - 'auto': Automatic detection based on target values (default)
+                - 'auto': Use config value or automatic detection (default)
                 - 'regression': Force regression task
                 - 'binary_classification': Force binary classification task
                 - 'multiclass_classification': Force multiclass classification task
+                Note: Constructor parameter overrides config dict value (except 'auto').
 
             signal_type: Override signal type for spectral data (applied after config loading).
                 - A single value applied to all datasets/sources
@@ -55,10 +60,21 @@ class DatasetConfigs:
                 Valid values: 'absorbance', 'reflectance', 'reflectance%',
                 'transmittance', 'transmittance%', 'auto', etc.
 
+            aggregate: Sample aggregation setting for prediction aggregation.
+                When set, predictions from multiple spectra of the same biological
+                sample will be aggregated automatically during scoring and reporting.
+                - None (default): No aggregation
+                - True: Aggregate by y_true values (target grouping)
+                - str: Aggregate by specified metadata column (e.g., 'sample_id', 'ID')
+                - list: Per-dataset aggregation settings (must match number of datasets)
+                Note: Constructor parameter overrides config dict value (except None).
+
         Example:
             # Via config dict (preferred for per-source control):
             config = {
                 "train_x": "/path/to/data.csv",
+                "task_type": "regression",  # Can be set directly in config
+                "aggregate": "sample_id",  # Aggregate predictions by this column
                 "train_x_params": {
                     "header_unit": "nm",
                     "signal_type": "reflectance",
@@ -68,29 +84,54 @@ class DatasetConfigs:
             configs = DatasetConfigs(config)
 
             # Or via constructor parameter (overrides config):
+            configs = DatasetConfigs("/path/to/folder", task_type="regression")
             configs = DatasetConfigs("/path/to/folder", signal_type="absorbance")
+            configs = DatasetConfigs("/path/to/folder", aggregate="sample_id")
         '''
         user_configs = configurations if isinstance(configurations, list) else [configurations]
         self.configs = []
+        self._config_task_types: List[Optional[str]] = []  # task_type from config dicts
+        self._config_aggregates: List[Optional[Union[str, bool]]] = []  # aggregate from config dicts
         for config in user_configs:
             parsed_config, dataset_name = parse_config(config)
             if parsed_config is not None:
                 self.configs.append((parsed_config, dataset_name))
+                # Extract task_type from config dict if present
+                config_task_type = None
+                config_aggregate = None
+                if isinstance(parsed_config, dict):
+                    config_task_type = parsed_config.get("task_type")
+                    config_aggregate = parsed_config.get("aggregate")
+                self._config_task_types.append(config_task_type)
+                self._config_aggregates.append(config_aggregate)
             else:
                 logger.error(f"Skipping invalid dataset config: {config}")
 
         self.cache: Dict[str, Any] = {}
 
         # Normalize task_type to a list matching configs length
+        # Priority: constructor parameter > config dict > "auto"
         if isinstance(task_type, str):
-            self._task_types = [task_type] * len(self.configs)
+            if task_type == "auto":
+                # Use config-level task_type if available, otherwise "auto"
+                self._task_types = [
+                    cfg_tt if cfg_tt is not None else "auto"
+                    for cfg_tt in self._config_task_types
+                ]
+            else:
+                # Constructor parameter overrides config
+                self._task_types = [task_type] * len(self.configs)
         else:
             if len(task_type) != len(self.configs):
                 raise ValueError(
                     f"task_type list length ({len(task_type)}) must match "
                     f"number of datasets ({len(self.configs)})"
                 )
-            self._task_types = list(task_type)
+            # Per-dataset constructor parameters override config
+            self._task_types = [
+                tt if tt != "auto" else (self._config_task_types[i] or "auto")
+                for i, tt in enumerate(task_type)
+            ]
 
         # Normalize signal_type override to a list matching configs length
         # Note: This is an override; config-level signal_type is handled during loading
@@ -110,10 +151,32 @@ class DatasetConfigs:
                 for st in signal_type
             ]
 
+        # Normalize aggregate to a list matching configs length
+        # Priority: constructor parameter > config dict > None
+        if aggregate is None:
+            # Use config-level aggregate if available, otherwise None
+            self._aggregates: List[Optional[Union[str, bool]]] = list(self._config_aggregates)
+        elif isinstance(aggregate, (str, bool)):
+            # Constructor parameter overrides config for all datasets
+            self._aggregates = [aggregate] * len(self.configs)
+        else:
+            # List of per-dataset aggregate settings
+            if len(aggregate) != len(self.configs):
+                raise ValueError(
+                    f"aggregate list length ({len(aggregate)}) must match "
+                    f"number of datasets ({len(self.configs)})"
+                )
+            # Per-dataset: constructor parameter overrides config when not None
+            self._aggregates = [
+                agg if agg is not None else self._config_aggregates[i]
+                for i, agg in enumerate(aggregate)
+            ]
+
     def iter_datasets(self):
         for idx, (config, name) in enumerate(self.configs):
             dataset = self._get_dataset_with_types(
-                config, name, self._task_types[idx], self._signal_type_overrides[idx]
+                config, name, self._task_types[idx], self._signal_type_overrides[idx],
+                self._aggregates[idx]
             )
             yield dataset
 
@@ -122,7 +185,8 @@ class DatasetConfigs:
         config,
         name,
         task_type: str,
-        signal_type_override: Optional[SignalType]
+        signal_type_override: Optional[SignalType],
+        aggregate: Optional[Union[str, bool]] = None
     ) -> SpectroDataset:
         """Internal method to get dataset with specific task and signal types.
 
@@ -131,6 +195,7 @@ class DatasetConfigs:
             name: Dataset name
             task_type: Task type to force ('auto' for no override)
             signal_type_override: Signal type override from constructor (None for no override)
+            aggregate: Aggregation setting (None, True, or column name)
         """
         dataset = self._load_dataset(config, name)
 
@@ -143,6 +208,10 @@ class DatasetConfigs:
         if signal_type_override is not None and signal_type_override != SignalType.AUTO:
             for src in range(dataset.n_sources):
                 dataset.set_signal_type(signal_type_override, src=src, forced=True)
+
+        # Apply aggregation setting if specified
+        if aggregate is not None:
+            dataset.set_aggregate(aggregate)
 
         return dataset
 
@@ -234,11 +303,12 @@ class DatasetConfigs:
         Note: When called directly, uses the first task_type (or 'auto' if single dataset).
         For proper per-dataset task_type handling, use iter_datasets() or get_dataset_at().
         """
-        # Find the index of this config to get the right task_type and signal_type
+        # Find the index of this config to get the right task_type, signal_type, and aggregate
         for idx, (cfg, cfg_name) in enumerate(self.configs):
             if cfg_name == name:
                 return self._get_dataset_with_types(
-                    config, name, self._task_types[idx], self._signal_type_overrides[idx]
+                    config, name, self._task_types[idx], self._signal_type_overrides[idx],
+                    self._aggregates[idx]
                 )
         # Fallback: load without forced types
         return self._load_dataset(config, name)
@@ -248,7 +318,8 @@ class DatasetConfigs:
             raise IndexError(f"Dataset index {index} out of range. Available datasets: 0 to {len(self.configs)-1}.")
         config, name = self.configs[index]
         return self._get_dataset_with_types(
-            config, name, self._task_types[index], self._signal_type_overrides[index]
+            config, name, self._task_types[index], self._signal_type_overrides[index],
+            self._aggregates[index]
         )
 
     def get_datasets(self) -> List[SpectroDataset]:
