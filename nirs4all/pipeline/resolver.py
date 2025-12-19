@@ -58,6 +58,7 @@ class SourceType(str, Enum):
         ARTIFACT_ID: Direct artifact reference string
         BUNDLE: Exported .n4a bundle file
         TRACE_ID: Execution trace reference
+        MODEL_FILE: Direct model file (.joblib, .pkl, .h5, .pt, etc.)
         UNKNOWN: Unrecognized source type
     """
 
@@ -67,6 +68,7 @@ class SourceType(str, Enum):
     ARTIFACT_ID = "artifact_id"
     BUNDLE = "bundle"
     TRACE_ID = "trace_id"
+    MODEL_FILE = "model_file"
     UNKNOWN = "unknown"
 
     def __str__(self) -> str:
@@ -238,12 +240,16 @@ class PredictionResolver:
             # Type narrowing: trace_id is always a string
             assert isinstance(source, str)
             return self._resolve_from_trace_id(source, verbose)
+        elif source_type == SourceType.MODEL_FILE:
+            # Type narrowing: model file path is str or Path
+            assert isinstance(source, (str, Path))
+            return self._resolve_from_model_file(source, verbose)
         else:
             raise ValueError(
                 f"Cannot resolve prediction source: {source}\n"
                 f"Detected type: {source_type}\n"
                 f"Supported types: prediction dict, folder path, Run object, "
-                f"artifact_id string, bundle path, trace_id string"
+                f"artifact_id string, bundle path, trace_id string, model file"
             )
 
     def _detect_source_type(self, source: Any) -> SourceType:
@@ -279,9 +285,17 @@ class PredictionResolver:
             if source_str.endswith(".n4a") or source_str.endswith(".n4a.py"):
                 return SourceType.BUNDLE
 
-            # Path to folder or file
+            # Model file (direct model binary)
             path = Path(source_str)
+            model_extensions = {'.joblib', '.pkl', '.h5', '.hdf5', '.keras', '.pt', '.pth', '.ckpt'}
+            if path.suffix.lower() in model_extensions and path.exists():
+                return SourceType.MODEL_FILE
+
+            # Path to folder or file
             if path.is_dir():
+                # Check if it's a model folder (AutoGluon, TF SavedModel) vs pipeline folder
+                if self._is_model_folder(path):
+                    return SourceType.MODEL_FILE
                 return SourceType.FOLDER
             if path.exists() and path.suffix in (".yaml", ".json"):
                 return SourceType.FOLDER  # Treat as folder containing manifest
@@ -300,6 +314,32 @@ class PredictionResolver:
             return SourceType.RUN
 
         return SourceType.UNKNOWN
+
+    def _is_model_folder(self, path: Path) -> bool:
+        """Check if a folder is a model folder (not a pipeline folder).
+
+        Model folders contain model binaries (AutoGluon, TF SavedModel).
+        Pipeline folders contain manifest.yaml.
+
+        Args:
+            path: Path to folder
+
+        Returns:
+            True if this is a model folder
+        """
+        # AutoGluon TabularPredictor
+        if (path / "predictor.pkl").exists():
+            return True
+        # TensorFlow SavedModel
+        if (path / "saved_model.pb").exists():
+            return True
+        # Keras SavedModel
+        if (path / "keras_metadata.pb").exists():
+            return True
+        # JAX/Orbax checkpoint
+        if (path / "checkpoint").exists():
+            return True
+        return False
 
     def _looks_like_artifact_id(self, s: str) -> bool:
         """Check if string looks like an artifact ID.
@@ -789,6 +829,99 @@ class PredictionResolver:
         result.minimal_pipeline = self._load_pipeline_steps(run_dir, pipeline_uid)
 
         return result
+
+    def _resolve_from_model_file(
+        self,
+        model_path: Union[str, Path],
+        verbose: int = 0
+    ) -> ResolvedPrediction:
+        """Resolve from a direct model file.
+
+        Creates a minimal ResolvedPrediction with just the model loaded.
+        No preprocessing artifacts are available - the model is used as-is.
+
+        Supports:
+        - .joblib, .pkl: sklearn/general models
+        - .h5, .hdf5, .keras: TensorFlow/Keras models
+        - .pt, .pth, .ckpt: PyTorch models
+        - Folders: AutoGluon (predictor.pkl), TensorFlow SavedModel (saved_model.pb)
+
+        Args:
+            model_path: Path to model file or folder
+            verbose: Verbosity level
+
+        Returns:
+            ResolvedPrediction with model loaded
+
+        Example:
+            >>> resolver = PredictionResolver(workspace_path)
+            >>> resolved = resolver.resolve("models/pls_wheat.joblib")
+            >>> # Use resolved.artifact_provider.get_artifacts_for_step(0)
+        """
+        from nirs4all.controllers.models.factory import ModelFactory
+
+        result = ResolvedPrediction(source_type=SourceType.MODEL_FILE)
+        path = Path(model_path)
+
+        if verbose > 0:
+            logger.info(f"Loading model from file: {path}")
+
+        # Load the model using ModelFactory
+        model = ModelFactory._load_model_from_file(str(path))
+
+        # Create a simple artifact provider with just the model
+        # The model is placed at step 0 (single-step pipeline)
+        # artifact_id format: "model_file:0:0" (source:step:fold)
+        artifact_id = f"model_file:{path.stem}:0:0"
+        artifact_map: Dict[int, List[Tuple[str, Any]]] = {
+            0: [(artifact_id, model)]  # step 0, fold 0
+        }
+        result.artifact_provider = MapArtifactProvider(artifact_map)
+        result.model_step_index = 0
+        result.fold_strategy = FoldStrategy.SINGLE
+        result.fold_weights = {0: 1.0}
+
+        # Minimal pipeline is just the model
+        result.minimal_pipeline = [model]
+
+        # Set metadata from path
+        result.pipeline_uid = f"model_file_{path.stem}"
+
+        if verbose > 0:
+            framework = self._detect_model_framework(model)
+            logger.info(f"Loaded {framework} model: {type(model).__name__}")
+
+        return result
+
+    def _detect_model_framework(self, model: Any) -> str:
+        """Detect the framework of a loaded model.
+
+        Args:
+            model: Loaded model instance
+
+        Returns:
+            Framework name: 'sklearn', 'tensorflow', 'pytorch', 'jax', 'autogluon', 'unknown'
+        """
+        module = type(model).__module__
+
+        if 'sklearn' in module or 'sklearn' in str(type(model)):
+            return 'sklearn'
+        if 'tensorflow' in module or 'keras' in module:
+            return 'tensorflow'
+        if 'torch' in module:
+            return 'pytorch'
+        if 'jax' in module or 'flax' in module:
+            return 'jax'
+        if 'autogluon' in module:
+            return 'autogluon'
+        if 'xgboost' in module:
+            return 'xgboost'
+        if 'lightgbm' in module:
+            return 'lightgbm'
+        if 'catboost' in module:
+            return 'catboost'
+
+        return 'unknown'
 
     def _find_trace_location(self, trace_id: str) -> Tuple[str, Path]:
         """Find the pipeline and run directory containing a trace.

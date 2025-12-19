@@ -288,3 +288,152 @@ class TestPredictionResolverIntegration:
 
         assert resolved.source_type == SourceType.PREDICTION
         assert resolved.pipeline_uid == "test_pipeline_abc123"
+
+
+class TestModelFileResolution:
+    """Tests for MODEL_FILE source type resolution."""
+
+    @pytest.fixture
+    def mock_workspace(self, tmp_path):
+        """Create a mock workspace directory."""
+        workspace = tmp_path / "workspace"
+        runs_dir = workspace / "runs"
+        runs_dir.mkdir(parents=True)
+        return workspace
+
+    @pytest.fixture
+    def resolver(self, mock_workspace):
+        """Create a resolver with mock workspace."""
+        return PredictionResolver(mock_workspace)
+
+    @pytest.fixture
+    def sklearn_model_file(self, tmp_path):
+        """Create a sklearn model saved to file."""
+        import joblib
+        from sklearn.cross_decomposition import PLSRegression
+        import numpy as np
+
+        model = PLSRegression(n_components=3)
+        X = np.random.randn(20, 10)
+        y = np.random.randn(20)
+        model.fit(X, y)
+
+        model_path = tmp_path / "pls_model.joblib"
+        joblib.dump(model, model_path)
+        return model_path
+
+    def test_detect_source_type_model_file_joblib(self, resolver, sklearn_model_file):
+        """Test detecting .joblib file as MODEL_FILE."""
+        source_type = resolver._detect_source_type(str(sklearn_model_file))
+        assert source_type == SourceType.MODEL_FILE
+
+    def test_detect_source_type_model_file_pkl(self, resolver, tmp_path):
+        """Test detecting .pkl file as MODEL_FILE."""
+        import cloudpickle
+        from sklearn.linear_model import Ridge
+
+        model_path = tmp_path / "model.pkl"
+        with open(model_path, 'wb') as f:
+            cloudpickle.dump(Ridge(), f)
+
+        source_type = resolver._detect_source_type(str(model_path))
+        assert source_type == SourceType.MODEL_FILE
+
+    def test_detect_source_type_model_file_h5(self, resolver, tmp_path):
+        """Test detecting .h5 file as MODEL_FILE."""
+        pytest.importorskip("tensorflow")
+        from tensorflow import keras
+
+        model = keras.Sequential([keras.layers.Dense(1, input_shape=(5,))])
+        model_path = tmp_path / "model.h5"
+        model.save(str(model_path))
+
+        source_type = resolver._detect_source_type(str(model_path))
+        assert source_type == SourceType.MODEL_FILE
+
+    def test_detect_source_type_model_file_pt(self, resolver, tmp_path):
+        """Test detecting .pt file as MODEL_FILE."""
+        torch = pytest.importorskip("torch")
+
+        model_path = tmp_path / "model.pt"
+        torch.save({'dummy': 'model'}, model_path)
+
+        source_type = resolver._detect_source_type(str(model_path))
+        assert source_type == SourceType.MODEL_FILE
+
+    def test_is_model_folder_autogluon(self, resolver, tmp_path):
+        """Test detecting AutoGluon model folder."""
+        folder = tmp_path / "ag_model"
+        folder.mkdir()
+        (folder / "predictor.pkl").write_bytes(b"dummy")
+
+        assert resolver._is_model_folder(folder) is True
+
+    def test_is_model_folder_tensorflow_savedmodel(self, resolver, tmp_path):
+        """Test detecting TensorFlow SavedModel folder."""
+        folder = tmp_path / "tf_model"
+        folder.mkdir()
+        (folder / "saved_model.pb").write_bytes(b"dummy")
+
+        assert resolver._is_model_folder(folder) is True
+
+    def test_is_model_folder_pipeline_folder(self, resolver, tmp_path):
+        """Test that pipeline folders are not detected as model folders."""
+        folder = tmp_path / "pipeline_folder"
+        folder.mkdir()
+        (folder / "manifest.yaml").write_text("pipeline: true")
+
+        assert resolver._is_model_folder(folder) is False
+
+    def test_resolve_from_model_file(self, resolver, sklearn_model_file):
+        """Test resolving from model file."""
+        resolved = resolver.resolve(str(sklearn_model_file))
+
+        assert resolved.source_type == SourceType.MODEL_FILE
+        assert resolved.model_step_index == 0
+        assert resolved.fold_strategy == FoldStrategy.SINGLE
+        assert 0 in resolved.fold_weights
+        assert resolved.artifact_provider is not None
+
+        # Check that model is in artifact provider
+        artifacts = resolved.artifact_provider.get_artifacts_for_step(0)
+        assert len(artifacts) == 1
+        artifact_id, model = artifacts[0]
+        # artifact_id is a string like "model_file:pls_model:0:0"
+        assert isinstance(artifact_id, str)
+        assert "pls_model" in artifact_id
+        assert hasattr(model, 'predict')
+
+    def test_resolve_model_file_pipeline_uid(self, resolver, sklearn_model_file):
+        """Test that resolved model file has appropriate pipeline_uid."""
+        resolved = resolver.resolve(str(sklearn_model_file))
+
+        assert "pls_model" in resolved.pipeline_uid
+        assert resolved.pipeline_uid.startswith("model_file_")
+
+    def test_detect_model_framework_sklearn(self, resolver):
+        """Test framework detection for sklearn models."""
+        from sklearn.linear_model import Ridge
+        model = Ridge()
+
+        framework = resolver._detect_model_framework(model)
+        assert framework == 'sklearn'
+
+    def test_detect_model_framework_tensorflow(self, resolver):
+        """Test framework detection for TensorFlow models."""
+        pytest.importorskip("tensorflow")
+        from tensorflow import keras
+
+        model = keras.Sequential([keras.layers.Dense(1)])
+
+        framework = resolver._detect_model_framework(model)
+        assert framework == 'tensorflow'
+
+    def test_detect_model_framework_pytorch(self, resolver):
+        """Test framework detection for PyTorch models."""
+        torch = pytest.importorskip("torch")
+
+        model = torch.nn.Linear(5, 1)
+
+        framework = resolver._detect_model_framework(model)
+        assert framework == 'pytorch'

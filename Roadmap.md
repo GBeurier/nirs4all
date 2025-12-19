@@ -9,7 +9,6 @@
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 > [TabReport] include > aggregated
 
-
 > [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
 
 - [Split] bug + review: fix the "try automatically to set a group even when not specified. Shouldn't do anything if not specified", review doc and explicit also the use of group "y" ?
@@ -53,6 +52,8 @@
 > [DEPLOY] standalone installer, web installer
 
 **RELEASE** 0.6.0: UI
+
+> [Transfer] Partial layers retraining
 
 **Bugs**:
 >   - [MB-PLS] test on multi-source/block ---
