@@ -149,7 +149,8 @@ class TestArtifactRegistry:
         """Test registry initialization."""
         assert registry.workspace == temp_workspace
         assert registry.dataset == "test_dataset"
-        assert registry.binaries_dir.exists()
+        # binaries_dir is created lazily when first artifact is saved
+        assert registry.binaries_dir == temp_workspace / "binaries" / "test_dataset"
 
     def test_generate_id(self, registry):
         """Test ID generation with V3 chain-based format."""
@@ -373,6 +374,8 @@ class TestArtifactRegistry:
 
     def test_delete_orphaned_artifacts_dry_run(self, registry):
         """Test deleting orphaned artifacts in dry run mode."""
+        # Create binaries dir first (normally created when saving artifacts)
+        registry.binaries_dir.mkdir(parents=True, exist_ok=True)
         # Create an orphaned file
         orphan_path = registry.binaries_dir / "orphan.pkl"
         orphan_path.write_bytes(b"orphan")
@@ -388,6 +391,8 @@ class TestArtifactRegistry:
 
     def test_delete_orphaned_artifacts(self, registry):
         """Test actually deleting orphaned artifacts."""
+        # Create binaries dir first (normally created when saving artifacts)
+        registry.binaries_dir.mkdir(parents=True, exist_ok=True)
         orphan_path = registry.binaries_dir / "orphan.pkl"
         orphan_path.write_bytes(b"orphan")
 

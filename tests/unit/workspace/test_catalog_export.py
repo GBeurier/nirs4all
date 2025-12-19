@@ -202,20 +202,20 @@ class TestPhase2CatalogExport:
         (pipeline_dir / "metrics.json").write_text('{"rmse": 0.45}')
         (pipeline_dir / "predictions.csv").write_text('y_true,y_pred\n12.5,12.3')
 
-        exports_dir = temp_workspace / "exports"
-        saver = SimulationSaver()
+        # Initialize SimulationSaver with base_path so exporter uses temp_workspace
+        saver = SimulationSaver(base_path=run_dir)
 
-        # Export without custom name
+        # Export without custom name (run_date is deprecated/ignored)
         export_path = saver.export_pipeline_full(
             pipeline_dir,
-            exports_dir,
+            temp_workspace / "exports",  # unused, kept for API compatibility
             "wheat_sample1",
             "20241024"
         )
 
-        # Verify export
+        # Verify export (run_date is no longer included in path)
         assert export_path.exists()
-        assert "wheat_sample1_20241024_0001_abc123" in str(export_path)
+        assert "wheat_sample1_0001_abc123" in str(export_path)
         assert (export_path / "pipeline.json").exists()
         assert (export_path / "metrics.json").exists()
         assert (export_path / "predictions.csv").exists()
@@ -250,22 +250,24 @@ class TestPhase2CatalogExport:
         pred_file = pipeline_dir / "predictions.csv"
         pred_file.write_text('y_true,y_pred\n12.5,12.3\n14.2,14.5')
 
-        exports_dir = temp_workspace / "exports"
-        saver = SimulationSaver()
+        # Initialize SimulationSaver with base_path so exporter uses temp_workspace
+        run_dir = temp_workspace / "runs" / "dataset"
+        run_dir.mkdir(parents=True)
+        saver = SimulationSaver(base_path=run_dir)
 
-        # Export prediction
+        # Export prediction (run_date is deprecated/ignored)
         export_path = saver.export_best_prediction(
             pred_file,
-            exports_dir,
+            temp_workspace / "exports",  # unused, kept for API compatibility
             "wheat_sample1",
             "20241024",
             "0001_abc123"
         )
 
-        # Verify export
+        # Verify export (run_date is no longer included in filename)
         assert export_path.exists()
         assert export_path.parent.name == "best_predictions"
-        assert "wheat_sample1_20241024_0001_abc123.csv" in str(export_path)
+        assert "wheat_sample1_0001_abc123.csv" in str(export_path)
 
         # Verify content copied
         assert export_path.read_text() == pred_file.read_text()

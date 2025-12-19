@@ -31,11 +31,12 @@ class TestManifestManagerInit:
     """Test ManifestManager initialization."""
 
     def test_creates_artifacts_directory(self, results_dir):
-        """Test that initialization creates _binaries directory."""
+        """Test that artifacts_dir property points to correct location."""
         manager = ManifestManager(results_dir)
 
-        assert manager.artifacts_dir.exists()
-        assert (results_dir / "_binaries").exists()
+        # _binaries directory is now created lazily when artifacts are saved
+        # Test that the path is correctly set
+        assert manager.artifacts_dir == results_dir / "_binaries"
 class TestGetNextPipelineNumber:
     """Test sequential pipeline numbering."""
 
