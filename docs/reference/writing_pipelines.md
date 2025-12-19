@@ -560,6 +560,63 @@ pipeline = [
 
 ---
 
+### 6b. Model - With Architecture Parameters (Customizable NN)
+
+**Syntax**: Dict with `model`, `model_params`, and optional `train_params` keys.
+
+Use `model_params` to customize neural network architecture (filters, kernel sizes, etc.) at training time without finetuning.
+
+```python
+from nirs4all.operators.models.pytorch.nicon import customizable_nicon
+
+pipeline = [
+    {
+        "model": customizable_nicon,
+        "name": "CustomNN",
+        "model_params": {           # Architecture parameters
+            "filters1": 32,
+            "filters2": 64,
+            "kernel_size1": 9,
+            "dropout_rate": 0.3
+        },
+        "train_params": {           # Training loop parameters
+            "epochs": 250,
+            "batch_size": 32,
+            "lr": 0.001
+        }
+    }
+]
+```
+
+**Key distinction**:
+- `model_params`: Parameters passed to the **model builder function** (architecture)
+- `train_params`: Parameters for the **training loop** (epochs, batch size, optimizer settings)
+
+**Serializes to**:
+```json
+{
+    "name": "CustomNN",
+    "model": {
+        "function": "nirs4all.operators.models.pytorch.nicon.customizable_nicon"
+    },
+    "model_params": {
+        "filters1": 32,
+        "filters2": 64,
+        "kernel_size1": 9,
+        "dropout_rate": 0.3
+    },
+    "train_params": {
+        "epochs": 250,
+        "batch_size": 32,
+        "lr": 0.001
+    }
+}
+```
+
+**💡 Tip**: This is useful when you know the optimal architecture and want to train without finetuning overhead.
+
+---
+
 ### 7. Model - With Hyperparameter Optimization (Finetuning)
 
 **Syntax**: Dict with `model`, optional `name`, and `finetune_params` keys.

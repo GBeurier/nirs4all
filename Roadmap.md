@@ -2,16 +2,13 @@
 
 **Features**:
 
-> [Errors] Uniformize exception errors
-
-> [Model] How to force params from self best_params. How to use directly a model from file (joblib, n4a, folder, pkl, h5, etc.)
+> [Model] How to use directly a model from file (joblib, n4a, folder, pkl, h5, etc.)
 
 > [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
 
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 > [TabReport] include > aggregated
 
-> *[GPU] Reorganize, condition and clean gpu import - Reset GPU between models correctly.
 
 > [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
 
@@ -22,6 +19,14 @@
 
 > [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
 > [Examples] Clean and document
+
+> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
+
+> [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
+
+> [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
+
+> [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 
 **Bugs**:
 >   - Branch diagram are out
@@ -36,13 +41,6 @@
 
 > [Pipeline] Review and clean type for input in pipeline (launch from model, folder, file, etc.)
 
-> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
-
-> [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
-
-> [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
-
-> [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 
 **RELEASE** 0.6.0: MVP
 
@@ -61,6 +59,7 @@
 >   - [Predict] Q5_predict is slow as hell
 >   - [LightGBM] [Warning] No further splits with positive gain, best gain: -inf   >> look if parameters is passed on cloning (maybe there is a hidden bug)
 
+> [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
 
 > [Pipeline_Bundle] Change / edit pipeline step
 
