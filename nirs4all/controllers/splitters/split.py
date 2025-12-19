@@ -323,10 +323,12 @@ class CrossValidatorController(OperatorController):
                 raise ValueError(
                     f"Failed to extract groups from force_group column '{force_group_column}': {e}"
                 ) from e
-        elif needs_g:
+        elif needs_g and (group_column is not None or _is_native_group_splitter(op)):
             # Only extract groups if:
-            # 1. Explicit group column specified, OR
-            # 2. Dataset has metadata (use first column as default)
+            # 1. Explicit group column specified (user requested grouping), OR
+            # 2. Splitter is a native group splitter (GroupKFold, etc.) that requires groups
+            # Note: Many sklearn splitters (KFold, ShuffleSplit, etc.) have 'groups' parameter
+            # for API compatibility, but don't require it. We should NOT auto-assign groups for those.
             if group_column is not None:
                 # Explicit group column specified - validate and extract
                 if not hasattr(dataset, 'metadata_columns') or not dataset.metadata_columns:
