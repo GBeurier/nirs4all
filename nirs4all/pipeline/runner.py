@@ -480,6 +480,126 @@ class PipelineRunner:
             compress=compress
         )
 
+    def export_model(
+        self,
+        source: Union[Dict[str, Any], str, Path],
+        output_path: Union[str, Path],
+        format: Optional[str] = None,
+        fold: Optional[int] = None
+    ) -> Path:
+        """Export only the model artifact from a trained pipeline.
+
+        Unlike `export()` which creates a full bundle with all preprocessing
+        artifacts and metadata, this method exports just the model binary.
+        This is useful when you want a lightweight model file that can be
+        loaded directly into other pipelines or used with external tools.
+
+        The output format is determined by the file extension or can be
+        specified explicitly. The model can then be reloaded using:
+        - Direct path in pipeline config: {"model": "path/to/model.joblib"}
+        - As prediction source: runner.predict("path/to/model.joblib", data)
+
+        Args:
+            source: Prediction source to export from. Can be:
+                - prediction dict: From a previous run's Predictions object
+                - folder path: Path to a pipeline directory
+                - bundle path: Path to a .n4a bundle
+            output_path: Path for the output model file. Extension determines
+                format: .joblib, .pkl, .h5, .keras, .pt
+            format: Optional explicit format ('joblib', 'pickle', 'keras_h5').
+                If None, determined from output_path extension.
+            fold: Optional fold index to export. If None, exports fold 0 or
+                the primary model artifact.
+
+        Returns:
+            Path to the created model file
+
+        Raises:
+            ValueError: If no model artifact found
+            FileNotFoundError: If source cannot be resolved
+
+        Example:
+            >>> runner = PipelineRunner()
+            >>> predictions, _ = runner.run(pipeline, dataset)
+            >>> best_pred = predictions.top(n=1)[0]
+            >>>
+            >>> # Export just the model
+            >>> runner.export_model(best_pred, "exports/pls_model.joblib")
+            >>>
+            >>> # Later, use in new pipeline
+            >>> new_pipeline = [
+            ...     MinMaxScaler(),
+            ...     {"model": "exports/pls_model.joblib", "name": "pretrained"}
+            ... ]
+        """
+        from nirs4all.pipeline.resolver import PredictionResolver
+        from nirs4all.pipeline.storage.artifacts.artifact_persistence import to_bytes
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Resolve the prediction source
+        resolver = PredictionResolver(
+            workspace_path=self.workspace_path,
+            runs_dir=self.runs_dir
+        )
+        resolved = resolver.resolve(source, verbose=self.verbose)
+
+        if resolved.model_step_index is None:
+            raise ValueError("No model step found in the resolved prediction")
+
+        # Get the model artifact
+        if resolved.artifact_provider is None:
+            raise ValueError("No artifact provider available for this source")
+
+        artifacts = resolved.artifact_provider.get_artifacts_for_step(
+            resolved.model_step_index
+        )
+
+        if not artifacts:
+            raise ValueError(
+                f"No model artifacts found at step {resolved.model_step_index}"
+            )
+
+        # Select the fold
+        if fold is not None:
+            # Find artifact for specific fold
+            model = None
+            for artifact_id, artifact in artifacts:
+                if f":{fold}" in str(artifact_id) or artifact_id.endswith(f"_{fold}"):
+                    model = artifact
+                    break
+            if model is None:
+                raise ValueError(f"No artifact found for fold {fold}")
+        else:
+            # Use first artifact (fold 0 or primary)
+            _, model = artifacts[0]
+
+        # Determine format from extension if not specified
+        if format is None:
+            ext = output_path.suffix.lower()
+            format_map = {
+                '.joblib': 'joblib',
+                '.pkl': 'cloudpickle',
+                '.pickle': 'cloudpickle',
+                '.h5': 'keras_h5',
+                '.hdf5': 'keras_h5',
+                '.keras': 'tensorflow_keras',
+                '.pt': 'pytorch_state_dict',
+                '.pth': 'pytorch_state_dict',
+            }
+            format = format_map.get(ext, 'joblib')
+
+        # Serialize and write
+        data, actual_format = to_bytes(model, format)
+        with open(output_path, 'wb') as f:
+            f.write(data)
+
+        if self.verbose > 0:
+            print(f"Exported model to {output_path} (format: {actual_format})")
+
+        return output_path
+
     def retrain(
         self,
         source: Union[Dict[str, Any], str, Path],

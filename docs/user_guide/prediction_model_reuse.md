@@ -292,6 +292,37 @@ The model path is resolved automatically:
 {"model": "models/autogluon_predictor/"}
 ```
 
+### Exporting a Model to File
+
+You can export just the model (not the full bundle) from a trained prediction using `export_model()`. This creates a lightweight model file that can be loaded later or shared:
+
+```python
+from nirs4all.pipeline import PipelineRunner
+
+runner = PipelineRunner(save_files=True)
+predictions, _ = runner.run(pipeline, dataset)
+best_pred = predictions.top(n=1)[0]
+
+# Export just the model to .joblib
+runner.export_model(best_pred, "exports/pls_model.joblib")
+
+# Export to different formats
+runner.export_model(best_pred, "exports/model.pkl")        # Pickle format
+runner.export_model(best_pred, "exports/model.keras")      # TensorFlow/Keras
+
+# Export a specific fold's model
+runner.export_model(best_pred, "exports/fold2_model.joblib", fold=2)
+```
+
+**Difference between `export()` and `export_model()`:**
+
+| Method | Output | Use Case |
+|--------|--------|----------|
+| `export()` | Full `.n4a` bundle | Deployment, sharing complete pipelines |
+| `export_model()` | Model file only | Lightweight sharing, external tools |
+
+The full bundle includes preprocessing artifacts and metadata, while `export_model()` exports only the trained model binary.
+
 ### Fine-tuning a Pre-trained Model
 
 ```python
