@@ -12,14 +12,38 @@ Core functionality has been moved to appropriate modules:
 """
 
 from .backend import (
-    TF_AVAILABLE,
-    # TORCH_AVAILABLE,
-    framework,
+    # Availability checks (fast, no imports)
+    is_available,
     is_tensorflow_available,
-    # is_torch_available,
+    is_torch_available,
     is_keras_available,
     is_jax_available,
-    is_gpu_available
+    is_gpu_available,
+
+    # Requirement enforcement
+    require_backend,
+    check_backend_available,
+    BackendNotAvailableError,
+
+    # Framework decorator
+    framework,
+
+    # Lazy constants (for backward compat)
+    TF_AVAILABLE,
+    TORCH_AVAILABLE,
+    JAX_AVAILABLE,
+    KERAS_AVAILABLE,
+
+    # Info utilities
+    get_backend_info,
+    get_gpu_info,
+    print_backend_status,
+
+    # Lazy import helper
+    lazy_import,
+
+    # Cache management
+    clear_availability_cache,
 )
 
 from .header_units import (
@@ -32,14 +56,35 @@ from .header_units import (
 )
 
 __all__ = [
-    'TF_AVAILABLE',
-    # 'TORCH_AVAILABLE',
-    'framework',
+    # Backend detection (fast, no imports)
+    'is_available',
     'is_tensorflow_available',
-    # 'is_torch_available',
+    'is_torch_available',
     'is_keras_available',
     'is_jax_available',
     'is_gpu_available',
+
+    # Requirements
+    'require_backend',
+    'check_backend_available',
+    'BackendNotAvailableError',
+
+    # Framework decorator
+    'framework',
+
+    # Lazy availability constants (backward compat)
+    'TF_AVAILABLE',
+    'TORCH_AVAILABLE',
+    'JAX_AVAILABLE',
+    'KERAS_AVAILABLE',
+
+    # Info utilities
+    'get_backend_info',
+    'get_gpu_info',
+    'print_backend_status',
+    'lazy_import',
+    'clear_availability_cache',
+
     # Header unit utilities
     'AXIS_LABELS',
     'DEFAULT_AXIS_LABEL',

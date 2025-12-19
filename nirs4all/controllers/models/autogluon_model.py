@@ -12,6 +12,9 @@ AutoGluon differs from sklearn models in that:
 - It uses DataFrames internally, not numpy arrays
 - It manages its own model directory for persistence
 - It has its own hyperparameter tuning (no need for Optuna)
+
+Lazy loading pattern: AutoGluon is only imported when actually needed
+for training or prediction, not at module import time.
 """
 
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
@@ -25,31 +28,44 @@ import os
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from .utilities import ModelControllerUtils as ModelUtils
+from nirs4all.utils.backend import is_available, require_backend, BackendNotAvailableError
 
 logger = get_logger(__name__)
+
 from nirs4all.pipeline.steps.parser import ParsedStep
 from nirs4all.pipeline.config.context import ExecutionContext, RuntimeContext
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
 
-# Check if AutoGluon is available
-AUTOGLUON_AVAILABLE = False
-TabularPredictor = None
-try:
-    from autogluon.tabular import TabularPredictor as _TabularPredictor
-    TabularPredictor = _TabularPredictor
-    AUTOGLUON_AVAILABLE = True
-except ImportError:
-    pass
-
+# Fast availability check at module level - no imports
+AUTOGLUON_AVAILABLE = is_available('autogluon')
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
+    try:
+        from autogluon.tabular import TabularPredictor
+    except ImportError:
+        pass
+
+
+# Lazy-loaded module cache
+_ag_modules: Dict[str, Any] = {}
+
+
+def _get_tabular_predictor():
+    """Lazy load AutoGluon TabularPredictor with caching."""
+    if 'TabularPredictor' not in _ag_modules:
+        require_backend('autogluon', feature='AutoGluon AutoML')
+        from autogluon.tabular import TabularPredictor
+        _ag_modules['TabularPredictor'] = TabularPredictor
+    return _ag_modules['TabularPredictor']
 
 
 def _is_autogluon_predictor(obj: Any) -> bool:
     """Check if an object is an AutoGluon TabularPredictor.
+
+    Uses module introspection first to avoid importing AutoGluon
+    for non-AutoGluon objects.
 
     Args:
         obj: Object to check.
@@ -57,35 +73,38 @@ def _is_autogluon_predictor(obj: Any) -> bool:
     Returns:
         bool: True if object is a TabularPredictor instance or class.
     """
-    if not AUTOGLUON_AVAILABLE or TabularPredictor is None:
+    if not AUTOGLUON_AVAILABLE:
         return False
 
     if obj is None:
         return False
 
-    # Check instance
-    try:
-        if isinstance(obj, TabularPredictor):
-            return True
-    except TypeError:
-        pass
-
-    # Check class
-    if obj is TabularPredictor:
-        return True
-
-    # Check by module name for instances
-    if hasattr(obj, '__class__'):
-        module = obj.__class__.__module__
-        if 'autogluon' in module:
-            return True
-
-    # Check if it's a dict config with autogluon reference
+    # Check if it's a dict config with autogluon reference (no import needed)
     if isinstance(obj, dict):
         if 'framework' in obj and obj['framework'] == 'autogluon':
             return True
         if 'class' in obj and 'autogluon' in str(obj['class']):
             return True
+
+    # Check by module name for instances (no import needed)
+    if hasattr(obj, '__class__'):
+        module = obj.__class__.__module__
+        if 'autogluon' in module:
+            return True
+
+    # If we need to check with isinstance, load TabularPredictor
+    try:
+        TabularPredictor = _get_tabular_predictor()
+
+        # Check instance
+        if isinstance(obj, TabularPredictor):
+            return True
+
+        # Check class
+        if obj is TabularPredictor:
+            return True
+    except (ImportError, BackendNotAvailableError):
+        pass
 
     return False
 
@@ -102,6 +121,8 @@ class AutoGluonModelController(BaseModelController):
     - Performs cross-validation
     - Creates weighted ensembles
     - Handles hyperparameter tuning internally
+
+    Uses lazy loading - AutoGluon is only imported when training starts.
 
     Attributes:
         priority (int): Controller priority (5) - higher than sklearn (6) to
@@ -169,11 +190,7 @@ class AutoGluonModelController(BaseModelController):
         Returns:
             TabularPredictor: Configured AutoGluon predictor (not yet fitted).
         """
-        if not AUTOGLUON_AVAILABLE or TabularPredictor is None:
-            raise ImportError(
-                "AutoGluon is required but not installed. "
-                "Install with: pip install autogluon"
-            )
+        require_backend('autogluon', feature='AutoGluon AutoML')
 
         # Get parameters from config
         params = model_config.get('params', {}).copy()
@@ -251,8 +268,7 @@ class AutoGluonModelController(BaseModelController):
         Returns:
             TabularPredictor: Trained AutoGluon predictor.
         """
-        if not AUTOGLUON_AVAILABLE or TabularPredictor is None:
-            raise ImportError("AutoGluon is required but not installed")
+        TabularPredictor = _get_tabular_predictor()
 
         # Extract controller-specific parameters
         verbose = kwargs.pop('verbose', 0)
@@ -342,8 +358,7 @@ class AutoGluonModelController(BaseModelController):
         Returns:
             np.ndarray: Model predictions, shape (n_samples, 1).
         """
-        if not AUTOGLUON_AVAILABLE or TabularPredictor is None:
-            raise ImportError("AutoGluon is required but not installed")
+        require_backend('autogluon', feature='AutoGluon prediction')
 
         # Convert to DataFrame
         test_df = pd.DataFrame(X)
@@ -435,10 +450,12 @@ class AutoGluonModelController(BaseModelController):
         Returns:
             float: Evaluation score (negative for maximization metrics).
         """
-        if not AUTOGLUON_AVAILABLE or TabularPredictor is None:
+        if not AUTOGLUON_AVAILABLE:
             return float('inf')
 
         try:
+            TabularPredictor = _get_tabular_predictor()
+
             # Create validation DataFrame
             label_col = '__target__'
             val_df = pd.DataFrame(X_val)
@@ -491,13 +508,14 @@ class AutoGluonModelController(BaseModelController):
             return copy.deepcopy(model)
 
         # For a fitted predictor, we can clone it using AutoGluon's method
-        if AUTOGLUON_AVAILABLE and TabularPredictor is not None:
+        if AUTOGLUON_AVAILABLE:
             try:
+                TabularPredictor = _get_tabular_predictor()
                 if isinstance(model, TabularPredictor):
                     # Create a new temp directory for the clone
                     temp_dir = tempfile.mkdtemp(prefix='autogluon_clone_')
                     return model.clone(path=temp_dir)
-            except TypeError:
+            except (TypeError, BackendNotAvailableError):
                 pass
 
         return copy.deepcopy(model)
@@ -572,8 +590,7 @@ class AutoGluonModelController(BaseModelController):
             model (TabularPredictor): Trained AutoGluon predictor.
             filepath (str): Target path for saving.
         """
-        if not AUTOGLUON_AVAILABLE or TabularPredictor is None:
-            raise ImportError("AutoGluon is required but not installed")
+        require_backend('autogluon', feature='AutoGluon model saving')
 
         # AutoGluon saves to a directory
         # Remove .pkl extension if present
@@ -592,8 +609,7 @@ class AutoGluonModelController(BaseModelController):
         Returns:
             TabularPredictor: Loaded AutoGluon predictor.
         """
-        if not AUTOGLUON_AVAILABLE or TabularPredictor is None:
-            raise ImportError("AutoGluon is required but not installed")
+        TabularPredictor = _get_tabular_predictor()
 
         # Remove .pkl extension if present
         if filepath.endswith('.pkl'):
