@@ -92,6 +92,7 @@ class TestOrphanDetection:
     def test_orphan_detection_multiple_orphans(self, registry, workspace_path):
         """Multiple orphan files should all be detected."""
         # Create orphan files
+        registry.binaries_dir.mkdir(parents=True, exist_ok=True)
         for i in range(5):
             orphan_path = registry.binaries_dir / f"orphan_{i}.pkl"
             orphan_path.write_bytes(f"orphan {i}".encode())
@@ -102,6 +103,7 @@ class TestOrphanDetection:
     def test_orphan_detection_ignores_directories(self, registry, workspace_path):
         """Orphan detection should ignore subdirectories."""
         # Create a subdirectory
+        registry.binaries_dir.mkdir(parents=True, exist_ok=True)
         subdir = registry.binaries_dir / "subdir"
         subdir.mkdir()
         (subdir / "file.txt").write_text("test")
@@ -132,6 +134,7 @@ class TestOrphanCleanup:
     def test_cleanup_dry_run_preserves_files(self, registry, workspace_path):
         """Dry run should not delete any files."""
         # Create orphan
+        registry.binaries_dir.mkdir(parents=True, exist_ok=True)
         orphan_path = registry.binaries_dir / "orphan.pkl"
         orphan_path.write_bytes(b"orphan")
 
@@ -149,6 +152,7 @@ class TestOrphanCleanup:
 
     def test_cleanup_actually_deletes_files(self, registry, workspace_path):
         """Actual cleanup should delete orphan files."""
+        registry.binaries_dir.mkdir(parents=True, exist_ok=True)
         orphan_path = registry.binaries_dir / "orphan.pkl"
         orphan_path.write_bytes(b"orphan data")
 
@@ -191,6 +195,7 @@ class TestOrphanCleanup:
     def test_cleanup_returns_correct_byte_count(self, registry, workspace_path):
         """Cleanup should return accurate byte count."""
         # Create orphans of known sizes
+        registry.binaries_dir.mkdir(parents=True, exist_ok=True)
         sizes = [100, 200, 300]
         for i, size in enumerate(sizes):
             path = registry.binaries_dir / f"orphan_{i}.pkl"
@@ -429,6 +434,7 @@ class TestStorageStats:
     def test_stats_with_orphans(self, registry, workspace_path):
         """Stats should include orphan information."""
         # Create orphan
+        registry.binaries_dir.mkdir(parents=True, exist_ok=True)
         orphan_path = registry.binaries_dir / "orphan.pkl"
         orphan_path.write_bytes(b"orphan data - 15 bytes")
 

@@ -5,7 +5,7 @@ This module provides a clean interface for generating standardized tab-based CSV
 using pre-calculated metrics and statistics from the evaluator module.
 """
 
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, Union
 import numpy as np
 import csv
 import os
@@ -25,16 +25,24 @@ class TabReportManager:
 
     @staticmethod
     def generate_best_score_tab_report(
-        best_by_partition: Dict[str, Dict[str, Any]]
+        best_by_partition: Dict[str, Dict[str, Any]],
+        aggregate: Optional[Union[str, bool]] = None
     ) -> Tuple[str, Optional[str]]:
         """
         Generate best score tab report from partition data.
 
         Args:
             best_by_partition: Dict mapping partition names ('train', 'val', 'test') to prediction entries
+            aggregate: Sample aggregation setting for computing additional aggregated metrics.
+                - None (default): No aggregation, only raw scores displayed
+                - True: Aggregate by y_true values (group by target)
+                - str: Aggregate by specified metadata column (e.g., 'sample_id', 'ID')
+                When set, both raw and aggregated scores are included in the output.
+                Aggregated rows are marked with an asterisk (*).
 
         Returns:
             Tuple of (formatted_string, csv_string_content)
+            If aggregate is set, both raw and aggregated scores are included.
         """
         if not best_by_partition:
             return "No prediction data available", None
@@ -49,29 +57,114 @@ class TabReportManager:
         # Extract n_features from metadata if available
         n_features = first_entry.get('n_features', 0)
 
+        # Normalize aggregate parameter: True -> 'y', str -> str, None/False -> None
+        effective_aggregate: Optional[str] = None
+        if aggregate is True:
+            effective_aggregate = 'y'
+        elif isinstance(aggregate, str):
+            effective_aggregate = aggregate
+
         # Calculate metrics and stats for each partition
         partitions_data = {}
+        aggregated_partitions_data = {}
 
         for partition_name, entry in best_by_partition.items():
             if partition_name in ['train', 'val', 'test'] and entry is not None:
                 y_true = np.array(entry['y_true'])
                 y_pred = np.array(entry['y_pred'])
 
+                # Calculate raw (non-aggregated) metrics
                 partitions_data[partition_name] = TabReportManager._calculate_partition_data(
                     y_true, y_pred, task_type
                 )
 
+                # Calculate aggregated metrics if requested
+                if effective_aggregate:
+                    agg_result = TabReportManager._aggregate_predictions(
+                        y_true=y_true,
+                        y_pred=y_pred,
+                        aggregate=effective_aggregate,
+                        metadata=entry.get('metadata', {}),
+                        partition_name=partition_name
+                    )
+                    if agg_result is not None:
+                        agg_y_true, agg_y_pred = agg_result
+                        aggregated_partitions_data[partition_name] = TabReportManager._calculate_partition_data(
+                            agg_y_true, agg_y_pred, task_type
+                        )
+
         # Generate formatted string (matching PredictionHelpers format)
         formatted_string = TabReportManager._format_as_table_string(
-            partitions_data, n_features, task_type
+            partitions_data, n_features, task_type,
+            aggregated_partitions_data=aggregated_partitions_data,
+            aggregate_column=effective_aggregate
         )
 
         # Generate CSV string content
         csv_string = TabReportManager._format_as_csv_string(
-            partitions_data, n_features, task_type
+            partitions_data, n_features, task_type,
+            aggregated_partitions_data=aggregated_partitions_data,
+            aggregate_column=effective_aggregate
         )
 
         return formatted_string, csv_string
+
+    @staticmethod
+    def _aggregate_predictions(
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        aggregate: str,
+        metadata: Dict[str, Any],
+        partition_name: str = ""
+    ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Aggregate predictions by a group column.
+
+        Args:
+            y_true: True values array
+            y_pred: Predicted values array
+            aggregate: Group column name or 'y' to group by y_true
+            metadata: Metadata dictionary containing group column
+            partition_name: Partition name for error messages
+
+        Returns:
+            Tuple of (aggregated_y_true, aggregated_y_pred) or None if aggregation fails
+        """
+        from nirs4all.data.predictions import Predictions
+
+        # Determine group IDs
+        if aggregate == 'y':
+            group_ids = y_true
+        else:
+            if aggregate not in metadata:
+                logger.debug(
+                    f"Aggregation column '{aggregate}' not found in metadata for partition '{partition_name}'. "
+                    f"Available columns: {list(metadata.keys())}. Skipping aggregation."
+                )
+                return None
+            group_ids = np.asarray(metadata[aggregate])
+
+        if len(group_ids) != len(y_pred):
+            logger.debug(
+                f"Aggregation column '{aggregate}' length ({len(group_ids)}) doesn't match "
+                f"predictions length ({len(y_pred)}) for partition '{partition_name}'. Skipping aggregation."
+            )
+            return None
+
+        try:
+            result = Predictions.aggregate(
+                y_pred=y_pred,
+                group_ids=group_ids,
+                y_true=y_true
+            )
+            agg_y_true = result.get('y_true')
+            agg_y_pred = result.get('y_pred')
+            if agg_y_true is None or agg_y_pred is None:
+                return None
+            return agg_y_true, agg_y_pred
+        except Exception as e:
+            logger.debug(f"Aggregation failed for partition '{partition_name}': {e}")
+            return None
 
     @staticmethod
     def _get_task_type_from_entry(entry: Dict[str, Any]) -> TaskType:
@@ -110,9 +203,22 @@ class TabReportManager:
     def _format_as_table_string(
         partitions_data: Dict[str, Dict[str, Any]],
         n_features: int,
-        task_type: TaskType
+        task_type: TaskType,
+        aggregated_partitions_data: Optional[Dict[str, Dict[str, Any]]] = None,
+        aggregate_column: Optional[str] = None
     ) -> str:
-        """Format the report data as a table string (matching PredictionHelpers format)."""
+        """Format the report data as a table string (matching PredictionHelpers format).
+
+        Args:
+            partitions_data: Dict of partition name to metrics data
+            n_features: Number of features
+            task_type: Task type (regression or classification)
+            aggregated_partitions_data: Optional dict of partition name to aggregated metrics
+            aggregate_column: Name of column used for aggregation (for footer note)
+
+        Returns:
+            Formatted table string
+        """
         if not partitions_data:
             return "No partition data available"
 
@@ -127,6 +233,9 @@ class TabReportManager:
             else:
                 headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Bal. Acc', 'Precision', 'Bal. Prec', 'Recall', 'Bal. Rec', 'F1-score', 'Specificity']
 
+        # Check if we have aggregated data
+        has_aggregated = aggregated_partitions_data is not None and len(aggregated_partitions_data) > 0
+
         # Prepare rows
         rows = []
 
@@ -138,46 +247,24 @@ class TabReportManager:
             data = partitions_data[partition_name]
             display_name = "Cros Val" if partition_name == 'val' else partition_name.capitalize()
 
-            if task_type == TaskType.REGRESSION:
-                row = [
-                    display_name,
-                    str(data.get('nsample', '')),
-                    str(n_features) if n_features > 0 else '',
-                    f"{data.get('mean', ''):.3f}" if data.get('mean') is not None else '',
-                    f"{data.get('median', ''):.3f}" if data.get('median') is not None else '',
-                    f"{data.get('min', ''):.3f}" if data.get('min') is not None else '',
-                    f"{data.get('max', ''):.3f}" if data.get('max') is not None else '',
-                    f"{data.get('sd', ''):.3f}" if data.get('sd') else '',
-                    f"{data.get('cv', ''):.3f}" if data.get('cv') else '',
-                    f"{data.get('r2', ''):.3f}" if data.get('r2') else '',
-                    f"{data.get('rmse', ''):.3f}" if data.get('rmse') else '',
-                    f"{data.get('mse', ''):.3f}" if data.get('mse') else '',
-                    f"{data.get('sep', ''):.3f}" if data.get('sep') else '',
-                    f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
-                    f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
-                    f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
-                    f"{data.get('consistency', ''):.1f}" if data.get('consistency') else ''
-                ]
-            else:  # Classification
-                row = [
-                    display_name,
-                    str(data.get('nsample', '')),
-                    str(n_features) if n_features > 0 else '',
-                    f"{data.get('accuracy', ''):.3f}" if data.get('accuracy') else '',
-                    f"{data.get('balanced_accuracy', ''):.3f}" if data.get('balanced_accuracy') else '',
-                    f"{data.get('precision', ''):.3f}" if data.get('precision') else '',
-                    f"{data.get('balanced_precision', ''):.3f}" if data.get('balanced_precision') else '',
-                    f"{data.get('recall', ''):.3f}" if data.get('recall') else '',
-                    f"{data.get('balanced_recall', ''):.3f}" if data.get('balanced_recall') else '',
-                    f"{data.get('f1', ''):.3f}" if data.get('f1') else '',
-                    f"{data.get('specificity', ''):.3f}" if data.get('specificity') else ''
-                ]
-                if is_binary:
-                    row.append(f"{data.get('roc_auc', ''):.3f}" if data.get('roc_auc') else '')
-
+            # Add raw (non-aggregated) row
+            row = TabReportManager._build_table_row(
+                display_name, data, n_features, task_type,
+                'roc_auc' in partitions_data.get('val', {}) or 'roc_auc' in partitions_data.get('test', {})
+            )
             rows.append(row)
 
-        # Calculate column widths (minimum 10 characters per column)
+            # Add aggregated row if available
+            if has_aggregated and aggregated_partitions_data is not None and partition_name in aggregated_partitions_data:
+                agg_data = aggregated_partitions_data[partition_name]
+                agg_row = TabReportManager._build_table_row(
+                    f"{display_name}*", agg_data, n_features, task_type,
+                    'roc_auc' in partitions_data.get('val', {}) or 'roc_auc' in partitions_data.get('test', {}),
+                    is_aggregated=True
+                )
+                rows.append(agg_row)
+
+        # Calculate column widths (minimum 6 characters per column)
         all_rows = [headers] + rows
         col_widths = []
         for col_idx in range(len(headers)):
@@ -203,25 +290,130 @@ class TabReportManager:
 
         lines.append(separator)
 
+        # Add footer note if aggregated
+        if has_aggregated and aggregate_column:
+            agg_label = "y (target values)" if aggregate_column == 'y' else aggregate_column
+            lines.append(f"* Aggregated by {agg_label}")
+
         return '\n'.join(lines)
+
+    @staticmethod
+    def _build_table_row(
+        display_name: str,
+        data: Dict[str, Any],
+        n_features: int,
+        task_type: TaskType,
+        is_binary: bool = False,
+        is_aggregated: bool = False
+    ) -> list:
+        """Build a single table row for either raw or aggregated data.
+
+        Args:
+            display_name: Row label (e.g., 'Train', 'Test', 'Train*')
+            data: Metrics dictionary for this partition
+            n_features: Number of features
+            task_type: Task type (regression or classification)
+            is_binary: Whether this is binary classification
+            is_aggregated: Whether this is an aggregated row (stats columns blank)
+
+        Returns:
+            List of formatted cell values
+        """
+        if task_type == TaskType.REGRESSION:
+            # For aggregated rows, skip descriptive stats (Mean, Median, Min, Max, SD, CV)
+            # since they don't make sense after averaging predictions
+            if is_aggregated:
+                row = [
+                    display_name,
+                    str(data.get('nsample', '')),
+                    str(n_features) if n_features > 0 else '',
+                    '',  # Mean - blank for aggregated
+                    '',  # Median - blank for aggregated
+                    '',  # Min - blank for aggregated
+                    '',  # Max - blank for aggregated
+                    '',  # SD - blank for aggregated
+                    '',  # CV - blank for aggregated
+                    f"{data.get('r2', ''):.3f}" if data.get('r2') else '',
+                    f"{data.get('rmse', ''):.3f}" if data.get('rmse') else '',
+                    f"{data.get('mse', ''):.3f}" if data.get('mse') else '',
+                    f"{data.get('sep', ''):.3f}" if data.get('sep') else '',
+                    f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
+                    f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
+                    f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
+                    f"{data.get('consistency', ''):.1f}" if data.get('consistency') else ''
+                ]
+            else:
+                row = [
+                    display_name,
+                    str(data.get('nsample', '')),
+                    str(n_features) if n_features > 0 else '',
+                    f"{data.get('mean', ''):.3f}" if data.get('mean') is not None else '',
+                    f"{data.get('median', ''):.3f}" if data.get('median') is not None else '',
+                    f"{data.get('min', ''):.3f}" if data.get('min') is not None else '',
+                    f"{data.get('max', ''):.3f}" if data.get('max') is not None else '',
+                    f"{data.get('sd', ''):.3f}" if data.get('sd') else '',
+                    f"{data.get('cv', ''):.3f}" if data.get('cv') else '',
+                    f"{data.get('r2', ''):.3f}" if data.get('r2') else '',
+                    f"{data.get('rmse', ''):.3f}" if data.get('rmse') else '',
+                    f"{data.get('mse', ''):.3f}" if data.get('mse') else '',
+                    f"{data.get('sep', ''):.3f}" if data.get('sep') else '',
+                    f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
+                    f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
+                    f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
+                    f"{data.get('consistency', ''):.1f}" if data.get('consistency') else ''
+                ]
+        else:  # Classification
+            row = [
+                display_name,
+                str(data.get('nsample', '')),
+                str(n_features) if n_features > 0 else '',
+                f"{data.get('accuracy', ''):.3f}" if data.get('accuracy') else '',
+                f"{data.get('balanced_accuracy', ''):.3f}" if data.get('balanced_accuracy') else '',
+                f"{data.get('precision', ''):.3f}" if data.get('precision') else '',
+                f"{data.get('balanced_precision', ''):.3f}" if data.get('balanced_precision') else '',
+                f"{data.get('recall', ''):.3f}" if data.get('recall') else '',
+                f"{data.get('balanced_recall', ''):.3f}" if data.get('balanced_recall') else '',
+                f"{data.get('f1', ''):.3f}" if data.get('f1') else '',
+                f"{data.get('specificity', ''):.3f}" if data.get('specificity') else ''
+            ]
+            if is_binary:
+                row.append(f"{data.get('roc_auc', ''):.3f}" if data.get('roc_auc') else '')
+
+        return row
 
     @staticmethod
     def _format_as_csv_string(
         partitions_data: Dict[str, Dict[str, Any]],
         n_features: int,
-        task_type: TaskType
+        task_type: TaskType,
+        aggregated_partitions_data: Optional[Dict[str, Dict[str, Any]]] = None,
+        aggregate_column: Optional[str] = None
     ) -> str:
-        """Generate CSV string content."""
+        """Generate CSV string content.
+
+        Args:
+            partitions_data: Dict of partition name to metrics data
+            n_features: Number of features
+            task_type: Task type (regression or classification)
+            aggregated_partitions_data: Optional dict of partition name to aggregated metrics
+            aggregate_column: Name of column used for aggregation (for data annotation)
+
+        Returns:
+            CSV formatted string
+        """
         # Prepare headers based on task type
         if task_type == TaskType.REGRESSION:
             headers = ['', 'Nsample', 'Nfeature', 'Mean', 'Median', 'Min', 'Max', 'SD', 'CV',
-                       'R2', 'RMSE', 'MSE', 'SEP', 'MAE', 'RPD', 'Bias', 'Consistency (%)']
+                       'R2', 'RMSE', 'MSE', 'SEP', 'MAE', 'RPD', 'Bias', 'Consistency (%)', 'Aggregated']
         else:  # Classification
             is_binary = 'roc_auc' in partitions_data.get('val', {}) or 'roc_auc' in partitions_data.get('test', {})
             if is_binary:
-                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Bal. Acc', 'Precision', 'Bal. Prec', 'Recall', 'Bal. Rec', 'F1-score', 'Specificity', 'AUC']
+                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Bal. Acc', 'Precision', 'Bal. Prec', 'Recall', 'Bal. Rec', 'F1-score', 'Specificity', 'AUC', 'Aggregated']
             else:
-                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Bal. Acc', 'Precision', 'Bal. Prec', 'Recall', 'Bal. Rec', 'F1-score', 'Specificity']
+                headers = ['', 'Nsample', 'Nfeatures', 'Accuracy', 'Bal. Acc', 'Precision', 'Bal. Prec', 'Recall', 'Bal. Rec', 'F1-score', 'Specificity', 'Aggregated']
+
+        # Check if we have aggregated data
+        has_aggregated = aggregated_partitions_data is not None and len(aggregated_partitions_data) > 0
 
         # Prepare rows
         rows = [headers]
@@ -234,7 +426,85 @@ class TabReportManager:
             data = partitions_data[partition_name]
             display_name = "Cros Val" if partition_name == 'val' else partition_name.capitalize()
 
-            if task_type == TaskType.REGRESSION:
+            # Add raw (non-aggregated) row
+            row = TabReportManager._build_csv_row(
+                display_name, data, n_features, task_type,
+                'roc_auc' in partitions_data.get('val', {}) or 'roc_auc' in partitions_data.get('test', {}),
+                is_aggregated=False
+            )
+            rows.append(row)
+
+            # Add aggregated row if available
+            if has_aggregated and aggregated_partitions_data is not None and partition_name in aggregated_partitions_data:
+                agg_data = aggregated_partitions_data[partition_name]
+                agg_row = TabReportManager._build_csv_row(
+                    f"{display_name}*", agg_data, n_features, task_type,
+                    'roc_auc' in partitions_data.get('val', {}) or 'roc_auc' in partitions_data.get('test', {}),
+                    is_aggregated=True,
+                    aggregate_column=aggregate_column
+                )
+                rows.append(agg_row)
+
+        # Generate CSV content
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerows(rows)
+
+        # Return as string
+        csv_content = output.getvalue()
+        output.close()
+
+        return csv_content
+
+    @staticmethod
+    def _build_csv_row(
+        display_name: str,
+        data: Dict[str, Any],
+        n_features: int,
+        task_type: TaskType,
+        is_binary: bool = False,
+        is_aggregated: bool = False,
+        aggregate_column: Optional[str] = None
+    ) -> list:
+        """Build a single CSV row for either raw or aggregated data.
+
+        Args:
+            display_name: Row label (e.g., 'Train', 'Test', 'Train*')
+            data: Metrics dictionary for this partition
+            n_features: Number of features
+            task_type: Task type (regression or classification)
+            is_binary: Whether this is binary classification
+            is_aggregated: Whether this is an aggregated row
+            aggregate_column: Name of column used for aggregation
+
+        Returns:
+            List of cell values for CSV row
+        """
+        aggregated_label = aggregate_column if is_aggregated and aggregate_column else ''
+
+        if task_type == TaskType.REGRESSION:
+            if is_aggregated:
+                row = [
+                    display_name,
+                    data.get('nsample', ''),
+                    n_features if n_features > 0 else '',
+                    '',  # Mean - blank for aggregated
+                    '',  # Median - blank for aggregated
+                    '',  # Min - blank for aggregated
+                    '',  # Max - blank for aggregated
+                    '',  # SD - blank for aggregated
+                    '',  # CV - blank for aggregated
+                    f"{data.get('r2', ''):.3f}" if data.get('r2') else '',
+                    f"{data.get('rmse', ''):.3f}" if data.get('rmse') else '',
+                    f"{data.get('mse', ''):.3f}" if data.get('mse') else '',
+                    f"{data.get('sep', ''):.3f}" if data.get('sep') else '',
+                    f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
+                    f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
+                    f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
+                    f"{data.get('consistency', ''):.1f}" if data.get('consistency') else '',
+                    aggregated_label
+                ]
+            else:
                 row = [
                     display_name,
                     data.get('nsample', ''),
@@ -252,37 +522,28 @@ class TabReportManager:
                     f"{data.get('mae', ''):.3f}" if data.get('mae') else '',
                     f"{data.get('rpd', ''):.2f}" if data.get('rpd') and data.get('rpd') != float('inf') else '',
                     f"{data.get('bias', ''):.3f}" if data.get('bias') else '',
-                    f"{data.get('consistency', ''):.1f}" if data.get('consistency') else ''
+                    f"{data.get('consistency', ''):.1f}" if data.get('consistency') else '',
+                    ''  # Not aggregated
                 ]
-            else:  # Classification
-                row = [
-                    display_name,
-                    data.get('nsample', ''),
-                    n_features if n_features > 0 else '',
-                    f"{data.get('accuracy', ''):.3f}" if data.get('accuracy') else '',
-                    f"{data.get('balanced_accuracy', ''):.3f}" if data.get('balanced_accuracy') else '',
-                    f"{data.get('precision', ''):.3f}" if data.get('precision') else '',
-                    f"{data.get('balanced_precision', ''):.3f}" if data.get('balanced_precision') else '',
-                    f"{data.get('recall', ''):.3f}" if data.get('recall') else '',
-                    f"{data.get('balanced_recall', ''):.3f}" if data.get('balanced_recall') else '',
-                    f"{data.get('f1', ''):.3f}" if data.get('f1') else '',
-                    f"{data.get('specificity', ''):.3f}" if data.get('specificity') else ''
-                ]
-                if is_binary:
-                    row.append(f"{data.get('roc_auc', ''):.3f}" if data.get('roc_auc') else '')
+        else:  # Classification
+            row = [
+                display_name,
+                data.get('nsample', ''),
+                n_features if n_features > 0 else '',
+                f"{data.get('accuracy', ''):.3f}" if data.get('accuracy') else '',
+                f"{data.get('balanced_accuracy', ''):.3f}" if data.get('balanced_accuracy') else '',
+                f"{data.get('precision', ''):.3f}" if data.get('precision') else '',
+                f"{data.get('balanced_precision', ''):.3f}" if data.get('balanced_precision') else '',
+                f"{data.get('recall', ''):.3f}" if data.get('recall') else '',
+                f"{data.get('balanced_recall', ''):.3f}" if data.get('balanced_recall') else '',
+                f"{data.get('f1', ''):.3f}" if data.get('f1') else '',
+                f"{data.get('specificity', ''):.3f}" if data.get('specificity') else ''
+            ]
+            if is_binary:
+                row.append(f"{data.get('roc_auc', ''):.3f}" if data.get('roc_auc') else '')
+            row.append(aggregated_label)
 
-            rows.append(row)
-
-        # Generate CSV content
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerows(rows)
-
-        # Return as string
-        csv_content = output.getvalue()
-        output.close()
-
-        return csv_content
+        return row
 
     @staticmethod
     def _calculate_partition_data(

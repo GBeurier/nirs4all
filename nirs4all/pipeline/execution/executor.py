@@ -96,10 +96,14 @@ class PipelineExecutor:
 
         metadata = StepMetadata()
 
+        # Get aggregate setting from dataset for propagation through pipeline
+        aggregate_column = dataset.aggregate
+
         return ExecutionContext(
             selector=selector,
             state=state,
-            metadata=metadata
+            metadata=metadata,
+            aggregate_column=aggregate_column
         )
 
     def execute(

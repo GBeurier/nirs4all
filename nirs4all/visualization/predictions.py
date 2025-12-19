@@ -56,6 +56,7 @@ class PredictionAnalyzer:
         config: ChartConfig for customization across all charts.
         output_dir: Directory to save generated charts.
         cache: PredictionCache for caching aggregated results.
+        default_aggregate: Default aggregation column for all visualization methods.
 
     Example:
         >>> from nirs4all.data.predictions import Predictions
@@ -70,6 +71,13 @@ class PredictionAnalyzer:
         >>>
         >>> # Check cache stats
         >>> print(analyzer.get_cache_stats())
+        >>>
+        >>> # With default aggregation from dataset config
+        >>> runner = PipelineRunner()
+        >>> predictions, _ = runner.run(pipeline, DatasetConfigs(path, aggregate='sample_id'))
+        >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
+        >>> # All plots now use sample_id aggregation by default
+        >>> fig = analyzer.plot_top_k(k=5)  # Aggregated automatically
     """
 
     def __init__(
@@ -78,7 +86,8 @@ class PredictionAnalyzer:
         dataset_name_override: Optional[str] = None,
         config: Optional[ChartConfig] = None,
         output_dir: Optional[str] = "workspace/figures",
-        cache_size: int = 50
+        cache_size: int = 50,
+        default_aggregate: Optional[str] = None
     ):
         """Initialize analyzer with predictions object.
 
@@ -88,12 +97,26 @@ class PredictionAnalyzer:
             config: Optional ChartConfig for customization across all charts.
             output_dir: Directory to save generated charts. Defaults to "workspace/figures".
             cache_size: Maximum number of cached query results. Defaults to 50.
+            default_aggregate: Default aggregation column for all visualization methods.
+                If set, all plots will use this aggregation unless overridden.
+                Can be 'y' (aggregate by target values) or a metadata column name.
+                Typically obtained from `runner.last_aggregate` after a pipeline run.
+
+        Example:
+            >>> # With default aggregation from dataset config
+            >>> runner = PipelineRunner()
+            >>> predictions, _ = runner.run(pipeline, DatasetConfigs(path, aggregate='sample_id'))
+            >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
+            >>> # All plots now use sample_id aggregation by default
+            >>> fig = analyzer.plot_top_k(k=5)  # Aggregated
+            >>> fig = analyzer.plot_top_k(k=5, aggregate=None)  # Explicit override to no aggregation
         """
         self.predictions = predictions_obj
         self.dataset_name_override = dataset_name_override
         self.config = config or ChartConfig()
         self.output_dir = output_dir
         self._cache = PredictionCache(max_entries=cache_size)
+        self.default_aggregate = default_aggregate
 
     def clear_cache(self) -> None:
         """Clear all caches.
@@ -105,6 +128,28 @@ class PredictionAnalyzer:
         """
         self._cache.clear()
         self.predictions.clear_caches()
+
+    def _resolve_aggregate(self, aggregate: Optional[str]) -> Optional[str]:
+        """Resolve effective aggregate value, considering default.
+
+        Args:
+            aggregate: Explicit aggregate value passed to method.
+                - None: Use default_aggregate (if set).
+                - Explicit value: Use that value (overrides default).
+
+        Returns:
+            Effective aggregate column name or None.
+
+        Note:
+            To explicitly disable aggregation when a default is set,
+            callers should use an empty string '' which is truthy enough
+            to override but evaluates to no aggregation.
+        """
+        # If aggregate is explicitly provided (not None), use it
+        if aggregate is not None:
+            return aggregate if aggregate else None  # '' means no aggregation
+        # Otherwise, fall back to default
+        return self.default_aggregate
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache performance statistics.
@@ -345,6 +390,7 @@ class PredictionAnalyzer:
             >>> fig = analyzer.plot_top_k(k=3, aggregate='ID')  # Aggregated by ID
         """
         effective_config = config if config is not None else self.config
+        effective_aggregate = self._resolve_aggregate(aggregate)
         chart = TopKComparisonChart(
             self.predictions,
             self.dataset_name_override,
@@ -368,7 +414,7 @@ class PredictionAnalyzer:
                         display_metric=display_metric,
                         display_partition=display_partition,
                         show_scores=show_scores,
-                        aggregate=aggregate,
+                        aggregate=effective_aggregate,
                         dataset_name=dataset,
                         **kwargs
                     )
@@ -384,7 +430,7 @@ class PredictionAnalyzer:
             display_metric=display_metric,
             display_partition=display_partition,
             show_scores=show_scores,
-            aggregate=aggregate,
+            aggregate=effective_aggregate,
             **kwargs
         )
         self._save_figure(fig, "top_k", kwargs.get('dataset_name'))
@@ -434,6 +480,7 @@ class PredictionAnalyzer:
             ... )
         """
         effective_config = config if config is not None else self.config
+        effective_aggregate = self._resolve_aggregate(aggregate)
         chart = ConfusionMatrixChart(
             self.predictions,
             self.dataset_name_override,
@@ -457,7 +504,7 @@ class PredictionAnalyzer:
                         display_metric=display_metric,
                         display_partition=display_partition,
                         show_scores=show_scores,
-                        aggregate=aggregate,
+                        aggregate=effective_aggregate,
                         dataset_name=dataset,
                         **kwargs
                     )
@@ -473,7 +520,7 @@ class PredictionAnalyzer:
             display_metric=display_metric,
             display_partition=display_partition,
             show_scores=show_scores,
-            aggregate=aggregate,
+            aggregate=effective_aggregate,
             **kwargs
         )
         self._save_figure(fig, "confusion_matrix", kwargs.get('dataset_name'))
@@ -510,6 +557,7 @@ class PredictionAnalyzer:
             >>> fig = analyzer.plot_histogram(display_metric='rmse', aggregate='ID')
         """
         effective_config = config if config is not None else self.config
+        effective_aggregate = self._resolve_aggregate(aggregate)
         chart = ScoreHistogramChart(
             self.predictions,
             self.dataset_name_override,
@@ -529,7 +577,7 @@ class PredictionAnalyzer:
                     fig = chart.render(
                         display_metric=display_metric,
                         display_partition=display_partition,
-                        aggregate=aggregate,
+                        aggregate=effective_aggregate,
                         dataset_name=dataset,
                         **kwargs
                     )
@@ -541,7 +589,7 @@ class PredictionAnalyzer:
         fig = chart.render(
             display_metric=display_metric,
             display_partition=display_partition,
-            aggregate=aggregate,
+            aggregate=effective_aggregate,
             **kwargs
         )
         self._save_figure(fig, "histogram", kwargs.get('dataset_name'))
@@ -638,6 +686,7 @@ class PredictionAnalyzer:
                 display_agg = aggregation
 
         effective_config = config if config is not None else self.config
+        effective_aggregate = self._resolve_aggregate(aggregate)
         chart = HeatmapChart(
             self.predictions,
             self.dataset_name_override,
@@ -657,7 +706,7 @@ class PredictionAnalyzer:
             show_counts=show_counts,
             local_scale=local_scale,
             column_scale=column_scale,
-            aggregate=aggregate,
+            aggregate=effective_aggregate,
             top_k=top_k,
             sort_by_value=sort_by_value,
             sort_by=sort_by,
@@ -696,6 +745,7 @@ class PredictionAnalyzer:
             >>> fig = analyzer.plot_candlestick('model_name', display_metric='rmse', aggregate='ID')
         """
         effective_config = config if config is not None else self.config
+        effective_aggregate = self._resolve_aggregate(aggregate)
         chart = CandlestickChart(
             self.predictions,
             self.dataset_name_override,
@@ -706,7 +756,7 @@ class PredictionAnalyzer:
             variable=variable,
             display_metric=display_metric,
             display_partition=display_partition,
-            aggregate=aggregate,
+            aggregate=effective_aggregate,
             **kwargs
         )
         self._save_figure(fig, "candlestick", kwargs.get('dataset_name'))
@@ -875,6 +925,8 @@ class PredictionAnalyzer:
             if self._get_default_metric() in ['balanced_accuracy', 'accuracy', 'f1']:
                 metrics = ['balanced_accuracy', 'f1']
 
+        effective_aggregate = self._resolve_aggregate(aggregate)
+
         # Get all predictions
         all_preds = self.get_cached_predictions(
             n=100000,  # Large number to get all
@@ -882,7 +934,7 @@ class PredictionAnalyzer:
             rank_partition='val',
             display_partition=display_partition,
             display_metrics=metrics,
-            aggregate=aggregate,
+            aggregate=effective_aggregate,
             aggregate_partitions=True,
             **filters
         )
@@ -1006,11 +1058,13 @@ class PredictionAnalyzer:
         if display_metric is None:
             display_metric = rank_metric
 
+        effective_aggregate = self._resolve_aggregate(aggregate)
+
         # Get branch summary
         summary_df = self.branch_summary(
             metrics=[display_metric],
             display_partition=display_partition,
-            aggregate=aggregate,
+            aggregate=effective_aggregate,
             as_dataframe=True,
             **filters
         )
@@ -1148,6 +1202,8 @@ class PredictionAnalyzer:
         if display_metric is None:
             display_metric = rank_metric
 
+        effective_aggregate = self._resolve_aggregate(aggregate)
+
         # Get all predictions
         all_preds = self.get_cached_predictions(
             n=100000,
@@ -1155,7 +1211,7 @@ class PredictionAnalyzer:
             rank_partition='val',
             display_partition=display_partition,
             display_metrics=[display_metric],
-            aggregate=aggregate,
+            aggregate=effective_aggregate,
             aggregate_partitions=True,
             **filters
         )

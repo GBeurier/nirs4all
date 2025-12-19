@@ -121,6 +121,7 @@ class TestManifestManagerIntegration:
 
         # Persist artifacts
         artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
         scaler = StandardScaler()
         scaler.fit(np.array([[0], [1], [2]]))
 
@@ -148,6 +149,7 @@ class TestManifestManagerIntegration:
 
         # Persist artifacts
         artifacts_dir = results_dir / "_binaries"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
         scaler = StandardScaler()
         X_train = np.array([[0], [1], [2], [3]])
         scaler.fit(X_train)

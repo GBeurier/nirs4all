@@ -70,6 +70,10 @@ class SpectroDataset:
         self._signal_types: List[SignalType] = []
         self._signal_type_forced: List[bool] = []
 
+        # Aggregation setting for sample-level prediction aggregation
+        self._aggregate_column: Optional[str] = None
+        self._aggregate_by_y: bool = False
+
         # Initialize internal blocks
         _features_block = Features()
         _targets_block = Targets()
@@ -419,6 +423,55 @@ class SpectroDataset:
         for src in range(self._feature_accessor.num_sources):
             self._ensure_signal_type_initialized(src)
         return self._signal_types[:self._feature_accessor.num_sources]
+
+    # ========== Aggregation Settings ==========
+
+    @property
+    def aggregate(self) -> Optional[str]:
+        """
+        Get the aggregation setting for sample-level prediction aggregation.
+
+        Returns:
+            - None: No aggregation
+            - 'y': Aggregate by target values (y_true)
+            - str: Aggregate by specified metadata column name
+
+        Example:
+            >>> dataset.aggregate
+            'sample_id'  # Predictions will be aggregated by sample_id column
+        """
+        if self._aggregate_by_y:
+            return 'y'
+        return self._aggregate_column
+
+    def set_aggregate(self, value: Union[str, bool, None]) -> None:
+        """
+        Set the aggregation behavior for sample-level prediction aggregation.
+
+        When set, predictions from multiple spectra of the same biological sample
+        (as identified by the aggregation key) will be aggregated automatically
+        during scoring and reporting.
+
+        Args:
+            value: Aggregation setting
+                - None: No aggregation (default behavior)
+                - True: Aggregate by y_true values (target grouping)
+                - str: Aggregate by specified metadata column (e.g., 'sample_id', 'ID')
+
+        Example:
+            >>> dataset.set_aggregate('sample_id')  # Aggregate by sample_id metadata column
+            >>> dataset.set_aggregate(True)  # Aggregate by y values
+            >>> dataset.set_aggregate(None)  # Disable aggregation
+        """
+        if value is True:
+            self._aggregate_by_y = True
+            self._aggregate_column = None
+        elif isinstance(value, str):
+            self._aggregate_by_y = False
+            self._aggregate_column = value
+        else:
+            self._aggregate_by_y = False
+            self._aggregate_column = None
 
     def short_preprocessings_str(self) -> str:
         """Get shortened processing string for display."""

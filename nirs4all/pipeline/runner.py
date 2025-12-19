@@ -211,6 +211,9 @@ class PipelineRunner:
         # Model capture support for explainer
         self._capture_model: bool = False
 
+        # Last run aggregate setting (for visualization integration)
+        self._last_aggregate_column: Optional[str] = None
+
         # Execution state (synchronized from executor during execution)
         self.step_number: int = 0
         self.substep_number: int = -1
@@ -281,6 +284,10 @@ class PipelineRunner:
                 self.step_number = self.orchestrator.last_executor.step_number
                 self.substep_number = self.orchestrator.last_executor.substep_number
                 self.operation_count = self.orchestrator.last_executor.operation_count
+
+        # Sync aggregate column from last dataset for visualization integration
+        if hasattr(self.orchestrator, 'last_aggregate_column'):
+            self._last_aggregate_column = self.orchestrator.last_aggregate_column
 
         return run_predictions, dataset_predictions
 
@@ -394,6 +401,25 @@ class PipelineRunner:
             Path to runs directory in workspace
         """
         return self.orchestrator.runs_dir
+
+    @property
+    def last_aggregate(self) -> Optional[str]:
+        """Get aggregate column from the last executed dataset.
+
+        Returns the aggregation setting from the last dataset processed by run().
+        This can be used to create a PredictionAnalyzer with matching defaults.
+
+        Returns:
+            Aggregate column name ('y' for y-based aggregation, column name for
+            metadata-based aggregation, or None if no aggregation was set).
+
+        Example:
+            >>> runner = PipelineRunner()
+            >>> predictions, _ = runner.run(pipeline, DatasetConfigs(path, aggregate='sample_id'))
+            >>> # Create analyzer with same aggregate setting
+            >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
+        """
+        return self._last_aggregate_column
 
     @property
     def library(self) -> "PipelineLibrary":

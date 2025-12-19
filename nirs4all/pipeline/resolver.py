@@ -369,19 +369,27 @@ class PredictionResolver:
         except ValueError:
             return False
 
-    def _find_pipeline_dir(self, pipeline_uid: str) -> Optional[Path]:
+    def _find_pipeline_dir(
+        self,
+        pipeline_uid: str,
+        trace_id: Optional[str] = None
+    ) -> Optional[Path]:
         """Find pipeline directory by UID.
 
         Searches run directories for a matching pipeline folder.
+        If trace_id is provided, verifies the trace exists in the manifest.
 
         Args:
             pipeline_uid: Pipeline unique identifier
+            trace_id: Optional trace ID to match (ensures correct run is found)
 
         Returns:
             Path to pipeline directory or None
         """
         if not self.runs_dir.exists():
             return None
+
+        candidates = []
 
         # Search in all run directories
         for run_dir in self.runs_dir.iterdir():
@@ -391,15 +399,35 @@ class PredictionResolver:
             # Check for exact match
             pipeline_dir = run_dir / pipeline_uid
             if pipeline_dir.is_dir() and (pipeline_dir / "manifest.yaml").exists():
-                return pipeline_dir
+                candidates.append(pipeline_dir)
+                continue
 
             # Check for partial match (pipeline_uid might be just the hash part)
             for subdir in run_dir.iterdir():
                 if subdir.is_dir() and pipeline_uid in subdir.name:
                     if (subdir / "manifest.yaml").exists():
-                        return subdir
+                        candidates.append(subdir)
 
-        return None
+        if not candidates:
+            return None
+
+        # If no trace_id specified, return first candidate
+        if not trace_id:
+            return candidates[0]
+
+        # If trace_id specified, find the candidate with matching trace
+        for pipeline_dir in candidates:
+            try:
+                manifest_manager = ManifestManager(pipeline_dir.parent)
+                manifest = manifest_manager.load_manifest(pipeline_uid)
+                traces = manifest.get("execution_traces", {})
+                if trace_id in traces:
+                    return pipeline_dir
+            except Exception:
+                continue
+
+        # Fallback to first candidate if trace not found in any
+        return candidates[0]
 
     # =========================================================================
     # Source-specific resolvers
@@ -972,10 +1000,11 @@ class PredictionResolver:
         if "run_dir" in prediction:
             return Path(prediction["run_dir"])
 
-        # Try to find by pipeline_uid
+        # Try to find by pipeline_uid (and trace_id if available)
         pipeline_uid = prediction.get("pipeline_uid")
+        trace_id = prediction.get("trace_id")
         if pipeline_uid:
-            pipeline_dir = self._find_pipeline_dir(pipeline_uid)
+            pipeline_dir = self._find_pipeline_dir(pipeline_uid, trace_id)
             if pipeline_dir:
                 return pipeline_dir.parent
 

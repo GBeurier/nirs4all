@@ -14,25 +14,28 @@
 > [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
 > [Examples] Clean and document
 > [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
+> [Example] The full integration example with all features in one, using branching, multidatasets, etc.
 
-> [Generator] Inner generation ?
+> [Generator] add in-place/internal generation > branches
+
 **Bugs**:
 >   - Branch diagram are out
 >   - [Charts] check dataviz. Missing histograms, inverted heatmap color scale, --> Branching ?
 
-> [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
 
 **Review**:
+
 > [Predict_Transfer] Review
 
 > [Stacking] Review
 
 > [multisource] Review
 
-> [Pipeline] Review and clean type for input in pipeline (launch from model, folder, file, etc.)
-
+> [Pipeline] Review and clean type for input in pipeline (launch from model, folder, file, yaml, json, etc.)
 
 **RELEASE** 0.6.0: MVP
+
+
 
 > [Aggregation] Outlier dedicated exclusion T²
 
@@ -43,6 +46,9 @@
 > [DEPLOY] standalone installer, web installer (gpu/no gpu - os) options for backend and CUDA
 
 **RELEASE** 0.6.0: UI
+
+
+> [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
 
 > [Transfer] Partial layers retraining
 
@@ -105,7 +111,7 @@
 
 > [Y_pipeline in models]
 
-> [Code_Optimization] Improve performances
+> [Profiling] Code Optimization, Improve performances
 
 **RELEASE** 0.10 beta: Operators & Controllers rc
 
@@ -126,9 +132,9 @@
 
 > [Pipeline + Optuna] Pipeline as optuna trial. The pp become a choice param. Goal is to stack pp each time score stop progress, select the good ones by feats augmentation and by pp order (1st, 2nd, etc.) and stop once it drops.
 
-> [Transfer] Automate model transfer across machines (close)
+> [Transfer] Automate model transfer across machines
 
-> [Generator] add in-place/internal generation > branches
+
 
 > [Mid Fusion] Multi head models
 
@@ -145,9 +151,24 @@
 ## EXCITERS
 - better model naming (with optional pp included) for UX
 - add NorrisWilliams, Whittaker, BandEnergies, FiniteDiffCentral transformermixin
-- (ui) Clean user interface on datasetConfig/dataset, pipelineConfig/pipeline, predictions
-- Charts in 'raw' y for categorical
 - Authorize vertical index (col 1 header - vertical header) in csv
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ---

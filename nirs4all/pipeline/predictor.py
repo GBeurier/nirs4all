@@ -598,6 +598,11 @@ class Predictor:
             elif 'config_path' in prediction_obj:
                 config_path = prediction_obj['config_path']
                 dataset_name = Path(config_path).parts[0]
+                # First try exact match
+                exact_match = self.runner.orchestrator.runs_dir / dataset_name
+                if exact_match.exists() and exact_match.is_dir():
+                    return exact_match
+                # Then try pattern match (for legacy directories with date prefix)
                 matching_dirs = sorted(
                     self.runner.orchestrator.runs_dir.glob(f"*_{dataset_name}"),
                     key=lambda p: p.stat().st_mtime,
