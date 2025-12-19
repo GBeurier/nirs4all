@@ -29,7 +29,7 @@ class WorkspaceExporter:
         self,
         pipeline_dir: Path,
         dataset_name: str,
-        run_date: str,
+        run_date: str = None,
         custom_name: Optional[str] = None
     ) -> Path:
         """Export full pipeline results to flat structure.
@@ -37,7 +37,7 @@ class WorkspaceExporter:
         Args:
             pipeline_dir: Path to pipeline (NNNN_hash/)
             dataset_name: Dataset name
-            run_date: Run date (YYYYMMDD)
+            run_date: Run date (YYYYMMDD) - deprecated, kept for compatibility
             custom_name: Optional custom name for export
 
         Returns:
@@ -51,7 +51,7 @@ class WorkspaceExporter:
         if custom_name:
             export_name = f"{custom_name}_{pipeline_id}"
         else:
-            export_name = f"{dataset_name}_{run_date}_{pipeline_id}"
+            export_name = f"{dataset_name}_{pipeline_id}"
 
         export_path = self.exports_dir / export_name
 
@@ -64,8 +64,8 @@ class WorkspaceExporter:
         self,
         predictions_file: Path,
         dataset_name: str,
-        run_date: str,
-        pipeline_id: str,
+        run_date: str = None,
+        pipeline_id: str = None,
         custom_name: Optional[str] = None
     ) -> Path:
         """Export predictions CSV to best_predictions/ folder.
@@ -73,7 +73,7 @@ class WorkspaceExporter:
         Args:
             predictions_file: Path to predictions.csv
             dataset_name: Dataset name
-            run_date: Run date
+            run_date: Run date - deprecated, kept for compatibility
             pipeline_id: Pipeline identifier
             custom_name: Optional custom name for export
 
@@ -86,9 +86,9 @@ class WorkspaceExporter:
         best_dir.mkdir(parents=True, exist_ok=True)
 
         if custom_name:
-            csv_name = f"{custom_name}_{pipeline_id}.csv"
+            csv_name = f"{custom_name}_{pipeline_id}.csv" if pipeline_id else f"{custom_name}.csv"
         else:
-            csv_name = f"{dataset_name}_{run_date}_{pipeline_id}.csv"
+            csv_name = f"{dataset_name}_{pipeline_id}.csv" if pipeline_id else f"{dataset_name}.csv"
 
         dest_path = best_dir / csv_name
 
@@ -137,14 +137,16 @@ class WorkspaceExporter:
         exports_dir = self.exports_dir / dataset_name
         exports_dir.mkdir(parents=True, exist_ok=True)
 
-        # Get run date from run directory name
-        run_dirs = list(runs_dir.glob(f"*_{dataset_name}"))
-        if not run_dirs:
-            logger.warning(f"No run directory found for dataset '{dataset_name}'")
-            return None
-
-        run_dir = run_dirs[-1]  # Get most recent run
-        run_date = run_dir.name.split('_')[0]
+        # Find run directory - now just the dataset name (no date prefix)
+        run_dir = runs_dir / dataset_name
+        if not run_dir.exists():
+            # Fallback: try legacy format with date prefix (YYYY-MM-DD_dataset)
+            legacy_dirs = list(runs_dir.glob(f"*_{dataset_name}"))
+            if legacy_dirs:
+                run_dir = legacy_dirs[-1]  # Get most recent
+            else:
+                logger.warning(f"No run directory found for dataset '{dataset_name}'")
+                return None
 
         # Find the pipeline directory
         config_name = best['config_name']
@@ -159,7 +161,7 @@ class WorkspaceExporter:
             return None
 
         # Export predictions
-        pred_filename = f"{run_date}_{best['model_name']}_predictions.csv"
+        pred_filename = f"{best['model_name']}_predictions.csv"
         pred_path = exports_dir / pred_filename
         Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], pred_path)
         logger.success(f"Exported predictions: {pred_path}")
@@ -167,14 +169,14 @@ class WorkspaceExporter:
         # Export pipeline config
         pipeline_json = pipeline_dir / "pipeline.json"
         if pipeline_json.exists():
-            config_filename = f"{run_date}_{best['model_name']}_pipeline.json"
+            config_filename = f"{best['model_name']}_pipeline.json"
             config_path = exports_dir / config_filename
             shutil.copy(pipeline_json, config_path)
             logger.success(f"Exported pipeline config: {config_path}")
 
         # Export charts if they exist
         for chart_file in pipeline_dir.glob("*.png"):
-            chart_filename = f"{run_date}_{best['model_name']}_{chart_file.name}"
+            chart_filename = f"{best['model_name']}_{chart_file.name}"
             chart_path = exports_dir / chart_filename
             shutil.copy(chart_file, chart_path)
             logger.success(f"Exported chart: {chart_path}")
@@ -211,10 +213,9 @@ class WorkspaceExporter:
             "test_score": best.get('test_score'),
             "val_score": best.get('val_score'),
             "export_date": datetime.now().isoformat(),
-            "export_mode": mode,
-            "run_date": run_date
+            "export_mode": mode
         }
-        summary_path = exports_dir / f"{run_date}_{best['model_name']}_summary.json"
+        summary_path = exports_dir / f"{best['model_name']}_summary.json"
         with open(summary_path, 'w') as f:
             json.dump(summary, f, indent=2)
         logger.success(f"Exported summary: {summary_path}")

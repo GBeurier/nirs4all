@@ -104,13 +104,12 @@ class ManifestManager:
         Initialize manifest manager.
 
         Args:
-            results_dir: Path to run directory (workspace/runs/YYYY-MM-DD_dataset/)
+            results_dir: Path to run directory (workspace/runs/<dataset>/)
         """
         self.results_dir = Path(results_dir)
         self.artifacts_dir = self.results_dir / "_binaries"
-
-        # Ensure directories exist
-        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+        # Note: _binaries directory is created lazily when artifacts are actually saved
+        # to avoid empty _binaries folders
 
     def create_pipeline(
         self,

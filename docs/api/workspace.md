@@ -1,8 +1,8 @@
 # Workspace Architecture - User-Friendly Design
 
-**Version**: 3.2 (Final Design)
-**Date**: October 23, 2025
-**Status**: Approved - Ready for Implementation
+**Version**: 3.3 (Updated)
+**Date**: December 19, 2025
+**Status**: Implemented
 
 ---
 
@@ -14,10 +14,11 @@ This architecture prioritizes **user-friendliness** and **practical daily use** 
 
 ✅ **Shallow structure** - Maximum 3 levels deep
 ✅ **Sequential numbering** - Easy browsing, clear execution order
-✅ **Fast access** - Best results in dedicated `best_predictions/` folders
+✅ **Dataset-centric runs** - All pipelines for a dataset in one folder (no date prefix)
+✅ **Fast access** - Best results as single `best_<pipeline>.csv` file per dataset
 ✅ **No broken links** - Catalog stores copies, not references
 ✅ **Split Parquet storage** - Metadata separate from arrays for fast filtering
-✅ **Content-addressed binaries** - Deduplication within runs (hidden in `_binaries/`)
+✅ **Content-addressed binaries** - Deduplication within runs (lazy creation in `_binaries/`)
 ✅ **Library flexibility** - Three types: filtered, full pipeline, full run
 
 ### Integration with Existing Code
@@ -25,7 +26,7 @@ This architecture prioritizes **user-friendliness** and **practical daily use** 
 This architecture **extends** existing nirs4all components:
 
 - **ManifestManager** (`pipeline/manifest_manager.py`) - Extended for sequential numbering per run
-- **SimulationSaver** (`pipeline/io.py`) - Updated to `runs/date_dataset/NNNN_hash/` structure with export methods
+- **SimulationSaver** (`pipeline/io.py`) - Updated to `runs/<dataset>/NNNN_hash/` structure with export methods
 - **Predictions** (`dataset/predictions.py`) - Extended with split Parquet storage and catalog/query methods
 - **PipelineRunner** (`pipeline/runner.py`) - Minimal changes, uses new workspace coordination
 
@@ -40,58 +41,47 @@ workspace/
 │
 ├── runs/                                          # Experimental runs
 │   │
-│   ├── 2024-10-23_wheat_sample1_baseline/        # Date + dataset + custom run name
+│   ├── wheat_sample1/                            # Dataset name only (no date prefix)
 │   │   │
-│   │   ├── run_config.json                       # Session metadata
-│   │   ├── run_summary.json                      # Aggregated results
-│   │   ├── run.log                               # Execution log
+│   │   ├── best_0042_pls_baseline_x9y8z7.csv    # Best prediction (replaced on better score)
 │   │   │
-│   │   ├── _binaries/                            # Shared artifacts (underscore = hidden)
+│   │   ├── _binaries/                            # Shared artifacts (created only when needed)
 │   │   │   ├── scaler_abc123.pkl                 # Custom name if provided
 │   │   │   ├── PLSRegression_def456.pkl          # No custom name provided
 │   │   │   └── svm_classifier_ghi789.pkl
 │   │   │
 │   │   ├── 0001_pls_baseline_a1b2c3/             # Pipeline: number + custom name + hash
 │   │   │   ├── pipeline.json
+│   │   │   ├── manifest.yaml
 │   │   │   ├── metrics.json
-│   │   │   ├── predictions.csv
-│   │   │   ├── chart_predictions.png
-│   │   │   ├── chart_residuals.png
-│   │   │   └── chart_feature_importance.png
+│   │   │   └── folds_*.csv
 │   │   │
 │   │   ├── 0002_b2c3d4/                          # No custom name
 │   │   ├── 0003_c3d4e5/
 │   │   └── ...                                   # Up to 150+ pipelines
 │   │
-│   ├── 2024-10-23_corn_samples_exploratory/      # Another dataset same day (custom run name)
+│   ├── corn_samples/                             # Another dataset
+│   │   ├── best_0088_svm_opt_m5n6o7.csv
 │   │   ├── _binaries/
 │   │   ├── 0001_svm_opt_x1y2z3/
 │   │   └── ...
 │   │
-│   └── 2024-10-25_wheat_sample1_production/      # Same dataset, different day (custom run name)
+│   └── wheat_sample2/                            # Different dataset
 │       └── ...
 │
 ├── exports/                                       # Best results (fast access)
 │   │
-│   ├── wheat_sample1_2024-10-23_best_pls_x9y8z7/  # Dataset + date + custom name + hash
-│   │   ├── pipeline.json                         # Winning pipeline config
-│   │   ├── metrics.json                          # Best scores
-│   │   ├── predictions.csv                       # Best predictions
-│   │   ├── chart_predictions.png
-│   │   ├── chart_residuals.png
-│   │   └── chart_feature_importance.png
-│   │
-│   ├── wheat_sample1_2024-10-25_0015_a3b4c5/    # New best from later run with no custom name
-│   ├── corn_samples_2024-10-23_0088_m5n6o7/
+│   ├── wheat_sample1/                            # Dataset-based exports
+│   │   ├── PLSRegression_predictions.csv
+│   │   ├── PLSRegression_pipeline.json
+│   │   └── PLSRegression_summary.json
 │   │
 │   ├── best_predictions/                         # Quick access to just predictions
-│   │   ├── wheat_sample1_2024-10-23_best_pls_x9y8z7.csv
-│   │   ├── wheat_sample1_2024-10-25_nn_v2_a3b4c5.csv
-│   │   └── corn_samples_2024-10-23_ensemble_m5n6o7.csv
+│   │   ├── wheat_sample1_0042_x9y8z7.csv
+│   │   └── corn_samples_0088_m5n6o7.csv
 │   │
 │   └── session_reports/                          # HTML summaries
-│       ├── 2024-10-23_wheat_sample1.html
-│       └── 2024-10-23_corn_samples.html
+│       └── wheat_sample1.html
 │
 ├── library/                                       # Reusable pipelines
 │   │

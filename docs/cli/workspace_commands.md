@@ -71,14 +71,11 @@ nirs4all workspace list-runs --workspace my_workspace
 ```
 Found 3 run(s):
 
-  2024-10-24_wheat_sample1_baseline
+  wheat_sample1_baseline
     Dataset: wheat
-    Date: 2024-10-24
-    Custom name: sample1_baseline
 
-  2024-10-23_corn_sample1
+  corn_sample1
     Dataset: corn
-    Date: 2024-10-23
 ```
 
 ---

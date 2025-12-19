@@ -248,9 +248,9 @@ class ArtifactRegistry:
         self.manifest_manager = manifest_manager
         self.pipeline_id = pipeline_id
 
-        # Centralized binaries directory
+        # Centralized binaries directory - created lazily when artifacts are saved
         self.binaries_dir = get_binaries_path(self.workspace, dataset)
-        self.binaries_dir.mkdir(parents=True, exist_ok=True)
+        # Note: Directory is created in _ensure_binaries_dir() when first artifact is saved
 
         # In-memory registries
         self._artifacts: Dict[str, ArtifactRecord] = {}
@@ -380,7 +380,8 @@ class ArtifactRegistry:
             )
             path = filename
 
-            # Write to binaries directory
+            # Write to binaries directory (create lazily if needed)
+            self.binaries_dir.mkdir(parents=True, exist_ok=True)
             artifact_path = self.binaries_dir / filename
             if not artifact_path.exists():
                 artifact_path.write_bytes(content)
@@ -595,7 +596,8 @@ class ArtifactRegistry:
             )
             path = filename
 
-            # Write to binaries directory
+            # Write to binaries directory (create lazily if needed)
+            self.binaries_dir.mkdir(parents=True, exist_ok=True)
             artifact_path = self.binaries_dir / filename
             if not artifact_path.exists():
                 artifact_path.write_bytes(content)
