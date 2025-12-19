@@ -70,3 +70,5 @@ examples/sample_data/redox/
 
 bench/nirs4all_logo.png
 bench/wk/
+*.log
+logs/

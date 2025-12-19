@@ -920,7 +920,12 @@ class BaseModelController(OperatorController, ABC):
                     print(f"Training model {identifiers.name} with: {best_params}...")
                 model = self._get_model_instance(dataset, model_config, force_params=best_params)
             else:
-                base_model = self._get_model_instance(dataset, model_config)
+                # Support model_params for customizing NN architecture at training time
+                model_params = model_config.get('model_params', {})
+                if model_params:
+                    base_model = self._get_model_instance(dataset, model_config, force_params=model_params)
+                else:
+                    base_model = self._get_model_instance(dataset, model_config)
                 model = self._clone_model(base_model)
 
             # === 3. TRAIN MODEL ===
