@@ -324,20 +324,20 @@ def main():
 
 {workspace_path}/
 ├── runs/                       # All experimental runs
-│   └── YYYY-MM-DD_dataset/    # Date-prefixed run directories
+│   └── <dataset>/             # Dataset folder (no date prefix)
 │       ├── 0001_name_hash/    # Sequential numbered pipelines
 │       │   ├── pipeline.json
 │       │   ├── Report_best_<pipeline_id>_<model>_<pred_id>.csv
 │       │   └── folds_*.csv
-│       ├── _binaries/         # Shared binaries (PLSRegression_abc123.joblib)
-│       └── Best_prediction_<pipeline_id>_<model>_<pred_id>.csv  # Best in run root
+│       ├── _binaries/         # Shared binaries (created only when needed)
+│       └── best_<pipeline_folder>.csv  # Best prediction (replaced on better score)
 │
 ├── exports/                    # Best results per dataset (ONE CALL!)
 │   └── <dataset_name>/        # runner.export_best_for_dataset()
-│       ├── YYYY-MM-DD_<model>_predictions.csv
-│       ├── YYYY-MM-DD_<model>_pipeline.json
-│       ├── YYYY-MM-DD_<model>_summary.json
-│       └── YYYY-MM-DD_<model>_*.png  # Charts
+│       ├── <model>_predictions.csv
+│       ├── <model>_pipeline.json
+│       ├── <model>_summary.json
+│       └── <model>_*.png  # Charts
 │
 ├── library/                    # Managed by LibraryManager
 │   ├── templates/             # Pipeline configs (save_template)
@@ -358,8 +358,8 @@ def main():
 Key nirs4all API Features Demonstrated:
 • runner.export_best_for_dataset(): ONE CALL to export best results!
 • LibraryManager: Automatically extracts and stores n_features in metadata
-• Clean filenames: No redundant date/time prefixes
-• Proper structure: Dataset folders in exports, metadata with compatibility info
+• Dataset-centric runs: Simple folder structure without date prefixes
+• Best prediction replacement: Only one best_*.csv per dataset (replaced on better score)
 """)
 
     print(f"\n📁 Workspace created at: {workspace_path.absolute()}")

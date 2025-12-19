@@ -1,5 +1,4 @@
 """Pipeline orchestrator for coordinating multiple pipeline executions."""
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -155,9 +154,9 @@ class PipelineOrchestrator:
 
         # Execute for each dataset
         for config, name in dataset_configs.configs:
-            # Create run directory: workspace/runs/YYYY-MM-DD_dataset/
-            date_str = datetime.now().strftime("%Y-%m-%d")
-            current_run_dir = self.runs_dir / f"{date_str}_{name}"
+            # Create run directory: workspace/runs/<dataset>/
+            # All pipelines for a dataset go in the same folder regardless of date
+            current_run_dir = self.runs_dir / name
             current_run_dir.mkdir(parents=True, exist_ok=True)
 
             # Create artifact registry for this dataset (v2 artifact system)
@@ -452,7 +451,11 @@ class PipelineOrchestrator:
         dataset_prediction_path: Path,
         saver: SimulationSaver
     ):
-        """Print and save best predictions for a dataset."""
+        """Print and save best predictions for a dataset.
+
+        Saves best prediction as 'best_<pipeline_folder_name>.csv' in the run directory.
+        Replaces existing best if the new score is better.
+        """
         if run_dataset_predictions.num_predictions > 0:
             # Use None for ascending to let ranker infer from metric
             best = run_dataset_predictions.get_best(
@@ -471,9 +474,41 @@ class PipelineOrchestrator:
             if self.save_artifacts:
                 # Only save predictions if there's actual prediction data
                 if best.get("y_pred") is not None and len(best["y_pred"]) > 0:
-                    prediction_name = f"Best_prediction_{best['config_name']}_{best['model_name']}_{best['id']}.csv"
+                    # Get the pipeline folder name from config_name (e.g., "0001_pls_baseline_abc123")
+                    pipeline_folder = best.get('config_name', 'unknown')
+                    prediction_name = f"best_{pipeline_folder}.csv"
                     prediction_path = saver.base_path / prediction_name
-                    Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
+
+                    # Check if we should replace existing best prediction
+                    should_save = True
+                    existing_best_files = list(saver.base_path.glob("best_*.csv"))
+
+                    if existing_best_files:
+                        # There's already a best prediction - check if new one is better
+                        # Compare using test_score (lower is better for regression metrics like RMSE)
+                        current_score = best.get('test_score')
+                        if current_score is not None:
+                            # Get best from global predictions to compare properly
+                            global_best = global_dataset_predictions.get_best(ascending=None)
+                            global_best_score = global_best.get('test_score') if global_best else None
+
+                            if global_best_score is not None:
+                                # Determine if lower is better based on task type
+                                is_regression = best.get('task', 'regression') == 'regression'
+                                if is_regression:
+                                    # Lower score is better (RMSE, MAE, etc.)
+                                    should_save = current_score <= global_best_score
+                                else:
+                                    # Higher score is better (accuracy, F1, etc.)
+                                    should_save = current_score >= global_best_score
+
+                        if should_save:
+                            # Remove old best prediction files
+                            for old_file in existing_best_files:
+                                old_file.unlink()
+
+                    if should_save:
+                        Predictions.save_predictions_to_csv(best["y_true"], best["y_pred"], prediction_path)
 
         if global_dataset_predictions.num_predictions > 0:
             global_dataset_predictions.save_to_file(dataset_prediction_path)

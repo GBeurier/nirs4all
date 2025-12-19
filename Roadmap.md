@@ -2,8 +2,6 @@
 
 **Features**:
 
-> [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
-
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 > [TabReport] include > aggregated
 
@@ -24,6 +22,8 @@
 **Bugs**:
 >   - Branch diagram are out
 >   - [Charts] check dataviz. Missing histograms, inverted heatmap color scale, --> Branching ?
+
+> [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
 
 **Review**:
 > [Predict_Transfer] Review
@@ -54,7 +54,7 @@
 >   - [Predict] Q5_predict is slow as hell
 >   - [LightGBM] [Warning] No further splits with positive gain, best gain: -inf   >> look if parameters is passed on cloning (maybe there is a hidden bug)
 
-> [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
+
 
 > [Pipeline_Bundle] Change / edit pipeline step
 

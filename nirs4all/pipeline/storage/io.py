@@ -305,23 +305,23 @@ class SimulationSaver:
         Register pipeline in workspace structure with optional custom names.
 
         Creates:
-        - Without custom names: workspace_root/runs/{date}_{dataset}/NNNN_{hash}/
-        - With run_name: workspace_root/runs/{date}_{dataset}_{runname}/NNNN_{hash}/
-        - With pipeline_name: workspace_root/runs/{date}_{dataset}/NNNN_{pipelinename}_{hash}/
-        - With both: workspace_root/runs/{date}_{dataset}_{runname}/NNNN_{pipelinename}_{hash}/
+        - Without custom names: workspace_root/runs/{dataset}/NNNN_{hash}/
+        - With run_name: workspace_root/runs/{dataset}_{runname}/NNNN_{hash}/
+        - With pipeline_name: workspace_root/runs/{dataset}/NNNN_{pipelinename}_{hash}/
+        - With both: workspace_root/runs/{dataset}_{runname}/NNNN_{pipelinename}_{hash}/
+
+        All pipelines for a dataset are stored in the same folder regardless of date.
 
         Returns:
             Full path to pipeline directory
         """
         from datetime import datetime
 
-        run_date = datetime.now().strftime("%Y-%m-%d")
-
-        # Build run_id with optional custom name
+        # Build run_id with optional custom name (no date prefix)
         if run_name:
-            run_id = f"{run_date}_{dataset_name}_{run_name}"
+            run_id = f"{dataset_name}_{run_name}"
         else:
-            run_id = f"{run_date}_{dataset_name}"
+            run_id = dataset_name
         run_dir = workspace_root / "runs" / run_id
 
         # Count existing pipelines for sequential numbering
@@ -340,9 +340,8 @@ class SimulationSaver:
             pipeline_id = f"{pipeline_num:04d}_{pipeline_hash}"
         pipeline_dir = run_dir / pipeline_id
 
-        # Create structure
+        # Create pipeline directory only (not _binaries - created lazily when artifacts are saved)
         pipeline_dir.mkdir(parents=True, exist_ok=True)
-        (run_dir / "_binaries").mkdir(exist_ok=True)
 
         # Update internal state to use this directory
         self.dataset_name = dataset_name
