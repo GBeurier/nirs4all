@@ -85,7 +85,7 @@ pipeline_config = PipelineConfigs(pipeline)
 dataset_config = DatasetConfigs(['sample_data/multi'])
 
 # Run pipeline with model saving enabled
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 
@@ -134,7 +134,7 @@ print("-" * 80)
 # Test model reuse with same dataset
 print("=" * 80)
 print("--- Predict with saved model ID ---")
-predictor = PipelineRunner(save_files=False, verbose=0)
+predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 test_dataset_config = DatasetConfigs({'X_test': ['sample_data/multi/Xval_1.csv.gz', 'sample_data/multi/Xval_2.csv.gz', 'sample_data/multi/Xval_3.csv.gz']})
 
 print(f"Using model ID: [{model_id}] in {best_prediction['config_name']}")

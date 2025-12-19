@@ -36,12 +36,12 @@ class TestSavingMechanism:
         pipeline_config = PipelineConfigs(pipeline, "saving_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        # Create runner with save_files=True
+        # Create runner with save_artifacts=True
         # We need a temp workspace for the runner to avoid cluttering the real workspace
         with tempfile.TemporaryDirectory() as temp_workspace:
             runner = PipelineRunner(
                 workspace_path=temp_workspace,
-                save_files=True,
+                save_artifacts=True,
                 verbose=0,
                 plots_visible=False
             )
@@ -92,7 +92,7 @@ class TestSavingMechanism:
         with tempfile.TemporaryDirectory() as temp_workspace:
             runner = PipelineRunner(
                 workspace_path=temp_workspace,
-                save_files=True,
+                save_artifacts=True,
                 verbose=0,
                 plots_visible=False
             )
@@ -127,7 +127,7 @@ class TestSavingMechanism:
         with tempfile.TemporaryDirectory() as temp_workspace:
             runner = PipelineRunner(
                 workspace_path=temp_workspace,
-                save_files=True,
+                save_artifacts=True,
                 verbose=0,
                 plots_visible=False
             )
@@ -159,7 +159,7 @@ class TestSavingMechanism:
         with tempfile.TemporaryDirectory() as temp_workspace:
             runner = PipelineRunner(
                 workspace_path=temp_workspace,
-                save_files=True,
+                save_artifacts=True,
                 verbose=0,
                 plots_visible=False
             )
@@ -196,7 +196,7 @@ class TestSavingMechanism:
         with tempfile.TemporaryDirectory() as temp_workspace:
             runner = PipelineRunner(
                 workspace_path=temp_workspace,
-                save_files=True,
+                save_artifacts=True,
                 verbose=0,
                 plots_visible=False
             )

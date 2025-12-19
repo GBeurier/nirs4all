@@ -54,7 +54,7 @@ class TestBasicPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_simple_pls")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_config)
 
         # Verify we got predictions
@@ -88,7 +88,7 @@ class TestBasicPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_multiple_models")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from multiple models
@@ -118,7 +118,7 @@ class TestBasicPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_preprocessing")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0
@@ -151,7 +151,7 @@ class TestBasicPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_feature_augmentation")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have multiple predictions from different augmentations
@@ -176,7 +176,7 @@ class TestBasicPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_y_processing")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0
@@ -212,7 +212,7 @@ class TestBasicPipelineIntegration:
             pipeline_config = PipelineConfigs(pipeline, f"test_{model.__class__.__name__}")
             dataset_config = DatasetConfigs(dataset_folder)
 
-            runner = PipelineRunner(save_files=False, verbose=0)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             assert predictions.num_predictions > 0, f"No predictions for {model.__class__.__name__}"
@@ -236,7 +236,7 @@ class TestBasicPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_analyzer")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Test PredictionAnalyzer creation
@@ -267,7 +267,7 @@ class TestBasicPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_invalid_model")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, continue_on_error=True)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, continue_on_error=True)
 
         # This might raise an error or return empty predictions
         # The exact behavior depends on the implementation
@@ -291,7 +291,7 @@ class TestBasicPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_minimal")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0
@@ -311,7 +311,7 @@ class TestBasicPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_charts")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should still work despite chart operations

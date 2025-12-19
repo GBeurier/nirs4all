@@ -179,7 +179,7 @@ pipeline_config = PipelineConfigs(pipeline, name="MyPipeline")
 dataset_config = DatasetConfigs("path/to/your/data")
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1)
 predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_config)
 
 # Analyze results
@@ -223,7 +223,7 @@ for n_comp in range(5, 31, 5):
 
 # Run and analyze
 pipeline_config = PipelineConfigs(pipeline, "AdvancedPipeline")
-runner = PipelineRunner(save_files=False)
+runner = PipelineRunner(save_artifacts=False, save_charts=False)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 ```
 
@@ -251,7 +251,7 @@ pipeline = [
 ]
 
 pipeline_config = PipelineConfigs(pipeline, "NeuralNetworkPipeline")
-runner = PipelineRunner(save_files=False, verbose=1)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Compare neural network with traditional models
@@ -284,7 +284,7 @@ pipeline = [
 ]
 
 pipeline_config = PipelineConfigs(pipeline, "OptimizedPipeline")
-runner = PipelineRunner(save_files=False, verbose=1)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Get the best optimized model

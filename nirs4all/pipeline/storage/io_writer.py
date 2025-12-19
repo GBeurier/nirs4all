@@ -11,15 +11,15 @@ class PipelineWriter:
     Focused responsibility: File I/O operations for a single pipeline.
     """
 
-    def __init__(self, pipeline_dir: Path, save_files: bool = True):
+    def __init__(self, pipeline_dir: Path, save_charts: bool = True):
         """Initialize writer for a specific pipeline directory.
 
         Args:
             pipeline_dir: Directory for this pipeline
-            save_files: Whether to actually save files (can disable for dry runs)
+            save_charts: Whether to save charts and visual outputs
         """
         self.pipeline_dir = Path(pipeline_dir)
-        self.save_files = save_files
+        self.save_charts = save_charts
 
     def save_file(
         self,
@@ -97,9 +97,9 @@ class PipelineWriter:
             extension: File extension (e.g., ".png", ".csv", ".txt")
 
         Returns:
-            Path to saved file, or None if save_files=False
+            Path to saved file, or None if save_charts=False
         """
-        if not self.save_files:
+        if not self.save_charts:
             return None
 
         # Create filename

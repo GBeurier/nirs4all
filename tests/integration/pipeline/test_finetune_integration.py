@@ -62,7 +62,7 @@ class TestFinetuneIntegration:
         pipeline_config = PipelineConfigs(pipeline, "finetune_basic_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from finetuned model
@@ -104,7 +104,7 @@ class TestFinetuneIntegration:
         pipeline_config = PipelineConfigs(pipeline, "finetune_augmentation_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from multiple augmentation + finetuning combinations
@@ -140,7 +140,7 @@ class TestFinetuneIntegration:
             pipeline_config = PipelineConfigs(pipeline, f"finetune_{sample_strategy}_test")
             dataset_config = DatasetConfigs(dataset_folder)
 
-            runner = PipelineRunner(save_files=False, verbose=0)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             assert predictions.num_predictions > 0
@@ -176,7 +176,7 @@ class TestFinetuneIntegration:
         pipeline_config = PipelineConfigs(pipeline, "finetune_comparison_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from all models
@@ -228,7 +228,7 @@ class TestFinetuneIntegration:
         pipeline_config = PipelineConfigs(pipeline, "finetune_tf_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0
@@ -263,7 +263,7 @@ class TestFinetuneIntegration:
             pipeline_config = PipelineConfigs(pipeline, f"finetune_eval_{eval_mode}_test")
             dataset_config = DatasetConfigs(dataset_folder)
 
-            runner = PipelineRunner(save_files=False, verbose=0)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             assert predictions.num_predictions > 0

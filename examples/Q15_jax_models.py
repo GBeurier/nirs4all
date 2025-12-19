@@ -65,7 +65,7 @@ pipeline_reg = [
     ]
 ]
 
-runner = PipelineRunner(save_files=True, verbose=0, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=True, verbose=0, plots_visible=args.plots)
 preds_reg, _ = runner.run(PipelineConfigs(pipeline_reg), DatasetConfigs(data_path_reg))
 print("Top Regression Models:")
 print(preds_reg.top(1))

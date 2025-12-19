@@ -54,7 +54,7 @@ class TestPCAAnalysisIntegration:
         pipeline_config = PipelineConfigs(pipeline, "PCA_eval_test")
         dataset_config = DatasetConfigs(data_paths)
 
-        runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, keep_datasets=True, plots_visible=False)
         predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
         # Get datasets for PCA analysis
@@ -91,7 +91,7 @@ class TestPCAAnalysisIntegration:
         pipeline_config = PipelineConfigs(pipeline, "PCA_metrics_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, keep_datasets=True, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         datasets_raw = runner.raw_data
@@ -122,7 +122,7 @@ class TestPCAAnalysisIntegration:
         pipeline_config = PipelineConfigs(pipeline, "cross_dataset_test")
         dataset_config = DatasetConfigs(data_paths)
 
-        runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, keep_datasets=True, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         datasets_raw = runner.raw_data
@@ -149,7 +149,7 @@ class TestPCAAnalysisIntegration:
         pipeline_config = PipelineConfigs(pipeline, "minimal_pca_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=True, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, keep_datasets=True, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         datasets_raw = runner.raw_data
@@ -175,7 +175,7 @@ class TestPCAAnalysisIntegration:
         dataset_config = DatasetConfigs(dataset_folder)
 
         # Run without keep_datasets=True
-        runner = PipelineRunner(save_files=False, verbose=0, keep_datasets=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, keep_datasets=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # raw_data and pp_data should not be accessible or should be None/empty

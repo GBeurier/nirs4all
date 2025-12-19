@@ -81,7 +81,7 @@ The `.n4a` bundle stores the complete execution trace, enabling accurate replay 
 ```python
 from nirs4all.pipeline import PipelineRunner
 
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 
 # Train your pipeline
 predictions, _ = runner.run(pipeline_config, dataset_config)

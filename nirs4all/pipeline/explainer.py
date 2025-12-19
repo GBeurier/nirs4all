@@ -113,7 +113,7 @@ class Explainer:
             # Setup saver and manifest
             config, name = dataset_config.configs[0]
             run_dir = self._get_run_dir_from_prediction(prediction_obj)
-            self.saver = SimulationSaver(run_dir, save_files=self.runner.save_files)
+            self.saver = SimulationSaver(run_dir, save_artifacts=self.runner.save_artifacts, save_charts=self.runner.save_charts)
             self.manifest_manager = ManifestManager(run_dir)
 
             # Load pipeline
@@ -142,7 +142,8 @@ class Explainer:
                 .with_run_directory(run_dir)
                 .with_verbose(verbose)
                 .with_mode("explain")
-                .with_save_files(self.runner.save_files)
+                .with_save_artifacts(self.runner.save_artifacts)
+                .with_save_charts(self.runner.save_charts)
                 .with_continue_on_error(self.runner.continue_on_error)
                 .with_show_spinner(self.runner.show_spinner)
                 .with_plots_visible(plots_visible)

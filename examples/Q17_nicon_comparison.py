@@ -51,7 +51,7 @@ for fw, m in models.items():
         'name': f'nicon_{fw}'
     })
 
-runner_reg = PipelineRunner(save_files=False, verbose=0, plots_visible=args.plots)
+runner_reg = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=args.plots)
 preds_reg, _ = runner_reg.run(PipelineConfigs(pipeline_reg), DatasetConfigs(data_path_reg))
 print("Regression Results:")
 print(preds_reg)
@@ -78,7 +78,7 @@ for fw, m in models.items():
         'name': f'nicon_bin_{fw}'
     })
 
-runner_bin = PipelineRunner(save_files=False, verbose=0, plots_visible=args.plots)
+runner_bin = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=args.plots)
 preds_bin, _ = runner_bin.run(PipelineConfigs(pipeline_bin), DatasetConfigs(data_path_bin))
 print("Binary Classification Results:")
 print(preds_bin)
@@ -106,7 +106,7 @@ for fw, m in models.items():
         'name': f'nicon_multi_{fw}'
     })
 
-runner_clf = PipelineRunner(save_files=False, verbose=0, plots_visible=args.plots)
+runner_clf = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=args.plots)
 preds_clf, _ = runner_clf.run(PipelineConfigs(pipeline_clf), DatasetConfigs(data_path_clf))
 print("Multi-class Classification Results:")
 print(preds_clf)

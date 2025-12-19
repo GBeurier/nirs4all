@@ -149,7 +149,7 @@ def example1_basic_nm_pipeline():
         })
 
         # Run pipeline
-        runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Display results
@@ -200,7 +200,7 @@ def example2_nm_resampling():
             'params': {'header_unit': 'nm'}
         })
 
-        runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         if len(predictions) > 0:
@@ -246,7 +246,7 @@ def example3_mixed_cm1_and_nm():
             'params': {'header_unit': 'nm'}
         })
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=args.plots)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=args.plots)
         nm_predictions, _ = runner.run(pipeline_config, nm_config)
 
         if len(nm_predictions) > 0:
@@ -309,7 +309,7 @@ def example4_preprocessing_combinations():
             'params': {'header_unit': 'nm'}
         })
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=args.plots)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=args.plots)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Display top 5 models

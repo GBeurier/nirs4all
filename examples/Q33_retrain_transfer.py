@@ -115,7 +115,7 @@ def example_1_full_retrain():
     pipeline_config = PipelineConfigs(pipeline, "retrain_demo")
     dataset_config = DatasetConfigs(['sample_data/regression'])
 
-    runner = PipelineRunner(save_files=True, verbose=0)
+    runner = PipelineRunner(save_artifacts=True, verbose=0)
     original_predictions, _ = runner.run(pipeline_config, dataset_config)
 
     best_original = original_predictions.top(n=1, rank_partition="test")[0]
@@ -161,7 +161,7 @@ def example_2_transfer_mode(original_prediction):
     """
     print_section("Example 2: Transfer Mode - Reuse Preprocessing")
 
-    runner = PipelineRunner(save_files=True, verbose=0)
+    runner = PipelineRunner(save_artifacts=True, verbose=0)
 
     # Same data for demonstration (would be different in practice)
     new_dataset = DatasetConfigs(['sample_data/regression'])
@@ -227,7 +227,7 @@ def example_3_finetune_mode(original_prediction):
     """
     print_section("Example 3: Fine-tune Mode (Continue Training)")
 
-    runner = PipelineRunner(save_files=True, verbose=0)
+    runner = PipelineRunner(save_artifacts=True, verbose=0)
     new_dataset = DatasetConfigs(['sample_data/regression'])
 
     # Finetune with additional epochs (mainly for NN models)
@@ -268,7 +268,7 @@ def example_4_extract_and_modify(original_prediction):
     """
     print_section("Example 4: Extract and Modify Pipeline")
 
-    runner = PipelineRunner(save_files=True, verbose=0)
+    runner = PipelineRunner(save_artifacts=True, verbose=0)
 
     # Extract pipeline
     print_subsection("Extracting Pipeline")
@@ -342,7 +342,7 @@ def example_5_step_mode_control():
     pipeline_config = PipelineConfigs(pipeline, "step_control_demo")
     dataset_config = DatasetConfigs(['sample_data/regression'])
 
-    runner = PipelineRunner(save_files=True, verbose=0)
+    runner = PipelineRunner(save_artifacts=True, verbose=0)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     best_pred = predictions.top(n=1, rank_partition="test")[0]
@@ -412,7 +412,7 @@ def example_6_retrain_from_bundle():
     pipeline_config = PipelineConfigs(pipeline, "bundle_retrain_demo")
     dataset_config = DatasetConfigs(['sample_data/regression'])
 
-    runner = PipelineRunner(save_files=True, verbose=0)
+    runner = PipelineRunner(save_artifacts=True, verbose=0)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     best_pred = predictions.top(n=1, rank_partition="test")[0]
@@ -424,7 +424,7 @@ def example_6_retrain_from_bundle():
     # Retrain from bundle
     print_subsection("Retraining from Bundle")
 
-    new_runner = PipelineRunner(save_files=True, verbose=0)
+    new_runner = PipelineRunner(save_artifacts=True, verbose=0)
     new_dataset = DatasetConfigs(['sample_data/regression'])
 
     bundle_retrain_predictions, _ = new_runner.retrain(
@@ -472,7 +472,7 @@ def example_7_compare_modes():
     pipeline_config = PipelineConfigs(pipeline, "compare_modes")
     dataset_config = DatasetConfigs(['sample_data/regression'])
 
-    runner = PipelineRunner(save_files=True, verbose=0)
+    runner = PipelineRunner(save_artifacts=True, verbose=0)
     original_predictions, _ = runner.run(pipeline_config, dataset_config)
 
     best_original = original_predictions.top(n=1, rank_partition="test")[0]

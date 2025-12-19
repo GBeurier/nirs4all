@@ -74,7 +74,7 @@ def run_pipeline(name: str, pipeline_steps: list, description: str):
     pipeline_config = PipelineConfigs(pipeline_steps, name.lower().replace(" ", "_"))
     dataset_config = DatasetConfigs("sample_data/regression_2")
 
-    runner = PipelineRunner(save_files=False, verbose=0, plots_visible=display_pipeline_plots)
+    runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=display_pipeline_plots)
     predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
     # Show resulting processings

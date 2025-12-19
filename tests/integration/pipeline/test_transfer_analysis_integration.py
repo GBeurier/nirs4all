@@ -325,7 +325,7 @@ class TestPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_transfer_recommended")
         dataset_config = DatasetConfigs(source_path)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Verify predictions are valid
@@ -370,7 +370,7 @@ class TestPipelineIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_transfer_augmentation")
         dataset_config = DatasetConfigs(source_path)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0

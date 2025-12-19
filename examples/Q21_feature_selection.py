@@ -83,7 +83,7 @@ dataset_config = DatasetConfigs("sample_data/regression_3")
 pipeline_config = PipelineConfigs(cars_pipeline, name="CARS_Selection")
 
 # Run pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions_cars, _ = runner.run(pipeline_config, dataset_config)
 
 # Analyze results

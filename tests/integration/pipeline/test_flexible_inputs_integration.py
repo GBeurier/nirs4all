@@ -40,7 +40,7 @@ class TestFlexibleInputsIntegration:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
         pipeline_configs = PipelineConfigs(pipeline_steps, name="traditional")
         dataset_configs = DatasetConfigs({
@@ -67,7 +67,7 @@ class TestFlexibleInputsIntegration:
             {"model": Ridge(alpha=1.0)}
         ]
 
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
         # Direct tuple with partition info
         partition_info = {"train": 80}  # First 80 samples for training
@@ -92,7 +92,7 @@ class TestFlexibleInputsIntegration:
             ]
         }
 
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
         partition_info = {"train": 70}
         result = runner.run(
@@ -113,7 +113,7 @@ class TestFlexibleInputsIntegration:
             Ridge(alpha=1.0)
         ]
 
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
         # Need to provide at least train partition to avoid empty validation set
         result = runner.run(
@@ -134,7 +134,7 @@ class TestFlexibleInputsIntegration:
             Ridge(alpha=1.0)
         ]
 
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
         # Dict format with named partitions
         dataset_dict = {
@@ -165,7 +165,7 @@ class TestFlexibleInputsIntegration:
             Ridge(alpha=1.0)
         ]
 
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
         result = runner.run(
             pipeline=pipeline_steps,
@@ -183,7 +183,7 @@ class TestFlexibleInputsIntegration:
 
         pipeline = [Ridge(alpha=1.0)]
 
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
         result = runner.run(
             pipeline=pipeline,
@@ -204,7 +204,7 @@ class TestFlexibleInputsIntegration:
             Ridge(alpha=1.0)
         ]
 
-        runner = PipelineRunner(save_files=True, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=True, verbose=0, enable_tab_reports=False)
 
         # Provide partition info - without it, the system doesn't know how to split the data
         result = runner.run(
@@ -219,7 +219,7 @@ class TestFlexibleInputsIntegration:
         # Predict on new data
         X_new = X[80:]
 
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
         # Test prediction with numpy array
         try:
@@ -254,7 +254,7 @@ class TestFlexibleInputsIntegration:
             "test_y": y[70:]
         }
 
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
         result = runner.run(
             pipeline=pipeline,
@@ -282,7 +282,7 @@ class TestFlexibleInputsIntegration:
             "test_y": y[80:]
         })
 
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
         result = runner.run(pipeline_config, dataset_config)
 
         predictions, _ = result
@@ -293,7 +293,7 @@ class TestFlexibleInputsIntegration:
         X, y = sample_numpy_data
 
         pipeline = [Ridge(alpha=1.0)]
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
         # Mismatched shapes
         X_bad = X[:80]

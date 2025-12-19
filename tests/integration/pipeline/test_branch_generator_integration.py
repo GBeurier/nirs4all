@@ -43,7 +43,7 @@ class TestBranchGeneratorIntegration:
         return PipelineOrchestrator(
             workspace_path=tmp_path / "workspace",
             verbose=0,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             enable_tab_reports=False,
             show_spinner=False
         )
@@ -240,7 +240,7 @@ class TestBranchGeneratorWithCrossValidation:
         return PipelineOrchestrator(
             workspace_path=tmp_path / "workspace",
             verbose=0,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             enable_tab_reports=False,
             show_spinner=False
         )

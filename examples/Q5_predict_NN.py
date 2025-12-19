@@ -47,7 +47,7 @@ pipeline_config = PipelineConfigs(pipeline)
 dataset_config = DatasetConfigs(['sample_data/regression'])
 
 # Run pipeline with model saving enabled
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Get best performing model for prediction testing

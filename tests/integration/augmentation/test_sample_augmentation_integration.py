@@ -66,7 +66,7 @@ class TestSampleAugmentationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "standard_augmentation_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should complete without errors
@@ -98,7 +98,7 @@ class TestSampleAugmentationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "balanced_augmentation_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 0
@@ -134,7 +134,7 @@ class TestSampleAugmentationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "augmentation_classification_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0
@@ -157,7 +157,7 @@ class TestSampleAugmentationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "augmentation_leak_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Verify folds were created correctly
@@ -185,7 +185,7 @@ class TestSampleAugmentationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "quantile_binning_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 0
@@ -210,7 +210,7 @@ class TestSampleAugmentationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "sample_balancing_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 0

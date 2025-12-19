@@ -68,7 +68,7 @@ dataset_config = DatasetConfigs(data_path)
 # Run the pipeline
 # New logging parameters: log_file, log_format, use_unicode, use_colors, json_output
 runner = PipelineRunner(
-    save_files=True,
+    save_artifacts=True,
     verbose=1,  # INFO level - shows key milestones
     plots_visible=args.plots,
     # Logging options (new in Phase 4)

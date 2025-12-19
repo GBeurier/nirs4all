@@ -251,7 +251,7 @@ Using fill_value=0 for extrapolation.
    - Or use same grid to standardize across sources
 
 5. **Save resampled data**:
-   - The resampler parameters are automatically saved when using `save_files=True`
+   - The resampler parameters are automatically saved when using `save_artifacts=True`
    - This ensures consistent resampling in prediction mode
 
 ## Technical Details

@@ -57,7 +57,7 @@ class TestCriticalBehavior:
         # Run 1
         runner1 = PipelineRunner(
             workspace_path=tmp_path / "run1",
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             random_state=42
@@ -68,7 +68,7 @@ class TestCriticalBehavior:
         # Run 2
         runner2 = PipelineRunner(
             workspace_path=tmp_path / "run2",
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             random_state=42
@@ -89,7 +89,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -123,7 +123,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             keep_datasets=True
@@ -161,7 +161,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             keep_datasets=True
@@ -196,7 +196,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -236,7 +236,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -267,11 +267,11 @@ class TestCriticalBehavior:
         """
         CRITICAL: File saving must create proper directory structure.
 
-        When save_files=True, all required directories and files must be created.
+        When save_artifacts=True, all required directories and files must be created.
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False
         )
@@ -303,7 +303,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -336,7 +336,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -370,7 +370,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             continue_on_error=False
@@ -400,7 +400,7 @@ class TestCriticalBehavior:
 
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -429,7 +429,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -457,7 +457,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -480,7 +480,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -522,7 +522,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -552,7 +552,7 @@ class TestCriticalBehavior:
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             continue_on_error=True
@@ -574,7 +574,7 @@ class TestAPIStability:
 
     def test_run_method_signature(self):
         """CRITICAL: run() method signature must remain stable."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         # Check method exists and has expected parameters
         import inspect
@@ -592,14 +592,14 @@ class TestAPIStability:
 
     def test_predict_method_exists(self):
         """CRITICAL: predict() method must exist."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert hasattr(runner, 'predict')
         assert callable(runner.predict)
 
     def test_explain_method_exists(self):
         """CRITICAL: explain() method must exist."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert hasattr(runner, 'explain')
         assert callable(runner.explain)
@@ -608,7 +608,7 @@ class TestAPIStability:
         """CRITICAL: __init__ parameters must remain backward compatible."""
         # All these initializations must work
         runner1 = PipelineRunner()
-        runner2 = PipelineRunner(save_files=False)
+        runner2 = PipelineRunner(save_artifacts=False, save_charts=False)
         runner3 = PipelineRunner(verbose=1)
         runner4 = PipelineRunner(workspace_path=Path.cwd())
         runner5 = PipelineRunner(random_state=42)

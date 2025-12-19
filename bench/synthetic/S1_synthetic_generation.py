@@ -413,7 +413,7 @@ if args.pipeline:
     # Run pipeline
     print("  Running pipeline...")
     pipeline_config = PipelineConfigs(pipeline, "synthetic_test")
-    runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+    runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset)
 
     # Display results

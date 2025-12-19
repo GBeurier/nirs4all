@@ -147,7 +147,7 @@ Standard SHAP summary plot showing overall feature importance.
 from nirs4all.pipeline import PipelineRunner
 
 # Train model
-runner = PipelineRunner(save_files=True)
+runner = PipelineRunner(save_artifacts=True)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 best = predictions.top(n=1, rank_metric='rmse')[0]
 

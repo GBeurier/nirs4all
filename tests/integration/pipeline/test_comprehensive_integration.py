@@ -66,7 +66,7 @@ class TestNirs4allIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_q1_regression")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Verify predictions were generated
@@ -106,7 +106,7 @@ class TestNirs4allIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_q2_models")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from multiple models
@@ -143,7 +143,7 @@ class TestNirs4allIntegration:
             pipeline_config = PipelineConfigs(pipeline, f"test_{transform.__class__.__name__}")
             dataset_config = DatasetConfigs(dataset_folder)
 
-            runner = PipelineRunner(save_files=False, verbose=0)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             assert predictions.num_predictions > 0, f"No predictions for {transform.__class__.__name__}"
@@ -169,7 +169,7 @@ class TestNirs4allIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_q7_classification")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0
@@ -195,7 +195,7 @@ class TestNirs4allIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_native_classification")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0
@@ -233,7 +233,7 @@ class TestNirs4allIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_q3_multi")
         dataset_config = DatasetConfigs(dataset_paths)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, datasets_predictions = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from multiple datasets
@@ -265,7 +265,7 @@ class TestNirs4allIntegration:
             pipeline_config = PipelineConfigs(pipeline, f"test_y_proc_{y_proc.__class__.__name__}")
             dataset_config = DatasetConfigs(dataset_folder)
 
-            runner = PipelineRunner(save_files=False, verbose=0)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             assert predictions.num_predictions > 0
@@ -289,7 +289,7 @@ class TestNirs4allIntegration:
             pipeline_config = PipelineConfigs(pipeline, f"test_cv_{cv.__class__.__name__}")
             dataset_config = DatasetConfigs(dataset_folder)
 
-            runner = PipelineRunner(save_files=False, verbose=0)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             assert predictions.num_predictions > 0
@@ -309,7 +309,7 @@ class TestNirs4allIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_charts")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should work despite chart operations
@@ -327,7 +327,7 @@ class TestNirs4allIntegration:
         pipeline_config = PipelineConfigs(minimal_pipeline, "test_minimal")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0
@@ -350,7 +350,7 @@ class TestNirs4allIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_complex_augmentation")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have multiple predictions from different augmentations
@@ -377,7 +377,7 @@ class TestNirs4allIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_analysis")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Test Predictions functionality
@@ -425,7 +425,7 @@ class TestNirs4allIntegration:
             pipeline_config = PipelineConfigs(pipeline, f"test_{model.__class__.__name__}")
             dataset_config = DatasetConfigs(dataset_folder)
 
-            runner = PipelineRunner(save_files=False, verbose=0, continue_on_error=True)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, continue_on_error=True)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             assert predictions.num_predictions > 0, f"No predictions for {model.__class__.__name__}"
@@ -449,7 +449,7 @@ class TestNirs4allIntegration:
         pipeline_config = PipelineConfigs(pipeline, "test_error_handling")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, continue_on_error=True)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, continue_on_error=True)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should handle multiple models gracefully

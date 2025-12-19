@@ -87,7 +87,7 @@ dataset_config = DatasetConfigs([data_binary])
 # Run the pipeline
 # Logging configuration: verbose=1 shows INFO level (key milestones)
 runner = PipelineRunner(
-    save_files=False,
+    save_artifacts=False, save_charts=False,
     verbose=1,
     plots_visible=display_pipeline_plots,
     use_unicode=True,       # Use Unicode symbols

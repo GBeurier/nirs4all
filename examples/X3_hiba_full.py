@@ -384,7 +384,7 @@ pipeline_config = PipelineConfigs(pipeline, "Hiba")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 

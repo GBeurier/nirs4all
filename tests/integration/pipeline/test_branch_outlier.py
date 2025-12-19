@@ -69,7 +69,7 @@ class TestOutlierExcluderBasics:
         return PipelineOrchestrator(
             workspace_path=tmp_path / "workspace",
             verbose=0,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             enable_tab_reports=False,
             show_spinner=False
         )
@@ -190,7 +190,7 @@ class TestSamplePartitioner:
         return PipelineOrchestrator(
             workspace_path=tmp_path / "workspace",
             verbose=0,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             enable_tab_reports=False,
             show_spinner=False
         )
@@ -285,7 +285,7 @@ class TestOutlierBranchCombinations:
         return PipelineOrchestrator(
             workspace_path=tmp_path / "workspace",
             verbose=0,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             enable_tab_reports=False,
             show_spinner=False
         )
@@ -376,7 +376,7 @@ class TestOutlierBranchRoundtrip:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -446,7 +446,7 @@ class TestOutlierStrategies:
         return PipelineOrchestrator(
             workspace_path=tmp_path / "workspace",
             verbose=0,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             enable_tab_reports=False,
             show_spinner=False
         )

@@ -345,7 +345,7 @@ def run_pipeline_1(dataset_config, filtered_pp_list, aggregation_key):
     ]
 
     pipeline_config = PipelineConfigs(pipeline, "pipeline_1_pls_opls")
-    runner = PipelineRunner(workspace_path=WORKSPACE_PATH, save_files=True, verbose=0, plots_visible=False)
+    runner = PipelineRunner(workspace_path=WORKSPACE_PATH, save_artifacts=True, verbose=0, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     top_pp_list, best_n_components = get_best_pp_cp(
@@ -448,7 +448,7 @@ def run_pipeline_2(dataset_config, top3_pp, best_n_components, aggregation_key):
         pipeline.append({"model": LWPLS(n_components=best_n_components, backend='torch'), "name": "LWPLS"})
 
     pipeline_config = PipelineConfigs(pipeline, "pipeline_2_ensemble")
-    runner = PipelineRunner(workspace_path=WORKSPACE_PATH, save_files=True, verbose=0, plots_visible=False)
+    runner = PipelineRunner(workspace_path=WORKSPACE_PATH, save_artifacts=True, verbose=0, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset_config)
     return predictions
 
@@ -489,7 +489,7 @@ def run_pipeline_3(dataset_config, aggregation_key, top3_pp):
     ]
 
     pipeline_config = PipelineConfigs(pipeline, "pipeline_3_tabpfn")
-    runner = PipelineRunner(workspace_path=WORKSPACE_PATH, save_files=True, verbose=args.verbose, plots_visible=False)
+    runner = PipelineRunner(workspace_path=WORKSPACE_PATH, save_artifacts=True, verbose=args.verbose, plots_visible=False)
     predictions, _ = runner.run(pipeline_config, dataset_config)
     return predictions
 

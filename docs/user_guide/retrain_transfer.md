@@ -29,7 +29,7 @@ Train everything from scratch using the same pipeline structure:
 from nirs4all.pipeline import PipelineRunner
 from nirs4all.data import DatasetConfigs
 
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 
 # Train initial model
 predictions, _ = runner.run(pipeline_config, dataset_config)
@@ -316,8 +316,8 @@ finetune_preds, _ = runner.retrain(
 
 ```python
 # Error: Artifact not found
-# Solution: Ensure original model was trained with save_files=True
-runner = PipelineRunner(save_files=True, verbose=0)
+# Solution: Ensure original model was trained with save_artifacts=True
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 ```
 
 ### Feature Mismatch

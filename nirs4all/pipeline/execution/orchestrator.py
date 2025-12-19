@@ -34,7 +34,8 @@ class PipelineOrchestrator:
         runs_dir: Directory for storing runs
         verbose: Verbosity level
         mode: Execution mode (train/predict/explain)
-        save_files: Whether to save output files
+        save_artifacts: Whether to save binary artifacts
+        save_charts: Whether to save charts and visual outputs
         enable_tab_reports: Whether to generate tab reports
         keep_datasets: Whether to keep dataset snapshots
         plots_visible: Whether to display plots
@@ -45,7 +46,8 @@ class PipelineOrchestrator:
         workspace_path: Optional[Union[str, Path]] = None,
         verbose: int = 0,
         mode: str = "train",
-        save_files: bool = True,
+        save_artifacts: bool = True,
+        save_charts: bool = True,
         enable_tab_reports: bool = True,
         continue_on_error: bool = False,
         show_spinner: bool = True,
@@ -58,7 +60,8 @@ class PipelineOrchestrator:
             workspace_path: Workspace root directory
             verbose: Verbosity level
             mode: Execution mode (train/predict/explain)
-            save_files: Whether to save output files
+            save_artifacts: Whether to save binary artifacts
+            save_charts: Whether to save charts and visual outputs
             enable_tab_reports: Whether to generate tab reports
             continue_on_error: Whether to continue on errors
             show_spinner: Whether to show spinners
@@ -79,7 +82,8 @@ class PipelineOrchestrator:
         # Configuration
         self.verbose = verbose
         self.mode = mode
-        self.save_files = save_files
+        self.save_artifacts = save_artifacts
+        self.save_charts = save_charts
         self.enable_tab_reports = enable_tab_reports
         self.continue_on_error = continue_on_error
         self.show_spinner = show_spinner
@@ -172,7 +176,8 @@ class PipelineOrchestrator:
                 .with_workspace(self.workspace_path)
                 .with_verbose(self.verbose)
                 .with_mode(self.mode)
-                .with_save_files(self.save_files)
+                .with_save_artifacts(self.save_artifacts)
+                .with_save_charts(self.save_charts)
                 .with_continue_on_error(self.continue_on_error)
                 .with_show_spinner(self.show_spinner)
                 .with_plots_visible(self.plots_visible)
@@ -463,7 +468,7 @@ class PipelineOrchestrator:
                     filename = f"Report_best_{best['config_name']}_{best['model_name']}_{best['id']}.csv"
                     saver.save_file(filename, tab_report_csv_file)
 
-            if self.save_files:
+            if self.save_artifacts:
                 # Only save predictions if there's actual prediction data
                 if best.get("y_pred") is not None and len(best["y_pred"]) > 0:
                     prediction_name = f"Best_prediction_{best['config_name']}_{best['model_name']}_{best['id']}.csv"

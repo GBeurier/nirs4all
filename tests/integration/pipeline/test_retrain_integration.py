@@ -52,7 +52,7 @@ class TestRetrainIntegration:
         pipeline_config = PipelineConfigs(pipeline, "baseline_for_retrain")
         dataset_config = DatasetConfigs(train_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_pred = predictions.top(n=1, rank_partition="test")[0]
@@ -259,7 +259,7 @@ class TestExportBundleIntegration:
         pipeline_config = PipelineConfigs(pipeline, "export_test")
         dataset_config = DatasetConfigs(train_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_pred = predictions.top(n=1, rank_partition="test")[0]
@@ -408,7 +408,7 @@ class TestMultiplePreprocessingRetrain:
         pipeline_config = PipelineConfigs(pipeline, "multi_pp_baseline")
         dataset_config = DatasetConfigs(train_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_pred = predictions.top(n=1, rank_partition="test")[0]

@@ -86,7 +86,7 @@ data_paths = ['sample_data/regression', 'sample_data/regression_2', 'sample_data
 dataset_config = DatasetConfigs(data_paths)
 
 # Run the pipeline across multiple datasets
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 print(f"{REFRESH}Running pipeline with spinner enabled - watch for loading animations during model training!")
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 

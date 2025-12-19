@@ -114,7 +114,7 @@ if args.regression:
     regression_pipeline_config = PipelineConfigs(regression_pipeline, "Q18_regression")
     regression_dataset_config = DatasetConfigs('sample_data/regression')
 
-    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=args.plots)
+    runner = PipelineRunner(save_artifacts=True, verbose=1, plots_visible=args.plots)
     reg_predictions, reg_per_dataset = runner.run(regression_pipeline_config, regression_dataset_config)
 
     # Display regression results
@@ -159,7 +159,7 @@ if args.regression:
 
         # Method 2: Predict using model ID
         print("\n--- Method 2: Predict with model ID ---")
-        predictor2 = PipelineRunner(save_files=False, verbose=0)
+        predictor2 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         method2_predictions, _ = predictor2.predict(model_id, prediction_dataset, verbose=0)
         method2_array = method2_predictions[:5].flatten()
         print(f"Method 2 predictions (first 5): {method2_array}")
@@ -234,7 +234,7 @@ if args.classification:
     classification_pipeline_config = PipelineConfigs(classification_pipeline, "Q18_classification")
     classification_dataset_config = DatasetConfigs('sample_data/binary')
 
-    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=args.plots)
+    runner = PipelineRunner(save_artifacts=True, verbose=1, plots_visible=args.plots)
     clf_predictions, clf_per_dataset = runner.run(classification_pipeline_config, classification_dataset_config)
 
     # Display classification results
@@ -267,14 +267,14 @@ if args.classification:
 
         # Predict using model ID - compare two prediction methods
         print("\n--- Predict with model ID ---")
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs({'X_test': 'sample_data/binary/Xval.csv'})
 
         method1_predictions, _ = predictor.predict(model_id, prediction_dataset, verbose=0)
         print(f"Method 1 predictions (first 10): {method1_predictions[:10].flatten()}")
 
         # Predict again with prediction entry
-        predictor2 = PipelineRunner(save_files=False, verbose=0)
+        predictor2 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         method2_predictions, _ = predictor2.predict(best_stacking_clf, prediction_dataset, verbose=0)
         print(f"Method 2 predictions (first 10): {method2_predictions[:10].flatten()}")
 

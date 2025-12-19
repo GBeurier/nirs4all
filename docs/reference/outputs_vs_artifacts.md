@@ -20,7 +20,7 @@ To ensure clean separation of concerns and testability, controllers **do not sav
 **Purpose:** Deduplicated storage of trained models and transformers
 **Location:** `results/artifacts/objects/<hash[:2]>/<hash>.<ext>`
 **Method:** Return `StepOutput(artifacts={...})`
-**Respects save_files flag:** ✅ YES
+**Respects save_artifacts flag:** ✅ YES
 
 **What gets stored as artifacts:**
 - Trained models (sklearn, keras, pytorch, catboost, lightgbm)
@@ -50,7 +50,7 @@ return context, StepOutput(
 **Purpose:** User-accessible files for viewing and sharing
 **Location:** `results/outputs/<dataset>_<pipeline>/<filename>`
 **Method:** Return `StepOutput(outputs=[...])`
-**Respects save_files flag:** ✅ YES
+**Respects save_charts flag:** ✅ YES
 
 **What gets stored as outputs:**
 - Charts (PNG images)
@@ -107,23 +107,33 @@ results/
         └── index.yaml
 ```
 
-## save_files Flag Behavior
+## save_artifacts / save_charts Flag Behavior
 
-The `save_files` parameter in `PipelineRunner` now correctly controls BOTH artifacts and outputs:
+The `save_artifacts` and `save_charts` parameters in `PipelineRunner` control artifacts and outputs separately:
 
 ```python
 # Save everything (default)
-runner = PipelineRunner(save_files=True)
+runner = PipelineRunner(save_artifacts=True, save_charts=True)
+
+# Save only artifacts (models, transformers)
+runner = PipelineRunner(save_artifacts=True, save_charts=False)
+
+# Save only charts (visualizations)
+runner = PipelineRunner(save_artifacts=False, save_charts=True)
 
 # Dry run - no files saved
-runner = PipelineRunner(save_files=False)
+runner = PipelineRunner(save_artifacts=False, save_charts=False)
 ```
 
-When `save_files=False`:
+When `save_artifacts=False`:
 - ✅ **Executor** skips saving artifacts
-- ✅ **Executor** skips saving outputs
 - ✅ Pipeline can still run and generate predictions
-- ✅ No disk space used
+- ❌ Models won't be reloadable for predict mode
+
+When `save_charts=False`:
+- ✅ **Executor** skips saving outputs (charts, reports)
+- ✅ Pipeline runs faster
+- ✅ No chart files created
 
 ## Code Examples
 
@@ -204,7 +214,7 @@ results/artifacts/objects/cd/cdef456...pkl    # Scaler file
 
 1. **For human viewing** (charts, reports) → Return in `outputs` list
 2. **For pipeline replay** (models, transformers) → Return in `artifacts` dict
-3. **Disable saving for tests** → Set `save_files=False`
+3. **Disable saving for tests** → Set `save_artifacts=False, save_charts=False`
 4. **Check outputs directory** → `results/outputs/<dataset>_<pipeline>/`
 
 ## Implementation Details
@@ -245,7 +255,7 @@ A: Charts are outputs meant for human viewing, not pipeline replay. They don't n
 A: Check `results/outputs/<dataset>_<pipeline>/` instead of the old artifact storage.
 
 **Q: Can I disable chart saving?**
-A: Yes! Set `save_files=False` when creating `PipelineRunner`.
+A: Yes! Set `save_artifacts=False, save_charts=False` when creating `PipelineRunner`.
 
 **Q: What if two pipelines generate the same chart?**
 A: Each pipeline gets its own outputs directory, so charts won't conflict.
@@ -262,7 +272,7 @@ A: Models are binary - not human-readable. Use the manifest or prediction system
 | **Names** | Hash-based | Human-readable |
 | **Deduplication** | ✅ Yes | ❌ No |
 | **Easy to find** | ❌ No | ✅ Yes |
-| **Respects save_files** | ✅ Yes | ✅ Yes |
+| **Respects save flag** | save_artifacts | save_charts |
 | **Examples** | Models, transformers | Charts, reports |
 
 The new system provides the best of both worlds: efficient storage for internal objects and easy access for human outputs!
