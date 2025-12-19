@@ -9,6 +9,9 @@ This controller handles PyTorch models with support for:
 - Model persistence and prediction storage
 
 Matches PyTorch nn.Module objects and model configurations.
+
+Lazy loading pattern: PyTorch is only imported when actually needed
+for training or prediction, not at module import time.
 """
 
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
@@ -18,12 +21,12 @@ import copy
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from .utilities import ModelControllerUtils as ModelUtils
+from nirs4all.utils.backend import is_available, require_backend, is_gpu_available
 
 logger = get_logger(__name__)
-from .factory import ModelFactory
-from .torch.data_prep import PyTorchDataPreparation
-from nirs4all.utils.backend import TORCH_AVAILABLE, check_backend_available, is_gpu_available
+
+# Fast availability check at module level - no imports
+PYTORCH_AVAILABLE = is_available('torch')
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -39,16 +42,42 @@ if TYPE_CHECKING:
         pass
 
 
+# Lazy-loaded module cache
+_torch_modules: Dict[str, Any] = {}
+
+
+def _get_torch():
+    """Lazy load PyTorch with caching."""
+    if 'torch' not in _torch_modules:
+        require_backend('torch', feature='PyTorch neural networks')
+        import torch
+        _torch_modules['torch'] = torch
+        _torch_modules['nn'] = torch.nn
+        _torch_modules['optim'] = torch.optim
+    return _torch_modules['torch']
+
+
+def _get_nn():
+    """Lazy load torch.nn with caching."""
+    if 'nn' not in _torch_modules:
+        _get_torch()
+    return _torch_modules['nn']
+
+
 @register_controller
 class PyTorchModelController(BaseModelController):
-    """Controller for PyTorch models."""
+    """Controller for PyTorch models.
+
+    Uses lazy loading pattern - PyTorch is only imported when
+    training or prediction is actually performed.
+    """
 
     priority = 4  # Higher priority than Sklearn (6)
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
         """Match PyTorch models and model configurations."""
-        if not TORCH_AVAILABLE:
+        if not PYTORCH_AVAILABLE:
             return False
 
         # Check if step contains a PyTorch model
@@ -74,30 +103,42 @@ class PyTorchModelController(BaseModelController):
 
     @classmethod
     def _is_pytorch_model(cls, obj: Any) -> bool:
-        """Check if object is a PyTorch model."""
-        if not TORCH_AVAILABLE:
+        """Check if object is a PyTorch model.
+
+        Uses module introspection first to avoid importing PyTorch
+        for non-PyTorch objects.
+        """
+        if not PYTORCH_AVAILABLE:
+            return False
+
+        if obj is None:
+            return False
+
+        # Check for framework attribute first (no import needed)
+        if hasattr(obj, 'framework') and obj.framework == 'pytorch':
+            return True
+
+        # Check for dict format from deserialize_component
+        if isinstance(obj, dict) and obj.get('type') == 'function' and obj.get('framework') == 'pytorch':
+            return True
+
+        # Quick check via module name (no import needed)
+        module = getattr(type(obj), '__module__', '')
+        if 'torch' not in module:
             return False
 
         try:
-            import torch.nn as nn
-            if isinstance(obj, nn.Module):
-                return True
-
-            # Check for framework attribute (added by @framework decorator)
-            if hasattr(obj, 'framework') and obj.framework == 'pytorch':
-                return True
-
-            # Check for dict format from deserialize_component
-            if isinstance(obj, dict) and obj.get('type') == 'function' and obj.get('framework') == 'pytorch':
-                return True
-
-            return False
+            nn = _get_nn()
+            return isinstance(obj, nn.Module)
         except Exception:
             return False
 
     def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> 'nn.Module':
         """Create PyTorch model instance from configuration."""
-        check_backend_available('torch')
+        require_backend('torch', feature='PyTorch models')
+
+        # Import factory here to avoid circular imports at module level
+        from .factory import ModelFactory
 
         return ModelFactory.build_single_model(
             model_config,
@@ -115,16 +156,18 @@ class PyTorchModelController(BaseModelController):
         **kwargs
     ) -> 'nn.Module':
         """Train PyTorch model with custom training loop."""
-        check_backend_available('torch')
-        import torch
-        import torch.nn as nn
-        import torch.optim as optim
+        require_backend('torch', feature='PyTorch training')
+
+        # Import PyTorch here (lazy loading)
+        torch = _get_torch()
+        nn = _get_nn()
+        optim = _torch_modules['optim']
         from torch.utils.data import DataLoader, TensorDataset
 
         train_params = kwargs
         verbose = train_params.get('verbose', 0)
 
-        if not is_gpu_available() and verbose > 0:
+        if not is_gpu_available('torch') and verbose > 0:
             logger.warning("No GPU detected. Training PyTorch model on CPU may be slow.")
 
         # Setup device
@@ -243,7 +286,11 @@ class PyTorchModelController(BaseModelController):
 
     def _predict_model(self, model: 'nn.Module', X: Any) -> np.ndarray:
         """Generate predictions with PyTorch model."""
-        import torch
+        torch = _get_torch()
+
+        # Import data prep here (lazy)
+        from .torch.data_prep import PyTorchDataPreparation
+
         device = next(model.parameters()).device
 
         # Ensure X is a tensor
@@ -281,8 +328,12 @@ class PyTorchModelController(BaseModelController):
             Class probabilities as (n_samples, n_classes) array,
             or None for regression models.
         """
-        import torch
+        torch = _get_torch()
         import torch.nn.functional as F
+
+        # Import data prep here (lazy)
+        from .torch.data_prep import PyTorchDataPreparation
+
         device = next(model.parameters()).device
 
         # Ensure X is a tensor
@@ -318,13 +369,15 @@ class PyTorchModelController(BaseModelController):
         context: 'ExecutionContext'
     ) -> Tuple[Any, Optional[Any]]:
         """Prepare data for PyTorch (convert to tensors)."""
+        # Import here to avoid loading PyTorch at module import time
+        from .torch.data_prep import PyTorchDataPreparation
         return PyTorchDataPreparation.prepare_data(X, y)
 
     def _evaluate_model(self, model: 'nn.Module', X_val: Any, y_val: Any) -> float:
         """Evaluate PyTorch model."""
         try:
-            import torch
-            import torch.nn as nn
+            torch = _get_torch()
+            nn = _get_nn()
             device = next(model.parameters()).device
             X_val = X_val.to(device)
             y_val = y_val.to(device)
@@ -391,7 +444,11 @@ class PyTorchModelController(BaseModelController):
         prediction_store: 'Predictions' = None
     ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
         """Execute PyTorch model controller."""
-        check_backend_available('torch')
+        if not PYTORCH_AVAILABLE:
+            raise ImportError(
+                "PyTorch is not available. Please install with: "
+                "pip install nirs4all[torch]"
+            )
 
         # Set layout preference (force_layout overrides preferred)
         context = context.with_layout(self.get_effective_layout(step_info))

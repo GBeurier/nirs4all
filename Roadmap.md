@@ -2,29 +2,25 @@
 
 **Features**:
 
-> [save_files > DONE] sep in save_artifacts and save_charts - implemented as two separate boolean parameters in PipelineRunner
+> [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
 
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 > [TabReport] include > aggregated
 
-> [Workspace] Reorganize runs. Review export / library usage (is it working, is it usable) and clean the hiearachy that uses dates. Only one folder per dataset and date are concatenated to the folder name for sorting. Ensure that artifacts can be cleaned related to existing manifests in workspace.
-
 - [Split] bug + review: fix the "try automatically to set a group even when not specified. Shouldn't do anything if not specified", review doc and explicit also the use of group "y" ?
 - [Split > DONE] add force_group (mean, median, max, min, etc.) before split to be able to split with groups seemlessly. ie: {"split": KFold, "force_group":"ID"} or reuse group if possible to detect that group is not required (I think it's not detectable)
 
-> [Generator] Inner generation ?
-
-> [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
-> [Examples] Clean and document
-
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
-
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
-> [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
+> [pytoml] Update imports and configs. Anticipate ui dependencies.
 
+> [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
+> [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
+> [Examples] Clean and document
 > [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 
+> [Generator] Inner generation ?
 **Bugs**:
 >   - Branch diagram are out
 >   - [Charts] check dataviz. Missing histograms, inverted heatmap color scale, --> Branching ?
@@ -47,7 +43,7 @@
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
 
-> [DEPLOY] standalone installer, web installer
+> [DEPLOY] standalone installer, web installer (gpu/no gpu - os) options for backend and CUDA
 
 **RELEASE** 0.6.0: UI
 
@@ -112,6 +108,7 @@
 
 > [Y_pipeline in models]
 
+> [Code_Optimization] Improve performances
 
 **RELEASE** 0.10 beta: Operators & Controllers rc
 

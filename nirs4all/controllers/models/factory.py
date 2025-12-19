@@ -9,13 +9,21 @@ Supports multiple input formats:
 - Dict: configuration with class, import, or function keys
 - Instance: pre-built model object
 - Callable: function or class to instantiate
+
+Lazy loading pattern: Framework-specific imports are only loaded when
+actually needed to avoid import overhead at startup.
 """
 
 import os
 import importlib
 import inspect
 
-from nirs4all.utils.backend import TF_AVAILABLE, TORCH_AVAILABLE, JAX_AVAILABLE
+from nirs4all.utils.backend import is_available, require_backend
+
+# Lazy availability checks - no imports at module load
+TF_AVAILABLE = is_available('tensorflow')
+TORCH_AVAILABLE = is_available('torch')
+JAX_AVAILABLE = is_available('jax')
 
 
 # Meta-estimator types for detection
@@ -429,8 +437,7 @@ class ModelFactory:
         Returns:
             Built TensorFlow model instance.
         """
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow is required but not installed")
+        require_backend('tensorflow', feature='TensorFlow models')
 
         input_dim = ModelFactory.compute_input_shape(dataset, 'tensorflow')
         sig = inspect.signature(model_callable)
@@ -467,13 +474,24 @@ class ModelFactory:
     def _is_tensorflow_model(obj):
         """Check if an object is a TensorFlow/Keras model.
 
+        Uses module introspection first to avoid importing TensorFlow
+        for non-TensorFlow objects.
+
         Args:
             obj: Object to check.
 
         Returns:
             True if object is a TensorFlow model, False otherwise.
         """
-        if not TF_AVAILABLE:
+        if not is_available('tensorflow'):
+            return False
+
+        if obj is None:
+            return False
+
+        # Quick check via module name first (no import needed)
+        module = getattr(type(obj), '__module__', '')
+        if 'tensorflow' not in module and 'keras' not in module:
             return False
 
         try:
@@ -498,7 +516,7 @@ class ModelFactory:
             return clone(model)
 
         elif framework == 'tensorflow':
-            if TF_AVAILABLE:
+            if is_available('tensorflow'):
                 from tensorflow.keras.models import clone_model
                 cloned_model = clone_model(model)
                 return cloned_model
@@ -523,14 +541,11 @@ class ModelFactory:
         """
         module_name, class_name = class_path.rsplit('.', 1)
         if module_name.startswith('tensorflow'):
-            if not TF_AVAILABLE:
-                raise ImportError("TensorFlow is not available but required to load this model.")
+            require_backend('tensorflow', feature=f'loading {class_path}')
         elif module_name.startswith('torch'):
-            if not TORCH_AVAILABLE:
-                raise ImportError("PyTorch is not available but required to load this model.")
+            require_backend('torch', feature=f'loading {class_path}')
         elif module_name.startswith('jax') or module_name.startswith('flax'):
-            if not JAX_AVAILABLE:
-                raise ImportError("JAX/Flax is not available but required to load this model.")
+            require_backend('jax', feature=f'loading {class_path}')
         module = importlib.import_module(module_name)
         cls = getattr(module, class_name)
         return cls
@@ -550,14 +565,11 @@ class ModelFactory:
         """
         module_name, object_name = object_path.rsplit('.', 1)
         if module_name.startswith('tensorflow'):
-            if not TF_AVAILABLE:
-                raise ImportError("TensorFlow is not available but required to load this model.")
+            require_backend('tensorflow', feature=f'loading {object_path}')
         elif module_name.startswith('torch'):
-            if not TORCH_AVAILABLE:
-                raise ImportError("PyTorch is not available but required to load this model.")
+            require_backend('torch', feature=f'loading {object_path}')
         elif module_name.startswith('jax') or module_name.startswith('flax'):
-            if not JAX_AVAILABLE:
-                raise ImportError("JAX/Flax is not available but required to load this model.")
+            require_backend('jax', feature=f'loading {object_path}')
         module = importlib.import_module(module_name)
         obj = getattr(module, object_name)
         return obj
@@ -798,9 +810,10 @@ class ModelFactory:
         signature = inspect.signature(cls)
         current_params = obj.__dict__.copy()  # This assumes the object stores its state in __dict__
 
-        # Check if object is a Flax module
+        # Check if object is a Flax module (lazy check)
         is_flax_module = False
-        if JAX_AVAILABLE:
+        module = getattr(type(obj), '__module__', '')
+        if 'flax' in module and is_available('jax'):
             try:
                 import flax.linen as nn
                 if isinstance(obj, nn.Module):
@@ -864,8 +877,7 @@ class ModelFactory:
 
         # TensorFlow model
         if ext in ['.h5', '.hdf5', '.keras']:
-            if not TF_AVAILABLE:
-                raise ImportError("TensorFlow is not available but required to load this model.")
+            require_backend('tensorflow', feature='loading TensorFlow model')
             from tensorflow import keras
 
             # Pass custom objects if needed
@@ -876,8 +888,7 @@ class ModelFactory:
 
         # PyTorch model
         elif ext == '.pt':
-            if not TORCH_AVAILABLE:
-                raise ImportError("PyTorch is not available but required to load this model.")
+            require_backend('torch', feature='loading PyTorch model')
             import torch
             # weights_only=False is needed to load full model objects (not just state dicts)
             # This is safe when loading models from trusted sources
@@ -901,8 +912,7 @@ class ModelFactory:
 
         # PyTorch checkpoint (.pth, .ckpt)
         elif ext in ['.pth', '.ckpt']:
-            if not TORCH_AVAILABLE:
-                raise ImportError("PyTorch is not available but required to load this model.")
+            require_backend('torch', feature='loading PyTorch checkpoint')
             import torch
             # Load checkpoint - could be state_dict or full model
             checkpoint = torch.load(model_path, weights_only=False)
@@ -941,30 +951,25 @@ class ModelFactory:
 
         # AutoGluon TabularPredictor
         if os.path.exists(os.path.join(folder, "predictor.pkl")):
-            try:
-                from autogluon.tabular import TabularPredictor
-                return TabularPredictor.load(folder)
-            except ImportError:
-                raise ImportError("AutoGluon is not available but required to load this model.")
+            require_backend('autogluon', feature='loading AutoGluon model')
+            from autogluon.tabular import TabularPredictor
+            return TabularPredictor.load(folder)
 
         # TensorFlow SavedModel format
         if os.path.exists(os.path.join(folder, "saved_model.pb")):
-            if not TF_AVAILABLE:
-                raise ImportError("TensorFlow is not available but required to load this model.")
+            require_backend('tensorflow', feature='loading TensorFlow SavedModel')
             from tensorflow import keras
             return keras.models.load_model(folder)
 
         # TensorFlow Keras SavedModel (with keras_metadata.pb)
         if os.path.exists(os.path.join(folder, "keras_metadata.pb")):
-            if not TF_AVAILABLE:
-                raise ImportError("TensorFlow is not available but required to load this model.")
+            require_backend('tensorflow', feature='loading Keras SavedModel')
             from tensorflow import keras
             return keras.models.load_model(folder)
 
         # JAX/Flax with Orbax checkpointing
         if os.path.exists(os.path.join(folder, "checkpoint")):
-            if not JAX_AVAILABLE:
-                raise ImportError("JAX is not available but required to load this model.")
+            require_backend('jax', feature='loading JAX checkpoint')
             # Orbax checkpoint - return path, caller must handle architecture
             return {"checkpoint_path": folder, "framework": "jax"}
 

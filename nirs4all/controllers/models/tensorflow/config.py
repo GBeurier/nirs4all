@@ -12,10 +12,13 @@ import numpy as np
 
 from nirs4all.core.task_type import TaskType
 from ..utilities import ModelControllerUtils as ModelUtils
-from nirs4all.utils.backend import TF_AVAILABLE, check_backend_available
+from nirs4all.utils.backend import is_available, require_backend
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Fast availability check at module level - no imports
+TF_AVAILABLE = is_available('tensorflow')
 
 if TYPE_CHECKING:
     try:
@@ -39,7 +42,7 @@ class TensorFlowCompilationConfig:
         Returns:
             Dictionary with 'optimizer', 'loss', and 'metrics' keys.
         """
-        check_backend_available('tensorflow')
+        require_backend('tensorflow', feature='TensorFlow compilation')
 
         # Start with defaults
         compile_config = {
@@ -122,7 +125,7 @@ class TensorFlowCompilationConfig:
         Returns:
             Configured optimizer instance.
         """
-        check_backend_available('tensorflow')
+        require_backend('tensorflow', feature='TensorFlow optimizer')
         from tensorflow import keras
 
         optimizer_classes = {
@@ -270,7 +273,7 @@ class TensorFlowCallbackFactory:
         Returns:
             EarlyStopping callback instance.
         """
-        check_backend_available('tensorflow')
+        require_backend('tensorflow', feature='TensorFlow callbacks')
         from tensorflow import keras
 
         early_stopping_params = train_params.get('early_stopping', {})
@@ -300,7 +303,7 @@ class TensorFlowCallbackFactory:
         Returns:
             Custom cyclic LR callback instance.
         """
-        check_backend_available('tensorflow')
+        require_backend('tensorflow', feature='TensorFlow callbacks')
         from tensorflow import keras
 
         cyclic_lr_params = train_params.get('cyclic_lr_params', {})
@@ -352,7 +355,7 @@ class TensorFlowCallbackFactory:
         Returns:
             ReduceLROnPlateau callback instance.
         """
-        check_backend_available('tensorflow')
+        require_backend('tensorflow', feature='TensorFlow callbacks')
         from tensorflow import keras
 
         reduce_lr_params = train_params.get('reduce_lr_on_plateau_params', {})
@@ -378,7 +381,7 @@ class TensorFlowCallbackFactory:
         Returns:
             Custom best model memory callback instance.
         """
-        check_backend_available('tensorflow')
+        require_backend('tensorflow', feature='TensorFlow callbacks')
         from tensorflow import keras
 
         class BestModelMemory(keras.callbacks.Callback):

@@ -9,6 +9,9 @@ This controller handles TensorFlow/Keras models with support for:
 - Model persistence and prediction storage
 
 Matches TensorFlow/Keras model objects and model configurations.
+
+Lazy loading pattern: TensorFlow is only imported when actually needed
+for training or prediction, not at module import time.
 """
 
 from __future__ import annotations
@@ -19,29 +22,43 @@ if TYPE_CHECKING:
     from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline.config.context import ExecutionContext
     from nirs4all.pipeline.steps.parser import ParsedStep
-
-from ..models.base_model import BaseModelController
-from nirs4all.controllers.registry import register_controller
-from nirs4all.core.logging import get_logger
-from nirs4all.core.task_type import TaskType
-
-logger = get_logger(__name__)
-from .utilities import ModelControllerUtils as ModelUtils
-from .factory import ModelFactory
-from .tensorflow import (
-    TensorFlowCompilationConfig,
-    TensorFlowFitConfig,
-    TensorFlowDataPreparation
-)
-from nirs4all.utils.backend import TF_AVAILABLE, check_backend_available, is_gpu_available
-
-if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
     try:
         from tensorflow import keras
     except ImportError:
         pass
+
+from ..models.base_model import BaseModelController
+from nirs4all.controllers.registry import register_controller
+from nirs4all.core.logging import get_logger
+from nirs4all.core.task_type import TaskType
+from nirs4all.utils.backend import is_available, require_backend, is_gpu_available
+
+logger = get_logger(__name__)
+
+# Fast availability check at module level - no imports
+TENSORFLOW_AVAILABLE = is_available('tensorflow')
+
+# Lazy-loaded module cache
+_tf_modules: Dict[str, Any] = {}
+
+
+def _get_tf():
+    """Lazy load TensorFlow with caching."""
+    if 'tf' not in _tf_modules:
+        require_backend('tensorflow', feature='TensorFlow neural networks')
+        import tensorflow as tf
+        _tf_modules['tf'] = tf
+        _tf_modules['keras'] = tf.keras
+    return _tf_modules['tf']
+
+
+def _get_keras():
+    """Lazy load Keras with caching."""
+    if 'keras' not in _tf_modules:
+        _get_tf()  # This will populate the cache
+    return _tf_modules['keras']
 
 @register_controller
 class TensorFlowModelController(BaseModelController):
@@ -57,10 +74,8 @@ class TensorFlowModelController(BaseModelController):
     - Binary serialization for model persistence
 
     The controller automatically detects TensorFlow models and functions decorated
-    with @framework('tensorflow'). It delegates to modular components for:
-    - TensorFlowCompilationConfig: Loss, optimizer, metrics configuration
-    - TensorFlowFitConfig: Training parameters and callbacks
-    - TensorFlowDataPreparation: Tensor shape formatting
+    with @framework('tensorflow'). It uses lazy loading to avoid importing
+    TensorFlow until actually needed.
 
     Attributes:
         priority (int): Controller priority for matching (4).
@@ -84,7 +99,7 @@ class TensorFlowModelController(BaseModelController):
             True if this controller should handle the step, False otherwise.
             Returns False immediately if TensorFlow is not installed.
         """
-        if not TF_AVAILABLE:
+        if not TENSORFLOW_AVAILABLE:
             return False
 
         # Check if step contains a TensorFlow model or function
@@ -112,6 +127,9 @@ class TensorFlowModelController(BaseModelController):
     def _is_tensorflow_model(cls, obj: Any) -> bool:
         """Check if object is a TensorFlow/Keras model instance.
 
+        Uses module introspection first to avoid importing TensorFlow
+        for non-TensorFlow objects.
+
         Args:
             obj: Object to check.
 
@@ -120,15 +138,23 @@ class TensorFlowModelController(BaseModelController):
             methods characteristic of Keras models. False otherwise or if TensorFlow
             is not available.
         """
-        if not TF_AVAILABLE:
+        if not TENSORFLOW_AVAILABLE:
             return False
 
+        if obj is None:
+            return False
+
+        # Quick check via module name first (no import needed)
+        module = getattr(type(obj), '__module__', '')
+        if 'tensorflow' not in module and 'keras' not in module:
+            # Also check for fit/predict/compile which are keras signatures
+            if not (hasattr(obj, 'fit') and hasattr(obj, 'predict') and hasattr(obj, 'compile')):
+                return False
+
         try:
-            from tensorflow import keras
+            keras = _get_keras()
             return (isinstance(obj, keras.Model) or
-                   isinstance(obj, keras.Sequential) or
-                   hasattr(obj, 'fit') and hasattr(obj, 'predict') and
-                   hasattr(obj, 'compile'))
+                   isinstance(obj, keras.Sequential))
         except Exception:
             return False
 
@@ -147,7 +173,7 @@ class TensorFlowModelController(BaseModelController):
         Returns:
             True if object is TensorFlow-related, False otherwise.
         """
-        if not TF_AVAILABLE:
+        if not TENSORFLOW_AVAILABLE:
             return False
 
         # Check if it's a TensorFlow model instance
@@ -213,7 +239,10 @@ class TensorFlowModelController(BaseModelController):
         Raises:
             ImportError: If TensorFlow is not installed.
         """
-        check_backend_available('tensorflow')
+        require_backend('tensorflow', feature='TensorFlow models')
+
+        # Import factory here to avoid circular imports at module level
+        from .factory import ModelFactory
 
         # Delegate entirely to ModelFactory
         model = ModelFactory.build_single_model(
@@ -269,7 +298,13 @@ class TensorFlowModelController(BaseModelController):
         Raises:
             ImportError: If TensorFlow is not installed.
         """
-        check_backend_available('tensorflow')
+        require_backend('tensorflow', feature='TensorFlow training')
+
+        # Import TensorFlow-specific utilities here (lazy)
+        from .tensorflow import (
+            TensorFlowCompilationConfig,
+            TensorFlowFitConfig,
+        )
 
         train_params = kwargs
         verbose = train_params.get('verbose', 0)
@@ -279,7 +314,7 @@ class TensorFlowModelController(BaseModelController):
         if task_type is None:
             raise ValueError("task_type must be provided in train_params")
 
-        if not is_gpu_available() and verbose > 0:
+        if not is_gpu_available('tensorflow') and verbose > 0:
             logger.warning("No GPU detected. Training TensorFlow model on CPU may be slow.")
 
         # 1. Prepare compilation configuration
@@ -447,6 +482,8 @@ class TensorFlowModelController(BaseModelController):
         Returns:
             Tuple of (prepared_X, prepared_y) in TensorFlow-compatible formats.
         """
+        # Import here to avoid loading TensorFlow at module import time
+        from .tensorflow import TensorFlowDataPreparation
         return TensorFlowDataPreparation.prepare_data(X, y, context)
 
     def _evaluate_model(self, model: Any, X_val: np.ndarray, y_val: np.ndarray) -> float:
@@ -514,8 +551,8 @@ class TensorFlowModelController(BaseModelController):
             # Don't clone functions - they will be called later with proper input shape
             return model
 
-        if TF_AVAILABLE:
-            from tensorflow import keras
+        if TENSORFLOW_AVAILABLE:
+            keras = _get_keras()
             if isinstance(model, (keras.Model, keras.Sequential)):
                 # TensorFlow model instance: use clone_model
                 return keras.models.clone_model(model)
@@ -601,8 +638,11 @@ class TensorFlowModelController(BaseModelController):
         Raises:
             ImportError: If TensorFlow is not installed.
         """
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow is not available. Please install tensorflow.")
+        if not TENSORFLOW_AVAILABLE:
+            raise ImportError(
+                "TensorFlow is not available. Please install with: "
+                "pip install nirs4all[tensorflow] or pip install nirs4all[gpu]"
+            )
 
         # Set layout preference for TensorFlow models (force_layout overrides preferred)
         context = context.with_layout(self.get_effective_layout(step_info))

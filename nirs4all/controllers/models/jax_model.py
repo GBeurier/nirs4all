@@ -8,6 +8,9 @@ This controller handles JAX models (specifically Flax) with support for:
 - Model persistence and prediction storage
 
 Matches Flax Module objects and model configurations.
+
+Lazy loading pattern: JAX is only imported when actually needed
+for training or prediction, not at module import time.
 """
 
 from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
@@ -17,13 +20,12 @@ import copy
 from ..models.base_model import BaseModelController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
-from .utilities import ModelControllerUtils as ModelUtils
+from nirs4all.utils.backend import is_available, require_backend, is_gpu_available
 
 logger = get_logger(__name__)
-from .factory import ModelFactory
-from .jax.data_prep import JaxDataPreparation
-from .jax_wrapper import JaxModelWrapper
-from nirs4all.utils.backend import JAX_AVAILABLE, check_backend_available, is_gpu_available
+
+# Fast availability check at module level - no imports
+JAX_AVAILABLE = is_available('jax')
 
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
@@ -40,9 +42,46 @@ if TYPE_CHECKING:
         pass
 
 
+# Lazy-loaded module cache
+_jax_modules: Dict[str, Any] = {}
+
+
+def _get_jax():
+    """Lazy load JAX with caching."""
+    if 'jax' not in _jax_modules:
+        require_backend('jax', feature='JAX/Flax neural networks')
+        import jax
+        import jax.numpy as jnp
+        _jax_modules['jax'] = jax
+        _jax_modules['jnp'] = jnp
+    return _jax_modules['jax']
+
+
+def _get_flax():
+    """Lazy load Flax with caching."""
+    if 'flax' not in _jax_modules:
+        _get_jax()  # Ensure JAX is loaded first
+        import flax.linen as nn
+        _jax_modules['flax'] = nn
+    return _jax_modules['flax']
+
+
+def _get_optax():
+    """Lazy load Optax with caching."""
+    if 'optax' not in _jax_modules:
+        _get_jax()  # Ensure JAX is loaded first
+        import optax
+        _jax_modules['optax'] = optax
+    return _jax_modules['optax']
+
+
 @register_controller
 class JaxModelController(BaseModelController):
-    """Controller for JAX/Flax models."""
+    """Controller for JAX/Flax models.
+
+    Uses lazy loading pattern - JAX is only imported when
+    training or prediction is actually performed.
+    """
 
     priority = 4  # Higher priority than Sklearn (6)
 
@@ -75,30 +114,42 @@ class JaxModelController(BaseModelController):
 
     @classmethod
     def _is_jax_model(cls, obj: Any) -> bool:
-        """Check if object is a JAX/Flax model."""
+        """Check if object is a JAX/Flax model.
+
+        Uses module introspection first to avoid importing JAX
+        for non-JAX objects.
+        """
         if not JAX_AVAILABLE:
             return False
 
-        try:
-            import flax.linen as nn
-            if isinstance(obj, nn.Module):
-                return True
-
-            # Check for framework attribute (added by @framework decorator)
-            if hasattr(obj, 'framework') and obj.framework == 'jax':
-                return True
-
-            # Check for dict format from deserialize_component
-            if isinstance(obj, dict) and obj.get('type') == 'function' and obj.get('framework') == 'jax':
-                return True
-
+        if obj is None:
             return False
+
+        # Check for framework attribute first (no import needed)
+        if hasattr(obj, 'framework') and obj.framework == 'jax':
+            return True
+
+        # Check for dict format from deserialize_component
+        if isinstance(obj, dict) and obj.get('type') == 'function' and obj.get('framework') == 'jax':
+            return True
+
+        # Quick check via module name (no import needed)
+        module = getattr(type(obj), '__module__', '')
+        if 'jax' not in module and 'flax' not in module:
+            return False
+
+        try:
+            nn = _get_flax()
+            return isinstance(obj, nn.Module)
         except Exception:
             return False
 
     def _get_model_instance(self, dataset: 'SpectroDataset', model_config: Dict[str, Any], force_params: Optional[Dict[str, Any]] = None) -> Any:
         """Create JAX model instance from configuration."""
-        check_backend_available('jax')
+        require_backend('jax', feature='JAX/Flax models')
+
+        # Import factory here to avoid circular imports at module level
+        from .factory import ModelFactory
 
         return ModelFactory.build_single_model(
             model_config,
@@ -108,8 +159,8 @@ class JaxModelController(BaseModelController):
 
     def _create_train_state(self, rng, model, input_shape, learning_rate):
         """Create initial training state."""
-        import jax.numpy as jnp
-        import optax
+        jnp = _jax_modules['jnp']
+        optax = _get_optax()
         from flax.training import train_state
 
         class TrainState(train_state.TrainState):
@@ -134,15 +185,20 @@ class JaxModelController(BaseModelController):
         **kwargs
     ) -> Any:
         """Train JAX model with custom training loop."""
-        check_backend_available('jax')
-        import jax
-        import jax.numpy as jnp
-        import optax
+        require_backend('jax', feature='JAX/Flax training')
+
+        # Import JAX modules here (lazy loading)
+        jax = _get_jax()
+        jnp = _jax_modules['jnp']
+        optax = _get_optax()
+
+        # Import wrapper here (lazy)
+        from .jax_wrapper import JaxModelWrapper
 
         train_params = kwargs
         verbose = train_params.get('verbose', 0)
 
-        if not is_gpu_available() and verbose > 0:
+        if not is_gpu_available('jax') and verbose > 0:
             logger.warning("No GPU detected. Training JAX model on CPU may be slow.")
 
         epochs = train_params.get('epochs', 100)
@@ -289,6 +345,9 @@ class JaxModelController(BaseModelController):
 
     def _predict_model(self, model: Any, X: Any) -> np.ndarray:
         """Generate predictions with JAX model."""
+        # Import wrapper here (lazy)
+        from .jax_wrapper import JaxModelWrapper
+
         if isinstance(model, JaxModelWrapper):
             preds = model.predict(X)
 
@@ -317,7 +376,11 @@ class JaxModelController(BaseModelController):
             Class probabilities as (n_samples, n_classes) array,
             or None for regression models.
         """
+        jax = _get_jax()
         import jax.nn as jnn
+
+        # Import wrapper here (lazy)
+        from .jax_wrapper import JaxModelWrapper
 
         if not isinstance(model, JaxModelWrapper):
             return None
@@ -346,10 +409,15 @@ class JaxModelController(BaseModelController):
         context: 'ExecutionContext'
     ) -> Tuple[Any, Optional[Any]]:
         """Prepare data for JAX."""
+        # Import here to avoid loading JAX at module import time
+        from .jax.data_prep import JaxDataPreparation
         return JaxDataPreparation.prepare_data(X, y)
 
     def _evaluate_model(self, model: Any, X_val: Any, y_val: Any) -> float:
         """Evaluate JAX model."""
+        # Import wrapper here (lazy)
+        from .jax_wrapper import JaxModelWrapper
+
         if isinstance(model, JaxModelWrapper):
             predictions = model.predict(X_val)
             # Calculate MSE manually on numpy arrays
@@ -389,7 +457,11 @@ class JaxModelController(BaseModelController):
         prediction_store: 'Predictions' = None
     ) -> Tuple['ExecutionContext', List[Tuple[str, bytes]]]:
         """Execute JAX model controller."""
-        check_backend_available('jax')
+        if not JAX_AVAILABLE:
+            raise ImportError(
+                "JAX is not available. Please install with: "
+                "pip install nirs4all[jax]"
+            )
 
         # Set layout preference (force_layout overrides preferred)
         context = context.with_layout(self.get_effective_layout(step_info))
