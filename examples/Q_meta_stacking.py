@@ -404,7 +404,7 @@ def example_save_and_reload():
         {"model": MetaModel(model=Ridge(alpha=1.0))},
     ]
 
-    runner = PipelineRunner(workspace_path=workspace_path, save_files=True)
+    runner = PipelineRunner(workspace_path=workspace_path, save_artifacts=True)
     predictions, _ = runner.run(pipeline, dataset)
 
     # Get meta-model results

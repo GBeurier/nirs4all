@@ -398,7 +398,7 @@ pipeline = [
 pipeline_config = PipelineConfigs(pipeline, "TestPipeline")
 dataset_config = DatasetConfigs("sample_data/regression")
 
-runner = PipelineRunner(save_files=False, verbose=1)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 print(f"Pipeline completed! Generated {len(predictions)} predictions.")

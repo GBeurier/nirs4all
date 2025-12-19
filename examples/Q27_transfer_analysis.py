@@ -463,7 +463,7 @@ def example_5_apply_to_pipeline():
         pipeline_config = PipelineConfigs(pipeline, "Q27_transfer_pipeline")
         dataset_config = DatasetConfigs(str(data_path))
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Show results

@@ -31,19 +31,21 @@ class SimulationSaver:
     Works with ManifestManager to create: base_path/NNNN_hash/files
     """
 
-    def __init__(self, base_path: Optional[Union[str, Path]] = None, save_files: bool = True):
+    def __init__(self, base_path: Optional[Union[str, Path]] = None, save_artifacts: bool = True, save_charts: bool = True):
         """
         Initialize the simulation saver.
 
         Args:
             base_path: Base directory (run directory: workspace/runs/YYYY-MM-DD_dataset/)
-            save_files: Whether to actually save files (can disable for dry runs)
+            save_artifacts: Whether to save binary artifacts (models, transformers)
+            save_charts: Whether to save charts and visual outputs
         """
         self.base_path = Path(base_path) if base_path is not None else None
         self.pipeline_id: Optional[str] = None  # e.g., "0001_abc123"
         self.pipeline_dir: Optional[Path] = None
         self._metadata: Dict[str, Any] = {}
-        self.save_files = save_files
+        self.save_artifacts = save_artifacts
+        self.save_charts = save_charts
 
         # Delegate components (created when needed)
         self._writer: Optional[PipelineWriter] = None
@@ -56,7 +58,7 @@ class SimulationSaver:
         if self._writer is None:
             if self.pipeline_dir is None:
                 raise RuntimeError("Must call register() before accessing writer")
-            self._writer = PipelineWriter(self.pipeline_dir, self.save_files)
+            self._writer = PipelineWriter(self.pipeline_dir, self.save_charts)
         return self._writer
 
     @property
@@ -168,17 +170,17 @@ class SimulationSaver:
             branch_name: Optional human-readable branch name
 
         Returns:
-            Artifact metadata dictionary (empty if save_files=False)
+            Artifact metadata dictionary (empty if save_artifacts=False)
         """
-        # Skip if save_files is disabled
-        if not self.save_files:
+        # Skip if save_artifacts is disabled
+        if not self.save_artifacts:
             return {
                 "name": name,
                 "step": step_number,
                 "branch_id": branch_id,
                 "branch_name": branch_name,
                 "skipped": True,
-                "reason": "save_files=False"
+                "reason": "save_artifacts=False"
             }
 
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import persist
@@ -223,7 +225,7 @@ class SimulationSaver:
             extension: File extension (e.g., ".png", ".csv", ".txt")
 
         Returns:
-            Path to saved file, or None if save_files=False
+            Path to saved file, or None if save_charts=False
         """
         return self.writer.save_output(name, data, extension)
 

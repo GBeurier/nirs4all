@@ -100,7 +100,7 @@ pipeline_config = PipelineConfigs(pipeline, "Q1_finetune")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the pipeline with hyperparameter optimization
-runner = PipelineRunner(save_files=False, verbose=0)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization

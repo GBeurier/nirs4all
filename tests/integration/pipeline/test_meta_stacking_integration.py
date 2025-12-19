@@ -107,7 +107,7 @@ class TestBasicStackingPipeline:
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
         # Check predictions exist for meta-model
@@ -136,7 +136,7 @@ class TestBasicStackingPipeline:
             )},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
         meta_preds = filter_by_model_name(predictions, "MetaModel")
@@ -161,7 +161,7 @@ class TestBasicStackingPipeline:
             )},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
         meta_preds = filter_by_model_name(predictions, "MetaModel")
@@ -177,7 +177,7 @@ class TestBasicStackingPipeline:
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
 
@@ -222,7 +222,7 @@ class TestStackingWithBranches:
             )},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
 
@@ -266,7 +266,7 @@ class TestStackingWithBranches:
             }},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
 
@@ -299,7 +299,7 @@ class TestStackingWithPartitioner:
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_2_dataset)
 
         meta_preds = filter_by_model_name(predictions, "MetaModel")
@@ -334,7 +334,7 @@ class TestStackingWithExcluder:
             )},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
         meta_preds = filter_by_model_name(predictions, "MetaModel")
@@ -377,7 +377,7 @@ class TestClassificationStacking:
             )},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
         meta_preds = filter_by_model_name(predictions, "MetaModel")
@@ -407,7 +407,7 @@ class TestMixedFrameworkStacking:
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
 
@@ -442,7 +442,7 @@ class TestStackingRoundtrip:
         ]
 
         # First run - training
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=True)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=True)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
         original_test_preds = [p for p in filter_by_model_name(predictions, "MetaModel")
@@ -483,7 +483,7 @@ class TestStackingRoundtrip:
             )},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=True)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=True)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
         # Check that artifacts reference correct feature order via ManifestManager
@@ -542,7 +542,7 @@ class TestStackingEdgeCases:
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
         predictions, _ = runner.run(PipelineConfigs(pipeline), regression_dataset)
 
         meta_preds = filter_by_model_name(predictions, "MetaModel")
@@ -559,7 +559,7 @@ class TestStackingEdgeCases:
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
         # Should either fail or handle gracefully
         try:
@@ -583,7 +583,7 @@ class TestStackingEdgeCases:
             )},
         ]
 
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
         # Should fail or warn about missing model
         try:

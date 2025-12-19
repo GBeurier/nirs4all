@@ -67,7 +67,7 @@ print("\n" + "=" * 100)
 print("Example 1: Traditional Approach - PipelineConfigs + DatasetConfigs")
 print("=" * 100)
 
-runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
 pipeline_configs = PipelineConfigs(pipeline_steps, name="traditional")
 dataset_configs = DatasetConfigs({
@@ -88,7 +88,7 @@ print("\n" + "=" * 100)
 print("Example 2: Direct Approach - List[steps] + Tuple[X, y, partition_info]")
 print("=" * 100)
 
-runner2 = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+runner2 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
 # Just pass the list of steps and tuple of arrays!
 partition_info = {"train": 160}  # First 160 samples for training
@@ -107,7 +107,7 @@ print("\n" + "=" * 100)
 print("Example 3: Dict pipeline + Tuple (X, y, train_size)")
 print("=" * 100)
 
-runner3 = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+runner3 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
 # Tuple with partition info specifying train size
 partition_3 = {"train": 150}  # First 150 samples for training
@@ -126,7 +126,7 @@ print("\n" + "=" * 100)
 print("Example 4: List[steps] + SpectroDataset")
 print("=" * 100)
 
-runner4 = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+runner4 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
 # Create a SpectroDataset
 dataset = SpectroDataset(name="custom_spectro")
@@ -148,7 +148,7 @@ print("\n" + "=" * 100)
 print("Example 5: PipelineConfigs + Tuple[X, y, partition_info] (mixed formats)")
 print("=" * 100)
 
-runner5 = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+runner5 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
 pipeline_configs5 = PipelineConfigs(pipeline_steps, name="mixed")
 
@@ -167,7 +167,7 @@ print("\n" + "=" * 100)
 print("Example 6: Dict pipeline + Dict dataset config")
 print("=" * 100)
 
-runner6 = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+runner6 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
 dataset_config_dict = {
     "name": "dict_config",
@@ -190,7 +190,7 @@ print("\n" + "=" * 100)
 print("Example 7: Advanced - Custom train/test indices")
 print("=" * 100)
 
-runner7 = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+runner7 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
 # Use explicit slices for train/test split
 train_indices = slice(0, 150)
@@ -211,7 +211,7 @@ print("\n" + "=" * 100)
 print("Example 8: Pipeline with cross-validation")
 print("=" * 100)
 
-runner8 = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+runner8 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
 
 # Pipeline with cross-validation
 cv_pipeline = [

@@ -617,7 +617,7 @@ class Retrainer:
             current_run_dir.mkdir(parents=True, exist_ok=True)
 
             # Create components
-            saver = SimulationSaver(current_run_dir, save_files=self.runner.save_files)
+            saver = SimulationSaver(current_run_dir, save_artifacts=self.runner.save_artifacts, save_charts=self.runner.save_charts)
             manifest_manager = ManifestManager(current_run_dir)
 
             # Create pipeline in manifest system
@@ -647,7 +647,8 @@ class Retrainer:
                 .with_workspace(self.runner.workspace_path)
                 .with_verbose(verbose)
                 .with_mode("train")  # Retrain is a train mode
-                .with_save_files(self.runner.save_files)
+                .with_save_artifacts(self.runner.save_artifacts)
+                .with_save_charts(self.runner.save_charts)
                 .with_continue_on_error(self.runner.continue_on_error)
                 .with_show_spinner(self.runner.show_spinner)
                 .with_plots_visible(self.runner.plots_visible)

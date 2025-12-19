@@ -78,7 +78,7 @@ pipeline_config = PipelineConfigs(pipeline, "Q7_classification")
 dataset_config = DatasetConfigs(data_path)
 
 # Run the classification pipeline
-runner = PipelineRunner(save_files=False, verbose=0)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Create confusion matrix visualization for top models

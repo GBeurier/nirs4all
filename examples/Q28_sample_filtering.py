@@ -248,7 +248,7 @@ The filter:
     ]
 
     pipeline_config = PipelineConfigs(pipeline, name="filtered_regression")
-    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+    runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 
     try:
         predictions, _ = runner.run(pipeline_config, dataset_config)
@@ -398,7 +398,7 @@ Features:
     ]
 
     pipeline_config = PipelineConfigs(pipeline, name="exclusion_visualization")
-    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+    runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 
     try:
         predictions, _ = runner.run(pipeline_config, dataset_config)
@@ -520,7 +520,7 @@ This allows visualizing the effect of filtering on your data.
     ]
 
     pipeline_config = PipelineConfigs(pipeline, name="charts_with_excluded")
-    runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+    runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 
     try:
         predictions, _ = runner.run(pipeline_config, dataset_config)

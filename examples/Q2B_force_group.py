@@ -57,7 +57,7 @@ pipeline_kfold = [
 
 pipeline_config = PipelineConfigs(pipeline_kfold, "force_group_kfold")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 print("Force_group with KFold completed - groups respected in all folds!")
@@ -82,7 +82,7 @@ pipeline_shuffle = [
 
 pipeline_config = PipelineConfigs(pipeline_shuffle, "force_group_shuffle")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 print("Force_group with ShuffleSplit completed - groups respected!")
@@ -107,7 +107,7 @@ pipeline_stratified = [
 
 pipeline_config = PipelineConfigs(pipeline_stratified, "force_group_stratified")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 print("Force_group with StratifiedKFold completed - balanced class distribution per fold!")
@@ -128,7 +128,7 @@ pipeline_force = [
 
 pipeline_config = PipelineConfigs(pipeline_force, "force_group_comparison")
 dataset_config = DatasetConfigs('sample_data/classification')
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions_force, _ = runner.run(pipeline_config, dataset_config)
 
 # Using native GroupKFold
@@ -140,7 +140,7 @@ pipeline_native = [
 
 pipeline_config = PipelineConfigs(pipeline_native, "native_group_comparison")
 dataset_config = DatasetConfigs('sample_data/classification')
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions_native, _ = runner.run(pipeline_config, dataset_config)
 
 print("\nBoth approaches ensure groups are never split across train/test!")

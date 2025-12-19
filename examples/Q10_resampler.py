@@ -55,7 +55,7 @@ pipeline_other = [
 dataset_config = DatasetConfigs("sample_data/regression_3")
 pipeline_config = PipelineConfigs(pipeline_other, name="Other_Dataset_Pipeline")
 
-runner = PipelineRunner(save_files=True, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=True, verbose=1, plots_visible=args.plots)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Example 2: Downsample to fewer points (descending order)
@@ -73,7 +73,7 @@ pipeline_downsample = [
 ]
 
 pipeline_config = PipelineConfigs(pipeline_downsample, name="Downsample_Pipeline")
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Example 3: Focus on fingerprint region (descending order)

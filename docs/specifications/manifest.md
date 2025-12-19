@@ -215,7 +215,7 @@ from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.pipeline.manifest_manager import ManifestManager
 
 # 1. Create runner (automatically creates manifest)
-runner = PipelineRunner(save_files=True)
+runner = PipelineRunner(save_artifacts=True)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Behind the scenes:
@@ -360,7 +360,7 @@ Existing pipelines with `metadata.json` **still work** via backward compatibilit
 All new training automatically uses manifest system:
 
 ```python
-runner = PipelineRunner(save_files=True)
+runner = PipelineRunner(save_artifacts=True)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 # → Creates: results/pipelines/<uid>/manifest.yaml
 # → Creates: results/datasets/<name>/index.yaml

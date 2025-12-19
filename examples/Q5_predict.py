@@ -58,7 +58,7 @@ pipeline_config = PipelineConfigs(pipeline)
 dataset_config = DatasetConfigs(['sample_data/regression'])
 
 # Run pipeline with model saving enabled
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 # Get best performing model for prediction testing
@@ -95,7 +95,7 @@ print("=" * 80)
 
 # Method 2: Predict using a model ID
 print("--- Method 2: Predict with a model ID ---")
-predictor2 = PipelineRunner(save_files=False, verbose=0)
+predictor2 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 prediction_dataset2 = DatasetConfigs({
     'X_test': 'sample_data/regression/Xval.csv.gz',  # Same dataset as Method 1
 })
@@ -110,7 +110,7 @@ print(f"Method 2 identical to training: {f'{CHECK}YES' if is_identical else f'{C
 
 # Method 3: Predict using a model ID (same as Method 2, but showing the Predictions object return)
 print("--- Method 3: Predict with a model ID and access full prediction metadata ---")
-predictor3 = PipelineRunner(save_files=False, verbose=0)
+predictor3 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 prediction_dataset3 = DatasetConfigs({'X_test': 'sample_data/regression/Xval.csv.gz'})
 method3_predictions, method3_preds_obj = predictor3.predict(model_id, prediction_dataset3, all_predictions=True, verbose=0)
 

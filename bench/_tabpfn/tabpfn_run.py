@@ -379,7 +379,7 @@ def train_tabpfn(task_type, model_variants=None, aug=0.0, cv=False, transf=None,
     pipeline_config = PipelineConfigs(pipeline, name="TabPFN")
     dataset_config = DatasetConfigs(data_paths)
 
-    runner = PipelineRunner(save_files=True, verbose=1, plots_visible=args.plots)
+    runner = PipelineRunner(save_artifacts=True, verbose=1, plots_visible=args.plots)
     return runner.run(pipeline_config, dataset_config)
 
 

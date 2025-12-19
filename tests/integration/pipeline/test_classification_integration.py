@@ -56,7 +56,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "Q1_classification_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
         # Verify predictions were generated
@@ -95,7 +95,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "classification_augmentation_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have multiple predictions from different augmentations
@@ -125,7 +125,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "multi_depth_classification_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from all models
@@ -152,7 +152,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "confusion_matrix_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Test PredictionAnalyzer for confusion matrix
@@ -178,7 +178,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "spxy_classification_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0
@@ -201,7 +201,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "split_cv_classification_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from both CV splits
@@ -220,7 +220,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "string_format_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Test string formatting
@@ -255,7 +255,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "tf_classification_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Verify TensorFlow model trained
@@ -290,7 +290,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "mixed_models_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, continue_on_error=True)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, continue_on_error=True)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from both models
@@ -315,7 +315,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "error_handling_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, continue_on_error=True)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, continue_on_error=True)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should handle gracefully
@@ -332,7 +332,7 @@ class TestClassificationIntegration:
         pipeline_config = PipelineConfigs(pipeline, "minimal_classification_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0

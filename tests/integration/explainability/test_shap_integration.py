@@ -46,7 +46,7 @@ class TestShapIntegration:
         pipeline_config = PipelineConfigs(pipeline, "shap_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_prediction = predictions.top(n=1, rank_metric='rmse', rank_partition="test")[0]
@@ -84,7 +84,7 @@ class TestShapIntegration:
         pipeline_config = PipelineConfigs(pipeline, "shap_explainer_types_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_prediction = predictions.get_best(ascending=True)
@@ -126,7 +126,7 @@ class TestShapIntegration:
         pipeline_config = PipelineConfigs(pipeline, "shap_visualizations_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_prediction = predictions.get_best(ascending=True)
@@ -163,7 +163,7 @@ class TestShapIntegration:
         pipeline_config = PipelineConfigs(pipeline, "shap_binning_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_prediction = predictions.get_best(ascending=True)
@@ -215,7 +215,7 @@ class TestShapIntegration:
         pipeline_config = PipelineConfigs(pipeline, "shap_preprocessing_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_prediction = predictions.get_best(ascending=True)
@@ -252,7 +252,7 @@ class TestShapIntegration:
         pipeline_config = PipelineConfigs(pipeline, "shap_error_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_prediction = predictions.get_best(ascending=True)

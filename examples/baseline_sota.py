@@ -128,7 +128,7 @@ pipeline_config = PipelineConfigs(pipeline, "SOTA")
 dataset_config = DatasetConfigs(DATA_PATH, task_type=TASK_TYPE)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=True, verbose=0, plots_visible=True)
+runner = PipelineRunner(save_artifacts=True, verbose=0, plots_visible=True)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analyze and display top performing models

@@ -57,7 +57,7 @@ dataset_config = DatasetConfigs("path/to/your/data")
 
 # 3. Run the pipeline
 # PipelineRunner executes the pipeline and returns predictions.
-runner = PipelineRunner(save_files=False, verbose=1)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1)
 predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_config)
 
 # 4. Analyze results

@@ -242,7 +242,7 @@ def main():
     pipeline_config = PipelineConfigs(pipeline, "study_proto_2")
 
     runner = PipelineRunner(
-        save_files=True,
+        save_artifacts=True,
         verbose=args.verbose,
         plots_visible=False,
     )

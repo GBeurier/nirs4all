@@ -61,7 +61,7 @@ class TestPipelineNormalization:
 
     def test_normalize_pipeline_configs(self, sample_pipeline_steps):
         """Test that PipelineConfigs input passes through unchanged."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         pipeline_configs = PipelineConfigs(sample_pipeline_steps)
 
         normalized = runner.orchestrator._normalize_pipeline(pipeline_configs)
@@ -71,7 +71,7 @@ class TestPipelineNormalization:
 
     def test_normalize_pipeline_list(self, sample_pipeline_steps):
         """Test that list of steps is converted to PipelineConfigs."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
         normalized = runner.orchestrator._normalize_pipeline(sample_pipeline_steps, name="test_pipeline")
 
@@ -81,7 +81,7 @@ class TestPipelineNormalization:
 
     def test_normalize_pipeline_dict(self, sample_pipeline_dict):
         """Test that dict definition is converted to PipelineConfigs."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
         normalized = runner.orchestrator._normalize_pipeline(sample_pipeline_dict)
 
@@ -90,7 +90,7 @@ class TestPipelineNormalization:
 
     def test_normalize_pipeline_json_file(self):
         """Test that JSON file path is loaded and converted to PipelineConfigs."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
         # Use string class names for JSON serialization
         pipeline_dict_json = {
@@ -118,7 +118,7 @@ class TestDatasetNormalization:
 
     def test_normalize_dataset_configs(self, sample_data):
         """Test that DatasetConfigs input passes through unchanged."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         X, y = sample_data
 
         dataset_config = {
@@ -137,7 +137,7 @@ class TestDatasetNormalization:
 
     def test_normalize_spectro_dataset(self, sample_data):
         """Test that SpectroDataset is wrapped in DatasetConfigs."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         X, y = sample_data
 
         dataset = SpectroDataset(name="test_spectro")
@@ -160,7 +160,7 @@ class TestDatasetNormalization:
 
     def test_normalize_numpy_array_x_only(self, sample_data):
         """Test that single numpy array (X only) is converted to DatasetConfigs."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         X, _ = sample_data
 
         normalized = runner.orchestrator._normalize_dataset(X, dataset_name="array_x")
@@ -178,7 +178,7 @@ class TestDatasetNormalization:
 
     def test_normalize_numpy_tuple_x_y(self, sample_data):
         """Test that tuple (X, y) is converted to DatasetConfigs."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         X, y = sample_data
 
         normalized = runner.orchestrator._normalize_dataset((X, y), dataset_name="array_xy")
@@ -199,7 +199,7 @@ class TestDatasetNormalization:
 
     def test_normalize_numpy_tuple_with_partition_split(self, sample_data):
         """Test that tuple (X, y, partition_info) splits data correctly."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         X, y = sample_data
 
         partition_info = {"train": 80}  # First 80 samples for training
@@ -219,7 +219,7 @@ class TestDatasetNormalization:
 
     def test_normalize_numpy_tuple_with_partition_indices(self, sample_data):
         """Test tuple with explicit train/test indices."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         X, y = sample_data
 
         train_idx = slice(0, 70)
@@ -239,7 +239,7 @@ class TestDatasetNormalization:
 
     def test_normalize_dict_config(self, sample_data):
         """Test that dict config is converted to DatasetConfigs."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         X, y = sample_data
 
         config_dict = {
@@ -261,7 +261,7 @@ class TestRunnerWithNormalization:
 
     def test_run_with_list_and_array(self, sample_pipeline_steps, sample_data):
         """Test run() with list of steps and numpy arrays."""
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
         X, y = sample_data
 
         # Use list for pipeline and tuple for dataset
@@ -279,7 +279,7 @@ class TestRunnerWithNormalization:
 
     def test_run_with_configs(self, sample_pipeline_steps, sample_data):
         """Test run() with traditional PipelineConfigs and DatasetConfigs."""
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
         X, y = sample_data
 
         pipeline_configs = PipelineConfigs(sample_pipeline_steps)
@@ -299,7 +299,7 @@ class TestRunnerWithNormalization:
 
     def test_run_with_spectro_dataset(self, sample_pipeline_steps, sample_data):
         """Test run() with SpectroDataset."""
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
         X, y = sample_data
 
         dataset = SpectroDataset(name="spectro_test")
@@ -319,7 +319,7 @@ class TestRunnerWithNormalization:
 
     def test_run_all_combinations(self, sample_pipeline_steps, sample_data):
         """Test multiple input combinations."""
-        runner = PipelineRunner(save_files=False, verbose=0, enable_tab_reports=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, enable_tab_reports=False)
         X, y = sample_data
 
         # Combination 1: List + tuple
@@ -350,14 +350,14 @@ class TestErrorHandling:
 
     def test_invalid_pipeline_type(self):
         """Test that invalid pipeline type raises error."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
         with pytest.raises((TypeError, ValueError, AttributeError)):
             runner.orchestrator._normalize_pipeline(12345)  # Invalid type
 
     def test_invalid_dataset_type(self):
         """Test that invalid dataset path returns DatasetConfigs (even if empty)."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
         # Invalid path string doesn't raise, but returns DatasetConfigs
         # It will have 1 config entry but with None values (folder doesn't exist)
@@ -368,7 +368,7 @@ class TestErrorHandling:
 
     def test_tuple_with_non_array(self):
         """Test that tuple with non-arrays raises error."""
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
         with pytest.raises((ValueError, TypeError)):
             runner.orchestrator._normalize_dataset(("not_array", "also_not_array"))

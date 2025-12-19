@@ -471,7 +471,7 @@ class TestCleanupWithRealPipelines:
         """Create pipeline runner."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -504,7 +504,7 @@ class TestCleanupWithRealPipelines:
         # This is a sanity check - actual orphan detection requires manifest scanning
         stats = registry.get_stats(scan_all_manifests=False)
 
-        # Should have some artifacts (or zero if save_files didn't save to binaries/)
+        # Should have some artifacts (or zero if save_artifacts didn't save to binaries/)
         assert stats["total_artifacts"] >= 0
 
 

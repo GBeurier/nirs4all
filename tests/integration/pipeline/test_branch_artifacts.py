@@ -65,7 +65,7 @@ class TestBranchArtifactCompleteness:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -182,7 +182,7 @@ class TestBranchArtifactUniqueness:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -300,7 +300,7 @@ class TestBranchArtifactIsolation:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -370,7 +370,7 @@ class TestManifestBranchMetadata:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False

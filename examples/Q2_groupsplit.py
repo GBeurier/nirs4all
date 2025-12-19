@@ -54,7 +54,7 @@ pipeline = [
 
 pipeline_config = PipelineConfigs(pipeline, "Q2_groupkfold")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # =============================================================================
@@ -75,7 +75,7 @@ pipeline_stratified = [
 
 pipeline_config = PipelineConfigs(pipeline_stratified, "Q2_stratified_groupkfold")
 dataset_config = DatasetConfigs(data_path)
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=True)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=True)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 print("\n" + "=" * 70)

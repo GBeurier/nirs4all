@@ -82,7 +82,7 @@ class TestGroupSplitIntegration:
         pipeline_config = PipelineConfigs(pipeline, "groupkfold_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from all folds
@@ -110,7 +110,7 @@ class TestGroupSplitIntegration:
         pipeline_config = PipelineConfigs(pipeline, "stratified_groupkfold_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from all folds
@@ -131,7 +131,7 @@ class TestGroupSplitIntegration:
         pipeline_config = PipelineConfigs(pipeline, "groupkfold_shuffle_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 3
@@ -156,7 +156,7 @@ class TestGroupSplitIntegration:
         pipeline_config = PipelineConfigs(pipeline, "groupkfold_leakage_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Verify predictions were generated
@@ -185,7 +185,7 @@ class TestGroupSplitIntegration:
         pipeline_config = PipelineConfigs(pipeline, "groupkfold_preprocessing_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 3
@@ -207,7 +207,7 @@ class TestGroupSplitIntegration:
         pipeline_config = PipelineConfigs(pipeline, "stratified_fold_chart_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 2
@@ -228,7 +228,7 @@ class TestGroupSplitIntegration:
         pipeline_config = PipelineConfigs(pipeline, "groupkfold_multi_model_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from multiple models and folds
@@ -254,7 +254,7 @@ class TestGroupSplitIntegration:
         pipeline_config = PipelineConfigs(pipeline, "group_missing_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, continue_on_error=True)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, continue_on_error=True)
 
         # Should handle missing group column gracefully
         try:
@@ -294,7 +294,7 @@ class TestGroupSplitIntegration:
         pipeline_config = PipelineConfigs(pipeline, "groupkfold_regression_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 3
@@ -401,7 +401,7 @@ class TestForceGroupIntegration:
         pipeline_config = PipelineConfigs(pipeline, "force_group_kfold_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 3
@@ -423,7 +423,7 @@ class TestForceGroupIntegration:
         pipeline_config = PipelineConfigs(pipeline, "force_group_shuffle_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 3
@@ -446,7 +446,7 @@ class TestForceGroupIntegration:
         pipeline_config = PipelineConfigs(pipeline, "force_group_stratified_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 3
@@ -470,7 +470,7 @@ class TestForceGroupIntegration:
             pipeline_config = PipelineConfigs(pipeline, f"force_group_{aggregation}_test")
             dataset_config = DatasetConfigs(dataset_folder)
 
-            runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             assert predictions.num_predictions >= 3, f"Failed for aggregation={aggregation}"
@@ -493,7 +493,7 @@ class TestForceGroupIntegration:
         pipeline_config = PipelineConfigs(pipeline, "force_group_y_binning_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 3
@@ -524,7 +524,7 @@ class TestForceGroupIntegration:
         pipeline_config = PipelineConfigs(pipeline, "force_group_y_stratified_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, plots_visible=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=False)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions >= 3
@@ -546,7 +546,7 @@ class TestForceGroupIntegration:
         pipeline_config = PipelineConfigs(pipeline, "force_group_invalid_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0, continue_on_error=True)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, continue_on_error=True)
 
         try:
             predictions, _ = runner.run(pipeline_config, dataset_config)

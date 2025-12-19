@@ -32,7 +32,7 @@ pipeline = [
 ]
 
 # Train
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 predictions, _ = runner.run(
     PipelineConfigs(pipeline),
     DatasetConfigs(['path/to/training_data'])
@@ -50,7 +50,7 @@ Use the `predict()` method with the best prediction entry:
 
 ```python
 # Create predictor
-predictor = PipelineRunner(save_files=False, verbose=0)
+predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
 # Load new data
 new_dataset = DatasetConfigs({
@@ -222,7 +222,7 @@ try:
     y_pred, _ = runner.predict(best_prediction, new_data)
 except FileNotFoundError as e:
     print(f"Model not found: {e}")
-    # Re-train or check save_files=True during training
+    # Re-train or check save_artifacts=True during training
 ```
 
 ### Feature Mismatch
@@ -299,7 +299,7 @@ You can export just the model (not the full bundle) from a trained prediction us
 ```python
 from nirs4all.pipeline import PipelineRunner
 
-runner = PipelineRunner(save_files=True)
+runner = PipelineRunner(save_artifacts=True)
 predictions, _ = runner.run(pipeline, dataset)
 best_pred = predictions.top(n=1)[0]
 
@@ -349,7 +349,7 @@ predictions, _ = runner.retrain(
 
 ## Best Practices
 
-1. **Always use `save_files=True`** during training to persist models
+1. **Always use `save_artifacts=True`** during training to persist models
 2. **Verify feature dimensions** before prediction
 3. **Use the same preprocessing** as training (automatic with nirs4all)
 4. **Store prediction entries** for reproducibility

@@ -443,11 +443,11 @@ class ArtifactRecord:
 
 ## Best Practices
 
-### 1. Always Use save_files=True for Production
+### 1. Always Use save_artifacts=True for Production
 
 ```python
-runner = PipelineRunner(save_files=True)  # Artifacts saved
-runner = PipelineRunner(save_files=False) # No artifacts (for testing)
+runner = PipelineRunner(save_artifacts=True)  # Artifacts saved
+runner = PipelineRunner(save_artifacts=False, save_charts=False) # No artifacts (for testing)
 ```
 
 ### 2. Regular Cleanup

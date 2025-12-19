@@ -53,8 +53,8 @@ class TestPredictionReuseIntegration:
         pipeline_config = PipelineConfigs(pipeline, "train_for_reuse")
         dataset_config = DatasetConfigs(train_folder)
 
-        # Train with save_files=True to enable persistence
-        runner = PipelineRunner(save_files=True, verbose=0)
+        # Train with save_artifacts=True to enable persistence
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get best prediction
@@ -69,7 +69,7 @@ class TestPredictionReuseIntegration:
         print(f"Reference predictions: {reference_predictions}")
 
         # Method 1: Predict using prediction entry
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(predict_folder)
 
         # Make predictions using the best prediction entry
@@ -100,7 +100,7 @@ class TestPredictionReuseIntegration:
         pipeline_config = PipelineConfigs(pipeline, "train_for_id_reuse")
         dataset_config = DatasetConfigs(train_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get best model ID
@@ -110,7 +110,7 @@ class TestPredictionReuseIntegration:
         print(f"Using model ID: {model_id}")
 
         # Method 2: Predict using model ID
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(predict_folder)
 
         method2_predictions, _ = predictor.predict(model_id, prediction_dataset, verbose=0)
@@ -135,13 +135,13 @@ class TestPredictionReuseIntegration:
         pipeline_config = PipelineConfigs(pipeline, "consistency_test")
         dataset_config = DatasetConfigs(train_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_prediction = predictions.get_best(ascending=True)
 
         # Predict twice with same model
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(predict_folder)
 
         pred1, _ = predictor.predict(best_prediction, prediction_dataset, verbose=0)
@@ -178,14 +178,14 @@ class TestPredictionReuseIntegration:
         pipeline_config = PipelineConfigs(pipeline, "tf_train_for_reuse")
         dataset_config = DatasetConfigs(train_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get best TensorFlow model
         best_prediction = predictions.top(n=1, rank_partition="test")[0]
 
         # Predict with TensorFlow model
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(predict_folder)
 
         tf_predictions, _ = predictor.predict(best_prediction, prediction_dataset, verbose=0)
@@ -211,13 +211,13 @@ class TestPredictionReuseIntegration:
         pipeline_config = PipelineConfigs(pipeline, "multi_preproc_reuse")
         dataset_config = DatasetConfigs(train_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Test prediction with each preprocessing variant
         top_3 = predictions.top(n=3, rank_partition="test")
 
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(predict_folder)
 
         for pred_entry in top_3:
@@ -243,11 +243,11 @@ class TestPredictionReuseIntegration:
         pipeline_config = PipelineConfigs(pipeline, "multi_model_reuse")
         dataset_config = DatasetConfigs(train_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Test prediction with each model type
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(predict_folder)
 
         # Get predictions from different models
@@ -271,7 +271,7 @@ class TestPredictionReuseIntegration:
             'preprocessings': []
         }
 
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(predict_folder)
 
         # Should handle missing model gracefully
@@ -292,7 +292,7 @@ class TestPredictionReuseIntegration:
         pipeline_config = PipelineConfigs(pipeline, "fold_specific_reuse")
         dataset_config = DatasetConfigs(train_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get predictions from different folds
@@ -300,7 +300,7 @@ class TestPredictionReuseIntegration:
         fold_ids = list({pred.get('fold_id') for pred in all_preds})
 
         # Test prediction with specific fold
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(predict_folder)
 
         for fold_id in fold_ids[:2]:  # Test first 2 folds
@@ -322,7 +322,7 @@ class TestPredictionReuseIntegration:
         pipeline_config = PipelineConfigs(pipeline, "format_test")
         dataset_config = DatasetConfigs(train_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         best_prediction = predictions.get_best(ascending=True)
@@ -333,7 +333,7 @@ class TestPredictionReuseIntegration:
         X_new = np.random.randn(20, n_features)  # 20 samples, same features as training
 
         # Predict with numpy arrays
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
         # For prediction, pass numpy array as a dict or tuple
         # Since we only have X_new, pass it as test_x

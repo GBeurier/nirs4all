@@ -68,7 +68,7 @@ class TestDeterministicRoundtrip:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -204,7 +204,7 @@ class TestNumericalPrecision:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -319,7 +319,7 @@ class TestMultipleBranchRoundtrip:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -440,7 +440,7 @@ class TestEdgeCaseRoundtrip:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False

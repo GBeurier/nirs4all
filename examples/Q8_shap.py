@@ -30,7 +30,7 @@ pipeline_config = PipelineConfigs(pipeline)
 dataset_config = DatasetConfigs(['sample_data/regression_2'])
 
 print("Training models...")
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 predictions, _ = runner.run(pipeline_config, dataset_config)
 
 best_prediction = predictions.top(n=1, rank_metric='rmse', rank_partition="test", display_metrics=['rmse'])[0]

@@ -215,7 +215,7 @@ regression_dataset = DatasetConfigs(regression_data)
 ###############
 
 regression_config = PipelineConfigs(regression_pipeline, "Q19_regression")
-runner = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 reg_predictions, _ = runner.run(regression_config, regression_dataset)
 
 print("\nTop 50 regression models:")
@@ -266,7 +266,7 @@ classification_dataset = DatasetConfigs([classification_data])
 ###############
 
 classification_config = PipelineConfigs(classification_pipeline, "Q19_classification")
-runner_cls = PipelineRunner(save_files=False, verbose=1, plots_visible=args.plots)
+runner_cls = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1, plots_visible=args.plots)
 cls_predictions, _ = runner_cls.run(classification_config, classification_dataset)
 
 print("\nTop 5 classification models:")

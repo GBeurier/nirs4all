@@ -230,7 +230,7 @@ pipeline = [
 pipeline_config = PipelineConfigs(pipeline, name="BatchRegression")
 dataset_config = DatasetConfigs(data_paths)
 
-runner = PipelineRunner(save_files=True, verbose=1, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=True, verbose=1, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # ============================================================================

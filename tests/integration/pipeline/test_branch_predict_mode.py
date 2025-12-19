@@ -69,7 +69,7 @@ class TestBranchPredictModeRoundtrip:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -270,7 +270,7 @@ class TestBranchPredictModeFiltering:
         return PipelineOrchestrator(
             workspace_path=workspace_path,
             verbose=0,
-            save_files=True,
+            save_artifacts=True,
             enable_tab_reports=False,
             show_spinner=False
         )
@@ -382,7 +382,7 @@ class TestBranchPredictModeErrorHandling:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -445,7 +445,7 @@ class TestBranchArtifactPersistence:
         """Create a PipelineRunner that saves artifacts."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -557,7 +557,7 @@ class TestBackwardCompatibility:
         return PipelineOrchestrator(
             workspace_path=workspace_path,
             verbose=0,
-            save_files=False,  # Don't save - just test execution
+            save_artifacts=False, save_charts=False,  # Don't save - just test execution
             enable_tab_reports=False,
             show_spinner=False
         )

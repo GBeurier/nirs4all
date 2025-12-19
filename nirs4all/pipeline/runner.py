@@ -72,7 +72,8 @@ class PipelineRunner:
         workspace_path (Path): Root workspace directory
         verbose (int): Verbosity level (0=quiet, 1=info, 2=debug, 3=trace)
         mode (str): Execution mode ('train', 'predict', 'explain')
-        save_files (bool): Whether to save output files
+        save_artifacts (bool): Whether to save binary artifacts (models, transformers)
+        save_charts (bool): Whether to save charts and visual outputs
         enable_tab_reports (bool): Whether to generate tabular reports
         continue_on_error (bool): Whether to continue on step failures
         show_spinner (bool): Whether to show progress spinners
@@ -105,7 +106,8 @@ class PipelineRunner:
         workspace_path: Optional[Union[str, Path]] = None,
         verbose: int = 0,
         mode: str = "train",
-        save_files: bool = True,
+        save_artifacts: bool = True,
+        save_charts: bool = True,
         enable_tab_reports: bool = True,
         continue_on_error: bool = False,
         show_spinner: bool = True,
@@ -126,7 +128,8 @@ class PipelineRunner:
             workspace_path: Workspace root directory. Defaults to './workspace'
             verbose: Verbosity level (0=quiet, 1=info, 2=debug, 3=trace)
             mode: Execution mode ('train', 'predict', 'explain')
-            save_files: Whether to save output files
+            save_artifacts: Whether to save binary artifacts (models, transformers)
+            save_charts: Whether to save charts and visual outputs
             enable_tab_reports: Whether to generate tabular reports
             continue_on_error: Whether to continue on step failures
             show_spinner: Whether to show progress spinners
@@ -151,7 +154,8 @@ class PipelineRunner:
 
         self.verbose = verbose
         self.mode = mode
-        self.save_files = save_files
+        self.save_artifacts = save_artifacts
+        self.save_charts = save_charts
         self.enable_tab_reports = enable_tab_reports
         self.continue_on_error = continue_on_error
         self.show_spinner = show_spinner
@@ -185,7 +189,8 @@ class PipelineRunner:
             workspace_path=self.workspace_path,
             verbose=verbose,
             mode=mode,
-            save_files=save_files,
+            save_artifacts=save_artifacts,
+            save_charts=save_charts,
             enable_tab_reports=enable_tab_reports,
             continue_on_error=continue_on_error,
             show_spinner=show_spinner,

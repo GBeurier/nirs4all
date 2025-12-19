@@ -115,7 +115,7 @@ def example_1_train_and_export():
 
     # Train the pipeline
     print_subsection("Training Pipeline")
-    runner = PipelineRunner(save_files=True, verbose=0)
+    runner = PipelineRunner(save_artifacts=True, verbose=0)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Get best prediction for export
@@ -205,7 +205,7 @@ def example_3_predict_from_bundle(bundle_path, best_prediction):
     print_section("Example 3: Load and Predict from Bundle")
 
     # Create a new runner (simulating a deployment scenario)
-    predictor = PipelineRunner(save_files=False, verbose=0)
+    predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
     # Load new data for prediction
     prediction_dataset = DatasetConfigs({
@@ -320,7 +320,7 @@ def example_5_export_from_different_sources():
     pipeline_config = PipelineConfigs(pipeline, "source_demo")
     dataset_config = DatasetConfigs(['sample_data/regression'])
 
-    runner = PipelineRunner(save_files=True, verbose=0)
+    runner = PipelineRunner(save_artifacts=True, verbose=0)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     best_pred = predictions.top(n=1, rank_partition="test")[0]
@@ -377,7 +377,7 @@ def example_6_batch_export():
     pipeline_config = PipelineConfigs(pipeline, "batch_export_demo")
     dataset_config = DatasetConfigs(['sample_data/regression'])
 
-    runner = PipelineRunner(save_files=True, verbose=0)
+    runner = PipelineRunner(save_artifacts=True, verbose=0)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Export top 3 models

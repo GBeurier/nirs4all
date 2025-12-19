@@ -52,7 +52,7 @@ class TestTrainingArtifactCreation:
         """Create a PipelineRunner with artifact saving enabled."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -184,7 +184,7 @@ class TestPredictionArtifactLoading:
         """Create a PipelineRunner."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False
@@ -403,7 +403,7 @@ class TestMultiplePipelinesArtifactFlow:
         """Create pipeline runner."""
         return PipelineRunner(
             workspace_path=workspace_path,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False,
             show_spinner=False

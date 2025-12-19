@@ -92,7 +92,7 @@ data_paths = ['sample_data/regression', 'sample_data/regression_2', 'sample_data
 dataset_config = DatasetConfigs(data_paths)
 
 # Run the pipeline
-runner = PipelineRunner(save_files=False, verbose=0, plots_visible=args.plots)
+runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=args.plots)
 predictions, predictions_per_dataset = runner.run(pipeline_config, dataset_config)
 
 # Analysis and visualization

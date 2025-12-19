@@ -122,7 +122,7 @@ Old predictions are automatically migrated when used:
 ```python
 from nirs4all.pipeline import PipelineRunner
 
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 
 # Using old prediction triggers migration
 new_preds, _ = runner.retrain(
@@ -313,9 +313,9 @@ if not folder.exists():
 
 ```python
 # Warning: Some step artifacts could not be located
-# Solution: Run a new training with save_files=True for full functionality
+# Solution: Run a new training with save_artifacts=True for full functionality
 
-runner = PipelineRunner(save_files=True, verbose=0)
+runner = PipelineRunner(save_artifacts=True, verbose=0)
 new_preds, _ = runner.run(old_pred['pipeline_config'], dataset)
 ```
 
@@ -348,7 +348,7 @@ We recommend migrating predictions before these future versions:
 2. **Dry Run**: Use `dry_run=True` to preview changes
 3. **Migrate Gradually**: Migrate predictions as you use them
 4. **Test After Migration**: Verify predictions still work correctly
-5. **Update Workflows**: Use `save_files=True` for new runs
+5. **Update Workflows**: Use `save_artifacts=True` for new runs
 
 ## Need Help?
 

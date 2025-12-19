@@ -314,7 +314,7 @@ def test_integration() -> bool:
             pipeline_config = PipelineConfigs(pipeline, "sklearn_test")
             dataset_config = DatasetConfigs(temp_dir)
 
-            runner = PipelineRunner(save_files=False, verbose=0)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             # Verify results
@@ -364,7 +364,7 @@ def test_integration() -> bool:
             pipeline_config = PipelineConfigs(pipeline, "tensorflow_test")
             dataset_config = DatasetConfigs(temp_dir)
 
-            runner = PipelineRunner(save_files=False, verbose=0)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             # Verify results
@@ -427,7 +427,7 @@ def test_integration() -> bool:
             pipeline_config = PipelineConfigs(pipeline, "optuna_test")
             dataset_config = DatasetConfigs(temp_dir)
 
-            runner = PipelineRunner(save_files=False, verbose=0)
+            runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
             predictions, _ = runner.run(pipeline_config, dataset_config)
 
             # Verify results

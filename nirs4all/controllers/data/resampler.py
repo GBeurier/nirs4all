@@ -321,7 +321,7 @@ class ResamplerController(OperatorController):
             # Resampler always outputs wavelengths in cm-1
             dataset._features.sources[sd_idx].set_headers(new_headers, unit="cm-1")  # noqa: SLF001
 
-            if runtime_context.saver.save_files:
+            if runtime_context.saver.save_artifacts:
                 logger.debug(f"Exporting resampled features for dataset '{dataset.name}', source {sd_idx} to CSV...")
                 logger.debug(dataset.features_processings(sd_idx))
                 train_context = context.with_partition("train")

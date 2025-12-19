@@ -335,7 +335,7 @@ class TestArtifactFlow:
         """Test that artifacts from training can be loaded for prediction."""
         runner = PipelineRunner(
             workspace=temp_workspace,
-            save_files=True
+            save_artifacts=True
         )
 
         # Train

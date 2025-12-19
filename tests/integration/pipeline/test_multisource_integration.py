@@ -58,7 +58,7 @@ class TestMultisourceIntegration:
         pipeline_config = PipelineConfigs(pipeline, "multi_source_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Verify predictions for multiple sources
@@ -88,7 +88,7 @@ class TestMultisourceIntegration:
         pipeline_config = PipelineConfigs(pipeline, "multi_source_heatmap_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Test PredictionAnalyzer creation
@@ -109,7 +109,7 @@ class TestMultisourceIntegration:
         pipeline_config = PipelineConfigs(pipeline, "multi_source_reuse_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get best model
@@ -119,7 +119,7 @@ class TestMultisourceIntegration:
         print(f"Best model ID for multi-source: {model_id}")
 
         # Test prediction reuse (on same data for simplicity)
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(dataset_folder)
 
         pred_result, _ = predictor.predict(best_prediction, prediction_dataset, verbose=0)
@@ -144,7 +144,7 @@ class TestMultisourceIntegration:
         pipeline_config = PipelineConfigs(pipeline, "multi_source_models_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=False, verbose=0)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have predictions from all models

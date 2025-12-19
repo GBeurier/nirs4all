@@ -122,7 +122,8 @@ class TestRunnerInitialization:
 
         # Test runner attributes (not moved to orchestrator)
         assert runner.verbose == 0
-        assert runner.save_files is True
+        assert runner.save_artifacts is True
+        assert runner.save_charts is True
         assert runner.mode == "train"
         assert runner.show_spinner is True
         assert runner.enable_tab_reports is True
@@ -142,7 +143,7 @@ class TestRunnerInitialization:
         runner = PipelineRunner(
             verbose=2,
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             mode="predict",
             show_spinner=False,
             enable_tab_reports=False,
@@ -153,7 +154,8 @@ class TestRunnerInitialization:
 
         assert runner.verbose == 2
         assert runner.workspace_path == temp_workspace
-        assert runner.save_files is False
+        assert runner.save_artifacts is False
+        assert runner.save_charts is False
         assert runner.mode == "predict"
         assert runner.show_spinner is False
         assert runner.enable_tab_reports is False
@@ -163,7 +165,7 @@ class TestRunnerInitialization:
 
     def test_workspace_directory_creation(self, temp_workspace):
         """Test that workspace directories are created."""
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
         assert (temp_workspace / "runs").exists()
         assert (temp_workspace / "exports").exists()
@@ -172,8 +174,8 @@ class TestRunnerInitialization:
     def test_random_state_initialization(self):
         """Test that random state is properly initialized."""
         # Create two runners with same random state
-        runner1 = PipelineRunner(random_state=42, save_files=False)
-        runner2 = PipelineRunner(random_state=42, save_files=False)
+        runner1 = PipelineRunner(random_state=42, save_artifacts=False, save_charts=False)
+        runner2 = PipelineRunner(random_state=42, save_artifacts=False, save_charts=False)
 
         # Generate random numbers - should be identical
         np.random.seed(42)
@@ -186,7 +188,7 @@ class TestRunnerInitialization:
 
     def test_state_initialization(self):
         """Test that all state variables are properly initialized."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner.pipeline_uid is None
         assert runner.current_run_dir is None
@@ -212,7 +214,7 @@ class TestRunMethod:
         """Test basic regression pipeline run."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -236,7 +238,7 @@ class TestRunMethod:
         """Test run with numpy arrays."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -257,7 +259,7 @@ class TestRunMethod:
         """Test run with multiple models."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -287,7 +289,7 @@ class TestRunMethod:
         """Test run with preprocessing steps."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -312,7 +314,7 @@ class TestRunMethod:
         """Test run with feature augmentation."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -336,7 +338,7 @@ class TestRunMethod:
         """Test run with y-processing."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -359,7 +361,7 @@ class TestRunMethod:
         """Test run with multiple datasets."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -383,7 +385,7 @@ class TestRunMethod:
         """Test run with cross-validation."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -406,7 +408,7 @@ class TestRunMethod:
         """Test run with classification data."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -424,11 +426,11 @@ class TestRunMethod:
 
         assert run_predictions.num_predictions > 0
 
-    def test_run_with_save_files(self, test_data_manager, temp_workspace):
-        """Test run with file saving enabled."""
+    def test_run_with_save_artifacts(self, test_data_manager, temp_workspace):
+        """Test run with artifact saving enabled."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=False
         )
@@ -455,7 +457,7 @@ class TestRunMethod:
         """Test that raw_data and pp_data are populated when keep_datasets=True."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             keep_datasets=True
@@ -481,7 +483,7 @@ class TestRunMethod:
         """Test that data is not kept when keep_datasets=False."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             keep_datasets=False
@@ -540,21 +542,21 @@ class TestWorkspaceManagement:
 
     def test_default_workspace_creation(self):
         """Test that default workspace is created."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner.workspace_path.exists()
         assert (runner.workspace_path / "runs").exists()
 
     def test_custom_workspace_path(self, temp_workspace):
         """Test custom workspace path."""
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
         assert runner.workspace_path == temp_workspace
         assert (temp_workspace / "runs").exists()
 
     def test_runs_directory_creation(self, temp_workspace):
         """Test that runs directory is created."""
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
         runs_dir = temp_workspace / "runs"
         assert runs_dir.exists()
@@ -562,14 +564,14 @@ class TestWorkspaceManagement:
 
     def test_exports_directory_creation(self, temp_workspace):
         """Test that exports directory is created."""
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
         exports_dir = temp_workspace / "exports"
         assert exports_dir.exists()
 
     def test_library_directory_creation(self, temp_workspace):
         """Test that library directory is created."""
-        runner = PipelineRunner(workspace_path=temp_workspace, save_files=False)
+        runner = PipelineRunner(workspace_path=temp_workspace, save_artifacts=False, save_charts=False)
 
         library_dir = temp_workspace / "library"
         assert library_dir.exists()
@@ -578,7 +580,7 @@ class TestWorkspaceManagement:
         """Test that current_run_dir is set during run."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -628,7 +630,7 @@ class TestErrorHandling:
         """Test that errors stop execution when continue_on_error=False."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             continue_on_error=False,
             enable_tab_reports=False
@@ -653,7 +655,7 @@ class TestErrorHandling:
         """Test that execution continues when continue_on_error=True."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             continue_on_error=True,
             enable_tab_reports=False
@@ -671,7 +673,7 @@ class TestErrorHandling:
 
     def test_invalid_pipeline_type(self):
         """Test error for invalid pipeline type."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         with pytest.raises((TypeError, ValueError, AttributeError)):
             runner._normalize_pipeline(12345)
@@ -680,7 +682,7 @@ class TestErrorHandling:
         """Test handling of empty pipeline."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -705,7 +707,7 @@ class TestIntegration:
         """Test complete regression workflow."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=True,
+            save_artifacts=True,
             verbose=0,
             enable_tab_reports=True,
             keep_datasets=True
@@ -750,7 +752,7 @@ class TestIntegration:
         """Test complete classification workflow."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -777,7 +779,7 @@ class TestIntegration:
         """Test multiple pipelines on multiple datasets."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -809,7 +811,7 @@ class TestIntegration:
         # Verbose = 0
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -836,7 +838,7 @@ class TestIntegration:
         # Run 1
         runner1 = PipelineRunner(
             workspace_path=temp_workspace / "run1",
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             random_state=42
@@ -846,7 +848,7 @@ class TestIntegration:
         # Run 2
         runner2 = PipelineRunner(
             workspace_path=temp_workspace / "run2",
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             random_state=42
@@ -872,7 +874,7 @@ class TestEdgeCases:
         """Test with minimal single sample dataset."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             continue_on_error=True
@@ -895,7 +897,7 @@ class TestEdgeCases:
         """Test with high-dimensional data."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -915,7 +917,7 @@ class TestEdgeCases:
         """Test with single feature."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -932,7 +934,7 @@ class TestEdgeCases:
         """Test with all zeros data."""
         runner = PipelineRunner(
             workspace_path=temp_workspace,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             continue_on_error=True

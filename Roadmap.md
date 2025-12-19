@@ -2,9 +2,7 @@
 
 **Features**:
 
-> [Model] How to use directly a model from file (joblib, n4a, folder, pkl, h5, etc.)
-
-> [save_files] sep in save_files and save_plots and save_predictions > check library and export to replay a model
+> [save_files > DONE] sep in save_artifacts and save_charts - implemented as two separate boolean parameters in PipelineRunner
 
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 > [TabReport] include > aggregated

@@ -70,7 +70,7 @@ def run_scenario(name, dataset_path, pipeline_steps, description):
     dataset_config = DatasetConfigs(dataset_path)
 
     # Run pipeline
-    runner = PipelineRunner(save_files=False, verbose=0, plots_visible=display_pipeline_plots)
+    runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0, plots_visible=display_pipeline_plots)
     runner.run(pipeline_config, dataset_config)
 
 # Common split configuration

@@ -24,7 +24,7 @@ def runner_with_workspace(tmp_path):
     """Create runner with temporary workspace."""
     return PipelineRunner(
         workspace_path=tmp_path,
-        save_files=False,
+        save_artifacts=False, save_charts=False,
         verbose=0,
         enable_tab_reports=False
     )
@@ -44,7 +44,7 @@ class TestStateInitialization:
 
     def test_all_counters_zero(self):
         """Verify all counters start at zero or default values."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner.step_number == 0
         assert runner.substep_number == -1
@@ -52,7 +52,7 @@ class TestStateInitialization:
 
     def test_empty_collections(self):
         """Verify all collections start empty."""
-        runner = PipelineRunner(save_files=False, keep_datasets=True)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False, keep_datasets=True)
 
         assert runner.raw_data == {}
         assert runner.pp_data == {}
@@ -60,7 +60,7 @@ class TestStateInitialization:
 
     def test_none_references(self):
         """Verify all object references start as None."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner.pipeline_uid is None
         assert runner.current_run_dir is None
@@ -71,7 +71,7 @@ class TestStateInitialization:
 
     def test_boolean_flags(self):
         """Verify boolean flags are set correctly."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner._capture_model is False
         assert runner.plots_visible is False
@@ -227,7 +227,7 @@ class TestDataCapture:
         """Test that raw data is captured when keep_datasets=True."""
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             keep_datasets=True
@@ -250,7 +250,7 @@ class TestDataCapture:
         """Test that preprocessed data is captured when keep_datasets=True."""
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             keep_datasets=True
@@ -273,7 +273,7 @@ class TestDataCapture:
         """Test that data is not captured when keep_datasets=False."""
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             keep_datasets=False
@@ -292,7 +292,7 @@ class TestDataCapture:
         """Test that multiple datasets are captured separately."""
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False,
             keep_datasets=True
@@ -322,7 +322,7 @@ class TestStateConsistency:
         """Test that workspace_path doesn't change."""
         runner = PipelineRunner(
             workspace_path=tmp_path,
-            save_files=False,
+            save_artifacts=False, save_charts=False,
             verbose=0,
             enable_tab_reports=False
         )
@@ -358,13 +358,13 @@ class TestModelCaptureState:
 
     def test_capture_model_false_by_default(self):
         """Test that _capture_model is False by default."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner._capture_model is False
 
     def test_capture_model_flag_can_be_set(self):
         """Test that _capture_model flag can be set."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         runner._capture_model = True
         assert runner._capture_model is True
@@ -378,7 +378,7 @@ class TestFigureReferences:
 
     def test_figure_refs_empty_initially(self):
         """Test that _figure_refs starts empty."""
-        runner = PipelineRunner(save_files=False)
+        runner = PipelineRunner(save_artifacts=False, save_charts=False)
 
         assert runner._figure_refs == []
         assert len(runner._figure_refs) == 0

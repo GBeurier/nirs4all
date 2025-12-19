@@ -55,7 +55,7 @@ class TestMultisourceBranching:
         pipeline_config = PipelineConfigs(pipeline, "multisource_branching_test")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Verify predictions for each branch
@@ -89,7 +89,7 @@ class TestMultisourceBranching:
         pipeline_config = PipelineConfigs(pipeline, "multisource_named_branching")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Verify all named branches exist
@@ -117,7 +117,7 @@ class TestMultisourceBranching:
         pipeline_config = PipelineConfigs(pipeline, "multisource_branching_reload")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get best model from train partition to have sample indices
@@ -133,7 +133,7 @@ class TestMultisourceBranching:
         print(f"Model ID: {model_id}")
 
         # Test reload and predict
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         prediction_dataset = DatasetConfigs(dataset_folder)
 
         reloaded_preds, _ = predictor.predict(model_id, prediction_dataset, verbose=0)
@@ -188,7 +188,7 @@ class TestMultisourceStacking:
         pipeline_config = PipelineConfigs(pipeline, "multisource_sklearn_stacking")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         assert predictions.num_predictions > 0, "No stacking predictions"
@@ -223,7 +223,7 @@ class TestMultisourceStacking:
         pipeline_config = PipelineConfigs(pipeline, "multisource_stacking_reload")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Get stacking model (train partition to get predictions with sample_indices)
@@ -237,7 +237,7 @@ class TestMultisourceStacking:
         original_preds = np.array(stacking_pred['y_pred'][:10]).flatten()
 
         # Reload and predict
-        predictor = PipelineRunner(save_files=False, verbose=0)
+        predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
         reloaded_preds, _ = predictor.predict(model_id, DatasetConfigs(dataset_folder), verbose=0)
 
         # Compare predictions for the SAME samples (reloaded is in sample order)
@@ -289,7 +289,7 @@ class TestMultisourceBranchingStacking:
         pipeline_config = PipelineConfigs(pipeline, "multisource_branch_stacking")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have stacking predictions for each branch
@@ -323,7 +323,7 @@ class TestMultisourceBranchingStacking:
         pipeline_config = PipelineConfigs(pipeline, "multisource_in_branch_models")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         branch_names = predictions.get_unique_values('branch_name')
@@ -369,7 +369,7 @@ class TestMultisourceMetaModel:
         pipeline_config = PipelineConfigs(pipeline, "multisource_metamodel")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # Should have MetaModel predictions
@@ -400,7 +400,7 @@ class TestMultisourceMetaModel:
         pipeline_config = PipelineConfigs(pipeline, "multisource_metamodel_branches")
         dataset_config = DatasetConfigs(dataset_folder)
 
-        runner = PipelineRunner(save_files=True, verbose=0)
+        runner = PipelineRunner(save_artifacts=True, verbose=0)
         predictions, _ = runner.run(pipeline_config, dataset_config)
 
         # MetaModel should work per branch

@@ -41,7 +41,8 @@ class ExecutorBuilder:
         # Optional parameters with defaults
         self._verbose: int = 0
         self._mode: str = "train"
-        self._save_files: bool = True
+        self._save_artifacts: bool = True
+        self._save_charts: bool = True
         self._continue_on_error: bool = False
         self._show_spinner: bool = True
         self._plots_visible: bool = False
@@ -101,16 +102,28 @@ class ExecutorBuilder:
         self._mode = mode
         return self
 
-    def with_save_files(self, save_files: bool) -> 'ExecutorBuilder':
-        """Set whether to save output files.
+    def with_save_artifacts(self, save_artifacts: bool) -> 'ExecutorBuilder':
+        """Set whether to save binary artifacts (models, transformers).
 
         Args:
-            save_files: Whether to save files
+            save_artifacts: Whether to save artifacts
 
         Returns:
             Self for method chaining
         """
-        self._save_files = save_files
+        self._save_artifacts = save_artifacts
+        return self
+
+    def with_save_charts(self, save_charts: bool) -> 'ExecutorBuilder':
+        """Set whether to save charts and visual outputs.
+
+        Args:
+            save_charts: Whether to save charts
+
+        Returns:
+            Self for method chaining
+        """
+        self._save_charts = save_charts
         return self
 
     def with_continue_on_error(self, continue_on_error: bool) -> 'ExecutorBuilder':
@@ -240,7 +253,8 @@ class ExecutorBuilder:
         if self._saver is None:
             self._saver = SimulationSaver(
                 self._run_directory,
-                save_files=self._save_files
+                save_artifacts=self._save_artifacts,
+                save_charts=self._save_charts
             )
 
         # Create manifest manager if not provided
