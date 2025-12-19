@@ -5,9 +5,6 @@
 > [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
 > [TabReport] include > aggregated
 
-- [Split] bug + review: fix the "try automatically to set a group even when not specified. Shouldn't do anything if not specified", review doc and explicit also the use of group "y" ?
-- [Split > DONE] add force_group (mean, median, max, min, etc.) before split to be able to split with groups seemlessly. ie: {"split": KFold, "force_group":"ID"} or reuse group if possible to detect that group is not required (I think it's not detectable)
-
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
