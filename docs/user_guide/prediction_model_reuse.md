@@ -96,6 +96,44 @@ y_pred, _ = runner.predict("runs/2024-12-14_wheat/pipeline_abc123/", new_data)
 y_pred, _ = runner.predict("exports/wheat_model.n4a", new_data)
 ```
 
+### 5. Direct Model File
+
+You can load a model directly from its binary file. This is useful when you have a pre-trained model saved externally or want to use models trained outside nirs4all.
+
+```python
+# From a sklearn/joblib model file
+y_pred, _ = runner.predict("models/pls_wheat.joblib", new_data)
+
+# From a pickle file
+y_pred, _ = runner.predict("models/my_model.pkl", new_data)
+
+# From a TensorFlow/Keras model
+y_pred, _ = runner.predict("models/nn_model.h5", new_data)
+y_pred, _ = runner.predict("models/nn_model.keras", new_data)
+
+# From a PyTorch model
+y_pred, _ = runner.predict("models/torch_model.pt", new_data)
+y_pred, _ = runner.predict("models/checkpoint.pth", new_data)
+
+# From a model folder (AutoGluon, TensorFlow SavedModel)
+y_pred, _ = runner.predict("models/autogluon_model/", new_data)
+y_pred, _ = runner.predict("models/tf_savedmodel/", new_data)
+```
+
+**Supported formats:**
+
+| Extension | Framework | Notes |
+|-----------|-----------|-------|
+| `.joblib` | sklearn, XGBoost, LightGBM | Recommended for sklearn models |
+| `.pkl` | Any (cloudpickle) | General purpose |
+| `.h5`, `.hdf5` | TensorFlow/Keras | Legacy Keras format |
+| `.keras` | TensorFlow/Keras | Modern Keras format |
+| `.pt`, `.pth` | PyTorch | Full model or state dict |
+| `.ckpt` | PyTorch | Checkpoint file |
+| folder | AutoGluon, TensorFlow | SavedModel format |
+
+**Important:** When using direct model files, no preprocessing artifacts are loaded. The input data should already be preprocessed appropriately for the model.
+
 ## Prediction Output
 
 The `predict()` method returns:
@@ -207,6 +245,77 @@ except KeyError as e:
     # Ensure all preprocessing steps were saved during training
 ```
 
+## Using Model Files in Pipelines
+
+You can include pre-trained models directly in your pipeline configuration. This is useful for:
+- Transfer learning with pre-trained models
+- Ensemble with external models
+- Fine-tuning existing models
+
+### Loading a Model in Pipeline
+
+```python
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import KFold
+
+# Use a pre-trained model file in pipeline
+pipeline = [
+    MinMaxScaler(),
+    KFold(n_splits=5),
+    {"model": "models/pretrained_pls.joblib", "name": "pretrained_pls"}
+]
+
+runner = PipelineRunner()
+predictions, _ = runner.run(pipeline, dataset)
+```
+
+### Supported Model Formats in Pipelines
+
+The model path is resolved automatically:
+
+```python
+# sklearn/scikit-learn models
+{"model": "models/pls.joblib"}
+{"model": "models/ridge.pkl"}
+
+# TensorFlow/Keras
+{"model": "models/nn.h5"}
+{"model": "models/nn.keras"}
+{"model": "models/savedmodel_folder/"}  # SavedModel format
+
+# PyTorch
+{"model": "models/torch_model.pt"}
+{"model": "models/checkpoint.pth"}
+{"model": "models/checkpoint.ckpt"}
+
+# AutoGluon
+{"model": "models/autogluon_predictor/"}
+```
+
+### Fine-tuning a Pre-trained Model
+
+```python
+# Load and fine-tune a pre-trained model
+runner = PipelineRunner()
+predictions, _ = runner.retrain(
+    source="models/pretrained_pls.joblib",
+    dataset=new_training_data,
+    mode='finetune'
+)
+```
+
+### Transfer Learning
+
+```python
+# Use a model trained on one dataset for another
+runner = PipelineRunner()
+predictions, _ = runner.retrain(
+    source="models/wheat_model.joblib",
+    dataset=corn_dataset,
+    mode='transfer'
+)
+```
+
 ## Best Practices
 
 1. **Always use `save_files=True`** during training to persist models
@@ -214,6 +323,7 @@ except KeyError as e:
 3. **Use the same preprocessing** as training (automatic with nirs4all)
 4. **Store prediction entries** for reproducibility
 5. **Test predictions** against known validation data
+6. **Match preprocessing** when using direct model files - no preprocessing is replayed
 
 ## See Also
 

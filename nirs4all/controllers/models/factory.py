@@ -854,7 +854,13 @@ class ModelFactory:
         """
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file '{model_path}' does not exist.")
+
+        # Handle folder-based models first
+        if os.path.isdir(model_path):
+            return ModelFactory._load_model_from_folder(model_path)
+
         _, ext = os.path.splitext(model_path)
+        ext = ext.lower()
 
         # TensorFlow model
         if ext in ['.h5', '.hdf5', '.keras']:
@@ -873,7 +879,9 @@ class ModelFactory:
             if not TORCH_AVAILABLE:
                 raise ImportError("PyTorch is not available but required to load this model.")
             import torch
-            model = torch.load(model_path)
+            # weights_only=False is needed to load full model objects (not just state dicts)
+            # This is safe when loading models from trusted sources
+            model = torch.load(model_path, weights_only=False)
             return model
 
         # Sklearn model or pickled model
@@ -885,5 +893,83 @@ class ModelFactory:
             model = from_bytes(data, 'cloudpickle')
             return model
 
+        # Joblib model (sklearn, xgboost, lightgbm, etc.)
+        elif ext == '.joblib':
+            import joblib
+            model = joblib.load(model_path)
+            return model
+
+        # PyTorch checkpoint (.pth, .ckpt)
+        elif ext in ['.pth', '.ckpt']:
+            if not TORCH_AVAILABLE:
+                raise ImportError("PyTorch is not available but required to load this model.")
+            import torch
+            # Load checkpoint - could be state_dict or full model
+            checkpoint = torch.load(model_path, weights_only=False)
+            # If it's a dict with 'model' or 'state_dict' key, it's a checkpoint
+            if isinstance(checkpoint, dict):
+                if 'model' in checkpoint:
+                    return checkpoint['model']
+                elif 'state_dict' in checkpoint:
+                    # Return just the state_dict - caller must reconstruct model
+                    return checkpoint
+            return checkpoint
+
         else:
             raise ValueError(f"Unsupported file extension '{ext}' for model file.")
+
+    @staticmethod
+    def _load_model_from_folder(folder_path):
+        """Load a model from a folder structure.
+
+        Supports:
+        - AutoGluon TabularPredictor (contains predictor.pkl)
+        - TensorFlow SavedModel (contains saved_model.pb)
+        - JAX/Flax checkpoints (contains orbax or checkpoint files)
+
+        Args:
+            folder_path: Path to the model folder.
+
+        Returns:
+            The loaded model instance.
+
+        Raises:
+            ValueError: If folder structure is not recognized.
+            ImportError: If required libraries are not available.
+        """
+        folder = folder_path if isinstance(folder_path, str) else str(folder_path)
+
+        # AutoGluon TabularPredictor
+        if os.path.exists(os.path.join(folder, "predictor.pkl")):
+            try:
+                from autogluon.tabular import TabularPredictor
+                return TabularPredictor.load(folder)
+            except ImportError:
+                raise ImportError("AutoGluon is not available but required to load this model.")
+
+        # TensorFlow SavedModel format
+        if os.path.exists(os.path.join(folder, "saved_model.pb")):
+            if not TF_AVAILABLE:
+                raise ImportError("TensorFlow is not available but required to load this model.")
+            from tensorflow import keras
+            return keras.models.load_model(folder)
+
+        # TensorFlow Keras SavedModel (with keras_metadata.pb)
+        if os.path.exists(os.path.join(folder, "keras_metadata.pb")):
+            if not TF_AVAILABLE:
+                raise ImportError("TensorFlow is not available but required to load this model.")
+            from tensorflow import keras
+            return keras.models.load_model(folder)
+
+        # JAX/Flax with Orbax checkpointing
+        if os.path.exists(os.path.join(folder, "checkpoint")):
+            if not JAX_AVAILABLE:
+                raise ImportError("JAX is not available but required to load this model.")
+            # Orbax checkpoint - return path, caller must handle architecture
+            return {"checkpoint_path": folder, "framework": "jax"}
+
+        raise ValueError(
+            f"Unrecognized model folder structure: {folder}. "
+            f"Expected AutoGluon (predictor.pkl), TensorFlow SavedModel (saved_model.pb), "
+            f"or JAX/Orbax checkpoint."
+        )
