@@ -1,9 +1,5 @@
 ## ROADMAP
 
-**Bugs**:
->   - [Charts] check dataviz. Missing histograms, inverted heatmap color scale, --> Branching ?
-
-
 **Features**:
 
 > [pytoml] Update imports and configs. Anticipate ui dependencies.

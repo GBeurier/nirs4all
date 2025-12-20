@@ -1,0 +1,39 @@
+# Generator Syntax for Hyperparameter Search
+#
+# Demonstrates the generator syntax for automated hyperparameter search:
+# - _or_: Try multiple preprocessing options
+# - _range_: Sweep a parameter value range
+# - count: Limit random sampling from options
+#
+# This config will generate multiple pipeline variants automatically.
+#
+# Usage:
+#   config = PipelineConfigs("generator_search.yaml", name="hyperparam_search")
+#   # config.steps will contain all generated variants
+
+pipeline:
+  # Step 1: Try different preprocessing methods
+  # _or_ generates a variant for each option
+  - _or_:
+      - class: nirs4all.operators.transforms.SNV
+      - class: nirs4all.operators.transforms.MSC
+      - class: nirs4all.operators.transforms.Detrend
+        params:
+          order: 1
+    count: 2  # Randomly select 2 of the 3 options
+
+  # Step 2: Feature scaling
+  - class: sklearn.preprocessing.MinMaxScaler
+
+  # Step 3: Cross-validation
+  - class: sklearn.model_selection.ShuffleSplit
+    params:
+      n_splits: 5
+      test_size: 0.25
+
+  # Step 4: PLS with varying n_components
+  # _range_ generates variants across the specified range
+  - model:
+      class: sklearn.cross_decomposition.PLSRegression
+    _range_: [5, 25, 5]   # Start, stop, step → [5, 10, 15, 20, 25]
+    param: n_components

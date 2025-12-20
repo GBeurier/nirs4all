@@ -558,9 +558,286 @@ All commands should support:
 
 ---
 
-## Example Workflows
+## Implementation Roadmap
 
-### Workflow 1: Train and Deploy
+### Phase 1: Foundation (Weeks 1-3)
+
+**Goal**: Establish CLI infrastructure and core execution capabilities.
+
+**Deliverables**:
+- CLI framework refactoring
+  - Argument parser structure for subcommands
+  - Common flags infrastructure (`--verbose`, `--workspace`, `--quiet`)
+  - Error handling and logging utilities
+- Configuration file parsing
+  - YAML/JSON schema definitions
+  - Validation utilities for pipeline and dataset configs
+  - Format auto-detection
+- Core commands:
+  - `nirs4all config validate`
+  - `nirs4all config convert`
+  - `nirs4all data info`
+  - `nirs4all data validate`
+
+**Dependencies**: None
+
+**Success Criteria**:
+- All configuration files can be validated
+- Dataset info can be inspected from CLI
+- Help documentation generated for all commands
+
+---
+
+### Phase 2: Pipeline Execution (Weeks 4-6)
+
+**Goal**: Enable end-to-end pipeline execution from CLI.
+
+**Deliverables**:
+- `nirs4all run` command
+  - YAML/JSON pipeline → PipelineConfigs conversion
+  - Dataset configuration loading
+  - Progress indicators for long-running pipelines
+  - Output format options (JSON, YAML, CSV)
+- `nirs4all predictions top` command
+  - Query best predictions from catalog
+  - Filtering and sorting options
+  - Multiple output formats
+- Enhanced workspace commands:
+  - `nirs4all workspace summary` - Overall workspace statistics
+  - `nirs4all workspace export-results` - Export results table
+
+**Dependencies**: Phase 1
+
+**Success Criteria**:
+- Users can run complete pipelines from YAML/JSON files
+- Top predictions can be queried and exported
+- All operations work with default and custom workspaces
+
+---
+
+### Phase 3: Prediction & Export (Weeks 7-9)
+
+**Goal**: Enable model deployment workflows.
+
+**Deliverables**:
+- `nirs4all predict` command
+  - Load models from bundles, directories, or prediction IDs
+  - Apply to new data (CSV, Parquet)
+  - Output predictions in multiple formats
+  - Support for aggregation modes
+- `nirs4all export bundle` command
+  - Export to `.n4a` format
+  - Compression options
+  - Metadata inclusion
+- `nirs4all export model` command
+  - Extract individual model artifacts
+  - Support multiple formats (joblib, pickle, h5)
+  - Per-fold extraction
+
+**Dependencies**: Phase 2
+
+**Success Criteria**:
+- Trained models can be exported as standalone bundles
+- Bundles can be used for prediction on new data
+- Export process validated on all backend types (sklearn, TF, PyTorch, JAX)
+
+---
+
+### Phase 4: Visualization & Analysis (Weeks 10-12)
+
+**Goal**: Provide insights and visual analysis tools.
+
+**Deliverables**:
+- Visualization commands:
+  - `nirs4all viz top-k` - Model comparison charts
+  - `nirs4all viz heatmap` - Parameter performance heatmaps
+  - `nirs4all viz confusion-matrix` - Classification results
+  - `nirs4all viz score-histogram` - Score distributions
+  - `nirs4all viz branch-diagram` - Pipeline branching visualization
+- `nirs4all predictions filter` command
+  - Filter by dataset, model, score thresholds
+  - Multiple filter criteria combination
+  - Export filtered results
+- `nirs4all predictions merge` command
+  - Combine multiple prediction files
+  - Deduplicate and validate
+
+**Dependencies**: Phase 3
+
+**Success Criteria**:
+- All visualization types can be generated from CLI
+- Charts saved in multiple formats (PNG, PDF, SVG)
+- Filtering and merging operations validated on large catalogs
+
+---
+
+### Phase 5: Advanced Features (Weeks 13-16)
+
+**Goal**: Support advanced workflows and preprocessing.
+
+**Deliverables**:
+- `nirs4all preprocess` command
+  - Standalone preprocessing pipeline execution
+  - Support all NIRS operators
+  - Preview mode (show before/after)
+- `nirs4all config expand` command
+  - Expand generator syntax
+  - Show all pipeline combinations
+  - Estimate computational cost
+- `nirs4all retrain` command
+  - Full retraining mode
+  - Transfer learning mode
+  - Fine-tuning mode
+  - Support for model replacement
+- `nirs4all data convert` command
+  - Convert between formats (CSV, Parquet)
+  - Signal type conversion
+  - Header unit conversion
+
+**Dependencies**: Phase 4
+
+**Success Criteria**:
+- Generator syntax fully supported with expansion preview
+- Preprocessing can be applied independently of model training
+- Retraining modes work across all backends
+
+---
+
+### Phase 6: Explanations & Transfer Analysis (Weeks 17-20)
+
+**Goal**: Enable model interpretation and domain adaptation.
+
+**Deliverables**:
+- `nirs4all explain` command
+  - SHAP value generation
+  - Multiple plot types
+  - Batch processing support
+  - Background dataset configuration
+- `nirs4all analyze transfer` command
+  - Transfer preprocessing selector integration
+  - Preset configurations (balanced, fast, thorough)
+  - Domain shift visualization
+  - Recommendations export
+- Library management:
+  - `nirs4all library save-template`
+  - `nirs4all library list-templates`
+  - `nirs4all library load-template`
+
+**Dependencies**: Phase 5
+
+**Success Criteria**:
+- SHAP explanations work for all model types
+- Transfer analysis generates actionable recommendations
+- Template library enables workflow reuse
+
+---
+
+### Phase 7: Polish & Documentation (Weeks 21-24)
+
+**Goal**: Production-ready CLI with comprehensive documentation.
+
+**Deliverables**:
+- Performance optimization
+  - Parallel processing where applicable
+  - Memory-efficient data loading
+  - Progress indicators for all long operations
+- Comprehensive documentation
+  - Man-style pages for all commands
+  - Tutorial series (beginner, intermediate, advanced)
+  - Video demonstrations
+  - Cheat sheet reference
+- Integration testing
+  - End-to-end workflow tests
+  - Cross-platform validation (Linux, macOS, Windows)
+  - Error scenario coverage
+- User experience improvements
+  - Auto-completion scripts (bash, zsh, fish)
+  - Interactive mode for configuration building
+  - `--dry-run` support for destructive operations
+  - Rich terminal output (colors, tables, progress bars)
+
+**Dependencies**: Phase 6
+
+**Success Criteria**:
+- All commands have comprehensive help and examples
+- Tutorial workflows documented with real datasets
+- CLI passes all integration tests
+- Auto-completion works on major shells
+
+---
+
+## Roadmap Timeline Summary
+
+| Phase | Duration | Weeks | Key Deliverable |
+|-------|----------|-------|-----------------|
+| Phase 1: Foundation | 3 weeks | 1-3 | Configuration validation |
+| Phase 2: Execution | 3 weeks | 4-6 | `nirs4all run` |
+| Phase 3: Deployment | 3 weeks | 7-9 | `nirs4all predict` & `export` |
+| Phase 4: Visualization | 3 weeks | 10-12 | Analysis charts |
+| Phase 5: Advanced | 4 weeks | 13-16 | Preprocessing & retraining |
+| Phase 6: Interpretation | 4 weeks | 17-20 | SHAP & transfer analysis |
+| Phase 7: Production | 4 weeks | 21-24 | Documentation & polish |
+| **Total** | **24 weeks** | **~6 months** | Full CLI implementation |
+
+---
+
+## Risk Mitigation
+
+### Technical Risks
+
+1. **Complex configuration parsing**
+   - *Risk*: YAML/JSON → Python object conversion errors
+   - *Mitigation*: Comprehensive schema validation, clear error messages with line numbers
+   - *Contingency*: Provide validation tools before execution
+
+2. **Backend compatibility**
+   - *Risk*: Commands fail with specific backends (TF, PyTorch, JAX)
+   - *Mitigation*: Test each command against all backends in CI/CD
+   - *Contingency*: Document backend-specific limitations
+
+3. **Large file handling**
+   - *Risk*: Memory issues with large datasets or predictions
+   - *Mitigation*: Stream processing, chunk-based operations
+   - *Contingency*: Add memory limit flags and warnings
+
+### Resource Risks
+
+1. **Development capacity**
+   - *Risk*: Single developer implementing all phases
+   - *Mitigation*: Modular design allows parallel development if resources available
+   - *Contingency*: Reduce scope to high-priority commands only (Phases 1-3)
+
+2. **Testing effort**
+   - *Risk*: Insufficient test coverage delays releases
+   - *Mitigation*: Add tests incrementally with each command
+   - *Contingency*: Beta release program for community testing
+
+---
+
+## Success Metrics
+
+### Adoption Metrics
+- **Target**: 50% of new users prefer CLI over Python API within 3 months post-release
+- **Measurement**: Usage telemetry (opt-in), GitHub issue analysis
+
+### Quality Metrics
+- **Target**: >90% test coverage for CLI commands
+- **Target**: <5% error rate on valid configurations
+- **Measurement**: CI/CD test reports, user-reported issues
+
+### Performance Metrics
+- **Target**: CLI overhead <5% vs. direct API calls
+- **Target**: Configuration parsing <100ms for typical files
+- **Measurement**: Benchmark suite
+
+### Documentation Metrics
+- **Target**: Every command has ≥3 usage examples
+- **Target**: <10% of issues are documentation-related
+- **Measurement**: Documentation review, issue categorization
+
+---
+
+## Example Workflows
 
 ```bash
 # 1. Validate configuration

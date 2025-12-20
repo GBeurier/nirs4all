@@ -1,0 +1,52 @@
+# Multi-Source Dataset Configuration
+#
+# Configuration for datasets with multiple spectral sources (e.g., NIR + MIR).
+# Each source can have its own file and loading parameters.
+#
+# Usage:
+#   from nirs4all.data import DatasetConfigs
+#   config = DatasetConfigs("examples/configs/datasets/multi_source.yaml")
+
+name: nir_mir_fusion
+
+# Multi-source training data (list of paths)
+train_x:
+  - sample_data/multi_source/Xcal_NIR.csv
+  - sample_data/multi_source/Xcal_MIR.csv
+
+train_y: sample_data/multi_source/Ycal.csv
+
+# Multi-source test data
+test_x:
+  - sample_data/multi_source/Xval_NIR.csv
+  - sample_data/multi_source/Xval_MIR.csv
+
+test_y: sample_data/multi_source/Yval.csv
+
+# Metadata for grouping/aggregation
+train_group: sample_data/multi_source/Mcal.csv
+test_group: sample_data/multi_source/Mval.csv
+
+task_type: regression
+
+# Signal types per source
+# When using multi-source, you can specify signal_type per source in train_x_params
+signal_type: absorbance
+
+# Aggregation by sample ID
+aggregate: sample_id
+aggregate_method: mean
+
+# Global loading parameters
+global_params:
+  delimiter: ","
+  has_header: true
+
+# Per-source loading parameters (indexed by source order)
+# Source 0 = NIR
+train_x_params:
+  - header_unit: nm
+    signal_type: absorbance
+  # Source 1 = MIR
+  - header_unit: cm-1
+    signal_type: absorbance

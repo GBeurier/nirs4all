@@ -1,0 +1,46 @@
+# Advanced Preprocessing Pipeline
+#
+# Demonstrates multiple preprocessing steps commonly used in NIR spectroscopy:
+# - SNV (Standard Normal Variate) for scatter correction
+# - Savitzky-Golay derivatives for spectral enhancement
+# - MinMaxScaler for normalization
+# - Y processing for target scaling
+#
+# Usage:
+#   from nirs4all.pipeline import PipelineConfigs
+#   config = PipelineConfigs("examples/configs/pipelines/advanced_preprocessing.yaml")
+
+pipeline:
+  # Step 1: SNV (Standard Normal Variate) for scatter correction
+  - class: nirs4all.operators.transforms.SNV
+
+  # Step 2: First derivative using Savitzky-Golay filter
+  - class: nirs4all.operators.transforms.SavGolDeriv
+    params:
+      deriv: 1
+      window_length: 11
+      polyorder: 2
+
+  # Step 3: Feature scaling
+  - class: sklearn.preprocessing.MinMaxScaler
+    params:
+      feature_range: [0, 1]
+
+  # Step 4: Target scaling (applied to y values)
+  - y_processing:
+      class: sklearn.preprocessing.MinMaxScaler
+      params:
+        feature_range: [0, 1]
+
+  # Step 5: Cross-validation with group-aware splitting
+  - class: sklearn.model_selection.KFold
+    params:
+      n_splits: 5
+      shuffle: true
+      random_state: 42
+
+  # Step 6: PLS Regression model
+  - model:
+      class: sklearn.cross_decomposition.PLSRegression
+      params:
+        n_components: 15

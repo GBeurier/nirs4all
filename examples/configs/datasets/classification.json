@@ -1,0 +1,14 @@
+{
+  "name": "species_classification",
+  "train_x": "sample_data/classification/Xcal.csv",
+  "train_y": "sample_data/classification/Ycal.csv",
+  "test_x": "sample_data/classification/Xval.csv",
+  "test_y": "sample_data/classification/Yval.csv",
+  "task_type": "multiclass_classification",
+  "signal_type": "absorbance",
+  "global_params": {
+    "header_unit": "nm",
+    "delimiter": ",",
+    "has_header": true
+  }
+}
