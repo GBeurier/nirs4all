@@ -266,3 +266,155 @@ class TestSpectroDatasetAggregate:
         assert dataset.aggregate == 'batch'
         assert dataset._aggregate_by_y is False
         assert dataset._aggregate_column == 'batch'
+
+
+class TestDatasetConfigAggregateMethod:
+    """Test suite for aggregate_method and aggregate_exclude_outliers parameters."""
+
+    @pytest.fixture
+    def sample_data_files(self):
+        """Create temporary CSV files for testing."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as fx:
+            fx.write("1000;2000;3000\n")
+            fx.write("0.1;0.2;0.3\n")
+            fx.write("0.4;0.5;0.6\n")
+            fx.write("0.7;0.8;0.9\n")
+            x_path = fx.name
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as fy:
+            fy.write("target\n")
+            fy.write("10.5\n")
+            fy.write("20.3\n")
+            fy.write("15.7\n")
+            y_path = fy.name
+
+        yield {'x': x_path, 'y': y_path}
+
+        # Cleanup
+        import os
+        os.unlink(x_path)
+        os.unlink(y_path)
+
+    def test_aggregate_method_default_none(self, sample_data_files):
+        """Test that aggregate_method is None by default."""
+        config = {
+            'train_x': sample_data_files['x'],
+            'train_y': sample_data_files['y'],
+            'global_params': {'delimiter': ';', 'has_header': True}
+        }
+        dataset_config = DatasetConfigs(config)
+        dataset = dataset_config.get_dataset_at(0)
+        assert dataset.aggregate_method is None
+
+    def test_aggregate_method_via_constructor(self, sample_data_files):
+        """Test setting aggregate_method via constructor."""
+        config = {
+            'train_x': sample_data_files['x'],
+            'train_y': sample_data_files['y'],
+            'global_params': {'delimiter': ';', 'has_header': True}
+        }
+        dataset_config = DatasetConfigs(config, aggregate='y', aggregate_method='median')
+        dataset = dataset_config.get_dataset_at(0)
+        assert dataset.aggregate_method == 'median'
+
+    def test_aggregate_method_via_config_dict(self, sample_data_files):
+        """Test setting aggregate_method via config dict."""
+        config = {
+            'train_x': sample_data_files['x'],
+            'train_y': sample_data_files['y'],
+            'aggregate': 'y',
+            'aggregate_method': 'vote',
+            'global_params': {'delimiter': ';', 'has_header': True}
+        }
+        dataset_config = DatasetConfigs(config)
+        dataset = dataset_config.get_dataset_at(0)
+        assert dataset.aggregate_method == 'vote'
+
+    def test_aggregate_exclude_outliers_default_false(self, sample_data_files):
+        """Test that aggregate_exclude_outliers is False by default."""
+        config = {
+            'train_x': sample_data_files['x'],
+            'train_y': sample_data_files['y'],
+            'global_params': {'delimiter': ';', 'has_header': True}
+        }
+        dataset_config = DatasetConfigs(config)
+        dataset = dataset_config.get_dataset_at(0)
+        assert dataset.aggregate_exclude_outliers is False
+
+    def test_aggregate_exclude_outliers_via_constructor(self, sample_data_files):
+        """Test setting aggregate_exclude_outliers via constructor."""
+        config = {
+            'train_x': sample_data_files['x'],
+            'train_y': sample_data_files['y'],
+            'global_params': {'delimiter': ';', 'has_header': True}
+        }
+        dataset_config = DatasetConfigs(config, aggregate='y', aggregate_exclude_outliers=True)
+        dataset = dataset_config.get_dataset_at(0)
+        assert dataset.aggregate_exclude_outliers is True
+
+    def test_aggregate_exclude_outliers_via_config_dict(self, sample_data_files):
+        """Test setting aggregate_exclude_outliers via config dict."""
+        config = {
+            'train_x': sample_data_files['x'],
+            'train_y': sample_data_files['y'],
+            'aggregate': 'y',
+            'aggregate_exclude_outliers': True,
+            'global_params': {'delimiter': ';', 'has_header': True}
+        }
+        dataset_config = DatasetConfigs(config)
+        dataset = dataset_config.get_dataset_at(0)
+        assert dataset.aggregate_exclude_outliers is True
+
+
+class TestSpectroDatasetAggregateMethod:
+    """Test suite for aggregate_method and aggregate_exclude_outliers in SpectroDataset."""
+
+    def test_aggregate_method_default_none(self):
+        """Test that aggregate_method is None by default."""
+        dataset = SpectroDataset("test")
+        assert dataset.aggregate_method is None
+
+    def test_set_aggregate_method_string(self):
+        """Test setting aggregate_method with valid values."""
+        dataset = SpectroDataset("test")
+
+        dataset.set_aggregate_method('mean')
+        assert dataset.aggregate_method == 'mean'
+
+        dataset.set_aggregate_method('median')
+        assert dataset.aggregate_method == 'median'
+
+        dataset.set_aggregate_method('vote')
+        assert dataset.aggregate_method == 'vote'
+
+    def test_set_aggregate_method_none(self):
+        """Test setting aggregate_method to None resets it."""
+        dataset = SpectroDataset("test")
+        dataset.set_aggregate_method('median')
+        assert dataset.aggregate_method == 'median'
+
+        dataset.set_aggregate_method(None)
+        assert dataset.aggregate_method is None
+
+    def test_aggregate_exclude_outliers_default_false(self):
+        """Test that aggregate_exclude_outliers is False by default."""
+        dataset = SpectroDataset("test")
+        assert dataset.aggregate_exclude_outliers is False
+
+    def test_set_aggregate_exclude_outliers_true(self):
+        """Test setting aggregate_exclude_outliers to True."""
+        dataset = SpectroDataset("test")
+        dataset.set_aggregate_exclude_outliers(True)
+        assert dataset.aggregate_exclude_outliers is True
+
+    def test_set_aggregate_exclude_outliers_false(self):
+        """Test setting aggregate_exclude_outliers to False."""
+        dataset = SpectroDataset("test")
+        dataset.set_aggregate_exclude_outliers(True)
+        dataset.set_aggregate_exclude_outliers(False)
+        assert dataset.aggregate_exclude_outliers is False
+
+    def test_aggregate_outlier_threshold_default(self):
+        """Test that aggregate_outlier_threshold has sensible default."""
+        dataset = SpectroDataset("test")
+        assert dataset.aggregate_outlier_threshold == 0.95

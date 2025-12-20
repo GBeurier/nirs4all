@@ -1364,7 +1364,9 @@ class Predictions:
         group_ids: np.ndarray,
         y_proba: Optional[np.ndarray] = None,
         y_true: Optional[np.ndarray] = None,
-        method: str = 'mean'
+        method: str = 'mean',
+        exclude_outliers: bool = False,
+        outlier_threshold: float = 0.95
     ) -> Dict[str, Any]:
         """
         Aggregate predictions by group (e.g., same sample ID with multiple measurements).
@@ -1382,6 +1384,10 @@ class Predictions:
             y_proba: Optional class probabilities array (n_samples, n_classes) for classification
             y_true: Optional true values array (n_samples,) for computing aggregated ground truth
             method: Aggregation method - 'mean' (default), 'median', 'vote' (for classification)
+            exclude_outliers: If True, exclude outliers within each group before aggregation
+                using Hotelling's T² statistic. Useful when some measurements are anomalous.
+            outlier_threshold: Confidence level for T² outlier detection (default 0.95).
+                Measurements with T² > chi2.ppf(threshold, 1) are excluded.
 
         Returns:
             Dictionary containing:
@@ -1390,6 +1396,7 @@ class Predictions:
                 - 'y_true': Aggregated true values (n_groups,) if input had y_true
                 - 'group_ids': Unique group identifiers (n_groups,)
                 - 'group_sizes': Number of samples per group (n_groups,)
+                - 'outliers_excluded': Number of outliers excluded per group (if exclude_outliers=True)
 
         Examples:
             >>> # Aggregate 4 samples per ID for regression
@@ -1399,6 +1406,10 @@ class Predictions:
             >>> # Aggregate for classification with probabilities
             >>> result = Predictions.aggregate(y_pred, sample_ids, y_proba=proba)
             >>> aggregated_proba = result['y_proba']  # Averaged probabilities
+
+            >>> # Aggregate with outlier exclusion
+            >>> result = Predictions.aggregate(y_pred, sample_ids, exclude_outliers=True)
+            >>> print(f"Outliers excluded: {result['outliers_excluded'].sum()}")
         """
         # Ensure arrays are 1D for predictions
         y_pred = np.asarray(y_pred).flatten()
@@ -1416,10 +1427,24 @@ class Predictions:
         # Initialize result arrays
         aggregated_pred = np.zeros(n_groups)
         group_sizes = np.zeros(n_groups, dtype=int)
+        outliers_excluded = np.zeros(n_groups, dtype=int) if exclude_outliers else None
 
-        # Count group sizes
-        for idx in inverse_indices:
-            group_sizes[idx] += 1
+        # Create mask for valid (non-outlier) samples
+        if exclude_outliers:
+            valid_mask = Predictions._compute_outlier_mask(
+                y_pred, inverse_indices, n_groups, outlier_threshold
+            )
+            # Count outliers per group
+            for g in range(n_groups):
+                group_mask = inverse_indices == g
+                outliers_excluded[g] = np.sum(group_mask) - np.sum(group_mask & valid_mask)
+        else:
+            valid_mask = np.ones(len(y_pred), dtype=bool)
+
+        # Count group sizes (after outlier exclusion)
+        for i, (idx, valid) in enumerate(zip(inverse_indices, valid_mask)):
+            if valid:
+                group_sizes[idx] += 1
 
         # Check if this is classification (has probabilities)
         is_classification = y_proba is not None and y_proba.size > 0
@@ -1433,9 +1458,10 @@ class Predictions:
             n_classes = y_proba.shape[1]
             aggregated_proba = np.zeros((n_groups, n_classes))
 
-            # Aggregate probabilities by group
-            for i, (group_idx, proba) in enumerate(zip(inverse_indices, y_proba)):
-                aggregated_proba[group_idx] += proba
+            # Aggregate probabilities by group (only valid samples)
+            for i, (group_idx, proba, valid) in enumerate(zip(inverse_indices, y_proba, valid_mask)):
+                if valid:
+                    aggregated_proba[group_idx] += proba
 
             # Average probabilities
             for g in range(n_groups):
@@ -1448,10 +1474,10 @@ class Predictions:
         else:
             # Regression or classification without probabilities
             # Auto-detect classification: if predictions are integers or close to integers
-            unique_preds = np.unique(y_pred)
+            unique_preds = np.unique(y_pred[valid_mask])
             is_likely_classification = (
                 len(unique_preds) <= 20 and  # Few unique values
-                np.allclose(y_pred, np.round(y_pred))  # Values are integer-like
+                np.allclose(y_pred[valid_mask], np.round(y_pred[valid_mask]))  # Values are integer-like
             )
 
             # Use voting for classification, mean/median for regression
@@ -1463,18 +1489,21 @@ class Predictions:
                 # Majority voting for classification
                 from scipy import stats
                 for g in range(n_groups):
-                    mask = inverse_indices == g
-                    group_preds = y_pred[mask]
-                    mode_result = stats.mode(group_preds, keepdims=True)
-                    aggregated_pred[g] = mode_result.mode[0]
+                    mask = (inverse_indices == g) & valid_mask
+                    if np.any(mask):
+                        group_preds = y_pred[mask]
+                        mode_result = stats.mode(group_preds, keepdims=True)
+                        aggregated_pred[g] = mode_result.mode[0]
             elif effective_method == 'median':
                 for g in range(n_groups):
-                    mask = inverse_indices == g
-                    aggregated_pred[g] = np.median(y_pred[mask])
+                    mask = (inverse_indices == g) & valid_mask
+                    if np.any(mask):
+                        aggregated_pred[g] = np.median(y_pred[mask])
             else:  # 'mean' - only used for regression now
                 # Sum predictions by group then divide by count
-                for i, (group_idx, pred) in enumerate(zip(inverse_indices, y_pred)):
-                    aggregated_pred[group_idx] += pred
+                for i, (group_idx, pred, valid) in enumerate(zip(inverse_indices, y_pred, valid_mask)):
+                    if valid:
+                        aggregated_pred[group_idx] += pred
 
                 for g in range(n_groups):
                     if group_sizes[g] > 0:
@@ -1495,18 +1524,26 @@ class Predictions:
                 # For classification, use mode (most frequent value)
                 from scipy import stats
                 for g in range(n_groups):
-                    mask = inverse_indices == g
-                    group_true = y_true[mask]
-                    mode_result = stats.mode(group_true, keepdims=True)
-                    aggregated_true[g] = mode_result.mode[0]
+                    mask = (inverse_indices == g) & valid_mask
+                    if np.any(mask):
+                        group_true = y_true[mask]
+                        mode_result = stats.mode(group_true, keepdims=True)
+                        aggregated_true[g] = mode_result.mode[0]
             else:
-                # For regression, use mean
-                for i, (group_idx, true_val) in enumerate(zip(inverse_indices, y_true)):
-                    aggregated_true[group_idx] += true_val
+                # For regression, use mean (or median based on method)
+                if method == 'median':
+                    for g in range(n_groups):
+                        mask = (inverse_indices == g) & valid_mask
+                        if np.any(mask):
+                            aggregated_true[g] = np.median(y_true[mask])
+                else:
+                    for i, (group_idx, true_val, valid) in enumerate(zip(inverse_indices, y_true, valid_mask)):
+                        if valid:
+                            aggregated_true[group_idx] += true_val
 
-                for g in range(n_groups):
-                    if group_sizes[g] > 0:
-                        aggregated_true[g] /= group_sizes[g]
+                    for g in range(n_groups):
+                        if group_sizes[g] > 0:
+                            aggregated_true[g] /= group_sizes[g]
 
         result = {
             'y_pred': aggregated_pred,
@@ -1520,7 +1557,84 @@ class Predictions:
         if aggregated_true is not None:
             result['y_true'] = aggregated_true
 
+        if outliers_excluded is not None:
+            result['outliers_excluded'] = outliers_excluded
+
         return result
+
+    @staticmethod
+    def _compute_outlier_mask(
+        y_pred: np.ndarray,
+        inverse_indices: np.ndarray,
+        n_groups: int,
+        threshold: float = 0.95
+    ) -> np.ndarray:
+        """
+        Compute outlier mask using robust modified Z-score within each group.
+
+        Uses Median Absolute Deviation (MAD) based outlier detection, which is
+        robust to outliers in the data (unlike mean/std-based methods).
+
+        The modified Z-score is: M = 0.6745 * (x - median) / MAD
+        where 0.6745 is a consistency factor for normal distributions.
+        Samples with |M| > threshold_z are marked as outliers.
+
+        Following Iglewicz and Hoaglin (1993), a common threshold is 3.5 for
+        the modified Z-score. The threshold parameter (0.95 = 95%) maps to
+        approximately 3.5 to maintain a conservative outlier detection.
+
+        Args:
+            y_pred: Predictions array (n_samples,)
+            inverse_indices: Group assignment for each sample
+            n_groups: Number of unique groups
+            threshold: Confidence level (0.95 maps to ~3.5 modified Z-score threshold,
+                      0.99 maps to ~4.5). Default 0.95 is recommended.
+
+        Returns:
+            Boolean mask where True = valid (non-outlier) sample
+        """
+        valid_mask = np.ones(len(y_pred), dtype=bool)
+
+        # Map confidence level to modified Z-score threshold
+        # These thresholds follow recommendations from Iglewicz & Hoaglin (1993)
+        # 0.95 -> 3.5 (standard for outlier detection)
+        # 0.99 -> 4.5 (very conservative)
+        # 0.90 -> 3.0 (more aggressive)
+        if threshold >= 0.99:
+            z_threshold = 4.5
+        elif threshold >= 0.95:
+            z_threshold = 3.5
+        elif threshold >= 0.90:
+            z_threshold = 3.0
+        else:
+            z_threshold = 2.5
+
+        for g in range(n_groups):
+            group_mask = inverse_indices == g
+            group_preds = y_pred[group_mask]
+
+            if len(group_preds) <= 2:
+                # Need at least 3 samples to detect outliers reliably
+                continue
+
+            median = np.median(group_preds)
+            mad = np.median(np.abs(group_preds - median))
+
+            if mad < 1e-10:
+                # All values nearly identical, no outliers detectable
+                continue
+
+            # Modified Z-score (Iglewicz and Hoaglin, 1993)
+            # 0.6745 is the consistency factor for normal distributions
+            modified_z = 0.6745 * (group_preds - median) / mad
+
+            # Mark outliers in the original mask
+            group_indices = np.where(group_mask)[0]
+            for idx, mz in zip(group_indices, modified_z):
+                if abs(mz) > z_threshold:
+                    valid_mask[idx] = False
+
+        return valid_mask
 
     # =========================================================================
     # CONVERSION METHODS

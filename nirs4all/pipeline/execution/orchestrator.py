@@ -102,6 +102,8 @@ class PipelineOrchestrator:
         self.last_manifest_manager: Any = None
         self.last_executor: Any = None  # For syncing step_number, substep_number, operation_count
         self.last_aggregate_column: Optional[str] = None  # Last dataset's aggregate setting
+        self.last_aggregate_method: Optional[str] = None  # Last dataset's aggregate method
+        self.last_aggregate_exclude_outliers: bool = False  # Last dataset's exclude outliers setting
 
     def execute(
         self,
@@ -272,6 +274,8 @@ class PipelineOrchestrator:
 
             # Store last aggregate column for visualization integration
             self.last_aggregate_column = dataset.aggregate
+            self.last_aggregate_method = dataset.aggregate_method
+            self.last_aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
 
             # Print best results for this dataset
             self._print_best_predictions(
@@ -330,8 +334,12 @@ class PipelineOrchestrator:
             configs._task_types = ["auto"]  # Default task type for wrapped datasets
             configs._signal_type_overrides = [None]  # No override for wrapped datasets
             configs._aggregates = [None]  # No aggregation for wrapped datasets
+            configs._aggregate_methods = [None]  # No aggregate method for wrapped datasets
+            configs._aggregate_exclude_outliers = [False]  # No outlier exclusion for wrapped datasets
             configs._config_task_types = [None]  # No config-level task type
             configs._config_aggregates = [None]  # No config-level aggregate
+            configs._config_aggregate_methods = [None]  # No config-level aggregate method
+            configs._config_aggregate_exclude_outliers = [None]  # No config-level exclude outliers
             return configs
 
         # Handle numpy arrays and tuples
@@ -361,8 +369,12 @@ class PipelineOrchestrator:
         configs._task_types = ["auto"]  # Default task type for wrapped datasets
         configs._signal_type_overrides = [None]  # No override for wrapped datasets
         configs._aggregates = [None]  # No aggregation for wrapped datasets
+        configs._aggregate_methods = [None]  # No aggregate method for wrapped datasets
+        configs._aggregate_exclude_outliers = [False]  # No outlier exclusion for wrapped datasets
         configs._config_task_types = [None]  # No config-level task type
         configs._config_aggregates = [None]  # No config-level aggregate
+        configs._config_aggregate_methods = [None]  # No config-level aggregate method
+        configs._config_aggregate_exclude_outliers = [None]  # No config-level exclude outliers
         return configs
 
     def _split_and_add_data(self, dataset: SpectroDataset, X: np.ndarray, y: Optional[np.ndarray], partition_info: Dict) -> None:
@@ -478,15 +490,21 @@ class PipelineOrchestrator:
 
                 # Get aggregation setting from dataset for reporting
                 aggregate_column = dataset.aggregate  # Could be None, 'y', or column name
+                aggregate_method = dataset.aggregate_method  # Could be None, 'mean', 'median', 'vote'
+                aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
 
                 # Log aggregation info if enabled
                 if aggregate_column:
                     agg_label = "y (target values)" if aggregate_column == 'y' else f"'{aggregate_column}'"
-                    logger.info(f"Including aggregated scores (by {agg_label}) in report")
+                    method_label = f", method='{aggregate_method}'" if aggregate_method else ""
+                    outlier_label = ", exclude_outliers=True" if aggregate_exclude_outliers else ""
+                    logger.info(f"Including aggregated scores (by {agg_label}{method_label}{outlier_label}) in report")
 
                 tab_report, tab_report_csv_file = TabReportManager.generate_best_score_tab_report(
                     best_by_partition,
-                    aggregate=aggregate_column
+                    aggregate=aggregate_column,
+                    aggregate_method=aggregate_method,
+                    aggregate_exclude_outliers=aggregate_exclude_outliers
                 )
                 logger.info(tab_report)
                 if tab_report_csv_file:

@@ -87,7 +87,9 @@ class PredictionAnalyzer:
         config: Optional[ChartConfig] = None,
         output_dir: Optional[str] = "workspace/figures",
         cache_size: int = 50,
-        default_aggregate: Optional[str] = None
+        default_aggregate: Optional[str] = None,
+        default_aggregate_method: Optional[str] = None,
+        default_aggregate_exclude_outliers: bool = False
     ):
         """Initialize analyzer with predictions object.
 
@@ -101,6 +103,13 @@ class PredictionAnalyzer:
                 If set, all plots will use this aggregation unless overridden.
                 Can be 'y' (aggregate by target values) or a metadata column name.
                 Typically obtained from `runner.last_aggregate` after a pipeline run.
+            default_aggregate_method: Default aggregation method for all visualization methods.
+                - None (default): Use 'mean' for regression, 'vote' for classification
+                - 'mean': Average predictions within each group
+                - 'median': Median prediction within each group
+                - 'vote': Majority voting (for classification)
+            default_aggregate_exclude_outliers: If True, exclude outliers using T² statistic
+                before aggregation (default: False).
 
         Example:
             >>> # With default aggregation from dataset config
@@ -117,6 +126,8 @@ class PredictionAnalyzer:
         self.output_dir = output_dir
         self._cache = PredictionCache(max_entries=cache_size)
         self.default_aggregate = default_aggregate
+        self.default_aggregate_method = default_aggregate_method
+        self.default_aggregate_exclude_outliers = default_aggregate_exclude_outliers
 
     def clear_cache(self) -> None:
         """Clear all caches.
@@ -151,6 +162,36 @@ class PredictionAnalyzer:
         # Otherwise, fall back to default
         return self.default_aggregate
 
+    def _resolve_aggregate_method(self, method: Optional[str]) -> Optional[str]:
+        """Resolve effective aggregate method, considering default.
+
+        Args:
+            method: Explicit method value passed to method.
+                - None: Use default_aggregate_method (if set).
+                - Explicit value: Use that value (overrides default).
+
+        Returns:
+            Effective aggregate method or None.
+        """
+        if method is not None:
+            return method
+        return self.default_aggregate_method
+
+    def _resolve_aggregate_exclude_outliers(self, exclude: Optional[bool]) -> bool:
+        """Resolve effective aggregate exclude_outliers, considering default.
+
+        Args:
+            exclude: Explicit exclude_outliers value passed to method.
+                - None: Use default_aggregate_exclude_outliers.
+                - Explicit value: Use that value (overrides default).
+
+        Returns:
+            Effective exclude_outliers setting.
+        """
+        if exclude is not None:
+            return exclude
+        return self.default_aggregate_exclude_outliers
+
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache performance statistics.
 
@@ -172,6 +213,8 @@ class PredictionAnalyzer:
         display_partition: str = 'test',
         display_metrics: Optional[List[str]] = None,
         aggregate: Optional[str] = None,
+        aggregate_method: Optional[str] = None,
+        aggregate_exclude_outliers: Optional[bool] = None,
         group_by: Optional[Union[str, List[str]]] = None,
         aggregate_partitions: bool = True,
         **filters
@@ -192,6 +235,10 @@ class PredictionAnalyzer:
             display_partition: Partition for display (default: 'test').
             display_metrics: List of metrics to compute for display.
             aggregate: Aggregation column (e.g., 'ID') or None.
+            aggregate_method: Aggregation method ('mean', 'median', 'vote').
+                If None, uses default_aggregate_method from constructor.
+            aggregate_exclude_outliers: If True, exclude outliers using T² before aggregation.
+                If None, uses default_aggregate_exclude_outliers from constructor.
             group_by: Grouping column(s) for deduplication.
             aggregate_partitions: If True, include all partition data.
             **filters: Additional filter criteria.
@@ -209,6 +256,10 @@ class PredictionAnalyzer:
             ...     n=5, rank_metric='rmse', aggregate='ID'
             ... )
         """
+        # Resolve effective aggregate settings
+        effective_method = aggregate_method if aggregate_method is not None else self.default_aggregate_method
+        effective_exclude = aggregate_exclude_outliers if aggregate_exclude_outliers is not None else self.default_aggregate_exclude_outliers
+
         # Create cache key (n is intentionally excluded as we cache large result sets)
         # We request more than needed and slice, so the same cache entry serves
         # multiple calls with different n values
@@ -216,6 +267,8 @@ class PredictionAnalyzer:
 
         cache_key = self._cache.make_key(
             aggregate=aggregate,
+            aggregate_method=effective_method,
+            aggregate_exclude_outliers=effective_exclude,
             rank_metric=rank_metric,
             rank_partition=rank_partition,
             display_partition=display_partition,
@@ -243,6 +296,8 @@ class PredictionAnalyzer:
                 ascending=ascending,
                 aggregate_partitions=aggregate_partitions,
                 aggregate=aggregate,
+                aggregate_method=effective_method,
+                aggregate_exclude_outliers=effective_exclude,
                 group_by=group_by,
                 **filters
             )
