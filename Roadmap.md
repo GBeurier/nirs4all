@@ -1,5 +1,7 @@
 ## ROADMAP
 
+Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications)
+
 **Features**:
 
 > [pytoml] Update imports and configs. Anticipate ui dependencies.
