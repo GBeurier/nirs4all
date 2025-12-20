@@ -291,7 +291,9 @@ class PredictionRanker:
         model_name: str = "",
         pred_id: str = "",
         row: Optional[Dict[str, Any]] = None,
-        partition: str = "test"
+        partition: str = "test",
+        method: Optional[str] = None,
+        exclude_outliers: bool = False
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], bool]:
         """
         Apply aggregation to predictions by a group column.
@@ -308,6 +310,8 @@ class PredictionRanker:
             pred_id: Prediction ID for caching (optional but recommended)
             row: Optional full row dict for fallback metadata lookup (for avg/w_avg folds)
             partition: Partition name for fallback lookup (default: 'test')
+            method: Aggregation method ('mean', 'median', 'vote'). Default is 'mean'.
+            exclude_outliers: If True, exclude outliers using T² statistic before aggregation.
 
         Returns:
             Tuple of (aggregated_y_true, aggregated_y_pred, aggregated_y_proba, was_aggregated)
@@ -388,7 +392,9 @@ class PredictionRanker:
             y_pred=y_pred,
             group_ids=group_ids,
             y_proba=y_proba,
-            y_true=y_true
+            y_true=y_true,
+            method=method,
+            exclude_outliers=exclude_outliers
         )
 
         agg_result = (
@@ -415,7 +421,9 @@ class PredictionRanker:
         metric: str,
         partition: str,
         aggregate: Optional[str] = None,
-        load_arrays: bool = True
+        load_arrays: bool = True,
+        aggregate_method: Optional[str] = None,
+        aggregate_exclude_outliers: bool = False
     ) -> Optional[float]:
         """
         Get score for a prediction, using cache when possible.
@@ -431,6 +439,8 @@ class PredictionRanker:
             partition: Partition name
             aggregate: Aggregation column name (optional)
             load_arrays: Whether to load arrays if needed
+            aggregate_method: Aggregation method ('mean', 'median', 'vote'). Default is 'mean'.
+            aggregate_exclude_outliers: If True, exclude outliers using T² statistic before aggregation.
 
         Returns:
             Score value or None
@@ -458,7 +468,8 @@ class PredictionRanker:
 
                     agg_y_true, agg_y_pred, _, was_aggregated = self._apply_aggregation(
                         y_true, y_pred, y_proba, metadata, aggregate, model_name, pred_id,
-                        row=row, partition=partition
+                        row=row, partition=partition, method=aggregate_method,
+                        exclude_outliers=aggregate_exclude_outliers
                     )
 
                     if agg_y_true is not None and agg_y_pred is not None:
@@ -593,6 +604,8 @@ class PredictionRanker:
         group_by_fold: bool = False,
         load_arrays: bool = True,
         aggregate: Optional[str] = None,
+        aggregate_method: Optional[str] = None,
+        aggregate_exclude_outliers: bool = False,
         group_by: Optional[Union[str, List[str]]] = None,
         best_per_model: bool = False,
         **filters
@@ -618,6 +631,10 @@ class PredictionRanker:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
+            aggregate_method: Aggregation method for combining predictions.
+                      'mean' (default), 'median', or 'vote' (for classification).
+            aggregate_exclude_outliers: If True, exclude outliers using T² statistic
+                      before aggregation (default: False).
             group_by: Group predictions and keep only the best per group.
                      Can be a single column name (str) or list of columns.
                      Examples: 'model_name', ['model_name', 'preprocessings']
@@ -787,7 +804,11 @@ class PredictionRanker:
             scores_json = row.get("scores")
 
             # Use cached scoring method - handles both aggregated and non-aggregated
-            score = self._get_score_cached(row, rank_metric, rank_partition, aggregate, load_arrays)
+            score = self._get_score_cached(
+                row, rank_metric, rank_partition, aggregate, load_arrays,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers
+            )
 
             # Include additional columns that might be used for group_by filtering
             # These columns are commonly used in visualizations for grouping
@@ -810,7 +831,11 @@ class PredictionRanker:
             key_tuple = tuple(row[k] for k in KEY) + (row.get("fold_id"),)
 
             # Use cached scoring method for tiebreaker
-            tiebreaker_score = self._get_score_cached(row, rank_metric, tiebreaker_partition, aggregate, load_arrays)
+            tiebreaker_score = self._get_score_cached(
+                row, rank_metric, tiebreaker_partition, aggregate, load_arrays,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers
+            )
 
             tiebreaker_scores[key_tuple] = tiebreaker_score
 
@@ -924,7 +949,8 @@ class PredictionRanker:
                             pred_id = row.get("id", "")
                             y_true, y_pred, y_proba, was_aggregated = self._apply_aggregation(
                                 y_true, y_pred, y_proba, metadata, aggregate, model_name, pred_id,
-                                row=row, partition=partition
+                                row=row, partition=partition, method=aggregate_method,
+                                exclude_outliers=aggregate_exclude_outliers
                             )
 
                         partition_dict = {
@@ -1062,7 +1088,8 @@ class PredictionRanker:
                         pred_id = row.get("id", "")
                         y_true, y_pred, y_proba, was_aggregated = self._apply_aggregation(
                             y_true, y_pred, y_proba, metadata, aggregate, model_name, pred_id,
-                            row=row, partition=display_partition
+                            row=row, partition=display_partition, method=aggregate_method,
+                            exclude_outliers=aggregate_exclude_outliers
                         )
 
                     result.update({
@@ -1158,6 +1185,9 @@ class PredictionRanker:
         metric: str = "",
         ascending: Optional[bool] = None,
         aggregate_partitions: bool = False,
+        aggregate: Optional[str] = None,
+        aggregate_method: Optional[str] = None,
+        aggregate_exclude_outliers: bool = False,
         **filters
     ) -> Optional[PredictionResult]:
         """
@@ -1171,6 +1201,9 @@ class PredictionRanker:
                       If False, sorts descending (higher is better).
                       If None, infers from metric.
             aggregate_partitions: If True, include all partition data
+            aggregate: If provided, aggregate predictions by this metadata column or 'y'.
+            aggregate_method: Aggregation method ('mean', 'median', 'vote').
+            aggregate_exclude_outliers: If True, exclude outliers using T² before aggregation.
             **filters: Additional filter criteria
 
         Returns:
@@ -1192,6 +1225,9 @@ class PredictionRanker:
             rank_partition="val",
             ascending=ascending,
             aggregate_partitions=aggregate_partitions,
+            aggregate=aggregate,
+            aggregate_method=aggregate_method,
+            aggregate_exclude_outliers=aggregate_exclude_outliers,
             **filters
         )
 
@@ -1204,6 +1240,9 @@ class PredictionRanker:
                 rank_partition="test",
                 ascending=ascending,
                 aggregate_partitions=aggregate_partitions,
+                aggregate=aggregate,
+                aggregate_method=aggregate_method,
+                aggregate_exclude_outliers=aggregate_exclude_outliers,
                 **filters
             )
 

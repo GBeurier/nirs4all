@@ -28,7 +28,9 @@ class DatasetConfigs:
         configurations: Union[Dict[str, Any], List[Dict[str, Any]], str, List[str]],
         task_type: Union[str, List[str]] = "auto",
         signal_type: Union[SignalTypeInput, List[SignalTypeInput], None] = None,
-        aggregate: Union[str, bool, List[Union[str, bool, None]], None] = None
+        aggregate: Union[str, bool, List[Union[str, bool, None]], None] = None,
+        aggregate_method: Union[str, List[str], None] = None,
+        aggregate_exclude_outliers: Union[bool, List[bool], None] = None
     ):
         '''Initialize dataset configurations.
 
@@ -69,6 +71,20 @@ class DatasetConfigs:
                 - list: Per-dataset aggregation settings (must match number of datasets)
                 Note: Constructor parameter overrides config dict value (except None).
 
+            aggregate_method: Aggregation method for combining predictions.
+                - None (default): Use 'mean' for regression, 'vote' for classification
+                - 'mean': Average predictions within each group
+                - 'median': Median prediction within each group
+                - 'vote': Majority voting (for classification)
+                - list: Per-dataset methods (must match number of datasets)
+
+            aggregate_exclude_outliers: Whether to exclude outliers before aggregation.
+                Uses Hotelling's T² statistic to identify and exclude outlier
+                measurements within each sample group before averaging.
+                - None/False (default): No outlier exclusion
+                - True: Exclude outliers using T² with 0.95 confidence
+                - list: Per-dataset settings (must match number of datasets)
+
         Example:
             # Via config dict (preferred for per-source control):
             config = {
@@ -92,6 +108,8 @@ class DatasetConfigs:
         self.configs = []
         self._config_task_types: List[Optional[str]] = []  # task_type from config dicts
         self._config_aggregates: List[Optional[Union[str, bool]]] = []  # aggregate from config dicts
+        self._config_aggregate_methods: List[Optional[str]] = []  # aggregate_method from config dicts
+        self._config_aggregate_exclude_outliers: List[Optional[bool]] = []  # aggregate_exclude_outliers from config dicts
         for config in user_configs:
             parsed_config, dataset_name = parse_config(config)
             if parsed_config is not None:
@@ -99,11 +117,17 @@ class DatasetConfigs:
                 # Extract task_type from config dict if present
                 config_task_type = None
                 config_aggregate = None
+                config_aggregate_method = None
+                config_aggregate_exclude_outliers = None
                 if isinstance(parsed_config, dict):
                     config_task_type = parsed_config.get("task_type")
                     config_aggregate = parsed_config.get("aggregate")
+                    config_aggregate_method = parsed_config.get("aggregate_method")
+                    config_aggregate_exclude_outliers = parsed_config.get("aggregate_exclude_outliers")
                 self._config_task_types.append(config_task_type)
                 self._config_aggregates.append(config_aggregate)
+                self._config_aggregate_methods.append(config_aggregate_method)
+                self._config_aggregate_exclude_outliers.append(config_aggregate_exclude_outliers)
             else:
                 logger.error(f"Skipping invalid dataset config: {config}")
 
@@ -172,11 +196,47 @@ class DatasetConfigs:
                 for i, agg in enumerate(aggregate)
             ]
 
+        # Normalize aggregate_method to a list matching configs length
+        if aggregate_method is None:
+            self._aggregate_methods: List[Optional[str]] = list(self._config_aggregate_methods)
+        elif isinstance(aggregate_method, str):
+            self._aggregate_methods = [aggregate_method] * len(self.configs)
+        else:
+            if len(aggregate_method) != len(self.configs):
+                raise ValueError(
+                    f"aggregate_method list length ({len(aggregate_method)}) must match "
+                    f"number of datasets ({len(self.configs)})"
+                )
+            self._aggregate_methods = [
+                meth if meth is not None else self._config_aggregate_methods[i]
+                for i, meth in enumerate(aggregate_method)
+            ]
+
+        # Normalize aggregate_exclude_outliers to a list matching configs length
+        if aggregate_exclude_outliers is None:
+            self._aggregate_exclude_outliers: List[bool] = [
+                val if val is not None else False
+                for val in self._config_aggregate_exclude_outliers
+            ]
+        elif isinstance(aggregate_exclude_outliers, bool):
+            self._aggregate_exclude_outliers = [aggregate_exclude_outliers] * len(self.configs)
+        else:
+            if len(aggregate_exclude_outliers) != len(self.configs):
+                raise ValueError(
+                    f"aggregate_exclude_outliers list length ({len(aggregate_exclude_outliers)}) must match "
+                    f"number of datasets ({len(self.configs)})"
+                )
+            self._aggregate_exclude_outliers = [
+                val if val is not None else (self._config_aggregate_exclude_outliers[i] if self._config_aggregate_exclude_outliers[i] is not None else False)
+                for i, val in enumerate(aggregate_exclude_outliers)
+            ]
+
     def iter_datasets(self):
         for idx, (config, name) in enumerate(self.configs):
             dataset = self._get_dataset_with_types(
                 config, name, self._task_types[idx], self._signal_type_overrides[idx],
-                self._aggregates[idx]
+                self._aggregates[idx], self._aggregate_methods[idx],
+                self._aggregate_exclude_outliers[idx]
             )
             yield dataset
 
@@ -186,7 +246,9 @@ class DatasetConfigs:
         name,
         task_type: str,
         signal_type_override: Optional[SignalType],
-        aggregate: Optional[Union[str, bool]] = None
+        aggregate: Optional[Union[str, bool]] = None,
+        aggregate_method: Optional[str] = None,
+        aggregate_exclude_outliers: bool = False
     ) -> SpectroDataset:
         """Internal method to get dataset with specific task and signal types.
 
@@ -196,6 +258,8 @@ class DatasetConfigs:
             task_type: Task type to force ('auto' for no override)
             signal_type_override: Signal type override from constructor (None for no override)
             aggregate: Aggregation setting (None, True, or column name)
+            aggregate_method: Aggregation method ('mean', 'median', 'vote')
+            aggregate_exclude_outliers: Whether to exclude outliers using T² before aggregation
         """
         dataset = self._load_dataset(config, name)
 
@@ -209,9 +273,13 @@ class DatasetConfigs:
             for src in range(dataset.n_sources):
                 dataset.set_signal_type(signal_type_override, src=src, forced=True)
 
-        # Apply aggregation setting if specified
+        # Apply aggregation settings if specified
         if aggregate is not None:
             dataset.set_aggregate(aggregate)
+        if aggregate_method is not None:
+            dataset.set_aggregate_method(aggregate_method)
+        if aggregate_exclude_outliers:
+            dataset.set_aggregate_exclude_outliers(True)
 
         return dataset
 
@@ -308,7 +376,8 @@ class DatasetConfigs:
             if cfg_name == name:
                 return self._get_dataset_with_types(
                     config, name, self._task_types[idx], self._signal_type_overrides[idx],
-                    self._aggregates[idx]
+                    self._aggregates[idx], self._aggregate_methods[idx],
+                    self._aggregate_exclude_outliers[idx]
                 )
         # Fallback: load without forced types
         return self._load_dataset(config, name)
@@ -319,7 +388,8 @@ class DatasetConfigs:
         config, name = self.configs[index]
         return self._get_dataset_with_types(
             config, name, self._task_types[index], self._signal_type_overrides[index],
-            self._aggregates[index]
+            self._aggregates[index], self._aggregate_methods[index],
+            self._aggregate_exclude_outliers[index]
         )
 
     def get_datasets(self) -> List[SpectroDataset]:

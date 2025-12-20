@@ -26,7 +26,9 @@ class TabReportManager:
     @staticmethod
     def generate_best_score_tab_report(
         best_by_partition: Dict[str, Dict[str, Any]],
-        aggregate: Optional[Union[str, bool]] = None
+        aggregate: Optional[Union[str, bool]] = None,
+        aggregate_method: Optional[str] = None,
+        aggregate_exclude_outliers: bool = False
     ) -> Tuple[str, Optional[str]]:
         """
         Generate best score tab report from partition data.
@@ -39,6 +41,13 @@ class TabReportManager:
                 - str: Aggregate by specified metadata column (e.g., 'sample_id', 'ID')
                 When set, both raw and aggregated scores are included in the output.
                 Aggregated rows are marked with an asterisk (*).
+            aggregate_method: Aggregation method for combining predictions.
+                - None (default): Use 'mean' for regression, 'vote' for classification
+                - 'mean': Average predictions within each group
+                - 'median': Median prediction within each group
+                - 'vote': Majority voting (for classification)
+            aggregate_exclude_outliers: If True, exclude outliers using T² statistic
+                before aggregation (default: False).
 
         Returns:
             Tuple of (formatted_string, csv_string_content)
@@ -85,7 +94,9 @@ class TabReportManager:
                         y_pred=y_pred,
                         aggregate=effective_aggregate,
                         metadata=entry.get('metadata', {}),
-                        partition_name=partition_name
+                        partition_name=partition_name,
+                        method=aggregate_method,
+                        exclude_outliers=aggregate_exclude_outliers
                     )
                     if agg_result is not None:
                         agg_y_true, agg_y_pred = agg_result
@@ -115,7 +126,9 @@ class TabReportManager:
         y_pred: np.ndarray,
         aggregate: str,
         metadata: Dict[str, Any],
-        partition_name: str = ""
+        partition_name: str = "",
+        method: Optional[str] = None,
+        exclude_outliers: bool = False
     ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
         """
         Aggregate predictions by a group column.
@@ -126,6 +139,8 @@ class TabReportManager:
             aggregate: Group column name or 'y' to group by y_true
             metadata: Metadata dictionary containing group column
             partition_name: Partition name for error messages
+            method: Aggregation method ('mean', 'median', 'vote'). Default is 'mean'.
+            exclude_outliers: If True, exclude outliers using T² statistic before aggregation.
 
         Returns:
             Tuple of (aggregated_y_true, aggregated_y_pred) or None if aggregation fails
@@ -155,7 +170,9 @@ class TabReportManager:
             result = Predictions.aggregate(
                 y_pred=y_pred,
                 group_ids=group_ids,
-                y_true=y_true
+                y_true=y_true,
+                method=method,
+                exclude_outliers=exclude_outliers
             )
             agg_y_true = result.get('y_true')
             agg_y_pred = result.get('y_pred')

@@ -73,6 +73,9 @@ class SpectroDataset:
         # Aggregation setting for sample-level prediction aggregation
         self._aggregate_column: Optional[str] = None
         self._aggregate_by_y: bool = False
+        self._aggregate_method: Optional[str] = None  # 'mean', 'median', or 'vote' (None = auto)
+        self._aggregate_exclude_outliers: bool = False
+        self._aggregate_outlier_threshold: float = 0.95
 
         # Initialize internal blocks
         _features_block = Features()
@@ -472,6 +475,77 @@ class SpectroDataset:
         else:
             self._aggregate_by_y = False
             self._aggregate_column = None
+
+    @property
+    def aggregate_method(self) -> str:
+        """
+        Get the aggregation method for sample-level prediction aggregation.
+
+        Returns:
+            str: Aggregation method ('mean', 'median', or 'vote')
+
+        Example:
+            >>> dataset.aggregate_method
+            'mean'  # Predictions will be averaged within groups
+        """
+        return self._aggregate_method
+
+    def set_aggregate_method(self, value: Optional[str]) -> None:
+        """
+        Set the aggregation method for sample-level prediction aggregation.
+
+        Args:
+            value: Aggregation method
+                - None: Use default method (mean for regression, vote for classification)
+                - 'mean': Average predictions within each group
+                - 'median': Median prediction within each group
+                - 'vote': Majority voting for classification
+
+        Example:
+            >>> dataset.set_aggregate_method('median')
+        """
+        if value is not None:
+            valid_methods = ('mean', 'median', 'vote')
+            if value not in valid_methods:
+                raise ValueError(f"Invalid aggregation method: {value}. Must be one of {valid_methods}")
+        self._aggregate_method = value
+
+    @property
+    def aggregate_exclude_outliers(self) -> bool:
+        """
+        Get whether T² outlier exclusion is enabled for aggregation.
+
+        Returns:
+            bool: True if outliers should be excluded before aggregation
+        """
+        return self._aggregate_exclude_outliers
+
+    def set_aggregate_exclude_outliers(self, value: bool, threshold: float = 0.95) -> None:
+        """
+        Enable/disable T² based outlier exclusion before aggregation.
+
+        When enabled, uses Hotelling's T² statistic to identify and exclude
+        outlier measurements within each sample group before averaging.
+
+        Args:
+            value: True to enable outlier exclusion, False to disable
+            threshold: Confidence level for outlier detection (0-1, default 0.95)
+
+        Example:
+            >>> dataset.set_aggregate_exclude_outliers(True, threshold=0.95)
+        """
+        self._aggregate_exclude_outliers = value
+        self._aggregate_outlier_threshold = threshold
+
+    @property
+    def aggregate_outlier_threshold(self) -> float:
+        """
+        Get the outlier detection threshold for T² exclusion.
+
+        Returns:
+            float: Confidence level (0-1) for chi-square critical value
+        """
+        return self._aggregate_outlier_threshold
 
     def short_preprocessings_str(self) -> str:
         """Get shortened processing string for display."""

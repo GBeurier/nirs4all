@@ -211,8 +211,10 @@ class PipelineRunner:
         # Model capture support for explainer
         self._capture_model: bool = False
 
-        # Last run aggregate setting (for visualization integration)
+        # Last run aggregate settings (for visualization integration)
         self._last_aggregate_column: Optional[str] = None
+        self._last_aggregate_method: Optional[str] = None
+        self._last_aggregate_exclude_outliers: bool = False
 
         # Execution state (synchronized from executor during execution)
         self.step_number: int = 0
@@ -288,6 +290,10 @@ class PipelineRunner:
         # Sync aggregate column from last dataset for visualization integration
         if hasattr(self.orchestrator, 'last_aggregate_column'):
             self._last_aggregate_column = self.orchestrator.last_aggregate_column
+        if hasattr(self.orchestrator, 'last_aggregate_method'):
+            self._last_aggregate_method = self.orchestrator.last_aggregate_method
+        if hasattr(self.orchestrator, 'last_aggregate_exclude_outliers'):
+            self._last_aggregate_exclude_outliers = self.orchestrator.last_aggregate_exclude_outliers
 
         return run_predictions, dataset_predictions
 
@@ -420,6 +426,24 @@ class PipelineRunner:
             >>> analyzer = PredictionAnalyzer(predictions, default_aggregate=runner.last_aggregate)
         """
         return self._last_aggregate_column
+
+    @property
+    def last_aggregate_method(self) -> Optional[str]:
+        """Get aggregate method from the last executed dataset.
+
+        Returns:
+            Aggregate method ('mean', 'median', 'vote') or None for default.
+        """
+        return self._last_aggregate_method
+
+    @property
+    def last_aggregate_exclude_outliers(self) -> bool:
+        """Get aggregate exclude_outliers setting from the last executed dataset.
+
+        Returns:
+            True if T² outlier exclusion was enabled, False otherwise.
+        """
+        return self._last_aggregate_exclude_outliers
 
     @property
     def library(self) -> "PipelineLibrary":
