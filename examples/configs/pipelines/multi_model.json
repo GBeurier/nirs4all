@@ -1,0 +1,45 @@
+{
+  "pipeline": [
+    {
+      "class": "sklearn.preprocessing.StandardScaler"
+    },
+    {
+      "class": "sklearn.model_selection.ShuffleSplit",
+      "params": {
+        "n_splits": 3,
+        "test_size": 0.25,
+        "random_state": 42
+      }
+    },
+    {
+      "_or_": [
+        {
+          "model": {
+            "class": "sklearn.cross_decomposition.PLSRegression",
+            "params": {
+              "n_components": 10
+            }
+          }
+        },
+        {
+          "model": {
+            "class": "sklearn.linear_model.Ridge",
+            "params": {
+              "alpha": 1.0
+            }
+          }
+        },
+        {
+          "model": {
+            "class": "sklearn.linear_model.Lasso",
+            "params": {
+              "alpha": 0.1
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "name": "multi_model_comparison",
+  "description": "Compare PLS, Ridge, and Lasso regression models"
+}

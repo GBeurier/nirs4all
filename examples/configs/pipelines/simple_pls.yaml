@@ -1,0 +1,29 @@
+# Simple PLS Regression Pipeline
+#
+# A basic pipeline for NIR spectroscopy regression using:
+# - MinMaxScaler for feature normalization
+# - ShuffleSplit for cross-validation
+# - PLS Regression model
+#
+# Usage:
+#   from nirs4all.pipeline import PipelineConfigs
+#   config = PipelineConfigs("examples/configs/pipelines/simple_pls.yaml", name="simple_pls")
+
+pipeline:
+  # Step 1: Feature scaling
+  - class: sklearn.preprocessing.MinMaxScaler
+    params:
+      feature_range: [0, 1]
+
+  # Step 2: Cross-validation splitter
+  - class: sklearn.model_selection.ShuffleSplit
+    params:
+      n_splits: 5
+      test_size: 0.25
+      random_state: 42
+
+  # Step 3: PLS Regression model
+  - model:
+      class: sklearn.cross_decomposition.PLSRegression
+      params:
+        n_components: 10

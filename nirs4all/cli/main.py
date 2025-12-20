@@ -62,6 +62,10 @@ def main():
     from .commands.artifacts import add_artifacts_commands
     add_artifacts_commands(subparsers)
 
+    # Add config commands
+    from .commands.config import add_config_commands
+    add_config_commands(subparsers)
+
     args = parser.parse_args()
 
     # Handle legacy flags first

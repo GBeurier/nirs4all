@@ -1,0 +1,47 @@
+# Basic Regression Dataset Configuration
+#
+# Configuration for a typical NIR regression dataset.
+# Adjust file paths to point to your actual data files.
+#
+# Usage:
+#   from nirs4all.data import DatasetConfigs
+#   config = DatasetConfigs("examples/configs/datasets/regression_basic.yaml")
+
+# Dataset name (optional - defaults to filename)
+name: wheat_protein
+
+# Training data paths
+train_x: sample_data/regression/Xcal.csv
+train_y: sample_data/regression/Ycal.csv
+
+# Test/validation data paths
+test_x: sample_data/regression/Xval.csv
+test_y: sample_data/regression/Yval.csv
+
+# Task configuration
+task_type: regression
+
+# Signal type for spectral data
+# Options: absorbance, reflectance, reflectance%, transmittance, transmittance%, auto
+signal_type: absorbance
+
+# Aggregation settings for repeated measurements
+# Set to a metadata column name to aggregate predictions by sample
+# aggregate: sample_id
+# aggregate_method: mean
+# aggregate_exclude_outliers: false
+
+# Global loading parameters (applied to all files unless overridden)
+global_params:
+  # Wavelength header unit
+  # Options: nm, cm-1, none, text, index
+  header_unit: nm
+
+  # File format settings
+  delimiter: ","
+  decimal_separator: "."
+  has_header: true
+
+  # Missing value handling
+  # Options: drop, fill, error
+  na_policy: drop

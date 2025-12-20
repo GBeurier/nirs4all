@@ -183,12 +183,24 @@ class PipelineConfigs:
 
     @staticmethod
     def _load_str_steps(definition: str) -> List[Any]:
-        """
-        Load steps from a string definition which can be a JSON or YAML file path, or a JSON/YAML string.
+        """Load steps from a string definition which can be a JSON or YAML file path, or a JSON/YAML string.
+
+        Args:
+            definition: Path to a JSON/YAML file, or a JSON/YAML string.
+
+        Returns:
+            List of pipeline steps.
+
+        Raises:
+            FileNotFoundError: If the config file doesn't exist.
+            ValueError: If the config file has invalid JSON/YAML syntax.
         """
         if definition.endswith('.json') or definition.endswith('.yaml') or definition.endswith('.yml'):
             if not Path(definition).is_file():
-                raise FileNotFoundError(f"Configuration file {definition} does not exist.")
+                raise FileNotFoundError(
+                    f"Configuration file does not exist: {definition}\n"
+                    f"Please check the file path and try again."
+                )
 
             pipeline_definition = None
 
@@ -197,13 +209,48 @@ class PipelineConfigs:
                     with open(definition, 'r', encoding='utf-8') as f:
                         pipeline_definition = json.load(f)
                 except json.JSONDecodeError as exc:
-                    raise ValueError(f"Invalid JSON file: {definition}") from exc
+                    # Provide detailed error message with line number
+                    raise ValueError(
+                        f"Invalid JSON in {definition}\n"
+                        f"Error at line {exc.lineno}, column {exc.colno}:\n"
+                        f"  {exc.msg}\n\n"
+                        f"Common JSON issues:\n"
+                        f"  - Missing or extra commas\n"
+                        f"  - Unquoted strings\n"
+                        f"  - Trailing commas (not allowed in JSON)\n"
+                        f"  - Single quotes instead of double quotes"
+                    ) from exc
             elif definition.endswith('.yaml') or definition.endswith('.yml'):
                 try:
                     with open(definition, 'r', encoding='utf-8') as f:
                         pipeline_definition = yaml.safe_load(f)
                 except yaml.YAMLError as exc:
-                    raise ValueError(f"Invalid YAML file: {definition}") from exc
+                    # Extract line number from YAML error if available
+                    if hasattr(exc, 'problem_mark') and exc.problem_mark:
+                        mark = exc.problem_mark
+                        line_num = mark.line + 1
+                        col_num = mark.column + 1
+                        problem = getattr(exc, 'problem', 'Unknown error')
+                        context = getattr(exc, 'context', '')
+                        error_details = f"  {problem}"
+                        if context:
+                            error_details += f" ({context})"
+                        raise ValueError(
+                            f"Invalid YAML in {definition}\n"
+                            f"Error at line {line_num}, column {col_num}:\n"
+                            f"{error_details}\n\n"
+                            f"Common YAML issues:\n"
+                            f"  - Incorrect indentation (use spaces, not tabs)\n"
+                            f"  - Missing colon after key names\n"
+                            f"  - Unescaped special characters\n"
+                            f"  - Mixing tabs and spaces"
+                        ) from exc
+                    else:
+                        raise ValueError(
+                            f"Invalid YAML in {definition}:\n"
+                            f"  {exc}\n\n"
+                            f"Please check your YAML syntax."
+                        ) from exc
         else:
             try:
                 pipeline_definition = json.loads(definition)
@@ -211,10 +258,18 @@ class PipelineConfigs:
                 try:
                     return yaml.safe_load(definition)
                 except yaml.YAMLError as exc2:
-                    raise ValueError("Invalid pipeline definition string. Must be a valid JSON or YAML format.") from exc2
+                    raise ValueError(
+                        "Invalid pipeline definition string.\n"
+                        "Must be a valid JSON or YAML format.\n\n"
+                        f"JSON error: {exc.msg} at line {exc.lineno}\n"
+                        f"YAML error: {exc2}"
+                    ) from exc2
 
         if not pipeline_definition:
-            raise ValueError("Pipeline definition is empty or invalid.")
+            raise ValueError(
+                f"Pipeline definition is empty or invalid.\n"
+                f"The configuration file must contain a 'pipeline' key with a list of steps."
+            )
 
         return PipelineConfigs._load_steps(pipeline_definition)
 

@@ -1,10 +1,102 @@
+import json
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Tuple, Optional
 import numpy as np
+import yaml
 
 from nirs4all.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _load_config_from_file(file_path: str) -> Tuple[Dict[str, Any], str]:
+    """Load dataset config from JSON/YAML file.
+
+    Args:
+        file_path: Path to a JSON or YAML configuration file.
+
+    Returns:
+        Tuple of (config_dict, dataset_name).
+
+    Raises:
+        FileNotFoundError: If the config file does not exist.
+        ValueError: If the file contains invalid JSON/YAML or is empty.
+    """
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Dataset configuration file not found: {file_path}\n"
+            f"Please check the file path and try again."
+        )
+
+    if not path.is_file():
+        raise ValueError(
+            f"Path is not a file: {file_path}\n"
+            f"Expected a JSON (.json) or YAML (.yaml, .yml) configuration file."
+        )
+
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        if not content.strip():
+            raise ValueError(f"Configuration file is empty: {file_path}")
+
+        if path.suffix.lower() == '.json':
+            try:
+                config = json.loads(content)
+            except json.JSONDecodeError as exc:
+                # Provide detailed error message with line number
+                raise ValueError(
+                    f"Invalid JSON in {file_path}\n"
+                    f"Error at line {exc.lineno}, column {exc.colno}:\n"
+                    f"  {exc.msg}\n\n"
+                    f"Please check your JSON syntax."
+                ) from exc
+        else:  # .yaml or .yml
+            try:
+                config = yaml.safe_load(content)
+            except yaml.YAMLError as exc:
+                # Extract line number from YAML error if available
+                if hasattr(exc, 'problem_mark') and exc.problem_mark:
+                    mark = exc.problem_mark
+                    line_num = mark.line + 1
+                    col_num = mark.column + 1
+                    raise ValueError(
+                        f"Invalid YAML in {file_path}\n"
+                        f"Error at line {line_num}, column {col_num}:\n"
+                        f"  {getattr(exc, 'problem', 'Unknown error')}\n\n"
+                        f"Please check your YAML syntax."
+                    ) from exc
+                else:
+                    raise ValueError(
+                        f"Invalid YAML in {file_path}:\n"
+                        f"  {exc}\n\n"
+                        f"Please check your YAML syntax."
+                    ) from exc
+
+        if config is None:
+            raise ValueError(f"Configuration file is empty or contains only null: {file_path}")
+
+        if not isinstance(config, dict):
+            raise ValueError(
+                f"Configuration file must contain a dictionary/object at the root level.\n"
+                f"Got: {type(config).__name__}\n"
+                f"File: {file_path}"
+            )
+
+    except (IOError, OSError) as exc:
+        raise ValueError(f"Error reading configuration file {file_path}: {exc}") from exc
+
+    # Normalize keys for flexible naming conventions
+    config = normalize_config_keys(config)
+
+    # Extract dataset name: use 'name' key if present, otherwise use file stem
+    dataset_name = config.get('name', path.stem)
+
+    return config, dataset_name
+
 
 def normalize_config_keys(config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -127,9 +219,29 @@ def folder_to_name(folder_path):
 
 
 def parse_config(data_config):
-    # a single folder path
+    """Parse a dataset configuration.
+
+    Handles multiple input formats:
+    - String path to a folder: auto-browse for data files
+    - String path to JSON/YAML file (.json, .yaml, .yml): load config from file
+    - Dict with 'folder' key: browse folder with optional params
+    - Dict with data keys (train_x, test_x, etc.): use directly
+
+    Args:
+        data_config: Dataset configuration in any supported format.
+
+    Returns:
+        Tuple of (parsed_config_dict, dataset_name).
+    """
+    # Handle string paths
     if isinstance(data_config, str):
-        return browse_folder(data_config), folder_to_name(data_config)
+        # Check if it's a JSON/YAML file
+        lower_path = data_config.lower()
+        if lower_path.endswith(('.json', '.yaml', '.yml')):
+            return _load_config_from_file(data_config)
+        else:
+            # Treat as folder path - browse for data files
+            return browse_folder(data_config), folder_to_name(data_config)
 
     elif isinstance(data_config, dict):
         # a folder tag, idem as single path but with params
