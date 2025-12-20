@@ -1,12 +1,10 @@
 ## ROADMAP
 
+**Bugs**:
+>   - [Charts] check dataviz. Missing histograms, inverted heatmap color scale, --> Branching ?
+
+
 **Features**:
-
-> [Aggregation] add aggregation as property of the dataset (if True it's on y val, if "str" it's on metadata, if nothing, no agg)
-> [TabReport] include > aggregated
-
-> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
-> [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
 > [pytoml] Update imports and configs. Anticipate ui dependencies.
 
@@ -16,22 +14,17 @@
 > [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 > [Example] The full integration example with all features in one, using branching, multidatasets, etc.
 
+
 > [Generator] add in-place/internal generation > branches
 
-**Bugs**:
->   - Branch diagram are out
->   - [Charts] check dataviz. Missing histograms, inverted heatmap color scale, --> Branching ?
+**CLI_EXTENSION_PROPOSAL.md**
+> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
+> [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
 
 **Review**:
 
-> [Predict_Transfer] Review
-
-> [Stacking] Review
-
-> [multisource] Review
-
-> [Pipeline] Review and clean type for input in pipeline (launch from model, folder, file, yaml, json, etc.)
+> transfer, stacking, branching, multisource, pp, aggregation, pipeline inputs (launch from model, folder, file, yaml, json, etc.)
 
 **RELEASE** 0.6.0: MVP
 
@@ -56,6 +49,7 @@
 >   - [MB-PLS] test on multi-source/block ---
 >   - [Predict] Q5_predict is slow as hell
 >   - [LightGBM] [Warning] No further splits with positive gain, best gain: -inf   >> look if parameters is passed on cloning (maybe there is a hidden bug)
+>   - [Charts] check dataviz. Missing histograms
 
 
 
@@ -101,6 +95,7 @@
 
 > [Conda] provide a conda, add build and actions
 
+
 **RELEASE** 0.8: CLI
 
 > [GLOBAL REVIEW] v1.0 signatures freeze (private pattern _module), Complete tests > Prod coverage (transformations, controllers, predictions, datasets, runner)
@@ -112,6 +107,8 @@
 > [Y_pipeline in models]
 
 > [Profiling] Code Optimization, Improve performances
+
+> [Charts] aggregate based on metadata col, convert std indexes (model_name, model_classname, pp, etc.) to enum, keep string only for columns. Add Y as grouping value, add variance, mean, etc. as sort score.
 
 **RELEASE** 0.10 beta: Operators & Controllers rc
 

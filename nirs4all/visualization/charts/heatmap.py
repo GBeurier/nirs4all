@@ -854,21 +854,38 @@ class HeatmapChart(BaseChart):
 
         # When column_scale is enabled, use normalized matrix for coloring
         # with 0-1 scale (each column independently normalized)
+        # ALWAYS use normalized_matrix for coloring - it maps best→1.0 (green), worst→0.0 (red)
+        # But colorbar can show actual values (when normalize=False) or 0-1 (when normalize=True)
         if column_scale:
             display_data = np.ma.masked_invalid(normalized_matrix)
-            vmin = 0
-            vmax = 1
-            cbar_label = f'{display_metric.upper()}\n(per-column: green=best)'
+            if normalize:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'Normalized {display_metric.upper()}\n(per-column: green=best)'
+            else:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'{display_metric.upper()}\n(per-column: green=best)'
         elif use_local_scale:
-            display_data = np.ma.masked_invalid(matrix)
-            vmin = np.nanmin(matrix)
-            vmax = np.nanmax(matrix)
-            cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
+            display_data = np.ma.masked_invalid(normalized_matrix)
+            if normalize:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'Normalized {display_metric.upper()}\n(green=best, red=worst)'
+            else:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
         else:
-            display_data = np.ma.masked_invalid(matrix)
-            vmin = 0
-            vmax = 1
-            cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
+            display_data = np.ma.masked_invalid(normalized_matrix)
+            if normalize:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'Normalized {display_metric.upper()}\n(green=best, red=worst)'
+            else:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
 
         # Use colormap directly - normalizer already handles direction inversion
         # (best values always map to 1.0, worst to 0.0)
@@ -882,8 +899,28 @@ class HeatmapChart(BaseChart):
             vmax=vmax
         )
 
-        # Colorbar
+        # Colorbar with actual or normalized ticks
         cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+
+        # If not normalizing, override colorbar ticks to show actual metric values
+        if not normalize and not column_scale:
+            # Map normalized 0-1 range to actual metric range
+            actual_min = np.nanmin(matrix)
+            actual_max = np.nanmax(matrix)
+            if not np.isnan(actual_min) and not np.isnan(actual_max):
+                # Create ticks at 0, 0.25, 0.5, 0.75, 1.0 normalized positions
+                # For lower-is-better metrics: 0.0→max (worst/red), 1.0→min (best/green)
+                # For higher-is-better metrics: 0.0→min (worst/red), 1.0→max (best/green)
+                norm_ticks = [0.0, 0.25, 0.5, 0.75, 1.0]
+                if display_higher_better:
+                    # 0.0 → min (worst), 1.0 → max (best)
+                    actual_ticks = [actual_min + (actual_max - actual_min) * t for t in norm_ticks]
+                else:
+                    # 0.0 → max (worst), 1.0 → min (best) - reversed!
+                    actual_ticks = [actual_max - (actual_max - actual_min) * t for t in norm_ticks]
+                cbar.set_ticks(norm_ticks)
+                cbar.set_ticklabels([f'{v:.3g}' for v in actual_ticks])
+
         cbar.set_label(cbar_label, fontsize=self.config.label_fontsize)
         cbar.ax.tick_params(labelsize=self.config.tick_fontsize)
 
@@ -1216,21 +1253,38 @@ class HeatmapChart(BaseChart):
 
         # When column_scale is enabled, use normalized matrix for coloring
         # with 0-1 scale (each column independently normalized)
+        # ALWAYS use normalized_matrix for coloring - it maps best→1.0 (green), worst→0.0 (red)
+        # But colorbar can show actual values (when normalize=False) or 0-1 (when normalize=True)
         if column_scale:
             display_data = np.ma.masked_invalid(normalized_matrix)
-            vmin = 0
-            vmax = 1
-            cbar_label = f'{display_metric.upper()}\n(per-column: green=best)'
+            if normalize:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'Normalized {display_metric.upper()}\n(per-column: green=best)'
+            else:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'{display_metric.upper()}\n(per-column: green=best)'
         elif use_local_scale:
-            display_data = np.ma.masked_invalid(matrix)
-            vmin = np.nanmin(matrix)
-            vmax = np.nanmax(matrix)
-            cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
+            display_data = np.ma.masked_invalid(normalized_matrix)
+            if normalize:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'Normalized {display_metric.upper()}\n(green=best, red=worst)'
+            else:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
         else:
-            display_data = np.ma.masked_invalid(matrix)
-            vmin = 0
-            vmax = 1
-            cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
+            display_data = np.ma.masked_invalid(normalized_matrix)
+            if normalize:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'Normalized {display_metric.upper()}\n(green=best, red=worst)'
+            else:
+                vmin = 0
+                vmax = 1
+                cbar_label = f'{display_metric.upper()}\n(green=best, red=worst)'
 
         # Use colormap directly - normalizer already handles direction inversion
         # (best values always map to 1.0, worst to 0.0)
@@ -1244,8 +1298,28 @@ class HeatmapChart(BaseChart):
             vmax=vmax
         )
 
-        # Colorbar
+        # Colorbar with actual or normalized ticks
         cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+
+        # If not normalizing, override colorbar ticks to show actual metric values
+        if not normalize and not column_scale:
+            # Map normalized 0-1 range to actual metric range
+            actual_min = np.nanmin(matrix)
+            actual_max = np.nanmax(matrix)
+            if not np.isnan(actual_min) and not np.isnan(actual_max):
+                # Create ticks at 0, 0.25, 0.5, 0.75, 1.0 normalized positions
+                # For lower-is-better metrics: 0.0→max (worst/red), 1.0→min (best/green)
+                # For higher-is-better metrics: 0.0→min (worst/red), 1.0→max (best/green)
+                norm_ticks = [0.0, 0.25, 0.5, 0.75, 1.0]
+                if display_higher_better:
+                    # 0.0 → min (worst), 1.0 → max (best)
+                    actual_ticks = [actual_min + (actual_max - actual_min) * t for t in norm_ticks]
+                else:
+                    # 0.0 → max (worst), 1.0 → min (best) - reversed!
+                    actual_ticks = [actual_max - (actual_max - actual_min) * t for t in norm_ticks]
+                cbar.set_ticks(norm_ticks)
+                cbar.set_ticklabels([f'{v:.3g}' for v in actual_ticks])
+
         cbar.set_label(cbar_label, fontsize=self.config.label_fontsize)
         cbar.ax.tick_params(labelsize=self.config.tick_fontsize)
 
