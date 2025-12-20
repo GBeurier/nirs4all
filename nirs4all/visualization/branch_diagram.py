@@ -22,7 +22,7 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+from matplotlib.patches import Rectangle
 import matplotlib.patches as mpatches
 import numpy as np
 
@@ -46,10 +46,6 @@ class BranchDiagram:
         'split': '#9b59b6',       # Purple for split nodes
         'default': '#95a5a6',     # Gray for unknown
     }
-
-    # Box styles
-    BOX_STYLE = "round,rounding_size=10"
-    BOX_PAD = 0.3
 
     def __init__(
         self,
@@ -443,14 +439,18 @@ class BranchDiagram:
             n_lines = label.count('\n') + 1
             box_height *= (1 + 0.3 * (n_lines - 1))
 
-            rect = FancyBboxPatch(
+            # Store actual dimensions in layout for arrow connections
+            node['actual_width'] = box_width
+            node['actual_height'] = box_height
+
+            # Use simple rectangle for clean rendering
+            rect = Rectangle(
                 (x - box_width / 2, y - box_height / 2),
                 box_width, box_height,
-                boxstyle=self.BOX_STYLE,
                 facecolor=color,
                 edgecolor='black',
-                linewidth=1.5,
-                alpha=0.8,
+                linewidth=2,
+                alpha=0.85,
             )
             ax.add_patch(rect)
 
@@ -539,19 +539,26 @@ class BranchDiagram:
         from_node = layout[from_id]
         to_node = layout[to_id]
 
-        # Calculate connection points (bottom of source, top of target)
-        from_x, from_y = from_node['x'], from_node['y'] - self._node_height / 2
-        to_x, to_y = to_node['x'], to_node['y'] + self._node_height / 2
+        # Use actual heights if available (set during node drawing)
+        # Fall back to default height if not yet computed
+        from_height = from_node.get('actual_height', self._node_height)
+        to_height = to_node.get('actual_height', self._node_height)
 
-        arrow = FancyArrowPatch(
-            (from_x, from_y), (to_x, to_y),
-            arrowstyle='-|>',
-            color='#2c3e50',
-            linewidth=1.5,
-            mutation_scale=15,
-            connectionstyle='arc3,rad=0',
-        )
-        ax.add_patch(arrow)
+        # Calculate connection points (bottom of source, top of target)
+        from_x, from_y = from_node['x'], from_node['y'] - from_height / 2
+        to_x, to_y = to_node['x'], to_node['y'] + to_height / 2
+
+        # Use simple arrow annotation for clean rendering
+        ax.annotate('',
+                    xy=(to_x, to_y),
+                    xytext=(from_x, from_y),
+                    arrowprops=dict(
+                        arrowstyle='->',
+                        color='#2c3e50',
+                        linewidth=2,
+                        shrinkA=0,
+                        shrinkB=0
+                    ))
 
     def _get_bounds(
         self,
