@@ -1,3 +1,20 @@
+"""
+Dataset configuration parser.
+
+This module provides functions for parsing dataset configurations from various formats.
+It serves as the main entry point for configuration parsing, delegating to specialized
+parsers in the nirs4all.data.parsers module.
+
+The parser supports:
+- Folder paths with auto-scanning for data files
+- JSON/YAML configuration files
+- Dictionary configurations (legacy train_x/test_x format)
+- In-memory numpy arrays
+
+For the new schema-based validation, see nirs4all.data.schema.
+For specialized parsers, see nirs4all.data.parsers.
+"""
+
 import json
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
@@ -6,7 +23,14 @@ import yaml
 
 from nirs4all.core.logging import get_logger
 
+# Import from new parser module for internal use
+from nirs4all.data.parsers.legacy_parser import normalize_config_keys as _normalize_keys
+from nirs4all.data.parsers.normalizer import ConfigNormalizer
+
 logger = get_logger(__name__)
+
+# Create shared normalizer instance
+_normalizer = ConfigNormalizer()
 
 
 def _load_config_from_file(file_path: str) -> Tuple[Dict[str, Any], str]:
@@ -22,85 +46,12 @@ def _load_config_from_file(file_path: str) -> Tuple[Dict[str, Any], str]:
         FileNotFoundError: If the config file does not exist.
         ValueError: If the file contains invalid JSON/YAML or is empty.
     """
-    path = Path(file_path)
-
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Dataset configuration file not found: {file_path}\n"
-            f"Please check the file path and try again."
-        )
-
-    if not path.is_file():
-        raise ValueError(
-            f"Path is not a file: {file_path}\n"
-            f"Expected a JSON (.json) or YAML (.yaml, .yml) configuration file."
-        )
-
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        if not content.strip():
-            raise ValueError(f"Configuration file is empty: {file_path}")
-
-        if path.suffix.lower() == '.json':
-            try:
-                config = json.loads(content)
-            except json.JSONDecodeError as exc:
-                # Provide detailed error message with line number
-                raise ValueError(
-                    f"Invalid JSON in {file_path}\n"
-                    f"Error at line {exc.lineno}, column {exc.colno}:\n"
-                    f"  {exc.msg}\n\n"
-                    f"Please check your JSON syntax."
-                ) from exc
-        else:  # .yaml or .yml
-            try:
-                config = yaml.safe_load(content)
-            except yaml.YAMLError as exc:
-                # Extract line number from YAML error if available
-                if hasattr(exc, 'problem_mark') and exc.problem_mark:
-                    mark = exc.problem_mark
-                    line_num = mark.line + 1
-                    col_num = mark.column + 1
-                    raise ValueError(
-                        f"Invalid YAML in {file_path}\n"
-                        f"Error at line {line_num}, column {col_num}:\n"
-                        f"  {getattr(exc, 'problem', 'Unknown error')}\n\n"
-                        f"Please check your YAML syntax."
-                    ) from exc
-                else:
-                    raise ValueError(
-                        f"Invalid YAML in {file_path}:\n"
-                        f"  {exc}\n\n"
-                        f"Please check your YAML syntax."
-                    ) from exc
-
-        if config is None:
-            raise ValueError(f"Configuration file is empty or contains only null: {file_path}")
-
-        if not isinstance(config, dict):
-            raise ValueError(
-                f"Configuration file must contain a dictionary/object at the root level.\n"
-                f"Got: {type(config).__name__}\n"
-                f"File: {file_path}"
-            )
-
-    except (IOError, OSError) as exc:
-        raise ValueError(f"Error reading configuration file {file_path}: {exc}") from exc
-
-    # Normalize keys for flexible naming conventions
-    config = normalize_config_keys(config)
-
-    # Extract dataset name: use 'name' key if present, otherwise use file stem
-    dataset_name = config.get('name', path.stem)
-
-    return config, dataset_name
+    return _normalizer._load_config_file(file_path)
 
 
 def normalize_config_keys(config: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Normalize dataset configuration keys to standard format.
+    """Normalize dataset configuration keys to standard format.
+
     Maps variations like 'x_train', 'X_train', 'Xtrain' to 'train_x'
     Maps metadata variations like 'metadata_train', 'train_metadata', 'm_train' to 'train_group'
 
@@ -110,42 +61,7 @@ def normalize_config_keys(config: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Normalized configuration with standardized keys
     """
-    # Base patterns for each standard key
-    base_patterns = {
-        'train_x': ['train_x', 'x_train', 'xtrain', 'trainx'],
-        'train_y': ['train_y', 'y_train', 'ytrain', 'trainy'],
-        'test_x': ['test_x', 'x_test', 'xtest', 'testx', 'val_x', 'x_val', 'xval', 'valx'],
-        'test_y': ['test_y', 'y_test', 'ytest', 'testy', 'val_y', 'y_val', 'yval', 'valy'],
-        'train_group': ['train_group', 'group_train', 'grouptrain', 'traingroup',
-                        'train_metadata', 'metadata_train', 'metadatatrain', 'trainmetadata',
-                        'train_meta', 'meta_train', 'metatrain', 'trainmeta',
-                        'train_m', 'm_train', 'mtrain', 'trainm'],
-        'test_group': ['test_group', 'group_test', 'grouptest', 'testgroup',
-                       'test_metadata', 'metadata_test', 'metadatatest', 'testmetadata',
-                       'test_meta', 'meta_test', 'metatest', 'testmeta',
-                       'test_m', 'm_test', 'mtest', 'testm',
-                       'val_group', 'group_val', 'groupval', 'valgroup',
-                       'val_metadata', 'metadata_val', 'metadataval', 'valmetadata',
-                       'val_meta', 'meta_val', 'metaval', 'valmeta',
-                       'val_m', 'm_val', 'mval', 'valm'],
-    }
-
-    # Build case-insensitive mapping
-    key_mappings = {}
-    for standard_key, variations in base_patterns.items():
-        for variation in variations:
-            # Add all case combinations
-            key_mappings[variation.lower()] = standard_key
-            key_mappings[variation.upper()] = standard_key
-            key_mappings[variation.capitalize()] = standard_key
-            key_mappings[variation.title()] = standard_key
-
-    normalized_config = {}
-    for key, value in config.items():
-        normalized_key = key_mappings.get(key.lower(), key)
-        normalized_config[normalized_key] = value
-
-    return normalized_config
+    return _normalize_keys(config)
 
 def _s_(path):
     """Convert path(s) to POSIX format. Handles both single paths and lists of paths."""
@@ -155,8 +71,37 @@ def _s_(path):
         return [Path(p).as_posix() for p in path]
     return Path(path).as_posix()
 
+
 def browse_folder(folder_path, global_params=None):
-    config = {
+    """Scan a folder for data files matching standard naming conventions.
+
+    This function delegates to FolderParser for the actual scanning.
+
+    Args:
+        folder_path: Path to folder to scan.
+        global_params: Optional global loading parameters.
+
+    Returns:
+        Configuration dictionary with detected file paths.
+    """
+    from nirs4all.data.parsers.folder_parser import FolderParser
+
+    parser = FolderParser()
+
+    # Create input for parser
+    if global_params is not None:
+        input_data = {"folder": folder_path, "global_params": global_params}
+    else:
+        input_data = folder_path
+
+    result = parser.parse(input_data)
+
+    if result.success:
+        return result.config
+
+    # Return empty config on failure (backward compatible behavior)
+    logger.error(f"Failed to browse folder {folder_path}: {result.errors}")
+    return {
         "train_x": None, "train_x_filter": None, "train_x_params": None,
         "train_y": None, "train_y_filter": None, "train_y_params": None,
         "train_group": None, "train_group_filter": None, "train_group_params": None,
@@ -168,48 +113,16 @@ def browse_folder(folder_path, global_params=None):
         "global_params": global_params
     }
 
-    files_re = {
-        "train_x": ["Xcal", "X_cal", "Cal_X", "calX", "train_X", "trainX", "X_train", "Xtrain"],
-        "test_x": ["Xval", "X_val", "val_X", "valX", "Xtest", "X_test", "test_X", "testX"],
-        "train_y": ["Ycal", "Y_cal", "Cal_Y", "calY", "train_Y", "trainY", "Y_train", "Ytrain"],
-        "test_y": ["Ytest", "Y_test", "test_Y", "testY", "Yval", "Y_val", "val_Y", "valY"],
-        "train_group": ["Mcal", "M_cal", "Cal_M", "calM", "train_M", "trainM", "M_train", "Mtrain",
-                        "Metacal", "Meta_cal", "Cal_Meta", "calMeta", "train_Meta", "trainMeta", "Meta_train", "Metatrain",
-                        "metadatacal", "metadata_cal", "Cal_metadata", "calMetadata", "train_metadata", "trainMetadata", "metadata_train", "metadatatrain"],
-        "test_group": ["Mtest", "M_test", "test_M", "testM", "Mval", "M_val", "val_M", "valM",
-                       "Metatest", "Meta_test", "test_Meta", "testMeta", "Metaval", "Meta_val", "val_Meta", "valMeta",
-                       "metadatatest", "metadata_test", "test_metadata", "testMetadata", "metadataval", "metadata_val", "val_metadata", "valMetadata"],
-    }
-
-    dataset_dir = Path(folder_path)
-    if not dataset_dir.exists():
-        logger.error(f"Folder does not exist: {folder_path}")
-        return config
-
-    for key, patterns in files_re.items():
-        matched_files = []
-        for pattern in patterns:
-            pattern_lower = pattern.lower()
-            for file in dataset_dir.glob("*"):
-                if pattern_lower in file.name.lower():
-                    matched_files.append(str(file))
-
-        if len(matched_files) == 0:
-            # print(f"{WARNING}Dataset does not have data for {key}.")
-            # logging.warning("No %s file found for %s.", key, dataset_name)
-            continue
-        elif len(matched_files) == 1:
-            # Single source - store as single path for backward compatibility
-            config[key] = _s_(matched_files[0])
-        else:
-            # Multi-source - store as array of paths
-            logger.info(f"Multiple {key} files found for {folder_path}: {len(matched_files)} sources detected.")
-            config[key] = _s_(matched_files)
-
-    return config
-
 
 def folder_to_name(folder_path):
+    """Extract a dataset name from a folder path.
+
+    Args:
+        folder_path: Path to folder.
+
+    Returns:
+        Cleaned dataset name.
+    """
     path = Path(folder_path)
     for part in reversed(path.parts):
         clean_part = ''.join(c if c.isalnum() else '_' for c in part)
@@ -232,62 +145,10 @@ def parse_config(data_config):
 
     Returns:
         Tuple of (parsed_config_dict, dataset_name).
+        Returns (None, 'Unknown_dataset') if parsing fails.
     """
-    # Handle string paths
-    if isinstance(data_config, str):
-        # Check if it's a JSON/YAML file
-        lower_path = data_config.lower()
-        if lower_path.endswith(('.json', '.yaml', '.yml')):
-            return _load_config_from_file(data_config)
-        else:
-            # Treat as folder path - browse for data files
-            return browse_folder(data_config), folder_to_name(data_config)
-
-    elif isinstance(data_config, dict):
-        # a folder tag, idem as single path but with params
-        if "folder" in data_config:
-            return browse_folder(data_config["folder"], data_config.get("params")), folder_to_name(data_config["folder"])
-        else:
-            # Normalize keys before processing
-            normalized_config = normalize_config_keys(data_config)
-
-            # a full config dict
-            # print(f"🔍 Parsing dataset config dict: {normalized_config.keys()}")
-            # Accept configs with either train_x or test_x (for prediction scenarios)
-            required_keys_pattern = ['train_x']
-            alternative_keys_pattern = ['test_x']
-
-            if all(key in normalized_config for key in required_keys_pattern):
-                # Standard case: has train_x
-                train_file = normalized_config.get("train_x")
-
-                # Check if data is already a numpy array (not a file path)
-                if isinstance(train_file, np.ndarray):
-                    dataset_name = normalized_config.get("name", "array_dataset")
-                    return normalized_config, dataset_name
-
-                if isinstance(train_file, list):
-                    train_file = train_file[0]
-                train_file = Path(str(train_file))
-                dataset_name = f"{train_file.parent.name}_{train_file.stem}"
-                return normalized_config, dataset_name
-            elif all(key in normalized_config for key in alternative_keys_pattern):
-                # Prediction case: has test_x but no train_x
-                test_file = normalized_config.get("test_x")
-
-                # Check if data is already a numpy array (not a file path)
-                if isinstance(test_file, np.ndarray):
-                    dataset_name = normalized_config.get("name", "array_dataset")
-                    return normalized_config, dataset_name
-
-                if isinstance(test_file, list):
-                    test_file = test_file[0]
-                test_file = Path(str(test_file))
-                dataset_name = f"{test_file.parent.name}_{test_file.stem}"
-                return normalized_config, dataset_name
-
-    logger.error(f"Error in config: unsupported dataset config >> {type(data_config)}: {data_config}")
-    return None, 'Unknown_dataset'
+    # Use the new normalizer for unified handling
+    return _normalizer.normalize(data_config)
 
 
 

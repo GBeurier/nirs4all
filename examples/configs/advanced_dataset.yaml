@@ -1,0 +1,57 @@
+# Advanced Dataset Configuration
+# Demonstrates aggregation, folds, and performance options
+
+name: wheat_protein_advanced
+
+description: |
+  Wheat protein prediction with full pipeline configuration.
+  Includes sample aggregation, cross-validation folds, and caching.
+
+# Data paths with auto-detection enabled
+train_x: data/wheat_spectra.csv
+train_y: data/wheat_protein.csv
+
+# Let the system detect delimiter, decimal, etc.
+auto_detect: true
+
+# Loading parameters (override auto-detected if needed)
+params:
+  header_unit: nm
+  signal_type: reflectance
+  skiprows: 1
+
+# Sample aggregation - average replicates
+aggregation:
+  group_by: sample_id
+  method: mean
+  exclude_outliers: true
+  outlier_threshold: 2.5  # Z-score threshold
+
+# Pre-defined cross-validation folds
+folds:
+  - name: fold_1
+    train: [0, 1, 2, 3, 4, 5, 6, 7]
+    test: [8, 9]
+  - name: fold_2
+    train: [0, 1, 2, 3, 8, 9]
+    test: [4, 5, 6, 7]
+  - name: fold_3
+    train: [4, 5, 6, 7, 8, 9]
+    test: [0, 1, 2, 3]
+
+# Task configuration
+task_type: regression
+targets:
+  - protein
+
+# Performance optimization
+performance:
+  cache_enabled: true
+  cache_ttl: 3600  # Cache for 1 hour
+  lazy_loading: false  # Load immediately for small datasets
+
+# Validation settings
+validation:
+  strict: true
+  check_spectral_range: true
+  check_missing_values: true
