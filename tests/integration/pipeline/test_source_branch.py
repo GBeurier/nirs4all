@@ -170,7 +170,7 @@ class TestSourceBranchWithStacking:
 
     def test_source_branch_with_meta_model(self, test_data_manager):
         """Test source branching with MetaModel stacking.
-        
+
         Note: Source branching with MetaModel stacking requires careful handling
         of sample indices across sources. Using DROP_INCOMPLETE coverage strategy
         with a low min_coverage_ratio to accommodate potential index mismatches.
