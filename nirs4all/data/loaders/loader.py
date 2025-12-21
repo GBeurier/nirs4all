@@ -2,13 +2,17 @@
 
 import hashlib
 import json
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from nirs4all.data.config_parser import parse_config
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.loaders.csv_loader import load_csv
 from nirs4all.data.signal_type import SignalType, normalize_signal_type
-from typing import Dict, Tuple, Union, Optional
+from typing import Any, Dict, List, Tuple, Union, Optional
+
+# Import the new loader system
+from nirs4all.data.loaders.base import LoaderRegistry, FormatNotSupportedError
 
 
 def create_synthetic_dataset(config: Dict) -> SpectroDataset:
@@ -88,6 +92,57 @@ def _merge_params(local_params, handler_params, global_params):
     return merged_params
 
 
+def _load_file_with_registry(
+    file_path: Union[str, Path],
+    header_unit: str = "cm-1",
+    data_type: str = "x",
+    **params: Any,
+) -> Tuple[Optional[pd.DataFrame], Dict[str, Any], Optional[pd.Series], List[str], str]:
+    """Load a file using the LoaderRegistry for format detection.
+
+    This function provides automatic format detection and loading using
+    the registered file loaders. It falls back to CSV loading for unknown formats.
+
+    Args:
+        file_path: Path to the file to load.
+        header_unit: Unit for headers ('cm-1', 'nm', etc.).
+        data_type: Type of data ('x', 'y', or 'metadata').
+        **params: Additional loading parameters.
+
+    Returns:
+        Tuple of (DataFrame, report, na_mask, headers, header_unit).
+    """
+    path = Path(file_path) if isinstance(file_path, str) else file_path
+
+    # Try to use the registry for format detection
+    try:
+        registry = LoaderRegistry.get_instance()
+        loader = registry.get_loader(path)
+        result = loader.load(
+            path,
+            header_unit=header_unit,
+            data_type=data_type,
+            **params,
+        )
+        return (
+            result.data,
+            result.report,
+            result.na_mask,
+            result.headers,
+            result.header_unit,
+        )
+    except FormatNotSupportedError:
+        # Fall back to CSV loader for unknown formats
+        return load_csv(file_path, header_unit=header_unit, data_type=data_type, **params)
+    except Exception as e:
+        # On any other error, try CSV as a fallback
+        try:
+            return load_csv(file_path, header_unit=header_unit, data_type=data_type, **params)
+        except Exception:
+            # If CSV also fails, re-raise the original error
+            raise e
+
+
 def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None, m_filter=None, m_params=None):
     """
     Load X, Y, and metadata from single paths. For multi-source, this will be called multiple times.
@@ -134,9 +189,11 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
     if x_signal_type_raw is not None:
         x_signal_type = normalize_signal_type(x_signal_type_raw)
 
-    # Load X data
+    # Load X data using format-aware loader
     try:
-        x_df, x_report, x_na_mask, x_headers, x_unit = load_csv(x_path, header_unit=x_header_unit, **x_params)
+        x_df, x_report, x_na_mask, x_headers, x_unit = _load_file_with_registry(
+            x_path, header_unit=x_header_unit, **x_params
+        )
         if x_report.get("error") is not None or x_df is None:
             raise ValueError(f"Failed to load X data from {x_path}: {x_report.get('error', 'Unknown error')}")
     except Exception as e:
@@ -169,7 +226,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
             if 'data_type' not in y_params_copy:
                 y_params_copy['data_type'] = 'y'
 
-            y_df, y_report, y_na_mask, _, _ = load_csv(y_path, **y_params_copy)
+            y_df, y_report, y_na_mask, _, _ = _load_file_with_registry(y_path, **y_params_copy)
             if y_report.get("error") is not None or y_df is None:
                 raise ValueError(f"Failed to load Y data from {y_path}: {y_report.get('error', 'Unknown error')}")
         except Exception as e:
@@ -203,7 +260,7 @@ def load_XY(x_path, x_filter, x_params, y_path, y_filter, y_params, m_path=None,
             if 'na_policy' not in m_params_copy:
                 m_params_copy['na_policy'] = 'remove'
 
-            m_df_temp, m_report, m_na_mask, m_headers, _ = load_csv(m_path, **m_params_copy)
+            m_df_temp, m_report, m_na_mask, m_headers, _ = _load_file_with_registry(m_path, **m_params_copy)
 
             # For metadata, we want to keep ALL rows including those with NAs
             # So we reload the data without NA row removal if rows were removed

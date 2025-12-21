@@ -1,0 +1,24 @@
+# Basic Dataset Configuration Example
+# This is the simplest configuration - just specify file paths
+
+name: wheat_protein_basic
+
+# Training data
+train_x: sample_data/Xcal.csv
+train_y: sample_data/Ycal.csv
+train_group: sample_data/Mcal.csv
+
+# Test/validation data
+test_x: sample_data/Xval.csv
+test_y: sample_data/Yval.csv
+test_group: sample_data/Mval.csv
+
+# Loading parameters (optional - defaults work for most cases)
+global_params:
+  delimiter: ";"
+  has_header: true
+  header_unit: cm-1
+  signal_type: absorbance
+
+# Task configuration
+task_type: regression

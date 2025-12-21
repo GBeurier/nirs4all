@@ -66,6 +66,10 @@ def main():
     from .commands.config import add_config_commands
     add_config_commands(subparsers)
 
+    # Add dataset commands
+    from .commands.dataset import add_dataset_commands
+    add_dataset_commands(subparsers)
+
     args = parser.parse_args()
 
     # Handle legacy flags first

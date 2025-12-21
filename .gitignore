@@ -72,3 +72,4 @@ bench/nirs4all_logo.png
 bench/wk/
 *.log
 logs/
+examples/sample_data/sample_source/

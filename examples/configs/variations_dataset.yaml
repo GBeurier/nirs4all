@@ -1,0 +1,61 @@
+# Variations Dataset Configuration
+# Define dataset variations (augmentations, subsets, preprocessing)
+
+name: wheat_variations
+
+# Base dataset
+base:
+  train_x: data/wheat_train.csv
+  train_y: data/wheat_targets.csv
+  params:
+    header_unit: nm
+    signal_type: absorbance
+
+# Define variations to generate
+variations:
+  # Spectral range variation
+  - name: "full_range"
+    description: "Full spectral range (1100-2500 nm)"
+    range: [1100, 2500]
+
+  - name: "short_range"
+    description: "Short wavelength region (1100-1800 nm)"
+    range: [1100, 1800]
+
+  - name: "long_range"
+    description: "Long wavelength region (1800-2500 nm)"
+    range: [1800, 2500]
+
+  # Resolution variation
+  - name: "full_resolution"
+    description: "Original resolution (2 nm)"
+    resample: null
+
+  - name: "low_resolution"
+    description: "Downsampled to 10 nm resolution"
+    resample:
+      step: 10
+      method: interpolate
+
+  # Noise variations for robustness testing
+  - name: "original"
+    description: "Original clean data"
+    noise: null
+
+  - name: "noisy_1pct"
+    description: "Added 1% Gaussian noise"
+    noise:
+      type: gaussian
+      level: 0.01
+
+  - name: "noisy_5pct"
+    description: "Added 5% Gaussian noise"
+    noise:
+      type: gaussian
+      level: 0.05
+
+# Generate all combinations (optional)
+expand_combinations: false  # If true, creates all range x resolution x noise combos
+
+# Task configuration
+task_type: regression

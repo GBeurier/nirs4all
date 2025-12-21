@@ -28,6 +28,45 @@ from .signal_type import (
     detect_signal_type,
 )
 
+# Schema types (Phase 1 - new in refactoring)
+from .schema import (
+    DatasetConfigSchema,
+    FileConfig,
+    ColumnConfig,
+    PartitionConfig,
+    LoadingParams,
+    TaskType,
+    ConfigValidator,
+    ValidationResult,
+    ValidationError,
+    ValidationWarning,
+)
+
+# Parser utilities
+from .parsers import (
+    ConfigNormalizer,
+    normalize_config,
+)
+
+# Selection utilities (Phase 3)
+from .selection import (
+    ColumnSelector,
+    ColumnSelectionError,
+    RowSelector,
+    RowSelectionError,
+    RoleAssigner,
+    RoleAssignmentError,
+    SampleLinker,
+    LinkingError,
+)
+
+# Partition utilities (Phase 4)
+from .partition import (
+    PartitionAssigner,
+    PartitionError,
+    PartitionResult,
+)
+
 __all__ = [
     "SpectroDataset",
     "DatasetConfigs",
@@ -46,4 +85,31 @@ __all__ = [
     "normalize_signal_type",
     "SignalTypeDetector",
     "detect_signal_type",
+    # Schema (new)
+    "DatasetConfigSchema",
+    "FileConfig",
+    "ColumnConfig",
+    "PartitionConfig",
+    "LoadingParams",
+    "TaskType",
+    "ConfigValidator",
+    "ValidationResult",
+    "ValidationError",
+    "ValidationWarning",
+    # Parsers (new)
+    "ConfigNormalizer",
+    "normalize_config",
+    # Selection (Phase 3)
+    "ColumnSelector",
+    "ColumnSelectionError",
+    "RowSelector",
+    "RowSelectionError",
+    "RoleAssigner",
+    "RoleAssignmentError",
+    "SampleLinker",
+    "LinkingError",
+    # Partition (Phase 4)
+    "PartitionAssigner",
+    "PartitionError",
+    "PartitionResult",
 ]

@@ -1,0 +1,39 @@
+# Multi-Source Dataset Configuration
+# For sensor fusion or multi-instrument data
+
+name: sensor_fusion_nir_mir
+
+# Define multiple feature sources
+sources:
+  - name: "NIR"
+    description: "Near-infrared spectrometer (1100-2500 nm)"
+    train_x: data/NIR_train.csv
+    test_x: data/NIR_test.csv
+    params:
+      header_unit: nm
+      signal_type: absorbance
+
+  - name: "MIR"
+    description: "Mid-infrared spectrometer (4000-400 cm-1)"
+    train_x: data/MIR_train.csv
+    test_x: data/MIR_test.csv
+    params:
+      header_unit: cm-1
+      signal_type: absorbance
+
+# Shared targets (same for all sources)
+targets:
+  path: data/targets.csv
+  link_by: sample_id  # Column to match samples across sources
+
+# Shared metadata
+metadata:
+  path: data/sample_info.csv
+  link_by: sample_id
+
+# Task configuration
+task_type: regression
+
+# Aggregation (if samples have replicates)
+aggregate: sample_id
+aggregate_method: mean
