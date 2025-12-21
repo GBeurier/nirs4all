@@ -1,7 +1,7 @@
-# Branching, Concat-Transform, and Merge: Design Review v4
+# Branching, Concat-Transform, and Merge: Design Review v6
 
-**Version**: 4.1.0
-**Status**: Revised Design - Merge as Core Primitive with Per-Branch Control
+**Version**: 6.0.0
+**Status**: Comprehensive Design - Branch/Merge Distinction, Prediction Selection, Output Targets
 **Date**: December 2025
 **Author**: Design Review
 
@@ -10,19 +10,45 @@
 ## Table of Contents
 
 1. [Executive Summary](#1-executive-summary)
-2. [Verified Current State](#2-verified-current-state)
-3. [Problem Analysis](#3-problem-analysis)
-4. [Design: MergeController](#4-design-mergecontroller)
-5. [Design: MetaModel Integration](#5-design-metamodel-integration)
-6. [Design: ConcatTransformController (No Changes)](#6-design-concattransformcontroller-no-changes)
-7. [Complete Use Case Matrix](#7-complete-use-case-matrix)
-8. [Implementation Specification](#8-implementation-specification)
-9. [Implementation Roadmap](#9-implementation-roadmap)
-10. [Appendix: Relationship with Asymmetric Sources Design](#appendix-relationship-with-asymmetric-sources-design)
+2. [Branch vs Source: Fundamental Distinction](#2-branch-vs-source-fundamental-distinction)
+3. [Verified Current State](#3-verified-current-state)
+4. [Problem Analysis](#4-problem-analysis)
+5. [Design: MergeController](#5-design-mergecontroller)
+6. [Design: MetaModel Integration](#6-design-metamodel-integration)
+7. [Design: ConcatTransformController (No Changes)](#7-design-concattransformcontroller-no-changes)
+8. [Complete Use Case Matrix](#8-complete-use-case-matrix)
+9. [Prediction Selection Specification](#9-prediction-selection-specification)
+10. [Implementation Specification](#10-implementation-specification)
+11. [Multi-Source Dataset Considerations](#11-multi-source-dataset-considerations)
+12. [Asymmetric Branch Design](#12-asymmetric-branch-design)
+13. [Error Catalog and Resolution](#13-error-catalog-and-resolution)
+14. [Unified Merge Controller](#14-unified-merge-controller)
+15. [Implementation Roadmap](#15-implementation-roadmap)
+16. [Appendix: Relationship with Asymmetric Sources Design](#appendix-relationship-with-asymmetric-sources-design)
 
 ---
 
 ## 1. Executive Summary
+
+### Core Design Principle: Branches and Sources are Distinct Concepts
+
+**Branches** and **Sources** represent fundamentally different dimensions in nirs4all:
+
+| Concept | Dimension | Purpose | Created By |
+|---------|-----------|---------|------------|
+| **Branch** | Execution parallelism | Run N independent pipeline paths | `{"branch": [...]}` |
+| **Source** | Data provenance | Data from different origins/modalities | Dataset config or `merge` with `output_as: "sources"` |
+
+**Critical Insight**: Branches represent *computation* (parallel execution), while sources represent *data origin* (where features came from). They should NOT automatically convert because:
+
+1. **Training per-branch models** requires staying in branch mode
+2. **Source semantics** implies "independent data," not "alternative processing"
+3. **Debug/traceability** is clearer with explicit conversion points
+
+The `merge` step is the **explicit transition point** that can:
+- Exit branch mode and return to single-path execution
+- Optionally convert branch outputs to sources (via `output_as: "sources"`)
+- Combine features and/or predictions with full control
 
 ### Design Philosophy: Overlapping Responsibilities by Choice
 
@@ -198,9 +224,172 @@ Use `concat_transform` when you just need parallel transforms on the same data. 
 
 ---
 
-## 2. Verified Current State
+## 2. Branch vs Source: Fundamental Distinction
 
-### 2.1 BranchController ✅ Verified Correct
+This section explains why branches should NOT automatically become sources, and why merge is the explicit transition point.
+
+### 2.1 The Two Dimensions
+
+nirs4all operates on two orthogonal dimensions that must remain conceptually separate:
+
+```
+                    Sources (Data Provenance)
+                    ┌─────┬─────┬─────┐
+                    │ S0  │ S1  │ S2  │  ← Different sensors/modalities
+                    ├─────┼─────┼─────┤
+    Branches        │     │     │     │  Branch 0 (SNV path)
+    (Execution      ├─────┼─────┼─────┤
+     Paths)         │     │     │     │  Branch 1 (MSC path)
+                    └─────┴─────┴─────┘
+```
+
+| Dimension | Represents | Lifecycle | Shared State |
+|-----------|------------|-----------|--------------|
+| **Sources** | Where data comes from | Persists throughout pipeline | Sample indices, y values |
+| **Branches** | Alternative processing paths | Temporary (until merge) | Context, prediction store |
+
+### 2.2 Why Branches Cannot Automatically Become Sources
+
+The user proposed: "What if merge just adds each branch output as a source?"
+
+This seems elegant but **breaks fundamental capabilities**:
+
+#### Problem 1: Cannot Train Models Per Branch
+
+With multi-source, models see **concatenated features** by default:
+
+```python
+# If branches auto-converted to sources:
+{"branch": [[SNV()], [MSC()]]},  # → Creates source_snv, source_msc
+PLSRegression()  # Sees concatenated features → ONE model trained
+
+# But user wants:
+{"branch": [[SNV(), PLSRegression()], [MSC(), PLSRegression()]]},
+# → TWO models trained, one per branch (requires branch mode)
+```
+
+**Branch mode keeps steps running N times**, enabling per-branch model training.
+
+#### Problem 2: Prediction Store Loses Branch Association
+
+Predictions are stored in `prediction_store` by model name, not by source. If branches become sources:
+
+```python
+{"branch": [[SNV(), PLS()], [MSC(), RF()]]},
+# Predictions stored as: {"PLS": ..., "RF": ...}
+# No information about which prediction came from which branch!
+```
+
+**Stacking requires branch→prediction association** for proper selection.
+
+#### Problem 3: Source Semantics Conflict
+
+Sources semantically mean "data from different origins" (sensors, instruments). Branches mean "alternative processing of the same data."
+
+```python
+# This is confusing:
+dataset = load("nir.csv")  # One source
+{"branch": [[SNV()], [MSC()]]}  # Two branches
+# If branches → sources: Now we have 3 sources?
+# The SNV/MSC "sources" don't represent different instruments!
+```
+
+**Sources should represent data provenance**, not processing alternatives.
+
+### 2.3 The Right Model: Merge as Transition Point
+
+`merge` is the **explicit transition point** between branch mode and single-path execution:
+
+```python
+{"branch": [[SNV()], [MSC()]]},  # Enter branch mode (N=2)
+SavitzkyGolay(),                 # Runs 2× (once per branch)
+PCA(50),                         # Runs 2× (once per branch)
+{"merge": "features"},           # EXIT branch mode → single path
+PLSRegression()                  # Runs 1× on merged features
+```
+
+### 2.4 Merge Output Options
+
+Merge can output to different targets based on user needs:
+
+```python
+# Default: Concatenated features (2D matrix)
+{"merge": "features"}
+# Result: Single processing with horizontally concatenated features
+
+# Output as sources (preserve branch identity)
+{"merge": {"features": "all", "output_as": "sources"}}
+# Result: Each branch becomes a source (branch_0, branch_1)
+# Use case: Different downstream processing per branch output
+
+# Output as predictions (for stacking)
+{"merge": {"predictions": "all", "output_as": "features"}}
+# Result: OOF predictions become feature columns
+
+# Keep as structured dict (for multi-head models)
+{"merge": {"features": "all", "output_as": "dict"}}
+# Result: {"branch_0": array, "branch_1": array}
+```
+
+### 2.5 When to Use `output_as: "sources"`
+
+Use `output_as: "sources"` when:
+
+1. **Different downstream processing per branch output**:
+   ```python
+   {"branch": [[PCA(50)], [AutoEncoder(20)]]},
+   {"merge": {"features": "all", "output_as": "sources"}},
+   # Now branch outputs are sources: pca_branch, ae_branch
+   {"source_transform": {
+       "pca_branch": [MinMaxScaler()],
+       "ae_branch": [StandardScaler()]
+   }}
+   ```
+
+2. **Multi-head model with branch-specific inputs**:
+   ```python
+   {"branch": [[SNV(), PCA(50)], [MSC(), PLS(10)]]},
+   {"merge": {"features": "all", "output_as": "sources"}},
+   MultiHeadNN(input_sources=["snv_branch", "msc_branch"])
+   ```
+
+3. **Late fusion with branch-aware selection**:
+   ```python
+   {"merge": {"features": "all", "output_as": "sources"}},
+   {"select_sources": ["snv_branch"]},  # Use only one branch's output
+   PLSRegression()
+   ```
+
+### 2.6 Summary: The Design Principle
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  Branch Mode                              │  Single-Path Mode  │
+│  ─────────────                            │  ────────────────  │
+│                                           │                    │
+│  Steps run N times                        │  Steps run 1×      │
+│  Per-branch models                        │  Single model      │
+│  Branch contexts tracked                  │  No branch state   │
+│                                           │                    │
+│  {"branch": [...]} ──────► {"merge": ...} ──────►  [steps]     │
+│                      ▲                    │                    │
+│                      │                    │                    │
+│         EXPLICIT TRANSITION POINT         │                    │
+│         User controls output_as           │                    │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Key Decisions**:
+- Branches **do not** automatically become sources
+- `merge` is **required** to exit branch mode
+- `merge` offers **output_as** for flexibility: features, sources, dict
+- Predictions require **explicit selection** from branches/sources
+
+---
+
+## 3. Verified Current State
+
+### 3.1 BranchController ✅ Verified Correct
 
 **Location**: [nirs4all/controllers/data/branch.py](nirs4all/controllers/data/branch.py)
 
@@ -225,7 +414,7 @@ Use `concat_transform` when you just need parallel transforms on the same data. 
 
 **No changes needed** - the implementation is correct and complete.
 
-### 2.2 ConcatAugmentationController ✅ Verified Correct
+### 3.2 ConcatAugmentationController ✅ Verified Correct
 
 **Location**: [nirs4all/controllers/data/concat_transform.py](nirs4all/controllers/data/concat_transform.py)
 
@@ -240,7 +429,7 @@ Use `concat_transform` when you just need parallel transforms on the same data. 
 
 **No changes needed** - well-designed for its purpose.
 
-### 2.3 MergeController ❌ Empty - Needs Implementation
+### 3.3 MergeController ❌ Empty - Needs Implementation
 
 **Location**: [nirs4all/controllers/data/merge.py](nirs4all/controllers/data/merge.py)
 
@@ -248,7 +437,7 @@ Use `concat_transform` when you just need parallel transforms on the same data. 
 
 **Required**: Full implementation as specified in Section 4.
 
-### 2.4 MetaModelController ✅ Feature-Complete, Needs Integration
+### 3.4 MetaModelController ✅ Feature-Complete, Needs Integration
 
 **Location**: [nirs4all/controllers/models/meta_model.py](nirs4all/controllers/models/meta_model.py)
 
@@ -269,7 +458,7 @@ Use `concat_transform` when you just need parallel transforms on the same data. 
 
 **Proposed**: Refactor to optionally delegate to MergeController for complex cases.
 
-### 2.5 TrainingSetReconstructor ✅ Complete
+### 3.5 TrainingSetReconstructor ✅ Complete
 
 **Location**: [nirs4all/controllers/models/stacking/reconstructor.py](nirs4all/controllers/models/stacking/reconstructor.py)
 
@@ -284,9 +473,9 @@ This is the core engine that MergeController will use for prediction merging.
 
 ---
 
-## 3. Problem Analysis
+## 4. Problem Analysis
 
-### 3.1 Gap 1: No Branch Exit Mechanism
+### 4.1 Gap 1: No Branch Exit Mechanism
 
 **Current Behavior**:
 ```python
@@ -305,7 +494,7 @@ pipeline = [
 2. Combines them into a single dataset
 3. Clears `branch_contexts` and sets `in_branch_mode=False`
 
-### 3.2 Gap 2: Cannot Mix Features and Predictions
+### 4.2 Gap 2: Cannot Mix Features and Predictions
 
 **Current Behavior**:
 ```python
@@ -325,7 +514,7 @@ MetaModel only looks for predictions → Branch 1 contributes nothing.
 {"merge": {"predictions": [0], "features": [1]}}
 ```
 
-### 3.3 Gap 3: Asymmetric Branch Handling
+### 4.3 Gap 3: Asymmetric Branch Handling
 
 **Scenario**: Multiple models in one branch, only features in another:
 ```python
@@ -338,7 +527,7 @@ MetaModel only looks for predictions → Branch 1 contributes nothing.
 - Feature extraction from branches without models
 - Proper OOF reconstruction for selected predictions
 
-### 3.4 Gap 4: Multi-Model Branch Aggregation
+### 4.4 Gap 4: Multi-Model Branch Aggregation
 
 **Scenario**: A branch contains multiple models, and the user needs control over how their predictions are combined:
 
@@ -384,9 +573,9 @@ MetaModel only looks for predictions → Branch 1 contributes nothing.
 
 ---
 
-## 4. Design: MergeController
+## 5. Design: MergeController
 
-### 4.1 Core Principle: Merge as Foundation
+### 5.1 Core Principle: Merge as Foundation
 
 `MergeController` is the **core primitive** for all branch combination operations. It is designed to:
 
@@ -395,7 +584,7 @@ MetaModel only looks for predictions → Branch 1 contributes nothing.
 3. **Enforce OOF safety by default** — Predictions are always reconstructed using out-of-fold strategy unless explicitly disabled
 4. **Be composable** — Can be used alone or as the foundation for higher-level operators like `MetaModel`
 
-### 4.2 Controller Specification
+### 5.2 Controller Specification
 
 ```python
 @register_controller
@@ -436,7 +625,7 @@ class MergeController(OperatorController):
         return True
 ```
 
-### 4.3 Syntax Specification
+### 5.3 Syntax Specification
 
 ```python
 # =============================================================================
@@ -540,9 +729,43 @@ class MergeController(OperatorController):
     "predictions": "all",
     "unsafe": True    # DISABLES OOF - training predictions used directly
 }}
+
+# =============================================================================
+# OUTPUT TARGET (Where merged data goes)
+# =============================================================================
+
+# Default: Merged output becomes a single feature matrix
+{"merge": "features"}  # output_as: "features" (default)
+
+# As sources: Each branch becomes a separate source
+{"merge": {
+    "features": "all",
+    "output_as": "sources"  # Creates branch_0, branch_1, ... sources
+}}
+# Use case: Different downstream processing per branch output
+
+# As dict: Keep structured for multi-head models
+{"merge": {
+    "features": "all",
+    "output_as": "dict"  # Returns {"branch_0": array, "branch_1": array}
+}}
+# Use case: Multi-head neural networks
+
+# Predictions as sources (for source-aware downstream)
+{"merge": {
+    "predictions": "all",
+    "output_as": "sources"  # Each branch's predictions become a source
+}}
+
+# Named sources from named branches
+{"merge": {
+    "features": "all",
+    "output_as": "sources",
+    "source_names": ["snv_features", "msc_features"]  # Custom names
+}}
 ```
 
-### 4.4 OOF Safety Model
+### 5.4 OOF Safety Model
 
 #### Default Behavior (Safe)
 
@@ -590,7 +813,7 @@ logger.warning(
    - Downstream analysis tools can filter/warn on unsafe predictions
    - Export/bundle operations can optionally reject unsafe pipelines
 
-### 4.5 Behavior Specification
+### 5.5 Behavior Specification
 
 | Merge Type | Branch Has Only Transforms | Branch Has Transform + Model | Branch Has Only Model |
 |------------|---------------------------|------------------------------|----------------------|
@@ -598,7 +821,7 @@ logger.warning(
 | `"predictions"` | ❌ Error (no model) | ✅ OOF predictions | ✅ OOF predictions |
 | `"all"` | ✅ Features only | ✅ Features + Predictions | ✅ Features + Predictions |
 
-### 4.6 Per-Branch Model Selection & Aggregation
+### 5.6 Per-Branch Model Selection & Aggregation
 
 When a branch contains **multiple models**, the user can control:
 
@@ -664,7 +887,7 @@ Optional `metric` parameter: `"rmse"`, `"mae"`, `"r2"`, `"accuracy"`, `"f1"` (de
 | `["A", "B"]` | `"separate"` | 2 features |
 | `["A", "B"]` | `"weighted_mean"` | 1 feature |
 
-### 4.7 Output Processing
+### 5.7 Output Processing
 
 Merge creates a new processing called `"merged"`:
 - Features are horizontal-concatenated: `np.hstack([branch0_features, branch1_features, ...])`
@@ -673,7 +896,7 @@ Merge creates a new processing called `"merged"`:
 
 The merged processing replaces all branch processings and becomes the active processing for subsequent steps.
 
-### 4.5 Prediction Mode Support
+### 5.8 Prediction Mode Support
 
 In prediction/explain mode:
 1. **Features**: Load and apply saved transformers from each branch, concatenate
@@ -682,9 +905,9 @@ In prediction/explain mode:
 
 ---
 
-## 5. Design: MetaModel as Convenience Wrapper
+## 6. Design: MetaModel Integration
 
-### 5.1 Architectural Change: MetaModel Uses Merge Internally
+### 6.1 Architectural Change: MetaModel Uses Merge Internally
 
 **Previous Architecture** (current implementation):
 ```
@@ -703,7 +926,7 @@ MetaModel becomes a **thin convenience wrapper** that:
 2. Calls `MergeController` to prepare the training data
 3. Trains the meta-learner on the merged output
 
-### 5.2 User-Facing Equivalences
+### 6.2 User-Facing Equivalences
 
 The following are now **semantically equivalent**:
 
@@ -735,7 +958,7 @@ Both produce the same result: Ridge trained on OOF predictions from PLS and RF.
 - Concise for common stacking use case
 - Familiar API for sklearn StackingClassifier/Regressor users
 
-### 5.3 MetaModel Can Also Stack Features
+### 6.3 MetaModel Can Also Stack Features
 
 With the new architecture, MetaModel gains the ability to include features alongside predictions:
 
@@ -754,7 +977,7 @@ This is equivalent to:
 {"model": Ridge()}
 ```
 
-### 5.4 Internal Refactoring
+### 6.4 Internal Refactoring
 
 MetaModel's execute method now delegates to merge:
 
@@ -782,7 +1005,7 @@ class MetaModelController(OperatorController):
         # ... rest of training/prediction logic
 ```
 
-### 5.5 Parameter Mapping
+### 6.5 Parameter Mapping
 
 | MetaModel Parameter | Translated Merge Config |
 |---------------------|------------------------|
@@ -795,7 +1018,7 @@ class MetaModelController(OperatorController):
 | `stacking_config.coverage_strategy` | Passed through to merge |
 | `stacking_config.test_aggregation` | Passed through to merge |
 
-### 5.6 Backward Compatibility
+### 6.6 Backward Compatibility
 
 All existing MetaModel pipelines continue to work unchanged:
 
@@ -810,9 +1033,9 @@ The refactoring is purely internal—the API surface remains the same.
 
 ---
 
-## 6. Design: ConcatTransformController (No Changes)
+## 7. Design: ConcatTransformController (No Changes)
 
-### 6.1 Current Behavior (Keep)
+### 7.1 Current Behavior (Keep)
 
 ```python
 {"concat_transform": [PCA(50), SVD(30), None]}
@@ -823,7 +1046,7 @@ The refactoring is purely internal—the API surface remains the same.
 - Works within single execution path
 - No branch awareness required
 
-### 6.2 Relationship to Merge
+### 7.2 Relationship to Merge
 
 | Aspect | `concat_transform` | `merge: "features"` |
 |--------|-------------------|---------------------|
@@ -846,9 +1069,9 @@ The first is more efficient; use `concat_transform` when you don't need intermed
 
 ---
 
-## 7. Complete Use Case Matrix
+## 8. Complete Use Case Matrix
 
-### 7.1 Feature-Only Pipelines
+### 8.1 Feature-Only Pipelines
 
 | Use Case | Syntax |
 |----------|--------|
@@ -858,7 +1081,7 @@ The first is more efficient; use `concat_transform` when you don't need intermed
 | Multiple processings | `{"feature_augmentation": [SNV(), MSC()]}` |
 | Branch + merge features | `{"branch": [[SNV()], [MSC()]]}, {"merge": "features"}` |
 
-### 7.2 Model Pipelines
+### 8.2 Model Pipelines
 
 | Use Case | Syntax |
 |----------|--------|
@@ -867,7 +1090,7 @@ The first is more efficient; use `concat_transform` when you don't need intermed
 | Branch preprocessing + single model | `{"branch": [[SNV()], [MSC()]]}, PLS()` → runs 2× |
 | Branch preprocessing + merge + single model | `{"branch": [[SNV()], [MSC()]]}, {"merge": "features"}, PLS()` → runs 1× |
 
-### 7.3 Stacking Pipelines (Safe - OOF)
+### 8.3 Stacking Pipelines (Safe - OOF)
 
 | Use Case | Syntax |
 |----------|--------|
@@ -878,7 +1101,7 @@ The first is more efficient; use `concat_transform` when you don't need intermed
 | Mix features + predictions | `{"branch": [[SNV(), PLS()], [PCA(10)]]}, {"merge": {"features": [1], "predictions": [0]}}, Ridge()` |
 | Stack + include original features | `{"merge": {"predictions": "all", "include_original": True}}, Ridge()` |
 
-### 7.4 Unsafe Mode (Rapid Prototyping Only)
+### 8.4 Unsafe Mode (Rapid Prototyping Only)
 
 | Use Case | Syntax | Warning |
 |----------|--------|---------|
@@ -887,7 +1110,7 @@ The first is more efficient; use `concat_transform` when you don't need intermed
 
 **⚠️ Important**: Unsafe mode disables OOF reconstruction. Training predictions are used directly, which causes data leakage and overly optimistic metrics. **Do NOT use for final model evaluation.**
 
-### 7.5 Per-Branch Model Selection & Aggregation
+### 8.5 Per-Branch Model Selection & Aggregation
 
 | Use Case | Syntax | Output Features |
 |----------|--------|-----------------|
@@ -901,7 +1124,7 @@ The first is more efficient; use `concat_transform` when you don't need intermed
 | Explicit models averaged | `{"merge": {"predictions": [{"branch": 0, "select": ["RF", "XGB"], "aggregate": "mean"}]}}` | 1 |
 | Proba mean (classification) | `{"merge": {"predictions": [{"branch": 0, "proba": True, "aggregate": "proba_mean"}]}}` | K (classes) |
 
-### 7.6 Complex Pipelines
+### 8.6 Complex Pipelines
 
 | Use Case | Syntax |
 |----------|--------|
@@ -909,7 +1132,7 @@ The first is more efficient; use `concat_transform` when you don't need intermed
 | Selective model from multi-model branch | `{"branch": [[SNV(), PLS(), RF(), XGB()]]}, {"merge": {"predictions": {"models": ["XGB"]}}}` |
 | MetaModel with feature inclusion | `PLS(), RF(), {"model": MetaModel(Ridge(), include_features=True)}` |
 
-### 7.6 Equivalence Table
+### 8.7 Equivalence Table
 
 These pairs are semantically equivalent (produce same results):
 
@@ -922,9 +1145,253 @@ These pairs are semantically equivalent (produce same results):
 
 ---
 
-## 8. Implementation Specification
+## 9. Prediction Selection Specification
 
-### 8.1 MergeConfig Dataclass
+This section provides comprehensive documentation for selecting predictions from branches and sources during stacking and merging operations.
+
+### 9.1 The Prediction Selection Problem
+
+When merging predictions from multiple branches/sources, users need fine-grained control:
+
+1. **Which branches** to include
+2. **Which models** within each branch
+3. **How to aggregate** multiple models' predictions
+4. **From which sources** (in multi-source scenarios)
+5. **Which prediction partition** (train OOF, validation, test)
+
+### 9.2 Prediction Selection Syntax
+
+```python
+# =============================================================================
+# SIMPLE SELECTION
+# =============================================================================
+
+# All predictions from all branches
+{"merge": "predictions"}
+
+# Predictions from specific branches
+{"merge": {"predictions": [0, 2]}}  # Branch indices
+
+# =============================================================================
+# PER-BRANCH SELECTION
+# =============================================================================
+
+# Full per-branch control
+{"merge": {
+    "predictions": [
+        {
+            "branch": 0,                           # Required: branch index or name
+            "models": "all",                       # "all" | "best" | ["model1", "model2"] | {"top_k": 3}
+            "metric": "rmse",                      # Metric for selection (rmse, mae, r2, accuracy, f1)
+            "aggregate": "separate",               # "separate" | "mean" | "weighted_mean" | "proba_mean"
+            "proba": False,                        # Use class probabilities (classification)
+            "sources": "all"                       # Source filter: "all" | [0, 1] | ["NIR", "markers"]
+        },
+        {
+            "branch": 1,
+            "models": "best",
+            "metric": "r2"
+        }
+    ]
+}}
+
+# =============================================================================
+# MODEL SELECTION STRATEGIES
+# =============================================================================
+
+# All models (default): Each model = one feature
+{"merge": {"predictions": [{"branch": 0, "models": "all"}]}}
+
+# Best model only: One feature (highest metric)
+{"merge": {"predictions": [{"branch": 0, "models": "best", "metric": "rmse"}]}}
+
+# Top K models: K features
+{"merge": {"predictions": [{"branch": 0, "models": {"top_k": 3}, "metric": "r2"}]}}
+
+# Explicit model names: Specific models only
+{"merge": {"predictions": [{"branch": 0, "models": ["PLS", "RF"]}]}}
+
+# By model type: All instances of a model class
+{"merge": {"predictions": [{"branch": 0, "models": {"type": "PLSRegression"}}]}}
+
+# =============================================================================
+# AGGREGATION STRATEGIES
+# =============================================================================
+
+# Separate (default): Each model = one feature column
+{"merge": {"predictions": [{"branch": 0, "aggregate": "separate"}]}}
+# Result: N features (one per selected model)
+
+# Mean: Average all selected models
+{"merge": {"predictions": [{"branch": 0, "aggregate": "mean"}]}}
+# Result: 1 feature
+
+# Weighted Mean: Weight by validation performance
+{"merge": {"predictions": [{"branch": 0, "aggregate": "weighted_mean", "weight_metric": "r2"}]}}
+# Result: 1 feature
+
+# Proba Mean: Average class probabilities (classification)
+{"merge": {"predictions": [{"branch": 0, "proba": True, "aggregate": "proba_mean"}]}}
+# Result: K features (one per class)
+
+# =============================================================================
+# SOURCE-AWARE SELECTION (Multi-Source Datasets)
+# =============================================================================
+
+# Predictions only from models trained on specific sources
+{"merge": {"predictions": [{"branch": 0, "sources": ["NIR"]}]}}
+
+# Cross-source: Combine predictions from different source-specific models
+{"merge": {
+    "predictions": [
+        {"branch": 0, "sources": ["NIR"], "aggregate": "mean"},
+        {"branch": 0, "sources": ["markers"], "aggregate": "mean"}
+    ]
+}}
+```
+
+### 9.3 Selection by Branch Name
+
+Branches can be named for clearer selection:
+
+```python
+# Named branches
+{"branch": {
+    "spectral_path": [SNV(), PLS(10)],
+    "feature_path": [PCA(50), RF()]
+}},
+
+# Select by name
+{"merge": {
+    "predictions": [
+        {"branch": "spectral_path", "models": "best"},
+        {"branch": "feature_path", "models": "all"}
+    ],
+    "features": ["spectral_path"]  # Features from one branch
+}}
+```
+
+### 9.4 Combining Selection and Aggregation
+
+The `models` (selection) and `aggregate` parameters work together:
+
+| Selection | Aggregation | Result |
+|-----------|-------------|--------|
+| `"all"` (3 models) | `"separate"` | 3 features |
+| `"all"` (3 models) | `"mean"` | 1 feature (mean of 3) |
+| `"best"` | (ignored) | 1 feature |
+| `{"top_k": 2}` | `"separate"` | 2 features |
+| `{"top_k": 2}` | `"weighted_mean"` | 1 feature |
+| `["RF", "XGB"]` | `"separate"` | 2 features |
+| `["RF", "XGB"]` | `"mean"` | 1 feature |
+
+### 9.5 Cross-Branch Selection
+
+Select predictions across branches with different strategies:
+
+```python
+# Different strategies per branch
+{"merge": {
+    "predictions": [
+        {"branch": 0, "models": "best", "metric": "rmse"},           # 1 feature
+        {"branch": 1, "models": {"top_k": 2}, "aggregate": "mean"},  # 1 feature
+        {"branch": 2, "models": "all"}                                # N features
+    ]
+}}
+
+# Mixed: Features from some branches, predictions from others
+{"merge": {
+    "features": [1],           # Features from branch 1
+    "predictions": [
+        {"branch": 0, "models": "best"},    # Best prediction from branch 0
+        {"branch": 2, "models": "all"}      # All predictions from branch 2
+    ]
+}}
+```
+
+### 9.6 Stacking Configuration Integration
+
+For `MetaModel`, prediction selection maps to merge configuration:
+
+```python
+# MetaModel with selection (high-level API)
+{"model": MetaModel(
+    model=Ridge(),
+    source_models="best",           # → models: "best"
+    selection_metric="rmse",        # → metric: "rmse"
+    branch_scope=BranchScope.ALL,   # → branches: "all"
+    aggregate="mean"                # → aggregate: "mean"
+)}
+
+# Equivalent explicit merge (low-level API)
+{"merge": {
+    "predictions": [
+        {"branch": "all", "models": "best", "metric": "rmse", "aggregate": "mean"}
+    ]
+}},
+{"model": Ridge()}
+```
+
+### 9.7 Output Targets for Predictions
+
+Control where merged predictions go:
+
+```python
+# As features (default): Predictions become feature columns
+{"merge": {"predictions": "all", "output_as": "features"}}
+
+# As sources: Each branch's predictions become a separate source
+{"merge": {"predictions": "all", "output_as": "sources"}}
+
+# As dict: Keep as structured dict for multi-head models
+{"merge": {"predictions": "all", "output_as": "dict"}}
+```
+
+### 9.8 Validation Rules
+
+The merge controller validates prediction selections:
+
+| Rule | Validation | Error Code |
+|------|------------|------------|
+| Branch exists | Branch index/name in contexts | MERGE-E021 |
+| Model exists | Named models exist in prediction store | MERGE-E013 |
+| Has predictions | Branch has models (for prediction merge) | MERGE-E010 |
+| Metric available | Validation scores exist for ranking | MERGE-E015 |
+| Source exists | Named source in dataset | MERGE-E031 |
+
+### 9.9 Complete Stacking Example
+
+```python
+pipeline = [
+    KFold(n_splits=5),
+
+    # Create 3 branches with different preprocessing + models
+    {"branch": {
+        "snv_path": [SNV(), Detrend(), PLSRegression(10), RandomForestRegressor()],
+        "msc_path": [MSC(), SavitzkyGolay(), PLSRegression(15), SVR()],
+        "pca_path": [PCA(50), PLSRegression(20)]
+    }},
+
+    # Selective merge: Best from first two branches, all from third
+    {"merge": {
+        "predictions": [
+            {"branch": "snv_path", "models": "best", "metric": "rmse"},   # 1 feature
+            {"branch": "msc_path", "models": "best", "metric": "rmse"},   # 1 feature
+            {"branch": "pca_path", "models": "all", "aggregate": "mean"}  # 1 feature
+        ],
+        "include_original": True  # Also include pre-branch features
+    }},
+
+    # Stack with Ridge
+    {"model": Ridge()}
+]
+```
+
+---
+
+## 10. Implementation Specification
+
+### 10.1 MergeConfig Dataclass
 
 **File**: `nirs4all/operators/data/merge.py`
 
@@ -1053,7 +1520,7 @@ class MergeConfig:
         return self.prediction_configs is not None and len(self.prediction_configs) > 0
 ```
 
-### 8.2 MergeController Implementation
+### 10.2 MergeController Implementation
 
 **File**: `nirs4all/controllers/data/merge.py`
 
@@ -1365,7 +1832,7 @@ class MergeController(OperatorController):
         )
 ```
 
-### 8.3 SpectroDataset Extension
+### 10.3 SpectroDataset Extension
 
 Add method to `SpectroDataset`:
 
@@ -1392,7 +1859,7 @@ def add_merged_features(
     )
 ```
 
-### 8.4 MetaModelController Refactoring
+### 10.4 MetaModelController Refactoring
 
 **File**: `nirs4all/controllers/models/meta_model.py`
 
@@ -1464,7 +1931,7 @@ class MetaModelController(OperatorController):
         # ... rest of execution
 ```
 
-### 8.5 File Changes Summary
+### 10.5 File Changes Summary
 
 | File | Action | Priority | Phase |
 |------|--------|----------|-------|
@@ -1489,13 +1956,15 @@ class MetaModelController(OperatorController):
 | `examples/Q_merge_branches.py` | **Create** comprehensive examples | P2 | 9 |
 | `docs/reference/branching.md` | **Update** with merge documentation | P2 | 9 |
 | `docs/user_guide/stacking.md` | **Update** merge relationship | P2 | 9 |
-| `docs/specifications/pipeline_syntax.md` | **Update** with merge syntax | P2 | 9 |
+| `docs/specifications/pipeline_syntax.md` | **Update** with merge syntax | P2 | 13 |
 
 ---
 
-## 9. Implementation Roadmap
+### 8.5 Original Roadmap (Superseded by Section 13)
 
-### Guiding Principle
+> **Note**: This section contains the original roadmap. See Section 13 for the comprehensive updated roadmap that includes multi-source support.
+
+#### Original Guiding Principle
 
 **Merge is the core primitive**. Implement it first with full OOF support, then refactor MetaModel to use it. This ensures:
 - Single source of truth for OOF logic
@@ -2050,6 +2519,897 @@ class MetaModelController(OperatorController):
 | Complex config parsing | Extensive unit tests in Phase 1 |
 | Per-branch complexity | Build on simple mode first (Phase 4 → 5) |
 
+> **End of original roadmap**. See Section 13 for the comprehensive updated roadmap.
+
+---
+
+## 11. Multi-Source Dataset Considerations
+
+This section addresses the interaction between branching, merging, and multi-source datasets—a critical gap in the original design.
+
+### 11.1 Background: Multi-Source Datasets
+
+nirs4all supports datasets with multiple feature sources:
+
+```python
+# Example: NIR spectra + genetic markers
+dataset_config = {
+    "sources": [
+        {"name": "NIR", "train_x": "nir.csv"},       # 500 features
+        {"name": "markers", "train_x": "snps.csv"},  # 50,000 features
+    ],
+    "train_y": "phenotypes.csv"
+}
+```
+
+Each source has shape `(samples × processings × features)`, and sources can have different feature counts and processing histories.
+
+### 11.2 The Branches × Sources Interaction
+
+When branching with multi-source datasets, a **cross-product** relationship emerges:
+
+```python
+pipeline = [
+    {"branch": [[SNV()], [MSC()]]},  # 2 branches
+    # With 3 sources, we have: 2 branches × 3 sources = 6 "sub-contexts"?
+]
+```
+
+**Current Behavior**: Each branch contains **all sources**. Transformers in a branch are applied to all sources independently. This means:
+
+- Branch 0 (SNV): SNV applied to NIR, SNV applied to markers, ...
+- Branch 1 (MSC): MSC applied to NIR, MSC applied to markers, ...
+
+The branching dimension and source dimension are **orthogonal**.
+
+### 11.3 Feature Merge with Multi-Source
+
+When merging features from branches:
+
+```python
+{"branch": [[SNV()], [MSC()]]},
+{"merge": "features"}
+```
+
+**Question**: How are sources handled during feature merge?
+
+**Answer**: Merge operates on the **2D flattened view** of features. Each branch's `features_snapshot` contains all sources, already concatenated to 2D by the dataset accessor.
+
+```
+Branch 0 (SNV): [NIR_snv | markers_snv] = (samples, NIR_features + marker_features)
+Branch 1 (MSC): [NIR_msc | markers_msc] = (samples, NIR_features + marker_features)
+
+After merge: [Branch0_features | Branch1_features]
+           = (samples, 2 × (NIR_features + marker_features))
+```
+
+**Important**: This assumes all branches have the same sources. If branches differ in source selection, a **shape mismatch error** occurs (see Section 11).
+
+### 11.4 Prediction Merge with Multi-Source
+
+Prediction merge is **source-agnostic**:
+
+```python
+{"branch": [[SNV(), PLS(10)], [MSC(), RF()]]},
+{"merge": "predictions"}
+```
+
+When models are trained, they receive the concatenated feature view (all sources merged). Predictions are per-sample scalars (regression) or class probabilities (classification).
+
+**Result**: Predictions don't carry source information—they represent the model's output on the full feature space.
+
+### 11.5 Source Branching vs Pipeline Branching
+
+There are **two types of branching** with distinct purposes:
+
+| Aspect | Pipeline Branching (`branch`) | Source Branching (`source_branch`) |
+|--------|-------------------------------|-----------------------------------|
+| **Dimension** | Pipeline execution paths | Data source modalities |
+| **Scope** | All sources processed per branch | Each source gets its own branch |
+| **Use case** | Compare preprocessing strategies | Per-modality pipelines |
+| **Exit via** | `{"merge": ...}` | `{"merge_sources": ...}` |
+
+**Pipeline Branching Example**:
+```python
+{"branch": [[SNV(), PCA(50)], [MSC(), PCA(50)]]}  # Compare SNV vs MSC
+```
+
+**Source Branching Example** (proposed):
+```python
+{"source_branch": {
+    "NIR": [SNV(), SavitzkyGolay()],
+    "markers": [VarianceThreshold()]
+}}
+```
+
+### 11.6 Merge Modes for Multi-Source
+
+The unified `MergeController` supports different modes for multi-source handling:
+
+```python
+# Standard: Sources already flattened, merge operates on 2D view
+{"merge": "features"}
+
+# Source-aware: Preserve source structure during merge
+{"merge": {
+    "features": "all",
+    "source_handling": "preserve"  # "concat" (default) | "preserve" | "dict"
+}}
+
+# Source merge (separate operation): Combine sources into single feature space
+{"merge_sources": "concat"}  # After source_branch or when sources need unification
+```
+
+### 11.7 Multi-Source Error Scenarios
+
+| Scenario | Error Type | Resolution |
+|----------|------------|------------|
+| Branch drops a source | MERGE-E003 | Ensure all branches process all sources |
+| Different source order per branch | Shape mismatch | Not possible (sources are ordered by index) |
+| Source branch without merge_sources | Infinite branch mode | Add `{"merge_sources": ...}` |
+| merge_sources on single-source dataset | Warning (no-op) | Remove unnecessary merge_sources |
+
+---
+
+## 12. Asymmetric Branch Design
+
+Branches can be **asymmetric**—having different internal structures. This section defines what asymmetry means and how to handle it.
+
+### 12.1 Dimensions of Asymmetry
+
+Branches can differ along multiple dimensions:
+
+| Dimension | Example | Impact on Merge |
+|-----------|---------|-----------------|
+| **Step count** | Branch 0: 3 steps, Branch 1: 1 step | No impact (final output matters) |
+| **Operator types** | Branch 0: transforms only, Branch 1: transform + model | Mixed merge required |
+| **Output dimensions** | Branch 0: PCA(50), Branch 1: PCA(10) | Feature dimension mismatch |
+| **Model count** | Branch 0: 3 models, Branch 1: 1 model | Per-branch aggregation needed |
+| **Source handling** | Branch 0: uses 2 sources, Branch 1: uses 1 source | Shape mismatch |
+| **Processing count** | Branch 0: generates 3 processings, Branch 1: generates 1 | 3D layout fails |
+
+### 12.2 Asymmetric Feature Dimensions
+
+When branches produce different feature dimensions:
+
+```python
+{"branch": [
+    [PCA(n_components=50)],   # Branch 0: 50 features
+    [PCA(n_components=10)]    # Branch 1: 10 features
+]},
+{"merge": "features"}  # 60 features total (horizontal concat)
+```
+
+**This is allowed**. Feature merge performs horizontal concatenation regardless of per-branch feature counts. The final feature count is the sum of all branch feature counts.
+
+**When is this problematic?**
+- When you expect uniform feature dimensions for downstream processing
+- When using 3D layout that requires aligned dimensions
+
+### 12.3 Asymmetric Model Presence
+
+When some branches have models and others don't:
+
+```python
+{"branch": [
+    [SNV(), PLS(10)],         # Branch 0: has model → predictions
+    [MSC(), PCA(20)]          # Branch 1: no model → features only
+]},
+{"merge": "predictions"}  # ERROR: Branch 1 has no predictions
+```
+
+**Resolution options**:
+
+1. **Selective merge**: Only request predictions from branches that have them
+   ```python
+   {"merge": {"predictions": [0], "features": [1]}}
+   ```
+
+2. **Mixed merge**: Combine features from some branches, predictions from others
+   ```python
+   {"merge": {
+       "predictions": {"branches": [0]},
+       "features": {"branches": [1]}
+   }}
+   ```
+
+3. **Add models to all branches**: Restructure pipeline
+   ```python
+   {"branch": [
+       [SNV(), PLS(10)],
+       [MSC(), PCA(20), PLS(10)]  # Add model to Branch 1
+   ]}
+   ```
+
+### 12.4 Asymmetric Model Counts
+
+When branches have different numbers of models:
+
+```python
+{"branch": [
+    [SNV(), PLS(10), RF(), XGB()],  # Branch 0: 3 models
+    [MSC(), PLS(5)]                  # Branch 1: 1 model
+]},
+{"merge": "predictions"}  # 4 prediction features total
+```
+
+**Default behavior**: Each model contributes one prediction feature.
+
+**Per-branch control** (see Section 9):
+```python
+{"merge": {
+    "predictions": [
+        {"branch": 0, "select": "best"},      # 1 feature (best of 3)
+        {"branch": 1, "aggregate": "separate"} # 1 feature (only model)
+    ]
+}}
+```
+
+### 12.5 Asymmetric Output Scenarios
+
+This section provides comprehensive examples for handling asymmetric branch outputs.
+
+#### Scenario 1: Mixed Features + Predictions
+
+**Setup**: Branch 0 has models, Branch 1 has only transforms.
+
+```python
+{"branch": [
+    [SNV(), Detrend(), PLSRegression(10), RandomForestRegressor()],  # 2 models
+    [MSC(), PCA(30)]                                                   # 0 models
+]},
+{"merge": {
+    "predictions": [{"branch": 0, "models": "best", "metric": "rmse"}],  # 1 feature
+    "features": [1]                                                       # 30 features
+}}
+# Result: 31 features (1 prediction + 30 PCA components)
+```
+
+#### Scenario 2: Selective Model Extraction
+
+**Setup**: Multiple branches with varying model counts.
+
+```python
+{"branch": {
+    "fast_path": [SNV(), PLSRegression(10)],           # 1 model
+    "ensemble_path": [MSC(), PLSRegression(15), RF(), XGB(), SVR()],  # 4 models
+    "feature_path": [PCA(50)]                           # 0 models
+}},
+{"merge": {
+    "predictions": [
+        {"branch": "fast_path", "models": "all"},                    # 1 feature
+        {"branch": "ensemble_path", "models": {"top_k": 2}, "aggregate": "weighted_mean"}  # 1 feature
+    ],
+    "features": ["feature_path"]  # 50 features
+}}
+# Result: 52 features
+```
+
+#### Scenario 3: Predictions as Sources
+
+**Setup**: Want to keep branch predictions as separate sources for multi-head downstream processing.
+
+```python
+{"branch": [
+    [SNV(), PLSRegression(10)],
+    [MSC(), RF()]
+]},
+{"merge": {
+    "predictions": "all",
+    "output_as": "sources"  # Creates source_branch_0, source_branch_1
+}},
+# Now subsequent steps see 2 sources with 1 feature each
+MultiHeadNN(heads_per_source=True)
+```
+
+#### Scenario 4: Cross-Branch Stacking with Feature Augmentation
+
+**Setup**: Some branches provide predictions, some provide features, combine for final model.
+
+```python
+{"branch": {
+    "spectral_models": [SNV(), PLSRegression(5), PLSRegression(10), PLSRegression(15)],
+    "ml_models": [MSC(), RF(), XGB()],
+    "feature_extraction": [PCA(20), SelectKBest(10)]
+}},
+{"merge": {
+    "predictions": [
+        {"branch": "spectral_models", "models": "all", "aggregate": "mean"},  # 1 feature
+        {"branch": "ml_models", "models": "best", "metric": "r2"}             # 1 feature
+    ],
+    "features": ["feature_extraction"],  # 10 features (SelectKBest output)
+    "include_original": True             # + original features
+}},
+{"model": Ridge()}
+# Result: Ridge trained on [mean_PLS + best_ML + 10_features + original]
+```
+
+#### Scenario 5: Asymmetric with Source Awareness
+
+**Setup**: Multi-source dataset with branches that treat sources differently.
+
+```python
+# Dataset has 2 sources: NIR (500 features), markers (1000 features)
+{"branch": [
+    [SNV(), PLSRegression(10)],  # Trained on concatenated sources
+    [SourceSelect("NIR"), PCA(20)]  # Only uses NIR source
+]},
+{"merge": {
+    "predictions": [{"branch": 0}],
+    "features": [{"branch": 1, "source_handling": "preserve"}]
+}}
+# Note: Branch 1 only has NIR features - this is intentional
+```
+
+#### Scenario 6: Hierarchical Stacking
+
+**Setup**: First level stacking, then second level with mixed inputs.
+
+```python
+# First level: Create base predictions
+{"branch": [
+    [SNV(), PLSRegression(10), RF()],
+    [MSC(), XGBRegressor()]
+]},
+{"merge": {
+    "predictions": "all",
+    "output_as": "features"  # 3 prediction features
+}},
+
+# Second level: Branch again for meta-model variants
+{"branch": [
+    [StandardScaler(), Ridge()],
+    [MinMaxScaler(), ElasticNet()]
+]},
+{"merge": {"predictions": "all"}},
+
+# Third level: Final meta-model
+{"model": LassoCV()}
+```
+
+### 12.6 Shape Compatibility Rules
+
+| Merge Type | Sample Count | Feature Count | Source Count | Processing Count |
+|------------|--------------|---------------|--------------|------------------|
+| Feature merge | Must match | Can differ | Must match | 2D: Any, 3D: Must match |
+| Prediction merge | Must match | N/A (scalars) | N/A | N/A |
+| Mixed merge | Must match | Features: can differ | Must match (for features) | 2D: Any |
+
+### 12.7 Handling Shape Mismatches
+
+The `on_shape_mismatch` parameter controls behavior:
+
+```python
+{"merge": {
+    "features": "all",
+    "on_shape_mismatch": "error"  # Default: strict validation
+}}
+```
+
+| Strategy | Behavior | Use Case |
+|----------|----------|----------|
+| `"error"` (default) | Raise clear error with resolution options | Production pipelines |
+| `"pad"` | Pad shorter branches with zeros to match longest | Experimental pipelines |
+| `"truncate"` | Truncate longer branches to match shortest | Rare, use with caution |
+| `"allow"` | Concat regardless (different dimensions OK) | Feature union scenarios |
+
+**Note**: `"pad"` and `"truncate"` modify feature matrices and may affect model performance. Use only when semantically appropriate.
+
+### 12.8 Validation During Merge
+
+`MergeController` performs these validations:
+
+1. **Sample count validation**: All branches must have same sample count (always required)
+2. **Source count validation**: All branches must have same source count (for feature merge)
+3. **Processing count validation**: Only for 3D layout requests
+4. **Model availability validation**: For prediction merge, validate models exist
+5. **Shape compatibility validation**: Based on `on_shape_mismatch` setting
+
+Validation happens **before** any data concatenation, providing early failure with clear errors.
+
+---
+
+## 13. Error Catalog and Resolution
+
+This section provides a comprehensive catalog of errors that can occur during merge operations.
+
+### 13.1 Shape Incompatibility Errors
+
+| Error Code | Message | Cause | Resolution |
+|------------|---------|-------|------------|
+| **MERGE-E001** | Feature dimension mismatch | Branches produce different total feature counts | Use `on_shape_mismatch="allow"` or restructure |
+| **MERGE-E002** | Sample count mismatch | Branches have different sample counts (BUG) | Report as bug—branches share sample set |
+| **MERGE-E003** | Source count mismatch | Branch dropped/added sources | Ensure all branches process all sources |
+| **MERGE-E004** | Processing count mismatch in 3D | Different processing counts per branch | Use `layout="2d"` (flatten processings) |
+| **MERGE-E005** | 3D concat incompatibility | Asymmetric shapes prevent 3D concat | Force 2D or use separate sources |
+
+**Example Error Message (MERGE-E001)**:
+```
+MergeError [MERGE-E001]: Cannot merge features - dimension mismatch across branches.
+
+Branches produce different feature dimensions:
+  - Branch 0 (SNV_PCA50): 500 samples × 1500 features
+  - Branch 1 (MSC_PCA10): 500 samples × 600 features
+
+Cause: Different preprocessing pipelines produce different output dimensions.
+
+To resolve:
+  1. Ensure branches produce same dimensions (adjust PCA n_components, etc.)
+  2. Use {"merge": {"features": "all", "on_shape_mismatch": "allow"}} to concat anyway
+  3. Use {"merge": {"features": "all", "on_shape_mismatch": "pad"}} to pad shorter branches
+  4. Use selective merge: {"merge": {"features": [0]}} to use only one branch
+```
+
+### 13.2 Missing Data Errors
+
+| Error Code | Message | Cause | Resolution |
+|------------|---------|-------|------------|
+| **MERGE-E010** | No predictions in branch | Requested predictions but branch has no model | Use feature merge or add model |
+| **MERGE-E011** | Partial model coverage | Some branches have models, others don't | Use selective/mixed merge |
+| **MERGE-E012** | OOF reconstruction failure | Fold misalignment in prediction store | Check splitter configuration |
+| **MERGE-E013** | Model not found | Explicit model name doesn't exist | Verify model names |
+| **MERGE-E014** | No features snapshot | Branch context missing features (BUG) | Report as internal error |
+
+**Example Error Message (MERGE-E010)**:
+```
+MergeError [MERGE-E010]: Cannot merge predictions - no model found in branch.
+
+Requested prediction merge from branch 1, but it contains no trained models.
+
+Branch 1 pipeline: [MSC(), PCA(n_components=20)]
+  → Contains only transformers, no model step.
+
+To resolve:
+  1. Add a model to branch 1: [MSC(), PCA(20), {"model": PLSRegression(10)}]
+  2. Use feature merge instead: {"merge": "features"}
+  3. Use mixed merge: {"merge": {"predictions": [0], "features": [1]}}
+  4. Exclude branch 1 from prediction merge: {"merge": {"predictions": [0]}}
+```
+
+### 13.3 Configuration Errors
+
+| Error Code | Message | Cause | Resolution |
+|------------|---------|-------|------------|
+| **MERGE-E020** | Merge outside branch mode | `{"merge": ...}` without prior branch | Add branch step or remove merge |
+| **MERGE-E021** | Invalid branch index | Branch index exceeds count | Use valid indices (0 to N-1) |
+| **MERGE-E022** | Invalid merge mode | Unknown merge type string | Use "features", "predictions", or "all" |
+| **MERGE-E023** | Conflicting selection/aggregation | Incompatible per-branch config | Review configuration |
+| **MERGE-E024** | merge_sources on single-source | Only one source in dataset | Remove merge_sources (not needed) |
+| **MERGE-E025** | Unsafe without predictions | `unsafe=True` set but no predictions | Remove unsafe flag or add predictions |
+
+**Example Error Message (MERGE-E020)**:
+```
+MergeError [MERGE-E020]: Cannot merge - not in branch mode.
+
+A merge step was encountered without a prior branch step.
+
+Pipeline context:
+  - in_branch_mode: False
+  - branch_contexts: []
+
+To resolve:
+  1. Add a branch step before merge:
+     {"branch": [[SNV()], [MSC()]]},
+     {"merge": "features"}
+  2. Remove the merge step if branching is not intended
+```
+
+### 13.4 Multi-Source Specific Errors
+
+| Error Code | Message | Cause | Resolution |
+|------------|---------|-------|------------|
+| **MERGE-E030** | Source processing incompatibility | Sources have different processing counts | Use `on_incompatible="flatten"` |
+| **MERGE-E031** | Unknown source name | Source name not found in dataset | Check `dataset.source_names` |
+| **MERGE-E032** | Source branch + branch conflict | Complex nesting | Simplify or use sequential |
+| **MERGE-E033** | Source branch partial coverage | Not all sources specified | Use `"*": []` for unspecified |
+| **MERGE-E034** | Merge sources 3D shape conflict | 3D concat with asymmetric processings | Force 2D layout |
+
+**Example Error Message (MERGE-E030)**:
+```
+SourceMergeError [MERGE-E030]: Cannot merge sources in 3D layout.
+
+Sources have different processing counts:
+  - Source 0 (NIR): shape (500, 3, 500) - 3 processings
+  - Source 1 (markers): shape (500, 1, 50000) - 1 processing
+
+numpy cannot concatenate arrays with different axis 1 dimensions.
+
+To resolve:
+  1. Use flatten mode: {"merge_sources": {"strategy": "concat", "on_incompatible": "flatten"}}
+  2. Apply preprocessing to equalize processing counts
+  3. Use source_branch for per-source processing, then merge
+
+Example:
+  {"merge_sources": {"strategy": "concat", "on_incompatible": "flatten"}}
+  # Results in 2D concat: (500, 3×500 + 1×50000) = (500, 51500)
+```
+
+### 13.5 Deadlock and Infinite Mode Scenarios
+
+| Code | Scenario | Detection | Prevention |
+|------|----------|-----------|------------|
+| **DL-001** | Branch without merge | Pipeline ends in branch mode | Warn at pipeline end |
+| **DL-002** | Nested branch without nested merge | Multiple branch levels, one merge | Require merge per branch level |
+| **DL-003** | source_branch + branch interleaved | Complex nesting | Recommend sequential pattern |
+
+**Detection**: The pipeline executor should check at pipeline end:
+```python
+if context.custom.get("in_branch_mode"):
+    logger.warning(
+        "Pipeline ended while still in branch mode. "
+        "All subsequent runs will execute on all branches. "
+        "Add {'merge': ...} to exit branch mode explicitly."
+    )
+```
+
+---
+
+## 14. Unified Merge Controller
+
+This section describes the unified `MergeController` that handles all merge operations.
+
+### 14.1 Controller Keywords
+
+The unified controller handles multiple keywords:
+
+| Keyword | Purpose | Exit Branch Mode? |
+|---------|---------|-------------------|
+| `merge` | Combine branch outputs (features/predictions) | ✅ Yes |
+| `merge_sources` | Combine multi-source features | ❌ No |
+| `merge_predictions` | Late fusion of predictions | Depends on context |
+
+### 14.2 Controller Specification
+
+```python
+@register_controller
+class MergeController(OperatorController):
+    """Unified controller for all merge operations.
+
+    This controller handles:
+    1. Branch merging (`merge`): Exit branch mode, combine branch outputs
+    2. Source merging (`merge_sources`): Combine multi-source features
+    3. Prediction merging (`merge_predictions`): Late fusion for ensembles
+
+    Multi-Source Behavior:
+        When operating on multi-source datasets, branch merge operates on
+        the 2D flattened view (sources already concatenated per branch).
+        Use `merge_sources` to explicitly control source combination.
+
+    Asymmetric Branch Handling:
+        Validates shape compatibility before merging.
+        Provides clear errors with resolution options.
+        Supports `on_shape_mismatch` parameter for flexible handling.
+
+    OOF Safety:
+        Prediction merging uses OOF reconstruction by default.
+        Set `unsafe=True` to disable (with prominent warnings).
+    """
+
+    priority = 5
+
+    @classmethod
+    def matches(cls, step, operator, keyword) -> bool:
+        return keyword in ("merge", "merge_sources", "merge_predictions")
+
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        return True
+
+    def execute(self, step_info, dataset, context, runtime_context, ...):
+        keyword = step_info.keyword
+
+        if keyword == "merge":
+            return self._execute_branch_merge(...)
+        elif keyword == "merge_sources":
+            return self._execute_source_merge(...)
+        elif keyword == "merge_predictions":
+            return self._execute_prediction_merge(...)
+```
+
+### 14.3 Extended Syntax
+
+**Branch Merge** (`merge`):
+```python
+# Simple forms
+{"merge": "features"}      # Merge features from all branches
+{"merge": "predictions"}   # Merge OOF predictions from all branches
+{"merge": "all"}           # Merge both features and predictions
+
+# With multi-source awareness
+{"merge": {
+    "features": "all",
+    "source_handling": "concat",      # "concat" (default) | "per_source"
+    "on_shape_mismatch": "error"      # "error" | "pad" | "truncate" | "allow"
+}}
+
+# Per-branch control (same as before)
+{"merge": {
+    "predictions": [
+        {"branch": 0, "select": "best", "metric": "rmse"},
+        {"branch": 1, "aggregate": "mean"}
+    ]
+}}
+```
+
+**Source Merge** (`merge_sources`):
+```python
+# Simple forms
+{"merge_sources": "concat"}   # Horizontal concatenation
+{"merge_sources": "stack"}    # Stack as 3D (with padding if needed)
+{"merge_sources": "dict"}     # Keep as dict for multi-head models
+
+# With selection and control
+{"merge_sources": {
+    "sources": ["NIR", "markers"],     # Which sources (by name or index)
+    "strategy": "concat",
+    "on_incompatible": "flatten"       # "error" | "flatten" | "pad"
+}}
+```
+
+**Prediction Merge** (`merge_predictions`):
+```python
+# For late fusion (source or branch agnostic)
+{"merge_predictions": "average"}         # Mean of all predictions
+{"merge_predictions": "weighted_average"} # Weight by validation score
+{"merge_predictions": "vote"}            # Majority vote (classification)
+{"merge_predictions": "stack"}           # Stack as features for meta-model
+```
+
+### 14.4 Chaining Merge Operations
+
+Complex pipelines may require multiple merge operations:
+
+```python
+pipeline = [
+    # Source-level branching
+    {"source_branch": {
+        "NIR": [SNV(), SavitzkyGolay()],
+        "markers": [VarianceThreshold()]
+    }},
+    {"merge_sources": "concat"},        # Step 1: Combine sources
+
+    # Pipeline-level branching
+    {"branch": [[PLS(10)], [RF()]]},
+    {"merge": "predictions"},           # Step 2: Combine branch predictions
+
+    # Meta-model
+    {"model": Ridge()}
+]
+```
+
+### 14.5 Validation Flow
+
+The controller validates in this order:
+
+1. **Context validation**: Check branch mode for `merge`, sources exist for `merge_sources`
+2. **Configuration parsing**: Validate merge config structure
+3. **Target validation**: Check specified branches/sources exist
+4. **Shape validation**: Check compatibility based on merge type
+5. **Data availability**: Check features/predictions exist
+6. **Execute merge**: Perform the actual merge operation
+7. **State update**: Update context (exit branch mode if applicable)
+
+### 14.6 Relationship to Existing Controllers
+
+| Controller | Responsibility | Interaction with MergeController |
+|------------|----------------|----------------------------------|
+| `BranchController` | Creates branch contexts, enters branch mode | MergeController exits branch mode |
+| `TransformerController` | Applies transforms per (branch, source, processing) | Produces features that MergeController collects |
+| `ModelController` | Trains models per branch | Produces predictions that MergeController collects |
+| `MetaModelController` | Convenience for stacking | **Delegates to MergeController** for data prep |
+| `ConcatTransformController` | Concat transforms in single path | Independent (no branch awareness) |
+
+---
+
+## 15. Implementation Roadmap
+
+### 15.1 Guiding Principle
+
+**Merge is the core primitive**. Implement it first with full OOF support, then refactor MetaModel to use it. Multi-source support is integrated throughout, with source merge as a separate phase.
+
+This comprehensive roadmap supersedes the original Phase 1-9 plan by incorporating:
+- Multi-source dataset support (Phases 9-10)
+- Asymmetric branch handling (integrated into Phase 6)
+- Source branching (Phase 10)
+- Comprehensive error catalog (integrated throughout)
+
+### 15.2 Phase Overview
+
+| Phase | Duration | Key Deliverable |
+|-------|----------|-----------------|
+| **Phase 1**: Data Structures | 3-4 days | Enums, configs, parsing (including multi-source options) |
+| **Phase 2**: Controller Skeleton | 2-3 days | Branch exit, unified controller matching |
+| **Phase 3**: Feature Merge | 2-3 days | `{"merge": "features"}` with shape validation |
+| **Phase 4**: Prediction Simple | 3-4 days | OOF, unsafe, simple syntax |
+| **Phase 5**: Prediction Per-Branch | 3-4 days | Selection + aggregation strategies |
+| **Phase 6**: Mixed Merge + Asymmetric | 2-3 days | Features + predictions, asymmetric handling |
+| **Phase 7**: MetaModel Refactor | 3-4 days | Backward compatibility |
+| **Phase 8**: Prediction Mode | 2-3 days | Train/predict cycle |
+| **Phase 9**: Source Merge | 3-4 days | `{"merge_sources": ...}` |
+| **Phase 10**: Source Branching | 4-5 days | `{"source_branch": ...}` |
+| **Phase 11**: Documentation | 2-3 days | Examples and comprehensive docs |
+
+**Total Estimated Time**: 29-40 days
+
+### 15.3 Phase Details
+
+#### Phase 1: Data Structures & Config Parsing (3-4 days)
+
+**Goal**: Establish all data structures and config parsing logic
+
+**Key Tasks**:
+1. Create enum types: `MergeMode`, `SelectionStrategy`, `AggregationStrategy`, `ShapeMismatchStrategy`
+2. Create `BranchPredictionConfig` dataclass with validation
+3. Create `MergeConfig` with `source_handling` and `on_shape_mismatch` fields
+4. Implement config parser for all syntax variants
+
+**Multi-Source Additions**:
+- Add `source_handling` field: `"concat"` | `"per_source"` | `"dict"`
+- Add `on_shape_mismatch` field: `"error"` | `"pad"` | `"truncate"` | `"allow"`
+- Add `SourceMergeConfig` dataclass for `merge_sources` keyword
+
+#### Phase 2: Controller Skeleton & Branch Exit (2-3 days)
+
+**Goal**: Basic unified controller that handles all merge keywords
+
+**Key Tasks**:
+1. Register controller for keywords: `"merge"`, `"merge_sources"`, `"merge_predictions"`
+2. Implement keyword dispatch in `execute()` method
+3. Implement branch validation with error codes (MERGE-E020, MERGE-E021)
+4. Implement branch mode exit logic
+5. Add `add_merged_features()` to SpectroDataset
+
+#### Phase 3: Feature Merging with Shape Validation (2-3 days)
+
+**Goal**: Feature merge with comprehensive shape handling
+
+**Key Tasks**:
+1. Extract features from snapshot with source handling options
+2. Validate shape compatibility (sample count always, feature count based on strategy)
+3. Implement `on_shape_mismatch` strategies: error, pad, truncate, allow
+4. Generate clear error messages (MERGE-E001, MERGE-E003)
+
+#### Phase 4: Prediction Merging - Simple Mode (3-4 days)
+
+**Goal**: OOF prediction collection with safety guarantees
+
+**Key Tasks**:
+1. Model discovery from prediction store
+2. OOF reconstruction via `TrainingSetReconstructor`
+3. Unsafe mode with prominent warnings
+4. Error handling for missing models (MERGE-E010, MERGE-E011)
+
+#### Phase 5: Prediction Merging - Per-Branch Control (3-4 days)
+
+**Goal**: Advanced per-branch selection and aggregation
+
+**Key Tasks**:
+1. Model ranking by metric (rmse, mae, r2, accuracy, f1)
+2. Selection strategies: all, best, top_k, explicit
+3. Aggregation strategies: separate, mean, weighted_mean, proba_mean
+4. Per-branch configuration parsing
+
+#### Phase 6: Mixed Merge + Asymmetric Handling (2-3 days)
+
+**Goal**: Handle complex asymmetric branch scenarios
+
+**Key Tasks**:
+1. Mixed feature + prediction collection
+2. Asymmetric branch detection and validation
+3. Error handling for partial model coverage (MERGE-E010)
+4. Different strategies per branch
+
+**Asymmetric Scenarios Covered**:
+- Models in some branches, not others
+- Different feature dimensions per branch
+- Different model counts per branch
+
+#### Phase 7: MetaModel Refactoring (3-4 days)
+
+**Goal**: MetaModel delegates to MergeController
+
+**Key Tasks**:
+1. Create static `merge_branches()` method
+2. Implement config translation from MetaModel params
+3. Refactor execute to use merge when needed
+4. Extensive backward compatibility testing
+
+#### Phase 8: Prediction Mode & Artifacts (2-3 days)
+
+**Goal**: Full train/predict cycle support
+
+**Key Tasks**:
+1. Save merge config to manifest
+2. Load and apply in prediction mode
+3. Bundle export support
+4. Full cycle integration tests
+
+#### Phase 9: Source Merge Implementation (3-4 days)
+
+**Goal**: Multi-source feature combination
+
+**Key Tasks**:
+1. Parse source selection (by name or index)
+2. Implement merge strategies: concat, stack, dict
+3. Handle incompatible shapes: error, flatten, pad
+4. Source validation utilities on SpectroDataset
+
+#### Phase 10: Source Branching (4-5 days)
+
+**Goal**: Per-source pipeline execution
+
+**Key Tasks**:
+1. Create `SourceBranchController`
+2. Source isolation during branch execution
+3. Integration with `merge_sources`
+4. Prediction mode support
+
+#### Phase 11: Documentation & Examples (2-3 days)
+
+**Goal**: Comprehensive documentation and examples
+
+**Key Tasks**:
+1. Example files: Q_merge_branches.py, Q_merge_sources.py
+2. Reference documentation for all merge syntax
+3. Error catalog documentation
+4. Update related docs and copilot instructions
+
+### 15.4 Dependency Graph
+
+```
+Phase 1 (Data Structures)
+    ↓
+Phase 2 (Skeleton) ──────────────────────────────────┐
+    ├──────────────────┐                             │
+    ↓                  ↓                             ↓
+Phase 3 (Features)  Phase 4 (Predictions)        Phase 9 (Source Merge)
+    │                  ↓                             ↓
+    │              Phase 5 (Per-Branch)          Phase 10 (Source Branch)
+    │                  │                             │
+    └─────────┬────────┘                             │
+              ↓                                      │
+        Phase 6 (Mixed + Asymmetric)                 │
+              │                                      │
+              ├──────────────────────────────────────┤
+              ↓                                      │
+        Phase 7 (MetaModel)                          │
+              ↓                                      │
+        Phase 8 (Prediction Mode)                    │
+              │                                      │
+              └──────────────────────────────────────┤
+                                                     ↓
+                                              Phase 11 (Documentation)
+```
+
+### 15.5 Risk Mitigation
+
+| Risk | Mitigation Strategy |
+|------|---------------------|
+| MetaModel backward compatibility | Dedicated Phase 7 testing with all existing examples |
+| OOF edge cases | Reuse proven `TrainingSetReconstructor` |
+| Unsafe mode misuse | Prominent warnings at config, parse, and execute time |
+| Performance regression | Benchmark on Q18, Q_meta_stacking before/after |
+| Complex config parsing | Extensive unit tests in Phase 1 |
+| Per-branch complexity | Build on simple mode first (Phase 4 → 5) |
+| Multi-source shape mismatches | Comprehensive error catalog with clear resolutions |
+| Source branch complexity | Implement after merge_sources is proven stable |
+| Asymmetric branch edge cases | Dedicated validation and testing in Phase 6 |
+
+### 15.6 Testing Strategy
+
+| Test Category | Phase | Coverage |
+|---------------|-------|----------|
+| Unit: Config parsing | 1 | All syntax variants, error cases |
+| Unit: Validation | 2, 3 | Branch/source validation, shape checks |
+| Integration: Feature merge | 3 | Single/multi source, shape mismatch handling |
+| Integration: Prediction merge | 4, 5 | OOF, unsafe, per-branch strategies |
+| Integration: Mixed merge | 6 | Asymmetric branches |
+| Integration: MetaModel | 7 | Backward compatibility |
+| E2E: Train/Predict | 8 | Full cycle with bundles |
+| Integration: Source merge | 9 | Multi-source datasets |
+| Integration: Source branch | 10 | Per-source pipelines |
+| E2E: Examples | 11 | All example files run successfully |
+
 ---
 
 ## Appendix: Relationship with Asymmetric Sources Design
@@ -2094,6 +3454,14 @@ pipeline = [
 
 When implementing `MergeController`, use a different keyword (`merge`) from the source merge (`merge_sources`) to maintain clarity. The controllers should be separate but may share internal utilities like `TrainingSetReconstructor`.
 
+**Design Integration (v6.0.0)**: This design now fully integrates the asymmetric sources concepts:
+- `merge_sources` keyword is part of the unified MergeController
+- `source_branch` is planned for Phase 10
+- Multi-source shape handling is documented in Section 11
+- Error catalog covers multi-source errors (MERGE-E030 to MERGE-E034)
+- Branch vs Source distinction is explicitly documented in Section 2
+- Prediction selection syntax is comprehensively documented in Section 9
+
 ---
 
 ## Appendix: Decision Log
@@ -2109,3 +3477,16 @@ When implementing `MergeController`, use a different keyword (`merge`) from the 
 | Keep concat_transform independent | Different purpose (single path transforms) | Merge into merge (slower) |
 | Overlapping responsibilities by choice | User flexibility, multiple valid approaches | Single "correct" way (limiting) |
 | Separate from source_merge | Different concerns (pipeline vs data sources) | Combined controller (confusing) |
+| **Unified controller with keyword dispatch** | DRY principle, shared utilities | Separate controllers (code duplication) |
+| **on_shape_mismatch parameter** | Flexible handling for advanced users | Strict error only (too rigid) |
+| **Error catalog with codes** | Clear debugging, searchable resolutions | Generic error messages (confusing) |
+| **Branches × Sources orthogonal** | Simpler mental model, matches current behavior | Cross-product (exponential complexity) |
+| **Source merge operates post-flattening** | Consistent with 2D concat behavior | Per-source 3D merge (complex shapes) |
+| **Source branch after merge_sources** | Build on stable foundation | Simultaneous implementation (risky) |
+| **Branches NOT auto-sources** | Enable per-branch model training; sources = data origin | Auto-convert (loses training capability) |
+| **`output_as` parameter for merge** | User controls output destination (features/sources/dict) | Single output format (inflexible) |
+| **Explicit prediction selection syntax** | Full control over which predictions from which branches/models | Global selection only (limited stacking) |
+| **Named branches for selection** | Clearer than numeric indices for complex pipelines | Index-only (error-prone) |
+| **Model selection strategies** | all, best, top_k, explicit - covers all use cases | Single strategy (insufficient) |
+| **Aggregation strategies per branch** | Different branches may need different aggregation | Global aggregation (inflexible) |
+| **Hierarchical stacking support** | Enable multi-level stacking with merge → branch → merge | Single-level only (limiting) |
