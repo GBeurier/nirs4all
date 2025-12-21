@@ -3,6 +3,13 @@
 Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications)
 
 **Features**:
+> [Features] Allow asymetric sources (transformer apply as usual depending on source type). Basically source 1 nirs(500, 500), source 2 timeseries(500, 15, 300), source 3 markers(500, 50000). Then source_split_branch.
+> [Ensure_Merge] verify if merge is working (after branches merge predictions or features, ie after source_split_branch)
+
+
+> [Runner] Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
+> [signature] change signatures to nirs4all.run(pipeline, dataset, config), nirs4all.predict, etc. Add nirs4all config.
+
 
 > [pytoml] Update imports and configs. Anticipate ui dependencies.
 
@@ -12,23 +19,17 @@ Creates new datasets from nitrosorgh (binary, classif, regression, multisource (
 > [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 > [Example] The full integration example with all features in one, using branching, multidatasets, etc.
 
-
-> [Generator] add in-place/internal generation > branches
-
 **CLI_EXTENSION_PROPOSAL.md**
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
 
-**Review**:
+**Major Review**:
 
 > transfer, stacking, branching, multisource, pp, aggregation, pipeline inputs (launch from model, folder, file, yaml, json, etc.)
 
 **RELEASE** 0.6.0: MVP
 
-
-
-> [Aggregation] Outlier dedicated exclusion T²
 
 > [Design] Define all services
 
@@ -38,6 +39,9 @@ Creates new datasets from nitrosorgh (binary, classif, regression, multisource (
 
 **RELEASE** 0.6.0: UI
 
+> [Generator] add in-place/internal generation > branches
+
+> [Aggregation] Outlier dedicated exclusion T²
 
 > [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
 
@@ -66,14 +70,11 @@ Creates new datasets from nitrosorgh (binary, classif, regression, multisource (
 > [PLS] Implement variable selection methods (CARS and MC-UVE done)
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators. and more. Both operators and analyzers should be uniformized (inside the pipeline or outside)
-
-> [Folds] Operator load fold (csv)
+> [Charts] aggregate based on metadata col, convert std indexes (model_name, model_classname, pp, etc.) to enum, keep string only for columns. Add Y as grouping value, add variance, mean, etc. as sort score.
 
 > [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
 
 > [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
-
-> [Runner] Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
 
 > [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
 
@@ -102,11 +103,9 @@ Creates new datasets from nitrosorgh (binary, classif, regression, multisource (
 
 **RELEASE**  0.9 alpha: Minimum Viable Product. Signatures frozen.
 
-> [Y_pipeline in models]
-
 > [Profiling] Code Optimization, Improve performances
 
-> [Charts] aggregate based on metadata col, convert std indexes (model_name, model_classname, pp, etc.) to enum, keep string only for columns. Add Y as grouping value, add variance, mean, etc. as sort score.
+> [REVIEW] Complete documentation (RTD, Tutorial, Examples), remove dead code and #TODOs, validate tests coverage
 
 **RELEASE** 0.10 beta: Operators & Controllers rc
 
@@ -117,7 +116,6 @@ Creates new datasets from nitrosorgh (binary, classif, regression, multisource (
 **RELEASE** 0.11 rc - GUI version (cf. nirs4all_ui)
 
 
-> [REVIEW] Complete documentation (RTD, Tutorial, Examples), remove dead code and #TODOs, validate tests coverage
 
 **RELEASE** 1.0: Release
 

@@ -642,9 +642,9 @@ Phase 1 (Foundation) ✅
 
 ---
 
-## 🎉 Implementation Complete
+## 🎉 Core Implementation Complete
 
-All 8 phases of the Dataset Configuration Implementation Roadmap have been completed. The nirs4all library now supports:
+Phases 1-8 of the Dataset Configuration Implementation Roadmap have been completed. The nirs4all library now supports:
 
 - **Flexible file formats**: CSV, NumPy, Parquet, Excel, MATLAB, plus archive support (zip, tar, gzip)
 - **Advanced column/row selection**: By name, index, range, pattern, exclusion, and conditions
@@ -659,6 +659,8 @@ All 8 phases of the Dataset Configuration Implementation Roadmap have been compl
 - **CLI tools**: validate, inspect, export, diff commands
 
 Full backward compatibility with legacy format is maintained.
+
+**Future Work**: Phase 9 (Asymmetric Multi-Source Support) is planned to enable sources with different feature dimensions and preprocessing counts.
 
 ---
 
@@ -700,4 +702,133 @@ Full backward compatibility with legacy format is maintained.
 | 1.4.0 | Dec 21, 2025 | - | Phase 5 complete: FoldFileLoaderController for pipeline-level fold loading, FoldFileParser for parsing fold files, FoldConfig schema for dataset-level fold configuration. |
 | 1.5.0 | Dec 21, 2025 | - | Phase 6 complete: Multi-source datasets with SourceConfig, SourcesParser, SharedTargetsConfig, SharedMetadataConfig. Automatic conversion to legacy format for backward compatibility. 45 new tests, 889 total tests passing. |
 | 1.6.0 | Dec 21, 2025 | - | Phase 7 complete: Feature variations with VariationConfig, VariationFileConfig, PreprocessingApplied, VariationMode, VariationsParser. Support for separate, concat, select, compare modes. Automatic conversion to legacy format. 40 new tests, 924 total tests passing. |
-| 1.7.0 | Dec 22, 2025 | - | Phase 8 complete: Advanced features including sample aggregation (Aggregator, AggregationConfig), auto-detection (AutoDetector, DetectionResult), config serialization (ConfigSerializer, ConfigDiff), error handling (ErrorRegistry E1xx-E9xx, DiagnosticBuilder), performance (DataCache, LazyArray, LazyDataset), and documentation (migration guide, example configs, troubleshooting guide). CLI commands: validate, inspect, export, diff. **All phases complete.** |
+| 1.7.0 | Dec 22, 2025 | - | Phase 8 complete: Advanced features including sample aggregation (Aggregator, AggregationConfig), auto-detection (AutoDetector, DetectionResult), config serialization (ConfigSerializer, ConfigDiff), error handling (ErrorRegistry E1xx-E9xx, DiagnosticBuilder), performance (DataCache, LazyArray, LazyDataset), and documentation (migration guide, example configs, troubleshooting guide). CLI commands: validate, inspect, export, diff. |
+
+---
+
+## Future Phases
+
+### Phase 9: Asymmetric Multi-Source Support 🔜 PLANNED
+
+**Goal**: Enable loading and processing of multi-source datasets where sources have different feature dimensions and/or different numbers of preprocessings.
+
+**Status**: 🔜 Planned
+
+**Design Document**: [asymmetric_sources_design.md](asymmetric_sources_design.md)
+
+#### Problem Statement
+
+When sources have asymmetric dimensions (e.g., NIR: 500 features, Markers: 50,000 features) or asymmetric preprocessing counts (e.g., NIR: 3 preprocessings, Timeseries: 1 preprocessing), certain operations become impossible:
+
+| Scenario | Request | Sources | Result |
+|----------|---------|---------|--------|
+| 2D concat | `layout="2d", concat_source=True` | (500,500), (500,300) | ✅ Works: horizontal concat |
+| 3D concat, same pp | `layout="3d", concat_source=True` | (500,2,500), (500,2,300) | ✅ Works: (500, 2, 800) |
+| 3D concat, diff pp | `layout="3d", concat_source=True` | (500,3,500), (500,1,300) | ❌ Fails: incompatible shapes |
+| NN fixed input | NN expects `input_shape=(500,)` | concat produces (50800,) | ❌ Fails: shape mismatch |
+
+Currently these failures result in confusing numpy errors. Phase 9 adds proper validation, clear error messages, and execution strategies for asymmetric sources.
+
+#### 9.1 Source Metadata & Validation
+
+- [ ] Add `source_type` field to `SourceConfig`: `spectral | timeseries | tabular | image`
+- [ ] Add `shape_hint` field to `SourceConfig`: expected feature shape per sample
+- [ ] Add `allow_preprocessing` field to `SourceConfig`: whether in-pipeline preprocessing is allowed
+- [ ] Implement `SourceCompatibilityChecker` class for validating source combinations
+- [ ] Add `sources_compatible(layout, concat)` method to `SpectroDataset`
+- [ ] Add `source_info(name)` introspection method to `SpectroDataset`
+- [ ] Implement clear error messages for incompatible configurations with resolution suggestions
+
+#### 9.2 Selective Source Retrieval
+
+- [ ] Add `sources` parameter to `FeatureAccessor.x()` for selective source retrieval
+- [ ] Add `on_incompatible` parameter: `"error" | "warn" | "separate"`
+- [ ] Support source selection by name or index
+- [ ] Update controllers to use selective retrieval when appropriate
+
+#### 9.3 Source-Aware Pipeline Execution
+
+- [ ] Extend `ExecutionContext` with current source information
+- [ ] Add `sources` parameter to controller execution methods
+- [ ] Implement source filtering in `TransformerMixinController`
+- [ ] Support `{"preprocessing": op, "sources": [...]}` pipeline syntax
+- [ ] Track preprocessing history per source independently
+- [ ] Update artifact storage to include source index in artifact keys
+
+#### 9.4 Source Branching Syntax
+
+- [ ] Implement `source_branch` keyword in pipeline syntax parser:
+  ```python
+  {
+      "source_branch": {
+          "NIR": [SNV(), SavitzkyGolay()],
+          "timeseries": [StandardScaler()],
+          "markers": [VarianceThreshold()]
+      }
+  }
+  ```
+- [ ] Create `SourceBranchController` for routing pipeline execution
+- [ ] Implement branch merge strategies: `concat`, `stack`, `dict`
+- [ ] Support nested source branches
+- [ ] Integration with existing branching system (`outlier_excluder`, `sample_partitioner`)
+
+#### 9.5 Multi-Head Model Support
+
+- [ ] Define `MultiInputModel` protocol/interface for models accepting multiple inputs
+- [ ] Add `source_fusion` configuration option: `separate | concat | multi_head | custom`
+- [ ] Create adapters for common multi-head architectures (TensorFlow functional API, PyTorch)
+- [ ] Support `source_inputs` parameter in model configuration
+- [ ] Automatic routing of sources to model inputs
+
+#### 9.6 Documentation & Examples
+
+- [ ] Update dataset_config_specification.md with source metadata fields
+- [ ] Create asymmetric sources example in examples/
+- [ ] Document all error messages and resolutions
+- [ ] Add troubleshooting guide for shape mismatch errors
+- [ ] Update user guide with multi-source best practices
+
+#### Example Configuration
+
+```yaml
+name: spectral_genomic_fusion
+
+sources:
+  - name: "NIR"
+    train_x: data/nir_spectra.csv
+    source_type: spectral
+    shape_hint: [2000]
+    allow_preprocessing: true
+
+  - name: "SNPs"
+    train_x: data/snp_markers.csv
+    source_type: tabular
+    shape_hint: [50000]
+    allow_preprocessing: false  # Pre-processed externally
+
+source_fusion: multi_head  # Routes to multi-input model
+
+targets:
+  path: data/phenotypes.csv
+
+task_type: regression
+```
+
+#### Expected Error Message Example
+
+```
+ConfigurationError: Incompatible source concatenation requested.
+
+Sources have different processing counts:
+  - NIR: 3 processings (raw, SNV, derivative)
+  - timeseries: 1 processing (raw)
+  - markers: 2 processings (raw, scaled)
+
+To resolve:
+  1. Use `concat_source=False` to process sources separately
+  2. Align processing counts across sources
+  3. Use `source_fusion: multi_head` for models that accept multiple inputs
+  4. Use source branching to apply different pipelines per source
+
+See: https://nirs4all.readthedocs.io/asymmetric-sources
+```
