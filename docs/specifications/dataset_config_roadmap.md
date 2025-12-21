@@ -708,127 +708,58 @@ Full backward compatibility with legacy format is maintained.
 
 ## Future Phases
 
-### Phase 9: Asymmetric Multi-Source Support 🔜 PLANNED
+### Phase 9: Asymmetric Multi-Source Data Access 🔜 PLANNED
 
-**Goal**: Enable loading and processing of multi-source datasets where sources have different feature dimensions and/or different numbers of preprocessings.
+**Goal**: Improve data access for multi-source datasets where sources have different feature dimensions and/or different numbers of preprocessings.
 
 **Status**: 🔜 Planned
 
-**Design Document**: [asymmetric_sources_design.md](asymmetric_sources_design.md)
+> ⚠️ **Scope Clarification**
+>
+> This phase focuses on **data loading and access** improvements only:
+> - Better error messages when asymmetric sources cause concat failures
+> - Source selection by name or index in data queries
+> - Introspection APIs for source metadata
+>
+> **Runtime pipeline features** (source branching, merge controllers) are documented separately in:
+> - [branching.md](../reference/branching.md) — Pipeline branching reference
+> - [branching_merging_analysis.md](../report/branching_merging_analysis.md) — Analysis and roadmap for merge features
+>
+> Dataset configuration describes **data structure**, not **processing strategy**.
 
-#### Problem Statement
+#### Problem Summary
 
-When sources have asymmetric dimensions (e.g., NIR: 500 features, Markers: 50,000 features) or asymmetric preprocessing counts (e.g., NIR: 3 preprocessings, Timeseries: 1 preprocessing), certain operations become impossible:
+When sources have asymmetric preprocessing counts (e.g., NIR: 3 preprocessings, Timeseries: 1 preprocessing), requesting 3D layout with source concatenation fails:
 
-| Scenario | Request | Sources | Result |
-|----------|---------|---------|--------|
-| 2D concat | `layout="2d", concat_source=True` | (500,500), (500,300) | ✅ Works: horizontal concat |
-| 3D concat, same pp | `layout="3d", concat_source=True` | (500,2,500), (500,2,300) | ✅ Works: (500, 2, 800) |
-| 3D concat, diff pp | `layout="3d", concat_source=True` | (500,3,500), (500,1,300) | ❌ Fails: incompatible shapes |
-| NN fixed input | NN expects `input_shape=(500,)` | concat produces (50800,) | ❌ Fails: shape mismatch |
+```python
+# Source 1: (500 samples, 3 processings, 500 features)
+# Source 2: (500 samples, 1 processing, 300 features)
 
-Currently these failures result in confusing numpy errors. Phase 9 adds proper validation, clear error messages, and execution strategies for asymmetric sources.
-
-#### 9.1 Source Metadata & Validation
-
-- [ ] Add `source_type` field to `SourceConfig`: `spectral | timeseries | tabular | image`
-- [ ] Add `shape_hint` field to `SourceConfig`: expected feature shape per sample
-- [ ] Add `allow_preprocessing` field to `SourceConfig`: whether in-pipeline preprocessing is allowed
-- [ ] Implement `SourceCompatibilityChecker` class for validating source combinations
-- [ ] Add `sources_compatible(layout, concat)` method to `SpectroDataset`
-- [ ] Add `source_info(name)` introspection method to `SpectroDataset`
-- [ ] Implement clear error messages for incompatible configurations with resolution suggestions
-
-#### 9.2 Selective Source Retrieval
-
-- [ ] Add `sources` parameter to `FeatureAccessor.x()` for selective source retrieval
-- [ ] Add `on_incompatible` parameter: `"error" | "warn" | "separate"`
-- [ ] Support source selection by name or index
-- [ ] Update controllers to use selective retrieval when appropriate
-
-#### 9.3 Source-Aware Pipeline Execution
-
-- [ ] Extend `ExecutionContext` with current source information
-- [ ] Add `sources` parameter to controller execution methods
-- [ ] Implement source filtering in `TransformerMixinController`
-- [ ] Support `{"preprocessing": op, "sources": [...]}` pipeline syntax
-- [ ] Track preprocessing history per source independently
-- [ ] Update artifact storage to include source index in artifact keys
-
-#### 9.4 Source Branching Syntax
-
-- [ ] Implement `source_branch` keyword in pipeline syntax parser:
-  ```python
-  {
-      "source_branch": {
-          "NIR": [SNV(), SavitzkyGolay()],
-          "timeseries": [StandardScaler()],
-          "markers": [VarianceThreshold()]
-      }
-  }
-  ```
-- [ ] Create `SourceBranchController` for routing pipeline execution
-- [ ] Implement branch merge strategies: `concat`, `stack`, `dict`
-- [ ] Support nested source branches
-- [ ] Integration with existing branching system (`outlier_excluder`, `sample_partitioner`)
-
-#### 9.5 Multi-Head Model Support
-
-- [ ] Define `MultiInputModel` protocol/interface for models accepting multiple inputs
-- [ ] Add `source_fusion` configuration option: `separate | concat | multi_head | custom`
-- [ ] Create adapters for common multi-head architectures (TensorFlow functional API, PyTorch)
-- [ ] Support `source_inputs` parameter in model configuration
-- [ ] Automatic routing of sources to model inputs
-
-#### 9.6 Documentation & Examples
-
-- [ ] Update dataset_config_specification.md with source metadata fields
-- [ ] Create asymmetric sources example in examples/
-- [ ] Document all error messages and resolutions
-- [ ] Add troubleshooting guide for shape mismatch errors
-- [ ] Update user guide with multi-source best practices
-
-#### Example Configuration
-
-```yaml
-name: spectral_genomic_fusion
-
-sources:
-  - name: "NIR"
-    train_x: data/nir_spectra.csv
-    source_type: spectral
-    shape_hint: [2000]
-    allow_preprocessing: true
-
-  - name: "SNPs"
-    train_x: data/snp_markers.csv
-    source_type: tabular
-    shape_hint: [50000]
-    allow_preprocessing: false  # Pre-processed externally
-
-source_fusion: multi_head  # Routes to multi-input model
-
-targets:
-  path: data/phenotypes.csv
-
-task_type: regression
+X = dataset.x(selector, layout="3d", concat_source=True)
+# FAILS: Cannot concatenate when processing dimension differs
 ```
 
-#### Expected Error Message Example
+#### In-Scope Deliverables (Data Access)
 
-```
-ConfigurationError: Incompatible source concatenation requested.
+| Phase | Title | Key Deliverables |
+|-------|-------|------------------|
+| 9A | Validation & Error Handling | `sources_compatible()`, `SourceConcatError`, `on_incompatible` parameter |
+| 9B | Selective Source Retrieval | `sources` parameter (by name or index), `source_info()` introspection |
 
-Sources have different processing counts:
-  - NIR: 3 processings (raw, SNV, derivative)
-  - timeseries: 1 processing (raw)
-  - markers: 2 processings (raw, scaled)
+#### Out of Scope (See Pipeline Documentation)
 
-To resolve:
-  1. Use `concat_source=False` to process sources separately
-  2. Align processing counts across sources
-  3. Use `source_fusion: multi_head` for models that accept multiple inputs
-  4. Use source branching to apply different pipelines per source
+The following features are **pipeline runtime concerns** and will be documented/implemented separately:
 
-See: https://nirs4all.readthedocs.io/asymmetric-sources
-```
+- **Source Branching** (`source_branch` keyword, `SourceBranchController`) — Route each source through its own pipeline branch
+- **Merge Controller** (`merge_sources`, `merge_predictions`) — Combine branch outputs
+- **Multi-Head Model Support** (`MultiInputModel`, `source_inputs`) — Models accepting multiple input tensors
+
+See [branching_merging_analysis.md](../report/branching_merging_analysis.md) for the comprehensive analysis and implementation roadmap for these features.
+
+#### Resolution Strategies for Asymmetric Concat
+
+| Strategy | Behavior | When to Use |
+|----------|----------|-------------|
+| **Error** (default) | Raise `SourceConcatError` with resolution options | Explicit user intervention |
+| **Flatten** (`on_incompatible="flatten"`) | Flatten each source to 2D, then concat | When processing structure not needed |
+| **Separate** (`on_incompatible="separate"`) | Return list instead of array | When sources need different handling |

@@ -11,6 +11,11 @@ Creates new datasets from nitrosorgh (binary, classif, regression, multisource (
 > [signature] change signatures to nirs4all.run(pipeline, dataset, config), nirs4all.predict, etc. Add nirs4all config.
 
 
+**CLI_EXTENSION_PROPOSAL.md**
+> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
+> [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
+
+
 > [pytoml] Update imports and configs. Anticipate ui dependencies.
 
 > [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
@@ -18,10 +23,6 @@ Creates new datasets from nitrosorgh (binary, classif, regression, multisource (
 > [Examples] Clean and document
 > [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 > [Example] The full integration example with all features in one, using branching, multidatasets, etc.
-
-**CLI_EXTENSION_PROPOSAL.md**
-> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
-> [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
 
 **Major Review**:
@@ -93,6 +94,8 @@ Creates new datasets from nitrosorgh (binary, classif, regression, multisource (
 > [Docker] provide a docker, add build and actions
 
 > [Conda] provide a conda, add build and actions
+
+> [Customizable_Feature_Source] Refactor dataset to allow customizable feature source and customizable layouts to allow datasets with more dimensions (images, lidar)
 
 
 **RELEASE** 0.8: CLI
