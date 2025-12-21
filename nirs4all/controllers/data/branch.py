@@ -228,6 +228,12 @@ class BranchController(OperatorController):
             # This ensures each branch starts from the same feature state
             self._restore_features(dataset, initial_features_snapshot)
 
+            # Reset artifact load counter for this branch
+            # Each branch has its own set of artifacts, so the positional counter
+            # must restart at 0 for each branch
+            if runtime_context:
+                runtime_context.artifact_load_counter = {}
+
             # In predict/explain mode, load branch-specific binaries
             branch_binaries = loaded_binaries
             if mode in ("predict", "explain") and runtime_context.artifact_loader:

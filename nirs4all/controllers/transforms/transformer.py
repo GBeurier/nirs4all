@@ -144,10 +144,10 @@ class TransformerMixinController(OperatorController):
                 all_2d = all_x[:, processing_idx, :]      # All data to transform
 
                 # print(f" Processing {processing_name} (idx {processing_idx}): fit {fit_2d.shape}, all {all_2d.shape}")
-                new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
 
                 if mode == "predict" or mode == "explain":
                     transformer = None
+                    loaded_artifact_name = None
 
                     # V3: Use artifact_provider for chain-based loading
                     if runtime_context.artifact_provider is not None:
@@ -166,7 +166,14 @@ class TransformerMixinController(OperatorController):
                             # feature_augmentation sub-operations correctly
                             artifact_idx = runtime_context.next_artifact_load_index(sd_idx)
                             if artifact_idx < len(artifacts_list):
-                                _, transformer = artifacts_list[artifact_idx]
+                                loaded_artifact_name, transformer = artifacts_list[artifact_idx]
+
+                    # Use the artifact name from what was actually loaded, not next_op()
+                    if loaded_artifact_name:
+                        new_operator_name = loaded_artifact_name
+                    else:
+                        # Fallback: generate name for error message
+                        new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
 
                     if transformer is None:
                         available = []
@@ -177,10 +184,13 @@ class TransformerMixinController(OperatorController):
                             )
                             available = [name for name, _ in step_artifacts] if step_artifacts else []
                         raise ValueError(
-                            f"Transformer for {new_operator_name} not found at step {runtime_context.step_number}. "
+                            f"Transformer for {operator_name} not found at step {runtime_context.step_number} "
+                            f"(branch_path={context.selector.branch_path}, source={sd_idx}, "
+                            f"artifact_idx={artifact_idx if 'artifact_idx' in dir() else 'N/A'}). "
                             f"Available artifacts: {available}"
                         )
                 else:
+                    new_operator_name = f"{operator_name}_{runtime_context.next_op()}"
                     transformer = clone(op)
                     transformer.fit(fit_2d)
 

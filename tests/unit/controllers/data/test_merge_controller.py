@@ -201,9 +201,9 @@ class TestMergeControllerBranchValidation:
 class TestMergeSourcesAndPredictionsKeywords:
     """Test that merge_sources and merge_predictions keywords are handled."""
 
-    def test_merge_sources_not_implemented(self):
-        """Test that merge_sources raises NotImplementedError (Phase 9)."""
-        # This is a Phase 9 feature - should raise NotImplementedError
+    def test_merge_sources_single_source_is_noop(self):
+        """Test that merge_sources on single-source dataset is a no-op with warning."""
+        # Phase 9: merge_sources with single source logs warning and returns no-op
         from nirs4all.pipeline.steps.parser import ParsedStep
 
         controller = MergeController()
@@ -215,44 +215,55 @@ class TestMergeSourcesAndPredictionsKeywords:
 
         class MockContext:
             custom = {"branch_contexts": [], "in_branch_mode": False}
+            selector = {}
             def copy(self):
                 return MockContext()
 
         step_info = MockStepInfo()
-        dataset = create_test_dataset()
+        dataset = create_test_dataset()  # Single source dataset
         context = MockContext()
 
-        with pytest.raises(NotImplementedError, match="Phase 9"):
-            controller.execute(
-                step_info=step_info,
-                dataset=dataset,
-                context=context,
-                runtime_context=None,
-            )
+        # Single source dataset - should return no-op, not error
+        result_context, output = controller.execute(
+            step_info=step_info,
+            dataset=dataset,
+            context=context,
+            runtime_context=None,
+        )
 
-    def test_merge_predictions_not_implemented(self):
-        """Test that merge_predictions raises NotImplementedError (Phase 9)."""
+        # Check metadata indicates no-op
+        assert output.metadata.get("source_merge") == "no-op"
+        assert output.metadata.get("reason") == "single_source_dataset"
+
+    def test_merge_predictions_requires_prediction_store(self):
+        """Test that merge_predictions requires prediction_store."""
         controller = MergeController()
 
         class MockStepInfo:
             keyword = "merge_predictions"
-            original_step = {"merge_predictions": "average"}
+            original_step = {"merge_predictions": "all"}
 
         class MockContext:
             custom = {"branch_contexts": [], "in_branch_mode": False}
+            selector = {}
+            state = type('obj', (object,), {'step_number': 10})()
             def copy(self):
                 return MockContext()
+            def with_partition(self, partition):
+                return self
 
         step_info = MockStepInfo()
         dataset = create_test_dataset()
         context = MockContext()
 
-        with pytest.raises(NotImplementedError, match="Phase 9"):
+        # Without prediction_store, should raise ValueError
+        with pytest.raises(ValueError, match="merge_predictions requires prediction_store"):
             controller.execute(
                 step_info=step_info,
                 dataset=dataset,
                 context=context,
                 runtime_context=None,
+                prediction_store=None,  # Explicitly None
             )
 
 
@@ -889,3 +900,174 @@ class TestAsymmetricBranchAnalyzer:
         assert 0 in report.branches_with_models
         assert 1 in report.branches_without_models
         assert 2 in report.branches_without_models
+
+
+# =============================================================================
+# Phase 9: Source Merge Tests
+# =============================================================================
+
+class TestSourceMergeConfig:
+    """Tests for SourceMergeConfig dataclass (Phase 9)."""
+
+    def test_default_config(self):
+        """Test default configuration values."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        config = SourceMergeConfig()
+        assert config.strategy == "concat"
+        assert config.sources == "all"
+        assert config.on_incompatible == "error"
+        assert config.output_name == "merged"
+
+    def test_strategy_validation(self):
+        """Test that invalid strategies raise ValueError."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        with pytest.raises(ValueError, match="strategy must be one of"):
+            SourceMergeConfig(strategy="invalid")
+
+    def test_on_incompatible_validation(self):
+        """Test that invalid on_incompatible raises ValueError."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        with pytest.raises(ValueError, match="on_incompatible must be one of"):
+            SourceMergeConfig(on_incompatible="invalid")
+
+    def test_empty_sources_list_validation(self):
+        """Test that empty sources list raises ValueError."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        with pytest.raises(ValueError, match="sources list cannot be empty"):
+            SourceMergeConfig(sources=[])
+
+    def test_get_source_indices_all(self):
+        """Test resolving 'all' sources."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        config = SourceMergeConfig(sources="all")
+        indices = config.get_source_indices(["NIR", "markers", "Raman"])
+        assert indices == [0, 1, 2]
+
+    def test_get_source_indices_by_name(self):
+        """Test resolving sources by name."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        config = SourceMergeConfig(sources=["NIR", "Raman"])
+        indices = config.get_source_indices(["NIR", "markers", "Raman"])
+        assert indices == [0, 2]
+
+    def test_get_source_indices_by_index(self):
+        """Test resolving sources by index."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        config = SourceMergeConfig(sources=[0, 2])
+        indices = config.get_source_indices(["NIR", "markers", "Raman"])
+        assert indices == [0, 2]
+
+    def test_get_source_indices_invalid_name_raises(self):
+        """Test that invalid source name raises ValueError."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        config = SourceMergeConfig(sources=["NIR", "Unknown"])
+        with pytest.raises(ValueError, match="Source name 'Unknown' not found"):
+            config.get_source_indices(["NIR", "markers"])
+
+    def test_get_source_indices_invalid_index_raises(self):
+        """Test that out-of-range source index raises ValueError."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        config = SourceMergeConfig(sources=[0, 5])
+        with pytest.raises(ValueError, match="Source index 5 out of range"):
+            config.get_source_indices(["NIR", "markers"])
+
+    def test_to_dict_and_from_dict(self):
+        """Test round-trip serialization."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        config = SourceMergeConfig(
+            strategy="stack",
+            sources=["NIR", "MIR"],
+            on_incompatible="flatten",
+            output_name="combined",
+        )
+
+        data = config.to_dict()
+        restored = SourceMergeConfig.from_dict(data)
+
+        assert restored.strategy == config.strategy
+        assert restored.sources == config.sources
+        assert restored.on_incompatible == config.on_incompatible
+        assert restored.output_name == config.output_name
+
+
+class TestSourceMergeStrategies:
+    """Tests for source merge strategy enums (Phase 9)."""
+
+    def test_source_merge_strategy_values(self):
+        """Test SourceMergeStrategy enum values."""
+        from nirs4all.operators.data.merge import SourceMergeStrategy
+
+        assert SourceMergeStrategy.CONCAT.value == "concat"
+        assert SourceMergeStrategy.STACK.value == "stack"
+        assert SourceMergeStrategy.DICT.value == "dict"
+
+    def test_source_incompatible_strategy_values(self):
+        """Test SourceIncompatibleStrategy enum values."""
+        from nirs4all.operators.data.merge import SourceIncompatibleStrategy
+
+        assert SourceIncompatibleStrategy.ERROR.value == "error"
+        assert SourceIncompatibleStrategy.FLATTEN.value == "flatten"
+        assert SourceIncompatibleStrategy.PAD.value == "pad"
+        assert SourceIncompatibleStrategy.TRUNCATE.value == "truncate"
+
+    def test_config_get_strategy(self):
+        """Test getting strategy as enum."""
+        from nirs4all.operators.data.merge import SourceMergeConfig, SourceMergeStrategy
+
+        config = SourceMergeConfig(strategy="stack")
+        assert config.get_strategy() == SourceMergeStrategy.STACK
+
+    def test_config_get_incompatible_strategy(self):
+        """Test getting incompatible strategy as enum."""
+        from nirs4all.operators.data.merge import SourceMergeConfig, SourceIncompatibleStrategy
+
+        config = SourceMergeConfig(on_incompatible="flatten")
+        assert config.get_incompatible_strategy() == SourceIncompatibleStrategy.FLATTEN
+
+
+class TestMergeSourcesConfigParsing:
+    """Tests for merge_sources configuration parsing."""
+
+    def test_parse_simple_string(self):
+        """Test parsing simple strategy string."""
+        controller = MergeController()
+        config = controller._parse_source_merge_config("concat")
+        assert config.strategy == "concat"
+        assert config.sources == "all"
+
+    def test_parse_dict_config(self):
+        """Test parsing dict configuration."""
+        controller = MergeController()
+        config = controller._parse_source_merge_config({
+            "strategy": "stack",
+            "sources": [0, 1],
+            "on_incompatible": "flatten",
+        })
+        assert config.strategy == "stack"
+        assert config.sources == [0, 1]
+        assert config.on_incompatible == "flatten"
+
+    def test_parse_already_parsed_config(self):
+        """Test that already parsed config is returned as-is."""
+        from nirs4all.operators.data.merge import SourceMergeConfig
+
+        controller = MergeController()
+        original = SourceMergeConfig(strategy="dict")
+        config = controller._parse_source_merge_config(original)
+        assert config is original
+
+    def test_parse_invalid_type_raises(self):
+        """Test that invalid config type raises ValueError."""
+        controller = MergeController()
+        with pytest.raises(ValueError, match="Invalid merge_sources config type"):
+            controller._parse_source_merge_config(123)
