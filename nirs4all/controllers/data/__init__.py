@@ -12,6 +12,7 @@ from .auto_transfer_preproc import AutoTransferPreprocessingController
 from .sample_filter import SampleFilterController
 from .outlier_excluder import OutlierExcluderController
 from .sample_partitioner import SamplePartitionerController
+from .merge import MergeController, MergeConfigParser
 
 __all__ = [
     "FeatureAugmentationController",
@@ -23,4 +24,6 @@ __all__ = [
     "SampleFilterController",
     "OutlierExcluderController",
     "SamplePartitionerController",
+    "MergeController",
+    "MergeConfigParser",
 ]

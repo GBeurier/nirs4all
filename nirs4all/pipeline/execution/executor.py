@@ -280,8 +280,10 @@ class PipelineExecutor:
             # Check if we're in branch mode and this is NOT a branch step
             branch_contexts = context.custom.get("branch_contexts", [])
             is_branch_step = isinstance(step, dict) and "branch" in step
+            # Merge steps need access to all branch contexts, so they execute globally
+            is_merge_step = isinstance(step, dict) and "merge" in step
 
-            if branch_contexts and not is_branch_step:
+            if branch_contexts and not is_branch_step and not is_merge_step:
                 # Execute step on each branch context
                 context = self._execute_step_on_branches(
                     step=step,

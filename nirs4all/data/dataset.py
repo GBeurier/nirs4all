@@ -219,6 +219,109 @@ class SpectroDataset:
         """Update existing processed features."""
         self._feature_accessor.update_features(source_processings, features, processings, source)
 
+    def add_merged_features(
+        self,
+        features: np.ndarray,
+        processing_name: str = "merged",
+        source: int = 0
+    ) -> None:
+        """Add merged features from branch merge operations.
+
+        This method is used by MergeController to store the output of
+        branch merging operations. The merged features REPLACE all existing
+        processings to become the new feature set for subsequent steps.
+
+        Args:
+            features: 2D array of shape (n_samples, n_features) containing
+                the merged features from branch combination.
+            processing_name: Name for the merged processing (default: "merged").
+                Will be used as the processing ID in the feature store.
+            source: Target source index (default: 0, first source).
+
+        Raises:
+            ValueError: If features is not 2D or sample count doesn't match.
+
+        Example:
+            >>> # After collecting features from branches
+            >>> merged = np.concatenate([branch0_features, branch1_features], axis=1)
+            >>> dataset.add_merged_features(merged, "merged_snv_msc")
+        """
+        if features.ndim != 2:
+            raise ValueError(
+                f"Merged features must be 2D array, got {features.ndim}D"
+            )
+
+        n_samples = features.shape[0]
+        if n_samples != self.num_samples:
+            raise ValueError(
+                f"Sample count mismatch: got {n_samples} samples, "
+                f"expected {self.num_samples}"
+            )
+
+        # Get current processings to replace
+        current_processings = self.features_processings(source)
+
+        # Replace ALL existing processings with the merged features
+        # This effectively "resets" the feature storage to just the merged output
+        self._feature_accessor.replace_features(
+            source_processings=current_processings,
+            features=[features],
+            processings=[processing_name],
+            source=source
+        )
+
+    def get_merged_features(
+        self,
+        processing_name: str = "merged",
+        source: int = 0,
+        selector: Optional[Selector] = None
+    ) -> np.ndarray:
+        """Get merged features by processing name.
+
+        Retrieves features that were added via add_merged_features().
+        Since merged features replace all existing processings, this
+        returns the features for the single merged processing.
+
+        Args:
+            processing_name: Name of the merged processing (default: "merged").
+            source: Source index to get features from (default: 0).
+            selector: Optional sample filter.
+
+        Returns:
+            2D array of merged features (n_samples, n_merged_features).
+
+        Raises:
+            ValueError: If the processing name doesn't exist.
+
+        Example:
+            >>> X_merged = dataset.get_merged_features("merged_snv_msc")
+            >>> print(X_merged.shape)  # (n_samples, n_merged_features)
+        """
+        # Verify the processing exists
+        processings = self.features_processings(source)
+        if processing_name not in processings:
+            raise ValueError(
+                f"Processing '{processing_name}' not found. "
+                f"Available: {processings}"
+            )
+
+        # Get features with processing filter using selector
+        if selector is None:
+            selector = {}
+
+        # Use the x() method to get features
+        # Since add_merged_features replaces all processings, there's only
+        # one processing now, so we can just return all features
+        X = self.x(
+            selector=selector,
+            layout="2d",
+            concat_source=True,
+            include_augmented=False,
+            include_excluded=False
+        )
+
+        return X
+
     def augment_samples(self,
                         data: InputData,
                         processings: ProcessingList,

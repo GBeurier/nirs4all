@@ -6,6 +6,7 @@ Creates new datasets from nitrosorgh (binary, classif, regression, multisource (
 > [Features] Allow asymetric sources (transformer apply as usual depending on source type). Basically source 1 nirs(500, 500), source 2 timeseries(500, 15, 300), source 3 markers(500, 50000). Then source_split_branch.
 > [Ensure_Merge] verify if merge is working (after branches merge predictions or features, ie after source_split_branch)
 
+> [PipelineChart] Display the whole DAG with data shape before each step
 
 > [Runner] Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
 > [signature] change signatures to nirs4all.run(pipeline, dataset, config), nirs4all.predict, etc. Add nirs4all config.
