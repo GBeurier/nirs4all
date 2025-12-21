@@ -2871,29 +2871,46 @@ MultiHeadNN(heads_per_source=True)
 
 | Merge Type | Sample Count | Feature Count | Source Count | Processing Count |
 |------------|--------------|---------------|--------------|------------------|
-| Feature merge | Must match | Can differ | Must match | 2D: Any, 3D: Must match |
+| Feature merge (2D) | Must match | Any (concatenated) | Must match | Any (flattened) |
+| Feature merge (3D) | Must match | Any | Must match | Must match (or use strategy) |
 | Prediction merge | Must match | N/A (scalars) | N/A | N/A |
-| Mixed merge | Must match | Features: can differ | Must match (for features) | 2D: Any |
+| Mixed merge | Must match | Features: any | Must match (for features) | 2D: Any |
 
-### 12.7 Handling Shape Mismatches
+**Key Insight**: In 2D layout (the default), features are flattened and concatenated horizontally. Different feature dimensions across branches is **expected and normal** - each branch can have different preprocessing (e.g., different PCA components). No shape mismatch handling is needed.
 
-The `on_shape_mismatch` parameter controls behavior:
+### 12.7 Handling Shape Mismatches (3D Layout Only)
+
+The `on_shape_mismatch` parameter only applies when using **3D layout** for features, where the number of processings must align across branches. In 2D layout (the default), this parameter has no effect.
+
+**Example scenario**:
+- Branch 0: (200 samples, 500 features) from MinMaxScaler (1 processing)
+- Branch 1: (200 samples, 4 processings, 20 features) from multi-processing
+
+| Layout | Result | Shape Mismatch? |
+|--------|--------|------------------|
+| 2D (default) | (200, 500 + 4×20 = 580) | No - just concatenate |
+| 3D | Cannot align processings | Yes - needs strategy |
 
 ```python
+# 2D layout (default) - no on_shape_mismatch needed
+{"merge": "features"}  # Works with any feature dimensions
+
+# 3D layout - may need on_shape_mismatch
 {"merge": {
     "features": "all",
+    "layout": "3d",  # Future feature
     "on_shape_mismatch": "error"  # Default: strict validation
 }}
 ```
 
 | Strategy | Behavior | Use Case |
 |----------|----------|----------|
-| `"error"` (default) | Raise clear error with resolution options | Production pipelines |
-| `"pad"` | Pad shorter branches with zeros to match longest | Experimental pipelines |
-| `"truncate"` | Truncate longer branches to match shortest | Rare, use with caution |
-| `"allow"` | Concat regardless (different dimensions OK) | Feature union scenarios |
+| `"error"` (default) | Raise clear error with resolution options | 3D layout: strict validation |
+| `"pad"` | Pad shorter branches with zeros to match longest | 3D layout: align processings |
+| `"truncate"` | Truncate longer branches to match shortest | 3D layout: rare, use with caution |
+| `"allow"` | Force 2D flattening and concatenate | 3D layout: fallback to 2D |
 
-**Note**: `"pad"` and `"truncate"` modify feature matrices and may affect model performance. Use only when semantically appropriate.
+**Note**: In 2D layout (default), these strategies have no effect - features are simply concatenated regardless of dimensions. The strategies only apply to future 3D layout support.
 
 ### 12.8 Validation During Merge
 
@@ -2901,11 +2918,11 @@ The `on_shape_mismatch` parameter controls behavior:
 
 1. **Sample count validation**: All branches must have same sample count (always required)
 2. **Source count validation**: All branches must have same source count (for feature merge)
-3. **Processing count validation**: Only for 3D layout requests
+3. **Processing count validation**: Only for 3D layout requests (not checked in 2D)
 4. **Model availability validation**: For prediction merge, validate models exist
-5. **Shape compatibility validation**: Based on `on_shape_mismatch` setting
+5. **Shape compatibility validation**: 3D layout only, based on `on_shape_mismatch` setting
 
-Validation happens **before** any data concatenation, providing early failure with clear errors.
+**Important**: In 2D layout (default), feature dimensions are NOT validated because horizontal concatenation of different dimensions is the intended behavior.
 
 ---
 
@@ -2917,26 +2934,28 @@ This section provides a comprehensive catalog of errors that can occur during me
 
 | Error Code | Message | Cause | Resolution |
 |------------|---------|-------|------------|
-| **MERGE-E001** | Feature dimension mismatch | Branches produce different total feature counts | Use `on_shape_mismatch="allow"` or restructure |
+| **MERGE-E001** | Processing count mismatch in 3D | 3D layout with different processings | Use 2D layout (default) or `on_shape_mismatch` |
 | **MERGE-E002** | Sample count mismatch | Branches have different sample counts (BUG) | Report as bug—branches share sample set |
 | **MERGE-E003** | Source count mismatch | Branch dropped/added sources | Ensure all branches process all sources |
 | **MERGE-E004** | Processing count mismatch in 3D | Different processing counts per branch | Use `layout="2d"` (flatten processings) |
 | **MERGE-E005** | 3D concat incompatibility | Asymmetric shapes prevent 3D concat | Force 2D or use separate sources |
 
-**Example Error Message (MERGE-E001)**:
+**Note**: In 2D layout (the default), different feature dimensions across branches is **normal and expected**. Features are simply concatenated horizontally. MERGE-E001 only applies to future 3D layout support.
+
+**Example Error Message (MERGE-E001 - 3D layout only)**:
 ```
-MergeError [MERGE-E001]: Cannot merge features - dimension mismatch across branches.
+MergeError [MERGE-E001]: Cannot merge features in 3D layout - processing count mismatch.
 
-Branches produce different feature dimensions:
-  - Branch 0 (SNV_PCA50): 500 samples × 1500 features
-  - Branch 1 (MSC_PCA10): 500 samples × 600 features
+Branches have different processing counts:
+  - Branch 0 (SNV): 500 samples × 1 processing × 1500 features
+  - Branch 1 (Multi-processing): 500 samples × 4 processings × 375 features
 
-Cause: Different preprocessing pipelines produce different output dimensions.
+Cause: 3D layout requires aligned processing dimensions.
 
 To resolve:
-  1. Ensure branches produce same dimensions (adjust PCA n_components, etc.)
-  2. Use {"merge": {"features": "all", "on_shape_mismatch": "allow"}} to concat anyway
-  3. Use {"merge": {"features": "all", "on_shape_mismatch": "pad"}} to pad shorter branches
+  1. Use 2D layout (default): {"merge": "features"} - flattens and concatenates
+  2. Use {"merge": {"features": "all", "on_shape_mismatch": "pad"}} to pad processings
+  3. Use {"merge": {"features": "all", "on_shape_mismatch": "allow"}} to force 2D
   4. Use selective merge: {"merge": {"features": [0]}} to use only one branch
 ```
 
@@ -3119,7 +3138,7 @@ class MergeController(OperatorController):
 {"merge": {
     "features": "all",
     "source_handling": "concat",      # "concat" (default) | "per_source"
-    "on_shape_mismatch": "error"      # "error" | "pad" | "truncate" | "allow"
+    "on_shape_mismatch": "error"      # 3D layout only: "error" | "pad" | "truncate" | "allow"
 }}
 
 # Per-branch control (same as before)
