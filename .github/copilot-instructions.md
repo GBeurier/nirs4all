@@ -181,6 +181,40 @@ predictions, per_dataset = runner.run(
 {"_range_": [1, 30, 5], "param": "n_components", "model": PLSRegression}
 ```
 
+### Branching and Merging
+
+```python
+# Create parallel branches with different preprocessing
+{"branch": [
+    [SNV(), PLSRegression(n_components=10)],      # Branch 0
+    [MSC(), RandomForestRegressor()],              # Branch 1
+]}
+
+# Merge: Exit branch mode and combine outputs
+{"merge": "features"}      # Collect features from all branches
+{"merge": "predictions"}   # Collect OOF predictions (stacking)
+{"merge": {"features": [0], "predictions": [1]}}  # Mixed merge
+
+# Source branching: Per-source preprocessing (multi-source datasets)
+{"source_branch": {
+    "NIR": [SNV(), FirstDerivative()],
+    "markers": [VarianceThreshold()],
+}}
+
+# Source merging: Combine multi-source features
+{"merge_sources": "concat"}   # Horizontal concatenation
+{"merge_sources": "stack"}    # 3D stacking
+```
+
+**Key concepts**:
+- `branch` creates parallel execution paths (N branches → each step runs N times)
+- `merge` ALWAYS exits branch mode (returns to single-path execution)
+- Prediction merging uses OOF reconstruction by default (prevents data leakage)
+- `source_branch` processes each data source with its own pipeline
+- `merge_sources` combines features from different data sources
+
+See [docs/specifications/merge_syntax.md](docs/specifications/merge_syntax.md) for full reference.
+
 ## File Organization
 
 - `examples/Q*.py` - Numbered examples (serve as docs + integration tests)
@@ -195,9 +229,12 @@ predictions, per_dataset = runner.run(
 |------|---------|
 | [nirs4all/pipeline/runner.py](nirs4all/pipeline/runner.py) | Main `PipelineRunner` class |
 | [nirs4all/controllers/registry.py](nirs4all/controllers/registry.py) | Controller registration |
+| [nirs4all/controllers/data/merge.py](nirs4all/controllers/data/merge.py) | Merge controller (branch combination) |
+| [nirs4all/controllers/data/source_branch.py](nirs4all/controllers/data/source_branch.py) | Source branch controller |
 | [nirs4all/data/config.py](nirs4all/data/config.py) | `DatasetConfigs` class |
 | [nirs4all/operators/transforms/nirs.py](nirs4all/operators/transforms/nirs.py) | NIRS-specific transforms |
 | [docs/specifications/pipeline_syntax.md](docs/specifications/pipeline_syntax.md) | Full pipeline syntax reference |
+| [docs/specifications/merge_syntax.md](docs/specifications/merge_syntax.md) | Merge and source branch syntax |
 
 ## Important Notes
 

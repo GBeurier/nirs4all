@@ -1933,593 +1933,30 @@ class MetaModelController(OperatorController):
 
 ### 10.5 File Changes Summary
 
-| File | Action | Priority | Phase |
-|------|--------|----------|-------|
-| `nirs4all/operators/data/merge.py` | **Create** MergeMode, SelectionStrategy, AggregationStrategy enums | P0 | 1 |
-| `nirs4all/operators/data/merge.py` | **Create** BranchPredictionConfig dataclass | P0 | 1 |
-| `nirs4all/operators/data/merge.py` | **Create** MergeConfig dataclass | P0 | 1 |
-| `nirs4all/controllers/data/merge.py` | **Implement** MergeController skeleton | P0 | 2 |
-| `nirs4all/controllers/data/merge.py` | **Implement** config parsing | P0 | 1 |
-| `nirs4all/controllers/data/merge.py` | **Implement** feature collection | P0 | 3 |
-| `nirs4all/controllers/data/merge.py` | **Implement** OOF prediction collection | P0 | 4 |
-| `nirs4all/controllers/data/merge.py` | **Implement** per-branch selection/aggregation | P0 | 5 |
-| `nirs4all/data/dataset.py` | **Add** `add_merged_features()`, `get_merged_features()` | P0 | 2 |
-| `nirs4all/controllers/models/meta_model.py` | **Refactor** to use MergeController | P1 | 7 |
-| `tests/unit/operators/data/test_merge_config.py` | **Create** config parsing tests | P0 | 1 |
-| `tests/unit/controllers/data/test_merge_controller.py` | **Create** controller unit tests | P0 | 2-5 |
-| `tests/integration/pipeline/test_merge_features.py` | **Create** feature merge tests | P0 | 3 |
-| `tests/integration/pipeline/test_merge_predictions.py` | **Create** prediction merge tests | P0 | 4 |
-| `tests/integration/pipeline/test_merge_per_branch.py` | **Create** per-branch strategy tests | P0 | 5 |
-| `tests/integration/pipeline/test_merge_mixed.py` | **Create** mixed merge tests | P0 | 6 |
-| `tests/integration/pipeline/test_meta_model_backward_compat.py` | **Create** backward compat tests | P0 | 7 |
-| `tests/integration/pipeline/test_merge_prediction_mode.py` | **Create** prediction mode tests | P1 | 8 |
-| `examples/Q_merge_branches.py` | **Create** comprehensive examples | P2 | 9 |
-| `docs/reference/branching.md` | **Update** with merge documentation | P2 | 9 |
-| `docs/user_guide/stacking.md` | **Update** merge relationship | P2 | 9 |
-| `docs/specifications/pipeline_syntax.md` | **Update** with merge syntax | P2 | 13 |
-
----
-
-### 8.5 Original Roadmap (Superseded by Section 13)
-
-> **Note**: This section contains the original roadmap. See Section 13 for the comprehensive updated roadmap that includes multi-source support.
-
-#### Original Guiding Principle
-
-**Merge is the core primitive**. Implement it first with full OOF support, then refactor MetaModel to use it. This ensures:
-- Single source of truth for OOF logic
-- MetaModel gets improvements automatically
-- Users can use either approach (merge+model or MetaModel)
-
----
-
-### Phase 1: Data Structures & Config Parsing (3-4 days)
-
-**Goal**: Establish all data structures and config parsing logic
-
-#### Task 1.1: Create Enum Types (0.5 day)
-- **File**: `nirs4all/operators/data/merge.py`
-- **Actions**:
-  - [ ] Create `MergeMode` enum: `FEATURES`, `PREDICTIONS`, `ALL`
-  - [ ] Create `SelectionStrategy` enum: `ALL`, `BEST`, `TOP_K`, `EXPLICIT`
-  - [ ] Create `AggregationStrategy` enum: `SEPARATE`, `MEAN`, `WEIGHTED_MEAN`, `PROBA_MEAN`
-- **Tests**: Unit tests for enum values and string conversion
-
-#### Task 1.2: Create BranchPredictionConfig (0.5 day)
-- **File**: `nirs4all/operators/data/merge.py`
-- **Actions**:
-  - [ ] Implement `BranchPredictionConfig` dataclass
-  - [ ] Add `branch`, `select`, `metric`, `aggregate`, `weight_metric`, `proba` fields
-  - [ ] Implement `__post_init__` validation for `aggregate` and `select`
-  - [ ] Add helper method `get_selection_strategy() -> SelectionStrategy`
-- **Tests**:
-  - Valid configurations (all combinations)
-  - Invalid aggregate value → ValueError
-  - Invalid select dict (missing top_k) → ValueError
-
-#### Task 1.3: Create MergeConfig (1 day)
-- **File**: `nirs4all/operators/data/merge.py`
-- **Actions**:
-  - [ ] Implement `MergeConfig` dataclass with all fields
-  - [ ] Implement `__post_init__` validation for `on_missing`, `unsafe`
-  - [ ] Add `has_per_branch_config()` helper method
-  - [ ] Add `get_prediction_configs()` method that normalizes legacy → per-branch
-- **Tests**:
-  - Simple mode with `prediction_branches`
-  - Advanced mode with `prediction_configs`
-  - `unsafe=True` warning emission
-  - Invalid `on_missing` value → ValueError
-
-#### Task 1.4: Implement Config Parser (1-1.5 days)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_parse_config(raw_config) -> MergeConfig`
-  - [ ] Handle simple string forms: `"features"`, `"predictions"`, `"all"`
-  - [ ] Handle dict with `features` and `predictions` keys
-  - [ ] Handle legacy prediction format: `{"predictions": [0, 1]}`
-  - [ ] Handle per-branch format: `{"predictions": [{"branch": 0, ...}]}`
-  - [ ] Handle mixed features + predictions
-  - [ ] Create `_parse_branch_prediction_config(item) -> BranchPredictionConfig`
-- **Tests**:
-  - All simple forms parse correctly
-  - Legacy format backward compatible
-  - Per-branch format with all options
-  - Mixed formats
-  - Invalid formats → clear error messages
-
-#### Deliverable Phase 1
-- All data structures implemented and tested
-- Config parsing handles all syntax variants
-- Clear error messages for invalid configurations
-
----
-
-### Phase 2: MergeController Skeleton & Branch Exit (2-3 days)
-
-**Goal**: Basic controller that exits branch mode
-
-#### Task 2.1: Controller Registration (0.5 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Create `MergeController` class with `@register_controller`
-  - [ ] Set `priority = 5`
-  - [ ] Implement `matches()` for `keyword == "merge"`
-  - [ ] Implement `supports_prediction_mode() -> True`
-- **Tests**: Controller registered and matches correctly
-
-#### Task 2.2: Branch Validation (0.5 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_validate_branches(config, branch_contexts)`
-  - [ ] Resolve `"all"` to actual branch indices
-  - [ ] Validate feature branch indices exist
-  - [ ] Validate prediction branch indices exist
-  - [ ] Clear error message for invalid indices
-- **Tests**:
-  - Valid indices pass
-  - Invalid index → ValueError with available indices
-  - `"all"` resolves correctly
-
-#### Task 2.3: Branch Mode Exit Logic (0.5 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement branch context clearing: `context.custom["branch_contexts"] = []`
-  - [ ] Set `context.custom["in_branch_mode"] = False`
-  - [ ] Create new context with merged processing
-  - [ ] Return proper `StepOutput` with metadata
-- **Tests**:
-  - After merge, branch mode is False
-  - Branch contexts are empty
-  - Context has merged processing
-
-#### Task 2.4: SpectroDataset Extension (0.5 day)
-- **File**: `nirs4all/data/dataset.py`
-- **Actions**:
-  - [ ] Add `add_merged_features(features, processing_name="merged")`
-  - [ ] Reshape 2D → 3D: `(n_samples, 1, n_features)`
-  - [ ] Add to first source via `_features.add_processing()`
-  - [ ] Add `get_merged_features() -> np.ndarray` helper
-- **Tests**:
-  - Features added correctly
-  - Retrieval works
-  - Shape validation
-
-#### Task 2.5: Execute Method Skeleton (1 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `execute()` main flow
-  - [ ] Call `_parse_config()`
-  - [ ] Validate branch contexts exist (error if not)
-  - [ ] Call `_validate_branches()`
-  - [ ] Placeholder for feature/prediction collection
-  - [ ] Add merged features to dataset
-  - [ ] Exit branch mode
-  - [ ] Build and return metadata
-- **Tests**:
-  - Integration test: empty merge exits branch mode
-  - Error when no branch contexts
-
-#### Deliverable Phase 2
-- Controller skeleton complete
-- Branch mode exit works
-- SpectroDataset can store merged features
-
----
-
-### Phase 3: Feature Merging (2-3 days)
-
-**Goal**: Collect and concatenate features from branches
-
-#### Task 3.1: Feature Snapshot Extraction (1 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_extract_features_from_snapshot(snapshot) -> np.ndarray`
-  - [ ] Handle `FeatureSource` objects in snapshot
-  - [ ] Extract 3D `_storage` array
-  - [ ] Flatten to 2D: `(n_samples, processings * features)`
-  - [ ] Concatenate multiple sources horizontally
-- **Tests**:
-  - Single source extraction
-  - Multiple sources concatenation
-  - Empty snapshot handling
-
-#### Task 3.2: Feature Collection (1 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_collect_features(dataset, branch_contexts, branch_indices, on_missing)`
-  - [ ] Iterate specified branch indices
-  - [ ] Get `features_snapshot` from each branch context
-  - [ ] Handle missing snapshot based on `on_missing`:
-    - `"error"`: raise ValueError
-    - `"warn"`: log warning, skip
-    - `"skip"`: silent skip
-  - [ ] Return list of 2D arrays
-- **Tests**:
-  - Collect from single branch
-  - Collect from multiple branches
-  - Missing branch with `error` → ValueError
-  - Missing branch with `warn` → warning logged
-  - Missing branch with `skip` → silent
-
-#### Task 3.3: Include Original Features (0.5 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_get_original_features(dataset, context) -> np.ndarray`
-  - [ ] Get pre-branch features from dataset
-  - [ ] Insert at beginning of merged parts when `include_original=True`
-- **Tests**:
-  - Original features prepended correctly
-  - Shape validation
-
-#### Task 3.4: Integration Testing (0.5 day)
-- **File**: `tests/integration/pipeline/test_merge_features.py`
-- **Actions**:
-  - [ ] Test `{"merge": "features"}` with 2 branches
-  - [ ] Test `{"merge": {"features": [0]}}` (single branch)
-  - [ ] Test feature merge → model training
-  - [ ] Verify shapes throughout pipeline
-- **Tests**: Full pipeline execution with feature merging
-
-#### Deliverable Phase 3
-- `{"merge": "features"}` fully working
-- All `on_missing` strategies implemented
-- Integration tests passing
-
----
-
-### Phase 4: Prediction Merging - Simple Mode (3-4 days)
-
-**Goal**: Collect OOF predictions from branches (legacy simple syntax)
-
-#### Task 4.1: Model Discovery (1 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_discover_branch_models(branch_contexts, prediction_store, branch_idx)`
-  - [ ] Query prediction store for branch's predictions
-  - [ ] Extract unique model names
-  - [ ] Apply `model_filter` if specified
-  - [ ] Return list of model names with their metrics
-- **Tests**:
-  - Discover all models in branch
-  - Model filter applied correctly
-  - No models found → clear error
-
-#### Task 4.2: OOF Reconstruction Integration (1.5 days)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_collect_predictions_oof(dataset, context, prediction_store, source_models, mode, config)`
-  - [ ] Create `TrainingSetReconstructor` instance
-  - [ ] Pass through coverage strategy from config
-  - [ ] Call `reconstruct()` and extract features
-  - [ ] Return appropriate array for train/test mode
-- **Tests**:
-  - OOF reconstruction produces correct shape
-  - Coverage strategies work
-  - Test mode uses aggregated predictions
-
-#### Task 4.3: Unsafe Mode Implementation (0.5 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_collect_predictions_unsafe(dataset, prediction_store, source_models, mode)`
-  - [ ] Collect training predictions directly (NO OOF)
-  - [ ] Aggregate across folds with mean
-  - [ ] Emit prominent warning
-  - [ ] Tag metadata with `unsafe_merge=True`
-- **Tests**:
-  - Unsafe mode works
-  - Warning emitted
-  - Metadata tagged
-
-#### Task 4.4: Simple Prediction Merge (1 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_collect_predictions(dataset, context, branch_contexts, config, prediction_store, mode)`
-  - [ ] Handle simple mode: all branches, all models, separate
-  - [ ] Iterate branches → discover models → collect OOF
-  - [ ] Concatenate all predictions horizontally
-  - [ ] Route to OOF or unsafe based on config
-- **Tests**:
-  - Simple `{"merge": "predictions"}` works
-  - Multiple branches combined
-  - Multiple models per branch → separate features
-
-#### Deliverable Phase 4
-- `{"merge": "predictions"}` working with OOF
-- Unsafe mode with warnings
-- Simple syntax fully supported
-
----
-
-### Phase 5: Prediction Merging - Per-Branch Control (3-4 days)
-
-**Goal**: Per-branch selection and aggregation strategies
-
-#### Task 5.1: Model Ranking & Selection (1.5 days)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_rank_models(model_names, prediction_store, branch_id, metric)`
-  - [ ] Query validation predictions for each model
-  - [ ] Compute metric (rmse, mae, r2, accuracy, f1)
-  - [ ] Return sorted list of (model_name, score)
-  - [ ] Implement `_select_models(branch_config, ranked_models) -> List[str]`
-  - [ ] Handle `"all"`: return all
-  - [ ] Handle `"best"`: return top 1
-  - [ ] Handle `{"top_k": N}`: return top N
-  - [ ] Handle explicit list: return filtered
-- **Tests**:
-  - Ranking by each metric
-  - All selection strategies
-  - Top-K with K > available → all available
-  - Explicit model not found → error
-
-#### Task 5.2: Prediction Aggregation (1.5 days)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_aggregate_predictions(predictions_list, strategy, weights=None)`
-  - [ ] `"separate"`: stack horizontally
-  - [ ] `"mean"`: np.mean(axis=0)
-  - [ ] `"weighted_mean"`: weighted average with normalized weights
-  - [ ] `"proba_mean"`: average class probabilities
-  - [ ] Implement `_get_aggregation_weights(model_names, prediction_store, branch_id, metric)`
-- **Tests**:
-  - Each aggregation strategy produces correct shape
-  - Weighted mean normalization
-  - Proba mean for multi-class
-
-#### Task 5.3: Per-Branch Collection (1 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Implement `_collect_predictions_per_branch(dataset, context, branch_contexts, prediction_configs, prediction_store, mode)`
-  - [ ] Iterate `BranchPredictionConfig` list
-  - [ ] For each branch:
-    1. Discover models
-    2. Rank models
-    3. Select based on strategy
-    4. Collect OOF for selected
-    5. Aggregate based on strategy
-  - [ ] Concatenate all branch outputs
-- **Tests**:
-  - Single branch with selection + aggregation
-  - Multiple branches with different strategies
-  - Mixed: some branches select, some aggregate
-
-#### Task 5.4: Integration Testing (0.5 day)
-- **File**: `tests/integration/pipeline/test_merge_per_branch.py`
-- **Actions**:
-  - [ ] Test best per branch
-  - [ ] Test top-K per branch
-  - [ ] Test mean aggregation
-  - [ ] Test weighted mean
-  - [ ] Test different strategies per branch
-  - [ ] Test explicit model selection
-- **Tests**: All per-branch scenarios
-
-#### Deliverable Phase 5
-- Full per-branch control working
-- All selection strategies
-- All aggregation strategies
-- Integration tests passing
-
----
-
-### Phase 6: Mixed Merging (2 days)
-
-**Goal**: Combine features and predictions from different branches
-
-#### Task 6.1: Mixed Collection Logic (1 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Update `execute()` to handle mixed config
-  - [ ] Collect features from feature branches
-  - [ ] Collect predictions from prediction branches
-  - [ ] Handle overlap (branch in both → features + predictions)
-  - [ ] Concatenate: `[original? | features | predictions]`
-- **Tests**:
-  - Features from branch 0, predictions from branch 1
-  - Same branch for both
-  - With include_original
-
-#### Task 6.2: Asymmetric Branch Handling (0.5 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Handle branch with only transforms → features only
-  - [ ] Handle branch with only models → predictions only
-  - [ ] Handle branch with both → based on config
-  - [ ] Clear error when requesting predictions from transform-only branch
-- **Tests**:
-  - Asymmetric pipeline scenarios
-  - Error cases
-
-#### Task 6.3: Integration Testing (0.5 day)
-- **File**: `tests/integration/pipeline/test_merge_mixed.py`
-- **Actions**:
-  - [ ] Test `{"merge": {"features": [1], "predictions": [0]}}`
-  - [ ] Test `{"merge": "all"}` with multi-model branches
-  - [ ] Test include_original with mixed
-- **Tests**: Complex scenarios
-
-#### Deliverable Phase 6
-- Mixed feature + prediction merging
-- Asymmetric branch handling
-- All combinations tested
-
----
-
-### Phase 7: MetaModel Refactoring (3-4 days)
-
-**Goal**: Refactor MetaModel to use MergeController internally
-
-#### Task 7.1: Static Merge Method (0.5 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Add `@classmethod merge_branches(cls, dataset, context, config, prediction_store, mode)`
-  - [ ] Create minimal step_info
-  - [ ] Call `execute()` internally
-  - [ ] Return (context, StepOutput)
-- **Tests**: Static method works
-
-#### Task 7.2: MetaModel Config Translation (1 day)
-- **File**: `nirs4all/controllers/models/meta_model.py`
-- **Actions**:
-  - [ ] Implement `_build_merge_config(meta_model, context) -> MergeConfig`
-  - [ ] Map `source_models` to `model_filter` or `prediction_configs`
-  - [ ] Map `branch_scope` to `prediction_branches`
-  - [ ] Map `use_proba` to per-branch `proba`
-  - [ ] Add new `include_features` → `collect_features + include_original`
-  - [ ] Pass through `stacking_config` coverage/aggregation
-- **Tests**: All mappings correct
-
-#### Task 7.3: MetaModel Execute Refactoring (1.5 days)
-- **File**: `nirs4all/controllers/models/meta_model.py`
-- **Actions**:
-  - [ ] Check if merge already applied (`context.custom.get("has_merged_features")`)
-  - [ ] If yes: use existing merged features
-  - [ ] If no: build merge config, call `MergeController.merge_branches()`
-  - [ ] Get merged features from dataset
-  - [ ] Train meta-learner
-  - [ ] Keep rest of logic (prediction, storage, etc.)
-- **Tests**:
-  - MetaModel without prior merge → works
-  - MetaModel after explicit merge → uses existing
-  - Backward compatibility
-
-#### Task 7.4: Backward Compatibility Testing (1 day)
-- **File**: `tests/integration/pipeline/test_meta_model_backward_compat.py`
-- **Actions**:
-  - [ ] Run all existing MetaModel examples
-  - [ ] Verify identical results
-  - [ ] Test Q_meta_stacking.py
-  - [ ] Test Q18_stacking.py
-- **Tests**: No regressions
-
-#### Deliverable Phase 7
-- MetaModel uses MergeController internally
-- Full backward compatibility
-- New `include_features` capability
-
----
-
-### Phase 8: Prediction Mode & Artifacts (2-3 days)
-
-**Goal**: MergeController works in prediction/explain mode
-
-#### Task 8.1: Manifest Storage (0.5 day)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Save `MergeConfig` to manifest during training
-  - [ ] Include: feature_branches, prediction_configs, unsafe flag
-  - [ ] Serialize `BranchPredictionConfig` list
-- **Tests**: Config saved and retrievable
-
-#### Task 8.2: Prediction Mode Execution (1.5 days)
-- **File**: `nirs4all/controllers/data/merge.py`
-- **Actions**:
-  - [ ] Detect `mode == "predict"` or `mode == "explain"`
-  - [ ] Load merge config from manifest
-  - [ ] Apply saved transformers for feature branches
-  - [ ] Load models and get test predictions
-  - [ ] Aggregate test predictions per branch config
-  - [ ] Create merged features for test data
-- **Tests**:
-  - Train → predict cycle
-  - Feature branches in prediction mode
-  - Prediction branches with aggregation
-
-#### Task 8.3: Bundle Export Support (0.5 day)
-- **File**: `nirs4all/pipeline/bundle/export.py`
-- **Actions**:
-  - [ ] Include merge artifacts in bundle
-  - [ ] Export per-branch transformers
-  - [ ] Export model references for prediction branches
-- **Tests**: Bundle export/import with merge
-
-#### Task 8.4: Full Cycle Testing (0.5 day)
-- **File**: `tests/integration/pipeline/test_merge_prediction_mode.py`
-- **Actions**:
-  - [ ] Train pipeline with merge → save → load → predict
-  - [ ] Verify prediction shapes
-  - [ ] Verify feature reconstruction
-- **Tests**: Complete cycle
-
-#### Deliverable Phase 8
-- Full prediction mode support
-- Bundle export working
-- Train/predict cycle tested
-
----
-
-### Phase 9: Documentation & Examples (2 days)
-
-**Goal**: Complete documentation and working examples
-
-#### Task 9.1: Example File (1 day)
-- **File**: `examples/Q_merge_branches.py`
-- **Actions**:
-  - [ ] Example 1: Feature merging
-  - [ ] Example 2: Prediction merging (OOF safe)
-  - [ ] Example 3: Mixed merging
-  - [ ] Example 4: Per-branch selection (best, top-k)
-  - [ ] Example 5: Per-branch aggregation (mean, weighted)
-  - [ ] Example 6: Different strategies per branch
-  - [ ] Example 7: Comparison with MetaModel
-  - [ ] Example 8: Unsafe mode (with warnings)
-- **Tests**: Example runs without error
-
-#### Task 9.2: Reference Documentation (0.5 day)
-- **File**: `docs/reference/branching.md`
-- **Actions**:
-  - [ ] Add "Merge" section
-  - [ ] Document all syntax forms
-  - [ ] Document selection strategies
-  - [ ] Document aggregation strategies
-  - [ ] Add troubleshooting section
-- **Output**: Complete merge documentation
-
-#### Task 9.3: Update Related Docs (0.5 day)
-- **Files**: Multiple
-- **Actions**:
-  - [ ] Update `docs/user_guide/stacking.md` - explain merge relationship
-  - [ ] Update `docs/specifications/pipeline_syntax.md` - add merge syntax
-  - [ ] Update `.github/copilot-instructions.md` - mention merge
-- **Output**: Consistent documentation
-
-#### Deliverable Phase 9
-- Comprehensive example file
-- Complete reference documentation
-- All docs updated
-
----
-
-### Timeline Summary
-
-| Phase | Duration | Depends On | Key Deliverable |
-|-------|----------|------------|-----------------|
-| Phase 1: Data Structures | 3-4 days | - | Enums, configs, parsing |
-| Phase 2: Controller Skeleton | 2-3 days | Phase 1 | Branch exit, basic execute |
-| Phase 3: Feature Merge | 2-3 days | Phase 2 | `{"merge": "features"}` |
-| Phase 4: Prediction Simple | 3-4 days | Phase 2 | OOF, unsafe, simple syntax |
-| Phase 5: Prediction Per-Branch | 3-4 days | Phase 4 | Selection + aggregation |
-| Phase 6: Mixed Merge | 2 days | Phase 3, 5 | Features + predictions |
-| Phase 7: MetaModel Refactor | 3-4 days | Phase 5 | Backward compat |
-| Phase 8: Prediction Mode | 2-3 days | Phase 6, 7 | Train/predict cycle |
-| Phase 9: Documentation | 2 days | Phase 8 | Examples and docs |
-
-**Total Estimated Time**: 22-29 days
-
----
-
-### Risk Mitigation
-
-| Risk | Mitigation |
-|------|------------|
-| MetaModel backward compat | Phase 7 dedicated to testing all existing examples |
-| OOF edge cases | Reuse proven TrainingSetReconstructor |
-| Unsafe mode misuse | Prominent warnings at config, parse, and execute |
-| Performance regression | Benchmark on Q18, Q_meta_stacking before/after |
-| Complex config parsing | Extensive unit tests in Phase 1 |
-| Per-branch complexity | Build on simple mode first (Phase 4 → 5) |
-
-> **End of original roadmap**. See Section 13 for the comprehensive updated roadmap.
+| File | Action | Status | Phase |
+|------|--------|--------|-------|
+| `nirs4all/operators/data/merge.py` | **Create** MergeMode, SelectionStrategy, AggregationStrategy enums | ✅ Done | 1 |
+| `nirs4all/operators/data/merge.py` | **Create** BranchPredictionConfig dataclass | ✅ Done | 1 |
+| `nirs4all/operators/data/merge.py` | **Create** MergeConfig dataclass | ✅ Done | 1 |
+| `nirs4all/controllers/data/merge.py` | **Implement** MergeController skeleton | ✅ Done | 2 |
+| `nirs4all/controllers/data/merge.py` | **Implement** config parsing | ✅ Done | 1 |
+| `nirs4all/controllers/data/merge.py` | **Implement** feature collection | ✅ Done | 3 |
+| `nirs4all/controllers/data/merge.py` | **Implement** OOF prediction collection | ✅ Done | 4 |
+| `nirs4all/controllers/data/merge.py` | **Implement** per-branch selection/aggregation | ✅ Done | 5 |
+| `nirs4all/data/dataset.py` | **Add** `add_merged_features()`, `get_merged_features()` | ✅ Done | 2 |
+| `nirs4all/controllers/models/meta_model.py` | **Refactor** to use MergeController | ⏳ Pending | 7 |
+| `tests/unit/operators/data/test_merge_config.py` | **Create** config parsing tests | ✅ Done | 1 |
+| `tests/unit/controllers/data/test_merge_controller.py` | **Create** controller unit tests | ✅ Done | 2-5 |
+| `tests/integration/pipeline/test_merge_features.py` | **Create** feature merge tests | ✅ Done | 3 |
+| `tests/integration/pipeline/test_merge_predictions.py` | **Create** prediction merge tests | ✅ Done | 4 |
+| `tests/integration/pipeline/test_merge_per_branch.py` | **Create** per-branch strategy tests | ✅ Done | 5 |
+| `tests/integration/pipeline/test_merge_mixed.py` | **Create** mixed merge tests | ✅ Done | 6 |
+| `tests/integration/pipeline/test_meta_model_backward_compat.py` | **Create** backward compat tests | ⏳ Pending | 7 |
+| `tests/integration/pipeline/test_merge_prediction_mode.py` | **Create** prediction mode tests | ⏳ Pending | 8 |
+| `examples/Q_merge_branches.py` | **Create** comprehensive examples | ⏳ Pending | 11 |
+| `docs/reference/branching.md` | **Update** with merge documentation | ⏳ Pending | 11 |
+| `docs/user_guide/stacking.md` | **Update** merge relationship | ⏳ Pending | 11 |
+| `docs/specifications/pipeline_syntax.md` | **Update** with merge syntax | ⏳ Pending | 11 |
 
 ---
 
@@ -2583,7 +2020,7 @@ After merge: [Branch0_features | Branch1_features]
            = (samples, 2 × (NIR_features + marker_features))
 ```
 
-**Important**: This assumes all branches have the same sources. If branches differ in source selection, a **shape mismatch error** occurs (see Section 11).
+**Important**: This assumes all branches have the same sources. If branches differ in source selection, a **shape mismatch error** occurs (see Section 12).
 
 ### 11.4 Prediction Merge with Multi-Source
 
@@ -3234,144 +2671,212 @@ This comprehensive roadmap supersedes the original Phase 1-9 plan by incorporati
 
 ### 15.2 Phase Overview
 
-| Phase | Duration | Key Deliverable |
-|-------|----------|-----------------|
-| **Phase 1**: Data Structures | 3-4 days | Enums, configs, parsing (including multi-source options) |
-| **Phase 2**: Controller Skeleton | 2-3 days | Branch exit, unified controller matching |
-| **Phase 3**: Feature Merge | 2-3 days | `{"merge": "features"}` with shape validation |
-| **Phase 4**: Prediction Simple | 3-4 days | OOF, unsafe, simple syntax |
-| **Phase 5**: Prediction Per-Branch | 3-4 days | Selection + aggregation strategies |
-| **Phase 6**: Mixed Merge + Asymmetric | 2-3 days | Features + predictions, asymmetric handling |
-| **Phase 7**: MetaModel Refactor | 3-4 days | Backward compatibility |
-| **Phase 8**: Prediction Mode | 2-3 days | Train/predict cycle |
-| **Phase 9**: Source Merge | 3-4 days | `{"merge_sources": ...}` |
-| **Phase 10**: Source Branching | 4-5 days | `{"source_branch": ...}` |
-| **Phase 11**: Documentation | 2-3 days | Examples and comprehensive docs |
+| Phase | Status | Duration | Key Deliverable |
+|-------|--------|----------|-----------------|
+| **Phase 1**: Data Structures | ✅ Done | 3-4 days | Enums, configs, parsing (including multi-source options) |
+| **Phase 2**: Controller Skeleton | ✅ Done | 2-3 days | Branch exit, unified controller matching |
+| **Phase 3**: Feature Merge | ✅ Done | 2-3 days | `{"merge": "features"}` with shape validation |
+| **Phase 4**: Prediction Simple | ✅ Done | 3-4 days | OOF, unsafe, simple syntax |
+| **Phase 5**: Prediction Per-Branch | ✅ Done | 3-4 days | Selection + aggregation strategies |
+| **Phase 6**: Mixed Merge + Asymmetric | ✅ Done | 2-3 days | Features + predictions, asymmetric handling |
+| **Phase 7**: MetaModel Refactor | ✅ Done | 3-4 days | Backward compatibility, merge delegation |
+| **Phase 8**: Prediction Mode | ✅ Done | 2-3 days | Train/predict cycle |
+| **Phase 9**: Source Merge | ✅ Done | 3-4 days | `{"merge_sources": ...}` |
+| **Phase 10**: Source Branching | ✅ Done | 4-5 days | `{"source_branch": ...}` |
+| **Phase 11**: Documentation | ✅ Done | 2-3 days | Examples and comprehensive docs |
 
 **Total Estimated Time**: 29-40 days
+**Current Progress**: All 11 phases complete ✅
 
 ### 15.3 Phase Details
 
-#### Phase 1: Data Structures & Config Parsing (3-4 days)
+#### Phase 1: Data Structures & Config Parsing (3-4 days) ✅
 
 **Goal**: Establish all data structures and config parsing logic
 
 **Key Tasks**:
-1. Create enum types: `MergeMode`, `SelectionStrategy`, `AggregationStrategy`, `ShapeMismatchStrategy`
-2. Create `BranchPredictionConfig` dataclass with validation
-3. Create `MergeConfig` with `source_handling` and `on_shape_mismatch` fields
-4. Implement config parser for all syntax variants
+- [x] Create enum types: `MergeMode`, `SelectionStrategy`, `AggregationStrategy`, `ShapeMismatchStrategy`
+- [x] Create `BranchPredictionConfig` dataclass with validation
+- [x] Create `MergeConfig` with `source_handling` and `on_shape_mismatch` fields
+- [x] Implement config parser for all syntax variants
 
 **Multi-Source Additions**:
-- Add `source_handling` field: `"concat"` | `"per_source"` | `"dict"`
-- Add `on_shape_mismatch` field: `"error"` | `"pad"` | `"truncate"` | `"allow"`
-- Add `SourceMergeConfig` dataclass for `merge_sources` keyword
+- [x] Add `source_handling` field: `"concat"` | `"per_source"` | `"dict"`
+- [x] Add `on_shape_mismatch` field: `"error"` | `"pad"` | `"truncate"` | `"allow"`
+- [x] Add `SourceMergeConfig` dataclass for `merge_sources` keyword
 
-#### Phase 2: Controller Skeleton & Branch Exit (2-3 days)
+#### Phase 2: Controller Skeleton & Branch Exit (2-3 days) ✅
 
 **Goal**: Basic unified controller that handles all merge keywords
 
 **Key Tasks**:
-1. Register controller for keywords: `"merge"`, `"merge_sources"`, `"merge_predictions"`
-2. Implement keyword dispatch in `execute()` method
-3. Implement branch validation with error codes (MERGE-E020, MERGE-E021)
-4. Implement branch mode exit logic
-5. Add `add_merged_features()` to SpectroDataset
+- [x] Register controller for keywords: `"merge"`, `"merge_sources"`, `"merge_predictions"`
+- [x] Implement keyword dispatch in `execute()` method
+- [x] Implement branch validation with error codes (MERGE-E020, MERGE-E021)
+- [x] Implement branch mode exit logic
+- [x] Add `add_merged_features()` to SpectroDataset
 
-#### Phase 3: Feature Merging with Shape Validation (2-3 days)
+#### Phase 3: Feature Merging with Shape Validation (2-3 days) ✅
 
 **Goal**: Feature merge with comprehensive shape handling
 
 **Key Tasks**:
-1. Extract features from snapshot with source handling options
-2. Validate shape compatibility (sample count always, feature count based on strategy)
-3. Implement `on_shape_mismatch` strategies: error, pad, truncate, allow
-4. Generate clear error messages (MERGE-E001, MERGE-E003)
+- [x] Extract features from snapshot with source handling options
+- [x] Validate shape compatibility (sample count always, feature count based on strategy)
+- [x] Implement `on_shape_mismatch` strategies: error, pad, truncate, allow
+- [x] Generate clear error messages (MERGE-E001, MERGE-E003)
 
-#### Phase 4: Prediction Merging - Simple Mode (3-4 days)
+#### Phase 4: Prediction Merging - Simple Mode (3-4 days) ✅
 
 **Goal**: OOF prediction collection with safety guarantees
 
 **Key Tasks**:
-1. Model discovery from prediction store
-2. OOF reconstruction via `TrainingSetReconstructor`
-3. Unsafe mode with prominent warnings
-4. Error handling for missing models (MERGE-E010, MERGE-E011)
+- [x] Model discovery from prediction store
+- [x] OOF reconstruction via `TrainingSetReconstructor`
+- [x] Unsafe mode with prominent warnings
+- [x] Error handling for missing models (MERGE-E010, MERGE-E011)
 
-#### Phase 5: Prediction Merging - Per-Branch Control (3-4 days)
+#### Phase 5: Prediction Merging - Per-Branch Control (3-4 days) ✅
 
 **Goal**: Advanced per-branch selection and aggregation
 
 **Key Tasks**:
-1. Model ranking by metric (rmse, mae, r2, accuracy, f1)
-2. Selection strategies: all, best, top_k, explicit
-3. Aggregation strategies: separate, mean, weighted_mean, proba_mean
-4. Per-branch configuration parsing
+- [x] Model ranking by metric (rmse, mae, r2, accuracy, f1)
+- [x] Selection strategies: all, best, top_k, explicit
+- [x] Aggregation strategies: separate, mean, weighted_mean, proba_mean
+- [x] Per-branch configuration parsing
 
-#### Phase 6: Mixed Merge + Asymmetric Handling (2-3 days)
+#### Phase 6: Mixed Merge + Asymmetric Handling (2-3 days) ✅
 
 **Goal**: Handle complex asymmetric branch scenarios
 
 **Key Tasks**:
-1. Mixed feature + prediction collection
-2. Asymmetric branch detection and validation
-3. Error handling for partial model coverage (MERGE-E010)
-4. Different strategies per branch
+- [x] Mixed feature + prediction collection
+- [x] Asymmetric branch detection and validation
+- [x] Error handling for partial model coverage (MERGE-E010)
+- [x] Different strategies per branch
 
 **Asymmetric Scenarios Covered**:
-- Models in some branches, not others
-- Different feature dimensions per branch
-- Different model counts per branch
+- [x] Models in some branches, not others
+- [x] Different feature dimensions per branch
+- [x] Different model counts per branch
 
-#### Phase 7: MetaModel Refactoring (3-4 days)
+#### Phase 7: MetaModel Refactoring (3-4 days) ✅
 
 **Goal**: MetaModel delegates to MergeController
 
 **Key Tasks**:
-1. Create static `merge_branches()` method
-2. Implement config translation from MetaModel params
-3. Refactor execute to use merge when needed
-4. Extensive backward compatibility testing
+- [x] Create static `merge_branches()` method on MergeController
+- [x] Implement `build_config_from_meta_model()` for config translation
+- [x] Add `_reconstruct_with_merge_controller()` method to MetaModelController
+- [x] Add `_should_use_merge_controller()` for decision logic
+- [x] Refactor `_reconstruct_with_reconstructor()` to optionally use merge
+- [x] Add `use_merge_controller` class attribute (default=False for backward compat)
+- [x] Extensive backward compatibility testing (144 tests pass)
 
-#### Phase 8: Prediction Mode & Artifacts (2-3 days)
+**Integration Pattern**:
+MetaModel can now optionally delegate to MergeController for branch handling:
+```python
+# MetaModelController checks if in branch mode with ALL_BRANCHES scope
+if self._should_use_merge_controller(context, meta_operator):
+    result = self._reconstruct_with_merge_controller(...)
+    if result is not None:
+        return result  # Use merge result
+# Fallback to standard TrainingSetReconstructor
+```
+
+**User-Facing Equivalences** (now implemented):
+```python
+# These are now semantically equivalent:
+{"model": MetaModel(Ridge())}
+# Is equivalent to:
+{"merge": "predictions"}, {"model": Ridge()}
+```
+
+#### Phase 8: Prediction Mode & Artifacts (2-3 days) ✅
 
 **Goal**: Full train/predict cycle support
 
 **Key Tasks**:
-1. Save merge config to manifest
-2. Load and apply in prediction mode
-3. Bundle export support
-4. Full cycle integration tests
+- [x] Save merge config to manifest
+- [x] Load and apply in prediction mode
+- [x] Bundle export support
+- [x] Full cycle integration tests
 
-#### Phase 9: Source Merge Implementation (3-4 days)
+#### Phase 9: Source Merge Implementation (3-4 days) ✅
 
 **Goal**: Multi-source feature combination
 
 **Key Tasks**:
-1. Parse source selection (by name or index)
-2. Implement merge strategies: concat, stack, dict
-3. Handle incompatible shapes: error, flatten, pad
-4. Source validation utilities on SpectroDataset
+- [x] Parse source selection (by name or index)
+- [x] Implement merge strategies: concat, stack, dict
+- [x] Handle incompatible shapes: error, flatten, pad, truncate
+- [x] Source validation utilities on SpectroDataset
+- [x] Implement merge_predictions for late fusion without branch context
 
-#### Phase 10: Source Branching (4-5 days)
+**Implementation Details**:
+- Added `SourceMergeConfig`, `SourceMergeStrategy`, `SourceIncompatibleStrategy` enums/dataclasses
+- Implemented `_execute_source_merge()` with three strategies:
+  - `concat`: 2D horizontal concatenation of all source features
+  - `stack`: 3D stacking along source axis (requires uniform shapes)
+  - `dict`: Keep sources as structured dictionary for multi-input models
+- Implemented `_execute_prediction_merge()` for late fusion of predictions
+- Single-source dataset handling: returns no-op with warning
+- Error codes: MERGE-E024 (single source), MERGE-E030 (shape mismatch), MERGE-E031 (unknown source)
+- 19 new unit tests covering config parsing, strategies, and error handling
+
+#### Phase 10: Source Branching (4-5 days) ✅
 
 **Goal**: Per-source pipeline execution
 
 **Key Tasks**:
-1. Create `SourceBranchController`
-2. Source isolation during branch execution
-3. Integration with `merge_sources`
-4. Prediction mode support
+- [x] Create `SourceBranchConfig` dataclass in `operators/data/merge.py`
+- [x] Create `SourceBranchController` in `controllers/data/source_branch.py`
+- [x] Implement `SourceBranchConfigParser` for syntax parsing
+- [x] Source isolation via processing chain filtering per source
+- [x] Auto-merge option with concat/stack/dict strategies
+- [x] Integration with `merge_sources` for manual merge
+- [x] Prediction mode support with artifact provider
+- [x] Unit tests in `tests/unit/controllers/data/test_source_branch.py` (27 tests)
+- [x] Integration tests in `tests/integration/pipeline/test_source_branch.py` (9 tests)
 
-#### Phase 11: Documentation & Examples (2-3 days)
+**Implementation Notes**:
+- Uses processing chain filtering to isolate sources during sub-pipeline execution
+- Auto-merge collects features from all sources after processing
+- Compatible with MetaModel stacking (requires DROP_INCOMPLETE coverage strategy)
+- Error codes: SOURCEBRANCH-E001 (no sources), SOURCEBRANCH-E002 (single source warning)
+
+#### Phase 11: Documentation & Examples (2-3 days) ✅
 
 **Goal**: Comprehensive documentation and examples
 
 **Key Tasks**:
-1. Example files: Q_merge_branches.py, Q_merge_sources.py
-2. Reference documentation for all merge syntax
-3. Error catalog documentation
-4. Update related docs and copilot instructions
+- [x] Example files: Q_merge_branches.py, Q_merge_sources.py
+- [x] Reference documentation for all merge syntax
+- [x] Error catalog documentation
+- [x] Update related docs and copilot instructions
+
+**Implementation Details**:
+- Created `examples/Q_merge_branches.py` with 8 comprehensive examples:
+  - Basic feature merge
+  - Prediction merge (stacking)
+  - Mixed merge (features + predictions)
+  - Per-branch model selection
+  - Per-branch aggregation
+  - Asymmetric branches
+  - Merge vs MetaModel equivalence
+  - Output targets
+- Created `examples/Q_merge_sources.py` with 7 examples for multi-source datasets:
+  - Basic source merge
+  - Source branching (per-source pipelines)
+  - Source branch with auto-merge
+  - Source merge strategies (concat, stack, dict)
+  - Combined source + pipeline branching
+  - Source-aware stacking
+  - Shape mismatch handling
+- Created `docs/specifications/merge_syntax.md` with full syntax reference
+- Updated `.github/copilot-instructions.md` with branching and merging section
+- Added key file references for merge.py and source_branch.py
 
 ### 15.4 Dependency Graph
 

@@ -701,6 +701,13 @@ class LoaderArtifactProvider(ArtifactProvider):
         Returns:
             List of (artifact_id, artifact_object) tuples
         """
+        # Determine target branch for filtering
+        target_branch: Optional[int] = None
+        if branch_path is not None and len(branch_path) > 0:
+            target_branch = branch_path[0]
+        elif branch_id is not None:
+            target_branch = branch_id
+
         if self.trace is not None:
             step = self.trace.get_step(step_index)
             if step and step.artifacts:
@@ -715,6 +722,17 @@ class LoaderArtifactProvider(ArtifactProvider):
                 results = []
                 for artifact_id in artifact_ids:
                     try:
+                        # Filter by branch_path using artifact record metadata
+                        if target_branch is not None:
+                            record = self.loader.get_record(artifact_id)
+                            if record is not None:
+                                artifact_branch = None
+                                if record.branch_path and len(record.branch_path) > 0:
+                                    artifact_branch = record.branch_path[0]
+                                # Include if: artifact has no branch (shared) or matches target
+                                if artifact_branch is not None and artifact_branch != target_branch:
+                                    continue  # Skip - wrong branch
+
                         obj = self.loader.load_by_id(artifact_id)
                         results.append((artifact_id, obj))
                     except (KeyError, FileNotFoundError):

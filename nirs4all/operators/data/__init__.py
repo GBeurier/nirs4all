@@ -9,8 +9,11 @@ from .merge import (
     SelectionStrategy,
     AggregationStrategy,
     ShapeMismatchStrategy,
+    SourceMergeStrategy,
+    SourceIncompatibleStrategy,
     BranchPredictionConfig,
     MergeConfig,
+    SourceMergeConfig,
 )
 
 __all__ = [
@@ -19,7 +22,10 @@ __all__ = [
     "SelectionStrategy",
     "AggregationStrategy",
     "ShapeMismatchStrategy",
+    "SourceMergeStrategy",
+    "SourceIncompatibleStrategy",
     # Dataclasses
     "BranchPredictionConfig",
     "MergeConfig",
+    "SourceMergeConfig",
 ]

@@ -15,6 +15,11 @@ for cleaner separation of concerns and more robust coverage handling.
 
 Phase 3 Enhancement: Implements prediction mode with dependency resolution
 and meta-model artifact persistence with source model references.
+
+Phase 7 Enhancement: Optionally delegates to MergeController.merge_branches()
+for unified branch handling. When in branch mode with ALL_BRANCHES scope,
+MetaModel can use MergeController's infrastructure for OOF prediction collection.
+This provides a single source of truth for branch merging logic.
 """
 
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -109,15 +114,30 @@ class MetaModelController(SklearnModelController):
     The key difference from regular model controllers is that get_xy() returns
     features constructed from predictions rather than the original dataset features.
 
+    Phase 7 Enhancement: Can optionally delegate to MergeController.merge_branches()
+    for unified branch handling. This provides a single source of truth for OOF
+    prediction collection and enables seamless equivalence between:
+        - {"model": MetaModel(Ridge())}
+        - {"merge": "predictions"}, {"model": Ridge()}
+
     Attributes:
         priority: Controller priority (5) - higher than SklearnModelController (6)
             to ensure MetaModel operators are handled by this controller.
+        use_reconstructor: If True, use TrainingSetReconstructor for OOF.
+        use_merge_controller: If True, delegate to MergeController when in branch
+            mode with ALL_BRANCHES scope. This is the Phase 7 integration path.
     """
 
     priority = 5  # Higher priority than SklearnModelController (6)
 
     # Enable Phase 2 TrainingSetReconstructor (set to True to use new implementation)
     use_reconstructor: bool = True
+
+    # Phase 7: Enable MergeController delegation for branch mode
+    # When True and in branch mode, uses MergeController.merge_branches() for
+    # unified prediction collection. Currently False by default to maintain
+    # backward compatibility; can be enabled for testing or future defaults.
+    use_merge_controller: bool = False
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
@@ -278,7 +298,8 @@ class MetaModelController(SklearnModelController):
 
         Phase 7 Enhancement: Includes multi-level stacking validation (circular
         dependency detection, level consistency) and cross-branch stacking
-        validation (sample alignment, feature alignment).
+        validation (sample alignment, feature alignment). Also includes optional
+        delegation to MergeController.merge_branches() for unified branch handling.
 
         Args:
             dataset: SpectroDataset for sample indices.
@@ -309,6 +330,19 @@ class MetaModelController(SklearnModelController):
             meta_operator = self._get_meta_operator_from_context(context)
         except ValueError:
             return None
+
+        # Phase 7: Check if MergeController should be used for branch handling
+        if self._should_use_merge_controller(context, meta_operator):
+            result = self._reconstruct_with_merge_controller(
+                dataset=dataset,
+                context=context,
+                prediction_store=prediction_store,
+                y_train=y_train,
+                y_test=y_test,
+            )
+            if result is not None:
+                return result
+            # Fall through to standard reconstructor if merge failed
 
         # Get source model names
         source_models = self._get_source_models(meta_operator, context, prediction_store)
@@ -651,6 +685,190 @@ class MetaModelController(SklearnModelController):
                 warnings.warn(f"[{error.code}] {error.message}")
 
         return result
+
+    # =========================================================================
+    # Phase 7: MergeController Integration
+    # =========================================================================
+
+    def _reconstruct_with_merge_controller(
+        self,
+        dataset: 'SpectroDataset',
+        context: 'ExecutionContext',
+        prediction_store: 'Predictions',
+        y_train: np.ndarray,
+        y_test: np.ndarray,
+    ) -> Optional[ReconstructionResult]:
+        """Use MergeController for OOF feature construction (Phase 7).
+
+        Alternative to _reconstruct_with_reconstructor that delegates to
+        MergeController.merge_branches(). This provides unified branch handling
+        and ensures consistency between:
+            - {"model": MetaModel(Ridge())}
+            - {"merge": "predictions"}, {"model": Ridge()}
+
+        This method is only used when:
+            1. use_merge_controller is True
+            2. Pipeline is in branch mode (branch_contexts exist)
+            3. Branch scope is ALL_BRANCHES or there are multiple branches
+
+        For simpler cases (no branching, CURRENT_ONLY scope), the standard
+        TrainingSetReconstructor path is used.
+
+        Args:
+            dataset: SpectroDataset for sample indices.
+            context: Execution context with branch info.
+            prediction_store: Predictions storage.
+            y_train: Pre-computed training targets.
+            y_test: Pre-computed test targets.
+
+        Returns:
+            ReconstructionResult with meta-features from merge, or None if
+            MergeController cannot be used (will fallback to reconstructor).
+
+        Note:
+            This is the Phase 7 integration point. Currently enabled via
+            use_merge_controller flag. May become the default in future versions.
+        """
+        from nirs4all.controllers.data.merge import MergeController
+        from nirs4all.operators.data.merge import MergeConfig
+
+        # Check if we're in branch mode
+        branch_contexts = context.custom.get("branch_contexts", [])
+        in_branch_mode = context.custom.get("in_branch_mode", False)
+
+        if not branch_contexts and not in_branch_mode:
+            # Not in branch mode - use standard reconstructor instead
+            return None
+
+        try:
+            meta_operator = self._get_meta_operator_from_context(context)
+        except ValueError:
+            return None
+
+        # Build MergeConfig from MetaModel parameters
+        config = MergeController.build_config_from_meta_model(
+            meta_operator=meta_operator,
+            context=context,
+            branch_contexts=branch_contexts,
+        )
+
+        verbose = getattr(self, 'verbose', 0)
+        if verbose > 0:
+            logger.info("Using MergeController for OOF prediction collection (Phase 7)")
+
+        try:
+            # Delegate to MergeController
+            merged_features, info = MergeController.merge_branches(
+                dataset=dataset,
+                context=context,
+                config=config,
+                prediction_store=prediction_store,
+                mode="train",
+            )
+        except ValueError as e:
+            # MergeController couldn't handle this case
+            if verbose > 0:
+                logger.warning(f"MergeController fallback: {e}")
+            return None
+
+        # Convert to ReconstructionResult for compatibility
+        n_samples = merged_features.shape[0]
+        n_features = merged_features.shape[1]
+
+        # Split into train and test portions based on y shapes
+        n_train = len(y_train) if y_train is not None else 0
+        n_test = len(y_test) if y_test is not None else 0
+
+        # Get train and test indices
+        train_context = context.with_partition('train')
+        train_ids = list(dataset._indexer.x_indices(
+            train_context.selector,
+            include_augmented=True,
+            include_excluded=False
+        ))
+
+        test_context = context.with_partition('test')
+        test_ids = list(dataset._indexer.x_indices(
+            test_context.selector,
+            include_augmented=False,
+            include_excluded=False
+        ))
+
+        # Extract train and test features from merged
+        X_train_meta = merged_features[train_ids, :] if train_ids else np.zeros((0, n_features))
+        X_test_meta = merged_features[test_ids, :] if test_ids else np.zeros((0, n_features))
+
+        # Build ReconstructionResult
+        result = ReconstructionResult(
+            X_train_meta=X_train_meta,
+            y_train=y_train,
+            X_test_meta=X_test_meta,
+            y_test=y_test,
+            source_models=info.get("models_used", []),
+            n_folds=1,  # Merge doesn't track folds explicitly
+            coverage_ratio=1.0,  # Merge handles coverage internally
+            validation_result=type('ValidationResult', (), {
+                'is_valid': True,
+                'errors': [],
+                'warnings': [],
+            })(),
+        )
+
+        if verbose > 0:
+            logger.success(
+                f"MergeController reconstruction: "
+                f"train={X_train_meta.shape}, test={X_test_meta.shape}, "
+                f"models={len(info.get('models_used', []))}"
+            )
+
+        return result
+
+    def _should_use_merge_controller(
+        self,
+        context: 'ExecutionContext',
+        meta_operator: Optional[MetaModel] = None,
+    ) -> bool:
+        """Determine if MergeController should be used for this stacking operation.
+
+        Evaluates whether the current context and configuration make it appropriate
+        to delegate to MergeController.merge_branches() instead of using the
+        standard TrainingSetReconstructor.
+
+        Args:
+            context: Execution context with branch info.
+            meta_operator: MetaModel operator (optional, will be extracted if None).
+
+        Returns:
+            True if MergeController should be used, False otherwise.
+        """
+        # Check if feature flag is enabled
+        if not self.use_merge_controller:
+            return False
+
+        # Check if we're in branch mode
+        branch_contexts = context.custom.get("branch_contexts", [])
+        in_branch_mode = context.custom.get("in_branch_mode", False)
+
+        if not branch_contexts and not in_branch_mode:
+            return False
+
+        # Get meta operator if not provided
+        if meta_operator is None:
+            try:
+                meta_operator = self._get_meta_operator_from_context(context)
+            except ValueError:
+                return False
+
+        # For ALL_BRANCHES scope, MergeController is preferred
+        stacking_config = meta_operator.stacking_config
+        if stacking_config.branch_scope == BranchScope.ALL_BRANCHES:
+            return True
+
+        # For multiple branches, MergeController can handle unified collection
+        if len(branch_contexts) > 1:
+            return True
+
+        return False
 
     def _build_oof_features_from_predictions(
         self,

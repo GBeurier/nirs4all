@@ -118,6 +118,48 @@ class ShapeMismatchStrategy(Enum):
     TRUNCATE = "truncate"
 
 
+class SourceMergeStrategy(Enum):
+    """How to combine features from multiple data sources.
+
+    Used by the `merge_sources` keyword to control how multi-source
+    datasets are unified into a single feature space.
+
+    Attributes:
+        CONCAT: Horizontal concatenation of all source features (default).
+            Results in 2D array: (samples, sum_of_all_source_features).
+            Different feature dimensions per source is expected.
+        STACK: Stack sources along a new axis to create 3D tensor.
+            Results in 3D array: (samples, n_sources, n_features).
+            Requires all sources to have the same feature dimension.
+        DICT: Keep sources as a structured dictionary.
+            Results in Dict[str, ndarray] for multi-input models.
+            Each source is accessible by name.
+    """
+
+    CONCAT = "concat"
+    STACK = "stack"
+    DICT = "dict"
+
+
+class SourceIncompatibleStrategy(Enum):
+    """How to handle incompatible source shapes during stacking.
+
+    When using `stack` strategy with sources that have different feature
+    dimensions or processing counts, this controls the resolution.
+
+    Attributes:
+        ERROR: Raise an error on incompatible shapes (default, strictest).
+        FLATTEN: Force 2D concatenation instead of stacking.
+        PAD: Pad shorter sources with zeros to match longest.
+        TRUNCATE: Truncate longer sources to match shortest.
+    """
+
+    ERROR = "error"
+    FLATTEN = "flatten"
+    PAD = "pad"
+    TRUNCATE = "truncate"
+
+
 @dataclass
 class BranchPredictionConfig:
     """Configuration for prediction collection from a single branch.
@@ -460,3 +502,475 @@ class MergeConfig:
             ShapeMismatchStrategy enum value.
         """
         return ShapeMismatchStrategy(self.on_shape_mismatch)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize merge configuration to a dictionary.
+
+        Used for saving merge configuration to manifest for reproducibility
+        in prediction mode and bundle export.
+
+        Returns:
+            Dictionary representation suitable for YAML/JSON serialization.
+        """
+        result = {
+            "collect_features": self.collect_features,
+            "collect_predictions": self.collect_predictions,
+            "include_original": self.include_original,
+            "on_missing": self.on_missing,
+            "on_shape_mismatch": self.on_shape_mismatch,
+            "unsafe": self.unsafe,
+            "output_as": self.output_as,
+        }
+
+        if self.feature_branches != "all":
+            result["feature_branches"] = self.feature_branches
+
+        if self.prediction_branches != "all":
+            result["prediction_branches"] = self.prediction_branches
+
+        if self.prediction_configs:
+            result["prediction_configs"] = [
+                {
+                    "branch": pc.branch,
+                    "select": pc.select,
+                    "metric": pc.metric,
+                    "aggregate": pc.aggregate,
+                    "weight_metric": pc.weight_metric,
+                    "proba": pc.proba,
+                    "sources": pc.sources,
+                }
+                for pc in self.prediction_configs
+            ]
+
+        if self.model_filter:
+            result["model_filter"] = self.model_filter
+
+        if self.use_proba:
+            result["use_proba"] = self.use_proba
+
+        if self.source_names:
+            result["source_names"] = self.source_names
+
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MergeConfig":
+        """Create MergeConfig from a dictionary.
+
+        Used for loading merge configuration from manifest in prediction mode.
+
+        Args:
+            data: Dictionary representation of merge configuration.
+
+        Returns:
+            MergeConfig instance.
+        """
+        prediction_configs = None
+        if "prediction_configs" in data:
+            prediction_configs = [
+                BranchPredictionConfig(
+                    branch=pc["branch"],
+                    select=pc.get("select", "all"),
+                    metric=pc.get("metric"),
+                    aggregate=pc.get("aggregate", "separate"),
+                    weight_metric=pc.get("weight_metric"),
+                    proba=pc.get("proba", False),
+                    sources=pc.get("sources", "all"),
+                )
+                for pc in data["prediction_configs"]
+            ]
+
+        return cls(
+            collect_features=data.get("collect_features", False),
+            feature_branches=data.get("feature_branches", "all"),
+            collect_predictions=data.get("collect_predictions", False),
+            prediction_branches=data.get("prediction_branches", "all"),
+            prediction_configs=prediction_configs,
+            model_filter=data.get("model_filter"),
+            use_proba=data.get("use_proba", False),
+            include_original=data.get("include_original", False),
+            on_missing=data.get("on_missing", "error"),
+            on_shape_mismatch=data.get("on_shape_mismatch", "error"),
+            unsafe=data.get("unsafe", False),
+            output_as=data.get("output_as", "features"),
+            source_names=data.get("source_names"),
+        )
+
+
+@dataclass
+class SourceMergeConfig:
+    """Configuration for merging multi-source dataset features.
+
+    This dataclass provides configuration for the `merge_sources` keyword,
+    which combines features from multiple data sources (e.g., NIR, markers,
+    Raman) into a unified feature space.
+
+    Unlike branch merging (`merge`), source merging operates on the data
+    provenance dimension—combining features that originated from different
+    sensors, instruments, or data modalities.
+
+    Attributes:
+        strategy: How to combine source features.
+            - "concat" (default): Horizontal concatenation (2D result)
+            - "stack": Stack along new axis (3D result, requires uniform shapes)
+            - "dict": Keep as structured dictionary (for multi-input models)
+        sources: Which sources to include.
+            - "all" (default): Include all available sources
+            - List of source indices: [0, 1] for specific sources
+            - List of source names: ["NIR", "markers"] for named sources
+        on_incompatible: How to handle incompatible shapes (for stack strategy).
+            - "error" (default): Raise error if shapes don't match
+            - "flatten": Fall back to 2D concat
+            - "pad": Pad shorter with zeros
+            - "truncate": Truncate longer to match shortest
+        output_name: Name for the merged output source (default: "merged").
+        preserve_source_info: Whether to store source metadata for debugging.
+
+    Example:
+        >>> # Simple concatenation (default)
+        >>> {"merge_sources": "concat"}
+        >>>
+        >>> # Stack for 3D models (requires same feature count per source)
+        >>> {"merge_sources": {"strategy": "stack"}}
+        >>>
+        >>> # Selective sources with fallback on shape mismatch
+        >>> {"merge_sources": {
+        ...     "strategy": "stack",
+        ...     "sources": ["NIR", "MIR"],
+        ...     "on_incompatible": "flatten"
+        ... }}
+        >>>
+        >>> # Dict output for multi-head models
+        >>> {"merge_sources": {"strategy": "dict"}}
+    """
+
+    strategy: str = "concat"
+    sources: Union[str, List[Union[int, str]]] = "all"
+    on_incompatible: str = "error"
+    output_name: str = "merged"
+    preserve_source_info: bool = True
+
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        # Validate strategy
+        valid_strategies = ("concat", "stack", "dict")
+        if self.strategy not in valid_strategies:
+            raise ValueError(
+                f"strategy must be one of {valid_strategies}, got '{self.strategy}'"
+            )
+
+        # Validate on_incompatible
+        valid_incompatible = ("error", "flatten", "pad", "truncate")
+        if self.on_incompatible not in valid_incompatible:
+            raise ValueError(
+                f"on_incompatible must be one of {valid_incompatible}, "
+                f"got '{self.on_incompatible}'"
+            )
+
+        # Validate sources
+        if isinstance(self.sources, list):
+            if len(self.sources) == 0:
+                raise ValueError("sources list cannot be empty")
+
+    def get_strategy(self) -> SourceMergeStrategy:
+        """Get the merge strategy as an enum.
+
+        Returns:
+            SourceMergeStrategy enum value.
+        """
+        return SourceMergeStrategy(self.strategy)
+
+    def get_incompatible_strategy(self) -> SourceIncompatibleStrategy:
+        """Get the incompatible handling strategy as an enum.
+
+        Returns:
+            SourceIncompatibleStrategy enum value.
+        """
+        return SourceIncompatibleStrategy(self.on_incompatible)
+
+    def get_source_indices(self, available_sources: List[str]) -> List[int]:
+        """Resolve source specification to indices.
+
+        Args:
+            available_sources: List of available source names.
+
+        Returns:
+            List of source indices to include.
+
+        Raises:
+            ValueError: If a specified source is not found.
+        """
+        if self.sources == "all":
+            return list(range(len(available_sources)))
+
+        indices = []
+        for source in self.sources:
+            if isinstance(source, int):
+                if source < 0 or source >= len(available_sources):
+                    raise ValueError(
+                        f"Source index {source} out of range. "
+                        f"Available: 0-{len(available_sources) - 1}. "
+                        f"[Error: MERGE-E031]"
+                    )
+                indices.append(source)
+            elif isinstance(source, str):
+                if source not in available_sources:
+                    raise ValueError(
+                        f"Source name '{source}' not found. "
+                        f"Available: {available_sources}. "
+                        f"[Error: MERGE-E031]"
+                    )
+                indices.append(available_sources.index(source))
+            else:
+                raise ValueError(
+                    f"Source must be int or str, got {type(source).__name__}"
+                )
+
+        return indices
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize configuration to dictionary.
+
+        Returns:
+            Dictionary representation for manifest storage.
+        """
+        result = {
+            "strategy": self.strategy,
+            "on_incompatible": self.on_incompatible,
+            "output_name": self.output_name,
+            "preserve_source_info": self.preserve_source_info,
+        }
+
+        if self.sources != "all":
+            result["sources"] = self.sources
+
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SourceMergeConfig":
+        """Create config from dictionary.
+
+        Args:
+            data: Dictionary representation.
+
+        Returns:
+            SourceMergeConfig instance.
+        """
+        return cls(
+            strategy=data.get("strategy", "concat"),
+            sources=data.get("sources", "all"),
+            on_incompatible=data.get("on_incompatible", "error"),
+            output_name=data.get("output_name", "merged"),
+            preserve_source_info=data.get("preserve_source_info", True),
+        )
+
+
+@dataclass
+class SourceBranchConfig:
+    """Configuration for source branching operations.
+
+    This dataclass provides configuration for the `source_branch` keyword,
+    which creates per-source pipeline execution paths. Each source in a
+    multi-source dataset gets its own independent processing pipeline.
+
+    Unlike regular branching (`branch`), which creates parallel paths that
+    all process the same data, source branching assigns each source to a
+    specific processing pipeline based on its name or index.
+
+    Attributes:
+        source_pipelines: Mapping of source names/indices to their pipeline steps.
+            - Dict[str, List]: Named sources to steps mapping
+            - Dict[int, List]: Source indices to steps mapping
+            - "auto": Apply same steps to all sources independently
+        default_pipeline: Default pipeline for sources not explicitly specified.
+            Applied when a source is not listed in source_pipelines.
+            If None, unspecified sources are passed through unchanged.
+        merge_after: Whether to automatically merge sources after branching.
+            - True (default): Automatically call merge_sources after
+            - False: Keep sources separate (user must merge manually)
+        merge_strategy: Strategy for auto-merge (when merge_after=True).
+            - "concat" (default): Horizontal concatenation
+            - "stack": Stack along source axis
+            - "dict": Keep as dictionary
+
+    Example:
+        >>> # Different preprocessing per source
+        >>> {"source_branch": {
+        ...     "NIR": [SNV(), SavitzkyGolay()],
+        ...     "markers": [VarianceThreshold(), MinMaxScaler()],
+        ...     "Raman": [BaselineCorrection(), StandardScaler()]
+        ... }}
+        >>>
+        >>> # Source branching with default fallback
+        >>> {"source_branch": {
+        ...     "NIR": [SNV()],
+        ...     "_default_": [MinMaxScaler()]  # Applied to other sources
+        ... }}
+        >>>
+        >>> # Automatic same-preprocessing per source (isolates sources)
+        >>> {"source_branch": "auto"}
+        >>>
+        >>> # Source branching without auto-merge
+        >>> {"source_branch": {
+        ...     "NIR": [SNV()],
+        ...     "markers": [StandardScaler()],
+        ...     "_merge_after_": False  # Disable auto-merge
+        ... }}
+    """
+
+    source_pipelines: Union[str, Dict[Union[str, int], List[Any]]] = field(
+        default_factory=dict
+    )
+    default_pipeline: Optional[List[Any]] = None
+    merge_after: bool = True
+    merge_strategy: str = "concat"
+
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        # Validate merge_strategy
+        valid_strategies = ("concat", "stack", "dict")
+        if self.merge_strategy not in valid_strategies:
+            raise ValueError(
+                f"merge_strategy must be one of {valid_strategies}, "
+                f"got '{self.merge_strategy}'"
+            )
+
+        # Validate source_pipelines format
+        if isinstance(self.source_pipelines, str):
+            if self.source_pipelines != "auto":
+                raise ValueError(
+                    f"string source_pipelines must be 'auto', got '{self.source_pipelines}'"
+                )
+        elif isinstance(self.source_pipelines, dict):
+            # Extract special keys
+            if "_default_" in self.source_pipelines:
+                self.default_pipeline = self.source_pipelines.pop("_default_")
+            if "_merge_after_" in self.source_pipelines:
+                self.merge_after = self.source_pipelines.pop("_merge_after_")
+            if "_merge_strategy_" in self.source_pipelines:
+                self.merge_strategy = self.source_pipelines.pop("_merge_strategy_")
+
+            # Validate remaining keys are valid source references
+            for key in self.source_pipelines.keys():
+                if not isinstance(key, (str, int)):
+                    raise ValueError(
+                        f"source_pipelines keys must be str or int, got {type(key).__name__}"
+                    )
+
+    def is_auto_mode(self) -> bool:
+        """Check if using automatic source branching.
+
+        Returns:
+            True if source_pipelines is "auto".
+        """
+        return self.source_pipelines == "auto"
+
+    def get_pipeline_for_source(
+        self,
+        source_name: str,
+        source_index: int
+    ) -> Optional[List[Any]]:
+        """Get pipeline steps for a specific source.
+
+        Args:
+            source_name: Name of the source.
+            source_index: Index of the source.
+
+        Returns:
+            List of pipeline steps for this source, or None if passthrough.
+        """
+        if self.is_auto_mode():
+            # Auto mode: return empty list (passthrough with isolation)
+            return []
+
+        # Check by name first
+        if isinstance(self.source_pipelines, dict):
+            if source_name in self.source_pipelines:
+                return self.source_pipelines[source_name]
+            if source_index in self.source_pipelines:
+                return self.source_pipelines[source_index]
+
+        # Fall back to default
+        return self.default_pipeline
+
+    def get_all_source_mappings(
+        self,
+        available_sources: List[str]
+    ) -> Dict[str, List[Any]]:
+        """Get pipeline mapping for all available sources.
+
+        Args:
+            available_sources: List of available source names.
+
+        Returns:
+            Dict mapping source names to their pipeline steps.
+        """
+        result = {}
+
+        if self.is_auto_mode():
+            # Auto mode: each source gets empty pipeline (isolation only)
+            for source in available_sources:
+                result[source] = []
+        elif isinstance(self.source_pipelines, dict):
+            for idx, source in enumerate(available_sources):
+                pipeline = self.get_pipeline_for_source(source, idx)
+                if pipeline is not None:
+                    result[source] = pipeline
+                elif self.default_pipeline is not None:
+                    result[source] = self.default_pipeline
+                else:
+                    # No pipeline specified and no default: passthrough
+                    result[source] = []
+
+        return result
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize configuration to dictionary.
+
+        Returns:
+            Dictionary representation for manifest storage.
+        """
+        result = {
+            "merge_after": self.merge_after,
+            "merge_strategy": self.merge_strategy,
+        }
+
+        if self.is_auto_mode():
+            result["source_pipelines"] = "auto"
+        else:
+            # Serialize pipeline references (not the actual objects)
+            result["source_pipelines"] = {
+                str(k): "..." for k in self.source_pipelines.keys()
+            }
+
+        if self.default_pipeline is not None:
+            result["default_pipeline"] = "..."
+
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SourceBranchConfig":
+        """Create config from dictionary.
+
+        Note: This is primarily for metadata reconstruction. The actual
+        pipeline steps must be restored from the manifest/artifacts.
+
+        Args:
+            data: Dictionary representation.
+
+        Returns:
+            SourceBranchConfig instance (with placeholder pipelines).
+        """
+        source_pipelines = data.get("source_pipelines", {})
+        if isinstance(source_pipelines, str) and source_pipelines == "auto":
+            source_pipelines = "auto"
+        else:
+            # Placeholder for actual pipeline reconstruction
+            source_pipelines = {}
+
+        return cls(
+            source_pipelines=source_pipelines,
+            default_pipeline=None,  # Must be reconstructed
+            merge_after=data.get("merge_after", True),
+            merge_strategy=data.get("merge_strategy", "concat"),
+        )

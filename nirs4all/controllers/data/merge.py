@@ -35,8 +35,17 @@ Phase 6 Implementation:
 - Different model counts per branch handling
 - Improved error messages with resolution suggestions (MERGE-E010, MERGE-E011)
 
-Subsequent phases will add:
-- Source merge (Phase 9)
+Phase 8 Implementation:
+- Prediction mode support for merge steps
+- Bundle export support
+- Full train/predict cycle
+
+Phase 9 Implementation:
+- Source merge (merge_sources keyword) for multi-source datasets
+- Source merge strategies: concat, stack, dict
+- Source incompatibility handling: error, flatten, pad, truncate
+- Prediction merge (merge_predictions keyword) for late fusion
+- Error codes: MERGE-E024, MERGE-E030, MERGE-E031
 
 Example:
     >>> # Simple feature merge
@@ -52,8 +61,24 @@ Example:
     ...     {"merge": "predictions"},
     ...     {"model": Ridge()}
     ... ]
+    >>>
+    >>> # Source merge for multi-source datasets
+    >>> pipeline = [
+    ...     SNV(),  # Applied to all sources
+    ...     {"merge_sources": "concat"},  # Combine NIR + markers
+    ...     {"model": PLS()}
+    ... ]
+    >>>
+    >>> # Late fusion without branches
+    >>> pipeline = [
+    ...     SNV(),
+    ...     {"model": PLS()},
+    ...     {"model": RF()},
+    ...     {"merge_predictions": "all"},  # Combine predictions
+    ...     {"model": Ridge()}
+    ... ]
 
-Keywords: "merge"
+Keywords: "merge", "merge_sources", "merge_predictions"
 Priority: 5 (same as BranchController)
 """
 
@@ -73,6 +98,9 @@ from nirs4all.operators.data.merge import (
     SelectionStrategy,
     AggregationStrategy,
     ShapeMismatchStrategy,
+    SourceMergeConfig,
+    SourceMergeStrategy,
+    SourceIncompatibleStrategy,
 )
 from nirs4all.pipeline.execution.result import StepOutput
 
@@ -1311,6 +1339,12 @@ class MergeController(OperatorController):
 
         Combines outputs from multiple branches and exits branch mode.
 
+        Phase 8 Enhancement:
+        In prediction mode, if branch_contexts are not available (because branches
+        were already processed), we reconstruct the merge from loaded metadata.
+        The merge step doesn't persist binary artifacts - it combines features/predictions
+        that were already transformed by upstream branch steps.
+
         Args:
             step_info: Parsed step containing merge configuration
             dataset: Dataset to operate on
@@ -1331,6 +1365,22 @@ class MergeController(OperatorController):
         # Validate branch mode
         branch_contexts = context.custom.get("branch_contexts", [])
         in_branch_mode = context.custom.get("in_branch_mode", False)
+
+        # Phase 8: Handle prediction mode without branch_contexts
+        # In predict mode, branches are processed but contexts may not be available
+        # because the executor has already iterated through branches. We handle this
+        # by checking if we're in predict mode and if branch_contexts are empty.
+        if mode in ("predict", "explain") and not branch_contexts and not in_branch_mode:
+            return self._execute_branch_merge_predict_mode(
+                step_info=step_info,
+                dataset=dataset,
+                context=context,
+                runtime_context=runtime_context,
+                source=source,
+                config=config,
+                loaded_binaries=loaded_binaries,
+                prediction_store=prediction_store,
+            )
 
         if not branch_contexts and not in_branch_mode:
             raise ValueError(
@@ -1439,7 +1489,7 @@ class MergeController(OperatorController):
         result_context.custom["branch_contexts"] = []
         result_context.custom["in_branch_mode"] = False
 
-        # Build metadata
+        # Build metadata with serialized config for prediction mode reproducibility
         metadata = {
             "merge_mode": config.get_merge_mode().value,
             "feature_branches": (
@@ -1452,6 +1502,8 @@ class MergeController(OperatorController):
             ),
             "include_original": config.include_original,
             "output_as": config.output_as,
+            # Phase 8: Store serialized config for prediction mode
+            "merge_config": config.to_dict(),
             **merge_info,  # Include merge details
         }
 
@@ -2647,6 +2699,228 @@ class MergeController(OperatorController):
         else:
             raise ValueError(f"Invalid branch reference type: {type(branch_ref)}")
 
+    # =========================================================================
+    # Phase 8: Prediction Mode Support
+    # =========================================================================
+
+    def _execute_branch_merge_predict_mode(
+        self,
+        step_info: "ParsedStep",
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        runtime_context: "RuntimeContext",
+        source: int,
+        config: MergeConfig,
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
+        prediction_store: Optional[Any] = None,
+    ) -> Tuple["ExecutionContext", StepOutput]:
+        """Execute merge in prediction mode without active branch contexts.
+
+        In prediction mode, branches have already been processed by the executor
+        which iterates through each branch and applies their transformers. The merge
+        step's job in predict mode is to:
+
+        1. For feature merge: The dataset already has the merged/transformed features
+           from branch processing. We just need to mark branch mode as exited.
+
+        2. For prediction merge: Collect predictions from the prediction store
+           using the same configuration that was used during training.
+
+        The key insight is that merge doesn't persist artifacts itself - it orchestrates
+        the combination of outputs from branches. In predict mode, this orchestration
+        has already happened through the branch iteration in the executor.
+
+        Args:
+            step_info: Parsed step info
+            dataset: Dataset with branch-transformed features
+            context: Execution context
+            runtime_context: Runtime context
+            source: Source index
+            config: Parsed merge configuration
+            loaded_binaries: Not used (merge has no artifacts)
+            prediction_store: For prediction collection
+
+        Returns:
+            Updated context and StepOutput with prediction mode metadata
+        """
+        logger.info(
+            f"Merge step (predict mode): mode={config.get_merge_mode().value}"
+        )
+
+        merged_parts = []
+        merge_info = {"prediction_mode": True}
+
+        # In predict mode for feature merge:
+        # The features are already in the dataset from branch processing.
+        # The executor has iterated through branches and applied transformers.
+        # We just need to collect the current features as the "merged" output.
+        if config.collect_features:
+            # Get current features from dataset
+            # In predict mode, the branch iteration has already produced transformed features
+            try:
+                # Try to get existing merged features if already created
+                current_features = dataset.x(
+                    selector=context.selector,
+                    layout="2d",
+                    concat_source=True
+                )
+                if isinstance(current_features, list):
+                    current_features = np.concatenate(current_features, axis=1)
+
+                if current_features is not None and current_features.size > 0:
+                    merged_parts.append(current_features)
+                    merge_info["feature_shape"] = current_features.shape
+                    logger.info(
+                        f"  Collected features for prediction: shape={current_features.shape}"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not extract features in predict mode: {e}")
+
+        # In predict mode for prediction merge:
+        # We need to collect predictions from models that ran during prediction
+        if config.collect_predictions and prediction_store is not None:
+            try:
+                predictions_array = self._collect_predictions_predict_mode(
+                    dataset=dataset,
+                    context=context,
+                    config=config,
+                    prediction_store=prediction_store,
+                )
+
+                if predictions_array is not None and predictions_array.size > 0:
+                    merged_parts.append(predictions_array)
+                    merge_info["prediction_shape"] = predictions_array.shape
+                    logger.info(
+                        f"  Collected predictions for prediction: shape={predictions_array.shape}"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not collect predictions in predict mode: {e}")
+
+        # Include original features if configured
+        if config.include_original:
+            original = self._get_original_features(dataset, context)
+            if original is not None:
+                merged_parts.insert(0, original)
+                merge_info["original_shape"] = original.shape
+
+        # Combine all parts
+        if merged_parts:
+            merged_features = np.concatenate(merged_parts, axis=1)
+            merge_info["merged_shape"] = merged_features.shape
+            logger.info(f"  Final merged shape (predict): {merged_features.shape}")
+
+            # Store in dataset
+            processing_name = "merged"
+            if config.source_names and len(config.source_names) > 0:
+                processing_name = config.source_names[0]
+
+            dataset.add_merged_features(
+                features=merged_features,
+                processing_name=processing_name,
+                source=0
+            )
+
+        # Exit branch mode (if any residual state)
+        result_context = context.copy()
+        result_context.custom["branch_contexts"] = []
+        result_context.custom["in_branch_mode"] = False
+
+        # Build metadata
+        metadata = {
+            "merge_mode": config.get_merge_mode().value,
+            "prediction_mode": True,
+            "output_as": config.output_as,
+            **merge_info,
+        }
+
+        logger.success(
+            f"Merge step (predict mode) completed. "
+            f"Features={config.collect_features}, Predictions={config.collect_predictions}"
+        )
+
+        return result_context, StepOutput(metadata=metadata)
+
+    def _collect_predictions_predict_mode(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        config: MergeConfig,
+        prediction_store: "Predictions",
+    ) -> Optional[np.ndarray]:
+        """Collect predictions in prediction mode.
+
+        In predict mode, models have already generated predictions which are
+        stored in the prediction store. We collect and aggregate them according
+        to the merge configuration.
+
+        Args:
+            dataset: Dataset for sample info
+            context: Execution context
+            config: Merge configuration
+            prediction_store: Prediction storage
+
+        Returns:
+            Aggregated predictions array or None
+        """
+        # Get model names from config
+        model_filter = config.model_filter
+
+        # Query prediction store for test partition predictions
+        filter_kwargs = {
+            'partition': 'test',
+            'load_arrays': True,
+        }
+
+        predictions = prediction_store.filter_predictions(**filter_kwargs)
+
+        if not predictions:
+            logger.debug("No test predictions found in prediction store")
+            return None
+
+        # Group by model
+        model_predictions: Dict[str, List[np.ndarray]] = {}
+        for pred in predictions:
+            model_name = pred.get('model_name')
+            if model_name is None:
+                continue
+
+            # Apply model filter if specified
+            if model_filter and model_name not in model_filter:
+                continue
+
+            y_pred = pred.get('y_pred')
+            if y_pred is not None:
+                y_pred = np.asarray(y_pred)
+                if model_name not in model_predictions:
+                    model_predictions[model_name] = []
+                model_predictions[model_name].append(y_pred)
+
+        if not model_predictions:
+            logger.debug("No matching predictions after filtering")
+            return None
+
+        # Aggregate predictions per model (average across folds)
+        aggregated = []
+        for model_name, pred_list in model_predictions.items():
+            if len(pred_list) == 1:
+                model_pred = pred_list[0]
+            else:
+                # Average across folds
+                try:
+                    stacked = np.stack([p.flatten() for p in pred_list], axis=0)
+                    model_pred = np.mean(stacked, axis=0)
+                except Exception:
+                    model_pred = pred_list[0]
+
+            # Ensure 1D
+            model_pred = model_pred.flatten()
+            aggregated.append(model_pred.reshape(-1, 1))
+
+        if not aggregated:
+            return None
+
+        return np.hstack(aggregated)
+
     def _execute_source_merge(
         self,
         step_info: "ParsedStep",
@@ -2661,8 +2935,14 @@ class MergeController(OperatorController):
         """Execute source merge operation (Phase 9).
 
         Combines features from multiple data sources in a multi-source dataset.
+        This is distinct from branch merging - it operates on the data provenance
+        dimension (different sensors/instruments) rather than pipeline execution
+        dimension (parallel processing paths).
 
-        This is a placeholder for Phase 9 implementation.
+        Supports three merge strategies:
+        - concat: Horizontal concatenation (2D result)
+        - stack: Stack along new axis (3D result, requires uniform shapes)
+        - dict: Keep as structured dictionary (for multi-input models)
 
         Args:
             step_info: Parsed step containing merge configuration
@@ -2678,13 +2958,462 @@ class MergeController(OperatorController):
             Tuple of (updated_context, StepOutput)
 
         Raises:
-            NotImplementedError: Always (Phase 9 not yet implemented).
+            ValueError: If dataset has only one source (warning in single-source case).
         """
-        raise NotImplementedError(
-            "merge_sources is planned for Phase 9 implementation. "
-            "Use {'merge': 'features'} for branch feature merging. "
-            "[Error: MERGE-E090]"
+        # Parse configuration
+        raw_config = step_info.original_step.get("merge_sources")
+        config = self._parse_source_merge_config(raw_config)
+
+        # Validate multi-source dataset
+        n_sources = dataset.n_sources
+
+        if n_sources == 0:
+            raise ValueError(
+                "merge_sources requires a dataset with feature sources. "
+                "No sources found in dataset. "
+                "[Error: MERGE-E024]"
+            )
+
+        if n_sources == 1:
+            # Single source - warn but don't fail
+            logger.warning(
+                "merge_sources called on single-source dataset. "
+                "This is a no-op - the dataset already has unified features. "
+                "Consider removing this step. [Warning: MERGE-E024]"
+            )
+            return context.copy(), StepOutput(metadata={
+                "source_merge": "no-op",
+                "n_sources": 1,
+                "reason": "single_source_dataset",
+            })
+
+        # Get source names for logging and selection
+        source_names = self._get_source_names(dataset, n_sources)
+
+        logger.info(
+            f"Source merge: strategy={config.strategy}, "
+            f"sources={config.sources}, n_sources={n_sources}"
         )
+
+        # Resolve source indices
+        try:
+            source_indices = config.get_source_indices(source_names)
+        except ValueError as e:
+            raise ValueError(str(e))
+
+        if len(source_indices) < 2:
+            logger.warning(
+                f"Only {len(source_indices)} source(s) selected for merge. "
+                "Merge requires at least 2 sources to be meaningful."
+            )
+
+        # Collect features from each source
+        source_features, source_info = self._collect_source_features(
+            dataset=dataset,
+            context=context,
+            source_indices=source_indices,
+            source_names=source_names,
+        )
+
+        if not source_features:
+            raise ValueError(
+                "No features collected from any source. "
+                "[Error: MERGE-E030]"
+            )
+
+        # Apply merge strategy
+        strategy = config.get_strategy()
+
+        if strategy == SourceMergeStrategy.CONCAT:
+            merged_features, merge_info = self._merge_sources_concat(
+                source_features=source_features,
+                source_indices=source_indices,
+                source_names=source_names,
+            )
+        elif strategy == SourceMergeStrategy.STACK:
+            merged_features, merge_info = self._merge_sources_stack(
+                source_features=source_features,
+                source_indices=source_indices,
+                source_names=source_names,
+                on_incompatible=config.get_incompatible_strategy(),
+            )
+        elif strategy == SourceMergeStrategy.DICT:
+            merged_features, merge_info = self._merge_sources_dict(
+                source_features=source_features,
+                source_indices=source_indices,
+                source_names=source_names,
+            )
+        else:
+            raise ValueError(f"Unknown merge strategy: {strategy}")
+
+        # Store merged features in dataset
+        # For dict strategy, we need special handling
+        if strategy == SourceMergeStrategy.DICT:
+            # Dict strategy - store reference in context for downstream use
+            result_context = context.copy()
+            result_context.custom["merged_sources_dict"] = merged_features
+            result_context.custom["source_merge_applied"] = True
+
+            logger.info(
+                f"Source merge (dict) completed: {len(merged_features)} sources preserved"
+            )
+        else:
+            # Array strategies (concat/stack) - update dataset
+            processing_name = config.output_name
+
+            # Store as merged features
+            if isinstance(merged_features, np.ndarray):
+                dataset.add_merged_features(
+                    features=merged_features,
+                    processing_name=processing_name,
+                    source=0  # Primary source for merged features
+                )
+
+            result_context = context.copy()
+            result_context.custom["source_merge_applied"] = True
+
+            if merged_features is not None:
+                shape_str = str(merged_features.shape) if hasattr(merged_features, 'shape') else 'dict'
+                logger.info(
+                    f"Source merge ({config.strategy}) completed: shape={shape_str}"
+                )
+
+        # Build metadata
+        metadata = {
+            "merge_sources_strategy": config.strategy,
+            "sources_used": [source_names[i] for i in source_indices],
+            "source_indices": source_indices,
+            "n_sources_merged": len(source_indices),
+            "output_name": config.output_name,
+            # Store config for prediction mode
+            "source_merge_config": config.to_dict(),
+            **merge_info,
+        }
+
+        return result_context, StepOutput(metadata=metadata)
+
+    def _parse_source_merge_config(
+        self,
+        raw_config: Any
+    ) -> SourceMergeConfig:
+        """Parse source merge configuration.
+
+        Handles multiple syntax formats:
+        - Simple string: "concat", "stack", "dict"
+        - Dict with options: {"strategy": "stack", "sources": [...]}
+        - Already parsed SourceMergeConfig
+
+        Args:
+            raw_config: Raw configuration from step
+
+        Returns:
+            Normalized SourceMergeConfig instance
+        """
+        if isinstance(raw_config, str):
+            # Simple strategy string
+            return SourceMergeConfig(strategy=raw_config)
+        elif isinstance(raw_config, dict):
+            # Dict configuration
+            return SourceMergeConfig(
+                strategy=raw_config.get("strategy", "concat"),
+                sources=raw_config.get("sources", "all"),
+                on_incompatible=raw_config.get("on_incompatible", "error"),
+                output_name=raw_config.get("output_name", "merged"),
+                preserve_source_info=raw_config.get("preserve_source_info", True),
+            )
+        elif isinstance(raw_config, SourceMergeConfig):
+            return raw_config
+        else:
+            raise ValueError(
+                f"Invalid merge_sources config type: {type(raw_config).__name__}. "
+                f"Expected string, dict, or SourceMergeConfig."
+            )
+
+    def _get_source_names(
+        self,
+        dataset: "SpectroDataset",
+        n_sources: int
+    ) -> List[str]:
+        """Get source names from dataset.
+
+        Args:
+            dataset: The dataset
+            n_sources: Number of sources
+
+        Returns:
+            List of source names (generates default names if not available)
+        """
+        # Try to get source names from feature accessor
+        try:
+            source_names = []
+            for i in range(n_sources):
+                # Check if there's a name stored
+                processings = dataset.features_processings(i)
+                # Use first processing name or generate default
+                if processings:
+                    source_names.append(f"source_{i}")
+                else:
+                    source_names.append(f"source_{i}")
+            return source_names
+        except Exception:
+            return [f"source_{i}" for i in range(n_sources)]
+
+    def _collect_source_features(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        source_indices: List[int],
+        source_names: List[str],
+    ) -> Tuple[Dict[int, np.ndarray], Dict[str, Any]]:
+        """Collect features from specified sources.
+
+        Args:
+            dataset: The dataset
+            context: Execution context
+            source_indices: Which sources to collect
+            source_names: Names for logging
+
+        Returns:
+            Tuple of (source_features dict, info dict)
+        """
+        source_features = {}
+        shapes = {}
+
+        for src_idx in source_indices:
+            try:
+                # Get features for this source
+                # Use concat_source=False to get per-source data
+                X = dataset.x(
+                    selector=context.selector,
+                    layout="2d",
+                    concat_source=False,
+                    include_augmented=True,
+                    include_excluded=False
+                )
+
+                # X might be list or single array
+                if isinstance(X, list):
+                    if src_idx < len(X):
+                        features = X[src_idx]
+                    else:
+                        logger.warning(
+                            f"Source index {src_idx} out of range "
+                            f"(got {len(X)} sources). Skipping."
+                        )
+                        continue
+                else:
+                    # Single source - only valid for index 0
+                    if src_idx == 0:
+                        features = X
+                    else:
+                        logger.warning(
+                            f"Source index {src_idx} requested but dataset "
+                            f"returned single array. Skipping."
+                        )
+                        continue
+
+                source_features[src_idx] = features
+                shapes[src_idx] = features.shape
+                logger.debug(
+                    f"Collected source {src_idx} ({source_names[src_idx]}): "
+                    f"shape={features.shape}"
+                )
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to collect features from source {src_idx}: {e}"
+                )
+                continue
+
+        info = {
+            "source_shapes": shapes,
+            "sources_collected": len(source_features),
+        }
+
+        return source_features, info
+
+    def _merge_sources_concat(
+        self,
+        source_features: Dict[int, np.ndarray],
+        source_indices: List[int],
+        source_names: List[str],
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Merge sources by horizontal concatenation.
+
+        Args:
+            source_features: Dict mapping source index to feature array
+            source_indices: Source indices in order
+            source_names: Source names for logging
+
+        Returns:
+            Tuple of (merged 2D array, info dict)
+        """
+        arrays = []
+        feature_counts = []
+
+        for src_idx in source_indices:
+            if src_idx in source_features:
+                arr = source_features[src_idx]
+                # Ensure 2D
+                if arr.ndim == 1:
+                    arr = arr.reshape(-1, 1)
+                elif arr.ndim > 2:
+                    # Flatten to 2D
+                    arr = arr.reshape(arr.shape[0], -1)
+                arrays.append(arr)
+                feature_counts.append(arr.shape[1])
+
+        if not arrays:
+            raise ValueError(
+                "No arrays to concatenate. All sources failed to collect. "
+                "[Error: MERGE-E030]"
+            )
+
+        # Validate sample counts match
+        sample_counts = [arr.shape[0] for arr in arrays]
+        if len(set(sample_counts)) > 1:
+            raise ValueError(
+                f"Sample count mismatch across sources: {sample_counts}. "
+                f"All sources must have the same number of samples. "
+                f"[Error: MERGE-E030]"
+            )
+
+        # Concatenate horizontally
+        merged = np.concatenate(arrays, axis=1)
+
+        info = {
+            "merged_shape": merged.shape,
+            "feature_counts_per_source": feature_counts,
+            "total_features": merged.shape[1],
+        }
+
+        return merged, info
+
+    def _merge_sources_stack(
+        self,
+        source_features: Dict[int, np.ndarray],
+        source_indices: List[int],
+        source_names: List[str],
+        on_incompatible: SourceIncompatibleStrategy,
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Merge sources by stacking along new axis (3D result).
+
+        Args:
+            source_features: Dict mapping source index to feature array
+            source_indices: Source indices in order
+            source_names: Source names for logging
+            on_incompatible: How to handle shape mismatches
+
+        Returns:
+            Tuple of (merged 3D array or 2D fallback, info dict)
+        """
+        arrays = []
+        feature_dims = []
+
+        for src_idx in source_indices:
+            if src_idx in source_features:
+                arr = source_features[src_idx]
+                # Ensure 2D first
+                if arr.ndim == 1:
+                    arr = arr.reshape(-1, 1)
+                elif arr.ndim > 2:
+                    arr = arr.reshape(arr.shape[0], -1)
+                arrays.append(arr)
+                feature_dims.append(arr.shape[1])
+
+        if not arrays:
+            raise ValueError(
+                "No arrays to stack. All sources failed to collect. "
+                "[Error: MERGE-E030]"
+            )
+
+        # Check if shapes are compatible for stacking
+        shapes_compatible = len(set(feature_dims)) == 1
+
+        if not shapes_compatible:
+            logger.warning(
+                f"Source feature dimensions differ: {feature_dims}. "
+                f"Cannot stack directly (requires uniform dimensions)."
+            )
+
+            if on_incompatible == SourceIncompatibleStrategy.ERROR:
+                raise ValueError(
+                    f"Cannot stack sources with different feature dimensions: {feature_dims}. "
+                    f"Use on_incompatible='flatten' to fall back to 2D concat, "
+                    f"or 'pad'/'truncate' to align dimensions. "
+                    f"[Error: MERGE-E030]"
+                )
+            elif on_incompatible == SourceIncompatibleStrategy.FLATTEN:
+                logger.info("Falling back to 2D concatenation due to shape mismatch")
+                return self._merge_sources_concat(
+                    source_features, source_indices, source_names
+                )
+            elif on_incompatible == SourceIncompatibleStrategy.PAD:
+                max_features = max(feature_dims)
+                padded_arrays = []
+                for arr in arrays:
+                    if arr.shape[1] < max_features:
+                        padding = np.zeros((arr.shape[0], max_features - arr.shape[1]))
+                        arr = np.hstack([arr, padding])
+                    padded_arrays.append(arr)
+                arrays = padded_arrays
+                logger.info(f"Padded all sources to {max_features} features")
+            elif on_incompatible == SourceIncompatibleStrategy.TRUNCATE:
+                min_features = min(feature_dims)
+                truncated_arrays = [arr[:, :min_features] for arr in arrays]
+                arrays = truncated_arrays
+                logger.info(f"Truncated all sources to {min_features} features")
+
+        # Stack along axis 1 to create (samples, sources, features)
+        merged = np.stack(arrays, axis=1)
+
+        info = {
+            "merged_shape": merged.shape,
+            "n_sources_stacked": len(arrays),
+            "features_per_source": arrays[0].shape[1] if arrays else 0,
+            "shape_adjustment": on_incompatible.value if not shapes_compatible else None,
+        }
+
+        return merged, info
+
+    def _merge_sources_dict(
+        self,
+        source_features: Dict[int, np.ndarray],
+        source_indices: List[int],
+        source_names: List[str],
+    ) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
+        """Keep sources as structured dictionary.
+
+        Args:
+            source_features: Dict mapping source index to feature array
+            source_indices: Source indices in order
+            source_names: Source names for keys
+
+        Returns:
+            Tuple of (dict mapping source names to arrays, info dict)
+        """
+        result = {}
+        shapes = {}
+
+        for src_idx in source_indices:
+            if src_idx in source_features:
+                name = source_names[src_idx]
+                arr = source_features[src_idx]
+                # Ensure 2D
+                if arr.ndim == 1:
+                    arr = arr.reshape(-1, 1)
+                elif arr.ndim > 2:
+                    arr = arr.reshape(arr.shape[0], -1)
+                result[name] = arr
+                shapes[name] = arr.shape
+
+        info = {
+            "source_shapes": shapes,
+            "n_sources": len(result),
+            "output_format": "dict",
+        }
+
+        return result, info
 
     def _execute_prediction_merge(
         self,
@@ -2697,13 +3426,18 @@ class MergeController(OperatorController):
         loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
         prediction_store: Optional[Any] = None
     ) -> Tuple["ExecutionContext", StepOutput]:
-        """Execute prediction-only merge operation (Phase 9).
+        """Execute prediction-only merge operation (late fusion).
 
         Late fusion of predictions without branch context requirements.
         Useful for combining predictions from multiple models without
-        requiring branch mode.
+        requiring branch mode. Unlike `{"merge": "predictions"}` which
+        requires active branch contexts, this operates on the prediction
+        store directly.
 
-        This is a placeholder for Phase 9 implementation.
+        Use cases:
+        - Combine predictions from sequential models (not in branches)
+        - Late fusion after separate model training phases
+        - Ensemble of predictions for final output
 
         Args:
             step_info: Parsed step containing merge configuration
@@ -2717,16 +3451,478 @@ class MergeController(OperatorController):
 
         Returns:
             Tuple of (updated_context, StepOutput)
-
-        Raises:
-            NotImplementedError: Always (Phase 9 not yet implemented).
         """
-        raise NotImplementedError(
-            "merge_predictions is planned for Phase 9 implementation. "
-            "Use {'merge': 'predictions'} after a branch step for OOF stacking. "
-            "[Error: MERGE-E091]"
+        if prediction_store is None:
+            raise ValueError(
+                "merge_predictions requires prediction_store. "
+                "Ensure models were trained before this step. "
+                "[Error: MERGE-E010]"
+            )
+
+        # Parse configuration
+        raw_config = step_info.original_step.get("merge_predictions", {})
+
+        # Handle simple string vs dict config
+        if isinstance(raw_config, str):
+            if raw_config == "all":
+                model_filter = None
+            else:
+                model_filter = [raw_config]
+            aggregation = "separate"
+        elif isinstance(raw_config, dict):
+            model_filter = raw_config.get("models")
+            aggregation = raw_config.get("aggregate", "separate")
+        else:
+            model_filter = None
+            aggregation = "separate"
+
+        logger.info(
+            f"Prediction merge: models={model_filter or 'all'}, "
+            f"aggregate={aggregation}"
         )
 
+        # Discover available models from prediction store
+        current_step = getattr(context.state, 'step_number', float('inf'))
 
-# Expose parser for testing
-__all__ = ["MergeController", "MergeConfigParser"]
+        filter_kwargs = {
+            'partition': 'val',
+            'load_arrays': False,
+        }
+
+        predictions = prediction_store.filter_predictions(**filter_kwargs)
+        predictions = [
+            p for p in predictions
+            if p.get('step_idx', 0) < current_step
+        ]
+
+        available_models = sorted(set(
+            p.get('model_name') for p in predictions if p.get('model_name')
+        ))
+
+        if not available_models:
+            raise ValueError(
+                "No model predictions found in prediction store. "
+                "Ensure models were trained before merge_predictions. "
+                "[Error: MERGE-E010]"
+            )
+
+        # Apply model filter
+        if model_filter:
+            selected_models = [m for m in available_models if m in model_filter]
+            if not selected_models:
+                logger.warning(
+                    f"No models matched filter {model_filter}. "
+                    f"Available: {available_models}"
+                )
+        else:
+            selected_models = available_models
+
+        logger.info(f"  Selected {len(selected_models)} models for prediction merge")
+
+        # Collect predictions using OOF reconstruction
+        # Use empty branch_contexts since we're not in branch mode
+        config = MergeConfig(
+            collect_predictions=True,
+            prediction_branches="all",
+            model_filter=selected_models,
+            unsafe=False,  # Always use OOF for safety
+        )
+
+        # Create synthetic branch context for the reconstructor
+        # This allows reuse of existing prediction collection logic
+        n_samples = dataset.num_samples
+        model_predictions: Dict[str, np.ndarray] = {}
+
+        for model_name in selected_models:
+            try:
+                from nirs4all.controllers.models.stacking import (
+                    TrainingSetReconstructor,
+                    ReconstructorConfig,
+                )
+                from nirs4all.operators.models.meta import StackingConfig, CoverageStrategy
+
+                stacking_config = StackingConfig(
+                    coverage_strategy=CoverageStrategy.IMPUTE_MEAN,
+                )
+                reconstructor_config = ReconstructorConfig(
+                    log_warnings=True,
+                    validate_fold_alignment=False,
+                )
+
+                reconstructor = TrainingSetReconstructor(
+                    prediction_store=prediction_store,
+                    source_model_names=[model_name],
+                    stacking_config=stacking_config,
+                    reconstructor_config=reconstructor_config,
+                )
+
+                result = reconstructor.reconstruct(
+                    dataset=dataset,
+                    context=context,
+                    use_proba=False,
+                )
+
+                # Combine train (OOF) and test predictions
+                combined = np.full(n_samples, np.nan)
+
+                # Get partition indices
+                train_context = context.with_partition('train')
+                train_ids = dataset._indexer.x_indices(
+                    train_context.selector,
+                    include_augmented=True,
+                    include_excluded=False
+                )
+
+                test_context = context.with_partition('test')
+                test_ids = dataset._indexer.x_indices(
+                    test_context.selector,
+                    include_augmented=False,
+                    include_excluded=False
+                )
+
+                # Fill train (OOF) predictions
+                if result.X_train_meta.size > 0:
+                    train_preds = result.X_train_meta[:, 0] if result.X_train_meta.ndim > 1 else result.X_train_meta
+                    if len(train_preds) == len(train_ids):
+                        for i, sample_id in enumerate(train_ids):
+                            combined[sample_id] = train_preds[i]
+
+                # Fill test predictions
+                if result.X_test_meta.size > 0:
+                    test_preds = result.X_test_meta[:, 0] if result.X_test_meta.ndim > 1 else result.X_test_meta
+                    if len(test_preds) == len(test_ids):
+                        for i, sample_id in enumerate(test_ids):
+                            combined[sample_id] = test_preds[i]
+
+                model_predictions[model_name] = combined
+                logger.debug(f"  Collected predictions from model '{model_name}'")
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to collect predictions from model '{model_name}': {e}"
+                )
+                continue
+
+        if not model_predictions:
+            raise ValueError(
+                "Failed to collect predictions from any model. "
+                "[Error: MERGE-E010]"
+            )
+
+        # Aggregate predictions based on strategy
+        if aggregation == "separate":
+            merged = PredictionAggregator.aggregate(
+                predictions=model_predictions,
+                strategy=AggregationStrategy.SEPARATE,
+            )
+        elif aggregation == "mean":
+            merged = PredictionAggregator.aggregate(
+                predictions=model_predictions,
+                strategy=AggregationStrategy.MEAN,
+            )
+        elif aggregation == "weighted_mean":
+            # Get model scores for weighting (use validation scores from store)
+            model_selector = ModelSelector(
+                prediction_store=prediction_store,
+                context=context,
+            )
+            model_scores = model_selector.get_model_scores(
+                model_names=selected_models,
+                metric="rmse",
+                branch_id=-1,  # No branch context
+            )
+            merged = PredictionAggregator.aggregate(
+                predictions=model_predictions,
+                strategy=AggregationStrategy.WEIGHTED_MEAN,
+                model_scores=model_scores,
+                metric="rmse",
+            )
+        else:
+            # Default to separate
+            merged = PredictionAggregator.aggregate(
+                predictions=model_predictions,
+                strategy=AggregationStrategy.SEPARATE,
+            )
+
+        # Store merged predictions as features
+        dataset.add_merged_features(
+            features=merged,
+            processing_name="merged_predictions",
+            source=0
+        )
+
+        # Build metadata
+        metadata = {
+            "merge_predictions": True,
+            "models_used": selected_models,
+            "aggregation": aggregation,
+            "n_features": merged.shape[1],
+            "merged_shape": merged.shape,
+        }
+
+        logger.success(
+            f"Prediction merge completed: {len(selected_models)} models, "
+            f"shape={merged.shape}"
+        )
+
+        return context.copy(), StepOutput(metadata=metadata)
+
+
+# =============================================================================
+# Phase 7: Static merge_branches method for MetaModel integration
+# =============================================================================
+
+    @classmethod
+    def merge_branches(
+        cls,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        config: MergeConfig,
+        prediction_store: Optional[Any] = None,
+        mode: str = "train",
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Static method for programmatic merge (used by MetaModel).
+
+        This class method allows MetaModelController to delegate to merge logic
+        without going through the full step execution machinery. It provides
+        the core branch merging functionality without modifying the context
+        or requiring a step_info object.
+
+        This is the key integration point for Phase 7: MetaModel Refactoring.
+
+        Args:
+            dataset: SpectroDataset with sample data.
+            context: Execution context with branch_contexts and state.
+            config: MergeConfig specifying what to merge.
+            prediction_store: Prediction storage for model predictions.
+                Required if config.collect_predictions is True.
+            mode: Execution mode ("train" or "predict").
+
+        Returns:
+            Tuple of (merged_features, info_dict) where:
+                - merged_features: 2D numpy array (n_samples, n_features)
+                - info_dict: Dictionary with merge metadata including:
+                    - "merged_shape": Shape of merged features
+                    - "feature_branches_used": List of branch indices for features
+                    - "prediction_branches_used": List of branch indices for predictions
+                    - "models_used": List of model names (if predictions)
+                    - "oof_reconstruction": Whether OOF was used (if predictions)
+                    - "unsafe_merge": True if unsafe mode was used
+
+        Raises:
+            ValueError: If not in branch mode or config is invalid.
+            ValueError: If prediction_store is None but predictions requested.
+
+        Example:
+            >>> from nirs4all.controllers.data.merge import MergeController
+            >>> from nirs4all.operators.data.merge import MergeConfig
+            >>>
+            >>> # Called from MetaModelController
+            >>> config = MergeConfig(
+            ...     collect_predictions=True,
+            ...     prediction_branches="all",
+            ... )
+            >>> merged_X, info = MergeController.merge_branches(
+            ...     dataset=dataset,
+            ...     context=context,
+            ...     config=config,
+            ...     prediction_store=prediction_store,
+            ... )
+            >>> meta_model.fit(merged_X, y)
+
+        Note:
+            Unlike execute(), this method does NOT:
+            - Exit branch mode (caller must handle this if needed)
+            - Modify the context
+            - Add merged features to the dataset
+            - Return a StepOutput
+
+            It simply performs the merge computation and returns the result.
+        """
+        # Create a controller instance for internal methods
+        controller = cls()
+
+        # Validate branch mode
+        branch_contexts = context.custom.get("branch_contexts", [])
+        in_branch_mode = context.custom.get("in_branch_mode", False)
+
+        if not branch_contexts and not in_branch_mode:
+            raise ValueError(
+                "merge_branches requires active branch contexts. "
+                "Use only after a branch step. "
+                "[Error: MERGE-E020]"
+            )
+
+        n_branches = len(branch_contexts)
+
+        # Validate branch indices in config
+        controller._validate_branches(config, branch_contexts)
+
+        # Log configuration
+        controller._log_config(
+            config=config,
+            n_branches=n_branches,
+            branch_contexts=branch_contexts,
+            prediction_store=prediction_store,
+            context=context,
+        )
+
+        merged_parts = []
+        info: Dict[str, Any] = {}
+
+        # Collect features if requested
+        if config.collect_features:
+            feature_branches = config.get_feature_branches(n_branches)
+            features_list, feature_info = controller._collect_features(
+                dataset=dataset,
+                branch_contexts=branch_contexts,
+                branch_indices=feature_branches,
+                on_missing=config.on_missing,
+                on_shape_mismatch=config.on_shape_mismatch,
+            )
+
+            if features_list:
+                merged_parts.extend(features_list)
+                info["feature_shapes"] = feature_info.get("shapes", [])
+                info["feature_branches_used"] = feature_info.get("branches_used", [])
+                logger.debug(
+                    f"merge_branches: Collected features from {len(features_list)} branches"
+                )
+
+        # Collect predictions if requested
+        if config.collect_predictions:
+            predictions_array, pred_info = controller._collect_predictions(
+                dataset=dataset,
+                context=context,
+                branch_contexts=branch_contexts,
+                config=config,
+                prediction_store=prediction_store,
+                mode=mode,
+            )
+
+            if predictions_array is not None and predictions_array.size > 0:
+                merged_parts.append(predictions_array)
+                info["prediction_shape"] = predictions_array.shape
+                info["prediction_models_used"] = pred_info.get("models_used", [])
+                info["prediction_branches_used"] = pred_info.get("branches_used", [])
+                info["oof_reconstruction"] = pred_info.get("oof_reconstruction", True)
+                info["models_used"] = pred_info.get("models_used", [])
+                logger.debug(
+                    f"merge_branches: Collected predictions: shape={predictions_array.shape}"
+                )
+
+        # Include original pre-branch features if requested
+        if config.include_original:
+            original_features = controller._get_original_features(dataset, context)
+            if original_features is not None:
+                merged_parts.insert(0, original_features)
+                info["include_original"] = True
+                info["original_shape"] = original_features.shape
+
+        # Concatenate all parts
+        if not merged_parts:
+            raise ValueError(
+                "merge_branches resulted in empty output - check configuration. "
+                "[Error: MERGE-E012]"
+            )
+
+        merged_features = np.concatenate(merged_parts, axis=1)
+        info["merged_shape"] = merged_features.shape
+
+        # Add unsafe warning if applicable
+        if config.unsafe:
+            info["unsafe_merge"] = True
+            logger.warning(
+                "⚠️ UNSAFE MERGE: OOF reconstruction disabled. "
+                "Training predictions used directly, causing DATA LEAKAGE."
+            )
+
+        logger.info(
+            f"merge_branches completed: shape={merged_features.shape}"
+            f"{' [UNSAFE]' if config.unsafe else ''}"
+        )
+
+        return merged_features, info
+
+    @classmethod
+    def build_config_from_meta_model(
+        cls,
+        meta_operator: Any,
+        context: "ExecutionContext",
+        branch_contexts: Optional[List[Dict[str, Any]]] = None,
+    ) -> MergeConfig:
+        """Build MergeConfig from MetaModel operator parameters.
+
+        Translates MetaModel configuration to an equivalent MergeConfig
+        for use with merge_branches(). This enables MetaModel to delegate
+        to the centralized merge logic.
+
+        This is a helper for Phase 7: MetaModel Refactoring.
+
+        Args:
+            meta_operator: MetaModel operator instance with configuration.
+            context: Execution context with branch info.
+            branch_contexts: Optional branch contexts for branch resolution.
+
+        Returns:
+            MergeConfig equivalent to the MetaModel's configuration.
+
+        Example:
+            >>> config = MergeController.build_config_from_meta_model(
+            ...     meta_operator=meta_model,
+            ...     context=context,
+            ... )
+            >>> merged_X, info = MergeController.merge_branches(
+            ...     dataset=dataset,
+            ...     context=context,
+            ...     config=config,
+            ...     prediction_store=prediction_store,
+            ... )
+        """
+        from nirs4all.operators.models.meta import BranchScope
+
+        config = MergeConfig(collect_predictions=True)
+
+        # Map source_models
+        source_models = getattr(meta_operator, 'source_models', 'all')
+        if source_models == "all":
+            config.prediction_branches = "all"
+        elif isinstance(source_models, list):
+            config.model_filter = source_models
+
+        # Map branch_scope
+        stacking_config = getattr(meta_operator, 'stacking_config', None)
+        if stacking_config is not None:
+            branch_scope = getattr(stacking_config, 'branch_scope', BranchScope.CURRENT_ONLY)
+            if branch_scope == BranchScope.ALL_BRANCHES:
+                config.prediction_branches = "all"
+            elif branch_scope == BranchScope.CURRENT_ONLY:
+                # Keep current branch only
+                current_branch_id = getattr(context.selector, 'branch_id', None)
+                if current_branch_id is not None and branch_contexts:
+                    config.prediction_branches = [current_branch_id]
+                else:
+                    config.prediction_branches = "all"
+
+        # Map use_proba
+        config.use_proba = getattr(meta_operator, 'use_proba', False)
+
+        # Map include_features if present (new capability)
+        if getattr(meta_operator, 'include_features', False):
+            config.collect_features = True
+            config.include_original = True
+
+        return config
+
+
+# Expose parser and utilities for testing
+__all__ = [
+    "MergeController",
+    "MergeConfigParser",
+    "ModelSelector",
+    "PredictionAggregator",
+    "AsymmetricBranchAnalyzer",
+    "BranchAnalysisResult",
+    "AsymmetryReport",
+    "SourceMergeConfig",
+]

@@ -29,7 +29,7 @@
 ```python
 pipeline = [
     SNV(),
-    {"model": PLSRegression(n_components=10)}
+    PLSRegression(n_components=10)
 ]
 ```
 
@@ -46,7 +46,7 @@ pipeline = [
     Detrend(),
     SNV(),
     SavitzkyGolay(window_length=11, polyorder=2),
-    {"model": PLSRegression(n_components=15)}
+    PLSRegression(n_components=15)
 ]
 ```
 
@@ -62,7 +62,7 @@ pipeline = [
 pipeline = [
     SNV(),
     ShuffleSplit(n_splits=5, test_size=0.2),
-    {"model": PLSRegression(n_components=10)}
+    PLSRegression(n_components=10)
 ]
 ```
 
@@ -79,7 +79,7 @@ pipeline = [
     MinMaxScaler(),
     {"y_processing": StandardScaler()},
     KFold(n_splits=5),
-    {"model": PLSRegression(n_components=10)}
+    PLSRegression(n_components=10)
 ]
 ```
 
@@ -95,9 +95,9 @@ pipeline = [
 pipeline = [
     SNV(),
     KFold(n_splits=5),
-    {"model": PLSRegression(n_components=10)},
-    {"model": RandomForestRegressor(n_estimators=100)},
-    {"model": Ridge(alpha=1.0)}
+    PLSRegression(n_components=10),
+    RandomForestRegressor(n_estimators=100),
+    Ridge(alpha=1.0)
 ]
 ```
 
@@ -114,7 +114,7 @@ pipeline = [
 ```python
 pipeline = [
     {"concat_transform": [SNV(), MSC(), Detrend()]},
-    {"model": PLSRegression(n_components=20)}
+    PLSRegression(n_components=20)
 ]
 ```
 
@@ -129,7 +129,7 @@ pipeline = [
 ```python
 pipeline = [
     {"concat_transform": [None, SNV(), D1()]},
-    {"model": PLSRegression(n_components=25)}
+    PLSRegression(n_components=25)
 ]
 ```
 
@@ -147,7 +147,7 @@ pipeline = [
         SNV(),
         {"concat_transform": [D1(), D2()]}
     ]},
-    {"model": Ridge()}
+    Ridge()
 ]
 ```
 
@@ -163,7 +163,7 @@ pipeline = [
 pipeline = [
     {"concat_transform": [SNV(), MSC(), Detrend()]},
     PCA(n_components=50),
-    {"model": PLSRegression(n_components=15)}
+    PLSRegression(n_components=15)
 ]
 ```
 
@@ -178,8 +178,8 @@ pipeline = [
 ```python
 pipeline = [
     SNV(),
-    {"feature_augmentation": {"concat_transform": [D1(), D2()]}},
-    {"model": PLSRegression(n_components=20)}
+    {"feature_augmentation": [D1(), D2()]},
+    PLSRegression(n_components=20)
 ]
 ```
 

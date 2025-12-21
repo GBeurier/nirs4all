@@ -872,6 +872,7 @@ class PipelineExecutor:
             # The branch controller needs all artifacts, and internal transformers
             # will filter by their branch context when looking up artifacts
             is_branch_step = isinstance(step, dict) and "branch" in step
+            is_merge_step = isinstance(step, dict) and "merge" in step
             branch_path = None if is_branch_step else target_branch_path
 
             # Get binaries from artifact_provider instead of artifact_loader
@@ -893,7 +894,10 @@ class PipelineExecutor:
             # Check for branch contexts (already computed is_branch_step above)
             branch_contexts = context.custom.get("branch_contexts", [])
 
-            if branch_contexts and not is_branch_step:
+            # Execute on branches for post-branch steps, but not for:
+            # - branch steps (they create branches)
+            # - merge steps (they consume branches and exit branch mode)
+            if branch_contexts and not is_branch_step and not is_merge_step:
                 # Execute on each branch
                 context = self._execute_step_on_branches(
                     step=step,
