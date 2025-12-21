@@ -1,6 +1,6 @@
 # Asymmetric Multi-Source Dataset Design
 
-**Version**: 1.0.0-draft
+**Version**: 1.1.0-draft
 **Status**: Draft Design Document
 **Date**: December 2025
 **Related Spec**: [dataset_config_specification.md](dataset_config_specification.md)
@@ -13,7 +13,8 @@
 2. [Current State](#current-state)
 3. [Problem Statement](#problem-statement)
 4. [Proposition](#proposition)
-5. [Implementation Roadmap](#implementation-roadmap)
+5. [Source Branching & Merging Study](#source-branching--merging-study)
+6. [Implementation Roadmap](#implementation-roadmap)
 
 ---
 
@@ -61,7 +62,7 @@ Features
 | Different feature dims per source | ✅ Supported | Each `FeatureSource` has independent shape |
 | Same processings across sources | ✅ Supported | All sources get same preprocessing pipeline |
 | Different processings per source | ❌ Not supported | All sources share processing list |
-| Asymmetric source concatenation | ⚠️ Partial | Works for horizontal concat only |
+| Asymmetric source concatenation | ⚠️ Partial | Works for 2D horizontal concat only |
 
 ### Execution Behaviors
 
@@ -95,43 +96,64 @@ for sd_idx, (fit_x, all_x) in enumerate(zip(fit_data, all_data)):
 X_train = dataset.x(train_context.selector, layout="2d")  # Concatenates all
 ```
 
+### Existing Branching Infrastructure
+
+| Component | Status | Description |
+|-----------|--------|-------------|
+| `BranchController` | ✅ Implemented | Generic pipeline branching with `{"branch": [...]}` |
+| `OutlierExcluderController` | ✅ Implemented | Specialized branch for outlier exclusion |
+| `SamplePartitionerController` | ✅ Implemented | Specialized branch for sample partitioning |
+| `SourceBranchController` | ❌ Not implemented | Branch by source (proposed) |
+| `MergeController` | ❌ Empty file | Branch merging (not implemented) |
+
 ---
 
 ## Problem Statement
 
-### Core Issue: Asymmetric Source Concatenation
+### Core Issue: 3D Concatenation with Asymmetric Preprocessing Counts
 
-When a model requests all sources concatenated (`concat_source=True`), the system attempts to merge them horizontally. This works when:
+The **primary problem** is when requesting 3D layout with source concatenation when sources have different preprocessing counts:
 
-- All sources have compatible row counts (samples) ✅
-- The model accepts variable feature dimensions ✅
+```python
+# Source 1: (500 samples, 3 processings, 500 features)
+# Source 2: (500 samples, 1 processing, 300 features)
 
-**But fails when:**
+# Request:
+X = dataset.x(selector, layout="3d", concat_source=True)
+# FAILS: Cannot concatenate along feature axis when axis 1 (processings) differs
+```
 
-1. **NN models with fixed input shapes**: A neural network expecting input shape `(batch, 500)` cannot accept concatenated asymmetric sources `(batch, 500+300+50000)`
+**Note**: Neural network input shape mismatch is NOT the core problem because nirs4all configures NN input shapes at runtime based on actual data dimensions. The real issue is numpy's inability to concatenate arrays with incompatible shapes.
 
-2. **3D models with uniform expectations**: A CNN expecting `(batch, channels, features)` where all channels have the same feature count cannot handle asymmetric sources
-
-3. **Preprocessing asymmetry**: If source 1 has 3 preprocessings and source 2 has 1, concatenating in 3D layout is impossible:
-   ```
-   Source 1: (500, 3, 500)   # 3 processings
-   Source 2: (500, 1, 300)   # 1 processing
-   # Cannot concatenate along feature axis when processing counts differ
-   ```
-
-### Failure Scenarios
+### Failure Scenarios Table
 
 | Scenario | Request | Sources | Result |
 |----------|---------|---------|--------|
 | A | `layout="2d", concat_source=True` | (500,500), (500,300) | ✅ Works: (500, 800) |
 | B | `layout="3d", concat_source=True` | (500,2,500), (500,2,300) | ✅ Works: (500, 2, 800) |
-| C | `layout="3d", concat_source=True` | (500,3,500), (500,1,300) | ❌ Fails: incompatible shapes |
-| D | NN with input_shape=(500,) | (500,500), (500,300) | ❌ Fails: shape mismatch |
-| E | Multi-head NN | (500,500), (500,300) | ✅ Works: separate inputs |
+| C | `layout="3d", concat_source=True` | (500,3,500), (500,1,300) | ❌ **Fails: incompatible pp counts** |
+| D | `layout="2d", concat_source=True` | (500,3,500), (500,1,300) | ✅ Works: flattens then concats |
+| E | `layout="3d", concat_source=False` | (500,3,500), (500,1,300) | ✅ Works: returns list |
+
+### Resolution Strategies for Scenario C
+
+When 3D concat is requested but preprocessing counts differ:
+
+| Strategy | Behavior | Pros | Cons |
+|----------|----------|------|------|
+| **Error** | Raise clear error with resolution options | Explicit, no surprises | Requires user intervention |
+| **Force 2D** | Flatten each source to 2D, then concat | Always works | Loses processing structure |
+| **Separate** | Return list instead of single array | Preserves structure | Changes return type |
+
+**Recommendation**: Default to **Error** with clear message, allow user to specify fallback behavior via `on_incompatible` parameter.
 
 ### Current Error Handling
 
-Currently, these failures result in numpy broadcasting errors or silent shape mismatches, which are confusing for users.
+Currently, these failures result in numpy broadcasting errors which are confusing:
+
+```
+ValueError: all input arrays must have the same shape except for the concatenation axis
+```
 
 ---
 
@@ -139,101 +161,61 @@ Currently, these failures result in numpy broadcasting errors or silent shape mi
 
 ### Design Principles
 
-1. **Explicit configuration**: Users declare source characteristics and expected behaviors
-2. **Early validation**: Detect incompatible configurations at load time, not execution time
-3. **Clear error messages**: Explain why a configuration fails and suggest alternatives
-4. **Flexible execution**: Support multiple strategies for handling asymmetric sources
+1. **Dataset config describes data, not processing** - Fusion strategy is a pipeline decision, not dataset config
+2. **Runtime shape configuration** - NN models configure their input shapes at runtime, no pre-declaration needed
+3. **Early validation with clear errors** - Detect incompatible configurations and explain resolution options
+4. **Flexible execution strategies** - Support multiple approaches via pipeline syntax
 
-### Proposed Configuration Schema
+### Dataset Configuration (Data-Only)
 
-#### Extended Source Configuration
+Dataset config should only describe the data structure, not how it's processed:
 
 ```yaml
 sources:
   - name: "NIR"
     train_x: data/nir_train.csv
-    test_x: data/nir_test.csv
     params:
       header_unit: cm-1
-    # NEW: Source-specific metadata
+    # Optional metadata (informational, not prescriptive)
     source_type: spectral          # spectral | timeseries | tabular | image
-    shape_hint: [500]              # Expected feature shape per sample
-    allow_preprocessing: true      # Whether in-pipeline preprocessing is allowed
-
-  - name: "timeseries"
-    train_x: data/ts_train.csv
-    shape_hint: [15, 300]          # 15 timesteps × 300 features (2D per sample)
-    source_type: timeseries
-    allow_preprocessing: false     # Pre-processed externally
+    allow_preprocessing: true      # Hint for pipeline validation
 
   - name: "markers"
     train_x: data/markers_train.csv
-    shape_hint: [50000]
     source_type: tabular
-    allow_preprocessing: true
+    allow_preprocessing: false     # Pre-processed externally
 
-# NEW: Source fusion strategy
-source_fusion:
-  mode: separate | concat | multi_head | custom
-  # separate: Each source processed independently, merged at model level
-  # concat: Concatenate for compatible sources (error if incompatible)
-  # multi_head: Route to multi-input model architecture
-  # custom: User-defined fusion function
+targets:
+  path: data/targets.csv
+
+task_type: regression
 ```
 
-### Proposed Execution Strategies
+**Removed from dataset config**: `source_fusion`, `shape_hint` - these are pipeline concerns.
 
-#### Strategy 1: Separate Processing (Default for Asymmetric)
+### Pipeline-Level Fusion Control
 
-Each source is processed independently through the pipeline, then merged at the model level:
-
-```
-Pipeline:
-  [MinMaxScaler] → Applied to each source independently
-  [SNV]          → Applied only to sources with allow_preprocessing=True
-  [Model]        → Receives list of source arrays
-```
-
-#### Strategy 2: Source-Aware Transformers
-
-Transformers can declare which sources they apply to:
+Fusion strategy is controlled in the pipeline, not dataset config:
 
 ```python
 pipeline = [
-    {"preprocessing": SNV(), "sources": ["NIR"]},           # Only NIR
-    {"preprocessing": MinMaxScaler(), "sources": "all"},    # All sources
-    {"model": MultiHeadNN(), "source_inputs": ["NIR", "timeseries", "markers"]}
+    # Per-source preprocessing
+    {"preprocessing": SNV(), "sources": ["NIR", 0]},  # By name OR index
+    {"preprocessing": MinMaxScaler(), "sources": "all"},
+
+    # Source branching for complex per-source pipelines
+    {"source_branch": {
+        "NIR": [SNV(), SavitzkyGolay()],
+        "markers": [VarianceThreshold()],
+    }},
+
+    # Merge branches (for features) or use multi-head model (for late fusion)
+    {"merge_sources": "concat"},  # or "stack", "dict"
+
+    # Model
+    {"model": PLSRegression(n_components=10)},
 ]
 ```
-
-#### Strategy 3: Branching by Source
-
-Use existing branching mechanism to create per-source pipelines:
-
-```python
-pipeline = [
-    {
-        "source_branch": {
-            "NIR": [SNV(), SavitzkyGolay()],
-            "timeseries": [Standardize()],
-            "markers": [VarianceThreshold()]
-        }
-    },
-    {"merge": "concat"},  # or "stack" for multi-head
-    {"model": ...}
-]
-```
-
-### Validation Rules
-
-The system should validate at configuration/load time:
-
-| Check | When | Error Message |
-|-------|------|---------------|
-| Sample count alignment | Load | "Source 'X' has N samples but source 'Y' has M samples. All sources must have the same sample count." |
-| Concat compatibility | Operator requests concat | "Cannot concatenate sources with different processing counts: NIR has 3, timeseries has 1. Use `concat_source=False` or align preprocessings." |
-| Shape compatibility | Model input validation | "Model expects input shape (500,) but concatenated sources produce (50800,). Consider using `source_fusion: separate` or a multi-head architecture." |
-| Preprocessing applicability | Pipeline step | "Cannot apply SNV to source 'markers' (type: tabular). SNV requires spectral data." |
 
 ### API Changes
 
@@ -248,202 +230,421 @@ X = dataset.x(
     selector,
     layout="2d",
     concat_source=True,
-    sources=["NIR", "markers"],      # NEW: Select specific sources
-    on_incompatible="error"          # NEW: "error" | "warn" | "separate"
+    sources=["NIR", 0, 2],           # Select by name OR index
+    on_incompatible="error"          # "error" | "flatten" | "separate"
 )
+```
+
+#### Source Selection by Name or Index
+
+```python
+# All equivalent:
+dataset.x(selector, sources=["NIR"])      # By name
+dataset.x(selector, sources=[0])          # By index
+dataset.x(selector, sources=["NIR", 1])   # Mixed
+dataset.x(selector, sources="all")        # All sources (default)
 ```
 
 #### Source Introspection
 
 ```python
-# NEW: Query source metadata
-dataset.source_info("NIR")
-# Returns: {"name": "NIR", "shape": (500, 3, 500), "type": "spectral", ...}
+dataset.source_info("NIR")  # or dataset.source_info(0)
+# Returns: {"name": "NIR", "index": 0, "shape": (500, 3, 500), "type": "spectral", ...}
 
 dataset.sources_compatible(layout="3d", concat=True)
-# Returns: False, "Processing count mismatch: NIR=3, timeseries=1"
+# Returns: (False, "Processing count mismatch: NIR=3, markers=1")
+
+dataset.num_sources  # 3
+dataset.source_names  # ["NIR", "timeseries", "markers"]
 ```
 
-### Error Message Examples
+### Error Messages
 
 ```
-ConfigurationError: Incompatible source concatenation requested.
+SourceConcatError: Cannot concatenate sources in 3D layout.
 
 Sources have different processing counts:
-  - NIR: 3 processings (raw, SNV, derivative)
-  - timeseries: 1 processing (raw)
-  - markers: 2 processings (raw, scaled)
+  - Source 0 (NIR): 3 processings
+  - Source 1 (timeseries): 1 processing
+  - Source 2 (markers): 2 processings
 
-To resolve:
-  1. Use `concat_source=False` to process sources separately
-  2. Align processing counts across sources
-  3. Use `source_fusion: multi_head` for models that accept multiple inputs
-  4. Use source branching to apply different pipelines per source
+To resolve, choose one:
+  1. Use layout="2d" to flatten processings before concatenation
+  2. Use concat_source=False to get sources as a list
+  3. Use on_incompatible="flatten" to auto-flatten to 2D
+  4. Use source_branch to process sources separately then merge
 
-See: https://nirs4all.readthedocs.io/asymmetric-sources
+Example:
+  X = dataset.x(selector, layout="2d", concat_source=True)  # Flatten first
+  X = dataset.x(selector, layout="3d", concat_source=False)  # Get as list
+```
+
+---
+
+## Source Branching & Merging Study
+
+This section analyzes the requirements for source-aware branching and merging.
+
+### Current Branching System
+
+The existing `BranchController` supports:
+
+```python
+{"branch": [
+    [SNV(), PCA(n_components=10)],      # Branch 0
+    [MSC(), FirstDerivative()],         # Branch 1
+]}
+```
+
+Branches execute **all sources** through each branch independently. There's no mechanism to route specific sources to specific branches.
+
+### Proposed: Source Branching
+
+Route different sources through different pipeline branches:
+
+```python
+{"source_branch": {
+    "NIR": [SNV(), SavitzkyGolay(), PCA(n_components=50)],
+    "timeseries": [StandardScaler()],
+    "markers": [VarianceThreshold(threshold=0.01)],
+}}
+# OR by index:
+{"source_branch": {
+    0: [SNV(), SavitzkyGolay()],
+    1: [StandardScaler()],
+    2: [VarianceThreshold()],
+}}
+```
+
+**Semantics**:
+- Each source is isolated during branch execution
+- Transformers in each branch only see their assigned source
+- After branch completion, sources remain separate until explicitly merged
+
+### Merging Strategies
+
+After branching (source_branch or regular branch), results must be merged. The complexity depends on **what was applied in branches**:
+
+#### Case 1: Transformers Only (Feature-Level Merge)
+
+If branches contain only `TransformerMixin` operators (no models):
+
+```python
+pipeline = [
+    {"source_branch": {
+        "NIR": [SNV(), MinMaxScaler()],
+        "markers": [VarianceThreshold()],
+    }},
+    {"merge_sources": "concat"},  # Merge transformed features
+    {"model": PLSRegression()},   # Single model on merged features
+]
+```
+
+**Merge options**:
+- `concat`: Horizontal concatenation `(samples, Σ features)`
+- `stack`: Stack as 3D `(samples, n_sources, max_features)` with padding
+- `dict`: Return `{"NIR": X_nir, "markers": X_markers}` for multi-head models
+
+#### Case 2: Models in Branches (Prediction-Level Merge / Late Fusion)
+
+If branches contain models, merge operates on **predictions**:
+
+```python
+pipeline = [
+    {"source_branch": {
+        "NIR": [SNV(), {"model": PLSRegression(10)}],
+        "markers": [{"model": RandomForestRegressor()}],
+    }},
+    {"merge_predictions": "average"},  # Late fusion
+]
+```
+
+**Merge options**:
+- `average`: Mean of predictions (regression)
+- `weighted_average`: Weighted by validation score
+- `vote`: Majority voting (classification)
+- `stack`: Use predictions as features for meta-model
+- `best`: Select best-performing branch
+
+#### Case 3: Multiple Models in Branch
+
+When a branch contains multiple sequential models:
+
+```python
+{"source_branch": {
+    "NIR": [
+        SNV(),
+        {"model": PLSRegression(10)},      # Model 1
+        {"model": RandomForestRegressor()}, # Model 2
+    ],
+}}
+```
+
+**Question**: Which model's predictions to use for merge?
+
+**Options**:
+1. **Last**: Use predictions from last model in branch (default)
+2. **Best**: Use predictions from best-scoring model in branch
+3. **All**: Ensemble all models within branch, then merge across branches
+4. **Explicit**: User specifies which model via index or name
+
+**Recommendation**: Default to **Last**, with `merge_model_selection: "best" | "all" | int` parameter.
+
+### Merge Controller Design
+
+```python
+@register_controller
+class MergeController(OperatorController):
+    """
+    Merge results from branched execution.
+
+    Handles:
+    - Feature merge (after transformer-only branches)
+    - Prediction merge (after model branches)
+    - Source merge (after source_branch)
+
+    Keywords:
+    - merge_sources: Merge multi-source features
+    - merge_branches: Merge regular branch features/predictions
+    - merge_predictions: Explicitly merge predictions for late fusion
+    """
+
+    priority = 5  # Same as BranchController
+
+    @classmethod
+    def matches(cls, step, operator, keyword):
+        return keyword in ("merge_sources", "merge_branches", "merge_predictions")
+```
+
+### Complexity Analysis
+
+| Scenario | Branch Type | Content | Merge Target | Complexity |
+|----------|-------------|---------|--------------|------------|
+| A | source_branch | Transformers only | Features | Low |
+| B | source_branch | Single model per source | Predictions | Medium |
+| C | source_branch | Multiple models per source | Predictions (which?) | High |
+| D | branch | Transformers only | Features (per branch) | Low |
+| E | branch | Models | Predictions | Medium |
+| F | Mixed | source_branch + branch | Both | Very High |
+
+**Recommendation**: Implement scenarios A and B first, document limitations for C and F.
+
+### Pipeline Examples
+
+#### Early Fusion (Feature Concatenation)
+
+```python
+pipeline = [
+    # Per-source preprocessing
+    {"source_branch": {
+        "NIR": [SNV(), SavitzkyGolay()],
+        "MIR": [MSC()],
+    }},
+    {"merge_sources": "concat"},  # → (samples, NIR_features + MIR_features)
+    ShuffleSplit(n_splits=5),
+    {"model": PLSRegression(10)},
+]
+```
+
+#### Late Fusion (Prediction Averaging)
+
+```python
+pipeline = [
+    ShuffleSplit(n_splits=5),
+    {"source_branch": {
+        "NIR": [SNV(), {"model": PLSRegression(10)}],
+        "MIR": [MSC(), {"model": PLSRegression(15)}],
+    }},
+    {"merge_predictions": "weighted_average"},
+]
+```
+
+#### Multi-Head Model (Separate Inputs)
+
+```python
+pipeline = [
+    {"source_branch": {
+        "NIR": [SNV(), MinMaxScaler()],
+        "markers": [VarianceThreshold()],
+    }},
+    # No merge - multi-head model receives dict of sources
+    {"model": MultiHeadNN(), "source_inputs": ["NIR", "markers"]},
+]
 ```
 
 ---
 
 ## Implementation Roadmap
 
-### Phase 8A: Source Metadata & Validation (Foundation)
+> **Note**: This roadmap is the single source of truth for Phase 9 implementation.
+> See [dataset_config_roadmap.md](dataset_config_roadmap.md) for reference to this phase.
 
-**Goal**: Enable source-level metadata and early validation of compatibility.
+### Phase 9A: Validation & Error Handling (Foundation)
 
-#### Tasks
-
-- [ ] Add `source_type`, `shape_hint`, `allow_preprocessing` to `SourceConfig` schema
-- [ ] Implement `SourceCompatibilityChecker` validation class
-- [ ] Add `sources_compatible()` method to `SpectroDataset`
-- [ ] Add `source_info(name)` introspection method
-- [ ] Implement clear error messages for incompatible configurations
-- [ ] Update `FeatureAccessor.x()` with `sources` parameter for selective retrieval
-- [ ] Add `on_incompatible` parameter to control error/warn/separate behavior
-
-#### Validation Points
-
-| Point | Check |
-|-------|-------|
-| Config parsing | Source schema validity |
-| Data loading | Sample count alignment |
-| Operator execution | Shape compatibility for requested operation |
-| Model input | Validate expected vs actual shapes |
-
-### Phase 8B: Source-Aware Pipeline Execution
-
-**Goal**: Enable per-source pipeline execution and source-specific operators.
+**Goal**: Clear errors when asymmetric sources cause concat failures.
 
 #### Tasks
 
-- [ ] Extend `ExecutionContext` with current source information
-- [ ] Add `sources` parameter to controller execution
-- [ ] Implement source filtering in `TransformerMixinController`
-- [ ] Support `{"preprocessing": op, "sources": [...]}` syntax
+- [ ] Implement `sources_compatible(layout, concat)` method on `SpectroDataset`
+- [ ] Add `on_incompatible` parameter to `FeatureAccessor.x()`: `"error" | "flatten" | "separate"`
+- [ ] Create `SourceConcatError` exception with clear resolution suggestions
+- [ ] Add validation in `x()` before attempting numpy concat
+- [ ] Write unit tests for all failure scenarios
+
+### Phase 9B: Selective Source Retrieval
+
+**Goal**: Allow source selection by name or index.
+
+#### Tasks
+
+- [ ] Add `sources` parameter to `FeatureAccessor.x()`: accepts names, indices, or mixed
+- [ ] Implement source name→index resolution via `source_names` property
+- [ ] Add `source_info(name_or_index)` introspection method
+- [ ] Update controllers to pass source selection through context
+- [ ] Support `{"preprocessing": op, "sources": [...]}` pipeline syntax
+
+### Phase 9C: Source-Aware Operators
+
+**Goal**: Allow operators to target specific sources.
+
+#### Tasks
+
+- [ ] Parse `sources` key in step configuration
+- [ ] Add source filtering in `TransformerMixinController.execute()`
 - [ ] Track preprocessing history per source independently
-- [ ] Update artifact storage to include source index
+- [ ] Update artifact naming to include source index
+- [ ] Ensure predict mode correctly routes to source-specific artifacts
 
-### Phase 8C: Source Branching Syntax
+### Phase 9D: Source Branching
 
-**Goal**: Enable declarative per-source pipeline branches.
+**Goal**: Implement `source_branch` keyword for per-source pipelines.
 
 #### Tasks
 
-- [ ] Implement `source_branch` keyword in pipeline syntax
-- [ ] Create `SourceBranchController` for routing
-- [ ] Implement branch merge strategies (concat, stack, dict)
-- [ ] Support nested source branches
-- [ ] Integration with existing branching system
+- [ ] Create `SourceBranchController` extending pattern from `BranchController`
+- [ ] Parse source_branch config (by name and by index)
+- [ ] Execute branch steps with source isolation
+- [ ] Store branch contexts per source
+- [ ] Support predict mode reconstruction
 
-### Phase 8D: Multi-Head Model Support
+### Phase 9E: Merge Controller
+
+**Goal**: Implement merge strategies for branched execution.
+
+#### Tasks
+
+- [ ] Implement `MergeController` for `merge_sources` keyword
+- [ ] Feature merge strategies: `concat`, `stack`, `dict`
+- [ ] Add `merge_branches` for regular branch merging
+- [ ] Add `merge_predictions` for prediction-level late fusion
+- [ ] Prediction merge strategies: `average`, `weighted_average`, `vote`, `best`
+- [ ] Handle "which model" selection for multi-model branches
+
+### Phase 9F: Multi-Head Model Support
 
 **Goal**: Enable models that accept multiple source inputs.
 
 #### Tasks
 
 - [ ] Define `MultiInputModel` protocol/interface
-- [ ] Implement `source_fusion: multi_head` mode
-- [ ] Create adapters for common multi-head architectures
 - [ ] Support `source_inputs` parameter in model configuration
-- [ ] Integration with TensorFlow/PyTorch multi-input models
+- [ ] Create adapters for TensorFlow functional API multi-input
+- [ ] Create adapters for PyTorch multi-input
+- [ ] Integration with prediction storage
+
+### Phase 9G: Documentation & Examples
+
+**Goal**: Complete documentation and working examples.
+
+#### Tasks
+
+- [ ] Update dataset_config_specification.md with source metadata fields
+- [ ] Add asymmetric sources example in examples/
+- [ ] Document all error messages and resolutions
+- [ ] Add troubleshooting guide for shape mismatches
+- [ ] Update user guide with multi-source best practices
+- [ ] Document merge controller strategies
 
 ### Dependencies
 
 ```
-Phase 8A (Foundation)
+Phase 9A (Validation)
     ↓
-Phase 8B (Execution) ←── Phase 8C (Branching)
-    ↓
-Phase 8D (Multi-Head)
+Phase 9B (Selection) → Phase 9C (Operators)
+    ↓                      ↓
+Phase 9D (Source Branch) → Phase 9E (Merge)
+                              ↓
+                        Phase 9F (Multi-Head)
+                              ↓
+                        Phase 9G (Documentation)
 ```
 
 ### Testing Strategy
 
 | Test Category | Coverage |
 |---------------|----------|
-| Unit: Schema | Source config validation, compatibility checks |
-| Unit: Accessor | Selective source retrieval, error cases |
-| Integration: Pipeline | Per-source execution, branching |
-| Integration: Models | Multi-head models, shape validation |
+| Unit: Validation | `sources_compatible()`, error messages |
+| Unit: Selection | Source by name/index, mixed selection |
+| Unit: Accessor | `on_incompatible` behaviors |
+| Integration: Operators | Source-aware transformers |
+| Integration: Branching | `source_branch` execution |
+| Integration: Merging | Feature and prediction merge |
 | E2E: Examples | Real asymmetric datasets |
-
-### Documentation Updates
-
-- [ ] Update dataset_config_specification.md with source metadata
-- [ ] Add asymmetric sources example to examples/
-- [ ] Document error messages and resolutions
-- [ ] Add troubleshooting guide for shape mismatches
 
 ---
 
 ## Appendix: Use Case Examples
 
-### Use Case 1: Spectral + Genetic Markers
+### Use Case 1: Spectral + Genetic Markers (Early Fusion)
 
-```yaml
-name: spectral_genomic_fusion
+```python
+# Dataset config (data only)
+config = {
+    "sources": [
+        {"name": "NIR", "train_x": "nir.csv", "source_type": "spectral"},
+        {"name": "SNPs", "train_x": "snps.csv", "source_type": "tabular"},
+    ],
+    "train_y": "phenotypes.csv",
+}
 
-sources:
-  - name: "NIR"
-    train_x: data/nir_spectra.csv
-    source_type: spectral
-    shape_hint: [2000]
-
-  - name: "SNPs"
-    train_x: data/snp_markers.csv
-    source_type: tabular
-    shape_hint: [50000]
-    allow_preprocessing: false
-
-source_fusion: multi_head
-
-targets:
-  path: data/phenotypes.csv
-
-task_type: regression
+# Pipeline (fusion strategy)
+pipeline = [
+    {"source_branch": {
+        "NIR": [SNV(), MinMaxScaler()],
+        "SNPs": [],  # No preprocessing
+    }},
+    {"merge_sources": "concat"},
+    ShuffleSplit(n_splits=5),
+    {"model": PLSRegression(10)},
+]
 ```
 
-### Use Case 2: Multi-Sensor Fusion
+### Use Case 2: Multi-Sensor Late Fusion
 
-```yaml
-name: sensor_fusion
-
-sources:
-  - name: "NIR"
-    train_x: data/nir.csv
-    shape_hint: [500]
-
-  - name: "MIR"
-    train_x: data/mir.csv
-    shape_hint: [800]
-
-  - name: "Raman"
-    train_x: data/raman.csv
-    shape_hint: [1200]
-
-# All spectral, can be concatenated
-source_fusion: concat
-
-task_type: classification
+```python
+pipeline = [
+    ShuffleSplit(n_splits=5),
+    {"source_branch": {
+        0: [SNV(), {"model": PLSRegression(10)}],
+        1: [MSC(), {"model": PLSRegression(15)}],
+        2: [{"model": RandomForestRegressor()}],
+    }},
+    {"merge_predictions": "weighted_average"},
+]
 ```
 
-### Use Case 3: Time Series + Metadata
+### Use Case 3: Multi-Head Neural Network
 
-```yaml
-name: multimodal_forecast
-
-sources:
-  - name: "sensor_readings"
-    train_x: data/sensors.csv
-    source_type: timeseries
-    shape_hint: [24, 10]  # 24 hours × 10 sensors
-
-  - name: "static_features"
-    train_x: data/metadata.csv
-    source_type: tabular
-    shape_hint: [50]
-
-source_fusion: separate  # Must be handled by model architecture
-
-task_type: regression
+```python
+pipeline = [
+    {"source_branch": {
+        "spectral": [SNV(), MinMaxScaler()],
+        "tabular": [StandardScaler()],
+    }},
+    # No merge - model receives sources separately
+    {
+        "model": build_multihead_nn,  # Function that builds multi-input model
+        "source_inputs": ["spectral", "tabular"],
+    },
+]
 ```
