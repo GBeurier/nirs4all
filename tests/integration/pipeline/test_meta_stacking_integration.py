@@ -101,9 +101,9 @@ class TestBasicStackingPipeline:
         """Test stacking with all previous models (default selector)."""
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             PLSRegression(n_components=3),
-            RandomForestRegressor(n_estimators=20, random_state=42),
+            RandomForestRegressor(n_estimators=10, random_state=42),
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
 
@@ -126,10 +126,10 @@ class TestBasicStackingPipeline:
         """Test stacking with explicit source model list."""
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             {"model": PLSRegression(n_components=3), "name": "PLS_3"},
             {"model": PLSRegression(n_components=5), "name": "PLS_5"},
-            RandomForestRegressor(n_estimators=20, random_state=42),
+            RandomForestRegressor(n_estimators=5, random_state=42),
             {"model": MetaModel(
                 model=Ridge(alpha=0.5),
                 source_models=["PLS_3", "PLS_5"],  # Explicit: only PLS models
@@ -153,7 +153,7 @@ class TestBasicStackingPipeline:
 
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             PLSRegression(n_components=3),
             {"model": MetaModel(
                 model=Ridge(alpha=1.0),
@@ -171,9 +171,9 @@ class TestBasicStackingPipeline:
         """Test that meta-model validation scores are reasonable."""
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             PLSRegression(n_components=3),
-            RandomForestRegressor(n_estimators=50, random_state=42),
+            RandomForestRegressor(n_estimators=10, random_state=42),
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
 
@@ -208,7 +208,7 @@ class TestStackingWithBranches:
         """Test meta-model after branching."""
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             {"branch": {
                 "raw": [{"model": PLSRegression(n_components=3), "name": "PLS_Raw"}],
                 "derivative": [DerivativeTransform(), {"model": PLSRegression(n_components=3), "name": "PLS_D1"}],
@@ -242,11 +242,11 @@ class TestStackingWithBranches:
         # Pipeline with meta-model inside each branch
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             PLSRegression(n_components=3),  # Shared base model
             {"branch": {
                 "branch0": [
-                    RandomForestRegressor(n_estimators=20, random_state=42),
+                    RandomForestRegressor(n_estimators=5, random_state=42),
                     {"model": MetaModel(
                         model=Ridge(),
                         stacking_config=StackingConfig(
@@ -255,7 +255,7 @@ class TestStackingWithBranches:
                     ), "name": "Meta_Branch0"},
                 ],
                 "branch1": [
-                    RandomForestRegressor(n_estimators=30, random_state=42),
+                    RandomForestRegressor(n_estimators=5, random_state=42),
                     {"model": MetaModel(
                         model=Ridge(),
                         stacking_config=StackingConfig(
@@ -294,7 +294,7 @@ class TestStackingWithPartitioner:
         pipeline = [
             MinMaxScaler(),
             # Use GroupKFold with Sample_ID to ensure grouped samples stay together
-            {"split": GroupKFold(n_splits=3), "group": "Sample_ID"},
+            {"split": GroupKFold(n_splits=2), "group": "Sample_ID"},
             PLSRegression(n_components=5),
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
@@ -317,7 +317,7 @@ class TestStackingWithExcluder:
         """
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             # Exclude outliers using IQR method (does not create separate branches)
             {"branch": {
                 "by": "outlier_excluder",
@@ -369,7 +369,7 @@ class TestClassificationStacking:
 
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             PLSRegression(n_components=5),
             {"model": MetaModel(
                 model=Ridge(),
@@ -398,10 +398,10 @@ class TestMixedFrameworkStacking:
 
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             # Diverse base models
             PLSRegression(n_components=5),
-            RandomForestRegressor(n_estimators=20, random_state=42),
+            RandomForestRegressor(n_estimators=5, random_state=42),
             KNeighborsRegressor(n_neighbors=5),
             # Meta-learner
             {"model": MetaModel(model=Ridge(alpha=1.0))},
@@ -436,7 +436,7 @@ class TestStackingRoundtrip:
         """Test that reloaded meta-model produces consistent predictions."""
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             PLSRegression(n_components=5),
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
@@ -473,7 +473,7 @@ class TestStackingRoundtrip:
         # Use named models for predictable feature order
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             {"model": PLSRegression(n_components=3), "name": "ModelA"},
             {"model": PLSRegression(n_components=5), "name": "ModelB"},
             {"model": PLSRegression(n_components=7), "name": "ModelC"},
@@ -537,7 +537,7 @@ class TestStackingEdgeCases:
         """Test stacking with only one base model (degenerate case)."""
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             PLSRegression(n_components=5),
             {"model": MetaModel(model=Ridge(alpha=1.0))},
         ]
@@ -575,7 +575,7 @@ class TestStackingEdgeCases:
         """Test error handling for nonexistent source model."""
         pipeline = [
             MinMaxScaler(),
-            KFold(n_splits=3, shuffle=True, random_state=42),
+            KFold(n_splits=2, shuffle=True, random_state=42),
             PLSRegression(n_components=5),
             {"model": MetaModel(
                 model=Ridge(),

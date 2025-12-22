@@ -72,6 +72,8 @@ class TargetResolver:
     def find_prediction_by_id(self, prediction_id: str) -> Optional[Dict[str, Any]]:
         """Search for a prediction by ID in global predictions databases.
 
+        Uses direct ID filtering for O(1) lookup per file instead of O(N) iteration.
+
         Args:
             prediction_id: Unique prediction identifier
 
@@ -95,9 +97,10 @@ class TargetResolver:
 
                 try:
                     predictions = Predictions.load_from_file_cls(str(predictions_file))
-                    for pred in predictions.filter_predictions(load_arrays=True):
-                        if pred.get('id') == prediction_id:
-                            return pred
+                    # Use direct ID filter instead of iterating all predictions
+                    pred = predictions.get_prediction_by_id(prediction_id)
+                    if pred is not None:
+                        return pred
                 except Exception:
                     continue
 
@@ -108,9 +111,10 @@ class TargetResolver:
 
                 try:
                     predictions = Predictions.load_from_file_cls(str(predictions_file))
-                    for pred in predictions.filter_predictions(load_arrays=True):
-                        if pred.get('id') == prediction_id:
-                            return pred
+                    # Use direct ID filter instead of iterating all predictions
+                    pred = predictions.get_prediction_by_id(prediction_id)
+                    if pred is not None:
+                        return pred
                 except Exception:
                     continue
 
@@ -148,17 +152,21 @@ class TargetResolver:
         try:
             predictions = Predictions.load_from_file_cls(str(predictions_file))
 
-            # Filter by config path
-            matching = [
-                p for p in predictions.filter_predictions(load_arrays=True)
-                if p.get('config_path') == config_path
-            ]
+            # Filter by config path - use filter_predictions with load_arrays=False first
+            # to avoid loading all arrays when we just need to find the best score
+            matching = predictions.filter_predictions(config_path=config_path, load_arrays=False)
 
             if not matching:
                 return None
 
-            # Return best by score (assumes lower is better, adjust as needed)
-            return min(matching, key=lambda p: p.get('test_score', float('inf')))
+            # Return best by score (assumes lower is better)
+            best = min(matching, key=lambda p: p.get('test_score', float('inf')))
+
+            # Load arrays for the best prediction only
+            best_id = best.get('id')
+            if best_id:
+                return predictions.get_prediction_by_id(best_id, load_arrays=True)
+            return best
 
         except Exception:
             return None

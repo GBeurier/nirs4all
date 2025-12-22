@@ -364,6 +364,7 @@ class TestFunctionBasedModels:
         assert "mock_model_function" in func_step["function"]
 
 
+@pytest.mark.xdist_group("gpu")
 @pytest.mark.skipif(not TF_AVAILABLE, reason="TensorFlow not installed")
 class TestFunctionBasedModelsWithTensorFlow:
     """Test actual TensorFlow models (nicon, customizable_nicon)."""

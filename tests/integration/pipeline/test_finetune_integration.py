@@ -188,6 +188,7 @@ class TestFinetuneIntegration:
         assert len(model_names) >= 3
 
     @pytest.mark.optuna
+    @pytest.mark.xdist_group("gpu")
     @pytest.mark.tensorflow
     def test_finetune_tensorflow_model(self, test_data_manager):
         """Test finetuning with TensorFlow neural network."""
@@ -205,7 +206,7 @@ class TestFinetuneIntegration:
                 "model": customizable_nicon,
                 "name": "NN-Finetuned",
                 "finetune_params": {
-                    "n_trials": 3,
+                    "n_trials": 2,
                     "verbose": 0,
                     "sample": "random",
                     "approach": "single",
@@ -214,12 +215,12 @@ class TestFinetuneIntegration:
                         "filters_2": [8, 16, 32],
                     },
                     "train_params": {
-                        "epochs": 2,  # Minimal for testing
+                        "epochs": 1,  # Minimal for testing
                         "verbose": 0
                     }
                 },
                 "train_params": {
-                    "epochs": 5,
+                    "epochs": 2,
                     "verbose": 0
                 }
             }

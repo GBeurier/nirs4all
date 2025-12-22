@@ -3,6 +3,7 @@
 import pytest
 from nirs4all.utils.backend import TORCH_AVAILABLE
 
+@pytest.mark.xdist_group("gpu")
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch not available")
 class TestPyTorchModels:
     """Test suite for PyTorch models."""
