@@ -127,7 +127,13 @@ class TransformerMixinController(OperatorController):
             source_processings = processing_ids
             # print("🔹 Processing source", sd_idx, "with processings:", source_processings)
             if context.selector.processing:
-                source_processings = context.selector.processing[sd_idx]
+                # Handle case where processing list has fewer entries than sources
+                # (e.g., after source merge, only source 0 has processings)
+                if sd_idx < len(context.selector.processing):
+                    source_processings = context.selector.processing[sd_idx]
+                else:
+                    # Skip this source - it was merged into source 0
+                    continue
 
             source_transformed_features = []
             source_new_processing_names = []

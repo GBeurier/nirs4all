@@ -1205,6 +1205,40 @@ class RuntimeContext:
                 skip_trace=skip_trace
             )
 
+    def record_input_shapes(
+        self,
+        input_shape: Optional[tuple] = None,
+        features_shape: Optional[List[tuple]] = None
+    ) -> None:
+        """Record input shapes for the current step.
+
+        Args:
+            input_shape: 2D layout shape (samples, features)
+            features_shape: List of 3D shapes per source (samples, processings, features)
+        """
+        if self.trace_recorder is not None:
+            self.trace_recorder.record_input_shapes(
+                input_shape=input_shape,
+                features_shape=features_shape
+            )
+
+    def record_output_shapes(
+        self,
+        output_shape: Optional[tuple] = None,
+        features_shape: Optional[List[tuple]] = None
+    ) -> None:
+        """Record output shapes for the current step.
+
+        Args:
+            output_shape: 2D layout shape (samples, features)
+            features_shape: List of 3D shapes per source (samples, processings, features)
+        """
+        if self.trace_recorder is not None:
+            self.trace_recorder.record_output_shapes(
+                output_shape=output_shape,
+                features_shape=features_shape
+            )
+
     def get_trace_id(self) -> Optional[str]:
         """Get the current trace ID.
 
@@ -1213,4 +1247,17 @@ class RuntimeContext:
         """
         if self.trace_recorder is not None:
             return self.trace_recorder.trace_id
+        return None
+
+    def get_execution_trace(self) -> Optional[Any]:
+        """Get the current execution trace.
+
+        Returns the trace object that has been built during execution.
+        This can be used to generate post-execution diagrams with actual shapes.
+
+        Returns:
+            ExecutionTrace object or None if no trace recorder
+        """
+        if self.trace_recorder is not None:
+            return self.trace_recorder.trace
         return None

@@ -227,6 +227,7 @@ class PipelineRunner:
         self.artifact_loader: Any = None  # ArtifactLoader for predict/explain modes
         self.pipeline_uid: Optional[str] = None  # Current pipeline UID
         self.target_model: Optional[Dict] = None  # Target model for predict/explain modes
+        self.last_execution_trace: Any = None  # ExecutionTrace from last run
 
         # Library for template management
         self._library: Any = None  # PipelineLibrary (lazy)
@@ -294,6 +295,10 @@ class PipelineRunner:
             self._last_aggregate_method = self.orchestrator.last_aggregate_method
         if hasattr(self.orchestrator, 'last_aggregate_exclude_outliers'):
             self._last_aggregate_exclude_outliers = self.orchestrator.last_aggregate_exclude_outliers
+
+        # Sync execution trace for post-run visualization
+        if hasattr(self.orchestrator, 'last_execution_trace'):
+            self.last_execution_trace = self.orchestrator.last_execution_trace
 
         return run_predictions, dataset_predictions
 

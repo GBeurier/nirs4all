@@ -545,12 +545,13 @@ class SampleAugmentationController(OperatorController):
                 transformed_per_source.append(source_3d)
 
             # Prepare output data
+            # For multi-source, return list of arrays (one per source)
+            # For single source, return single array
             if n_sources == 1:
                 batch_data = transformed_per_source[0]  # (n_local, n_procs, n_feats)
             else:
-                # For multi-source, we'd need to handle differently
-                # For now, use first source
-                batch_data = transformed_per_source[0]
+                # For multi-source, return list of arrays
+                batch_data = transformed_per_source  # List of (n_local, n_procs, n_feats)
 
             # Build index dictionaries
             indexes_list = [
@@ -577,8 +578,19 @@ class SampleAugmentationController(OperatorController):
         if not all_batch_data:
             return
 
-        # Concatenate all augmented data into single array
-        combined_data = np.concatenate(all_batch_data, axis=0)
+        # Concatenate all augmented data
+        # Handle both single-source (arrays) and multi-source (list of arrays)
+        if n_sources == 1:
+            # Single source: all_batch_data is list of arrays
+            combined_data = np.concatenate(all_batch_data, axis=0)
+        else:
+            # Multi-source: all_batch_data is list of lists of arrays
+            # Need to concatenate per-source, then return as list
+            combined_data = []
+            for source_idx in range(n_sources):
+                source_arrays = [batch[source_idx] for batch in all_batch_data]
+                combined_source = np.concatenate(source_arrays, axis=0)
+                combined_data.append(combined_source)
 
         # Single batch insert for ALL augmented samples from ALL transformers
         dataset.add_samples_batch(data=combined_data, indexes_list=all_indexes)

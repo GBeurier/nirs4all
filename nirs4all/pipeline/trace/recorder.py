@@ -313,6 +313,40 @@ class TraceRecorder:
         if self.current_step is not None:
             self.current_step.metadata[key] = value
 
+    def record_input_shapes(
+        self,
+        input_shape: Optional[tuple] = None,
+        features_shape: Optional[List[tuple]] = None
+    ) -> None:
+        """Record input shapes for the current step.
+
+        Args:
+            input_shape: 2D layout shape (samples, features)
+            features_shape: List of 3D shapes per source (samples, processings, features)
+        """
+        if self.current_step is not None:
+            if input_shape is not None:
+                self.current_step.input_shape = tuple(input_shape)
+            if features_shape is not None:
+                self.current_step.input_features_shape = [tuple(s) for s in features_shape]
+
+    def record_output_shapes(
+        self,
+        output_shape: Optional[tuple] = None,
+        features_shape: Optional[List[tuple]] = None
+    ) -> None:
+        """Record output shapes for the current step.
+
+        Args:
+            output_shape: 2D layout shape (samples, features)
+            features_shape: List of 3D shapes per source (samples, processings, features)
+        """
+        if self.current_step is not None:
+            if output_shape is not None:
+                self.current_step.output_shape = tuple(output_shape)
+            if features_shape is not None:
+                self.current_step.output_features_shape = [tuple(s) for s in features_shape]
+
     def end_step(
         self,
         is_model: bool = False,
