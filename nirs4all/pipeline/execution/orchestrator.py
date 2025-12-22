@@ -104,6 +104,7 @@ class PipelineOrchestrator:
         self.last_aggregate_column: Optional[str] = None  # Last dataset's aggregate setting
         self.last_aggregate_method: Optional[str] = None  # Last dataset's aggregate method
         self.last_aggregate_exclude_outliers: bool = False  # Last dataset's exclude outliers setting
+        self.last_execution_trace: Any = None  # ExecutionTrace from last run for post-run visualization
 
     def execute(
         self,
@@ -255,6 +256,9 @@ class PipelineOrchestrator:
                 if runtime_context.pipeline_uid:
                     self.last_pipeline_uid = runtime_context.pipeline_uid
                     self.last_manifest_manager = manifest_manager
+
+                # Capture execution trace for post-run visualization
+                self.last_execution_trace = runtime_context.get_execution_trace()
 
                 # Capture preprocessed data AFTER preprocessing
                 if self.keep_datasets:

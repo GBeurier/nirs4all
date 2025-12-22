@@ -245,10 +245,22 @@ class BranchController(OperatorController):
                     branch_binaries = loaded_binaries
 
             # Execute branch steps sequentially
-            # V3: Each substep is recorded individually
+            # V3: Each substep is recorded individually in the execution trace
             for substep_idx, substep in enumerate(branch_steps):
                 if runtime_context.step_runner:
                     runtime_context.substep_number = substep_idx
+
+                    # Record substep in trace before execution
+                    if recorder is not None:
+                        op_type, op_class = self._extract_substep_info(substep)
+                        recorder.start_branch_substep(
+                            parent_step_index=runtime_context.step_number,
+                            branch_id=branch_id,
+                            operator_type=op_type,
+                            operator_class=op_class,
+                            substep_index=substep_idx,
+                        )
+
                     result = runtime_context.step_runner.execute(
                         step=substep,
                         dataset=dataset,
@@ -257,6 +269,11 @@ class BranchController(OperatorController):
                         loaded_binaries=branch_binaries,
                         prediction_store=prediction_store
                     )
+
+                    # End substep recording
+                    if recorder is not None:
+                        recorder.end_step()
+
                     branch_context = result.updated_context
                     all_artifacts.extend(result.artifacts)
 
@@ -652,3 +669,100 @@ class BranchController(OperatorController):
             snapshot: The previously snapshotted feature sources
         """
         dataset._features.sources = copy.deepcopy(snapshot)
+
+    def _extract_substep_info(self, step: Any) -> tuple:
+        """Extract operator type and class from a branch substep.
+
+        Args:
+            step: The substep configuration (dict, class, or instance)
+
+        Returns:
+            Tuple of (operator_type, operator_class)
+        """
+        # Handle dict steps with keywords
+        if isinstance(step, dict):
+            type_keywords = [
+                'preprocessing', 'y_processing', 'feature_augmentation',
+                'sample_augmentation', 'concat_transform', 'model',
+                'meta_model', 'branch', 'merge', 'source_branch',
+                'merge_sources', 'name'
+            ]
+            for kw in type_keywords:
+                if kw in step:
+                    operator = step[kw]
+                    if kw == 'name':
+                        # For {'name': 'X', 'model': Y}, look for actual operator
+                        if 'model' in step:
+                            operator = step['model']
+                            kw = 'model'
+                        else:
+                            continue
+                    op_class = self._get_operator_class_name(operator)
+                    return kw, op_class
+
+            # Check for 'class' key (serialized format)
+            if 'class' in step:
+                class_path = step['class']
+                if '.' in class_path:
+                    op_class = class_path.rsplit('.', 1)[-1]
+                else:
+                    op_class = class_path
+                return 'transform', op_class
+
+            return 'config', 'Config'
+
+        # Handle string (class path)
+        if isinstance(step, str):
+            if '.' in step:
+                op_class = step.rsplit('.', 1)[-1]
+            else:
+                op_class = step
+            return 'transform', op_class
+
+        # Handle class or instance
+        if isinstance(step, type):
+            return 'transform', step.__name__
+        elif hasattr(step, '__class__'):
+            return 'transform', type(step).__name__
+
+        return 'operator', str(type(step).__name__)
+
+    def _get_operator_class_name(self, operator: Any) -> str:
+        """Get a human-readable class name from an operator.
+
+        Args:
+            operator: The operator (class, instance, string, or list)
+
+        Returns:
+            Human-readable class name string
+        """
+        if operator is None:
+            return 'None'
+
+        if isinstance(operator, list):
+            if len(operator) == 0:
+                return 'Empty'
+            if len(operator) == 1:
+                return self._get_operator_class_name(operator[0])
+            # Multiple operators - join names
+            names = [self._get_operator_class_name(op) for op in operator[:3]]
+            suffix = f"... (+{len(operator)-3})" if len(operator) > 3 else ""
+            return ', '.join(names) + suffix
+
+        if isinstance(operator, str):
+            if '.' in operator:
+                return operator.rsplit('.', 1)[-1]
+            return operator
+
+        if isinstance(operator, dict):
+            if 'class' in operator:
+                class_path = operator['class']
+                if '.' in class_path:
+                    return class_path.rsplit('.', 1)[-1]
+                return class_path
+            return 'Config'
+
+        if isinstance(operator, type):
+            return operator.__name__
+
+        return type(operator).__name__

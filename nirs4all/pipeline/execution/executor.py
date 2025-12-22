@@ -527,6 +527,8 @@ class PipelineExecutor:
                 branch_name=branch_name,
                 mode=self.mode
             )
+            # Record input shapes before execution
+            self._record_dataset_shapes(dataset, context, runtime_context, is_input=True)
 
         try:
             # Execute step via step runner
@@ -542,6 +544,10 @@ class PipelineExecutor:
             logger.debug(f"Step {self.step_number} completed with {len(step_result.artifacts)} artifacts")
             if self.verbose > 1:
                 logger.debug(str(dataset))
+
+            # Record output shapes after execution
+            if runtime_context:
+                self._record_dataset_shapes(dataset, step_result.updated_context, runtime_context, is_input=False)
 
             # Process artifacts (persist if needed)
             processed_artifacts = self._process_step_artifacts(step_result.artifacts)
@@ -704,12 +710,17 @@ class PipelineExecutor:
                 "feature_augmentation": "feature_augmentation",
                 "concat_transform": "concat_transform",
                 "sample_partitioner": "sample_partitioner",
+                "sample_augmentation": "sample_augmentation",
                 "resampler": "resampler",
                 "feature_selection": "feature_selection",
                 "outlier_excluder": "outlier_excluder",
                 "sample_filter": "sample_filter",
                 "splitter": "splitter",
                 "branch": "branch",
+                "merge": "merge",
+                "source_branch": "source_branch",
+                "merge_sources": "merge_sources",
+                "preprocessing": "preprocessing",
             }
 
             for key, op_type in type_keywords.items():
@@ -717,15 +728,8 @@ class PipelineExecutor:
                     operator_type = op_type
                     operator_value = step[key]
 
-                    # Extract class name
-                    if hasattr(operator_value, '__class__'):
-                        operator_class = operator_value.__class__.__name__
-                    elif isinstance(operator_value, dict):
-                        operator_class = operator_value.get('class', operator_value.get('function', ''))
-                        if '.' in operator_class:
-                            operator_class = operator_class.split('.')[-1]
-                    elif isinstance(operator_value, str):
-                        operator_class = operator_value.split('.')[-1] if '.' in operator_value else operator_value
+                    # Extract meaningful class name(s) from the operator value
+                    operator_class = self._extract_operator_class_name(operator_value, key)
 
                     # Store sanitized config (avoid storing large objects)
                     try:
@@ -736,10 +740,32 @@ class PipelineExecutor:
                         operator_config = {"_type": str(type(step))}
                     break
             else:
-                # Dict without recognized keyword - just record type as dict
-                operator_type = "config"
-                operator_class = str(type(step).__name__)
-        elif hasattr(step, '__class__'):
+                # Check for serialized class format: {'class': 'module.ClassName', 'params': {...}}
+                if 'class' in step:
+                    class_path = step['class']
+                    if isinstance(class_path, str) and '.' in class_path:
+                        operator_class = class_path.split('.')[-1]
+                        # Infer type from module path
+                        class_path_lower = class_path.lower()
+                        if 'model_selection' in class_path_lower or 'fold' in operator_class.lower() or 'split' in operator_class.lower():
+                            operator_type = "splitter"
+                        elif 'cross_decomposition' in class_path_lower or 'linear_model' in class_path_lower or 'ensemble' in class_path_lower:
+                            operator_type = "model"
+                        elif 'preprocessing' in class_path_lower or 'scaler' in operator_class.lower():
+                            operator_type = "transform"
+                        elif 'feature_selection' in class_path_lower:
+                            operator_type = "feature_selection"
+                        else:
+                            operator_type = "operator"
+                        operator_config = step
+                    else:
+                        operator_type = "config"
+                        operator_class = str(class_path) if class_path else "config"
+                else:
+                    # Dict without recognized keyword - just record type as dict
+                    operator_type = "config"
+                    operator_class = str(type(step).__name__)
+        elif hasattr(step, '__class__') and not isinstance(step, (str, int, float, bool, type(None))):
             # Raw class instance (e.g., sklearn transformer, cross-validator)
             class_name = step.__class__.__name__
             operator_class = class_name
@@ -757,11 +783,168 @@ class PipelineExecutor:
             else:
                 operator_type = "operator"
         elif isinstance(step, str):
-            # String step (e.g., "chart_2d")
-            operator_type = "command"
-            operator_class = step
+            # String step - could be a serialized class path like 'sklearn.preprocessing._data.MinMaxScaler'
+            # or a command like 'chart_2d'
+            if '.' in step:
+                # Likely a fully qualified class path
+                operator_class = step.split('.')[-1]  # Extract just the class name
+
+                # Infer operator type from the module path
+                step_lower = step.lower()
+                if 'cross_decomposition' in step_lower or 'linear_model' in step_lower or 'ensemble' in step_lower:
+                    operator_type = "model"
+                elif 'model_selection' in step_lower or 'fold' in operator_class.lower() or 'split' in operator_class.lower():
+                    operator_type = "splitter"
+                elif 'preprocessing' in step_lower or 'scaler' in operator_class.lower():
+                    operator_type = "transform"
+                elif 'feature_selection' in step_lower:
+                    operator_type = "feature_selection"
+                elif 'nirs4all.operators.transforms' in step:
+                    operator_type = "transform"
+                else:
+                    operator_type = "operator"
+            else:
+                # Simple command name (e.g., 'chart_2d')
+                operator_type = "command"
+                operator_class = step
 
         return operator_type, operator_class, operator_config
+
+    def _extract_operator_class_name(self, value: Any, keyword: str = "") -> str:
+        """Extract a meaningful class name from an operator value.
+
+        Handles various cases:
+        - Direct class instances (e.g., MinMaxScaler())
+        - Class references (e.g., MinMaxScaler)
+        - Lists of operators (e.g., [SNV(), FirstDerivative()])
+        - Dicts with operator configuration
+        - Strings (e.g., class paths)
+
+        Args:
+            value: The operator value to extract name from
+            keyword: The keyword context (e.g., 'model', 'feature_augmentation')
+
+        Returns:
+            Human-readable operator class name
+        """
+        # Handle None
+        if value is None:
+            return "None"
+
+        # Handle string values
+        if isinstance(value, str):
+            # For strings like 'sklearn.preprocessing.MinMaxScaler', extract last part
+            return value.split('.')[-1] if '.' in value else value
+
+        # Handle class references (not instances)
+        if isinstance(value, type):
+            return value.__name__
+
+        # Handle lists of operators
+        if isinstance(value, (list, tuple)):
+            if len(value) == 0:
+                return "[]"
+            # Extract names from first few items
+            names = []
+            for item in value[:3]:  # Limit to first 3 for readability
+                name = self._extract_operator_class_name(item, keyword)
+                if name and name not in ('dict', 'list', 'tuple'):
+                    names.append(name)
+            if names:
+                result = ", ".join(names)
+                if len(value) > 3:
+                    result += f" (+{len(value) - 3})"
+                return result
+            return f"[{len(value)} items]"
+
+        # Handle dicts with class specification
+        if isinstance(value, dict):
+            # Check for common class keys
+            for class_key in ('class', 'function', 'type', 'model', 'operator'):
+                if class_key in value:
+                    class_val = value[class_key]
+                    if isinstance(class_val, str):
+                        return class_val.split('.')[-1] if '.' in class_val else class_val
+                    elif hasattr(class_val, '__name__'):
+                        return class_val.__name__
+                    elif hasattr(class_val, '__class__'):
+                        return class_val.__class__.__name__
+
+            # For sample_augmentation dicts, show transformer count
+            if 'transformers' in value:
+                transformers = value['transformers']
+                count = value.get('count', 1)
+                if isinstance(transformers, (list, tuple)):
+                    names = [self._extract_operator_class_name(t) for t in transformers[:2]]
+                    names = [n for n in names if n not in ('dict', 'list')]
+                    if names:
+                        return f"{', '.join(names)} ×{count}"
+                return f"[{len(transformers)} aug] ×{count}"
+
+            # For concat_transform with operations
+            if 'operations' in value:
+                ops = value['operations']
+                return self._extract_operator_class_name(ops, keyword)
+
+            return "config"
+
+        # Handle class instances with __class__ attribute
+        if hasattr(value, '__class__'):
+            class_name = value.__class__.__name__
+            # Skip generic Python types
+            if class_name not in ('dict', 'list', 'tuple', 'set', 'str', 'int', 'float', 'bool', 'NoneType'):
+                return class_name
+
+        return str(type(value).__name__)
+
+    def _record_dataset_shapes(
+        self,
+        dataset: SpectroDataset,
+        context: ExecutionContext,
+        runtime_context: Any,
+        is_input: bool = True
+    ) -> None:
+        """Record dataset shapes to the execution trace.
+
+        Captures both 2D layout shape and 3D per-source feature shapes.
+
+        Args:
+            dataset: The dataset to measure
+            context: Execution context with selector
+            runtime_context: Runtime context with trace recorder
+            is_input: True to record input shapes, False for output shapes
+        """
+        try:
+            # Get 2D layout shape (samples × features)
+            X_2d = dataset.x(context.selector, layout="2d", include_excluded=False)
+            if isinstance(X_2d, list):
+                # Multi-source with concat
+                layout_shape = (X_2d[0].shape[0], sum(x.shape[1] for x in X_2d))
+            else:
+                layout_shape = X_2d.shape
+
+            # Get 3D per-source shapes (samples × processings × features)
+            X_3d = dataset.x(context.selector, layout="3d", concat_source=False, include_excluded=False)
+            if not isinstance(X_3d, list):
+                X_3d = [X_3d]
+
+            features_shapes = [x.shape for x in X_3d]
+
+            # Record to trace
+            if is_input:
+                runtime_context.record_input_shapes(
+                    input_shape=layout_shape,
+                    features_shape=features_shapes
+                )
+            else:
+                runtime_context.record_output_shapes(
+                    output_shape=layout_shape,
+                    features_shape=features_shapes
+                )
+
+        except Exception:
+            # Shape recording is non-critical, don't fail the step
+            pass
 
     def _compute_pipeline_hash(self, steps: List[Any]) -> str:
         """Compute MD5 hash of pipeline configuration.

@@ -323,6 +323,14 @@ class ExecutionStep:
     produces_branches: bool = False
     substep_index: Optional[int] = None
 
+    # V4 shape tracking
+    # Input/output shapes are 2D layout (samples, features)
+    input_shape: Optional[Tuple[int, int]] = None
+    output_shape: Optional[Tuple[int, int]] = None
+    # Features shape is 3D per-source: List of (samples, processings, features) per source
+    input_features_shape: Optional[List[Tuple[int, int, int]]] = None
+    output_features_shape: Optional[List[Tuple[int, int, int]]] = None
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for YAML serialization.
 
@@ -345,6 +353,10 @@ class ExecutionStep:
             "source_count": self.source_count,
             "produces_branches": self.produces_branches,
             "substep_index": self.substep_index,
+            "input_shape": list(self.input_shape) if self.input_shape else None,
+            "output_shape": list(self.output_shape) if self.output_shape else None,
+            "input_features_shape": [list(s) for s in self.input_features_shape] if self.input_features_shape else None,
+            "output_features_shape": [list(s) for s in self.output_features_shape] if self.output_features_shape else None,
         }
 
     @classmethod
@@ -371,6 +383,12 @@ class ExecutionStep:
         else:
             artifacts = StepArtifacts()
 
+        # Parse shape fields
+        input_shape = data.get("input_shape")
+        output_shape = data.get("output_shape")
+        input_features_shape = data.get("input_features_shape")
+        output_features_shape = data.get("output_features_shape")
+
         return cls(
             step_index=data.get("step_index", 0),
             operator_type=data.get("operator_type", ""),
@@ -387,6 +405,10 @@ class ExecutionStep:
             source_count=data.get("source_count", 1),
             produces_branches=data.get("produces_branches", False),
             substep_index=data.get("substep_index"),
+            input_shape=tuple(input_shape) if input_shape else None,
+            output_shape=tuple(output_shape) if output_shape else None,
+            input_features_shape=[tuple(s) for s in input_features_shape] if input_features_shape else None,
+            output_features_shape=[tuple(s) for s in output_features_shape] if output_features_shape else None,
         )
 
     def has_artifacts(self) -> bool:
