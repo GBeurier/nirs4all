@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from nirs4all.utils.backend import JAX_AVAILABLE
 
+@pytest.mark.xdist_group("gpu")
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX not available")
 class TestJaxModels:
     def test_mlp_regressor(self):

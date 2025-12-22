@@ -412,6 +412,7 @@ class TestIKPLS:
         assert model.backend == 'jax'
 
 
+@pytest.mark.xdist_group("gpu")
 class TestIKPLSJAX:
     """Test suite for IKPLS regressor with JAX backend.
 
@@ -1807,6 +1808,7 @@ class TestSIMPLS:
             model.fit(X, y)
 
 
+@pytest.mark.xdist_group("gpu")
 class TestSIMPLSJAX:
     """Test suite for SIMPLS regressor with JAX backend.
 
@@ -2294,6 +2296,7 @@ class TestIntervalPLS:
         assert not np.isnan(predictions).any()
 
 
+@pytest.mark.xdist_group("gpu")
 class TestIntervalPLSJAX:
     """Test suite for IntervalPLS regressor with JAX backend.
 
@@ -2838,6 +2841,7 @@ class TestRobustPLS:
         assert corr_robust > corr_simpls * 0.8 or corr_robust > 0.7
 
 
+@pytest.mark.xdist_group("gpu")
 class TestRobustPLSJAX:
     """Test suite for RobustPLS regressor with JAX backend.
 
@@ -3029,6 +3033,7 @@ class TestRobustPLSJAX:
 # Backend Parity Tests - Verify NumPy and JAX produce identical results
 # =============================================================================
 
+@pytest.mark.xdist_group("gpu")
 class TestPLSBackendParity:
     """Test that all PLS models with both backends produce identical results.
 
@@ -3671,6 +3676,7 @@ class TestRecursivePLS:
             model.fit(X, y)
 
 
+@pytest.mark.xdist_group("gpu")
 class TestRecursivePLSJAX:
     """Test suite for RecursivePLS regressor with JAX backend.
 
@@ -3848,6 +3854,7 @@ class TestRecursivePLSJAX:
 
 
 # Add RecursivePLS to backend parity tests
+@pytest.mark.xdist_group("gpu")
 class TestRecursivePLSBackendParity:
     """Test RecursivePLS produces identical results with NumPy and JAX backends."""
 
@@ -4332,6 +4339,7 @@ class TestKOPLS:
         assert not np.isnan(predictions).any()
 
 
+@pytest.mark.xdist_group("gpu")
 class TestKOPLSJAX:
     """Test suite for KOPLS regressor with JAX backend.
 
@@ -4490,6 +4498,7 @@ class TestKOPLSJAX:
         assert not np.isnan(T).any()
 
 
+@pytest.mark.xdist_group("gpu")
 class TestKOPLSBackendParity:
     """Test KOPLS produces identical results with NumPy and JAX backends."""
 
@@ -4890,6 +4899,7 @@ class TestKernelPLS:
         assert predictions.shape == y.shape
 
 
+@pytest.mark.xdist_group("gpu")
 class TestKernelPLSBackendParity:
     """Test KernelPLS produces identical results with NumPy and JAX backends."""
 
@@ -5322,6 +5332,7 @@ class TestRBFFeaturizer:
         np.testing.assert_array_equal(result1, result2)
 
 
+@pytest.mark.xdist_group("gpu")
 class TestOKLMPLSBackendParity:
     """Test OKLMPLS produces similar results with NumPy and JAX backends."""
 
@@ -5759,6 +5770,7 @@ class TestFCKPLS:
         assert predictions.shape == y.shape
 
 
+@pytest.mark.xdist_group("gpu")
 class TestFCKPLSBackendParity:
     """Test FCKPLS produces similar results with NumPy and JAX backends."""
 

@@ -1,24 +1,12 @@
 ## ROADMAP
 
-### ✅ COMPLETED: Branching, Merge & Multi-Source Refactoring (Dec 2025)
-
-All 11 phases of the branching/merge refactoring are complete:
-- Branch merging (`merge` keyword) - features, predictions, or mixed
-- Source merging (`merge_sources` keyword) - multi-source fusion
-- Source branching (`source_branch` keyword) - per-source pipelines
-- OOF-safe prediction stacking with MetaModel equivalence
-- Full documentation and examples (Q_merge_branches.py, Q_merge_sources.py)
-- See [docs/specifications/merge_syntax.md](docs/specifications/merge_syntax.md) for reference
-
 ---
 
-Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications) and dataset configs that cover all cases.
-Creates use cases that covers all the diversity of controllers and syntax for pipelines
 **Features**:
 > [Test] Speed Up
 
-> ~~[Features] Allow asymetric sources (transformer apply as usual depending on source type). Basically source 1 nirs(500, 500), source 2 timeseries(500, 15, 300), source 3 markers(500, 50000). Then source_split_branch.~~ ✅ DONE via source_branch
-> ~~[Ensure_Merge] verify if merge is working (after branches merge predictions or features, ie after source_split_branch)~~ ✅ DONE via MergeController
+Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications) and dataset configs that cover all cases.
+Creates use cases that covers all the diversity of controllers and syntax for pipelines
 
 > [PipelineDAGChart] Display the whole DAG with data shape before each step
 
@@ -45,6 +33,7 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 > Artifact overview and maybe refactoring
 
 > transfer, stacking, branching, multisource, pp, aggregation, pipeline inputs (launch from model, folder, file, yaml, json, etc.)
+> review repetitions to source mechanism
 
 **RELEASE** 0.6.0: MVP
 

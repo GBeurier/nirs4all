@@ -230,6 +230,7 @@ class TestClassificationIntegration:
             assert isinstance(short_str, str)
             assert len(short_str) > 0
 
+    @pytest.mark.xdist_group("gpu")
     @pytest.mark.tensorflow
     def test_tensorflow_classification(self, test_data_manager):
         """Test TensorFlow neural network classification (Q1_classif_tf.py)."""
@@ -245,7 +246,7 @@ class TestClassificationIntegration:
             {
                 "model": nicon_classification,
                 "train_params": {
-                    "epochs": 3,  # Minimal for testing
+                    "epochs": 2,  # Minimal for testing
                     "patience": 10,
                     "verbose": 0
                 }
@@ -266,6 +267,7 @@ class TestClassificationIntegration:
         assert 0 <= best_pred['val_score'] <= 1
         assert np.isfinite(best_pred['val_score'])
 
+    @pytest.mark.xdist_group("gpu")
     @pytest.mark.tensorflow
     def test_tensorflow_vs_sklearn_classification(self, test_data_manager):
         """Test both TensorFlow and sklearn models in same pipeline."""

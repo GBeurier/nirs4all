@@ -425,6 +425,28 @@ class Predictions:
         results = self.filter_predictions(**filter_kwargs)
         return results[0] if results else None
 
+    def get_prediction_by_id(self, prediction_id: str, load_arrays: bool = True) -> Optional[Dict[str, Any]]:
+        """
+        Get a single prediction by its ID using direct lookup.
+
+        This is an O(1) lookup that avoids iterating all predictions,
+        which is much faster than using filter_predictions for ID lookups.
+
+        Args:
+            prediction_id: Unique prediction identifier (hash ID)
+            load_arrays: If True, loads actual arrays from registry (slower).
+                        If False, returns metadata only with array references (fast).
+
+        Returns:
+            Prediction dictionary or None if not found
+
+        Examples:
+            >>> pred = predictions.get_prediction_by_id("abc123def456")
+            >>> if pred:
+            ...     print(f"Found model: {pred['model_name']}")
+        """
+        return self._storage.get_by_id(prediction_id, load_arrays=load_arrays)
+
     # =========================================================================
     # RANKING OPERATIONS - Delegate to Ranker
     # =========================================================================

@@ -150,6 +150,7 @@ class TestPredictionReuseIntegration:
         # Should be identical
         np.testing.assert_allclose(pred1, pred2, rtol=1e-10)
 
+    @pytest.mark.xdist_group("gpu")
     @pytest.mark.tensorflow
     def test_tensorflow_model_reuse(self, test_data_manager):
         """Test Q5_predict_NN style: TensorFlow model persistence and reuse."""
@@ -168,7 +169,7 @@ class TestPredictionReuseIntegration:
             {
                 "model": nicon,
                 "train_params": {
-                    "epochs": 3,  # Minimal for testing
+                    "epochs": 2,  # Minimal for testing
                     "patience": 10,
                     "verbose": 0
                 }
