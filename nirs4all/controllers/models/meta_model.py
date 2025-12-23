@@ -1432,7 +1432,9 @@ class MetaModelController(SklearnModelController):
         y_test_unscaled,
         folds,
         loaded_binaries,
-        mode
+        mode,
+        train_sample_ids=None,
+        test_sample_ids=None
     ):
         """Execute meta-model prediction with dependency resolution.
 
@@ -1456,6 +1458,8 @@ class MetaModelController(SklearnModelController):
             y_train_unscaled: Unscaled training targets.
             y_test_unscaled: Unscaled test targets.
             folds: Cross-validation folds (unused in prediction mode).
+            train_sample_ids: List of train sample IDs (unused in prediction mode).
+            test_sample_ids: List of test sample IDs (unused in prediction mode).
             loaded_binaries: Pre-loaded model binaries.
             mode: Execution mode ('predict' or 'explain').
 
