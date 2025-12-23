@@ -15,11 +15,6 @@ for cleaner separation of concerns and more robust coverage handling.
 
 Phase 3 Enhancement: Implements prediction mode with dependency resolution
 and meta-model artifact persistence with source model references.
-
-Phase 7 Enhancement: Optionally delegates to MergeController.merge_branches()
-for unified branch handling. When in branch mode with ALL_BRANCHES scope,
-MetaModel can use MergeController's infrastructure for OOF prediction collection.
-This provides a single source of truth for branch merging logic.
 """
 
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -114,30 +109,22 @@ class MetaModelController(SklearnModelController):
     The key difference from regular model controllers is that get_xy() returns
     features constructed from predictions rather than the original dataset features.
 
-    Phase 7 Enhancement: Can optionally delegate to MergeController.merge_branches()
-    for unified branch handling. This provides a single source of truth for OOF
-    prediction collection and enables seamless equivalence between:
-        - {"model": MetaModel(Ridge())}
-        - {"merge": "predictions"}, {"model": Ridge()}
+    Key Behavior:
+        - Works INDEPENDENTLY of branches (no branch awareness required for basic case)
+        - Queries prediction_store for ALL models from previous steps
+        - Does NOT modify execution context (unlike MergeController)
+        - For branch-aware stacking, uses BranchScope configuration
 
     Attributes:
         priority: Controller priority (5) - higher than SklearnModelController (6)
             to ensure MetaModel operators are handled by this controller.
         use_reconstructor: If True, use TrainingSetReconstructor for OOF.
-        use_merge_controller: If True, delegate to MergeController when in branch
-            mode with ALL_BRANCHES scope. This is the Phase 7 integration path.
     """
 
     priority = 5  # Higher priority than SklearnModelController (6)
 
     # Enable Phase 2 TrainingSetReconstructor (set to True to use new implementation)
     use_reconstructor: bool = True
-
-    # Phase 7: Enable MergeController delegation for branch mode
-    # When True and in branch mode, uses MergeController.merge_branches() for
-    # unified prediction collection. Currently False by default to maintain
-    # backward compatibility; can be enabled for testing or future defaults.
-    use_merge_controller: bool = False
 
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
@@ -268,10 +255,29 @@ class MetaModelController(SklearnModelController):
                 if result is not None:
                     # Store reconstruction result for later use
                     context.custom['_reconstruction_result'] = result
+
+                    # When sample_augmentation is active, y_train_unscaled from parent
+                    # may have more samples than result.y_train. We need to return
+                    # matching sample counts for all y arrays.
+                    # The unscaled values should correspond to the same samples as result.y_train
+                    y_train_unscaled_matched = y_train_unscaled
+                    y_test_unscaled_matched = y_test_unscaled
+
+                    # Check if we need to adjust for sample_augmentation
+                    if len(result.y_train) != len(y_train_unscaled):
+                        # Get unscaled y values without augmented samples
+                        y_train_unscaled_matched = self._get_unscaled_y_for_samples(
+                            dataset, context, 'train', len(result.y_train)
+                        )
+                    if len(result.y_test) != len(y_test_unscaled):
+                        y_test_unscaled_matched = self._get_unscaled_y_for_samples(
+                            dataset, context, 'test', len(result.y_test)
+                        )
+
                     return (
                         result.X_train_meta, result.y_train,
                         result.X_test_meta, result.y_test,
-                        y_train_unscaled, y_test_unscaled
+                        y_train_unscaled_matched, y_test_unscaled_matched
                     )
 
             # Fallback to Phase 1 implementation
@@ -296,10 +302,9 @@ class MetaModelController(SklearnModelController):
         preprocessing branches, sample partitioner, outlier excluder, and
         generator syntax.
 
-        Phase 7 Enhancement: Includes multi-level stacking validation (circular
-        dependency detection, level consistency) and cross-branch stacking
-        validation (sample alignment, feature alignment). Also includes optional
-        delegation to MergeController.merge_branches() for unified branch handling.
+        Stacking Restoration: This method works independently of branch merging.
+        It queries the prediction_store for ALL models from previous steps,
+        respecting the branch context if provided (CURRENT_ONLY scope).
 
         Args:
             dataset: SpectroDataset for sample indices.
@@ -330,19 +335,6 @@ class MetaModelController(SklearnModelController):
             meta_operator = self._get_meta_operator_from_context(context)
         except ValueError:
             return None
-
-        # Phase 7: Check if MergeController should be used for branch handling
-        if self._should_use_merge_controller(context, meta_operator):
-            result = self._reconstruct_with_merge_controller(
-                dataset=dataset,
-                context=context,
-                prediction_store=prediction_store,
-                y_train=y_train,
-                y_test=y_test,
-            )
-            if result is not None:
-                return result
-            # Fall through to standard reconstructor if merge failed
 
         # Get source model names
         source_models = self._get_source_models(meta_operator, context, prediction_store)
@@ -500,21 +492,46 @@ class MetaModelController(SklearnModelController):
     def _raise_cross_branch_error(self, cross_branch_result: 'CrossBranchValidationResult') -> None:
         """Raise appropriate error based on cross-branch validation result."""
         if cross_branch_result.compatibility == CrossBranchCompatibility.INCOMPATIBLE_SAMPLES:
+            # Build branch -> sample count mapping
+            branches_sample_counts = {
+                bid: info.n_samples
+                for bid, info in cross_branch_result.branches.items()
+            }
             raise IncompatibleBranchSamplesError(
-                branches=list(cross_branch_result.branch_info.keys()),
-                sample_overlap=cross_branch_result.sample_overlap_ratio,
+                branches=branches_sample_counts,
             )
-        elif cross_branch_result.compatibility == CrossBranchCompatibility.INCOMPATIBLE_FOLDS:
+        elif cross_branch_result.compatibility == CrossBranchCompatibility.INCOMPATIBLE_PARTITIONS:
+            # Sample partitioner detected - disjoint sample sets
+            # Get sample info from branches
+            branch_items = list(cross_branch_result.branches.items())
+            if len(branch_items) >= 2:
+                bid1, info1 = branch_items[0]
+                bid2, info2 = branch_items[1]
+                overlap = len(cross_branch_result.common_samples)
+                total = max(info1.n_samples, info2.n_samples)
+                overlap_ratio = overlap / total if total > 0 else 0.0
+            else:
+                bid1 = branch_items[0][0] if branch_items else 0
+                info1 = branch_items[0][1] if branch_items else None
+                overlap_ratio = 0.0
+
             raise DisjointSampleSetsError(
-                branch_a=str(cross_branch_result.branch_info.get('branch_a', {}).get('branch_id', 'A')),
-                branch_b=str(cross_branch_result.branch_info.get('branch_b', {}).get('branch_id', 'B')),
-                sample_ids_a=set(),
-                sample_ids_b=set(),
+                source_model=f"branch_{bid1}",
+                expected_samples=info1.n_samples if info1 else 0,
+                found_samples=len(cross_branch_result.common_samples),
+                overlap_ratio=overlap_ratio,
             )
         elif cross_branch_result.compatibility == CrossBranchCompatibility.INCOMPATIBLE_FEATURES:
+            # Build feature counts from branches
+            branch_features = {
+                bid: info.n_samples  # Using n_samples as proxy for feature count
+                for bid, info in cross_branch_result.branches.items()
+            }
+            expected = sum(branch_features.values())
             raise BranchFeatureAlignmentError(
-                branches=list(cross_branch_result.branch_info.keys()),
-                feature_counts={k: v.n_features for k, v in cross_branch_result.branch_info.items()},
+                expected_features=expected,
+                branch_features=branch_features,
+                alignment_issues=cross_branch_result.alignment_issues,
             )
 
     def _validate_branch_context(
@@ -685,190 +702,6 @@ class MetaModelController(SklearnModelController):
                 warnings.warn(f"[{error.code}] {error.message}")
 
         return result
-
-    # =========================================================================
-    # Phase 7: MergeController Integration
-    # =========================================================================
-
-    def _reconstruct_with_merge_controller(
-        self,
-        dataset: 'SpectroDataset',
-        context: 'ExecutionContext',
-        prediction_store: 'Predictions',
-        y_train: np.ndarray,
-        y_test: np.ndarray,
-    ) -> Optional[ReconstructionResult]:
-        """Use MergeController for OOF feature construction (Phase 7).
-
-        Alternative to _reconstruct_with_reconstructor that delegates to
-        MergeController.merge_branches(). This provides unified branch handling
-        and ensures consistency between:
-            - {"model": MetaModel(Ridge())}
-            - {"merge": "predictions"}, {"model": Ridge()}
-
-        This method is only used when:
-            1. use_merge_controller is True
-            2. Pipeline is in branch mode (branch_contexts exist)
-            3. Branch scope is ALL_BRANCHES or there are multiple branches
-
-        For simpler cases (no branching, CURRENT_ONLY scope), the standard
-        TrainingSetReconstructor path is used.
-
-        Args:
-            dataset: SpectroDataset for sample indices.
-            context: Execution context with branch info.
-            prediction_store: Predictions storage.
-            y_train: Pre-computed training targets.
-            y_test: Pre-computed test targets.
-
-        Returns:
-            ReconstructionResult with meta-features from merge, or None if
-            MergeController cannot be used (will fallback to reconstructor).
-
-        Note:
-            This is the Phase 7 integration point. Currently enabled via
-            use_merge_controller flag. May become the default in future versions.
-        """
-        from nirs4all.controllers.data.merge import MergeController
-        from nirs4all.operators.data.merge import MergeConfig
-
-        # Check if we're in branch mode
-        branch_contexts = context.custom.get("branch_contexts", [])
-        in_branch_mode = context.custom.get("in_branch_mode", False)
-
-        if not branch_contexts and not in_branch_mode:
-            # Not in branch mode - use standard reconstructor instead
-            return None
-
-        try:
-            meta_operator = self._get_meta_operator_from_context(context)
-        except ValueError:
-            return None
-
-        # Build MergeConfig from MetaModel parameters
-        config = MergeController.build_config_from_meta_model(
-            meta_operator=meta_operator,
-            context=context,
-            branch_contexts=branch_contexts,
-        )
-
-        verbose = getattr(self, 'verbose', 0)
-        if verbose > 0:
-            logger.info("Using MergeController for OOF prediction collection (Phase 7)")
-
-        try:
-            # Delegate to MergeController
-            merged_features, info = MergeController.merge_branches(
-                dataset=dataset,
-                context=context,
-                config=config,
-                prediction_store=prediction_store,
-                mode="train",
-            )
-        except ValueError as e:
-            # MergeController couldn't handle this case
-            if verbose > 0:
-                logger.warning(f"MergeController fallback: {e}")
-            return None
-
-        # Convert to ReconstructionResult for compatibility
-        n_samples = merged_features.shape[0]
-        n_features = merged_features.shape[1]
-
-        # Split into train and test portions based on y shapes
-        n_train = len(y_train) if y_train is not None else 0
-        n_test = len(y_test) if y_test is not None else 0
-
-        # Get train and test indices
-        train_context = context.with_partition('train')
-        train_ids = list(dataset._indexer.x_indices(
-            train_context.selector,
-            include_augmented=True,
-            include_excluded=False
-        ))
-
-        test_context = context.with_partition('test')
-        test_ids = list(dataset._indexer.x_indices(
-            test_context.selector,
-            include_augmented=False,
-            include_excluded=False
-        ))
-
-        # Extract train and test features from merged
-        X_train_meta = merged_features[train_ids, :] if train_ids else np.zeros((0, n_features))
-        X_test_meta = merged_features[test_ids, :] if test_ids else np.zeros((0, n_features))
-
-        # Build ReconstructionResult
-        result = ReconstructionResult(
-            X_train_meta=X_train_meta,
-            y_train=y_train,
-            X_test_meta=X_test_meta,
-            y_test=y_test,
-            source_models=info.get("models_used", []),
-            n_folds=1,  # Merge doesn't track folds explicitly
-            coverage_ratio=1.0,  # Merge handles coverage internally
-            validation_result=type('ValidationResult', (), {
-                'is_valid': True,
-                'errors': [],
-                'warnings': [],
-            })(),
-        )
-
-        if verbose > 0:
-            logger.success(
-                f"MergeController reconstruction: "
-                f"train={X_train_meta.shape}, test={X_test_meta.shape}, "
-                f"models={len(info.get('models_used', []))}"
-            )
-
-        return result
-
-    def _should_use_merge_controller(
-        self,
-        context: 'ExecutionContext',
-        meta_operator: Optional[MetaModel] = None,
-    ) -> bool:
-        """Determine if MergeController should be used for this stacking operation.
-
-        Evaluates whether the current context and configuration make it appropriate
-        to delegate to MergeController.merge_branches() instead of using the
-        standard TrainingSetReconstructor.
-
-        Args:
-            context: Execution context with branch info.
-            meta_operator: MetaModel operator (optional, will be extracted if None).
-
-        Returns:
-            True if MergeController should be used, False otherwise.
-        """
-        # Check if feature flag is enabled
-        if not self.use_merge_controller:
-            return False
-
-        # Check if we're in branch mode
-        branch_contexts = context.custom.get("branch_contexts", [])
-        in_branch_mode = context.custom.get("in_branch_mode", False)
-
-        if not branch_contexts and not in_branch_mode:
-            return False
-
-        # Get meta operator if not provided
-        if meta_operator is None:
-            try:
-                meta_operator = self._get_meta_operator_from_context(context)
-            except ValueError:
-                return False
-
-        # For ALL_BRANCHES scope, MergeController is preferred
-        stacking_config = meta_operator.stacking_config
-        if stacking_config.branch_scope == BranchScope.ALL_BRANCHES:
-            return True
-
-        # For multiple branches, MergeController can handle unified collection
-        if len(branch_contexts) > 1:
-            return True
-
-        return False
 
     def _build_oof_features_from_predictions(
         self,
@@ -1201,6 +1034,11 @@ class MetaModelController(SklearnModelController):
     ) -> List[ModelCandidate]:
         """Get list of source models using the configured selector.
 
+        Respects BranchScope configuration:
+        - CURRENT_ONLY: Only models from current branch (default)
+        - ALL_BRANCHES: Models from all branches
+        - SPECIFIED: Uses explicit source_models list
+
         Args:
             meta_operator: MetaModel operator with configuration.
             context: Execution context.
@@ -1211,6 +1049,16 @@ class MetaModelController(SklearnModelController):
         """
         # Build candidates from prediction store
         candidates = self._build_candidates_from_predictions(context, prediction_store)
+
+        # Determine branch scope
+        branch_scope = meta_operator.stacking_config.branch_scope
+
+        # For ALL_BRANCHES scope, modify context to not filter by branch
+        # by temporarily clearing branch_id for selection
+        effective_context = context
+        if branch_scope == BranchScope.ALL_BRANCHES:
+            # Create a context that won't filter by branch_id
+            effective_context = self._create_all_branches_context(context)
 
         # Get or create selector
         if meta_operator.selector is not None:
@@ -1226,11 +1074,42 @@ class MetaModelController(SklearnModelController):
             # Fallback to all models
             selector = AllPreviousModelsSelector(include_averaged=False)
 
-        # Apply selection
-        selected = selector.select(candidates, context, prediction_store)
-        selector.validate(selected, context)
+        # Apply selection with effective context
+        selected = selector.select(candidates, effective_context, prediction_store)
+        selector.validate(selected, effective_context)
 
         return selected
+
+    def _create_all_branches_context(
+        self,
+        context: 'ExecutionContext'
+    ) -> 'ExecutionContext':
+        """Create a context for ALL_BRANCHES scope that doesn't filter by branch.
+
+        For ALL_BRANCHES stacking, we want to collect predictions from all
+        branches, not just the current one. This creates a modified context
+        where the selector has no branch_id set.
+
+        Args:
+            context: Original execution context.
+
+        Returns:
+            Modified context with branch_id cleared for selection.
+        """
+        # Create a copy of the selector with branch_id set to None
+        # This allows selectors to collect from all branches
+        from copy import copy
+        new_context = copy(context)
+        new_selector = copy(context.selector)
+
+        # Clear branch-related attributes to allow cross-branch selection
+        if hasattr(new_selector, 'branch_id'):
+            new_selector.branch_id = None
+        if hasattr(new_selector, 'branch_name'):
+            new_selector.branch_name = None
+
+        new_context.selector = new_selector
+        return new_context
 
     def _build_candidates_from_predictions(
         self,
@@ -1278,6 +1157,50 @@ class MetaModelController(SklearnModelController):
             candidates.append(candidate)
 
         return candidates
+
+    def _get_unscaled_y_for_samples(
+        self,
+        dataset: 'SpectroDataset',
+        context: 'ExecutionContext',
+        partition: str,
+        expected_count: int
+    ) -> np.ndarray:
+        """Get unscaled y values for original (non-augmented) samples.
+
+        When sample_augmentation is active, the dataset may have more samples
+        than what OOF reconstruction uses. This method gets the unscaled y
+        values only for non-augmented samples to match the OOF sample count.
+
+        Args:
+            dataset: SpectroDataset.
+            context: Execution context.
+            partition: 'train' or 'test'.
+            expected_count: Expected number of samples to return.
+
+        Returns:
+            Unscaled y values array with expected_count samples.
+        """
+        partition_context = context.with_partition(partition)
+
+        # Get y values without augmented samples (this returns unprocessed y)
+        # We need to get the raw y values corresponding to non-augmented samples
+        try:
+            y_unscaled = dataset.y(
+                partition_context.selector,
+                include_augmented=False
+            )
+            if len(y_unscaled) == expected_count:
+                return y_unscaled
+        except (TypeError, ValueError):
+            pass
+
+        # Fallback: get all y values and slice to expected count
+        # This works when augmented samples are at the end
+        all_y = dataset.y(partition_context.selector)
+        if len(all_y) >= expected_count:
+            return all_y[:expected_count]
+
+        return all_y
 
     def _get_meta_operator_from_context(self, context: 'ExecutionContext') -> MetaModel:
         """Get MetaModel operator from execution context.
@@ -1433,6 +1356,17 @@ class MetaModelController(SklearnModelController):
 
         # Set layout preference (force_layout overrides preferred)
         context = context.with_layout(self.get_effective_layout(step_info))
+
+        # CRITICAL: Override y_processing to 'numeric' for MetaModel.
+        # MetaModel trains on unscaled predictions (X) and unscaled targets (y),
+        # so predictions are already in the original (unscaled) target space.
+        # We must prevent double inverse-transformation by setting y_processing='numeric',
+        # which tells the prediction transformer to skip inverse transform.
+        # Store original y_processing for potential restoration if needed.
+        original_y_processing = context.state.y_processing
+        if original_y_processing != 'numeric':
+            context.state.y_processing = 'numeric'
+            context.custom['_original_y_processing'] = original_y_processing
 
         # Call parent execute (SklearnModelController.execute)
         return SklearnModelController.execute(
@@ -1777,6 +1711,7 @@ class MetaModelController(SklearnModelController):
         branch_name: Optional[str] = None,
         branch_path: Optional[List[int]] = None,
         fold_id: Optional[int] = None,
+        custom_name: Optional[str] = None,
     ) -> Any:
         """Persist meta-model with source model references.
 
@@ -1798,6 +1733,8 @@ class MetaModelController(SklearnModelController):
             branch_name: Branch name.
             branch_path: Full branch path.
             fold_id: Fold identifier.
+            custom_name: User-defined name for the model. If not provided,
+                falls back to meta_operator.name.
 
         Returns:
             ArtifactMeta or ArtifactRecord for the persisted meta-model.
@@ -1869,6 +1806,9 @@ class MetaModelController(SklearnModelController):
             # Create MetaModelConfig for registry
             meta_config = serializer.to_meta_model_config(meta_artifact)
 
+            # Use custom_name if provided, otherwise fall back to meta_operator.name
+            artifact_name = custom_name or meta_operator.name
+
             # Register meta-model with dependencies (V3 with chain_path)
             record = registry.register(
                 obj=model,
@@ -1879,6 +1819,7 @@ class MetaModelController(SklearnModelController):
                 meta_config=meta_config,
                 format_hint='sklearn',
                 chain_path=chain_path,
+                custom_name=artifact_name,
             )
 
             # Record artifact in execution trace (Phase 2) with V3 chain info
@@ -1890,7 +1831,7 @@ class MetaModelController(SklearnModelController):
                 branch_path=bp,
                 metadata={
                     "class_name": model.__class__.__name__,
-                    "custom_name": meta_operator.name,
+                    "custom_name": artifact_name,
                     "is_meta_model": True
                 }
             )
@@ -1909,13 +1850,14 @@ class MetaModelController(SklearnModelController):
 
         # Record artifact in execution trace for legacy path (Phase 2)
         legacy_artifact_id = f"{pipeline_id}:{step_index}:{fold_id if fold_id is not None else 'all'}"
+        artifact_name = custom_name or meta_operator.name
         runtime_context.record_step_artifact(
             artifact_id=legacy_artifact_id,
             is_primary=(fold_id is None),
             fold_id=fold_id,
             metadata={
                 "class_name": model.__class__.__name__,
-                "custom_name": meta_operator.name,
+                "custom_name": artifact_name,
                 "is_meta_model": True,
                 "legacy": True
             }
@@ -2072,6 +2014,7 @@ class MetaModelController(SklearnModelController):
             branch_id=branch_id,
             branch_name=branch_name,
             branch_path=branch_path,
-            fold_id=fold_id
+            fold_id=fold_id,
+            custom_name=custom_name
         )
 

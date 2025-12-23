@@ -113,12 +113,6 @@ Pipeline Structure:
 │   └── Branch 2: top 2 by R²
 └── 10. model (Ridge meta-learner on stacked predictions)
 
-NOTE on MetaModel vs merge+model:
-  - MetaModel is a convenience wrapper equivalent to: merge + model
-  - Both approaches exit branch mode and train a meta-learner
-  - Use MetaModel for concise syntax, or merge+model for explicit control
-  - Do NOT place MetaModel INSIDE branch mode (before merge)
-
 Expected outcome:
 - Multiple preprocessing views created via feature_augmentation
 - Sample augmentation enriches training data
@@ -135,6 +129,8 @@ Expected outcome:
 # =============================================================================
 
 complex_pipeline = [
+    # Truth > Dataset Shape: [189, (1, 2151), (1, 2151), (1, 2151)] # [samples, source_1, source_2, source_3] - source = (preprocessings, features)
+
     # =========================================================================
     # KEYWORD 1: preprocessing
     # Basic feature preprocessing applied to all data
@@ -152,6 +148,8 @@ complex_pipeline = [
     # Augment training samples with synthetic variations
     # This creates additional training samples with spectral perturbations
     # =========================================================================
+    # Truth > Dataset Shape: [189, (1, 2151), (1, 2151), (1, 2151)]
+
     {
         "sample_augmentation": {
             "transformers": [
@@ -163,6 +161,8 @@ complex_pipeline = [
             "random_state": 42,
         }
     },
+
+    # Truth > Dataset Shape: [449, (1, 2151), (1, 2151), (1, 2151)]
 
     # =========================================================================
     # KEYWORD 4: feature_augmentation (extend mode)
@@ -178,14 +178,31 @@ complex_pipeline = [
         "action": "extend",  # Add as independent preprocessing options
     },
 
+    # Truth > Dataset Shape: [449, (4, 2151), (4, 2151), (4, 2151)]
+
     # =========================================================================
     # KEYWORD 8 & 9: source_branch + merge_sources
     # For multi-source datasets, this would process each source differently
     # For single-source, "auto" mode passes through transparently
     # =========================================================================
-    {"source_branch": "auto"},  # Per-source processing (pass-through for single-source)
-    MinMaxScaler(),  # Re-apply scaling after source branching
-    {"merge_sources": "concat"},  # Concatenate sources back together
+    {"source_branch": [
+        # Truth > Branch 0 - Dataset Shape: (449, 4, 2151) + Branch 1 - Dataset Shape: (449, 4, 2151) + Branch 2 - Dataset Shape: (449, 4, 2151)
+        [MinMaxScaler()],
+        [MinMaxScaler()],
+        [PCA(20), MinMaxScaler()]
+    ]
+    },  # Per-source processing (pass-through for single-source)
+
+    # Truth > Branch 0 - Dataset Shape: (449, 4, 2151) + Branch 1 - Dataset Shape: (449, 4, 2151) + Branch 2 - Dataset Shape: (449, 4, 20)
+
+    StandardScaler(),  # StdScaler is applied on each branch separately
+    # Truth > Branch 0 - Dataset Shape: (449, 4, 2151) + Branch 1 - Dataset Shape: (449, 4, 2151) + Branch 2 - Dataset Shape: (449, 4, 20)
+
+    {"merge": {
+        "features": "all",              # or [0, 1, 2] for specific branches
+        "output_as": "sources",        # "features" | "sources" | "dict"
+    }},
+    # Truth > Dataset Shape: [449, (4, 2151), (4, 2151), (4, 20)]
 
     # =========================================================================
     # Cross-validation splitter
@@ -199,6 +216,8 @@ complex_pipeline = [
     # =========================================================================
     {
         "branch": {
+            # Truth > Branch 0 - Dataset Shape: [449, (4, 2151), (4, 2151), (4, 20)] + Branch 1 - Dataset Shape: [449, (4, 2151), (4, 2151), (4, 20)] + Branch 2 - Dataset Shape: [449, (4, 2151), (4, 2151), (4, 20)]
+
             # Branch 0: "pls_latent" - PLS with latent features
             "pls_latent": [
                 SNV(),
@@ -212,7 +231,7 @@ complex_pipeline = [
                 },
                 # Model within branch
                 {"name": "PLS_Latent", "model": PLSRegression(n_components=10)},
-            ],
+            ], # Truth > Branch 0 - Dataset Shape: [449, (4, 25), (4, 25), (4, 25)]
 
             # Branch 1: "rf_smoothed" - Random Forest with smoothed spectra
             "rf_smoothed": [
@@ -224,7 +243,7 @@ complex_pipeline = [
                     random_state=42,
                     n_jobs=-1,
                 )},
-            ],
+            ], # Truth > Branch 1 - Dataset Shape: [449, (4, 2151), (4, 2151), (4, 20)]
 
             # Branch 2: "gbr_derivative" - Gradient Boosting with derivatives
             "gbr_derivative": [
@@ -238,17 +257,23 @@ complex_pipeline = [
                     random_state=42,
                 )},
                 {"name": "PLS_Latent2", "model": PLSRegression(n_components=10)},
-            ],
+            ],  # Truth > Branch 2 - Dataset Shape: [449, (4, 20), (4, 20), (4, 20)]
         }
     },
+    # Truth > Branch 0 - Dataset Shape: [449, (4, 25), (4, 25), (4, 25)] + Branch 1 - Dataset Shape: [449, (4, 2151), (4, 2151), (4, 20)] + Branch 2 - Dataset Shape: [449, (4, 20), (4, 20), (4, 20)]
+
+    # =========================================================================
+    # KEYWORD 10a: MetaModel INSIDE branch mode (tests branch-aware stacking)
+    # This MetaModel runs per-branch with CURRENT_ONLY scope (default).
+    # Each branch's MetaModel only sees models from its own branch.
+    # =========================================================================
+    # Truth > model is trained on previous  Branch 0 - Dataset Shape: [449, 1] + Branch 1 - Dataset Shape: [449, 1] + Branch 2 - Dataset Shape: [449, 4]
+    {"name": "Ridge_MetaModel", "model": MetaModel(model=Ridge(alpha=1.0))},
 
     # =========================================================================
     # KEYWORD 7: merge with MODEL SELECTION STRATEGY PER BRANCH
     # Collect OOF predictions from all branches for stacking
     # Using per-branch selection strategies to control which models contribute
-    #
-    # NOTE: merge ALWAYS exits branch mode. MetaModel is equivalent to
-    # merge + model, so it should come AFTER branching ends, not inside it.
     # =========================================================================
     {"merge": {
         "predictions": [
@@ -259,19 +284,26 @@ complex_pipeline = [
             # Branch 2 (gbr_derivative): Multiple models → top 2 by R²
             {"branch": 2, "select": {"top_k": 2}, "metric": "r2"},
         ],
+        "features": [2],
         "on_missing": "warn",  # Warn if a branch has no predictions
+        "output_as": "features",        # "features"
     }},
 
+    {"name": "Ridge_MetaModel_2", "model": MetaModel(model=Ridge(alpha=1.0))},
+
+    # Truth > Branch 0 - Dataset Shape: [449, (1, 244)]  # 1 prediction from branch 0 and 1, 2 predictions from branch 2 + 4 * 20 * 3 features
+
     # =========================================================================
-    # KEYWORD 10: model (Meta-learner)
+    # KEYWORD 10b: model after merge (alternative stacking pattern)
     # Meta-learner that combines predictions from all branches
     # Ridge regression to learn optimal combination weights
-    #
-    # This is equivalent to using MetaModel:
-    #   {"model": MetaModel(Ridge(alpha=1.0))}
-    # But since we already have merge above, we use a regular model.
     # =========================================================================
-    {"name": "Meta_Ridge", "model": Ridge(alpha=1.0)},
+    {"name": "Meta_RF", "model":RandomForestRegressor(
+        n_estimators=10,
+        max_depth=5,
+        random_state=42,
+        n_jobs=-1,
+    )},
 ]
 
 
@@ -393,6 +425,7 @@ try:
             # Generate diagram from trace with actual runtime shapes
             diagram = PipelineDiagram.from_trace(
                 execution_trace=execution_trace,
+                predictions=predictions,
                 config={'fontsize': 7, 'figsize': (18, 14)}
             )
             fig_dynamic = diagram.render(

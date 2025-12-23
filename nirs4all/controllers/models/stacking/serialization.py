@@ -501,11 +501,21 @@ class MetaModelSerializer:
                 step_index=candidate.step_idx
             )
             for record in step_artifacts:
-                # Match by class name, branch, and fold
-                if record.class_name == candidate.model_classname:
-                    record_branch = record.branch_path or []
-                    if record_branch == branch_path and record.fold_id == fold_id:
-                        return record.artifact_id
+                # Match by branch and fold first
+                record_branch = record.branch_path or []
+                if record_branch != branch_path or record.fold_id != fold_id:
+                    continue
+
+                # Match by class name OR custom_name (model_name)
+                # Custom name match handles MetaModel case where:
+                # - record.class_name = "Ridge" (underlying meta-learner)
+                # - candidate.model_classname = "MetaModel" (operator class)
+                # - record.custom_name = "Ridge_MetaModel" (model_name)
+                # - candidate.model_name = "Ridge_MetaModel" (from predictions)
+                class_match = record.class_name == candidate.model_classname
+                name_match = record.custom_name and record.custom_name == candidate.model_name
+                if class_match or name_match:
+                    return record.artifact_id
 
         # Fallback: generate V2-style ID for compatibility
         branch_path = []

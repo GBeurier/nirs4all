@@ -209,7 +209,7 @@ class FeatureAugmentationController(OperatorController):
         for src_procs in original_source_processings:
             # Use "raw" as base, or first processing if available
             base = src_procs[0] if src_procs else "raw"
-            base_processings.append([[base]])
+            base_processings.append([base])
 
         for i, operation in enumerate(operations):
             if operation is None:

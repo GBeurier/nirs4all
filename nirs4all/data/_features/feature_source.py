@@ -247,6 +247,28 @@ class FeatureSource:
         self._apply_replacements(replacements)
         self._apply_additions(additions)
 
+    def reset_features(
+        self,
+        features: np.ndarray,
+        processings: List[str]
+    ) -> None:
+        """Reset features and processings.
+
+        Replaces all features and processings with new data.
+
+        Args:
+            features: New feature data (2D or 3D).
+            processings: List of new processing names.
+        """
+        # Reset storage
+        self._storage.reset_data(features)
+
+        # Reset processing manager
+        self._processing_mgr.reset_processings(processings)
+
+        # Clear headers as dimensions likely changed
+        self._header_mgr.clear_headers()
+
     def _normalize_features_input(self, features: InputFeatures) -> List[np.ndarray]:
         """Normalize various feature input formats to list of arrays.
 

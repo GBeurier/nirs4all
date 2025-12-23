@@ -201,11 +201,26 @@ class CrossBranchValidator:
             result.compatibility = CrossBranchCompatibility.COMPATIBLE
             return result
 
+        # Check if all sample sets are empty - this can happen if sample_indices
+        # aren't stored in prediction metadata. In this case, proceed with warning.
+        if all(len(s) == 0 for s in all_sample_sets):
+            result.add_warning(
+                "No sample indices available for cross-branch validation. "
+                "Proceeding with cross-branch stacking."
+            )
+            result.compatibility = CrossBranchCompatibility.COMPATIBLE
+            return result
+
         # Find common samples across all branches
-        result.common_samples = set.intersection(*all_sample_sets) if all_sample_sets else set()
+        # Filter out empty sets before intersection
+        non_empty_sets = [s for s in all_sample_sets if len(s) > 0]
+        if non_empty_sets:
+            result.common_samples = set.intersection(*non_empty_sets)
+        else:
+            result.common_samples = set()
 
         # Check sample coverage
-        total_samples = set.union(*all_sample_sets)
+        total_samples = set.union(*all_sample_sets) if all_sample_sets else set()
         coverage_ratio = len(result.common_samples) / max(len(total_samples), 1)
 
         if coverage_ratio < 0.9:  # Less than 90% common

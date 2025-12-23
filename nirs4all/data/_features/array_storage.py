@@ -238,6 +238,33 @@ class ArrayStorage:
 
         self._array = new_array
 
+    def reset_data(self, data: np.ndarray) -> None:
+        """Reset the array storage with new data.
+
+        Replaces the entire 3D array with the provided data.
+        Used when resetting feature storage (e.g. after merge).
+
+        Args:
+            data: 3D array of shape (n_samples, n_processings, n_features).
+                  or 2D array of shape (n_samples, n_features) (will be reshaped to 3D).
+
+        Raises:
+            ValueError: If sample count doesn't match existing samples (unless empty).
+        """
+        if data.ndim == 2:
+            data = data[:, None, :]
+
+        if data.ndim != 3:
+            raise ValueError(f"data must be 2D or 3D, got {data.ndim} dimensions")
+
+        if self.num_samples > 0 and data.shape[0] != self.num_samples:
+            raise ValueError(
+                f"Sample count mismatch: expected {self.num_samples}, "
+                f"got {data.shape[0]}"
+            )
+
+        self._array = data.astype(np.float32)
+
     def get_data(self, sample_indices: np.ndarray) -> np.ndarray:
         """Get data for specific sample indices.
 

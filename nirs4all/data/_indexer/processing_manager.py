@@ -97,6 +97,42 @@ class ProcessingManager:
         )
         self._store._df = updated_df
 
+    def reset_processings(self, new_processings: List[str]) -> None:
+        """
+        Reset processing names for all samples to a new list.
+
+        This replaces the entire processing list for every sample with the
+        provided list. Used when resetting feature storage (e.g. after merge).
+
+        Args:
+            new_processings: List of new processing names.
+
+        Raises:
+            ValueError: If new_processings is empty.
+        """
+        if not new_processings:
+            raise ValueError("new_processings cannot be empty")
+
+        # Use native Polars list creation
+        df = self._store.df
+        # Create a series of lists, one for each row
+        # Note: pl.lit with a list creates a Series of that list repeated?
+        # No, pl.lit([1, 2]) creates a Series with 2 rows.
+        # We want a column where every row is the list `new_processings`.
+
+        # Correct way: create a Series of the list, then repeat it?
+        # Or use pl.lit(pd.Series([new_processings] * len(df)))?
+        # Polars doesn't support list literals easily in expressions for all rows.
+
+        # We can use map_elements to return the new list for every row.
+        updated_df = df.with_columns(
+            pl.col("processings").map_elements(
+                lambda _: new_processings,
+                return_dtype=pl.List(pl.Utf8)
+            )
+        )
+        self._store._df = updated_df
+
     def add_processings(self, new_processings: List[str]) -> None:
         """
         Append processing names to all existing processing lists.

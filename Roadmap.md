@@ -3,12 +3,15 @@
 
 **Features**:
 Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications) and dataset configs that cover all cases.
+Or from synthetic data generator.
 Creates use cases that covers all the diversity of controllers and syntax for pipelines
 
 > [PipelineDAGChart] Display the whole DAG with data shape before each step
 
-> review repetitions mechanisms: to sources, to preprocessing
-> review branch from metadata columns
+> [feat] review repetitions mechanisms: to sources, to preprocessing
+> [feat] branch from metadata columns
+
+> GLOBAL REVIEW OF WORKFLOW MECHANISM (X,Y,M,Pred - indexed on Models, pp, branches, etc. - with context - What about ?)
 
 > [Runner] Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
 > [signature] change signatures to nirs4all.run(pipeline, dataset, config), nirs4all.predict, etc. Add nirs4all config.

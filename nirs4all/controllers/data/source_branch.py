@@ -83,6 +83,8 @@ class SourceBranchConfigParser:
         """
         if isinstance(raw_config, str):
             return cls._parse_string(raw_config)
+        elif isinstance(raw_config, list):
+            return cls._parse_list(raw_config)
         elif isinstance(raw_config, dict):
             return cls._parse_dict(raw_config)
         elif isinstance(raw_config, SourceBranchConfig):
@@ -90,7 +92,7 @@ class SourceBranchConfigParser:
         else:
             raise ValueError(
                 f"Invalid source_branch config type: {type(raw_config).__name__}. "
-                f"Expected string, dict, or SourceBranchConfig."
+                f"Expected string, list, dict, or SourceBranchConfig."
             )
 
     @classmethod
@@ -113,6 +115,46 @@ class SourceBranchConfigParser:
                 f"Unknown source_branch mode: '{config_str}'. "
                 f"Expected 'auto' or dict configuration."
             )
+
+    @classmethod
+    def _parse_list(cls, config_list: List[Any]) -> SourceBranchConfig:
+        """Parse list-indexed configuration.
+
+        Converts a list of pipelines to a dict with string indices as keys.
+        Each list index maps to the corresponding source by position.
+
+        Example:
+            >>> [
+            ...     [MinMaxScaler()],           # becomes "0": [MinMaxScaler()]
+            ...     [MinMaxScaler()],           # becomes "1": [MinMaxScaler()]
+            ...     [PCA(20), MinMaxScaler()]   # becomes "2": [PCA(20), MinMaxScaler()]
+            ... ]
+
+        Args:
+            config_list: List of pipeline steps, indexed by source position.
+
+        Returns:
+            SourceBranchConfig instance with string indices as source keys.
+        """
+        source_pipelines = {}
+        for idx, value in enumerate(config_list):
+            # Use string indices as keys (matching source_0, source_1, etc.)
+            key = str(idx)
+            # Normalize steps to list
+            if value is None:
+                steps = []
+            elif isinstance(value, list):
+                steps = value
+            else:
+                steps = [value]
+            source_pipelines[key] = steps
+
+        return SourceBranchConfig(
+            source_pipelines=source_pipelines,
+            default_pipeline=None,
+            merge_after=False,  # Don't auto-merge; user controls with explicit merge step
+            merge_strategy="concat",
+        )
 
     @classmethod
     def _parse_dict(cls, config_dict: Dict[str, Any]) -> SourceBranchConfig:
@@ -389,8 +431,16 @@ class SourceBranchController(OperatorController):
         # Build updated context with combined processing from all sources
         result_context = context.copy()
         result_context = result_context.with_processing(new_processing_per_source)
+
+        # Store source contexts for later merge operations
         result_context.custom["source_branch_contexts"] = source_contexts
         result_context.custom["in_source_branch_mode"] = True
+
+        # NOTE: We do NOT set in_branch_mode=True here because source_branch
+        # operates on separate sources, not parallel copies of the same data.
+        # The merge step will detect in_source_branch_mode and handle it appropriately.
+        # Setting in_branch_mode would cause the executor to incorrectly try to
+        # replace dataset sources with branch snapshots.
 
         # Auto-merge if configured
         if config.merge_after:
@@ -490,11 +540,14 @@ class SourceBranchController(OperatorController):
             source_idx: Source index to snapshot
 
         Returns:
-            Deep copy of source feature data
+            List containing deep copy of the source feature data.
+            Returns a list (not a single FeatureSource) for compatibility
+            with merge controller's _collect_features which expects a list.
         """
         try:
             if source_idx < len(dataset._features.sources):
-                return copy.deepcopy(dataset._features.sources[source_idx])
+                # Return as a list for compatibility with merge feature collection
+                return [copy.deepcopy(dataset._features.sources[source_idx])]
             return None
         except Exception as e:
             logger.warning(f"Failed to snapshot source {source_idx}: {e}")

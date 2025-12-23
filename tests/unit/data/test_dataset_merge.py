@@ -47,15 +47,49 @@ class TestAddMergedFeatures:
         assert processings == ["snv_msc_combined"]
 
     def test_add_merged_features_wrong_dimensions(self):
-        """Test that non-2D array raises ValueError."""
+        """Test that non-2D/3D array raises ValueError."""
         dataset = SpectroDataset("test")
         initial_data = np.random.rand(5, 20)
         dataset.add_samples(initial_data, {"partition": "train"})
 
-        # Try 3D array
-        bad_features = np.random.rand(5, 2, 10)
-        with pytest.raises(ValueError, match="must be 2D"):
-            dataset.add_merged_features(bad_features)
+        # Try 1D array - should fail
+        bad_features_1d = np.random.rand(5)
+        with pytest.raises(ValueError, match="must be 2D or 3D"):
+            dataset.add_merged_features(bad_features_1d)
+
+        # Try 4D array - should fail
+        bad_features_4d = np.random.rand(5, 2, 10, 3)
+        with pytest.raises(ValueError, match="must be 2D or 3D"):
+            dataset.add_merged_features(bad_features_4d)
+
+    def test_add_merged_features_3d_array(self):
+        """Test that 3D arrays are properly handled (preserves preprocessing dimension)."""
+        dataset = SpectroDataset("test")
+        initial_data = np.random.rand(5, 20)
+        dataset.add_samples(initial_data, {"partition": "train"})
+
+        # 3D array with 3 preprocessings
+        features_3d = np.random.rand(5, 3, 10)
+        dataset.add_merged_features(features_3d, "merged")
+
+        # Should have 3 processings
+        processings = dataset.features_processings(0)
+        assert len(processings) == 3
+        assert processings == ["merged_0", "merged_1", "merged_2"]
+
+    def test_add_merged_features_3d_with_names(self):
+        """Test that 3D arrays with custom processing names work."""
+        dataset = SpectroDataset("test")
+        initial_data = np.random.rand(5, 20)
+        dataset.add_samples(initial_data, {"partition": "train"})
+
+        # 3D array with custom processing names
+        features_3d = np.random.rand(5, 2, 15)
+        dataset.add_merged_features(features_3d, processing_names=["snv", "msc"])
+
+        processings = dataset.features_processings(0)
+        assert len(processings) == 2
+        assert processings == ["snv", "msc"]
 
     def test_add_merged_features_sample_mismatch(self):
         """Test that sample count mismatch raises ValueError."""

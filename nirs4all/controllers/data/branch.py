@@ -261,6 +261,11 @@ class BranchController(OperatorController):
                             substep_index=substep_idx,
                         )
 
+                        # Record input shapes before substep execution
+                        self._record_dataset_shapes(
+                            dataset, branch_context, runtime_context, is_input=True
+                        )
+
                     result = runtime_context.step_runner.execute(
                         step=substep,
                         dataset=dataset,
@@ -270,8 +275,12 @@ class BranchController(OperatorController):
                         prediction_store=prediction_store
                     )
 
-                    # End substep recording
+                    # End substep recording with output shapes
                     if recorder is not None:
+                        # Record output shapes after substep execution
+                        self._record_dataset_shapes(
+                            dataset, result.updated_context, runtime_context, is_input=False
+                        )
                         recorder.end_step()
 
                     branch_context = result.updated_context
@@ -669,6 +678,55 @@ class BranchController(OperatorController):
             snapshot: The previously snapshotted feature sources
         """
         dataset._features.sources = copy.deepcopy(snapshot)
+
+    def _record_dataset_shapes(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        runtime_context: "RuntimeContext",
+        is_input: bool = True
+    ) -> None:
+        """Record dataset shapes to the execution trace for branch substeps.
+
+        Captures both 2D layout shape and 3D per-source feature shapes.
+
+        Args:
+            dataset: The dataset to measure
+            context: Execution context with selector
+            runtime_context: Runtime context with trace recorder
+            is_input: True to record input shapes, False for output shapes
+        """
+        try:
+            # Get 2D layout shape (samples × features)
+            X_2d = dataset.x(context.selector, layout="2d", include_excluded=False)
+            if isinstance(X_2d, list):
+                # Multi-source with concat
+                layout_shape = (X_2d[0].shape[0], sum(x.shape[1] for x in X_2d))
+            else:
+                layout_shape = X_2d.shape
+
+            # Get 3D per-source shapes (samples × processings × features)
+            X_3d = dataset.x(context.selector, layout="3d", concat_source=False, include_excluded=False)
+            if not isinstance(X_3d, list):
+                X_3d = [X_3d]
+
+            features_shapes = [x.shape for x in X_3d]
+
+            # Record to trace via runtime_context
+            if is_input:
+                runtime_context.record_input_shapes(
+                    input_shape=layout_shape,
+                    features_shape=features_shapes
+                )
+            else:
+                runtime_context.record_output_shapes(
+                    output_shape=layout_shape,
+                    features_shape=features_shapes
+                )
+
+        except Exception:
+            # Shape recording is non-critical, don't fail the step
+            pass
 
     def _extract_substep_info(self, step: Any) -> tuple:
         """Extract operator type and class from a branch substep.

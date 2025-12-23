@@ -104,5 +104,16 @@ class ProcessingManager:
         del self._processing_id_to_index[old_id]
         self._processing_id_to_index[new_id] = idx
 
+    def reset_processings(self, new_processings: List[str]) -> None:
+        """Reset processing IDs to a new list.
+
+        Args:
+            new_processings: List of new processing names.
+        """
+        self._processing_ids = list(new_processings)
+        self._processing_id_to_index = {
+            pid: idx for idx, pid in enumerate(new_processings)
+        }
+
     def __repr__(self) -> str:
         return f"ProcessingManager(processing_ids={self._processing_ids})"

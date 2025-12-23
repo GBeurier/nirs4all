@@ -416,6 +416,13 @@ class PipelineExecutor:
                     branch_name=branch_name_ctx or branch_name,
                     mode=self.mode
                 )
+                # Record input shapes for branch step (parity with non-branch execution)
+                self._record_dataset_shapes(
+                    dataset,
+                    branch_context,
+                    runtime_context,
+                    is_input=True,
+                )
 
             # Execute step on this branch
             try:
@@ -427,6 +434,15 @@ class PipelineExecutor:
                     loaded_binaries=branch_binaries,
                     prediction_store=prediction_store
                 )
+
+                # Record output shapes after execution for branch steps
+                if runtime_context:
+                    self._record_dataset_shapes(
+                        dataset,
+                        step_result.updated_context,
+                        runtime_context,
+                        is_input=False,
+                    )
 
                 # Record step end in execution trace
                 if runtime_context:

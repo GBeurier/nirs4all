@@ -306,6 +306,9 @@ class TestMergeControllerExitsBranchMode:
                 new.custom = dict(self.custom)
                 return new
 
+            def with_processing(self, processing):
+                return self.copy()
+
         step_info = MockStepInfo()
         context = MockContext()
 
@@ -380,6 +383,9 @@ class TestMergeOutputMetadata:
                 new.custom = dict(self.custom)
                 return new
 
+            def with_processing(self, processing):
+                return self.copy()
+
         step_info = MockStepInfo()
         context = MockContext()
 
@@ -425,6 +431,9 @@ class TestMergeOutputMetadata:
                 new = MockContext()
                 new.custom = dict(self.custom)
                 return new
+
+            def with_processing(self, processing):
+                return self.copy()
 
         step_info = MockStepInfo()
         context = MockContext()

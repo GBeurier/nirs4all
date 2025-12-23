@@ -373,7 +373,7 @@ class MergeConfig:
     on_missing: str = "error"
     on_shape_mismatch: str = "error"
     unsafe: bool = False
-    output_as: str = "features"
+    output_as: str = "features"  # Default to "features" for backward compatibility
     source_names: Optional[List[str]] = None
 
     def __post_init__(self):
@@ -592,7 +592,7 @@ class MergeConfig:
             on_missing=data.get("on_missing", "error"),
             on_shape_mismatch=data.get("on_shape_mismatch", "error"),
             unsafe=data.get("unsafe", False),
-            output_as=data.get("output_as", "features"),
+            output_as=data.get("output_as", "sources"),
             source_names=data.get("source_names"),
         )
 
@@ -883,12 +883,18 @@ class SourceBranchConfig:
             # Auto mode: return empty list (passthrough with isolation)
             return []
 
-        # Check by name first
+        # Check by name first, then by index (both int and string form)
         if isinstance(self.source_pipelines, dict):
+            # Check by source name (e.g., "NIR", "markers")
             if source_name in self.source_pipelines:
                 return self.source_pipelines[source_name]
+            # Check by integer index (e.g., 0, 1, 2)
             if source_index in self.source_pipelines:
                 return self.source_pipelines[source_index]
+            # Check by string index (e.g., "0", "1", "2") - for list-indexed syntax
+            str_index = str(source_index)
+            if str_index in self.source_pipelines:
+                return self.source_pipelines[str_index]
 
         # Fall back to default
         return self.default_pipeline
