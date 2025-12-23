@@ -360,6 +360,13 @@ class PipelineExecutor:
                 import copy
                 dataset._features.sources = copy.deepcopy(features_snapshot)
 
+            # V3: Restore chain state from branch snapshot if available
+            # This ensures each branch's post-branch steps use the correct operator chain
+            # for artifact ID generation (fixes MetaModel chain_path issues across branches)
+            chain_snapshot = branch_info.get("chain_snapshot")
+            if chain_snapshot is not None and runtime_context and runtime_context.trace_recorder:
+                runtime_context.trace_recorder.reset_chain_to(chain_snapshot)
+
             logger.debug(f"Branch {branch_id} ({branch_name})")
 
             # Update step number on branch context
@@ -1040,6 +1047,9 @@ class PipelineExecutor:
                 if model_step and model_step.branch_path:
                     target_branch_path = model_step.branch_path
 
+        # Track previous step_index to avoid resetting counters for substeps with same step_index
+        prev_step_idx = None
+
         # Execute each step using original step indices from MinimalPipeline
         # This ensures step_number matches training-time indices for artifact lookups
         for list_idx, step in enumerate(steps):
@@ -1062,7 +1072,11 @@ class PipelineExecutor:
                 runtime_context.step_number = self.step_number
                 runtime_context.substep_number = self.substep_number
                 runtime_context.operation_count = self.operation_count
-                runtime_context.reset_processing_counter()  # Reset for unique artifact IDs within step
+                # Only reset counters when step_index changes (not for substeps with same step_index)
+                if step_idx != prev_step_idx:
+                    runtime_context.reset_processing_counter()
+
+            prev_step_idx = step_idx
 
             # Update context with step number
             context = context.with_step_number(self.step_number)
@@ -1074,18 +1088,24 @@ class PipelineExecutor:
             is_merge_step = isinstance(step, dict) and "merge" in step
             branch_path = None if is_branch_step else target_branch_path
 
+            # Get substep_index from minimal pipeline step for artifact filtering
+            substep_index = None
+            if hasattr(minimal_pipeline, 'steps') and list_idx < len(minimal_pipeline.steps):
+                substep_index = minimal_pipeline.steps[list_idx].substep_index
+
             # Get binaries from artifact_provider instead of artifact_loader
             loaded_binaries = None
             if runtime_context and runtime_context.artifact_provider:
                 # Use artifact_provider for minimal pipeline prediction
                 # Pass branch_path to filter artifacts for multi-branch pipelines
                 # (except for branch steps which need all artifacts)
+                # Pass substep_index to filter artifacts for branch substeps
                 artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
-                    step_idx, branch_path=branch_path
+                    step_idx, branch_path=branch_path, substep_index=substep_index
                 )
                 if artifacts:
                     loaded_binaries = artifacts  # Already in (name, obj) format
-                    logger.debug(f"Loaded {len(artifacts)} artifact(s) for step {step_idx}")
+                    logger.debug(f"Loaded {len(artifacts)} artifact(s) for step {step_idx} (substep={substep_index})")
             elif self.mode in ("predict", "explain") and self.artifact_loader:
                 # Fallback to artifact_loader
                 loaded_binaries = self.artifact_loader.get_step_binaries(self.step_number)

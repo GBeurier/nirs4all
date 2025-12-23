@@ -89,6 +89,92 @@ from nirs4all.pipeline.storage.artifacts.types import ArtifactType, MetaModelCon
 
 logger = get_logger(__name__)
 
+
+def build_unique_source_names(
+    source_models: List[ModelCandidate]
+) -> Tuple[List[str], Dict[str, Tuple[str, Optional[int]]]]:
+    """Build unique source model names with branch disambiguation.
+
+    When the same model_name appears in multiple branches (e.g., 3 Ridge_MetaModel
+    from different branches), this function creates unique names by appending
+    branch suffixes (e.g., "Ridge_MetaModel_br0", "Ridge_MetaModel_br1").
+
+    Models that appear in only one branch keep their original names.
+
+    Args:
+        source_models: List of ModelCandidate objects from selection.
+
+    Returns:
+        Tuple of:
+        - unique_names: List of unique source model names (order preserved)
+        - branch_map: Dict mapping unique_name -> (original_name, branch_id)
+          Only contains entries for models that needed disambiguation.
+
+    Example:
+        >>> candidates = [
+        ...     ModelCandidate("PLS", ..., branch_id=0),
+        ...     ModelCandidate("Ridge", ..., branch_id=0),
+        ...     ModelCandidate("Ridge", ..., branch_id=1),
+        ...     ModelCandidate("Ridge", ..., branch_id=2),
+        ... ]
+        >>> names, branch_map = build_unique_source_names(candidates)
+        >>> names
+        ['PLS', 'Ridge_br0', 'Ridge_br1', 'Ridge_br2']
+        >>> branch_map
+        {'Ridge_br0': ('Ridge', 0), 'Ridge_br1': ('Ridge', 1), 'Ridge_br2': ('Ridge', 2)}
+    """
+    from collections import Counter
+
+    # Count how many times each model_name appears
+    name_counts = Counter(m.model_name for m in source_models)
+
+    # Find model names that appear in multiple different branches
+    # Build a set of (model_name, branch_id) tuples
+    name_branch_pairs = set()
+    for m in source_models:
+        name_branch_pairs.add((m.model_name, m.branch_id))
+
+    # Count unique branches per model_name
+    branch_count_per_name: Dict[str, int] = {}
+    for name, branch_id in name_branch_pairs:
+        branch_count_per_name[name] = branch_count_per_name.get(name, 0) + 1
+
+    # Models needing branch suffix are those appearing in multiple branches
+    needs_branch_suffix = {
+        name for name, count in branch_count_per_name.items() if count > 1
+    }
+
+    unique_names: List[str] = []
+    branch_map: Dict[str, Tuple[str, Optional[int]]] = {}
+    seen_unique: set = set()
+
+    for m in source_models:
+        model_name = m.model_name
+        branch_id = m.branch_id
+
+        if model_name in needs_branch_suffix:
+            # Create unique name with branch suffix
+            if branch_id is not None:
+                unique_name = f"{model_name}_br{branch_id}"
+            else:
+                unique_name = f"{model_name}_br_none"
+            # Record mapping for lookup
+            branch_map[unique_name] = (model_name, branch_id)
+        else:
+            unique_name = model_name
+
+        # Avoid duplicates (same model from same branch shouldn't repeat)
+        if unique_name not in seen_unique:
+            unique_names.append(unique_name)
+            seen_unique.add(unique_name)
+            # Also add non-suffixed models to branch_map if they have a branch_id
+            # so the reconstructor can use the correct branch when looking up
+            if unique_name not in branch_map and branch_id is not None:
+                branch_map[unique_name] = (model_name, branch_id)
+
+    return unique_names, branch_map
+
+
 if TYPE_CHECKING:
     from nirs4all.pipeline.runner import PipelineRunner
     from nirs4all.data.dataset import SpectroDataset
@@ -341,7 +427,8 @@ class MetaModelController(SklearnModelController):
         if not source_models:
             return None
 
-        unique_source_names = list(dict.fromkeys(m.model_name for m in source_models))
+        # Build unique names with branch disambiguation for cross-branch stacking
+        unique_source_names, source_branch_map = build_unique_source_names(source_models)
         verbose = getattr(self, 'verbose', 0)
         stacking_config = meta_operator.stacking_config
 
@@ -363,7 +450,8 @@ class MetaModelController(SklearnModelController):
         # Create and run reconstructor
         return self._run_reconstructor(
             prediction_store, dataset, unique_source_names,
-            meta_operator, context, y_train, y_test, verbose
+            meta_operator, context, y_train, y_test, verbose,
+            source_branch_map=source_branch_map
         )
 
     def _validate_multi_level_stacking(
@@ -649,7 +737,8 @@ class MetaModelController(SklearnModelController):
         context: 'ExecutionContext',
         y_train: np.ndarray,
         y_test: np.ndarray,
-        verbose: int
+        verbose: int,
+        source_branch_map: Optional[Dict[str, Tuple[str, Optional[int]]]] = None
     ) -> ReconstructionResult:
         """Run the TrainingSetReconstructor.
 
@@ -662,6 +751,8 @@ class MetaModelController(SklearnModelController):
             y_train: Pre-computed training targets.
             y_test: Pre-computed test targets.
             verbose: Verbosity level.
+            source_branch_map: Optional mapping from unique source names to
+                (original_model_name, branch_id) for cross-branch stacking.
 
         Returns:
             ReconstructionResult with meta-features.
@@ -677,6 +768,7 @@ class MetaModelController(SklearnModelController):
             source_model_names=unique_source_names,
             stacking_config=meta_operator.stacking_config,
             reconstructor_config=reconstructor_config,
+            source_model_branch_map=source_branch_map,
         )
 
         branch_validation = reconstructor.validate_branch_compatibility(context)
@@ -756,7 +848,8 @@ class MetaModelController(SklearnModelController):
 
         # Initialize feature matrix
         # Group source models by name to determine feature count
-        unique_source_names = list(dict.fromkeys(m.model_name for m in source_models))
+        # Use build_unique_source_names for branch disambiguation
+        unique_source_names, source_branch_map = build_unique_source_names(source_models)
         n_features = len(unique_source_names)
 
         X_meta = np.full((n_samples, n_features), np.nan)
@@ -884,23 +977,31 @@ class MetaModelController(SklearnModelController):
 
         # Get source models
         source_models = self._get_source_models(meta_operator, context, prediction_store)
-        unique_source_names = list(dict.fromkeys(m.model_name for m in source_models))
+        # Use build_unique_source_names for branch disambiguation
+        unique_source_names, source_branch_map = build_unique_source_names(source_models)
 
         if not unique_source_names:
             raise ValueError("No source models found for test feature construction")
 
         # Get test sample count from predictions
-        branch_id = getattr(context.selector, 'branch_id', None)
+        # For cross-branch stacking, resolve the first model's actual name and branch
+        first_unique_name = unique_source_names[0]
+        if first_unique_name in source_branch_map:
+            first_model_name, first_branch_id = source_branch_map[first_unique_name]
+        else:
+            first_model_name = first_unique_name
+            first_branch_id = getattr(context.selector, 'branch_id', None)
+
         current_step = context.state.step_number
 
         # Get a sample prediction to determine test size
         filter_kwargs = {
-            'model_name': unique_source_names[0],
+            'model_name': first_model_name,
             'partition': 'test',
             'load_arrays': True,
         }
-        if branch_id is not None:
-            filter_kwargs['branch_id'] = branch_id
+        if first_branch_id is not None:
+            filter_kwargs['branch_id'] = first_branch_id
 
         test_preds = prediction_store.filter_predictions(**filter_kwargs)
         test_preds = [p for p in test_preds if p.get('step_idx', 0) < current_step]
@@ -1677,8 +1778,8 @@ class MetaModelController(SklearnModelController):
                 meta_model_id=meta_artifact.artifact_id if meta_artifact else "unknown"
             )
 
-        # Get unique source names in order
-        unique_source_names = list(dict.fromkeys(m.model_name for m in source_models))
+        # Get unique source names in order with branch disambiguation
+        unique_source_names, _ = build_unique_source_names(source_models)
 
         # If we have artifact config, validate order matches
         if meta_artifact and meta_artifact.feature_columns:

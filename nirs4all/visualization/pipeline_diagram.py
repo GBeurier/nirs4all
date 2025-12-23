@@ -420,6 +420,9 @@ class PipelineDiagram:
 
             # Extract metadata including score and custom name
             metadata = {}
+            if operator_config and 'n_splits' in operator_config:
+                metadata['n_splits'] = operator_config['n_splits']
+
             score = getattr(step, 'score', None)
             if score is None and hasattr(step, 'metadata'):
                 score = step.metadata.get('score')
@@ -1189,13 +1192,13 @@ class PipelineDiagram:
             keyword = step_info.get('keyword', '')
 
             # Handle branching
-            if node_type == 'branch':
+            if node_type in ('branch', 'source_branch'):
                 # Create branch node
                 branch_node = PipelineNode(
                     id=f"step_{step_index}_branch",
                     step_index=step_index,
-                    label="Branch",
-                    node_type="branch",
+                    label=label,
+                    node_type=node_type,
                     shape_before=current_shape,
                     shape_after=current_shape,
                     features_shape=[current_shape],
@@ -1219,7 +1222,7 @@ class PipelineDiagram:
                         id=entry_id,
                         step_index=step_index,
                         label=entry_label,
-                        node_type="branch",
+                        node_type=node_type,
                         branch_id=branch_id,
                         branch_name=entry_label,
                         shape_before=current_shape,
@@ -1238,6 +1241,11 @@ class PipelineDiagram:
                         if substep_info:
                             substep_id = f"step_{step_index}_b{branch_id}_s{substep_idx}"
                             new_substep_shape = self._estimate_shape_after(branch_shape, substep_info)
+
+                            sub_metadata = {}
+                            if substep_info.get('n_splits'):
+                                sub_metadata['n_splits'] = substep_info['n_splits']
+
                             substep_node = PipelineNode(
                                 id=substep_id,
                                 step_index=step_index,
@@ -1250,6 +1258,7 @@ class PipelineDiagram:
                                 shape_after=new_substep_shape,
                                 features_shape=[new_substep_shape],
                                 parent_ids=branch_current.copy(),
+                                metadata=sub_metadata,
                             )
                             self.nodes[substep_id] = substep_node
                             for parent in branch_current:
@@ -1263,14 +1272,14 @@ class PipelineDiagram:
                 branch_stacks.append(branch_node_ids)
                 current_node_ids = branch_node_ids
 
-            elif node_type == 'merge':
+            elif node_type in ('merge', 'merge_sources'):
                 # Create merge node
                 new_merge_shape = self._estimate_merge_shape(current_shape, step_info)
                 merge_node = PipelineNode(
                     id=f"step_{step_index}_merge",
                     step_index=step_index,
-                    label="Merge",
-                    node_type="merge",
+                    label=label,
+                    node_type=node_type,
                     shape_before=current_shape,
                     shape_after=new_merge_shape,
                     features_shape=[new_merge_shape],
@@ -1294,6 +1303,10 @@ class PipelineDiagram:
                 node_id = f"step_{step_index}"
                 new_shape = self._estimate_shape_after(current_shape, step_info)
 
+                metadata = {'keyword': keyword} if keyword else {}
+                if step_info.get('n_splits'):
+                    metadata['n_splits'] = step_info['n_splits']
+
                 node = PipelineNode(
                     id=node_id,
                     step_index=step_index,
@@ -1303,7 +1316,7 @@ class PipelineDiagram:
                     shape_after=new_shape,
                     features_shape=[new_shape],
                     parent_ids=current_node_ids.copy(),
-                    metadata={'keyword': keyword} if keyword else {},
+                    metadata=metadata,
                 )
                 self.nodes[node_id] = node
 
@@ -1342,7 +1355,12 @@ class PipelineDiagram:
         # Handle instance (has __class__)
         if hasattr(step, '__class__') and not isinstance(step, dict):
             class_name = step.__class__.__name__
-            return self._classify_operator(class_name, {})
+            info = self._classify_operator(class_name, {})
+            if info['type'] == 'splitter':
+                n_splits = getattr(step, 'n_splits', None)
+                if n_splits:
+                    info['n_splits'] = n_splits
+            return info
 
         # Handle dict steps
         if isinstance(step, dict):
@@ -1463,7 +1481,14 @@ class PipelineDiagram:
             return {'type': 'merge', 'label': 'Merge Predictions', 'merge_type': 'predictions', 'keyword': keyword}
 
         elif keyword == 'source_branch':
-            return {'type': 'source_branch', 'label': 'Source Branch', 'keyword': keyword}
+            branches = {}
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    branches[str(k)] = v if isinstance(v, list) else [v]
+            elif isinstance(value, list):
+                for i, v in enumerate(value):
+                    branches[f"Source {i}"] = v if isinstance(v, list) else [v]
+            return {'type': 'source_branch', 'label': 'Source Branch', 'branches': branches, 'keyword': keyword}
 
         elif keyword == 'merge_sources':
             strategy = value if isinstance(value, str) else 'concat'
@@ -1476,7 +1501,8 @@ class PipelineDiagram:
         elif keyword == 'split':
             splitter = value
             splitter_name = self._get_operator_name(splitter)
-            return {'type': 'splitter', 'label': splitter_name, 'keyword': keyword}
+            n_splits = getattr(splitter, 'n_splits', None)
+            return {'type': 'splitter', 'label': splitter_name, 'keyword': keyword, 'n_splits': n_splits}
 
         elif keyword == 'name':
             # Named step - look for model
@@ -1708,8 +1734,8 @@ class PipelineDiagram:
              label_lines.append("★ 0.00")
 
         max_text_len = max([len(l) for l in label_lines]) if label_lines else 0
-        # Increased factor from 0.13 to 0.16 for better fit
-        calc_width = 1.5 + max_text_len * 0.16
+        # Increased factor from 0.16 to 0.22 for better fit
+        calc_width = 2.0 + max_text_len * 0.22
         return max(self._node_width, calc_width)
 
     def _compute_layout(self) -> Dict[str, Dict[str, Any]]:
@@ -1884,13 +1910,19 @@ class PipelineDiagram:
 
         # Score is displayed separately in _draw_nodes for model nodes
         # Only show score in shape lines for non-model nodes
-        if node.node_type != 'model' and node.metadata:
-            best_score = node.metadata.get('best_score')
-            if best_score is not None:
-                if isinstance(best_score, float):
-                    shape_lines.append(f"score: {best_score:.4f}")
-                else:
-                    shape_lines.append(f"score: {best_score}")
+        # if node.node_type != 'model' and node.metadata:
+        #     best_score = node.metadata.get('best_score')
+        #     if best_score is not None:
+        #         if isinstance(best_score, float):
+        #             shape_lines.append(f"score: {best_score:.4f}")
+        #         else:
+        #             shape_lines.append(f"score: {best_score}")
+
+        # Display fold info for splitters
+        if node.node_type == 'splitter':
+            n_splits = node.metadata.get('n_splits')
+            if n_splits:
+                shape_lines.append(f"{n_splits} folds")
 
         return shape_lines
 
@@ -1931,11 +1963,11 @@ class PipelineDiagram:
             # Calculate width based on text length
             max_text_len = max([len(l) for l in label_lines]) if label_lines else 0
             # Base width + char width factor
-            calc_width = 1.5 + max_text_len * 0.16
+            calc_width = 2.0 + max_text_len * 0.22
             box_width = max(self._node_width, calc_width)
 
             # Adjust height for multi-line
-            line_height = 0.22
+            line_height = 0.35
             box_height = self._node_height + (n_lines - 1) * line_height
 
             # Store dimensions for edge drawing

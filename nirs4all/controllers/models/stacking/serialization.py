@@ -16,9 +16,10 @@ The meta-model serialization captures:
 - Branch context (for validation during prediction)
 """
 
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 import json
 import warnings
 
@@ -358,17 +359,43 @@ class MetaModelSerializer:
         source_refs = []
         feature_columns = []
 
-        # Deduplicate source models by name (keep first of each)
-        seen_names = set()
-        unique_sources = []
+        # Build unique names for models, handling cross-branch duplicates
+        # Count unique branches per model_name
+        name_branch_pairs = set()
         for candidate in source_models:
-            if candidate.model_name not in seen_names:
-                seen_names.add(candidate.model_name)
-                unique_sources.append(candidate)
+            name_branch_pairs.add((candidate.model_name, candidate.branch_id))
 
-        for idx, candidate in enumerate(unique_sources):
+        branch_count_per_name: Dict[str, int] = {}
+        for name, branch_id in name_branch_pairs:
+            branch_count_per_name[name] = branch_count_per_name.get(name, 0) + 1
+
+        # Models needing branch suffix are those appearing in multiple branches
+        needs_branch_suffix = {
+            name for name, count in branch_count_per_name.items() if count > 1
+        }
+
+        # Build unique source list with branch-aware deduplication
+        seen_unique = set()
+        unique_sources: List[Tuple['ModelCandidate', str]] = []  # (candidate, unique_name)
+        for candidate in source_models:
+            model_name = candidate.model_name
+            branch_id = candidate.branch_id
+
+            if model_name in needs_branch_suffix:
+                if branch_id is not None:
+                    unique_name = f"{model_name}_br{branch_id}"
+                else:
+                    unique_name = f"{model_name}_br_none"
+            else:
+                unique_name = model_name
+
+            if unique_name not in seen_unique:
+                seen_unique.add(unique_name)
+                unique_sources.append((candidate, unique_name))
+
+        for idx, (candidate, unique_name) in enumerate(unique_sources):
             ref = SourceModelReference(
-                model_name=candidate.model_name,
+                model_name=unique_name,  # Use unique name for persistence
                 model_classname=candidate.model_classname,
                 step_idx=candidate.step_idx,
                 artifact_id=self._generate_source_artifact_id(candidate, context),
@@ -380,7 +407,7 @@ class MetaModelSerializer:
                 metric=candidate.metric,
             )
             source_refs.append(ref)
-            feature_columns.append(f"{candidate.model_name}_pred")
+            feature_columns.append(f"{unique_name}_pred")
 
         # Get stacking config
         stacking_config_dict = stacking_config_to_dict(meta_operator.stacking_config)

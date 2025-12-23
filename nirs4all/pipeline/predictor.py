@@ -228,14 +228,29 @@ class Predictor:
             dataset_obj = dataset_config.get_dataset(config, name)
             config_predictions = Predictions()
 
+            # Initialize selector with branch info if available
+            # This is critical for minimal pipeline execution where the branch
+            # controller may be skipped, but we still need branch context for
+            # proper prediction recording
+            selector = DataSelector(
+                partition=None,
+                processing=[["raw"]] * dataset_obj.features_sources(),
+                layout="2d",
+                concat_source=True
+            )
+
+            # Set branch info from target model for branch-specific predictions
+            if target_branch_id is not None or target_branch_name:
+                branch_path = target_branch_path or ([target_branch_id] if target_branch_id is not None else None)
+                selector = selector.with_branch(
+                    branch_id=target_branch_id,
+                    branch_name=target_branch_name,
+                    branch_path=branch_path
+                )
+
             # Initialize context
             context = ExecutionContext(
-                selector=DataSelector(
-                    partition=None,
-                    processing=[["raw"]] * dataset_obj.features_sources(),
-                    layout="2d",
-                    concat_source=True
-                ),
+                selector=selector,
                 state=PipelineState(y_processing="numeric", step_number=0, mode="predict"),
                 metadata=StepMetadata()
             )
