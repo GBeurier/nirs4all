@@ -11,10 +11,12 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 > [feat] review repetitions mechanisms: to sources, to preprocessing
 > [feat] branch from metadata columns
 
-> GLOBAL REVIEW OF WORKFLOW MECHANISM (X,Y,M,Pred - indexed on Models, pp, branches, etc. - with context - What about ?)
 
 > [Runner] Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
 > [signature] change signatures to nirs4all.run(pipeline, dataset, config), nirs4all.predict, etc. Add nirs4all config.
+
+
+> [score] Fix avg, w_avg evaluation
 
 
 **CLI_EXTENSION_PROPOSAL.md**
@@ -34,6 +36,7 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 **Major Review**:
 
 > Artifact overview and maybe refactoring
+> GLOBAL REVIEW OF WORKFLOW MECHANISM (X,Y,M,Pred - indexed on Models, pp, branches, etc. - with context - What about ?)
 
 > transfer, stacking, branching, multisource, pp, aggregation, pipeline inputs (launch from model, folder, file, yaml, json, etc.)
 

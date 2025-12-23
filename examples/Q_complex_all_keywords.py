@@ -250,7 +250,7 @@ complex_pipeline = [
                 FirstDerivative(),
                 {"name": "PLS_10", "model": PLSRegression(n_components=10)},
                 {"name": "PLS_5", "model": PLSRegression(n_components=5)},
-                PCA(n_components=20),  # Reduce dimensionality
+                PCA(n_components=0.999),  # Reduce dimensionality
                 {"name": "GBR_Derivative", "model": GradientBoostingRegressor(
                     n_estimators=10,
                     max_depth=5,

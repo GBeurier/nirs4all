@@ -73,6 +73,7 @@ class MinimalPipelineStep:
     operator_class: str = ""
     branch_path: List[int] = field(default_factory=list)
     branch_name: str = ""
+    substep_index: Optional[int] = None
     depends_on: Set[int] = field(default_factory=set)
 
     def has_artifacts(self) -> bool:
@@ -307,6 +308,18 @@ class TraceBasedExtractor:
         else:
             trace_steps = trace.steps
 
+        # Determine if model is in a branch (has non-empty branch_path)
+        # If not (feature merge case), we need to deduplicate branch steps
+        model_in_branch = False
+        if trace.model_step_index is not None:
+            model_step = trace.get_step(trace.model_step_index)
+            if model_step and model_step.branch_path:
+                model_in_branch = True
+
+        # Track which step_indices we've already added for deduplication
+        # This is needed for feature merge where branch steps should only run once
+        added_step_indices: Set[int] = set()
+
         # Build minimal steps from trace
         for exec_step in trace_steps:
             # Skip if mode is SKIP and we're not including skipped
@@ -317,6 +330,23 @@ class TraceBasedExtractor:
             step_config = None
             if full_pipeline and 0 < exec_step.step_index <= len(full_pipeline):
                 step_config = full_pipeline[exec_step.step_index - 1]
+
+            # Deduplication for feature merge case:
+            # When model is NOT in a branch, branch steps should only appear once
+            # so the branch controller can iterate all branches internally
+            is_branch_step = (
+                isinstance(step_config, dict) and "branch" in step_config
+            )
+            if not model_in_branch and is_branch_step:
+                if exec_step.step_index in added_step_indices:
+                    # Skip this duplicate branch step entry, but still merge artifacts
+                    if exec_step.has_artifacts():
+                        if exec_step.step_index in minimal.artifact_map:
+                            minimal.artifact_map[exec_step.step_index].merge(exec_step.artifacts)
+                        else:
+                            from copy import deepcopy
+                            minimal.artifact_map[exec_step.step_index] = deepcopy(exec_step.artifacts)
+                    continue
 
             # Create minimal step
             minimal_step = MinimalPipelineStep(
@@ -331,10 +361,15 @@ class TraceBasedExtractor:
             )
 
             minimal.steps.append(minimal_step)
+            added_step_indices.add(exec_step.step_index)
 
-            # Add to artifact map
+            # Add to artifact map, merging if step_index already exists
             if exec_step.has_artifacts():
-                minimal.artifact_map[exec_step.step_index] = exec_step.artifacts
+                if exec_step.step_index in minimal.artifact_map:
+                    minimal.artifact_map[exec_step.step_index].merge(exec_step.artifacts)
+                else:
+                    from copy import deepcopy
+                    minimal.artifact_map[exec_step.step_index] = deepcopy(exec_step.artifacts)
 
         # Sort by step index if preserving order
         if self.preserve_order:
@@ -404,7 +439,11 @@ class TraceBasedExtractor:
             minimal.steps.append(minimal_step)
 
             if exec_step.has_artifacts():
-                minimal.artifact_map[exec_step.step_index] = exec_step.artifacts
+                if exec_step.step_index in minimal.artifact_map:
+                    minimal.artifact_map[exec_step.step_index].merge(exec_step.artifacts)
+                else:
+                    from copy import deepcopy
+                    minimal.artifact_map[exec_step.step_index] = deepcopy(exec_step.artifacts)
 
         if self.preserve_order:
             minimal.steps.sort(key=lambda s: s.step_index)
@@ -464,9 +503,22 @@ class TraceBasedExtractor:
             if not include_step:
                 continue
 
+            # Get step config - for branch substeps, extract the individual substep config
             step_config = None
             if full_pipeline and 0 < exec_step.step_index <= len(full_pipeline):
-                step_config = full_pipeline[exec_step.step_index - 1]
+                parent_config = full_pipeline[exec_step.step_index - 1]
+                # If this is a substep inside a branch, extract the specific substep config
+                if exec_step.branch_path and exec_step.branch_name:
+                    substep_config = self._extract_substep_config(
+                        parent_config, exec_step.branch_name, exec_step.substep_index
+                    )
+                    if substep_config is not None:
+                        step_config = substep_config
+                    else:
+                        # Fallback to parent config if extraction fails
+                        step_config = parent_config
+                else:
+                    step_config = parent_config
 
             minimal_step = MinimalPipelineStep(
                 step_index=exec_step.step_index,
@@ -476,13 +528,19 @@ class TraceBasedExtractor:
                 operator_type=exec_step.operator_type,
                 operator_class=exec_step.operator_class,
                 branch_path=list(exec_step.branch_path),
-                branch_name=exec_step.branch_name
+                branch_name=exec_step.branch_name,
+                substep_index=exec_step.substep_index
             )
 
             minimal.steps.append(minimal_step)
 
             if exec_step.has_artifacts():
-                minimal.artifact_map[exec_step.step_index] = exec_step.artifacts
+                # Merge artifacts for substeps with the same step_index
+                if exec_step.step_index in minimal.artifact_map:
+                    minimal.artifact_map[exec_step.step_index].merge(exec_step.artifacts)
+                else:
+                    from copy import deepcopy
+                    minimal.artifact_map[exec_step.step_index] = deepcopy(exec_step.artifacts)
 
         if self.preserve_order:
             minimal.steps.sort(key=lambda s: s.step_index)
@@ -542,9 +600,22 @@ class TraceBasedExtractor:
             if not include_step:
                 continue
 
+            # Get step config - for branch substeps, extract the individual substep config
             step_config = None
             if full_pipeline and 0 < exec_step.step_index <= len(full_pipeline):
-                step_config = full_pipeline[exec_step.step_index - 1]
+                parent_config = full_pipeline[exec_step.step_index - 1]
+                # If this is a substep inside a branch, extract the specific substep config
+                if exec_step.branch_path and exec_step.branch_name:
+                    substep_config = self._extract_substep_config(
+                        parent_config, exec_step.branch_name, exec_step.substep_index
+                    )
+                    if substep_config is not None:
+                        step_config = substep_config
+                    else:
+                        # Fallback to parent config if extraction fails
+                        step_config = parent_config
+                else:
+                    step_config = parent_config
 
             minimal_step = MinimalPipelineStep(
                 step_index=exec_step.step_index,
@@ -554,13 +625,20 @@ class TraceBasedExtractor:
                 operator_type=exec_step.operator_type,
                 operator_class=exec_step.operator_class,
                 branch_path=list(exec_step.branch_path),
-                branch_name=exec_step.branch_name
+                branch_name=exec_step.branch_name,
+                substep_index=exec_step.substep_index
             )
 
             minimal.steps.append(minimal_step)
 
             if exec_step.has_artifacts():
-                minimal.artifact_map[exec_step.step_index] = exec_step.artifacts
+                # Merge artifacts for substeps with the same step_index
+                if exec_step.step_index in minimal.artifact_map:
+                    minimal.artifact_map[exec_step.step_index].merge(exec_step.artifacts)
+                else:
+                    # Create a copy to avoid modifying the original trace
+                    from copy import deepcopy
+                    minimal.artifact_map[exec_step.step_index] = deepcopy(exec_step.artifacts)
 
         if self.preserve_order:
             minimal.steps.sort(key=lambda s: s.step_index)
@@ -633,6 +711,87 @@ class TraceBasedExtractor:
             prev_step_by_branch[branch_key] = step_idx
 
         return dependencies
+
+    def _extract_substep_config(
+        self,
+        branch_step_config: Any,
+        branch_name: str,
+        substep_index: Optional[int]
+    ) -> Any:
+        """Extract individual substep config from a branch step.
+
+        When a step is inside a branch, the full_pipeline contains the branch
+        step config (e.g., {'branch': {'ridge': [...], 'pls': [...]}}).
+        This method extracts the specific substep config for the given branch
+        and substep index.
+
+        Args:
+            branch_step_config: The branch step configuration from full_pipeline
+            branch_name: Name of the branch (e.g., 'pls', 'branch_0')
+            substep_index: Index of substep within the branch (0-based)
+
+        Returns:
+            The extracted substep config, or None if extraction fails
+        """
+        if not isinstance(branch_step_config, dict):
+            return None
+
+        if "branch" not in branch_step_config:
+            return None
+
+        branches = branch_step_config["branch"]
+        if not branches:
+            return None
+
+        # Handle dict branches (named): {'branch': {'ridge': [...], 'pls': [...]}}
+        if isinstance(branches, dict):
+            # Try exact name match first
+            if branch_name in branches:
+                branch_steps = branches[branch_name]
+            else:
+                # For generated names like 'branch_0', try to match by index
+                # E.g., 'branch_0' -> index 0 -> first branch
+                branch_keys = list(branches.keys())
+                if branch_name.startswith("branch_"):
+                    try:
+                        idx = int(branch_name.split("_")[1])
+                        if 0 <= idx < len(branch_keys):
+                            branch_steps = branches[branch_keys[idx]]
+                        else:
+                            return None
+                    except (ValueError, IndexError):
+                        return None
+                else:
+                    return None
+        # Handle list branches: {'branch': [[...], [...]]}
+        elif isinstance(branches, list):
+            # Extract branch index from name (e.g., 'branch_0' -> 0)
+            if branch_name.startswith("branch_"):
+                try:
+                    idx = int(branch_name.split("_")[1])
+                    if 0 <= idx < len(branches):
+                        branch_steps = branches[idx]
+                    else:
+                        return None
+                except (ValueError, IndexError):
+                    return None
+            else:
+                return None
+        else:
+            return None
+
+        # Now extract substep from branch_steps
+        if substep_index is not None and isinstance(branch_steps, list):
+            if 0 <= substep_index < len(branch_steps):
+                return branch_steps[substep_index]
+            else:
+                logger.warning(
+                    f"Substep index {substep_index} out of range for branch "
+                    f"'{branch_name}' with {len(branch_steps)} steps"
+                )
+                return None
+
+        return None
 
     def _is_prefix_branch(
         self,

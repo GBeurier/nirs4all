@@ -259,6 +259,7 @@ class BranchController(OperatorController):
                             operator_type=op_type,
                             operator_class=op_class,
                             substep_index=substep_idx,
+                            branch_name=branch_name,
                         )
 
                         # Record input shapes before substep execution
@@ -281,10 +282,17 @@ class BranchController(OperatorController):
                         self._record_dataset_shapes(
                             dataset, result.updated_context, runtime_context, is_input=False
                         )
-                        recorder.end_step()
+                        # Check if this substep was a model to properly set model_step_index
+                        is_model = op_type in ("model", "meta_model")
+                        recorder.end_step(is_model=is_model)
 
                     branch_context = result.updated_context
                     all_artifacts.extend(result.artifacts)
+
+            # V3: Snapshot the chain state BEFORE exiting branch context
+            # This captures the correct operator chain for this branch, which post-branch
+            # steps (e.g., MetaModel) need to build their artifact IDs correctly
+            branch_chain_snapshot = recorder.current_chain() if recorder else None
 
             # V3: Exit branch context in trace recorder
             if recorder is not None:
@@ -301,7 +309,8 @@ class BranchController(OperatorController):
                 "name": branch_name,
                 "context": branch_context,
                 "generator_choice": branch_def.get("generator_choice"),
-                "features_snapshot": branch_features_snapshot
+                "features_snapshot": branch_features_snapshot,
+                "chain_snapshot": branch_chain_snapshot,  # V3: Chain for post-branch steps
             })
 
             logger.success(f"  Branch {branch_id} ({branch_name}) completed")

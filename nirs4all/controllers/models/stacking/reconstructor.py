@@ -411,24 +411,57 @@ class TrainingSetReconstructor:
         prediction_store: 'Predictions',
         source_model_names: List[str],
         stacking_config: Optional[StackingConfig] = None,
-        reconstructor_config: Optional[ReconstructorConfig] = None
+        reconstructor_config: Optional[ReconstructorConfig] = None,
+        source_model_branch_map: Optional[Dict[str, Optional[int]]] = None
     ):
         """Initialize TrainingSetReconstructor.
 
         Args:
             prediction_store: Predictions storage for accessing source predictions.
             source_model_names: List of source model names to use as features.
-                Order determines feature column order.
+                Order determines feature column order. For cross-branch stacking,
+                these may be unique names (e.g., "Ridge_MetaModel_br0") that include
+                branch suffix.
             stacking_config: User-facing configuration for coverage and aggregation.
             reconstructor_config: Internal configuration for reconstruction behavior.
+            source_model_branch_map: Mapping from unique source name to
+                (original_model_name, branch_id). Used for cross-branch stacking
+                where same model name appears in multiple branches. Keys are the
+                unique names in source_model_names, values are (name, branch_id)
+                tuples. If None, uses source_model_names as-is with context branch.
         """
         self.prediction_store = prediction_store
         self.source_model_names = source_model_names
         self.stacking_config = stacking_config or StackingConfig()
         self.reconstructor_config = reconstructor_config or ReconstructorConfig()
+        self.source_model_branch_map = source_model_branch_map or {}
         self.fold_validator = FoldAlignmentValidator(
             prediction_store, self.reconstructor_config
         )
+
+    def _resolve_model_lookup(
+        self,
+        unique_name: str,
+        default_branch_id: Optional[int]
+    ) -> Tuple[str, Optional[int]]:
+        """Resolve unique name to actual model name and branch_id for lookup.
+
+        For cross-branch stacking, unique_name may include branch suffix
+        (e.g., "Ridge_MetaModel_br0"). This method extracts the original
+        model name and branch_id for prediction lookup.
+
+        Args:
+            unique_name: The unique source name (may include branch suffix).
+            default_branch_id: Default branch_id from context if not in map.
+
+        Returns:
+            Tuple of (actual_model_name, branch_id_for_lookup).
+        """
+        if unique_name in self.source_model_branch_map:
+            actual_name, branch_id = self.source_model_branch_map[unique_name]
+            return actual_name, branch_id
+        # Not in map - use unique_name as-is with default branch
+        return unique_name, default_branch_id
 
     def reconstruct(
         self,
@@ -512,11 +545,16 @@ class TrainingSetReconstructor:
         n_folds = 0
         feat_col = 0  # Current feature column index
 
-        for model_name in self.source_model_names:
+        for unique_name in self.source_model_names:
+            # Resolve unique name to actual model name and branch for lookup
+            actual_model_name, model_branch_id = self._resolve_model_lookup(
+                unique_name, branch_id
+            )
+
             # OOF predictions for training
             oof_features, model_n_folds = self._collect_oof_predictions_with_proba(
-                model_name=model_name,
-                branch_id=branch_id,
+                model_name=actual_model_name,
+                branch_id=model_branch_id,
                 max_step=current_step,
                 id_to_pos=train_id_to_pos,
                 n_samples=n_train,
@@ -527,8 +565,8 @@ class TrainingSetReconstructor:
 
             # Aggregated test predictions
             test_features = self._collect_test_predictions_with_proba(
-                model_name=model_name,
-                branch_id=branch_id,
+                model_name=actual_model_name,
+                branch_id=model_branch_id,
                 max_step=current_step,
                 id_to_pos=test_id_to_pos,
                 n_samples=n_test,

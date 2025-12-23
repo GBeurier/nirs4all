@@ -271,6 +271,58 @@ class StepArtifacts:
         """
         return self.by_chain.get(chain_path)
 
+    def merge(self, other: "StepArtifacts") -> None:
+        """Merge another StepArtifacts into this one.
+
+        Used when multiple substeps share the same step_index and their
+        artifacts need to be combined in the artifact_map.
+
+        Args:
+            other: StepArtifacts to merge into this one
+        """
+        # Merge artifact_ids
+        for artifact_id in other.artifact_ids:
+            if artifact_id not in self.artifact_ids:
+                self.artifact_ids.append(artifact_id)
+
+        # Primary artifact: keep existing if set, otherwise use other
+        if not self.primary_artifact_id and other.primary_artifact_id:
+            self.primary_artifact_id = other.primary_artifact_id
+
+        # Merge fold_artifact_ids (other takes precedence for conflicts)
+        for fold_id, artifact_id in other.fold_artifact_ids.items():
+            if fold_id not in self.fold_artifact_ids:
+                self.fold_artifact_ids[fold_id] = artifact_id
+
+        # Merge primary_artifacts
+        for chain_path, artifact_id in other.primary_artifacts.items():
+            if chain_path not in self.primary_artifacts:
+                self.primary_artifacts[chain_path] = artifact_id
+
+        # Merge by_branch
+        for branch_key, ids in other.by_branch.items():
+            if branch_key not in self.by_branch:
+                self.by_branch[branch_key] = []
+            for artifact_id in ids:
+                if artifact_id not in self.by_branch[branch_key]:
+                    self.by_branch[branch_key].append(artifact_id)
+
+        # Merge by_source
+        for source_idx, ids in other.by_source.items():
+            if source_idx not in self.by_source:
+                self.by_source[source_idx] = []
+            for artifact_id in ids:
+                if artifact_id not in self.by_source[source_idx]:
+                    self.by_source[source_idx].append(artifact_id)
+
+        # Merge by_chain
+        for chain_path, artifact_id in other.by_chain.items():
+            if chain_path not in self.by_chain:
+                self.by_chain[chain_path] = artifact_id
+
+        # Merge metadata
+        self.metadata.update(other.metadata)
+
 
 @dataclass
 class ExecutionStep:

@@ -431,28 +431,33 @@ class TraceRecorder:
         operator_class: str,
         substep_index: int = 0,
         operator_config: Optional[Dict[str, Any]] = None,
+        branch_name: Optional[str] = None,
     ) -> ExecutionStep:
         """Start recording a substep within a branch.
 
-        Automatically enters the branch context and creates a properly
-        configured step for the substep.
+        Note: This method assumes enter_branch() has already been called for
+        this branch, so current_branch_path() already includes the branch_id.
 
         Args:
             parent_step_index: Parent branch step index
-            branch_id: Branch index this substep belongs to
+            branch_id: Branch index this substep belongs to (for metadata only)
             operator_type: Type of operator
             operator_class: Class name of operator
             substep_index: Index within the branch's substeps
             operator_config: Operator configuration
+            branch_name: Human-readable branch name
 
         Returns:
             The created ExecutionStep
         """
+        # Use current_branch_path() directly - enter_branch() already pushed the branch_id
+        current_path = self.current_branch_path()
+
         # Create operator node for this substep
         node = OperatorNode(
             step_index=parent_step_index,
             operator_class=operator_class,
-            branch_path=self.current_branch_path() + [branch_id],
+            branch_path=current_path,
             substep_index=substep_index,
         )
 
@@ -464,7 +469,8 @@ class TraceRecorder:
             operator_type=operator_type,
             operator_class=operator_class,
             operator_config=operator_config,
-            branch_path=self.current_branch_path() + [branch_id],
+            branch_path=current_path,
+            branch_name=branch_name,
             substep_index=substep_index,
         )
 
