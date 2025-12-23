@@ -440,6 +440,52 @@ class BaseModelController(OperatorController, ABC):
 
         return remapped_folds
 
+    def _get_partition_sample_indices(
+        self,
+        dataset: 'SpectroDataset',
+        context: 'ExecutionContext',
+        mode: str
+    ) -> Tuple[List[int], List[int]]:
+        """Get sample IDs for train and test partitions.
+
+        For OOF reconstruction and stacking, we need the actual sample IDs
+        (not positional indices) to match predictions stored in the prediction store.
+
+        Args:
+            dataset: SpectroDataset with partition info.
+            context: Execution context with partition info.
+            mode: Execution mode ('train', 'predict', 'explain').
+
+        Returns:
+            Tuple of (train_sample_ids, test_sample_ids) as lists.
+        """
+        if mode in ("predict", "explain"):
+            # In predict mode, there's no train/test split - all data is "test"
+            pred_context = context.with_partition(None)
+            all_ids = dataset._indexer.x_indices(
+                pred_context.selector, include_augmented=False, include_excluded=False
+            )
+            return [], list(all_ids)
+
+        # Get sample IDs for train and test partitions
+        train_context = context.with_partition("train")
+        test_context = context.with_partition("test")
+
+        train_sample_ids = dataset._indexer.x_indices(
+            train_context.selector, include_augmented=False, include_excluded=False
+        )
+        test_sample_ids = dataset._indexer.x_indices(
+            test_context.selector, include_augmented=False, include_excluded=False
+        )
+
+        # Check for sample partition filtering
+        sample_partition = context.custom.get("sample_partition")
+        if sample_partition:
+            partition_sample_ids_set = set(sample_partition.get("sample_indices", []))
+            train_sample_ids = [sid for sid in train_sample_ids if int(sid) in partition_sample_ids_set]
+            test_sample_ids = [sid for sid in test_sample_ids if int(sid) in partition_sample_ids_set]
+
+        return list(train_sample_ids), list(test_sample_ids)
 
     def execute(
         self,
@@ -489,6 +535,9 @@ class BaseModelController(OperatorController, ABC):
 
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
 
+        # Get actual sample IDs for train and test partitions (for stacking/OOF reconstruction)
+        train_sample_ids, test_sample_ids = self._get_partition_sample_indices(dataset, context, mode)
+
         # Convert fold sample IDs to positional indices
         # Folds now store absolute sample IDs, which remain valid even after sample filtering
         # We need to convert them to positional indices into the current X_train array
@@ -503,19 +552,22 @@ class BaseModelController(OperatorController, ABC):
              return self._execute_finetune(
                 dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-                finetune_params, loaded_binaries
+                finetune_params, loaded_binaries,
+                train_sample_ids=train_sample_ids, test_sample_ids=test_sample_ids
             )
         elif mode == "train":
             return self._execute_train(
                 dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-                loaded_binaries
+                loaded_binaries,
+                train_sample_ids=train_sample_ids, test_sample_ids=test_sample_ids
             )
         elif mode in ("predict", "explain"):
              return self._execute_predict(
                 dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-                loaded_binaries, mode
+                loaded_binaries, mode,
+                train_sample_ids=train_sample_ids, test_sample_ids=test_sample_ids
             )
         else:
             raise ValueError(f"Unknown execution mode: {mode}")
@@ -523,7 +575,8 @@ class BaseModelController(OperatorController, ABC):
     def _execute_finetune(
         self, dataset, model_config, context, runtime_context, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-        finetune_params, loaded_binaries
+        finetune_params, loaded_binaries,
+        train_sample_ids=None, test_sample_ids=None
     ):
         self.mode = "finetune"
         if self.verbose > 0:
@@ -539,14 +592,16 @@ class BaseModelController(OperatorController, ABC):
         binaries = self.train(
             dataset, model_config, context, runtime_context, prediction_store,
             X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-            loaded_binaries=loaded_binaries, mode="train", best_params=best_model_params
+            loaded_binaries=loaded_binaries, mode="train", best_params=best_model_params,
+            train_sample_ids=train_sample_ids, test_sample_ids=test_sample_ids
         )
         return context, binaries
 
     def _execute_train(
         self, dataset, model_config, context, runtime_context, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-        loaded_binaries
+        loaded_binaries,
+        train_sample_ids=None, test_sample_ids=None
     ):
         if self.verbose > 0:
             logger.starting("Starting training...")
@@ -554,19 +609,22 @@ class BaseModelController(OperatorController, ABC):
         binaries = self.train(
             dataset, model_config, context, runtime_context, prediction_store,
             X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-            loaded_binaries=loaded_binaries, mode="train"
+            loaded_binaries=loaded_binaries, mode="train",
+            train_sample_ids=train_sample_ids, test_sample_ids=test_sample_ids
         )
         return context, binaries
 
     def _execute_predict(
         self, dataset, model_config, context, runtime_context, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-        loaded_binaries, mode
+        loaded_binaries, mode,
+        train_sample_ids=None, test_sample_ids=None
     ):
         binaries = self.train(
             dataset, model_config, context, runtime_context, prediction_store,
             X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-            loaded_binaries=loaded_binaries, mode=mode
+            loaded_binaries=loaded_binaries, mode=mode,
+            train_sample_ids=train_sample_ids, test_sample_ids=test_sample_ids
         )
         return context, binaries
 
@@ -628,7 +686,8 @@ class BaseModelController(OperatorController, ABC):
         self,
         dataset, model_config, context, runtime_context, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
-        best_params=None, loaded_binaries=None, mode="train"
+        best_params=None, loaded_binaries=None, mode="train",
+        train_sample_ids=None, test_sample_ids=None
     ) -> List['ArtifactMeta']:
         """Orchestrate model training across folds with prediction tracking.
 
@@ -655,6 +714,8 @@ class BaseModelController(OperatorController, ABC):
             best_params: Optional hyperparameters from finetuning.
             loaded_binaries: Optional model binaries for prediction mode.
             mode: Execution mode ('train', 'finetune', 'predict', 'explain').
+            train_sample_ids: List of actual sample IDs for train partition.
+            test_sample_ids: List of actual sample IDs for test partition.
 
         Returns:
             List of ArtifactMeta objects for persisted models.
@@ -689,7 +750,8 @@ class BaseModelController(OperatorController, ABC):
                     y_train_unscaled, y_test_unscaled, y_test_unscaled,
                     train_indices=None, val_indices=None,
                     fold_idx=actual_fold_idx, best_params=best_params,
-                    loaded_binaries=loaded_binaries, mode=mode
+                    loaded_binaries=loaded_binaries, mode=mode,
+                    test_sample_ids=test_sample_ids
                 )
                 all_fold_predictions.append(prediction_data)
 
@@ -726,7 +788,8 @@ class BaseModelController(OperatorController, ABC):
                     y_train_fold_unscaled, y_val_fold_unscaled, y_test_unscaled,
                     train_indices, val_indices,
                     fold_idx, best_params_fold,
-                    loaded_binaries, mode
+                    loaded_binaries, mode,
+                    test_sample_ids  # Added for proper test sample indexing
                 ))
 
             if verbose > 0:
@@ -773,7 +836,8 @@ class BaseModelController(OperatorController, ABC):
                 avg_predictions, w_avg_predictions = self._create_fold_averages(
                     base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
                     folds_models, fold_val_indices, scores,
-                    X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode, best_params=best_params
+                    X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode, best_params=best_params,
+                    test_sample_ids=test_sample_ids
                 )
                 # Collect ALL predictions (folds + averages) and add them in one shot with same weights
                 all_fold_predictions = all_fold_predictions + [avg_predictions, w_avg_predictions]
@@ -787,7 +851,8 @@ class BaseModelController(OperatorController, ABC):
                 dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, X_test,
                 y_train_unscaled, y_test_unscaled, y_test_unscaled,
-                loaded_binaries=loaded_binaries, mode=mode
+                loaded_binaries=loaded_binaries, mode=mode,
+                test_sample_ids=test_sample_ids
             )
             artifact = self._persist_model(
                 runtime_context, model, model_id,
@@ -827,7 +892,7 @@ class BaseModelController(OperatorController, ABC):
         X_train, y_train, X_val, y_val, X_test,
         y_train_unscaled, y_val_unscaled, y_test_unscaled,
         train_indices=None, val_indices=None, fold_idx=None, best_params=None,
-        loaded_binaries=None, mode="train"):
+        loaded_binaries=None, mode="train", test_sample_ids=None):
         """Execute single model training or prediction.
 
         This refactored method uses modular components to handle:
@@ -853,6 +918,7 @@ class BaseModelController(OperatorController, ABC):
             best_params: Optional hyperparameters from optimization
             loaded_binaries: Optional binaries for predict/explain mode
             mode: Execution mode ('train', 'finetune', 'predict', 'explain')
+            test_sample_ids: List of actual sample IDs for test partition (for stacking).
 
         Returns:
             Tuple of (trained_model, model_id, val_score, model_name, prediction_data)
@@ -1013,10 +1079,13 @@ class BaseModelController(OperatorController, ABC):
             'test': len(y_test_unscaled) if y_test_unscaled is not None and len(y_test_unscaled) > 0 else X_test_prep.shape[0]
         }
 
+        # For test indices: use actual sample IDs if provided, otherwise use range
+        test_indices_normalized = test_sample_ids if test_sample_ids is not None else self.index_normalizer.normalize(None, n_samples['test'])
+
         indices = {
             'train': self.index_normalizer.normalize(train_indices, n_samples['train']),
             'val': self.index_normalizer.normalize(val_indices, n_samples['val']),
-            'test': self.index_normalizer.normalize(None, n_samples['test'])
+            'test': test_indices_normalized
         }
 
         # === 8. ASSEMBLE PREDICTION DATA ===
@@ -1228,7 +1297,7 @@ class BaseModelController(OperatorController, ABC):
         base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
         folds_models, fold_val_indices, scores,
         X_train, X_test, y_train_unscaled, y_test_unscaled,
-        mode="train", best_params=None
+        mode="train", best_params=None, test_sample_ids=None
     ) -> Tuple[Dict, Dict]:
         """Create simple and weighted fold-averaged predictions.
 
@@ -1257,6 +1326,7 @@ class BaseModelController(OperatorController, ABC):
             y_test_unscaled: Test targets (unscaled).
             mode: Execution mode.
             best_params: Optional hyperparameters.
+            test_sample_ids: List of actual sample IDs for test partition.
 
         Returns:
             Tuple of (avg_prediction_dict, weighted_avg_prediction_dict).
@@ -1331,7 +1401,8 @@ class BaseModelController(OperatorController, ABC):
         avg_predictions = self._assemble_avg_prediction(
             dataset, runtime_context, context, base_model_name, model_classname,
             avg_preds, avg_scores, true_values, all_val_indices,
-            "avg", best_params, mode, X_train.shape
+            "avg", best_params, mode, X_train.shape,
+            test_sample_ids=test_sample_ids
         )
         avg_predictions['scores'] = avg_full_scores
         avg_predictions['probabilities'] = avg_probs
@@ -1339,7 +1410,8 @@ class BaseModelController(OperatorController, ABC):
         w_avg_predictions = self._assemble_avg_prediction(
             dataset, runtime_context, context, base_model_name, model_classname,
             w_avg_preds, w_avg_scores, true_values, all_val_indices,
-            "w_avg", best_params, mode, X_train.shape, weights
+            "w_avg", best_params, mode, X_train.shape, weights,
+            test_sample_ids=test_sample_ids
         )
         w_avg_predictions['scores'] = w_avg_full_scores
         w_avg_predictions['probabilities'] = w_avg_probs
@@ -1608,7 +1680,8 @@ class BaseModelController(OperatorController, ABC):
         return EnsembleUtils._scores_to_weights(scores, higher_is_better=higher_is_better)
 
     def _assemble_avg_prediction(self, dataset, runner, context, model_name, model_classname,
-                                  predictions, scores, true_values, val_indices, fold_id, best_params, mode, X_shape, weights=None):
+                                  predictions, scores, true_values, val_indices, fold_id, best_params, mode, X_shape, weights=None,
+                                  test_sample_ids=None):
         """Assemble prediction dictionary for averaged model.
 
         Creates a complete prediction record with all metadata, scores, and partition data
@@ -1629,18 +1702,23 @@ class BaseModelController(OperatorController, ABC):
             mode: Execution mode.
             X_shape: Shape of input features (for n_features).
             weights: Optional array of fold weights.
+            test_sample_ids: List of actual sample IDs for test partition.
 
         Returns:
             Dictionary ready for prediction storage with all required fields.
         """
         op_counter = runner.next_op()
 
+        # Build partitions with actual sample IDs (not range indices)
+        # For test: use test_sample_ids if provided, otherwise fallback to range
+        test_indices = test_sample_ids if test_sample_ids is not None else list(range(len(true_values['test'])))
+
         partitions = [
             ("train", list(range(len(true_values['train']))), true_values['train'], predictions['train'])
         ]
         if mode not in ("predict", "explain"):
             partitions.append(("val", val_indices.tolist(), true_values['val'], predictions['val']))
-        partitions.append(("test", list(range(len(true_values['test']))), true_values['test'], predictions['test']))
+        partitions.append(("test", test_indices, true_values['test'], predictions['test']))
 
         # Extract metadata for each partition
         # Note: For 'val' partition in CV, samples come from train partition

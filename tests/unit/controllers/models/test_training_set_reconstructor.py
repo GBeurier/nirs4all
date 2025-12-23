@@ -92,7 +92,7 @@ class MockDataset:
         self._y_train = np.random.randn(n_train)
         self._y_test = np.random.randn(n_test)
 
-    def y(self, selector):
+    def y(self, selector, include_augmented=True, include_excluded=False):
         if selector.partition == "test":
             return self._y_test
         return self._y_train
