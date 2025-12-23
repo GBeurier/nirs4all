@@ -89,7 +89,7 @@ from .signal_conversion import (
     KubelkaMunk,
     SignalTypeConverter,
 )
-from .features import CropTransformer, ResampleTransformer
+from .features import CropTransformer, ResampleTransformer, FlattenPreprocessing
 from .resampler import Resampler
 from .feature_selection import CARS, MCUVE
 from .presets import (
@@ -210,6 +210,7 @@ __all__ = [
     # Features
     "CropTransformer",
     "ResampleTransformer",
+    "FlattenPreprocessing",
 
     # Wavelength resampling
     "Resampler",

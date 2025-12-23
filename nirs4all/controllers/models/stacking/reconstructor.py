@@ -200,13 +200,17 @@ class FoldAlignmentValidator:
     def validate(
         self,
         source_model_names: List[str],
-        context: 'ExecutionContext'
+        context: 'ExecutionContext',
+        branch_id_override: Optional[int] = -1
     ) -> ValidationResult:
         """Validate fold alignment across source models.
 
         Args:
             source_model_names: List of source model names to validate.
             context: Execution context with branch info.
+            branch_id_override: Optional branch_id override. If -1 (default),
+                use context's branch_id. If None, don't filter by branch
+                (for ALL_BRANCHES scope).
 
         Returns:
             ValidationResult with any errors or warnings.
@@ -220,8 +224,11 @@ class FoldAlignmentValidator:
             )
             return result
 
-        # Get branch context
-        branch_id = getattr(context.selector, 'branch_id', None)
+        # Get branch context - allow override for ALL_BRANCHES scope
+        if branch_id_override == -1:
+            branch_id = getattr(context.selector, 'branch_id', None)
+        else:
+            branch_id = branch_id_override
         current_step = context.state.step_number
 
         # Collect fold info per model
@@ -456,15 +463,23 @@ class TrainingSetReconstructor:
         if not self.source_model_names:
             raise ValueError("No source model names provided for reconstruction")
 
-        # Get branch context
-        branch_id = getattr(context.selector, 'branch_id', None)
+        # Get branch context - for ALL_BRANCHES scope, don't filter by branch
+        branch_scope = self.stacking_config.branch_scope
+        if branch_scope == BranchScope.ALL_BRANCHES:
+            # ALL_BRANCHES: Collect predictions from all branches
+            branch_id = None
+        else:
+            # CURRENT_ONLY or SPECIFIED: Filter by current branch
+            branch_id = getattr(context.selector, 'branch_id', None)
         current_step = context.state.step_number
 
         # Validate fold alignment if configured
         validation_result = ValidationResult()
         if self.reconstructor_config.validate_fold_alignment:
+            # Pass branch_id_override to respect ALL_BRANCHES scope
+            branch_id_override = None if branch_scope == BranchScope.ALL_BRANCHES else -1
             validation_result = self.fold_validator.validate(
-                self.source_model_names, context
+                self.source_model_names, context, branch_id_override=branch_id_override
             )
             if not validation_result.is_valid:
                 # Log warnings but continue for non-critical issues
@@ -563,11 +578,16 @@ class TrainingSetReconstructor:
             classification_info, use_proba, feature_names
         )
 
-        # Get y values if not provided
-        if y_train is None:
-            y_train = self._get_y_values(dataset, context, 'train')
-        if y_test is None:
-            y_test = self._get_y_values(dataset, context, 'test')
+        # CRITICAL: Always get UNSCALED y values for meta-model training.
+        # The OOF predictions (X_train_meta) are stored in unscaled (original y) space,
+        # so the meta-model must train on unscaled y to avoid scale mismatch.
+        # If y_processing was applied, the passed-in y_train/y_test are scaled,
+        # but we need unscaled values to match the prediction space.
+        #
+        # Additionally handle sample_augmentation: predictions are stored with
+        # original sample indices only, so we need to match sample counts.
+        y_train = self._get_y_values_for_samples(dataset, context, train_sample_ids)
+        y_test = self._get_y_values_for_samples(dataset, context, test_sample_ids)
 
         return ReconstructionResult(
             X_train_meta=X_train_meta,
@@ -592,6 +612,11 @@ class TrainingSetReconstructor:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Get training and test sample indices.
 
+        For OOF reconstruction, we need to match sample indices with what
+        was stored in the prediction_store. Models store predictions using
+        ORIGINAL sample indices (not augmented), so we must use
+        include_augmented=False to get the correct sample IDs.
+
         Args:
             dataset: SpectroDataset.
             context: Execution context.
@@ -602,9 +627,12 @@ class TrainingSetReconstructor:
         train_context = context.with_partition('train')
         test_context = context.with_partition('test')
 
+        # IMPORTANT: Use include_augmented=False because predictions are stored
+        # with original sample indices only. Augmented samples are synthetic
+        # copies that share the same sample ID as their source samples.
         train_ids = dataset._indexer.x_indices(
             train_context.selector,
-            include_augmented=True,
+            include_augmented=False,
             include_excluded=False
         )
         test_ids = dataset._indexer.x_indices(
@@ -1015,6 +1043,61 @@ class TrainingSetReconstructor:
         partition_context = context.with_partition(partition)
         return dataset.y(partition_context.selector)
 
+    def _get_y_values_for_samples(
+        self,
+        dataset: 'SpectroDataset',
+        context: 'ExecutionContext',
+        sample_ids: np.ndarray
+    ) -> np.ndarray:
+        """Get target values for specific sample IDs.
+
+        This method is used when sample_augmentation is active and we need
+        to get y values only for the original (non-augmented) samples that
+        have corresponding OOF predictions.
+
+        Args:
+            dataset: SpectroDataset.
+            context: Execution context.
+            sample_ids: Array of sample IDs to get targets for.
+
+        Returns:
+            Target values array matching the sample_ids.
+        """
+        # Get all y values from the dataset for the partition
+        # We need to figure out which partition based on the sample IDs
+        # Try train first (most common for OOF)
+        train_context = context.with_partition('train')
+        all_train_ids = dataset._indexer.x_indices(
+            train_context.selector,
+            include_augmented=False,
+            include_excluded=False
+        )
+
+        # Check if sample_ids match train or test
+        sample_set = set(sample_ids)
+        train_set = set(all_train_ids)
+
+        if sample_set.issubset(train_set) or sample_set == train_set:
+            # Get y values from train partition without augmented samples
+            # Create a selector that explicitly selects non-augmented samples
+            all_y = dataset.y(train_context.selector, include_augmented=False)
+            if len(all_y) == len(sample_ids):
+                return all_y
+
+            # If lengths don't match, manually select by sample ID mapping
+            all_ids = np.asarray(all_train_ids)
+            id_to_pos = {int(sid): i for i, sid in enumerate(all_ids)}
+            y_selected = np.zeros(len(sample_ids))
+            for i, sid in enumerate(sample_ids):
+                pos = id_to_pos.get(int(sid))
+                if pos is not None and pos < len(all_y):
+                    y_selected[i] = all_y[pos]
+            return y_selected
+        else:
+            # Assume test partition
+            test_context = context.with_partition('test')
+            return dataset.y(test_context.selector, include_augmented=False)
+
     def validate_branch_compatibility(
         self,
         context: 'ExecutionContext'
@@ -1049,11 +1132,12 @@ class TrainingSetReconstructor:
                     )
 
         elif branch_scope == BranchScope.ALL_BRANCHES:
-            # Future: validate that cross-branch stacking is possible
+            # Validate cross-branch stacking is possible
+            # ALL_BRANCHES collects predictions from all branches
             result.add_warning(
-                "ALL_BRANCHES_EXPERIMENTAL",
-                "BranchScope.ALL_BRANCHES is experimental and may not work "
-                "correctly with sample partitioning."
+                "ALL_BRANCHES_INFO",
+                "BranchScope.ALL_BRANCHES is active - collecting predictions from all branches. "
+                "Note: This may not work correctly with sample partitioning."
             )
 
         return result

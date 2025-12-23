@@ -351,6 +351,21 @@ class Indexer:
         """
         self._processing_manager.replace_processings(source_processings, new_processings)
 
+    def reset_processings(self, new_processings: List[str]) -> None:
+        """
+        Reset processing names for all samples to a new list.
+
+        This replaces the entire processing list for every sample with the
+        provided list. Used when resetting feature storage (e.g. after merge).
+
+        Args:
+            new_processings: List of new processing names.
+
+        Raises:
+            ValueError: If new_processings is empty.
+        """
+        self._processing_manager.reset_processings(new_processings)
+
     def add_processings(self, new_processings: List[str]) -> None:
         """
         Append processing names to all existing processing lists.

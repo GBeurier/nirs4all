@@ -315,6 +315,42 @@ class FeatureAccessor:
         """
         self._block.update_features(source_processings, features, processings, source)
 
+    def reset_features(self,
+                       features: np.ndarray,
+                       processings: List[str],
+                       source: int = 0) -> None:
+        """
+        Reset features and processings for a source.
+
+        Replaces all features and processings with new data.
+        Also updates the indexer to reflect the new processings.
+
+        Args:
+            features: New feature data (2D or 3D)
+            processings: List of new processing names
+            source: Target source index
+        """
+        # Reset features in storage
+        self._block.sources[source].reset_features(features, processings)
+
+        # Reset processings in indexer (only if source 0, as indexer tracks source 0 processings)
+        if source == 0:
+            self._indexer.reset_processings(processings)
+
+    def keep_sources(self, source_indices: Union[int, List[int]]) -> None:
+        """Keep only specified sources, removing all others.
+
+        Used after merge operations with output_as="features" to consolidate
+        to a single source.
+
+        Args:
+            source_indices: Single source index or list of source indices to keep.
+
+        Raises:
+            ValueError: If source indices are invalid.
+        """
+        self._block.keep_sources(source_indices)
+
     def augment_samples(self,
                         data: InputData,
                         processings: ProcessingList,

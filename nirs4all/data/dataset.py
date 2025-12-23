@@ -223,7 +223,8 @@ class SpectroDataset:
         self,
         features: np.ndarray,
         processing_name: str = "merged",
-        source: int = 0
+        source: int = 0,
+        processing_names: Optional[List[str]] = None
     ) -> None:
         """Add merged features from branch merge operations.
 
@@ -232,23 +233,31 @@ class SpectroDataset:
         processings to become the new feature set for subsequent steps.
 
         Args:
-            features: 2D array of shape (n_samples, n_features) containing
-                the merged features from branch combination.
+            features: Feature array to store:
+                - 2D array of shape (n_samples, n_features): flattened features
+                - 3D array of shape (n_samples, n_processings, n_features):
+                  features with preserved preprocessing dimension
             processing_name: Name for the merged processing (default: "merged").
-                Will be used as the processing ID in the feature store.
+                Used when features is 2D (single processing).
             source: Target source index (default: 0, first source).
+            processing_names: Optional list of processing names for 3D features.
+                If not provided, generates names like "merged_0", "merged_1", etc.
 
         Raises:
-            ValueError: If features is not 2D or sample count doesn't match.
+            ValueError: If features is not 2D or 3D, or sample count doesn't match.
 
         Example:
-            >>> # After collecting features from branches
+            >>> # 2D merged features (flattened)
             >>> merged = np.concatenate([branch0_features, branch1_features], axis=1)
             >>> dataset.add_merged_features(merged, "merged_snv_msc")
+            >>>
+            >>> # 3D merged features (preserved preprocessing dimension)
+            >>> merged_3d = np.stack([snv_features, msc_features], axis=1)
+            >>> dataset.add_merged_features(merged_3d, processing_names=["snv", "msc"])
         """
-        if features.ndim != 2:
+        if features.ndim not in (2, 3):
             raise ValueError(
-                f"Merged features must be 2D array, got {features.ndim}D"
+                f"Merged features must be 2D or 3D array, got {features.ndim}D"
             )
 
         n_samples = features.shape[0]
@@ -258,17 +267,48 @@ class SpectroDataset:
                 f"expected {self.num_samples}"
             )
 
-        # Get current processings to replace
-        current_processings = self.features_processings(source)
+        # Determine processing names based on array dimensionality
+        if features.ndim == 2:
+            processings = [processing_name]
+        else:  # 3D array
+            n_processings = features.shape[1]
+            if processing_names is not None:
+                if len(processing_names) != n_processings:
+                    raise ValueError(
+                        f"processing_names length ({len(processing_names)}) must match "
+                        f"number of processings ({n_processings})"
+                    )
+                processings = processing_names
+            else:
+                # Generate default processing names
+                processings = [f"{processing_name}_{i}" for i in range(n_processings)]
 
         # Replace ALL existing processings with the merged features
         # This effectively "resets" the feature storage to just the merged output
-        self._feature_accessor.replace_features(
-            source_processings=current_processings,
-            features=[features],
-            processings=[processing_name],
+        self._feature_accessor.reset_features(
+            features=features,
+            processings=processings,
             source=source
         )
+
+    def keep_sources(self, source_indices: Union[int, List[int]]) -> None:
+        """Keep only specified sources, removing all others.
+
+        Used after merge operations with output_as="features" to consolidate
+        to a single source. This is called automatically by MergeController
+        when output_as="features" is used.
+
+        Args:
+            source_indices: Single source index or list of source indices to keep.
+
+        Raises:
+            ValueError: If source indices are invalid.
+
+        Example:
+            >>> # After merge with output_as="features", keep only source 0
+            >>> dataset.keep_sources(0)
+        """
+        self._feature_accessor.keep_sources(source_indices)
 
     def get_merged_features(
         self,

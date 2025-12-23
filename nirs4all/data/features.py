@@ -237,6 +237,34 @@ class Features:
         for src, arr in zip(self.sources, data):
             src.augment_samples(sample_indices, arr, processings, count_list)
 
+    def keep_sources(self, source_indices: Union[int, List[int]]) -> None:
+        """Keep only specified sources, removing all others.
+
+        Used after merge operations with output_as="features" to consolidate
+        to a single source.
+
+        Args:
+            source_indices: Single source index or list of source indices to keep.
+
+        Raises:
+            ValueError: If no sources exist or source indices are invalid.
+        """
+        if not self.sources:
+            raise ValueError("No sources available to filter")
+
+        # Normalize to list
+        if isinstance(source_indices, int):
+            source_indices = [source_indices]
+
+        # Validate indices
+        n_sources = len(self.sources)
+        for idx in source_indices:
+            if idx < 0 or idx >= n_sources:
+                raise ValueError(f"Invalid source index {idx}, have {n_sources} sources")
+
+        # Keep only specified sources
+        self.sources = [self.sources[i] for i in source_indices]
+
     def x(self, indices: SampleIndices, layout: str = "2d", concat_source: bool = True) -> Union[np.ndarray, list[np.ndarray]]:
         """Retrieve feature data for specified samples.
 

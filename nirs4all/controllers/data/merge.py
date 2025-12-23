@@ -90,6 +90,7 @@ import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.controllers.shared import ModelSelector, PredictionAggregator
 from nirs4all.core.logging import get_logger
 from nirs4all.operators.data.merge import (
     MergeConfig,
@@ -116,564 +117,12 @@ logger = get_logger(__name__)
 
 # =============================================================================
 # Phase 5: Model Selection and Prediction Aggregation Utilities
+# NOTE: ModelSelector and PredictionAggregator have been moved to
+# nirs4all.controllers.shared to avoid code duplication between
+# MergeController and MetaModelController (Phase 2 Stacking Restoration).
+# They are imported from the shared module and re-exported here for
+# backward compatibility.
 # =============================================================================
-
-class ModelSelector:
-    """Utility class for selecting models based on validation metrics.
-
-    Handles model ranking and selection strategies (all, best, top_k, explicit)
-    for per-branch prediction collection.
-
-    Attributes:
-        prediction_store: Prediction storage instance.
-        context: Execution context.
-        logger: Logger instance.
-    """
-
-    # Metrics where lower values are better (for ascending sort)
-    LOWER_IS_BETTER_METRICS = {"rmse", "mse", "mae", "mape", "log_loss", "nrmse", "nmse", "nmae"}
-
-    def __init__(
-        self,
-        prediction_store: "Predictions",
-        context: "ExecutionContext",
-    ):
-        """Initialize the model selector.
-
-        Args:
-            prediction_store: Prediction storage instance.
-            context: Execution context.
-        """
-        self.prediction_store = prediction_store
-        self.context = context
-        self._score_cache: Dict[str, Dict[str, float]] = {}
-
-    def select_models(
-        self,
-        available_models: List[str],
-        config: BranchPredictionConfig,
-        branch_id: int,
-    ) -> List[str]:
-        """Select models from available models based on config.
-
-        Args:
-            available_models: List of available model names in the branch.
-            config: Per-branch prediction configuration.
-            branch_id: Branch identifier.
-
-        Returns:
-            List of selected model names.
-
-        Raises:
-            ValueError: If explicit model selection references unknown models.
-        """
-        strategy = config.get_selection_strategy()
-
-        if strategy == SelectionStrategy.ALL:
-            return available_models
-
-        elif strategy == SelectionStrategy.BEST:
-            return self._select_best(
-                available_models,
-                config.metric,
-                branch_id,
-            )
-
-        elif strategy == SelectionStrategy.TOP_K:
-            assert isinstance(config.select, dict)
-            k = config.select.get("top_k", 1)
-            return self._select_top_k(
-                available_models,
-                k,
-                config.metric,
-                branch_id,
-            )
-
-        elif strategy == SelectionStrategy.EXPLICIT:
-            assert isinstance(config.select, list)
-            return self._select_explicit(
-                available_models,
-                config.select,
-                branch_id,
-            )
-
-        # Fallback to all
-        return available_models
-
-    def _select_best(
-        self,
-        available_models: List[str],
-        metric: Optional[str],
-        branch_id: int,
-    ) -> List[str]:
-        """Select the single best model by validation metric.
-
-        Args:
-            available_models: List of available model names.
-            metric: Metric to rank by (default: rmse).
-            branch_id: Branch identifier.
-
-        Returns:
-            List with single best model name, or empty if no valid scores.
-        """
-        ranked = self._rank_models_by_metric(
-            available_models, metric or "rmse", branch_id
-        )
-        return [ranked[0]] if ranked else []
-
-    def _select_top_k(
-        self,
-        available_models: List[str],
-        k: int,
-        metric: Optional[str],
-        branch_id: int,
-    ) -> List[str]:
-        """Select top K models by validation metric.
-
-        Args:
-            available_models: List of available model names.
-            k: Number of models to select.
-            metric: Metric to rank by (default: rmse).
-            branch_id: Branch identifier.
-
-        Returns:
-            List of top K model names.
-        """
-        ranked = self._rank_models_by_metric(
-            available_models, metric or "rmse", branch_id
-        )
-        return ranked[:min(k, len(ranked))]
-
-    def _select_explicit(
-        self,
-        available_models: List[str],
-        model_names: List[str],
-        branch_id: int,
-    ) -> List[str]:
-        """Select explicitly named models.
-
-        Args:
-            available_models: List of available model names.
-            model_names: Explicit list of model names to select.
-            branch_id: Branch identifier.
-
-        Returns:
-            List of selected model names (intersection with available).
-
-        Raises:
-            ValueError: If any named model is not available.
-        """
-        available_set = set(available_models)
-        selected = []
-
-        for name in model_names:
-            if name in available_set:
-                selected.append(name)
-            else:
-                logger.warning(
-                    f"Explicit model '{name}' not found in branch {branch_id}. "
-                    f"Available models: {available_models}. Skipping."
-                )
-
-        return selected
-
-    def _rank_models_by_metric(
-        self,
-        available_models: List[str],
-        metric: str,
-        branch_id: int,
-    ) -> List[str]:
-        """Rank models by validation metric score.
-
-        Args:
-            available_models: List of available model names.
-            metric: Metric name to rank by.
-            branch_id: Branch identifier.
-
-        Returns:
-            List of model names sorted by metric (best first).
-        """
-        model_scores: List[Tuple[str, float]] = []
-
-        for model_name in available_models:
-            score = self._get_model_validation_score(model_name, metric, branch_id)
-            if score is not None and np.isfinite(score):
-                model_scores.append((model_name, score))
-
-        if not model_scores:
-            logger.warning(
-                f"No valid validation scores found for metric '{metric}' "
-                f"in branch {branch_id}. Returning all models."
-            )
-            return available_models
-
-        # Determine sort order based on metric
-        ascending = metric.lower() in self.LOWER_IS_BETTER_METRICS
-
-        # Sort by score
-        model_scores.sort(key=lambda x: x[1], reverse=not ascending)
-
-        logger.debug(
-            f"Model ranking for branch {branch_id} by {metric}: "
-            f"{[(m, f'{s:.4f}') for m, s in model_scores[:5]]}..."
-        )
-
-        return [m for m, _ in model_scores]
-
-    def _get_model_validation_score(
-        self,
-        model_name: str,
-        metric: str,
-        branch_id: int,
-    ) -> Optional[float]:
-        """Get validation score for a model.
-
-        Uses caching to avoid repeated prediction store queries.
-
-        Args:
-            model_name: Model name.
-            metric: Metric name.
-            branch_id: Branch identifier.
-
-        Returns:
-            Validation score or None if not found.
-        """
-        cache_key = f"{model_name}:{metric}:{branch_id}"
-
-        if cache_key in self._score_cache:
-            return self._score_cache.get(cache_key, {}).get(metric)
-
-        # Query prediction store for validation predictions
-        current_step = getattr(self.context.state, 'step_number', float('inf'))
-
-        filter_kwargs = {
-            'model_name': model_name,
-            'branch_id': branch_id,
-            'partition': 'val',
-            'load_arrays': False,
-        }
-
-        predictions = self.prediction_store.filter_predictions(**filter_kwargs)
-
-        # Filter by step
-        predictions = [
-            p for p in predictions
-            if p.get('step_idx', 0) < current_step
-        ]
-
-        if not predictions:
-            # Try without branch_id for pre-branch models
-            filter_kwargs_no_branch = {
-                'model_name': model_name,
-                'partition': 'val',
-                'load_arrays': False,
-            }
-            predictions = self.prediction_store.filter_predictions(**filter_kwargs_no_branch)
-            predictions = [
-                p for p in predictions
-                if p.get('step_idx', 0) < current_step and p.get('branch_id') is None
-            ]
-
-        if not predictions:
-            return None
-
-        # Get score from first matching prediction
-        # Priority: scores dict > val_score field
-        for pred in predictions:
-            # Try scores JSON dict first
-            import json
-            scores_json = pred.get("scores")
-            if scores_json:
-                try:
-                    scores_dict = json.loads(scores_json) if isinstance(scores_json, str) else scores_json
-                    if "val" in scores_dict and metric in scores_dict["val"]:
-                        score = scores_dict["val"][metric]
-                        self._score_cache[cache_key] = {metric: score}
-                        return score
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            # Fallback to val_score if metric matches
-            if metric == pred.get("metric"):
-                score = pred.get("val_score")
-                if score is not None:
-                    self._score_cache[cache_key] = {metric: score}
-                    return score
-
-        return None
-
-    def get_model_scores(
-        self,
-        model_names: List[str],
-        metric: str,
-        branch_id: int,
-    ) -> Dict[str, float]:
-        """Get validation scores for multiple models.
-
-        Used for weighted aggregation.
-
-        Args:
-            model_names: List of model names.
-            metric: Metric name.
-            branch_id: Branch identifier.
-
-        Returns:
-            Dictionary mapping model name to score.
-        """
-        scores = {}
-        for name in model_names:
-            score = self._get_model_validation_score(name, metric, branch_id)
-            if score is not None:
-                scores[name] = score
-        return scores
-
-
-class PredictionAggregator:
-    """Utility class for aggregating predictions from multiple models.
-
-    Handles aggregation strategies (separate, mean, weighted_mean, proba_mean)
-    for combining predictions within a branch.
-    """
-
-    @staticmethod
-    def aggregate(
-        predictions: Dict[str, np.ndarray],
-        strategy: AggregationStrategy,
-        model_scores: Optional[Dict[str, float]] = None,
-        proba: bool = False,
-        metric: Optional[str] = None,
-    ) -> np.ndarray:
-        """Aggregate predictions from multiple models.
-
-        Args:
-            predictions: Dictionary mapping model names to prediction arrays.
-                Each array has shape (n_samples,) for regression or
-                (n_samples, n_classes) for classification probabilities.
-            strategy: Aggregation strategy to use.
-            model_scores: Optional dictionary of model scores for weighted averaging.
-            proba: Whether predictions are class probabilities.
-            metric: Metric name (for determining weight direction).
-
-        Returns:
-            Aggregated predictions with shape:
-                - SEPARATE: (n_samples, n_models)
-                - MEAN/WEIGHTED_MEAN: (n_samples, 1)
-                - PROBA_MEAN: (n_samples, n_classes)
-
-        Raises:
-            ValueError: If predictions dict is empty.
-        """
-        if not predictions:
-            raise ValueError("Cannot aggregate empty predictions dictionary")
-
-        model_names = list(predictions.keys())
-        n_samples = next(iter(predictions.values())).shape[0]
-
-        if strategy == AggregationStrategy.SEPARATE:
-            return PredictionAggregator._aggregate_separate(predictions, model_names)
-
-        elif strategy == AggregationStrategy.MEAN:
-            return PredictionAggregator._aggregate_mean(predictions, model_names, proba)
-
-        elif strategy == AggregationStrategy.WEIGHTED_MEAN:
-            return PredictionAggregator._aggregate_weighted_mean(
-                predictions, model_names, model_scores, metric, proba
-            )
-
-        elif strategy == AggregationStrategy.PROBA_MEAN:
-            return PredictionAggregator._aggregate_proba_mean(predictions, model_names)
-
-        # Default to separate
-        return PredictionAggregator._aggregate_separate(predictions, model_names)
-
-    @staticmethod
-    def _aggregate_separate(
-        predictions: Dict[str, np.ndarray],
-        model_names: List[str],
-    ) -> np.ndarray:
-        """Stack predictions as separate features.
-
-        Args:
-            predictions: Dictionary mapping model names to prediction arrays.
-            model_names: Ordered list of model names.
-
-        Returns:
-            2D array with shape (n_samples, n_models).
-        """
-        arrays = []
-        for name in model_names:
-            arr = predictions[name]
-            # Ensure 2D
-            if arr.ndim == 1:
-                arr = arr.reshape(-1, 1)
-            elif arr.ndim > 2:
-                # Flatten extra dimensions
-                arr = arr.reshape(arr.shape[0], -1)
-            arrays.append(arr)
-
-        return np.hstack(arrays)
-
-    @staticmethod
-    def _aggregate_mean(
-        predictions: Dict[str, np.ndarray],
-        model_names: List[str],
-        proba: bool = False,
-    ) -> np.ndarray:
-        """Simple average of predictions.
-
-        Args:
-            predictions: Dictionary mapping model names to prediction arrays.
-            model_names: Ordered list of model names.
-            proba: Whether predictions are class probabilities.
-
-        Returns:
-            2D array with shape (n_samples, 1) for regression,
-            or (n_samples, n_classes) for proba.
-        """
-        arrays = [predictions[name] for name in model_names]
-
-        if proba:
-            # Average probabilities, maintaining class dimension
-            # Ensure all arrays have same shape
-            max_classes = max(arr.shape[1] if arr.ndim > 1 else 1 for arr in arrays)
-            aligned = []
-            for arr in arrays:
-                if arr.ndim == 1:
-                    arr = arr.reshape(-1, 1)
-                if arr.shape[1] < max_classes:
-                    # Pad with zeros
-                    padding = np.zeros((arr.shape[0], max_classes - arr.shape[1]))
-                    arr = np.hstack([arr, padding])
-                aligned.append(arr)
-
-            stacked = np.stack(aligned, axis=0)  # (n_models, n_samples, n_classes)
-            return np.mean(stacked, axis=0)  # (n_samples, n_classes)
-        else:
-            # Stack and average regression predictions
-            stacked = np.stack([arr.flatten() for arr in arrays], axis=0)  # (n_models, n_samples)
-            mean_pred = np.mean(stacked, axis=0)  # (n_samples,)
-            return mean_pred.reshape(-1, 1)  # (n_samples, 1)
-
-    @staticmethod
-    def _aggregate_weighted_mean(
-        predictions: Dict[str, np.ndarray],
-        model_names: List[str],
-        model_scores: Optional[Dict[str, float]],
-        metric: Optional[str],
-        proba: bool = False,
-    ) -> np.ndarray:
-        """Weighted average of predictions based on validation scores.
-
-        Args:
-            predictions: Dictionary mapping model names to prediction arrays.
-            model_names: Ordered list of model names.
-            model_scores: Dictionary of model scores for weighting.
-            metric: Metric name (for determining weight direction).
-            proba: Whether predictions are class probabilities.
-
-        Returns:
-            2D array with shape (n_samples, 1) for regression,
-            or (n_samples, n_classes) for proba.
-        """
-        if not model_scores:
-            logger.warning(
-                "No model scores provided for weighted_mean aggregation. "
-                "Falling back to simple mean."
-            )
-            return PredictionAggregator._aggregate_mean(predictions, model_names, proba)
-
-        # Compute weights from scores
-        weights = []
-        valid_models = []
-
-        # Determine if higher or lower scores are better
-        lower_is_better = (metric or "rmse").lower() in ModelSelector.LOWER_IS_BETTER_METRICS
-
-        for name in model_names:
-            score = model_scores.get(name)
-            if score is not None and np.isfinite(score):
-                # For metrics where lower is better, invert the score
-                if lower_is_better:
-                    # Use 1/score for weighting (better = higher weight)
-                    weight = 1.0 / (score + 1e-10) if score >= 0 else abs(score)
-                else:
-                    # Use score directly (higher = better)
-                    weight = max(score, 0.0)
-                weights.append(weight)
-                valid_models.append(name)
-
-        if not weights:
-            logger.warning("No valid weights computed. Falling back to simple mean.")
-            return PredictionAggregator._aggregate_mean(predictions, model_names, proba)
-
-        # Normalize weights
-        total = sum(weights)
-        weights = [w / total for w in weights]
-
-        logger.debug(
-            f"Weighted mean weights: {list(zip(valid_models, [f'{w:.3f}' for w in weights]))}"
-        )
-
-        if proba:
-            # Weighted average of probabilities
-            max_classes = max(
-                predictions[name].shape[1] if predictions[name].ndim > 1 else 1
-                for name in valid_models
-            )
-            n_samples = predictions[valid_models[0]].shape[0]
-            weighted_proba = np.zeros((n_samples, max_classes))
-
-            for name, weight in zip(valid_models, weights):
-                arr = predictions[name]
-                if arr.ndim == 1:
-                    arr = arr.reshape(-1, 1)
-                if arr.shape[1] < max_classes:
-                    padding = np.zeros((arr.shape[0], max_classes - arr.shape[1]))
-                    arr = np.hstack([arr, padding])
-                weighted_proba += weight * arr
-
-            return weighted_proba
-        else:
-            # Weighted average of regression predictions
-            n_samples = predictions[valid_models[0]].shape[0]
-            weighted_sum = np.zeros(n_samples)
-
-            for name, weight in zip(valid_models, weights):
-                weighted_sum += weight * predictions[name].flatten()
-
-            return weighted_sum.reshape(-1, 1)
-
-    @staticmethod
-    def _aggregate_proba_mean(
-        predictions: Dict[str, np.ndarray],
-        model_names: List[str],
-    ) -> np.ndarray:
-        """Average class probabilities from classifiers.
-
-        Args:
-            predictions: Dictionary mapping model names to probability arrays.
-            model_names: Ordered list of model names.
-
-        Returns:
-            2D array with shape (n_samples, n_classes).
-        """
-        arrays = [predictions[name] for name in model_names]
-
-        # Ensure all have same class dimension
-        max_classes = max(arr.shape[1] if arr.ndim > 1 else 1 for arr in arrays)
-        aligned = []
-
-        for arr in arrays:
-            if arr.ndim == 1:
-                arr = arr.reshape(-1, 1)
-            if arr.shape[1] < max_classes:
-                # Pad with zeros for missing classes
-                padding = np.zeros((arr.shape[0], max_classes - arr.shape[1]))
-                arr = np.hstack([arr, padding])
-            aligned.append(arr)
-
-        stacked = np.stack(aligned, axis=0)  # (n_models, n_samples, n_classes)
-        return np.mean(stacked, axis=0)  # (n_samples, n_classes)
 
 
 # =============================================================================
@@ -997,12 +446,14 @@ class MergeConfigParser:
         Raises:
             ValueError: If mode_str is not recognized.
         """
+        # Simple string syntax uses output_as="features" by default (legacy behavior)
+        # This concatenates all features horizontally into a single feature matrix
         if mode_str == "features":
-            return MergeConfig(collect_features=True)
+            return MergeConfig(collect_features=True, output_as="features")
         elif mode_str == "predictions":
-            return MergeConfig(collect_predictions=True)
+            return MergeConfig(collect_predictions=True, output_as="features")
         elif mode_str == "all":
-            return MergeConfig(collect_features=True, collect_predictions=True)
+            return MergeConfig(collect_features=True, collect_predictions=True, output_as="features")
         else:
             raise ValueError(
                 f"Unknown merge mode: '{mode_str}'. "
@@ -1362,6 +813,24 @@ class MergeController(OperatorController):
         raw_config = step_info.original_step.get("merge")
         config = MergeConfigParser.parse(raw_config)
 
+        # Check for source_branch mode (different from regular branch mode)
+        in_source_branch_mode = context.custom.get("in_source_branch_mode", False)
+        source_branch_contexts = context.custom.get("source_branch_contexts", [])
+
+        if in_source_branch_mode:
+            return self._execute_source_branch_merge(
+                step_info=step_info,
+                dataset=dataset,
+                context=context,
+                runtime_context=runtime_context,
+                source=source,
+                mode=mode,
+                config=config,
+                source_contexts=source_branch_contexts,
+                loaded_binaries=loaded_binaries,
+                prediction_store=prediction_store,
+            )
+
         # Validate branch mode
         branch_contexts = context.custom.get("branch_contexts", [])
         in_branch_mode = context.custom.get("in_branch_mode", False)
@@ -1411,12 +880,16 @@ class MergeController(OperatorController):
         # Phase 3: Feature merging
         if config.collect_features:
             feature_branches = config.get_feature_branches(n_branches)
+            # When output_as="sources", preserve the preprocessing dimension (3D layout)
+            # Otherwise flatten to 2D for horizontal concatenation
+            preserve_preprocessing = config.output_as == "sources"
             features_list, feature_info = self._collect_features(
                 dataset=dataset,
                 branch_contexts=branch_contexts,
                 branch_indices=feature_branches,
                 on_missing=config.on_missing,
                 on_shape_mismatch=config.on_shape_mismatch,
+                preserve_preprocessing=preserve_preprocessing,
             )
 
             if features_list:
@@ -1462,32 +935,95 @@ class MergeController(OperatorController):
                     f"  Prepended original features: shape={original_features.shape}"
                 )
 
-        # Concatenate all parts horizontally
+        # Check if this is a source branch merge (branches came from source_branch)
+        is_source_branch_merge = context.custom.get("in_source_branch_mode", False)
+
+        # Handle output_as strategy
         if merged_parts:
-            merged_features = np.concatenate(merged_parts, axis=1)
-            merge_info["merged_shape"] = merged_features.shape
-            logger.info(f"  Final merged shape: {merged_features.shape}")
+            if config.output_as == "sources":
+                # Each branch becomes a separate source
+                # For source_branch: restore original sources with new features
+                # For regular branch: create sources from branches
+                merge_info["merged_shapes"] = [p.shape for p in merged_parts]
 
-            # Store merged features in dataset
-            processing_name = "merged"
-            if config.source_names and len(config.source_names) > 0:
-                processing_name = config.source_names[0]
+                for idx, part in enumerate(merged_parts):
+                    source_name = f"merged_{idx}"
+                    if config.source_names and idx < len(config.source_names):
+                        source_name = config.source_names[idx]
+                    elif is_source_branch_merge and idx < len(branch_contexts):
+                        # Use original source name for source_branch merges
+                        source_name = branch_contexts[idx].get("name", f"source_{idx}")
 
-            dataset.add_merged_features(
-                features=merged_features,
-                processing_name=processing_name,
-                source=0  # Primary source for merged features
-            )
+                    dataset.add_merged_features(
+                        features=part,
+                        processing_name=source_name,
+                        source=idx
+                    )
+                    logger.info(f"  Source {idx} ({source_name}): shape={part.shape}")
+
+                logger.info(f"  Merged {len(merged_parts)} branches → {len(merged_parts)} sources")
+
+            elif config.output_as == "dict":
+                # Store as structured dictionary in context for multi-input models
+                merged_dict = {}
+                for idx, part in enumerate(merged_parts):
+                    source_name = f"branch_{idx}"
+                    if config.source_names and idx < len(config.source_names):
+                        source_name = config.source_names[idx]
+                    elif is_source_branch_merge and idx < len(branch_contexts):
+                        source_name = branch_contexts[idx].get("name", f"source_{idx}")
+                    merged_dict[source_name] = part
+
+                merge_info["merged_dict_keys"] = list(merged_dict.keys())
+
+                # Store in context for downstream multi-input models
+                result_context = context.copy()
+                result_context.custom["merged_sources_dict"] = merged_dict
+                logger.info(f"  Merged as dict with keys: {list(merged_dict.keys())}")
+
+            else:  # output_as == "features" - legacy behavior
+                # Concatenate all parts horizontally into single feature matrix
+                merged_features = np.concatenate(merged_parts, axis=1)
+                merge_info["merged_shape"] = merged_features.shape
+                logger.info(f"  Final merged shape: {merged_features.shape}")
+
+                # Store merged features in dataset
+                processing_name = "merged"
+                if config.source_names and len(config.source_names) > 0:
+                    processing_name = config.source_names[0]
+
+                dataset.add_merged_features(
+                    features=merged_features,
+                    processing_name=processing_name,
+                    source=0  # Primary source for merged features
+                )
+
+                # Remove other sources - output_as="features" consolidates to single source
+                if dataset.features_sources() > 1:
+                    dataset.keep_sources(0)
+                    logger.info(f"  Consolidated to single source with shape {merged_features.shape}")
         else:
             logger.warning(
                 "No features collected during merge. "
                 "Dataset features unchanged."
             )
 
-        # ALWAYS exit branch mode
+        # ALWAYS exit branch mode (both regular and source_branch)
         result_context = context.copy()
         result_context.custom["branch_contexts"] = []
         result_context.custom["in_branch_mode"] = False
+        result_context.custom["source_branch_contexts"] = []
+        result_context.custom["in_source_branch_mode"] = False
+
+        # Update context processing to match the new dataset processing names
+        # This is critical for subsequent transformers to correctly identify which
+        # processings to operate on after a merge
+        n_sources = dataset.features_sources()
+        new_processing = []
+        for sd_idx in range(n_sources):
+            src_processings = list(dataset.features_processings(sd_idx))
+            new_processing.append(src_processings)
+        result_context = result_context.with_processing(new_processing)
 
         # Build metadata with serialized config for prediction mode reproducibility
         metadata = {
@@ -1523,6 +1059,165 @@ class MergeController(OperatorController):
             f"Features={config.collect_features}, Predictions={config.collect_predictions}"
             f"{' [UNSAFE]' if config.unsafe else ''}"
         )
+
+        return result_context, StepOutput(metadata=metadata)
+
+    def _execute_source_branch_merge(
+        self,
+        step_info: "ParsedStep",
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        runtime_context: "RuntimeContext",
+        source: int,
+        mode: str,
+        config: MergeConfig,
+        source_contexts: List[Dict[str, Any]],
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
+        prediction_store: Optional[Any] = None
+    ) -> Tuple["ExecutionContext", StepOutput]:
+        """Execute merge for source_branch mode.
+
+        This handles merging after source_branch, where each source was processed
+        independently. Unlike regular branch merge, this collects features from
+        the dataset's sources directly (not from branch snapshots).
+
+        Args:
+            step_info: Parsed step containing merge configuration
+            dataset: Dataset with processed sources
+            context: Pipeline execution context
+            runtime_context: Runtime infrastructure context
+            source: Data source index
+            mode: Execution mode ("train" or "predict")
+            config: Parsed merge configuration
+            source_contexts: List of source context dictionaries
+            loaded_binaries: Pre-loaded binary objects for prediction mode
+            prediction_store: External prediction store
+
+        Returns:
+            Tuple of (updated_context, StepOutput)
+        """
+        n_sources = dataset.n_sources
+        logger.info(f"Source branch merge: {n_sources} sources, output_as={config.output_as}")
+
+        # Collect features from each source
+        merged_parts = []
+        source_shapes = []
+        source_names = []
+
+        # When output_as="sources", preserve the preprocessing dimension (3D layout)
+        # Otherwise flatten to 2D for horizontal concatenation
+        preserve_preprocessing = config.output_as == "sources"
+        layout = "3d" if preserve_preprocessing else "2d"
+
+        for src_idx in range(n_sources):
+            try:
+                # Get features for this source using current processing
+                X = dataset.x(
+                    selector=context.selector,
+                    layout=layout,
+                    concat_source=False,
+                    include_augmented=True,
+                    include_excluded=False
+                )
+
+                # X is a list of per-source arrays
+                if isinstance(X, list) and src_idx < len(X):
+                    features = X[src_idx]
+                elif not isinstance(X, list) and src_idx == 0:
+                    features = X
+                else:
+                    logger.warning(f"Source {src_idx} not found in dataset output")
+                    continue
+
+                merged_parts.append(features)
+                source_shapes.append(features.shape)
+
+                # Get source name from contexts or generate default
+                if src_idx < len(source_contexts):
+                    name = source_contexts[src_idx].get("source_name", f"source_{src_idx}")
+                else:
+                    name = f"source_{src_idx}"
+                source_names.append(name)
+
+                logger.info(f"  Source {src_idx} ({name}): shape={features.shape}")
+
+            except Exception as e:
+                logger.warning(f"Failed to collect features from source {src_idx}: {e}")
+                continue
+
+        if not merged_parts:
+            logger.warning("No source features collected during merge")
+            result_context = context.copy()
+            result_context.custom["in_source_branch_mode"] = False
+            result_context.custom["source_branch_contexts"] = []
+            return result_context, StepOutput(metadata={"error": "no_features"})
+
+        merge_info = {
+            "source_shapes": source_shapes,
+            "source_names": source_names,
+            "n_sources": len(merged_parts),
+        }
+
+        # Apply output_as strategy
+        if config.output_as == "sources":
+            # Keep as separate sources - already in the right format
+            # Just store merged info for metadata
+            for idx, (part, name) in enumerate(zip(merged_parts, source_names)):
+                processing_name = f"merged_{name}"
+                if config.source_names and idx < len(config.source_names):
+                    processing_name = config.source_names[idx]
+
+                dataset.add_merged_features(
+                    features=part,
+                    processing_name=processing_name,
+                    source=idx
+                )
+            logger.info(f"  Kept {len(merged_parts)} sources with shapes {source_shapes}")
+
+        elif config.output_as == "dict":
+            # Store as dictionary for multi-input models
+            merged_dict = {name: part for name, part in zip(source_names, merged_parts)}
+            merge_info["merged_dict_keys"] = source_names
+
+            result_context = context.copy()
+            result_context.custom["merged_sources_dict"] = merged_dict
+            logger.info(f"  Stored as dict with keys: {source_names}")
+
+        else:  # output_as == "features"
+            # Concatenate all sources into single feature matrix
+            merged_features = np.concatenate(merged_parts, axis=1)
+            merge_info["merged_shape"] = merged_features.shape
+
+            dataset.add_merged_features(
+                features=merged_features,
+                processing_name="merged",
+                source=0
+            )
+            logger.info(f"  Concatenated to shape {merged_features.shape}")
+
+        # Exit source branch mode
+        result_context = context.copy()
+        result_context.custom["in_source_branch_mode"] = False
+        result_context.custom["source_branch_contexts"] = []
+
+        # Update context processing to match the new dataset processing names
+        # This is critical for subsequent transformers to correctly identify which
+        # processings to operate on
+        n_sources = dataset.features_sources()
+        new_processing = []
+        for sd_idx in range(n_sources):
+            src_processings = list(dataset.features_processings(sd_idx))
+            new_processing.append(src_processings)
+        result_context = result_context.with_processing(new_processing)
+
+        metadata = {
+            "source_branch_merge": True,
+            "output_as": config.output_as,
+            "merge_config": config.to_dict(),
+            **merge_info,
+        }
+
+        logger.success(f"Source branch merge completed: {len(merged_parts)} sources → output_as={config.output_as}")
 
         return result_context, StepOutput(metadata=metadata)
 
@@ -1730,14 +1425,15 @@ class MergeController(OperatorController):
         branch_indices: List[int],
         on_missing: str = "error",
         on_shape_mismatch: str = "error",
+        preserve_preprocessing: bool = False,
     ) -> Tuple[List[np.ndarray], Dict[str, Any]]:
         """Collect features from specified branches.
 
-        Extracts features from each branch's feature snapshot. Features are
-        extracted in 2D layout (samples, features) and are horizontally
-        concatenated during merge. Different feature dimensions across branches
-        is expected and normal - each branch can have different preprocessing
-        (e.g., different PCA components).
+        Extracts features from each branch's feature snapshot. By default, features
+        are extracted in 2D layout (samples, features) and are horizontally
+        concatenated during merge. When preserve_preprocessing=True, features are
+        extracted in 3D layout (samples, processings, features) to preserve the
+        preprocessing dimension.
 
         Args:
             dataset: Dataset (used to get sample count for validation).
@@ -1755,10 +1451,12 @@ class MergeController(OperatorController):
                 - "allow": Allow different processings (flatten to 2D)
                 - "pad": Pad shorter to match longest processings
                 - "truncate": Truncate longer to match shortest
+            preserve_preprocessing: If True, preserve the preprocessing dimension
+                by extracting in 3D layout. Used when output_as="sources".
 
         Returns:
             Tuple of (features_list, info_dict) where:
-                - features_list: List of 2D numpy arrays, one per branch
+                - features_list: List of numpy arrays (2D or 3D), one per branch
                 - info_dict: Dictionary with collection metadata
 
         Raises:
@@ -1769,6 +1467,7 @@ class MergeController(OperatorController):
         shapes = []
         branches_used = []
         expected_samples = dataset.num_samples
+        layout = "3d" if preserve_preprocessing else "2d"
 
         for branch_idx in branch_indices:
             # Find branch context by index
@@ -1796,12 +1495,13 @@ class MergeController(OperatorController):
                 else:  # skip
                     continue
 
-            # Extract 2D features from snapshot
+            # Extract features from snapshot (2D or 3D based on preserve_preprocessing)
             try:
-                features_2d = self._extract_features_from_snapshot(
+                features = self._extract_features_from_snapshot(
                     snapshot=snapshot,
                     expected_samples=expected_samples,
-                    branch_idx=branch_idx
+                    branch_idx=branch_idx,
+                    layout=layout,
                 )
             except ValueError as e:
                 msg = f"Failed to extract features from branch {branch_idx}: {e}"
@@ -1813,13 +1513,13 @@ class MergeController(OperatorController):
                 else:  # skip
                     continue
 
-            features_list.append(features_2d)
-            shapes.append(features_2d.shape)
+            features_list.append(features)
+            shapes.append(features.shape)
             branches_used.append(branch_idx)
 
             logger.debug(
                 f"Extracted features from branch {branch_idx}: "
-                f"shape={features_2d.shape}"
+                f"shape={features.shape}"
             )
 
         # Validate sample counts match
@@ -1850,22 +1550,28 @@ class MergeController(OperatorController):
         self,
         snapshot: List["FeatureSource"],
         expected_samples: int,
-        branch_idx: int
+        branch_idx: int,
+        layout: str = "2d",
     ) -> np.ndarray:
-        """Extract 2D features from a branch's feature snapshot.
+        """Extract features from a branch's feature snapshot.
 
         The snapshot is a list of FeatureSource objects (one per data source).
         Each FeatureSource contains a 3D array of shape (samples, processings, features).
-        This method extracts and flattens all sources into a single 2D array.
 
         Args:
             snapshot: List of FeatureSource objects from branch context.
             expected_samples: Expected number of samples.
             branch_idx: Branch index (for error messages).
+            layout: Feature layout to extract:
+                - "2d": Flatten to (n_samples, processings * features)
+                - "3d": Preserve as (n_samples, processings, features)
 
         Returns:
-            2D numpy array of shape (n_samples, total_features) containing
-            all features from all sources and processings, concatenated horizontally.
+            If layout="2d": 2D numpy array of shape (n_samples, total_features)
+                containing all features from all sources and processings,
+                concatenated horizontally.
+            If layout="3d": 3D numpy array of shape (n_samples, processings, features)
+                preserving the preprocessing dimension.
 
         Raises:
             ValueError: If snapshot is empty, sample count mismatches, or
@@ -1890,23 +1596,23 @@ class MergeController(OperatorController):
             # Get all sample indices
             sample_indices = list(range(n_samples))
 
-            # Extract features as 2D array (flattening processings * features)
+            # Extract features with specified layout
             try:
-                features_2d = feature_source.x(indices=sample_indices, layout="2d")
+                features = feature_source.x(indices=sample_indices, layout=layout)
             except Exception as e:
                 raise ValueError(
                     f"Failed to extract features from branch {branch_idx} "
                     f"source {src_idx}: {e}"
                 ) from e
 
-            if features_2d.size == 0:
+            if features.size == 0:
                 logger.warning(
                     f"Branch {branch_idx} source {src_idx} has empty features "
-                    f"(shape: {features_2d.shape})"
+                    f"(shape: {features.shape})"
                 )
                 continue
 
-            source_features.append(features_2d)
+            source_features.append(features)
 
         if not source_features:
             raise ValueError(
@@ -1914,11 +1620,14 @@ class MergeController(OperatorController):
                 f"(all sources empty)"
             )
 
-        # Concatenate all source features horizontally
+        # Concatenate all source features
         if len(source_features) == 1:
             return source_features[0]
 
-        return np.concatenate(source_features, axis=1)
+        # For 2D layout, concatenate horizontally along axis=1
+        # For 3D layout, concatenate along feature axis (axis=2)
+        concat_axis = 1 if layout == "2d" else 2
+        return np.concatenate(source_features, axis=concat_axis)
 
     def _get_branch_context(
         self,
@@ -2418,10 +2127,12 @@ class MergeController(OperatorController):
                 combined = np.full(n_total, np.nan)
 
                 # Get train and test sample indices
+                # IMPORTANT: Use include_augmented=False for train because OOF predictions
+                # are only available for original (non-augmented) samples
                 train_context = context.with_partition('train')
                 train_ids = dataset._indexer.x_indices(
                     train_context.selector,
-                    include_augmented=True,
+                    include_augmented=False,
                     include_excluded=False
                 )
 
@@ -2445,6 +2156,18 @@ class MergeController(OperatorController):
                     if len(test_preds) == len(test_ids):
                         for i, sample_id in enumerate(test_ids):
                             combined[sample_id] = test_preds[i]
+
+                # Propagate predictions from base samples to their augmented versions
+                # Augmented samples should have the same prediction as their origin
+                base_sample_ids = list(train_ids) + list(test_ids)
+                if base_sample_ids:
+                    augmented_ids = dataset._indexer._augmentation_tracker.get_augmented_for_origins(
+                        base_sample_ids
+                    )
+                    for aug_id in augmented_ids:
+                        origin_id = dataset._indexer._augmentation_tracker.get_origin_for_sample(aug_id)
+                        if origin_id is not None and not np.isnan(combined[origin_id]):
+                            combined[aug_id] = combined[origin_id]
 
                 model_predictions[model_name] = combined
 
@@ -3566,10 +3289,12 @@ class MergeController(OperatorController):
                 combined = np.full(n_samples, np.nan)
 
                 # Get partition indices
+                # IMPORTANT: Use include_augmented=False for train because OOF predictions
+                # are only available for original (non-augmented) samples
                 train_context = context.with_partition('train')
                 train_ids = dataset._indexer.x_indices(
                     train_context.selector,
-                    include_augmented=True,
+                    include_augmented=False,
                     include_excluded=False
                 )
 
@@ -3593,6 +3318,18 @@ class MergeController(OperatorController):
                     if len(test_preds) == len(test_ids):
                         for i, sample_id in enumerate(test_ids):
                             combined[sample_id] = test_preds[i]
+
+                # Propagate predictions from base samples to their augmented versions
+                # Augmented samples should have the same prediction as their origin
+                base_sample_ids = list(train_ids) + list(test_ids)
+                if base_sample_ids:
+                    augmented_ids = dataset._indexer._augmentation_tracker.get_augmented_for_origins(
+                        base_sample_ids
+                    )
+                    for aug_id in augmented_ids:
+                        origin_id = dataset._indexer._augmentation_tracker.get_origin_for_sample(aug_id)
+                        if origin_id is not None and not np.isnan(combined[origin_id]):
+                            combined[aug_id] = combined[origin_id]
 
                 model_predictions[model_name] = combined
                 logger.debug(f"  Collected predictions from model '{model_name}'")

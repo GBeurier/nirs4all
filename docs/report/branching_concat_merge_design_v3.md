@@ -115,32 +115,28 @@ This flexibility enables use cases like:
 - Branch 1: PCA(10) → features only (10 features)
 - Merge: `[PLS_oof_predictions | PCA_features]` → 11 features for downstream model
 
-#### 4. Refactor MetaModel as a Convenience Wrapper over Merge
+#### 4. Restore MetaModel as Standalone Operator
 
-**The Problem**: Currently, `MetaModel` implements its own OOF reconstruction, branch handling, and source selection—duplicating logic that should be centralized in merge.
+**The Problem**: Previous designs proposed refactoring `MetaModel` to delegate to `MergeController`. This was a misunderstanding of their distinct roles. Stacking (MetaModel) works on the *history* of predictions, while Merge works on *parallel* branch outputs.
 
-**The Solution**: Refactor `MetaModel` to be a **thin wrapper** that:
-1. Internally creates a merge configuration based on its parameters
-2. Delegates to `MergeController` for data preparation
-3. Trains the meta-learner on the merged output
+**The Solution**: Restore `MetaModel` as a **standalone operator** that:
+1. Works without any branch context (flat pipelines)
+2. Does NOT modify execution context (unlike merge)
+3. Uses shared utilities (`TrainingSetReconstructor`) for OOF logic
+4. Can be used *alongside* merge but is not *dependent* on it
 
 **User-Facing Behavior**: Unchanged. Users can still write:
 ```python
 PLS(), RF(), {"model": MetaModel(Ridge())}
 ```
 
-**Internal Implementation**: MetaModel now does:
-```python
-# Conceptually:
-merged_X = MergeController.merge(predictions=source_models, ...)
-meta_model.fit(merged_X, y)
-```
+**Internal Implementation**: MetaModel uses `TrainingSetReconstructor` directly to fetch predictions from the store, without invoking `MergeController` or exiting branch mode.
 
 **Benefits**:
-- Single source of truth for OOF logic
-- MetaModel automatically gains new merge capabilities
-- Users can achieve the same result with explicit merge + regular model
-- Easier testing and maintenance
+- Clear separation of concerns: Stacking vs Branch Merging
+- MetaModel works in all contexts (flat, inside branch, after merge)
+- No forced branch exit when stacking
+- Simpler implementation and debugging
 
 #### 5. Maintain ConcatTransformController Independence
 
@@ -187,7 +183,7 @@ Use `concat_transform` when you just need parallel transforms on the same data. 
 | **Per-branch aggregation** | Combine predictions: `separate`, `mean`, `weighted_mean`, `proba_mean` |
 | **Different strategies per branch** | Branch 0 can use `best`, Branch 1 can use `top_k` with `mean` |
 | **Mixed merging** | Features from some branches, predictions from others |
-| **MetaModel as wrapper** | MetaModel delegates to merge, gains all new capabilities |
+| **MetaModel standalone** | MetaModel works independently of branches, using shared OOF logic |
 
 ### Architectural Diagram
 
@@ -203,23 +199,17 @@ Use `concat_transform` when you just need parallel transforms on the same data. 
             ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
             │   Branch     │  │    Merge     │  │   Model      │
             │  Controller  │  │  Controller  │  │  Controller  │
-            └──────────────┘  └──────┬───────┘  └──────────────┘
-                                     │
-                    ┌────────────────┼────────────────┐
-                    ▼                ▼                ▼
+            └──────────────┘  └──────┬───────┘  └──────┬───────┘
+                                     │                 │
+                    ┌────────────────┼────────────────┐│
+                    ▼                ▼                ▼▼
             ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-            │  Collect     │  │  OOF Recon   │  │   Concat     │
-            │  Features    │  │  (if preds)  │  │   Features   │
+            │  Collect     │  │  OOF Recon   │  │  MetaModel   │
+            │  Features    │  │  (Shared)    │  │  Controller  │
             └──────────────┘  └──────────────┘  └──────────────┘
-                                     │
-                    Uses: TrainingSetReconstructor
-                                     │
-                    ┌────────────────┴────────────────┐
-                    ▼                                 ▼
-            ┌──────────────┐                  ┌──────────────┐
-            │  MetaModel   │  ◄── delegates ──│   Explicit   │
-            │  (wrapper)   │                  │    Merge     │
-            └──────────────┘                  └──────────────┘
+                                     ▲                 │
+                                     │                 │
+                                     └──── uses ───────┘
 ```
 
 ---
@@ -456,7 +446,7 @@ Use `output_as: "sources"` when:
 - Does not exit branch mode (branches continue after MetaModel)
 - Complex parameter surface for what could be merge + train
 
-**Proposed**: Refactor to optionally delegate to MergeController for complex cases.
+**Proposed**: Keep as standalone controller. Share OOF reconstruction logic with MergeController via `TrainingSetReconstructor`.
 
 ### 3.5 TrainingSetReconstructor ✅ Complete
 
@@ -907,129 +897,87 @@ In prediction/explain mode:
 
 ## 6. Design: MetaModel Integration
 
-### 6.1 Architectural Change: MetaModel Uses Merge Internally
+### 6.1 Architectural Decision: MetaModel Remains Standalone
 
-**Previous Architecture** (current implementation):
-```
-MetaModel → TrainingSetReconstructor → OOF predictions → Train
-            ↑ internal, duplicated logic
-```
-
-**New Architecture** (proposed):
+**Previous Proposal (Rejected)**:
 ```
 MetaModel → MergeController → Merged features → Train
-            ↑ delegates to core primitive
 ```
 
-MetaModel becomes a **thin convenience wrapper** that:
-1. Translates its parameters to a merge configuration
-2. Calls `MergeController` to prepare the training data
-3. Trains the meta-learner on the merged output
+**Final Architecture**:
+```
+MetaModel → TrainingSetReconstructor → OOF predictions → Train
+MergeController → TrainingSetReconstructor → OOF predictions → Merge
+```
 
-### 6.2 User-Facing Equivalences
+**Rationale**:
+1. **Separation of Concerns**: Stacking (MetaModel) is about *model history*. Merging is about *branch combination*. While they share the need for OOF predictions, they are distinct operations.
+2. **Context Preservation**: MetaModel should not modify the execution context (it just adds a model). Merge *must* modify the context (exit branch mode).
+3. **Flexibility**: Users can stack within a branch without exiting it.
 
-The following are now **semantically equivalent**:
+### 6.2 Shared Utilities
+
+Both `MetaModelController` and `MergeController` use shared components located in `nirs4all/controllers/shared/`:
+
+1. **TrainingSetReconstructor**: Handles OOF prediction reconstruction from the prediction store.
+2. **ModelSelector**: Handles selection of models (best, top_k, etc.) based on validation metrics.
+3. **PredictionAggregator**: Handles aggregation of predictions (mean, weighted_mean, etc.).
+
+### 6.3 User-Facing Equivalences
+
+While the implementations are separate, users can achieve similar results with different patterns:
 
 ```python
-# Pattern A: MetaModel (convenience)
+# Pattern A: MetaModel (Standard Stacking)
 pipeline = [
     KFold(n_splits=5),
     PLS(10), RF(),
     {"model": MetaModel(Ridge(), source_models="all")}
 ]
 
-# Pattern B: Explicit merge + model (compositional)
+# Pattern B: Explicit Merge + Model (Branch Combination)
 pipeline = [
     KFold(n_splits=5),
-    PLS(10), RF(),
-    {"merge": "predictions"},
-    {"model": Ridge()}
+    {"branch": [[PLS(10)], [RF()]]},  # Explicit branches
+    {"merge": "predictions"},         # Exit branches, combine OOF
+    {"model": Ridge()}                # Train on combined
 ]
 ```
 
-Both produce the same result: Ridge trained on OOF predictions from PLS and RF.
+**When to use which?**
+- Use **MetaModel** for standard stacking (ensemble learning) where you want to combine previous models.
+- Use **Merge + Model** when you have explicit parallel branches that need to be combined and then processed further.
 
-**Benefits of Pattern B**:
-- More explicit about what's happening
-- Can add steps between merge and model training
-- Can use any model, not just those wrapped in MetaModel
+### 6.4 MetaModel Capabilities
 
-**Benefits of Pattern A**:
-- Concise for common stacking use case
-- Familiar API for sklearn StackingClassifier/Regressor users
+MetaModel retains its full feature set:
+- **Source Selection**: `source_models=["PLS", "RF"]` or `source_models="all"`
+- **Branch Scope**: `BranchScope.CURRENT_ONLY` (default) or `BranchScope.ALL_BRANCHES`
+- **Feature Passthrough**: `include_features=True` (new)
+- **Coverage Strategies**: Strict, Drop Incomplete, Impute
 
-### 6.3 MetaModel Can Also Stack Features
+### 6.5 Internal Implementation
 
-With the new architecture, MetaModel gains the ability to include features alongside predictions:
-
-```python
-# Stack predictions + original features
-{"model": MetaModel(
-    model=Ridge(),
-    source_models="all",
-    include_features=True  # NEW: include current features in meta-training
-)}
-```
-
-This is equivalent to:
-```python
-{"merge": {"predictions": "all", "include_original": True}},
-{"model": Ridge()}
-```
-
-### 6.4 Internal Refactoring
-
-MetaModel's execute method now delegates to merge:
+MetaModel's execute method uses the shared reconstructor:
 
 ```python
 class MetaModelController(OperatorController):
     def execute(self, step_info, dataset, context, ...):
-        meta_model = step_info.original_step["model"]
+        # ... setup ...
 
-        # Step 1: Build merge config from MetaModel params
-        merge_config = self._build_merge_config(meta_model, context)
+        # Use shared reconstructor directly
+        reconstructor = TrainingSetReconstructor(...)
+        result = reconstructor.reconstruct(dataset, context)
 
-        # Step 2: Delegate to MergeController for data preparation
-        merged_dataset, merge_output = MergeController.merge_branches(
-            dataset=dataset,
-            context=context,
-            config=merge_config,
-            prediction_store=prediction_store,
-            mode=mode,
-        )
-
-        # Step 3: Train meta-learner on merged output
-        X_train, y_train = self._get_training_data(merged_dataset, context)
-        meta_model.model.fit(X_train, y_train)
-
-        # ... rest of training/prediction logic
+        X_train = result.X_train_meta
+        # ... train meta-model ...
 ```
 
-### 6.5 Parameter Mapping
-
-| MetaModel Parameter | Translated Merge Config |
-|---------------------|------------------------|
-| `source_models="all"` | `{"predictions": "all"}` |
-| `source_models=["RF", "XGB"]` | `{"predictions": {"models": ["RF", "XGB"]}}` |
-| `branch_scope=ALL_BRANCHES` | `{"predictions": {"branches": "all"}}` |
-| `branch_scope=CURRENT_ONLY` | `{"predictions": {"branches": "current"}}` |
-| `use_proba=True` | `{"predictions": {"proba": True}}` |
-| `include_features=True` (new) | `{"predictions": ..., "include_original": True}` |
-| `stacking_config.coverage_strategy` | Passed through to merge |
-| `stacking_config.test_aggregation` | Passed through to merge |
+It does **NOT** delegate to `MergeController`.
 
 ### 6.6 Backward Compatibility
 
-All existing MetaModel pipelines continue to work unchanged:
-
-```python
-# These all work exactly as before:
-{"model": MetaModel(Ridge())}
-{"model": MetaModel(Ridge(), source_models=["PLS", "RF"])}
-{"model": MetaModel(Ridge(), branch_scope=BranchScope.ALL_BRANCHES)}
-```
-
-The refactoring is purely internal—the API surface remains the same.
+All existing MetaModel pipelines continue to work unchanged. The refactoring is purely internal to share code with MergeController without coupling them.
 
 ---
 
@@ -2763,35 +2711,21 @@ This comprehensive roadmap supersedes the original Phase 1-9 plan by incorporati
 
 #### Phase 7: MetaModel Refactoring (3-4 days) ✅
 
-**Goal**: MetaModel delegates to MergeController
+**Goal**: Restore MetaModel as standalone operator using shared utilities
 
 **Key Tasks**:
-- [x] Create static `merge_branches()` method on MergeController
-- [x] Implement `build_config_from_meta_model()` for config translation
-- [x] Add `_reconstruct_with_merge_controller()` method to MetaModelController
-- [x] Add `_should_use_merge_controller()` for decision logic
-- [x] Refactor `_reconstruct_with_reconstructor()` to optionally use merge
-- [x] Add `use_merge_controller` class attribute (default=False for backward compat)
-- [x] Extensive backward compatibility testing (144 tests pass)
+- [x] Extract `TrainingSetReconstructor` to shared module
+- [x] Extract `ModelSelector` and `PredictionAggregator` to shared module
+- [x] Update `MetaModelController` to use shared utilities
+- [x] Update `MergeController` to use shared utilities
+- [x] Remove any merge delegation logic from MetaModel
+- [x] Ensure backward compatibility
 
 **Integration Pattern**:
-MetaModel can now optionally delegate to MergeController for branch handling:
-```python
-# MetaModelController checks if in branch mode with ALL_BRANCHES scope
-if self._should_use_merge_controller(context, meta_operator):
-    result = self._reconstruct_with_merge_controller(...)
-    if result is not None:
-        return result  # Use merge result
-# Fallback to standard TrainingSetReconstructor
-```
+MetaModel and MergeController are siblings that share the same underlying utilities for OOF reconstruction and model selection.
 
-**User-Facing Equivalences** (now implemented):
-```python
-# These are now semantically equivalent:
-{"model": MetaModel(Ridge())}
-# Is equivalent to:
-{"merge": "predictions"}, {"model": Ridge()}
-```
+**User-Facing Equivalences**:
+MetaModel remains the high-level API for stacking, while Merge + Model provides a compositional alternative for branch combination.
 
 #### Phase 8: Prediction Mode & Artifacts (2-3 days) ✅
 
