@@ -3,10 +3,6 @@
 
 **Features**:
 
-> [feat] review repetitions mechanisms: to sources, to preprocessing
-
-> [score] Fix avg, w_avg evaluation
-
 > [signature] change signatures to nirs4all.run(pipeline, dataset, config), nirs4all.predict, etc. Add nirs4all config.
 
 > [Runner] Verify: Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
