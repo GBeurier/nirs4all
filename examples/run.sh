@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 # Usage: ./run.sh [-i index] [-b begin] [-e end] [-n name] [-l] [-p] [-s]
+# Note: -e removed to continue on example failures
 
 INDEX=0
 BEGIN=0
@@ -26,49 +27,56 @@ done
 shift $((OPTIND -1))
 
 examples=(
-    "Q1_classif.py"
-    "Q1_regression.py"
-    "Q2_groupsplit.py"
-    "Q2_multimodel.py"
-    "Q2B_force_group.py"
-    "Q3_finetune.py"
-    "Q4_multidatasets.py"
-    "Q5_predict.py"
-    "Q5_predict_NN.py"
-    "Q6_multisource.py"
-    "Q7_discretization.py"
-    "Q8_shap.py"
-    "Q9_acp_spread.py"
-    "Q10_resampler.py"
-    "Q11_flexible_inputs.py"
-    "Q12_sample_augmentation.py"
-    "Q13_nm_headers.py"
-    "Q14_workspace.py"
-    "Q15_jax_models.py"
-    "Q16_pytorch_models.py"
-    "Q17_nicon_comparison.py"
-    "Q18_stacking.py"
-    "Q19_pls_methods.py"
-    "Q20_analysis.py"
-    "Q20B_analysis.py"
-    "Q21_feature_selection.py"
-    "Q22_concat_transform.py"
-    "Q23_generator_syntax.py"
-    "Q23b_generator.py"
-    "Q24_generator_advanced.py"
-    "Q25_complex_pipeline_pls.py"
-    "Q26_nested_or_preprocessing.py"
-    "Q27_transfer_analysis.py"
-    "Q28_sample_filtering.py"
-    "Q30_branching.py"
-    "Q31_outlier_branching.py"
-    "Q_meta_stacking.py"
-    "X0_pipeline_sample.py"
-    "X1_metadata.py"
-    "X2_sample_augmentation.py"
-    "X3_hiba_full.py"
-    "X4_features.py"
-    "baseline_sota.py"
+  "Q1_classif.py"
+  "Q1_regression.py"
+  "Q2_groupsplit.py"
+  "Q2_multimodel.py"
+  "Q2B_force_group.py"
+  "Q3_finetune.py"
+  "Q4_multidatasets.py"
+  "Q5_predict.py"
+  "Q5_predict_NN.py"
+  "Q6_multisource.py"
+  "Q7_discretization.py"
+  "Q8_shap.py"
+  "Q9_acp_spread.py"
+  "Q10_resampler.py"
+  "Q11_flexible_inputs.py"
+  "Q12_sample_augmentation.py"
+  "Q13_nm_headers.py"
+  "Q14_workspace.py"
+  "Q15_jax_models.py"
+  "Q16_pytorch_models.py"
+  "Q17_nicon_comparison.py"
+  "Q18_stacking.py"
+  "Q19_pls_methods.py"
+  "Q21_feature_selection.py"
+  "Q22_concat_transform.py"
+  "Q23_generator_syntax.py"
+  "Q23b_generator.py"
+  "Q24_generator_advanced.py"
+  "Q25_complex_pipeline_pls.py"
+  "Q26_nested_or_preprocessing.py"
+  "Q27_transfer_analysis.py"
+  "Q28_sample_filtering.py"
+  "Q29_signal_conversion.py"
+  "Q30_branching.py"
+  "Q31_outlier_branching.py"
+  "Q32_export_bundle.py"
+  "Q33_retrain_transfer.py"
+  "Q34_aggregation.py"
+  "Q35_metadata_branching.py"
+  "Q_meta_stacking.py"
+  "Q_complex_all_keywords.py"
+  "Q_feature_augmentation_modes.py"
+  "Q_merge_branches.py"
+  "Q_merge_sources.py"
+  "baseline_sota.py"
+  "X0_pipeline_sample.py"
+  "X1_metadata.py"
+  "X2_sample_augmentation.py"
+  # "X3_hiba_full.py"
+  "X4_features.py"
 )
 
 # Setup logging if requested
@@ -140,6 +148,9 @@ else
   unset DISABLE_EMOJI 2>/dev/null || true
 fi
 
+# Track failed examples
+failedExamples=()
+
 # SEQUENTIAL
 for example in "${selectedExamples[@]}"; do
   if [ -f "$example" ]; then
@@ -152,16 +163,23 @@ for example in "${selectedExamples[@]}"; do
     if [ "$PLOT" -eq 1 ]; then args+=("--plots"); fi
     if [ "$SHOW" -eq 1 ]; then args+=("--show"); fi
 
+    exitCode=0
     if [ -n "$logFile" ]; then
       printf "===============================================\n" >> "$logFile"
       printf "Starting: %s at %s\n" "$example" "$(date)" >> "$logFile"
       printf "===============================================\n" >> "$logFile"
 
-      python "$example" "${args[@]}" 2>&1 | tee -a "$logFile"
+      python "$example" "${args[@]}" 2>&1 | tee -a "$logFile" || exitCode=$?
 
-      printf "Finished: %s at %s\n\n" "$example" "$(date)" >> "$logFile"
+      printf "Finished: %s at %s (exit code: %d)\n\n" "$example" "$(date)" "$exitCode" >> "$logFile"
     else
-      python "$example" "${args[@]}"
+      python "$example" "${args[@]}" || exitCode=$?
+    fi
+
+    # Track failed examples
+    if [ "$exitCode" -ne 0 ]; then
+      failedExamples+=("$example (exit code: $exitCode)")
+      echo "FAILED: $example with exit code $exitCode"
     fi
 
     endTime=$(date +%s)
@@ -173,3 +191,32 @@ for example in "${selectedExamples[@]}"; do
     echo "########################################"
   fi
 done
+
+# Summary of failed examples
+echo ""
+echo "========================================"
+echo "EXECUTION SUMMARY"
+echo "========================================"
+echo "Total examples run: ${#selectedExamples[@]}"
+echo "Failed: ${#failedExamples[@]}"
+echo "Passed: $((${#selectedExamples[@]} - ${#failedExamples[@]}))"
+
+if [ ${#failedExamples[@]} -gt 0 ]; then
+  echo ""
+  echo "FAILED EXAMPLES:"
+  for failed in "${failedExamples[@]}"; do
+    echo "  - $failed"
+  done
+  if [ -n "$logFile" ]; then
+    echo "" >> "$logFile"
+    echo "========================================" >> "$logFile"
+    echo "FAILED EXAMPLES:" >> "$logFile"
+    for failed in "${failedExamples[@]}"; do
+      echo "  - $failed" >> "$logFile"
+    done
+  fi
+  exit 1
+else
+  echo ""
+  echo "All examples passed successfully!"
+fi

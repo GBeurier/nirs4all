@@ -34,6 +34,7 @@ from typing import Optional, Dict, Any, Callable, TypeVar
 _INSTALL_INSTRUCTIONS: Dict[str, str] = {
     'tensorflow': 'pip install nirs4all[tensorflow] or pip install nirs4all[gpu]',
     'torch': 'pip install nirs4all[torch]',
+    'pytorch': 'pip install nirs4all[torch]',  # Alias for torch
     'jax': 'pip install nirs4all[jax]',
     'keras': 'pip install nirs4all[keras]',
     'autogluon': 'pip install autogluon',
@@ -48,6 +49,7 @@ _INSTALL_INSTRUCTIONS: Dict[str, str] = {
 _PACKAGE_MAPPING: Dict[str, str] = {
     'tensorflow': 'tensorflow',
     'torch': 'torch',
+    'pytorch': 'torch',  # 'pytorch' is an alias for 'torch' package
     'jax': 'jax',
     'keras': 'keras',
     'autogluon': 'autogluon',
@@ -291,6 +293,10 @@ def _check_gpu_for_backend(backend: str) -> bool:
     Returns:
         True if GPU is available for the backend.
     """
+    # Normalize 'pytorch' alias to 'torch'
+    if backend == 'pytorch':
+        backend = 'torch'
+
     if backend in _gpu_cache:
         return _gpu_cache[backend]
 

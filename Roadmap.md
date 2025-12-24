@@ -3,13 +3,13 @@
 
 **Features**:
 
-> [feat] branch from metadata columns
 > [feat] review repetitions mechanisms: to sources, to preprocessing
 
-> [Runner] Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
+> [score] Fix avg, w_avg evaluation
+
 > [signature] change signatures to nirs4all.run(pipeline, dataset, config), nirs4all.predict, etc. Add nirs4all config.
 
-> [score] Fix avg, w_avg evaluation
+> [Runner] Verify: Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
 
 
 **CLI_EXTENSION_PROPOSAL.md**

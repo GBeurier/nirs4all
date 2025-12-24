@@ -73,3 +73,5 @@ bench/wk/
 *.log
 logs/
 examples/sample_data/sample_source/
+*.n4a
+*.n4a.py

@@ -458,7 +458,7 @@ class BundleLoader:
             filename: Artifact filename (e.g., "step_1_SNV.joblib")
 
         Returns:
-            Key (e.g., "step_1" or "step_4_fold0")
+            Key (e.g., "step_1", "step_4_fold0", or "step_3_SNV" for substeps)
         """
         # Remove extension
         name = filename.rsplit('.', 1)[0]
@@ -473,6 +473,12 @@ class BundleLoader:
             for i, part in enumerate(parts):
                 if part.startswith('fold'):
                     return f"step_{step_idx}_{part}"
+
+            # If there are more than 2 parts (step_3_SNV), it's a substep artifact
+            # Return full name (without extension) as the key to handle multiple
+            # artifacts per step (e.g., feature_augmentation with SNV and SG)
+            if len(parts) > 2:
+                return name  # e.g., "step_3_StandardNormalVariate"
 
             return f"step_{step_idx}"
 
@@ -524,6 +530,7 @@ class BundleLoader:
         """
         X_current = X.copy()
         model_step = self.metadata.model_step_index if self.metadata else None
+        y_processing_step_idx = None  # Track y_processing step for inverse_transform
 
         # Get steps up to model from trace
         if model_step is not None:
@@ -550,11 +557,22 @@ class BundleLoader:
             # Handle different operator types
             if op_type == "meta_model":
                 # Stacking: get predictions from source models first
-                return self._predict_meta_model(X_current, step, branch_path)
+                y_pred = self._predict_meta_model(X_current, step, branch_path)
+                return self._apply_y_inverse_transform(y_pred, y_processing_step_idx, branch_path)
 
             elif op_type in ("model",):
                 # Regular model step - may have CV folds
-                return self._predict_model_step(X_current, step_idx, branch_path)
+                y_pred = self._predict_model_step(X_current, step_idx, branch_path)
+                return self._apply_y_inverse_transform(y_pred, y_processing_step_idx, branch_path)
+
+            elif op_type == "y_processing":
+                # y_processing transforms targets, not features - skip but track for inverse
+                y_processing_step_idx = step_idx
+                continue
+
+            elif op_type == "feature_augmentation":
+                # Feature augmentation: apply each transformer and concatenate with original
+                X_current = self._transform_feature_augmentation(X_current, step_idx, branch_path)
 
             else:
                 # Preprocessing step - transform X
@@ -697,6 +715,86 @@ class BundleLoader:
 
         return X
 
+    def _apply_y_inverse_transform(
+        self,
+        y_pred: np.ndarray,
+        y_processing_step_idx: Optional[int],
+        branch_path: Optional[List[int]] = None
+    ) -> np.ndarray:
+        """Apply inverse transform to predictions if y_processing was used.
+
+        Args:
+            y_pred: Model predictions (possibly in scaled space)
+            y_processing_step_idx: Step index of y_processing transformer, or None
+            branch_path: Optional branch path filter
+
+        Returns:
+            Predictions in original scale (inverse transformed if applicable)
+        """
+        if y_processing_step_idx is None:
+            return y_pred
+
+        # Get the y_processing transformer
+        artifacts = self.artifact_provider.get_artifacts_for_step(
+            y_processing_step_idx, branch_path
+        )
+
+        if not artifacts:
+            return y_pred
+
+        # Apply inverse_transform from each y_processing artifact
+        y_current = y_pred
+        for _, transformer in artifacts:
+            if hasattr(transformer, 'inverse_transform'):
+                # Ensure proper shape for inverse_transform
+                if y_current.ndim == 1:
+                    y_current = y_current.reshape(-1, 1)
+                    y_current = transformer.inverse_transform(y_current)
+                    y_current = y_current.ravel()
+                else:
+                    y_current = transformer.inverse_transform(y_current)
+
+        return y_current
+
+    def _transform_feature_augmentation(
+        self,
+        X: np.ndarray,
+        step_idx: int,
+        branch_path: Optional[List[int]] = None
+    ) -> np.ndarray:
+        """Apply feature augmentation transformation.
+
+        Feature augmentation creates multiple feature channels by applying
+        each transformer and concatenating the results with the original features.
+
+        For 'add' mode (default): [original, transformed1, transformed2, ...]
+        Each transformer is applied to the original X, not chained.
+
+        Args:
+            X: Input features
+            step_idx: Step index
+            branch_path: Optional branch path filter
+
+        Returns:
+            Augmented features (concatenated original + transformed channels)
+        """
+        artifacts = self.artifact_provider.get_artifacts_for_step(step_idx, branch_path)
+
+        if not artifacts:
+            return X
+
+        # Start with original features
+        feature_channels = [X]
+
+        # Apply each transformer to original X and collect results
+        for _, transformer in artifacts:
+            if hasattr(transformer, 'transform'):
+                X_transformed = transformer.transform(X)
+                feature_channels.append(X_transformed)
+
+        # Concatenate all feature channels horizontally
+        return np.hstack(feature_channels)
+
     def _predict_from_index(self, X: np.ndarray) -> np.ndarray:
         """Fallback prediction when no trace is available.
 
@@ -711,6 +809,7 @@ class BundleLoader:
         """
         X_current = X.copy()
         model_step = self.metadata.model_step_index if self.metadata else None
+        y_processing_step_idx = None  # Track y_processing step for inverse_transform
 
         # Get sorted step indices
         step_indices = set()
@@ -726,10 +825,25 @@ class BundleLoader:
         # Process each step
         for step_idx in sorted(step_indices):
             is_model = (step_idx == model_step)
+
+            # Check operator type from step_info
+            op_type = None
+            if step_idx in self.step_info:
+                op_type = self.step_info[step_idx].get("operator_type")
+
+            # Handle y_processing - skip but track for inverse_transform
+            if op_type == "y_processing":
+                y_processing_step_idx = step_idx
+                continue
+
             artifacts = self.artifact_provider.get_artifacts_for_step(step_idx)
 
             if is_model:
-                return self._predict_model_step(X_current, step_idx)
+                y_pred = self._predict_model_step(X_current, step_idx)
+                return self._apply_y_inverse_transform(y_pred, y_processing_step_idx)
+            elif op_type == "feature_augmentation":
+                # Feature augmentation: apply each transformer and concatenate with original
+                X_current = self._transform_feature_augmentation(X_current, step_idx)
             else:
                 # Preprocessing step
                 X_current = self._transform_step(X_current, step_idx)
