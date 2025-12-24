@@ -49,6 +49,7 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 > [Aggregation] Outlier dedicated exclusion T²
 
 > [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
+> [transformerMixin] implement in pytorch for full differentiation
 
 > [Transfer] Partial layers retraining
 
