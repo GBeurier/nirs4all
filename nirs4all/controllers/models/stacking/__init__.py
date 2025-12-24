@@ -95,6 +95,8 @@ from .branch_validator import (
     StackingCompatibility,
     detect_branch_type,
     is_stacking_compatible,
+    is_disjoint_branch,
+    get_disjoint_branch_info,
 )
 from .classification import (
     StackingTaskType,
@@ -172,6 +174,8 @@ __all__ = [
     'StackingCompatibility',
     'detect_branch_type',
     'is_stacking_compatible',
+    'is_disjoint_branch',
+    'get_disjoint_branch_info',
     # Phase 5 - Classification Support
     'StackingTaskType',
     'ClassificationInfo',

@@ -6,6 +6,8 @@ and related data manipulation operations.
 
 from .merge import (
     MergeMode,
+    BranchType,
+    DisjointSelectionCriterion,
     SelectionStrategy,
     AggregationStrategy,
     ShapeMismatchStrategy,
@@ -19,6 +21,8 @@ from .merge import (
 __all__ = [
     # Enums
     "MergeMode",
+    "BranchType",
+    "DisjointSelectionCriterion",
     "SelectionStrategy",
     "AggregationStrategy",
     "ShapeMismatchStrategy",

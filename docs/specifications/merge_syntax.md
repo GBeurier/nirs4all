@@ -15,10 +15,11 @@ This document provides a comprehensive reference for the merge syntax in nirs4al
 3. [Branch Merge Syntax](#branch-merge-syntax)
 4. [Source Merge Syntax](#source-merge-syntax)
 5. [Source Branch Syntax](#source-branch-syntax)
-6. [Prediction Selection](#prediction-selection)
-7. [Aggregation Strategies](#aggregation-strategies)
-8. [Error Codes](#error-codes)
-9. [Examples](#examples)
+6. [Disjoint Sample Branch Merging](#disjoint-sample-branch-merging)
+7. [Prediction Selection](#prediction-selection)
+8. [Aggregation Strategies](#aggregation-strategies)
+9. [Error Codes](#error-codes)
+10. [Examples](#examples)
 
 ---
 
@@ -260,6 +261,155 @@ Process each source independently with default pipeline:
 
 ---
 
+## Disjoint Sample Branch Merging
+
+Disjoint sample branches are created by partitioners that divide samples into non-overlapping subsets. Unlike copy branches (where all branches see all samples), disjoint branches ensure each sample exists in exactly ONE branch.
+
+### Partitioner Types
+
+| Partitioner | Description | Use Case |
+|-------------|-------------|----------|
+| `metadata_partitioner` | Partition by metadata column value | Site/variety/instrument-specific models |
+| `sample_partitioner` | Partition by outlier status | Separate outlier vs. inlier models |
+
+### Metadata Partitioner Syntax
+
+```python
+{
+    "branch": [PLS(5), RF(100)],        # Steps to run in each partition
+    "by": "metadata_partitioner",        # Partitioner type
+    "column": "site",                    # Metadata column name
+    "cv": ShuffleSplit(n_splits=3),      # Optional: per-branch CV
+    "min_samples": 20,                   # Optional: skip small partitions
+    "group_values": {                    # Optional: combine rare values
+        "others": ["C", "D", "E"],
+    },
+}
+```
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `branch` | `list` | Yes | - | Models/steps to run in each branch |
+| `by` | `str` | Yes | - | `"metadata_partitioner"` or `"sample_partitioner"` |
+| `column` | `str` | Yes* | - | Metadata column (*required for metadata_partitioner) |
+| `cv` | Splitter | No | `None` | Per-branch cross-validation strategy |
+| `min_samples` | `int` | No | `1` | Minimum samples per branch; branches with fewer are skipped |
+| `group_values` | `dict` | No | `None` | Map of branch_name → list of values to group |
+
+### Disjoint Merge Syntax
+
+When merging disjoint branches, additional options control model selection:
+
+```python
+# Default: auto-detect N columns from branches
+{"merge": "predictions"}
+
+# Override: force specific column count
+{"merge": "predictions", "n_columns": 2}
+
+# Override: selection criterion for top-N
+{"merge": "predictions", "select_by": "mse"}   # default: lowest MSE
+{"merge": "predictions", "select_by": "r2"}    # highest R²
+{"merge": "predictions", "select_by": "mae"}   # lowest MAE
+{"merge": "predictions", "select_by": "order"} # first N in definition order
+```
+
+### Disjoint Merge Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `n_columns` | `int` | `None` (auto) | Force specific output column count |
+| `select_by` | `str` | `"mse"` | Criterion for selecting top N models |
+
+### Feature Merge Behavior
+
+For feature merge with disjoint branches:
+
+```
+IF all branches produce the SAME feature dimension:
+    → Concatenate rows by sample_id
+    → Result: (n_total_samples, n_features)
+
+ELSE (asymmetric feature dimensions):
+    → ERROR: "Cannot merge features from disjoint branches with different
+       feature dimensions"
+```
+
+### Prediction Merge Behavior
+
+For prediction merge with disjoint branches:
+
+1. **Determine N** (output column count):
+   - If `n_columns` specified: use that value
+   - Otherwise: N = min(model_count across all branches)
+
+2. **Select top N models per branch** by `select_by` criterion
+
+3. **Reconstruct OOF matrix** by sample_id:
+   - Each row populated from its branch's predictions
+   - Result: (n_total_samples, N)
+
+### Example: Site-Specific Stacking
+
+```python
+pipeline = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=3),
+
+    # Partition by site
+    {
+        "branch": [PLS(5), RF(100), XGB()],
+        "by": "metadata_partitioner",
+        "column": "site",
+        "cv": ShuffleSplit(n_splits=3),
+    },
+
+    # Merge with model selection
+    {"merge": "predictions", "n_columns": 2, "select_by": "mse"},
+
+    # Meta-learner
+    Ridge(),
+]
+```
+
+### Example: Group Rare Values
+
+```python
+pipeline = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=3),
+
+    {
+        "branch": [PLS(10)],
+        "by": "metadata_partitioner",
+        "column": "percentage",
+        "group_values": {
+            "zero": [0],
+            "low": [5, 10, 15],
+            "high": [20, 25, 30, 35, 40],
+        },
+    },
+
+    {"merge": "predictions"},
+]
+# Creates 3 partitions: "zero", "low", "high"
+```
+
+### Disjoint vs Copy Branch Comparison
+
+| Aspect | Copy Branches | Disjoint Branches |
+|--------|---------------|-------------------|
+| Samples | All branches see all samples | Each sample in exactly one branch |
+| OOF shape | (n_samples, n_models) per branch | (n_branch_samples, n_models) per branch |
+| Feature merge | Horizontal concat (n, f1+f2+...) | Row concat (n1+n2+..., f) if symmetric |
+| Prediction merge | Stack for meta-model | Reconstruct by sample_id |
+| Cross-validation | Global folds, shared | Per-branch folds, independent |
+| Use case | Compare preprocessing variants | Per-site/variety/instrument models |
+
+---
+
 ## Prediction Selection
 
 ### Selection Strategies
@@ -365,6 +515,17 @@ Control how predictions from multiple models are combined:
 | SOURCEBRANCH-E001 | No sources | Dataset has no feature sources |
 | SOURCEBRANCH-E002 | Single source | source_branch is no-op for single source |
 
+### Disjoint Merge Errors
+
+| Code | Message | Resolution |
+|------|---------|------------|
+| DISJOINT-E001 | Feature dimension mismatch | Ensure all partitions produce same feature count |
+| DISJOINT-E002 | n_columns exceeds minimum | Reduce n_columns or add more models |
+| DISJOINT-E003 | No predictions in branch | Ensure models are trained in each partition |
+| DISJOINT-E004 | Too few samples | Merged predictions have < 10 samples |
+| DISJOINT-E005 | Non-finite values | Merged predictions contain NaN/Inf |
+| DISJOINT-E006 | Missing metadata column | Required column not in prediction data |
+
 ---
 
 ## Examples
@@ -461,6 +622,52 @@ pipeline = [
 ]
 ```
 
+### Disjoint Sample Branch (Metadata Partitioner)
+
+```python
+pipeline = [
+    MinMaxScaler(),
+    KFold(n_splits=5),
+
+    # Partition samples by site metadata
+    {
+        "branch": [PLS(5), RF(100), XGB()],
+        "by": "metadata_partitioner",
+        "column": "site",
+        "cv": ShuffleSplit(n_splits=3),  # Per-site CV
+        "min_samples": 20,                # Skip small sites
+    },
+
+    # Merge disjoint predictions
+    # Each site: select top 2 models by MSE
+    {"merge": "predictions", "n_columns": 2, "select_by": "mse"},
+
+    # Meta-learner combines per-site predictions
+    Ridge(alpha=1.0),
+]
+```
+
+### Disjoint Feature Merge
+
+```python
+pipeline = [
+    KFold(n_splits=5),
+
+    # Partition by site, apply site-specific preprocessing
+    {
+        "branch": [SNV(), PCA(n_components=20)],
+        "by": "metadata_partitioner",
+        "column": "site",
+    },
+
+    # Merge features (requires same dimensions from all sites)
+    {"merge": "features"},
+
+    # Global model on merged features
+    PLSRegression(n_components=10),
+]
+```
+
 ---
 
 ## See Also
@@ -468,3 +675,4 @@ pipeline = [
 - [Pipeline Syntax](pipeline_syntax.md) - General pipeline syntax reference
 - [Branching Specification](concat_augmentation_specification.md) - Concat augmentation
 - [Design Document](../report/branching_concat_merge_design_v3.md) - Full design rationale
+- [Disjoint Merge Specification](../reports/disjoint_sample_branch_merging.md) - Full disjoint merge design

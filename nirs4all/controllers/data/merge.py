@@ -96,6 +96,10 @@ from nirs4all.operators.data.merge import (
     MergeConfig,
     MergeMode,
     BranchPredictionConfig,
+    BranchType,
+    DisjointSelectionCriterion,
+    DisjointBranchInfo,
+    DisjointMergeMetadata,
     SelectionStrategy,
     AggregationStrategy,
     ShapeMismatchStrategy,
@@ -178,6 +182,169 @@ class AsymmetryReport:
     model_counts: Dict[int, int]
     feature_dims: Dict[int, Optional[int]]
     summary: str
+
+
+# =============================================================================
+# Phase 2 (Disjoint Sample Branch Merging): Detection and Analysis
+# =============================================================================
+
+@dataclass
+class DisjointBranchAnalysis:
+    """Analysis result for disjoint sample branches.
+
+    Attributes:
+        is_disjoint: Whether branches have disjoint sample sets.
+        branch_type: Type of disjoint branching (metadata_partitioner, sample_partitioner).
+        branch_sample_counts: Dict mapping branch_id to sample count.
+        branch_sample_indices: Dict mapping branch_id to list of sample indices.
+        total_samples: Total unique samples across all branches.
+        partition_column: Metadata column used for partitioning (if metadata_partitioner).
+    """
+    is_disjoint: bool
+    branch_type: Optional[BranchType]
+    branch_sample_counts: Dict[int, int]
+    branch_sample_indices: Dict[int, List[int]]
+    total_samples: int
+    partition_column: Optional[str] = None
+
+
+@dataclass
+class DisjointMergeResult:
+    """Result of disjoint sample branch merge.
+
+    Attributes:
+        merged_array: The merged prediction or feature array (n_total_samples, n_columns).
+        n_columns: Number of output columns.
+        select_by: Selection criterion used.
+        branch_info: Per-branch information about selection and merging.
+        column_mapping: Mapping of output columns to per-branch models.
+    """
+    merged_array: np.ndarray
+    n_columns: int
+    select_by: str
+    branch_info: Dict[str, Any]
+    column_mapping: Dict[int, Dict[str, str]]
+
+
+def is_disjoint_branch(branch_context: Dict[str, Any]) -> bool:
+    """Check if a branch context indicates disjoint sample branching.
+
+    A disjoint branch has a 'sample_partition' or 'partition_info' key
+    that indicates samples were partitioned (not copied) across branches.
+
+    Args:
+        branch_context: A single branch context dictionary.
+
+    Returns:
+        True if this branch is part of a disjoint sample partition.
+    """
+    # Get context object safely
+    context = branch_context.get("context")
+    custom = getattr(context, "custom", {}) if context else {}
+
+    # Check for sample_partition key (from SamplePartitionerController)
+    if "sample_partition" in custom:
+        return True
+
+    # Check for metadata_partition key (from MetadataPartitionerController)
+    if "metadata_partition" in custom:
+        return True
+
+    # Check for partition_info key (from both partitioners)
+    partition_info = branch_context.get("partition_info")
+    if partition_info and "sample_indices" in partition_info:
+        return True
+
+    return False
+
+
+def detect_disjoint_branches(
+    branch_contexts: List[Dict[str, Any]]
+) -> DisjointBranchAnalysis:
+    """Detect if branches represent disjoint sample partitions.
+
+    Examines branch contexts to determine if they were created by a
+    partitioning controller (metadata_partitioner or sample_partitioner).
+
+    Args:
+        branch_contexts: List of branch context dictionaries.
+
+    Returns:
+        DisjointBranchAnalysis with detection results.
+    """
+    if not branch_contexts:
+        return DisjointBranchAnalysis(
+            is_disjoint=False,
+            branch_type=None,
+            branch_sample_counts={},
+            branch_sample_indices={},
+            total_samples=0,
+        )
+
+    # Check if any branch has partition info
+    has_disjoint = False
+    branch_type = None
+    branch_sample_counts = {}
+    branch_sample_indices = {}
+    partition_column = None
+    all_sample_indices = set()
+
+    for bc in branch_contexts:
+        branch_id = bc["branch_id"]
+        context = bc.get("context")
+        partition_info = bc.get("partition_info", {})
+
+        # Check for partition indicators in context.custom
+        custom = context.custom if context else {}
+
+        sample_indices = None
+
+        # Check for sample_partition (SamplePartitionerController)
+        if "sample_partition" in custom:
+            has_disjoint = True
+            branch_type = BranchType.SAMPLE_PARTITIONER
+            sample_indices = custom["sample_partition"].get("sample_indices", [])
+
+        # Check for metadata_partition (MetadataPartitionerController)
+        elif "metadata_partition" in custom:
+            has_disjoint = True
+            branch_type = BranchType.METADATA_PARTITIONER
+            sample_indices = custom["metadata_partition"].get("sample_indices", [])
+            partition_column = custom["metadata_partition"].get("column")
+
+        # Check partition_info (fallback, from both controllers)
+        elif "sample_indices" in partition_info:
+            has_disjoint = True
+            # Determine type from partition_info
+            if partition_info.get("type") in ("outliers", "inliers"):
+                branch_type = BranchType.SAMPLE_PARTITIONER
+            else:
+                branch_type = BranchType.METADATA_PARTITIONER
+            sample_indices = partition_info.get("sample_indices", [])
+
+        if sample_indices is not None:
+            branch_sample_counts[branch_id] = len(sample_indices)
+            branch_sample_indices[branch_id] = sample_indices
+            all_sample_indices.update(sample_indices)
+
+    # If no disjoint branches found, return non-disjoint result
+    if not has_disjoint:
+        return DisjointBranchAnalysis(
+            is_disjoint=False,
+            branch_type=BranchType.COPY,
+            branch_sample_counts={},
+            branch_sample_indices={},
+            total_samples=0,
+        )
+
+    return DisjointBranchAnalysis(
+        is_disjoint=True,
+        branch_type=branch_type,
+        branch_sample_counts=branch_sample_counts,
+        branch_sample_indices=branch_sample_indices,
+        total_samples=len(all_sample_indices),
+        partition_column=partition_column,
+    )
 
 
 class AsymmetricBranchAnalyzer:
@@ -497,6 +664,10 @@ class MergeConfigParser:
         config.unsafe = config_dict.get("unsafe", False)
         config.output_as = config_dict.get("output_as", "features")
         config.source_names = config_dict.get("source_names")
+
+        # Parse disjoint sample branch merge options (Phase 2)
+        config.n_columns = config_dict.get("n_columns")
+        config.select_by = config_dict.get("select_by", "mse")
 
         # Validate at least one collection mode is enabled
         if not config.collect_features and not config.collect_predictions:
@@ -861,6 +1032,48 @@ class MergeController(OperatorController):
         n_branches = len(branch_contexts)
         logger.info(f"Merge step: mode={config.get_merge_mode().value}, branches={n_branches}")
 
+        # Phase 2: Detect disjoint sample branches
+        # Disjoint branches (from metadata_partitioner or sample_partitioner) require
+        # special merge logic: row concatenation instead of horizontal concatenation
+        disjoint_analysis = detect_disjoint_branches(branch_contexts)
+
+        if disjoint_analysis.is_disjoint:
+            logger.info(
+                f"  Disjoint sample branching detected: {disjoint_analysis.branch_type.value}, "
+                f"{disjoint_analysis.total_samples} total samples across {n_branches} branches"
+            )
+
+            # Phase 4: In prediction mode, handle disjoint merge specially
+            # Samples were already routed to branches, we just need to
+            # collect results back in sample order
+            if mode in ("predict", "explain"):
+                return self._execute_disjoint_branch_merge_predict_mode(
+                    step_info=step_info,
+                    dataset=dataset,
+                    context=context,
+                    runtime_context=runtime_context,
+                    source=source,
+                    config=config,
+                    branch_contexts=branch_contexts,
+                    disjoint_analysis=disjoint_analysis,
+                    loaded_binaries=loaded_binaries,
+                    prediction_store=prediction_store,
+                )
+
+            return self._execute_disjoint_branch_merge(
+                step_info=step_info,
+                dataset=dataset,
+                context=context,
+                runtime_context=runtime_context,
+                source=source,
+                mode=mode,
+                config=config,
+                branch_contexts=branch_contexts,
+                disjoint_analysis=disjoint_analysis,
+                loaded_binaries=loaded_binaries,
+                prediction_store=prediction_store,
+            )
+
         # Validate branch indices
         self._validate_branches(config, branch_contexts)
 
@@ -1220,6 +1433,1069 @@ class MergeController(OperatorController):
         logger.success(f"Source branch merge completed: {len(merged_parts)} sources → output_as={config.output_as}")
 
         return result_context, StepOutput(metadata=metadata)
+
+    # =========================================================================
+    # Phase 2: Disjoint Sample Branch Merging
+    # =========================================================================
+
+    def _execute_disjoint_branch_merge(
+        self,
+        step_info: "ParsedStep",
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        runtime_context: "RuntimeContext",
+        source: int,
+        mode: str,
+        config: MergeConfig,
+        branch_contexts: List[Dict[str, Any]],
+        disjoint_analysis: DisjointBranchAnalysis,
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
+        prediction_store: Optional[Any] = None
+    ) -> Tuple["ExecutionContext", StepOutput]:
+        """Execute merge for disjoint sample branches.
+
+        Disjoint branches partition samples such that each sample exists in
+        exactly ONE branch. This requires different merge semantics:
+
+        Feature merge: Validate equal feature dimensions, then concatenate rows
+            by sample_id to reconstruct full dataset.
+
+        Prediction merge: Select top-N models per branch (where N is the minimum
+            model count or explicitly specified), then reconstruct OOF predictions
+            by sample_id.
+
+        Args:
+            step_info: Parsed step containing merge configuration
+            dataset: Dataset to operate on
+            context: Pipeline execution context
+            runtime_context: Runtime infrastructure context
+            source: Data source index
+            mode: Execution mode ("train" or "predict")
+            config: Parsed merge configuration with n_columns and select_by
+            branch_contexts: List of branch context dictionaries
+            disjoint_analysis: Analysis result from detect_disjoint_branches()
+            loaded_binaries: Pre-loaded binary objects for prediction mode
+            prediction_store: External prediction store
+
+        Returns:
+            Tuple of (updated_context, StepOutput)
+
+        Raises:
+            ValueError: If feature dimensions differ across branches (for features merge)
+            ValueError: If n_columns exceeds minimum model count across branches
+        """
+        n_branches = len(branch_contexts)
+        n_total_samples = disjoint_analysis.total_samples
+
+        logger.info(
+            f"Disjoint branch merge: {n_branches} branches, "
+            f"{n_total_samples} total samples, "
+            f"type={disjoint_analysis.branch_type.value}"
+        )
+
+        merge_info: Dict[str, Any] = {
+            "disjoint_merge": True,
+            "branch_type": disjoint_analysis.branch_type.value,
+            "n_branches": n_branches,
+            "n_total_samples": n_total_samples,
+        }
+
+        merged_features = None
+        merged_predictions = None
+
+        # ===== FEATURE MERGE =====
+        if config.collect_features:
+            merged_features, feature_info = self._collect_disjoint_features(
+                dataset=dataset,
+                branch_contexts=branch_contexts,
+                disjoint_analysis=disjoint_analysis,
+                config=config,
+            )
+            merge_info.update(feature_info)
+
+        # ===== PREDICTION MERGE =====
+        if config.collect_predictions:
+            merged_predictions, pred_info = self._collect_disjoint_predictions(
+                dataset=dataset,
+                context=context,
+                branch_contexts=branch_contexts,
+                disjoint_analysis=disjoint_analysis,
+                config=config,
+                prediction_store=prediction_store,
+                mode=mode,
+            )
+            merge_info.update(pred_info)
+
+        # Combine merged parts
+        merged_parts = []
+        if merged_features is not None:
+            merged_parts.append(merged_features)
+        if merged_predictions is not None:
+            merged_parts.append(merged_predictions)
+
+        # Include original features if requested
+        if config.include_original:
+            original = self._get_original_features(dataset, context)
+            if original is not None:
+                merged_parts.insert(0, original)
+                merge_info["include_original"] = True
+                merge_info["original_shape"] = original.shape
+
+        if not merged_parts:
+            raise ValueError(
+                "Disjoint branch merge resulted in empty output. "
+                "Check that branches have features or predictions. "
+                "[Error: MERGE-E040]"
+            )
+
+        # Validate trainability of merged result
+        self._validate_merged_trainability(merged_parts[0], merge_info)
+
+        # Concatenate horizontally if multiple parts
+        if len(merged_parts) == 1:
+            final_merged = merged_parts[0]
+        else:
+            final_merged = np.concatenate(merged_parts, axis=1)
+
+        merge_info["merged_shape"] = final_merged.shape
+        logger.info(f"  Final merged shape: {final_merged.shape}")
+
+        # Store merged features in dataset
+        processing_name = "merged"
+        if config.source_names and len(config.source_names) > 0:
+            processing_name = config.source_names[0]
+
+        dataset.add_merged_features(
+            features=final_merged,
+            processing_name=processing_name,
+            source=0
+        )
+
+        # Remove other sources - disjoint merge consolidates to single source
+        if dataset.features_sources() > 1:
+            dataset.keep_sources(0)
+
+        # Exit branch mode
+        result_context = context.copy()
+        result_context.custom["branch_contexts"] = []
+        result_context.custom["in_branch_mode"] = False
+        result_context.custom["metadata_partitioner_active"] = False
+        result_context.custom["sample_partitioner_active"] = False
+
+        # Update context processing
+        n_sources = dataset.features_sources()
+        new_processing = []
+        for sd_idx in range(n_sources):
+            src_processings = list(dataset.features_processings(sd_idx))
+            new_processing.append(src_processings)
+        result_context = result_context.with_processing(new_processing)
+
+        # Build metadata
+        metadata = {
+            "merge_mode": config.get_merge_mode().value,
+            "disjoint_merge": True,
+            "branch_type": disjoint_analysis.branch_type.value,
+            "partition_column": disjoint_analysis.partition_column,
+            "merge_config": config.to_dict(),
+            **merge_info,
+        }
+
+        logger.success(
+            f"Disjoint branch merge completed: {n_branches} branches → "
+            f"shape={final_merged.shape}"
+        )
+
+        return result_context, StepOutput(metadata=metadata)
+
+    def _execute_disjoint_branch_merge_predict_mode(
+        self,
+        step_info: "ParsedStep",
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        runtime_context: "RuntimeContext",
+        source: int,
+        config: MergeConfig,
+        branch_contexts: List[Dict[str, Any]],
+        disjoint_analysis: DisjointBranchAnalysis,
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
+        prediction_store: Optional[Any] = None
+    ) -> Tuple["ExecutionContext", StepOutput]:
+        """Execute disjoint merge in prediction mode.
+
+        In prediction mode, samples have already been routed to their
+        respective branches and processed. This method reconstructs
+        the merged output by collecting features/predictions from each
+        branch in sample order.
+
+        For feature merge:
+            - Each branch has processed its subset of samples
+            - Collect features and reconstruct in original sample order
+
+        For prediction merge:
+            - Models have already generated predictions for their samples
+            - Collect predictions and reconstruct in original sample order
+
+        Args:
+            step_info: Parsed step info
+            dataset: Dataset with branch-processed samples
+            context: Execution context
+            runtime_context: Runtime context
+            source: Source index
+            config: Merge configuration
+            branch_contexts: List of branch context dicts
+            disjoint_analysis: Disjoint branch analysis
+            loaded_binaries: Not used (merge has no artifacts)
+            prediction_store: Prediction storage
+
+        Returns:
+            Tuple of (updated_context, StepOutput)
+        """
+        n_branches = len(branch_contexts)
+        n_total_samples = disjoint_analysis.total_samples
+
+        logger.info(
+            f"Disjoint branch merge (predict mode): {n_branches} branches, "
+            f"{n_total_samples} samples"
+        )
+
+        merge_info: Dict[str, Any] = {
+            "disjoint_merge": True,
+            "prediction_mode": True,
+            "branch_type": disjoint_analysis.branch_type.value,
+            "n_branches": n_branches,
+            "n_total_samples": n_total_samples,
+        }
+
+        # For feature merge, reconstruct features from branch snapshots
+        if config.collect_features:
+            try:
+                merged_features, feature_info = self._collect_disjoint_features(
+                    dataset=dataset,
+                    branch_contexts=branch_contexts,
+                    disjoint_analysis=disjoint_analysis,
+                    config=config,
+                )
+                merge_info.update(feature_info)
+
+                # Store merged features
+                processing_name = "merged"
+                if config.source_names and len(config.source_names) > 0:
+                    processing_name = config.source_names[0]
+
+                dataset.add_merged_features(
+                    features=merged_features,
+                    processing_name=processing_name,
+                    source=0
+                )
+
+                logger.info(f"  Merged features (predict): shape={merged_features.shape}")
+
+            except Exception as e:
+                logger.warning(f"Could not merge disjoint features in predict mode: {e}")
+
+        # For prediction merge, collect predictions from prediction store
+        if config.collect_predictions and prediction_store is not None:
+            try:
+                # Get predictions from test partition (predict mode)
+                predictions_array = self._collect_disjoint_predictions_predict_mode(
+                    dataset=dataset,
+                    context=context,
+                    branch_contexts=branch_contexts,
+                    disjoint_analysis=disjoint_analysis,
+                    config=config,
+                    prediction_store=prediction_store,
+                )
+
+                if predictions_array is not None:
+                    merge_info["prediction_shape"] = predictions_array.shape
+
+                    # Add predictions to merged features if also collecting features
+                    if config.collect_features:
+                        merged_features = np.concatenate([merged_features, predictions_array], axis=1)
+                        dataset.add_merged_features(
+                            features=merged_features,
+                            processing_name="merged",
+                            source=0
+                        )
+                    else:
+                        dataset.add_merged_features(
+                            features=predictions_array,
+                            processing_name="merged_predictions",
+                            source=0
+                        )
+
+                    logger.info(f"  Merged predictions (predict): shape={predictions_array.shape}")
+
+            except Exception as e:
+                logger.warning(f"Could not collect predictions in predict mode: {e}")
+
+        # Exit branch mode
+        result_context = context.copy()
+        result_context.custom["branch_contexts"] = []
+        result_context.custom["in_branch_mode"] = False
+        result_context.custom["metadata_partitioner_active"] = False
+        result_context.custom["sample_partitioner_active"] = False
+
+        # Update context processing
+        n_sources = dataset.features_sources()
+        new_processing = []
+        for sd_idx in range(n_sources):
+            src_processings = list(dataset.features_processings(sd_idx))
+            new_processing.append(src_processings)
+        result_context = result_context.with_processing(new_processing)
+
+        # Build metadata
+        metadata = {
+            "merge_mode": config.get_merge_mode().value,
+            "disjoint_merge": True,
+            "prediction_mode": True,
+            "branch_type": disjoint_analysis.branch_type.value,
+            "partition_column": disjoint_analysis.partition_column,
+            "merge_config": config.to_dict(),
+            **merge_info,
+        }
+
+        logger.success(
+            f"Disjoint branch merge (predict mode) completed: {n_branches} branches"
+        )
+
+        return result_context, StepOutput(metadata=metadata)
+
+    def _collect_disjoint_predictions_predict_mode(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        branch_contexts: List[Dict[str, Any]],
+        disjoint_analysis: DisjointBranchAnalysis,
+        config: MergeConfig,
+        prediction_store: Any,
+    ) -> Optional[np.ndarray]:
+        """Collect predictions from disjoint branches in predict mode.
+
+        In predict mode, models have already generated predictions for
+        their respective sample subsets. This method collects those
+        predictions and reconstructs them in original sample order.
+
+        Args:
+            dataset: Dataset for sample info
+            context: Execution context
+            branch_contexts: List of branch contexts
+            disjoint_analysis: Disjoint branch analysis
+            config: Merge configuration
+            prediction_store: Prediction storage
+
+        Returns:
+            Merged predictions array or None
+        """
+        n_total_samples = disjoint_analysis.total_samples
+        branch_sample_indices = disjoint_analysis.branch_sample_indices
+
+        # Query prediction store for test partition predictions
+        filter_kwargs = {
+            'partition': 'test',
+            'load_arrays': True,
+        }
+
+        predictions = prediction_store.filter_predictions(**filter_kwargs)
+
+        if not predictions:
+            logger.debug("No test predictions found in prediction store")
+            return None
+
+        # Group predictions by branch
+        branch_predictions: Dict[int, List[Dict[str, Any]]] = {}
+        for pred in predictions:
+            branch_id = pred.get('branch_id', 0)
+            if branch_id not in branch_predictions:
+                branch_predictions[branch_id] = []
+            branch_predictions[branch_id].append(pred)
+
+        # Determine output shape
+        # Find number of models/columns from first branch with predictions
+        n_columns = 1
+        for preds in branch_predictions.values():
+            model_names = set(p.get('model_name') for p in preds if p.get('model_name'))
+            if model_names:
+                n_columns = len(model_names)
+                break
+
+        # Initialize output array
+        merged = np.full((n_total_samples, n_columns), np.nan)
+
+        # Collect predictions from each branch
+        for branch_id, sample_indices in branch_sample_indices.items():
+            if branch_id not in branch_predictions:
+                logger.debug(f"Branch {branch_id} has no predictions")
+                continue
+
+            preds = branch_predictions[branch_id]
+
+            # Group by model
+            model_preds: Dict[str, np.ndarray] = {}
+            for pred in preds:
+                model_name = pred.get('model_name', 'model')
+                y_pred = pred.get('y_pred')
+                if y_pred is not None:
+                    y_pred = np.asarray(y_pred).flatten()
+                    if model_name not in model_preds:
+                        model_preds[model_name] = y_pred
+                    else:
+                        # Average if multiple predictions for same model
+                        model_preds[model_name] = np.mean(
+                            [model_preds[model_name], y_pred], axis=0
+                        )
+
+            # Map predictions to output columns
+            for col_idx, (model_name, y_pred) in enumerate(model_preds.items()):
+                if col_idx >= n_columns:
+                    break
+
+                # Map predictions to sample indices
+                for local_idx, global_idx in enumerate(sample_indices):
+                    if global_idx < n_total_samples and local_idx < len(y_pred):
+                        merged[global_idx, col_idx] = y_pred[local_idx]
+
+        # Check for unfilled samples
+        nan_count = np.sum(np.isnan(merged))
+        if nan_count > 0:
+            logger.warning(
+                f"Disjoint prediction merge (predict): {nan_count} values are NaN"
+            )
+
+        return merged
+
+    def _collect_disjoint_features(
+        self,
+        dataset: "SpectroDataset",
+        branch_contexts: List[Dict[str, Any]],
+        disjoint_analysis: DisjointBranchAnalysis,
+        config: MergeConfig,
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Collect features from disjoint sample branches.
+
+        For disjoint branches, features are concatenated VERTICALLY (row-wise)
+        by sample_id, not horizontally. All branches must produce the same
+        feature dimension or an error is raised.
+
+        Args:
+            dataset: Dataset for sample information
+            branch_contexts: List of branch context dictionaries
+            disjoint_analysis: Analysis of disjoint branches
+            config: Merge configuration
+
+        Returns:
+            Tuple of (merged_features, info_dict) where merged_features has
+            shape (n_total_samples, n_features).
+
+        Raises:
+            ValueError: If feature dimensions differ across branches.
+        """
+        n_total_samples = disjoint_analysis.total_samples
+        feature_dims: Dict[str, int] = {}
+        branch_features: Dict[int, Tuple[np.ndarray, List[int]]] = {}
+
+        # Collect features from each branch
+        for bc in branch_contexts:
+            branch_id = bc["branch_id"]
+            branch_name = bc.get("name", f"branch_{branch_id}")
+            sample_indices = disjoint_analysis.branch_sample_indices.get(branch_id, [])
+
+            if not sample_indices:
+                logger.warning(f"Branch {branch_name} has no sample indices, skipping")
+                continue
+
+            # Extract features from branch snapshot
+            snapshot = bc.get("features_snapshot")
+            if snapshot is None:
+                raise ValueError(
+                    f"Branch '{branch_name}' has no feature snapshot for disjoint merge. "
+                    f"[Error: MERGE-E041]"
+                )
+
+            try:
+                features = self._extract_features_from_snapshot(
+                    snapshot=snapshot,
+                    expected_samples=len(sample_indices),
+                    branch_idx=branch_id,
+                    layout="2d",
+                )
+            except ValueError as e:
+                raise ValueError(
+                    f"Failed to extract features from branch '{branch_name}': {e}. "
+                    f"[Error: MERGE-E041]"
+                ) from e
+
+            feature_dim = features.shape[1]
+            feature_dims[branch_name] = feature_dim
+            branch_features[branch_id] = (features, sample_indices)
+
+            logger.debug(
+                f"  Branch '{branch_name}': {len(sample_indices)} samples, "
+                f"{feature_dim} features"
+            )
+
+        # Validate feature dimensions are equal
+        unique_dims = set(feature_dims.values())
+        if len(unique_dims) > 1:
+            dims_str = ", ".join(f"'{k}': {v}" for k, v in feature_dims.items())
+            raise ValueError(
+                f"Cannot merge features from disjoint branches with different "
+                f"feature dimensions: {{{dims_str}}}. "
+                f"Ensure all branches apply identical transformations. "
+                f"[Error: MERGE-E042]"
+            )
+
+        if not unique_dims:
+            raise ValueError(
+                "No features collected from any disjoint branch. "
+                "[Error: MERGE-E041]"
+            )
+
+        n_features = unique_dims.pop()
+
+        # Reconstruct full feature matrix by sample_id
+        merged = np.full((n_total_samples, n_features), np.nan)
+
+        for branch_id, (features, sample_indices) in branch_features.items():
+            for local_idx, global_idx in enumerate(sample_indices):
+                if global_idx < n_total_samples:
+                    merged[global_idx] = features[local_idx]
+
+        # Check for any unfilled samples
+        nan_rows = np.any(np.isnan(merged), axis=1)
+        n_unfilled = np.sum(nan_rows)
+        if n_unfilled > 0:
+            logger.warning(
+                f"Disjoint feature merge: {n_unfilled} samples have NaN values. "
+                f"This may indicate sample coverage gaps."
+            )
+
+        # Phase 3: Build comprehensive metadata for feature merge
+        # Build per-branch info (for features, no model selection)
+        branches_info: Dict[str, DisjointBranchInfo] = {}
+        for branch_id, (features, sample_indices) in branch_features.items():
+            # Get branch name from feature_dims keys (we saved branch_name -> dim)
+            branch_name = None
+            for bc in branch_contexts:
+                if bc["branch_id"] == branch_id:
+                    branch_name = bc.get("name", f"branch_{branch_id}")
+                    break
+            if branch_name is None:
+                branch_name = f"branch_{branch_id}"
+
+            branches_info[branch_name] = DisjointBranchInfo(
+                n_samples=len(sample_indices),
+                sample_ids=sample_indices,
+                n_models_original=0,  # Feature merge, no models
+                n_models_selected=0,
+                selected_models=[],
+                dropped_models=[],
+            )
+
+        # Build feature merge metadata
+        disjoint_metadata = DisjointMergeMetadata(
+            merge_type="disjoint_samples",
+            n_columns=0,  # 0 for feature merge (not prediction columns)
+            select_by="",  # Not applicable for feature merge
+            branches=branches_info,
+            column_mapping={},  # Not applicable for feature merge
+            is_heterogeneous=False,
+            feature_dim=n_features,
+        )
+
+        # Phase 3: Use structured logging from metadata
+        disjoint_metadata.log_summary(logger.info)
+
+        info = {
+            "feature_dims": feature_dims,
+            "feature_dim": n_features,
+            "feature_branches_used": list(branch_features.keys()),
+            "feature_merged_shape": merged.shape,
+            # Phase 3: Add structured metadata
+            "disjoint_metadata": disjoint_metadata.to_dict(),
+        }
+
+        return merged, info
+
+    def _collect_disjoint_predictions(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        branch_contexts: List[Dict[str, Any]],
+        disjoint_analysis: DisjointBranchAnalysis,
+        config: MergeConfig,
+        prediction_store: Optional[Any],
+        mode: str,
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """Collect predictions from disjoint sample branches.
+
+        For disjoint branches, predictions are collected per-branch and then
+        reconstructed by sample_id. When branches have different model counts,
+        we select top-N models from each branch based on the selection criterion.
+
+        Algorithm:
+        1. Determine N (output column count) from n_columns or min(model_counts)
+        2. Select top-N models per branch based on select_by criterion
+        3. Reconstruct OOF predictions by sample_id
+
+        Args:
+            dataset: Dataset for sample information
+            context: Execution context
+            branch_contexts: List of branch context dictionaries
+            disjoint_analysis: Analysis of disjoint branches
+            config: Merge configuration with n_columns and select_by
+            prediction_store: Prediction storage
+            mode: Execution mode
+
+        Returns:
+            Tuple of (merged_predictions, info_dict) where merged_predictions
+            has shape (n_total_samples, N).
+
+        Raises:
+            ValueError: If n_columns exceeds minimum model count
+            ValueError: If no predictions found in any branch
+        """
+        if prediction_store is None:
+            raise ValueError(
+                "prediction_store is required for disjoint prediction merge. "
+                "[Error: MERGE-E043]"
+            )
+
+        n_total_samples = disjoint_analysis.total_samples
+        select_by = config.select_by
+
+        # Step 1: Discover models in each branch and their scores
+        branch_models: Dict[int, List[Dict[str, Any]]] = {}
+        branch_sample_indices = disjoint_analysis.branch_sample_indices
+
+        for bc in branch_contexts:
+            branch_id = bc["branch_id"]
+            branch_name = bc.get("name", f"branch_{branch_id}")
+
+            # Discover models in this branch
+            model_names = self._discover_branch_models(
+                prediction_store=prediction_store,
+                branch_id=branch_id,
+                context=context,
+                model_filter=config.model_filter,
+            )
+
+            if not model_names:
+                logger.warning(f"Branch '{branch_name}' has no models, skipping")
+                continue
+
+            # Get model scores for ranking
+            model_infos = []
+            for model_name in model_names:
+                score = self._get_model_score(
+                    prediction_store=prediction_store,
+                    model_name=model_name,
+                    branch_id=branch_id,
+                    metric=select_by,
+                    context=context,
+                )
+                model_infos.append({
+                    "name": model_name,
+                    "score": score,
+                    "branch_id": branch_id,
+                    "branch_name": branch_name,
+                })
+
+            branch_models[branch_id] = model_infos
+            logger.debug(
+                f"  Branch '{branch_name}': {len(model_infos)} models"
+            )
+
+        if not branch_models:
+            raise ValueError(
+                "No model predictions found in any disjoint branch. "
+                "[Error: MERGE-E043]"
+            )
+
+        # Step 2: Determine N (output column count)
+        model_counts = {bid: len(models) for bid, models in branch_models.items()}
+        min_model_count = min(model_counts.values())
+        max_model_count = max(model_counts.values())
+
+        if config.n_columns is not None:
+            n_columns = config.n_columns
+            if n_columns > min_model_count:
+                raise ValueError(
+                    f"n_columns={n_columns} exceeds minimum model count "
+                    f"({min_model_count}) across branches. "
+                    f"Model counts: {model_counts}. "
+                    f"[Error: MERGE-E044]"
+                )
+        else:
+            n_columns = min_model_count
+
+        logger.info(
+            f"  Disjoint prediction merge: N={n_columns} columns "
+            f"(model counts: {model_counts}, select_by='{select_by}')"
+        )
+
+        # Step 3: Select top-N models per branch
+        selected_per_branch: Dict[int, List[Dict[str, Any]]] = {}
+        dropped_per_branch: Dict[int, List[Dict[str, Any]]] = {}
+        column_mapping: Dict[int, Dict[str, str]] = {i: {} for i in range(n_columns)}
+
+        for branch_id, model_infos in branch_models.items():
+            branch_name = model_infos[0]["branch_name"] if model_infos else f"branch_{branch_id}"
+
+            if len(model_infos) == n_columns:
+                # No selection needed
+                selected = model_infos
+                dropped = []
+            else:
+                # Rank by score and select top-N
+                if select_by == "order":
+                    # First N in definition order
+                    selected = model_infos[:n_columns]
+                    dropped = model_infos[n_columns:]
+                elif select_by in ("r2",):
+                    # Higher is better
+                    sorted_models = sorted(
+                        model_infos,
+                        key=lambda m: m["score"] if m["score"] is not None else float('-inf'),
+                        reverse=True
+                    )
+                    selected = sorted_models[:n_columns]
+                    dropped = sorted_models[n_columns:]
+                else:
+                    # Lower is better (mse, rmse, mae)
+                    sorted_models = sorted(
+                        model_infos,
+                        key=lambda m: m["score"] if m["score"] is not None else float('inf'),
+                    )
+                    selected = sorted_models[:n_columns]
+                    dropped = sorted_models[n_columns:]
+
+            selected_per_branch[branch_id] = selected
+            dropped_per_branch[branch_id] = dropped
+
+            # Build column mapping
+            for col_idx, model_info in enumerate(selected):
+                column_mapping[col_idx][branch_name] = model_info["name"]
+
+        # Step 4: Collect OOF predictions for selected models
+        merged = np.full((n_total_samples, n_columns), np.nan)
+
+        for branch_id, selected_models in selected_per_branch.items():
+            sample_indices = branch_sample_indices.get(branch_id, [])
+
+            for col_idx, model_info in enumerate(selected_models):
+                model_name = model_info["name"]
+
+                # Get OOF predictions for this model
+                oof_predictions = self._get_branch_oof_predictions(
+                    dataset=dataset,
+                    context=context,
+                    prediction_store=prediction_store,
+                    model_name=model_name,
+                    branch_id=branch_id,
+                    sample_indices=sample_indices,
+                    mode=mode,
+                )
+
+                if oof_predictions is not None:
+                    for local_idx, global_idx in enumerate(sample_indices):
+                        if global_idx < n_total_samples and local_idx < len(oof_predictions):
+                            merged[global_idx, col_idx] = oof_predictions[local_idx]
+
+        # Check for unfilled predictions
+        nan_count = np.sum(np.isnan(merged))
+        if nan_count > 0:
+            logger.warning(
+                f"Disjoint prediction merge: {nan_count} values are NaN "
+                f"({100 * nan_count / merged.size:.1f}% of total). "
+                f"This may indicate incomplete OOF coverage."
+            )
+
+        # Phase 3: Build comprehensive metadata using DisjointMergeMetadata
+        # Build per-branch info
+        branches_info: Dict[str, DisjointBranchInfo] = {}
+        for branch_id, selected_models in selected_per_branch.items():
+            # Get branch name
+            branch_name = selected_models[0]["branch_name"] if selected_models else f"branch_{branch_id}"
+
+            # Get sample indices for this branch
+            sample_indices = branch_sample_indices.get(branch_id, [])
+
+            # Build selected model details with column mapping
+            selected_model_details = []
+            for col_idx, model_info in enumerate(selected_models):
+                selected_model_details.append({
+                    "name": model_info["name"],
+                    "score": model_info["score"],
+                    "column": col_idx,
+                })
+
+            # Build dropped model details
+            dropped_model_details = []
+            for model_info in dropped_per_branch.get(branch_id, []):
+                dropped_model_details.append({
+                    "name": model_info["name"],
+                    "score": model_info["score"],
+                })
+
+            branches_info[branch_name] = DisjointBranchInfo(
+                n_samples=len(sample_indices),
+                sample_ids=sample_indices,
+                n_models_original=model_counts.get(branch_id, 0),
+                n_models_selected=len(selected_models),
+                selected_models=selected_model_details,
+                dropped_models=dropped_model_details,
+            )
+
+        # Check if column mapping is heterogeneous (different models in same column for different branches)
+        is_heterogeneous = False
+        for col_idx, mapping in column_mapping.items():
+            if len(set(mapping.values())) > 1:
+                is_heterogeneous = True
+                break
+
+        # Build the full metadata object
+        disjoint_metadata = DisjointMergeMetadata(
+            merge_type="disjoint_samples",
+            n_columns=n_columns,
+            select_by=select_by,
+            branches=branches_info,
+            column_mapping=column_mapping,
+            is_heterogeneous=is_heterogeneous,
+        )
+
+        # Phase 3: Use structured logging from metadata
+        disjoint_metadata.log_summary(logger.info)
+        if is_heterogeneous or max_model_count > min_model_count:
+            disjoint_metadata.log_warnings(logger.warning)
+
+        # Build info dict with both legacy fields and new metadata
+        info = {
+            "prediction_n_columns": n_columns,
+            "prediction_select_by": select_by,
+            "prediction_model_counts": model_counts,
+            "prediction_branches_used": list(selected_per_branch.keys()),
+            "prediction_column_mapping": column_mapping,
+            "prediction_merged_shape": merged.shape,
+            "selected_models": {
+                bid: [m["name"] for m in models]
+                for bid, models in selected_per_branch.items()
+            },
+            "dropped_models": {
+                bid: [m["name"] for m in models]
+                for bid, models in dropped_per_branch.items()
+                if models
+            },
+            # Phase 3: Add structured metadata
+            "disjoint_metadata": disjoint_metadata.to_dict(),
+        }
+
+        logger.info(
+            f"  Collected predictions: {len(selected_per_branch)} branches → "
+            f"shape={merged.shape}"
+        )
+
+        return merged, info
+
+    def _get_model_score(
+        self,
+        prediction_store: Any,
+        model_name: str,
+        branch_id: int,
+        metric: str,
+        context: "ExecutionContext",
+    ) -> Optional[float]:
+        """Get validation score for a model.
+
+        Args:
+            prediction_store: Prediction storage
+            model_name: Name of the model
+            branch_id: Branch ID
+            metric: Metric name (mse, rmse, mae, r2)
+            context: Execution context
+
+        Returns:
+            Score value, or None if not available
+        """
+        try:
+            current_step = getattr(context.state, 'step_number', float('inf'))
+
+            filter_kwargs = {
+                'model_name': model_name,
+                'branch_id': branch_id,
+                'partition': 'val',
+                'load_arrays': False,
+            }
+
+            predictions = prediction_store.filter_predictions(**filter_kwargs)
+            predictions = [
+                p for p in predictions
+                if p.get('step_idx', 0) < current_step
+            ]
+
+            if not predictions:
+                return None
+
+            # Aggregate scores across folds
+            scores = []
+            for pred in predictions:
+                metrics = pred.get('metrics', {})
+                if metric in metrics:
+                    scores.append(metrics[metric])
+                # Try uppercase/lowercase variants
+                elif metric.upper() in metrics:
+                    scores.append(metrics[metric.upper()])
+                elif metric.lower() in metrics:
+                    scores.append(metrics[metric.lower()])
+
+            if scores:
+                return float(np.mean(scores))
+
+            return None
+
+        except Exception as e:
+            logger.debug(f"Failed to get score for {model_name}: {e}")
+            return None
+
+    def _get_branch_oof_predictions(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        prediction_store: Any,
+        model_name: str,
+        branch_id: int,
+        sample_indices: List[int],
+        mode: str,
+    ) -> Optional[np.ndarray]:
+        """Get OOF predictions for a model in a disjoint branch.
+
+        For disjoint branches, we need predictions only for the samples
+        in this branch's partition.
+
+        Args:
+            dataset: Dataset for sample info
+            context: Execution context
+            prediction_store: Prediction storage
+            model_name: Model name
+            branch_id: Branch ID
+            sample_indices: Sample indices for this branch
+            mode: Execution mode
+
+        Returns:
+            1D array of predictions for the branch's samples, or None
+        """
+        try:
+            current_step = getattr(context.state, 'step_number', float('inf'))
+            n_branch_samples = len(sample_indices)
+
+            # Get validation predictions (OOF)
+            filter_kwargs = {
+                'model_name': model_name,
+                'branch_id': branch_id,
+                'partition': 'val',
+                'load_arrays': True,
+            }
+
+            predictions = prediction_store.filter_predictions(**filter_kwargs)
+            predictions = [
+                p for p in predictions
+                if p.get('step_idx', 0) < current_step
+            ]
+
+            if not predictions:
+                logger.debug(f"No OOF predictions for {model_name} in branch {branch_id}")
+                return None
+
+            # Build sample_id to prediction mapping
+            sample_to_pred: Dict[int, List[float]] = {}
+
+            for pred in predictions:
+                y_pred = pred.get('y_pred')
+                pred_sample_indices = pred.get('sample_indices')
+
+                if y_pred is None:
+                    continue
+
+                y_pred = np.asarray(y_pred).flatten()
+
+                if pred_sample_indices is not None:
+                    if hasattr(pred_sample_indices, 'tolist'):
+                        pred_sample_indices = pred_sample_indices.tolist()
+                    for i, sid in enumerate(pred_sample_indices):
+                        if i < len(y_pred):
+                            if sid not in sample_to_pred:
+                                sample_to_pred[sid] = []
+                            sample_to_pred[sid].append(y_pred[i])
+
+            # Build output array aligned with branch sample indices
+            result = np.full(n_branch_samples, np.nan)
+            for local_idx, global_idx in enumerate(sample_indices):
+                if global_idx in sample_to_pred:
+                    # Average if multiple predictions (across folds)
+                    result[local_idx] = np.mean(sample_to_pred[global_idx])
+
+            return result
+
+        except Exception as e:
+            logger.warning(f"Failed to get OOF predictions for {model_name}: {e}")
+            return None
+
+    def _validate_merged_trainability(
+        self,
+        merged: np.ndarray,
+        merge_info: Dict[str, Any],
+    ) -> None:
+        """Validate that merged predictions can train a meta-model.
+
+        Checks for:
+        1. Non-finite values (NaN, Inf)
+        2. Minimum sample count
+
+        Args:
+            merged: Merged prediction/feature array
+            merge_info: Merge info dict (for error context)
+
+        Raises:
+            ValueError: If validation fails
+        """
+        MIN_SAMPLES = 10
+
+        # Check for non-finite values
+        non_finite_mask = ~np.isfinite(merged)
+        non_finite_count = np.sum(non_finite_mask)
+
+        if non_finite_count > 0:
+            non_finite_pct = 100 * non_finite_count / merged.size
+            if non_finite_pct > 50:
+                raise ValueError(
+                    f"Merged predictions contain {non_finite_count} non-finite values "
+                    f"({non_finite_pct:.1f}% of total). Cannot train meta-model on invalid data. "
+                    f"[Error: MERGE-E045]"
+                )
+            else:
+                logger.warning(
+                    f"Merged predictions contain {non_finite_count} non-finite values "
+                    f"({non_finite_pct:.1f}%). These will be imputed with column means."
+                )
+                # Impute NaN with column means
+                for col in range(merged.shape[1]):
+                    col_data = merged[:, col]
+                    mask = ~np.isfinite(col_data)
+                    if np.any(mask):
+                        col_mean = np.nanmean(col_data)
+                        if np.isfinite(col_mean):
+                            merged[mask, col] = col_mean
+                        else:
+                            merged[mask, col] = 0.0
+
+        # Check minimum samples
+        n_samples = merged.shape[0]
+        if n_samples < MIN_SAMPLES:
+            raise ValueError(
+                f"Merged predictions have only {n_samples} samples. "
+                f"Minimum {MIN_SAMPLES} required for meta-model training. "
+                f"[Error: MERGE-E046]"
+            )
 
     def _validate_branches(
         self,
@@ -3662,4 +4938,12 @@ __all__ = [
     "BranchAnalysisResult",
     "AsymmetryReport",
     "SourceMergeConfig",
+    # Phase 2: Disjoint sample branch merging
+    "DisjointBranchAnalysis",
+    "DisjointMergeResult",
+    "is_disjoint_branch",
+    "detect_disjoint_branches",
+    # Phase 3: Disjoint merge metadata
+    "DisjointBranchInfo",
+    "DisjointMergeMetadata",
 ]

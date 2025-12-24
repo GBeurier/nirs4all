@@ -299,7 +299,54 @@ class BundleGenerator:
         if resolved.trace:
             manifest["trace_id"] = resolved.trace.trace_id
 
+            # Extract metadata partitioner routing info from trace
+            routing_info = self._extract_partitioner_routing_info(resolved.trace)
+            if routing_info:
+                manifest["partitioner_routing"] = routing_info
+
         return manifest
+
+    def _extract_partitioner_routing_info(
+        self,
+        trace: ExecutionTrace
+    ) -> Optional[Dict[str, Any]]:
+        """Extract metadata partitioner routing information from trace.
+
+        This information is needed for prediction mode to route samples
+        to the correct branch based on metadata values.
+
+        Args:
+            trace: Execution trace
+
+        Returns:
+            Routing info dict or None if no partitioner was used
+        """
+        routing_info = {}
+
+        for step in trace.steps:
+            if step.operator_class == "MetadataPartitionerController":
+                step_routing = {
+                    "step_index": step.step_index,
+                    "branch_count": 0,
+                    "partitions": [],
+                }
+
+                # Extract partition info from step metadata
+                if step.metadata:
+                    step_routing["column"] = step.metadata.get("column")
+                    step_routing["partitions"] = step.metadata.get("partitions", [])
+                    step_routing["branch_count"] = step.metadata.get("branch_count", 0)
+                    step_routing["group_values"] = step.metadata.get("group_values")
+                    step_routing["min_samples"] = step.metadata.get("min_samples", 1)
+
+                    # Store partition-to-branch mapping
+                    partitioner_config = step.metadata.get("metadata_partitioner_config", {})
+                    if partitioner_config:
+                        step_routing.update(partitioner_config)
+
+                routing_info[str(step.step_index)] = step_routing
+
+        return routing_info if routing_info else None
 
     def _extract_pipeline_config(
         self,

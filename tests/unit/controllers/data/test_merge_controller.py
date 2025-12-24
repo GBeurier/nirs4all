@@ -1080,3 +1080,1006 @@ class TestMergeSourcesConfigParsing:
         controller = MergeController()
         with pytest.raises(ValueError, match="Invalid merge_sources config type"):
             controller._parse_source_merge_config(123)
+
+
+# =============================================================================
+# Phase 2: Disjoint Sample Branch Merging Tests
+# =============================================================================
+
+from nirs4all.controllers.data.merge import (
+    DisjointBranchAnalysis,
+    DisjointMergeResult,
+    is_disjoint_branch,
+    detect_disjoint_branches,
+)
+from nirs4all.operators.data.merge import (
+    BranchType,
+    DisjointSelectionCriterion,
+)
+
+
+class TestBranchTypeEnum:
+    """Tests for BranchType enum."""
+
+    def test_branch_type_values(self):
+        """Test BranchType enum has correct values."""
+        assert BranchType.COPY.value == "copy"
+        assert BranchType.METADATA_PARTITIONER.value == "metadata_partitioner"
+        assert BranchType.SAMPLE_PARTITIONER.value == "sample_partitioner"
+
+    def test_branch_type_from_string(self):
+        """Test creating BranchType from string."""
+        assert BranchType("copy") == BranchType.COPY
+        assert BranchType("metadata_partitioner") == BranchType.METADATA_PARTITIONER
+        assert BranchType("sample_partitioner") == BranchType.SAMPLE_PARTITIONER
+
+
+class TestDisjointSelectionCriterionEnum:
+    """Tests for DisjointSelectionCriterion enum."""
+
+    def test_selection_criterion_values(self):
+        """Test DisjointSelectionCriterion enum has correct values."""
+        assert DisjointSelectionCriterion.MSE.value == "mse"
+        assert DisjointSelectionCriterion.RMSE.value == "rmse"
+        assert DisjointSelectionCriterion.MAE.value == "mae"
+        assert DisjointSelectionCriterion.R2.value == "r2"
+        assert DisjointSelectionCriterion.ORDER.value == "order"
+
+    def test_selection_criterion_from_string(self):
+        """Test creating DisjointSelectionCriterion from string."""
+        assert DisjointSelectionCriterion("mse") == DisjointSelectionCriterion.MSE
+        assert DisjointSelectionCriterion("r2") == DisjointSelectionCriterion.R2
+
+
+class TestMergeConfigDisjointOptions:
+    """Tests for MergeConfig disjoint merge options (n_columns, select_by)."""
+
+    def test_default_n_columns_is_none(self):
+        """Test that n_columns defaults to None."""
+        config = MergeConfig()
+        assert config.n_columns is None
+
+    def test_default_select_by_is_mse(self):
+        """Test that select_by defaults to 'mse'."""
+        config = MergeConfig()
+        assert config.select_by == "mse"
+
+    def test_n_columns_validation(self):
+        """Test that n_columns < 1 raises ValueError."""
+        with pytest.raises(ValueError, match="n_columns must be >= 1"):
+            MergeConfig(n_columns=0)
+
+        with pytest.raises(ValueError, match="n_columns must be >= 1"):
+            MergeConfig(n_columns=-1)
+
+    def test_select_by_validation(self):
+        """Test that invalid select_by raises ValueError."""
+        with pytest.raises(ValueError, match="select_by must be one of"):
+            MergeConfig(select_by="invalid")
+
+    def test_valid_select_by_values(self):
+        """Test that all valid select_by values are accepted."""
+        for criterion in ("mse", "rmse", "mae", "r2", "order"):
+            config = MergeConfig(select_by=criterion)
+            assert config.select_by == criterion
+
+    def test_get_selection_criterion(self):
+        """Test get_selection_criterion returns correct enum."""
+        config = MergeConfig(select_by="r2")
+        assert config.get_selection_criterion() == DisjointSelectionCriterion.R2
+
+        config = MergeConfig(select_by="order")
+        assert config.get_selection_criterion() == DisjointSelectionCriterion.ORDER
+
+    def test_n_columns_serialization(self):
+        """Test n_columns is serialized correctly."""
+        config = MergeConfig(n_columns=5, collect_predictions=True)
+        data = config.to_dict()
+        assert data["n_columns"] == 5
+
+        restored = MergeConfig.from_dict(data)
+        assert restored.n_columns == 5
+
+    def test_select_by_serialization(self):
+        """Test select_by is serialized correctly."""
+        config = MergeConfig(select_by="r2", collect_predictions=True)
+        data = config.to_dict()
+        assert data["select_by"] == "r2"
+
+        restored = MergeConfig.from_dict(data)
+        assert restored.select_by == "r2"
+
+
+class TestDisjointBranchAnalysisDataclass:
+    """Tests for DisjointBranchAnalysis dataclass."""
+
+    def test_disjoint_analysis_creation(self):
+        """Test creating a DisjointBranchAnalysis."""
+        analysis = DisjointBranchAnalysis(
+            is_disjoint=True,
+            branch_type=BranchType.METADATA_PARTITIONER,
+            branch_sample_counts={0: 25, 1: 25},
+            branch_sample_indices={0: list(range(25)), 1: list(range(25, 50))},
+            total_samples=50,
+            partition_column="region",
+        )
+
+        assert analysis.is_disjoint is True
+        assert analysis.branch_type == BranchType.METADATA_PARTITIONER
+        assert analysis.branch_sample_counts == {0: 25, 1: 25}
+        assert analysis.total_samples == 50
+        assert analysis.partition_column == "region"
+
+    def test_non_disjoint_analysis(self):
+        """Test DisjointBranchAnalysis for non-disjoint (copy) branches."""
+        analysis = DisjointBranchAnalysis(
+            is_disjoint=False,
+            branch_type=BranchType.COPY,
+            branch_sample_counts={},
+            branch_sample_indices={},
+            total_samples=0,
+        )
+
+        assert analysis.is_disjoint is False
+        assert analysis.branch_type == BranchType.COPY
+        assert analysis.partition_column is None
+
+
+class TestIsDisjointBranchFunction:
+    """Tests for is_disjoint_branch() function."""
+
+    def _make_mock_context(self, custom: dict):
+        """Create a mock context with custom dict."""
+        class MockContext:
+            def __init__(self, custom_dict):
+                self.custom = custom_dict
+
+        return MockContext(custom)
+
+    def test_non_disjoint_branch_no_context(self):
+        """Test branch without context is not disjoint."""
+        branch_context = {
+            "branch_id": 0,
+            "name": "branch_0",
+            # No "context" key
+        }
+        assert is_disjoint_branch(branch_context) is False
+
+    def test_non_disjoint_branch_no_partition_keys(self):
+        """Test branch with context but no partition keys is not disjoint."""
+        branch_context = {
+            "branch_id": 0,
+            "name": "branch_0",
+            "context": self._make_mock_context({}),
+        }
+        assert is_disjoint_branch(branch_context) is False
+
+    def test_disjoint_branch_sample_partition(self):
+        """Test branch with sample_partition is disjoint."""
+        branch_context = {
+            "branch_id": 0,
+            "name": "branch_0",
+            "context": self._make_mock_context({
+                "sample_partition": {
+                    "sample_indices": [0, 1, 2, 3, 4],
+                    "type": "inliers",
+                }
+            }),
+        }
+        assert is_disjoint_branch(branch_context) is True
+
+    def test_disjoint_branch_metadata_partition(self):
+        """Test branch with metadata_partition is disjoint."""
+        branch_context = {
+            "branch_id": 0,
+            "name": "branch_0",
+            "context": self._make_mock_context({
+                "metadata_partition": {
+                    "sample_indices": [0, 1, 2],
+                    "column": "region",
+                    "value": "North",
+                }
+            }),
+        }
+        assert is_disjoint_branch(branch_context) is True
+
+    def test_disjoint_branch_partition_info(self):
+        """Test branch with partition_info is disjoint."""
+        branch_context = {
+            "branch_id": 0,
+            "name": "branch_0",
+            "partition_info": {
+                "sample_indices": [5, 6, 7, 8, 9],
+            },
+        }
+        assert is_disjoint_branch(branch_context) is True
+
+
+class TestDetectDisjointBranchesFunction:
+    """Tests for detect_disjoint_branches() function."""
+
+    def _make_mock_context(self, custom: dict):
+        """Create a mock context with custom dict."""
+        class MockContext:
+            def __init__(self, custom_dict):
+                self.custom = custom_dict
+
+        return MockContext(custom)
+
+    def test_empty_branches_returns_non_disjoint(self):
+        """Test empty branch list returns non-disjoint analysis."""
+        analysis = detect_disjoint_branches([])
+
+        assert analysis.is_disjoint is False
+        assert analysis.branch_type is None
+        assert analysis.total_samples == 0
+
+    def test_copy_branches_detected(self):
+        """Test branches without partition info are detected as COPY."""
+        branch_contexts = [
+            {
+                "branch_id": 0,
+                "name": "branch_0",
+                "context": self._make_mock_context({}),
+            },
+            {
+                "branch_id": 1,
+                "name": "branch_1",
+                "context": self._make_mock_context({}),
+            },
+        ]
+
+        analysis = detect_disjoint_branches(branch_contexts)
+
+        assert analysis.is_disjoint is False
+        assert analysis.branch_type == BranchType.COPY
+
+    def test_metadata_partitioner_detected(self):
+        """Test metadata_partitioner branches are detected."""
+        branch_contexts = [
+            {
+                "branch_id": 0,
+                "name": "North",
+                "context": self._make_mock_context({
+                    "metadata_partition": {
+                        "sample_indices": [0, 1, 2, 3, 4],
+                        "column": "region",
+                        "value": "North",
+                    }
+                }),
+            },
+            {
+                "branch_id": 1,
+                "name": "South",
+                "context": self._make_mock_context({
+                    "metadata_partition": {
+                        "sample_indices": [5, 6, 7, 8, 9],
+                        "column": "region",
+                        "value": "South",
+                    }
+                }),
+            },
+        ]
+
+        analysis = detect_disjoint_branches(branch_contexts)
+
+        assert analysis.is_disjoint is True
+        assert analysis.branch_type == BranchType.METADATA_PARTITIONER
+        assert analysis.partition_column == "region"
+        assert analysis.branch_sample_counts == {0: 5, 1: 5}
+        assert analysis.total_samples == 10
+
+    def test_sample_partitioner_detected(self):
+        """Test sample_partitioner branches are detected."""
+        branch_contexts = [
+            {
+                "branch_id": 0,
+                "name": "inliers",
+                "context": self._make_mock_context({
+                    "sample_partition": {
+                        "sample_indices": list(range(40)),
+                        "type": "inliers",
+                    }
+                }),
+            },
+            {
+                "branch_id": 1,
+                "name": "outliers",
+                "context": self._make_mock_context({
+                    "sample_partition": {
+                        "sample_indices": list(range(40, 50)),
+                        "type": "outliers",
+                    }
+                }),
+            },
+        ]
+
+        analysis = detect_disjoint_branches(branch_contexts)
+
+        assert analysis.is_disjoint is True
+        assert analysis.branch_type == BranchType.SAMPLE_PARTITIONER
+        assert analysis.partition_column is None
+        assert analysis.branch_sample_counts == {0: 40, 1: 10}
+        assert analysis.total_samples == 50
+
+    def test_partition_info_fallback_inliers_outliers(self):
+        """Test partition_info with type='outliers' is detected as sample_partitioner."""
+        branch_contexts = [
+            {
+                "branch_id": 0,
+                "name": "inliers",
+                "partition_info": {
+                    "sample_indices": [0, 1, 2, 3],
+                    "type": "inliers",
+                },
+                "context": self._make_mock_context({}),
+            },
+            {
+                "branch_id": 1,
+                "name": "outliers",
+                "partition_info": {
+                    "sample_indices": [4, 5],
+                    "type": "outliers",
+                },
+                "context": self._make_mock_context({}),
+            },
+        ]
+
+        analysis = detect_disjoint_branches(branch_contexts)
+
+        assert analysis.is_disjoint is True
+        assert analysis.branch_type == BranchType.SAMPLE_PARTITIONER
+        assert analysis.branch_sample_indices[0] == [0, 1, 2, 3]
+        assert analysis.branch_sample_indices[1] == [4, 5]
+
+    def test_three_branches_disjoint(self):
+        """Test disjoint detection with three branches."""
+        branch_contexts = [
+            {
+                "branch_id": 0,
+                "name": "A",
+                "context": self._make_mock_context({
+                    "metadata_partition": {
+                        "sample_indices": [0, 1, 2],
+                        "column": "group",
+                        "value": "A",
+                    }
+                }),
+            },
+            {
+                "branch_id": 1,
+                "name": "B",
+                "context": self._make_mock_context({
+                    "metadata_partition": {
+                        "sample_indices": [3, 4, 5],
+                        "column": "group",
+                        "value": "B",
+                    }
+                }),
+            },
+            {
+                "branch_id": 2,
+                "name": "C",
+                "context": self._make_mock_context({
+                    "metadata_partition": {
+                        "sample_indices": [6, 7, 8],
+                        "column": "group",
+                        "value": "C",
+                    }
+                }),
+            },
+        ]
+
+        analysis = detect_disjoint_branches(branch_contexts)
+
+        assert analysis.is_disjoint is True
+        assert len(analysis.branch_sample_counts) == 3
+        assert analysis.total_samples == 9
+
+
+class TestDisjointMergeResultDataclass:
+    """Tests for DisjointMergeResult dataclass."""
+
+    def test_disjoint_merge_result_creation(self):
+        """Test creating a DisjointMergeResult."""
+        merged_array = np.random.randn(50, 3)
+        result = DisjointMergeResult(
+            merged_array=merged_array,
+            n_columns=3,
+            select_by="mse",
+            branch_info={"n_branches": 2},
+            column_mapping={0: {"A": "PLS1"}, 1: {"A": "PLS2"}, 2: {"A": "PLS3"}},
+        )
+
+        assert result.merged_array.shape == (50, 3)
+        assert result.n_columns == 3
+        assert result.select_by == "mse"
+        assert result.branch_info["n_branches"] == 2
+
+
+class TestValidateMergedTrainability:
+    """Tests for _validate_merged_trainability method."""
+
+    def test_valid_array_passes(self):
+        """Test that a valid array passes validation."""
+        controller = MergeController()
+        merged = np.random.randn(50, 5)
+        merge_info = {}
+
+        # Should not raise
+        controller._validate_merged_trainability(merged, merge_info)
+
+    def test_too_few_samples_raises(self):
+        """Test that arrays with < 10 samples raise ValueError."""
+        controller = MergeController()
+        merged = np.random.randn(5, 3)  # Only 5 samples
+        merge_info = {}
+
+        with pytest.raises(ValueError, match="only 5 samples"):
+            controller._validate_merged_trainability(merged, merge_info)
+
+    def test_high_nan_percentage_raises(self):
+        """Test that > 50% NaN values raises ValueError."""
+        controller = MergeController()
+        merged = np.full((50, 4), np.nan)  # All NaN
+        merge_info = {}
+
+        with pytest.raises(ValueError, match="non-finite values"):
+            controller._validate_merged_trainability(merged, merge_info)
+
+    def test_low_nan_percentage_imputed(self):
+        """Test that <= 50% NaN values are imputed with column means."""
+        controller = MergeController()
+        merged = np.random.randn(50, 4)
+        # Set 20% of values to NaN (10 out of 50)
+        merged[:10, 0] = np.nan
+        merge_info = {}
+
+        # Should not raise and should impute
+        controller._validate_merged_trainability(merged, merge_info)
+
+        # NaN values should be imputed
+        assert not np.any(np.isnan(merged))
+
+    def test_inf_values_detected(self):
+        """Test that Inf values are detected as non-finite."""
+        controller = MergeController()
+        merged = np.random.randn(50, 4)
+        merged[0, 0] = np.inf
+        merge_info = {}
+
+        # Should not raise (low percentage), but should impute
+        controller._validate_merged_trainability(merged, merge_info)
+        assert np.isfinite(merged[0, 0])
+
+    def test_exactly_10_samples_passes(self):
+        """Test that exactly 10 samples passes (edge case)."""
+        controller = MergeController()
+        merged = np.random.randn(10, 3)
+        merge_info = {}
+
+        # Should not raise
+        controller._validate_merged_trainability(merged, merge_info)
+
+
+class TestMergeControllerDisjointDetection:
+    """Tests for disjoint branch detection in MergeController.execute()."""
+
+    def _make_mock_context_with_branches(self, branch_contexts, in_branch_mode=True):
+        """Create mock context with branch contexts."""
+        class MockContext:
+            def __init__(self):
+                self.custom = {
+                    "branch_contexts": branch_contexts,
+                    "in_branch_mode": in_branch_mode,
+                }
+
+            def copy(self):
+                new = MockContext()
+                new.custom = dict(self.custom)
+                return new
+
+            def with_processing(self, processing):
+                return self.copy()
+
+        return MockContext()
+
+    def _make_disjoint_branch_contexts(self, n_branches=2, samples_per_branch=25):
+        """Create branch contexts for disjoint sample partition."""
+        contexts = []
+
+        class MockInnerContext:
+            def __init__(self, sample_indices, branch_name):
+                self.custom = {
+                    "metadata_partition": {
+                        "sample_indices": sample_indices,
+                        "column": "region",
+                        "value": branch_name,
+                    }
+                }
+
+        for i in range(n_branches):
+            start_idx = i * samples_per_branch
+            sample_indices = list(range(start_idx, start_idx + samples_per_branch))
+            branch_name = f"branch_{i}"
+
+            # Create mock feature snapshot
+            np.random.seed(i)
+            X = np.random.randn(samples_per_branch, 30)
+            fs = FeatureSource()
+            fs.add_samples(X)
+
+            contexts.append({
+                "branch_id": i,
+                "name": branch_name,
+                "context": MockInnerContext(sample_indices, branch_name),
+                "features_snapshot": [fs],
+            })
+
+        return contexts
+
+    def test_disjoint_detection_triggers_disjoint_merge_path(self):
+        """Test that disjoint branches trigger the disjoint merge code path."""
+        controller = MergeController()
+
+        branch_contexts = self._make_disjoint_branch_contexts(n_branches=2, samples_per_branch=25)
+
+        class MockStepInfo:
+            keyword = "merge"
+            original_step = {"merge": "features"}
+
+        dataset = create_test_dataset(n_samples=50, n_features=30)
+        context = self._make_mock_context_with_branches(branch_contexts)
+
+        result_context, output = controller.execute(
+            step_info=MockStepInfo(),
+            dataset=dataset,
+            context=context,
+            runtime_context=None,
+        )
+
+        # Check that disjoint merge was detected
+        assert output.metadata.get("disjoint_merge") is True
+        assert output.metadata.get("branch_type") == "metadata_partitioner"
+
+    def test_non_disjoint_branches_use_standard_merge(self):
+        """Test that non-disjoint branches use standard merge path."""
+        controller = MergeController()
+
+        # Create standard (non-disjoint) branch contexts
+        np.random.seed(42)
+        fs = FeatureSource()
+        fs.add_samples(np.random.randn(50, 30))
+
+        class MockInnerContext:
+            custom = {}  # No partition info
+
+        branch_contexts = [
+            {
+                "branch_id": 0,
+                "name": "branch_0",
+                "context": MockInnerContext(),
+                "features_snapshot": [fs],
+            },
+            {
+                "branch_id": 1,
+                "name": "branch_1",
+                "context": MockInnerContext(),
+                "features_snapshot": [fs],
+            },
+        ]
+
+        class MockStepInfo:
+            keyword = "merge"
+            original_step = {"merge": "features"}
+
+        dataset = create_test_dataset(n_samples=50, n_features=30)
+        context = self._make_mock_context_with_branches(branch_contexts)
+
+        result_context, output = controller.execute(
+            step_info=MockStepInfo(),
+            dataset=dataset,
+            context=context,
+            runtime_context=None,
+        )
+
+        # Check that disjoint merge was NOT used
+        assert output.metadata.get("disjoint_merge") is not True
+
+    def test_disjoint_feature_merge_exits_branch_mode(self):
+        """Test that disjoint feature merge exits branch mode."""
+        controller = MergeController()
+        branch_contexts = self._make_disjoint_branch_contexts(n_branches=2, samples_per_branch=25)
+
+        class MockStepInfo:
+            keyword = "merge"
+            original_step = {"merge": "features"}
+
+        dataset = create_test_dataset(n_samples=50, n_features=30)
+        context = self._make_mock_context_with_branches(branch_contexts)
+
+        result_context, output = controller.execute(
+            step_info=MockStepInfo(),
+            dataset=dataset,
+            context=context,
+            runtime_context=None,
+        )
+
+        # Verify branch mode was exited
+        assert result_context.custom["in_branch_mode"] is False
+        assert result_context.custom["branch_contexts"] == []
+
+
+# =============================================================================
+# Phase 3: Disjoint Merge Metadata Tests
+# =============================================================================
+
+from nirs4all.operators.data.merge import (
+    DisjointBranchInfo,
+    DisjointMergeMetadata,
+)
+
+
+class TestDisjointBranchInfoDataclass:
+    """Tests for DisjointBranchInfo dataclass."""
+
+    def test_creation_with_defaults(self):
+        """Test creating DisjointBranchInfo with minimal args."""
+        info = DisjointBranchInfo(
+            n_samples=50,
+            sample_ids=[0, 1, 2, 3, 4],
+        )
+
+        assert info.n_samples == 50
+        assert info.sample_ids == [0, 1, 2, 3, 4]
+        assert info.n_models_original == 0
+        assert info.n_models_selected == 0
+        assert info.selected_models == []
+        assert info.dropped_models == []
+
+    def test_creation_with_all_fields(self):
+        """Test creating DisjointBranchInfo with all fields."""
+        selected_models = [
+            {"name": "RF", "score": 0.12, "column": 0},
+            {"name": "PLS", "score": 0.15, "column": 1},
+        ]
+        dropped_models = [
+            {"name": "XGB", "score": 0.18},
+        ]
+
+        info = DisjointBranchInfo(
+            n_samples=50,
+            sample_ids=list(range(50)),
+            n_models_original=3,
+            n_models_selected=2,
+            selected_models=selected_models,
+            dropped_models=dropped_models,
+        )
+
+        assert info.n_samples == 50
+        assert info.n_models_original == 3
+        assert info.n_models_selected == 2
+        assert len(info.selected_models) == 2
+        assert len(info.dropped_models) == 1
+
+    def test_to_dict(self):
+        """Test DisjointBranchInfo.to_dict() serialization."""
+        info = DisjointBranchInfo(
+            n_samples=25,
+            sample_ids=[0, 1, 2],
+            n_models_original=2,
+            n_models_selected=2,
+            selected_models=[{"name": "PLS", "score": 0.1, "column": 0}],
+            dropped_models=[],
+        )
+
+        data = info.to_dict()
+
+        assert data["n_samples"] == 25
+        assert data["sample_ids"] == [0, 1, 2]
+        assert data["n_models_original"] == 2
+        assert data["n_models_selected"] == 2
+        assert data["selected_models"] == [{"name": "PLS", "score": 0.1, "column": 0}]
+        assert data["dropped_models"] == []
+
+
+class TestDisjointMergeMetadataDataclass:
+    """Tests for DisjointMergeMetadata dataclass."""
+
+    def test_creation_with_defaults(self):
+        """Test creating DisjointMergeMetadata with defaults."""
+        metadata = DisjointMergeMetadata()
+
+        assert metadata.merge_type == "disjoint_samples"
+        assert metadata.n_columns == 0
+        assert metadata.select_by == "mse"
+        assert metadata.branches == {}
+        assert metadata.column_mapping == {}
+        assert metadata.is_heterogeneous is False
+        assert metadata.feature_dim is None
+
+    def test_creation_with_all_fields(self):
+        """Test creating DisjointMergeMetadata with all fields."""
+        branch_info = DisjointBranchInfo(
+            n_samples=50,
+            sample_ids=list(range(50)),
+            n_models_original=3,
+            n_models_selected=2,
+            selected_models=[
+                {"name": "RF", "score": 0.12, "column": 0},
+                {"name": "PLS", "score": 0.15, "column": 1},
+            ],
+            dropped_models=[{"name": "XGB", "score": 0.18}],
+        )
+
+        metadata = DisjointMergeMetadata(
+            merge_type="disjoint_samples",
+            n_columns=2,
+            select_by="mse",
+            branches={"red": branch_info},
+            column_mapping={0: {"red": "RF"}, 1: {"red": "PLS"}},
+            is_heterogeneous=False,
+            feature_dim=None,
+        )
+
+        assert metadata.n_columns == 2
+        assert "red" in metadata.branches
+        assert metadata.branches["red"].n_samples == 50
+
+    def test_to_dict_and_from_dict_roundtrip(self):
+        """Test DisjointMergeMetadata serialization/deserialization roundtrip."""
+        branch_info = DisjointBranchInfo(
+            n_samples=50,
+            sample_ids=[0, 1, 2],
+            n_models_original=3,
+            n_models_selected=2,
+            selected_models=[{"name": "RF", "score": 0.12, "column": 0}],
+            dropped_models=[{"name": "XGB", "score": 0.18}],
+        )
+
+        original = DisjointMergeMetadata(
+            merge_type="disjoint_samples",
+            n_columns=2,
+            select_by="r2",
+            branches={"red": branch_info},
+            column_mapping={0: {"red": "RF"}},
+            is_heterogeneous=True,
+            feature_dim=100,
+        )
+
+        data = original.to_dict()
+        restored = DisjointMergeMetadata.from_dict(data)
+
+        assert restored.merge_type == original.merge_type
+        assert restored.n_columns == original.n_columns
+        assert restored.select_by == original.select_by
+        assert restored.is_heterogeneous == original.is_heterogeneous
+        assert restored.feature_dim == original.feature_dim
+        assert "red" in restored.branches
+        assert restored.branches["red"].n_samples == 50
+
+    def test_get_branch_summary(self):
+        """Test DisjointMergeMetadata.get_branch_summary()."""
+        metadata = DisjointMergeMetadata(
+            branches={
+                "red": DisjointBranchInfo(n_samples=50, sample_ids=[]),
+                "blue": DisjointBranchInfo(n_samples=100, sample_ids=[]),
+            }
+        )
+
+        summary = metadata.get_branch_summary()
+
+        assert "'red' (50 samples)" in summary
+        assert "'blue' (100 samples)" in summary
+
+    def test_get_column_mapping_summary_homogeneous(self):
+        """Test column mapping summary for homogeneous columns."""
+        metadata = DisjointMergeMetadata(
+            n_columns=2,
+            column_mapping={
+                0: {"red": "PLS", "blue": "PLS"},  # Same model in all branches
+                1: {"red": "RF", "blue": "RF"},   # Same model in all branches
+            },
+        )
+
+        summaries = metadata.get_column_mapping_summary()
+
+        assert len(summaries) == 2
+        assert "PLS (all branches)" in summaries[0]
+        assert "RF (all branches)" in summaries[1]
+
+    def test_get_column_mapping_summary_heterogeneous(self):
+        """Test column mapping summary for heterogeneous columns."""
+        metadata = DisjointMergeMetadata(
+            n_columns=2,
+            column_mapping={
+                0: {"red": "RF", "blue": "PLS"},    # Different models
+                1: {"red": "PLS", "blue": "RF"},    # Different models
+            },
+        )
+
+        summaries = metadata.get_column_mapping_summary()
+
+        assert len(summaries) == 2
+        # Heterogeneous columns show per-branch mapping
+        assert "red: RF" in summaries[0] or "blue: PLS" in summaries[0]
+
+    def test_log_summary(self, caplog):
+        """Test DisjointMergeMetadata.log_summary()."""
+        import logging
+
+        metadata = DisjointMergeMetadata(
+            n_columns=2,
+            branches={
+                "red": DisjointBranchInfo(n_samples=50, sample_ids=[]),
+                "blue": DisjointBranchInfo(n_samples=100, sample_ids=[]),
+            },
+        )
+
+        log_messages = []
+
+        def capture_log(msg):
+            log_messages.append(msg)
+
+        metadata.log_summary(capture_log)
+
+        assert len(log_messages) == 2
+        assert "Merging 2 disjoint branches" in log_messages[0]
+        assert "150 samples × 2 columns" in log_messages[1]
+
+    def test_log_warnings_with_asymmetric_models(self, caplog):
+        """Test DisjointMergeMetadata.log_warnings() with model asymmetry."""
+        metadata = DisjointMergeMetadata(
+            n_columns=2,
+            branches={
+                "red": DisjointBranchInfo(
+                    n_samples=50,
+                    sample_ids=[],
+                    n_models_original=3,
+                    n_models_selected=2,
+                    selected_models=[{"name": "RF"}, {"name": "PLS"}],
+                    dropped_models=[{"name": "XGB"}],
+                ),
+                "blue": DisjointBranchInfo(
+                    n_samples=100,
+                    sample_ids=[],
+                    n_models_original=2,
+                    n_models_selected=2,
+                    selected_models=[{"name": "PLS"}, {"name": "RF"}],
+                    dropped_models=[],
+                ),
+            },
+            is_heterogeneous=True,
+        )
+
+        warnings = []
+
+        def capture_warning(msg):
+            warnings.append(msg)
+
+        metadata.log_warnings(capture_warning)
+
+        # Should have warnings about model count difference and dropped models
+        assert any("Model count differs" in w for w in warnings)
+        # Check dropped models warning for branch with drops
+        assert any("dropped" in w for w in warnings)
+
+    def test_log_warnings_with_heterogeneous_columns(self):
+        """Test DisjointMergeMetadata.log_warnings() with heterogeneous columns."""
+        metadata = DisjointMergeMetadata(
+            n_columns=2,
+            branches={
+                "red": DisjointBranchInfo(
+                    n_samples=50,
+                    sample_ids=[],
+                    n_models_original=2,
+                    n_models_selected=2,
+                    selected_models=[{"name": "RF"}, {"name": "PLS"}],
+                    dropped_models=[],
+                ),
+                "blue": DisjointBranchInfo(
+                    n_samples=100,
+                    sample_ids=[],
+                    n_models_original=2,
+                    n_models_selected=2,
+                    selected_models=[{"name": "PLS"}, {"name": "RF"}],
+                    dropped_models=[],
+                ),
+            },
+            column_mapping={
+                0: {"red": "RF", "blue": "PLS"},
+                1: {"red": "PLS", "blue": "RF"},
+            },
+            is_heterogeneous=True,
+        )
+
+        warnings = []
+
+        def capture_warning(msg):
+            warnings.append(msg)
+
+        metadata.log_warnings(capture_warning)
+
+        # Should have warning about heterogeneous column mapping
+        assert any("heterogeneous" in w.lower() for w in warnings)
+
+
+class TestDisjointMergeMetadataIntegration:
+    """Integration tests for disjoint merge metadata in MergeController."""
+
+    def _make_mock_context_with_disjoint_branches(self, branch_contexts):
+        """Create mock context with disjoint branch contexts."""
+        class MockContext:
+            def __init__(self):
+                self.custom = {
+                    "branch_contexts": branch_contexts,
+                    "in_branch_mode": True,
+                }
+
+            def copy(self):
+                new = MockContext()
+                new.custom = dict(self.custom)
+                return new
+
+            def with_processing(self, processing):
+                return self.copy()
+
+        return MockContext()
+
+    def test_disjoint_feature_merge_includes_metadata(self):
+        """Test that disjoint feature merge output includes disjoint_metadata."""
+        controller = MergeController()
+
+        # Create disjoint branch contexts
+        class MockInnerContext:
+            def __init__(self, sample_indices, branch_name):
+                self.custom = {
+                    "metadata_partition": {
+                        "sample_indices": sample_indices,
+                        "column": "region",
+                    }
+                }
+
+        np.random.seed(42)
+        fs1 = FeatureSource()
+        fs1.add_samples(np.random.randn(25, 30))
+        fs2 = FeatureSource()
+        fs2.add_samples(np.random.randn(25, 30))
+
+        branch_contexts = [
+            {
+                "branch_id": 0,
+                "name": "north",
+                "context": MockInnerContext(list(range(25)), "north"),
+                "features_snapshot": [fs1],
+            },
+            {
+                "branch_id": 1,
+                "name": "south",
+                "context": MockInnerContext(list(range(25, 50)), "south"),
+                "features_snapshot": [fs2],
+            },
+        ]
+
+        class MockStepInfo:
+            keyword = "merge"
+            original_step = {"merge": "features"}
+
+        dataset = create_test_dataset(n_samples=50, n_features=30)
+        context = self._make_mock_context_with_disjoint_branches(branch_contexts)
+
+        result_context, output = controller.execute(
+            step_info=MockStepInfo(),
+            dataset=dataset,
+            context=context,
+            runtime_context=None,
+        )
+
+        # Check that disjoint_metadata is present
+        assert "disjoint_metadata" in output.metadata or any(
+            "disjoint_metadata" in str(v) for v in output.metadata.values()
+        )
+
+        # Check merge_type in metadata
+        if "disjoint_metadata" in output.metadata:
+            assert output.metadata["disjoint_metadata"]["merge_type"] == "disjoint_samples"
