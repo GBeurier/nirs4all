@@ -37,7 +37,8 @@ from .components import (
     PredictionTransformer,
     PredictionDataAssembler,
     ScoreCalculator,
-    IndexNormalizer
+    IndexNormalizer,
+    PartitionScores
 )
 
 if TYPE_CHECKING:
@@ -1367,6 +1368,34 @@ class BaseModelController(OperatorController, ABC):
         w_avg_scores = self.score_calculator.calculate(
             true_values, w_avg_preds, dataset.task_type
         ) if mode not in ("predict", "explain") else None
+
+        # IMPORTANT: Override val_score for avg/w_avg to avoid data leakage.
+        # The validation predictions above are computed by having each fold model
+        # predict on ALL validation samples, but each fold's model has seen its own
+        # validation samples during training. This causes biased (overly optimistic) val scores.
+        # Instead, use the average of individual fold validation scores (which are unbiased OOF scores).
+        if mode not in ("predict", "explain") and len(scores) > 0:
+            # Simple average of fold val_scores for 'avg' fold
+            avg_val_score = float(np.mean(scores))
+            if avg_scores is not None:
+                avg_scores = PartitionScores(
+                    train=avg_scores.train,
+                    val=avg_val_score,  # Override with unbiased average
+                    test=avg_scores.test,
+                    metric=avg_scores.metric,
+                    higher_is_better=avg_scores.higher_is_better
+                )
+
+            # Weighted average of fold val_scores for 'w_avg' fold
+            w_avg_val_score = float(np.sum([w * s for w, s in zip(weights, scores)]))
+            if w_avg_scores is not None:
+                w_avg_scores = PartitionScores(
+                    train=w_avg_scores.train,
+                    val=w_avg_val_score,  # Override with unbiased weighted average
+                    test=w_avg_scores.test,
+                    metric=w_avg_scores.metric,
+                    higher_is_better=w_avg_scores.higher_is_better
+                )
 
         # Calculate full metrics for average predictions
         avg_full_scores = {}
