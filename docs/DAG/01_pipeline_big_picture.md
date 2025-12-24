@@ -1,492 +1,485 @@
-# Document 1 — Pipeline Big Picture
+# Document 1: Pipeline Big Picture
 
-**Version**: 1.0.0
 **Date**: December 2025
-**Status**: Analysis Document
+**Author**: Architecture Assessment
+**Status**: Analysis Complete
 
 ---
 
 ## Table of Contents
 
-1. [Current Pipeline Architecture](#current-pipeline-architecture)
+1. [Current Architecture Overview](#current-architecture-overview)
 2. [Payload Model](#payload-model)
 3. [Dataset Structure & Indexing](#dataset-structure--indexing)
 4. [Views and Layouts](#views-and-layouts)
 5. [Operator Execution Patterns](#operator-execution-patterns)
-6. [Prediction Generation and Persistence](#prediction-generation-and-persistence)
-7. [Pipeline Execution Flow](#pipeline-execution-flow)
+6. [Prediction Generation & Persistence](#prediction-generation--persistence)
+7. [Pipeline Organization & Execution](#pipeline-organization--execution)
 8. [Generator Behavior](#generator-behavior)
 9. [DAG Compatibility Analysis](#dag-compatibility-analysis)
 
 ---
 
-## Current Pipeline Architecture
+## Current Architecture Overview
 
-### Module Map
+### Module Structure
 
 ```
 nirs4all/
 ├── pipeline/
-│   ├── runner.py              # PipelineRunner - main entry point for users
+│   ├── runner.py              # PipelineRunner (public entry point)
 │   ├── config/
-│   │   ├── pipeline_config.py # PipelineConfigs - normalizes/validates/expands pipelines
-│   │   ├── context.py         # ExecutionContext, DataSelector, PipelineState, RuntimeContext
-│   │   ├── generator.py       # expand_spec, _or_, _range_ keywords → multiple configs
-│   │   └── component_serialization.py  # serialize_component → JSON-safe format
+│   │   ├── pipeline_config.py # PipelineConfigs (step parsing, generation)
+│   │   ├── context.py         # ExecutionContext, RuntimeContext, DataSelector
+│   │   ├── generator.py       # expand_spec, _or_, _range_ expansion
+│   │   └── component_serialization.py
 │   ├── execution/
-│   │   ├── orchestrator.py    # PipelineOrchestrator - runs N pipelines × M datasets
-│   │   ├── executor.py        # PipelineExecutor - runs a single pipeline on one dataset
-│   │   ├── builder.py         # ExecutorBuilder - factory for executor creation
-│   │   └── result.py          # StepResult, StepOutput, ArtifactMeta
+│   │   ├── orchestrator.py    # PipelineOrchestrator (multi-pipeline/dataset)
+│   │   ├── executor.py        # PipelineExecutor (single pipeline execution)
+│   │   ├── builder.py         # ExecutorBuilder
+│   │   └── result.py          # StepOutput, StepResult, ArtifactMeta
 │   ├── steps/
-│   │   ├── step_runner.py     # StepRunner - executes one step via controller dispatch
-│   │   ├── parser.py          # StepParser, ParsedStep - normalizes step configs
-│   │   └── router.py          # ControllerRouter - matches step → controller
+│   │   ├── parser.py          # StepParser, ParsedStep
+│   │   ├── router.py          # ControllerRouter (registry dispatch)
+│   │   └── step_runner.py     # StepRunner (single step execution)
 │   ├── storage/
-│   │   ├── io.py              # SimulationSaver - file I/O for runs
-│   │   ├── manifest_manager.py # ManifestManager - tracks pipelines/artifacts
-│   │   └── artifacts/         # ArtifactRegistry, ArtifactLoader, ArtifactRecord
-│   ├── bundle/                # Export/import trained pipelines (.n4a)
-│   └── trace/                 # TraceRecorder, ExecutionTrace - replay support
+│   │   ├── artifacts/         # ArtifactRegistry, ArtifactRecord
+│   │   ├── manifest_manager.py
+│   │   └── io.py              # SimulationSaver
+│   └── trace/
+│       ├── execution_trace.py # ExecutionTrace, ExecutionStep
+│       ├── recorder.py        # TraceRecorder
+│       └── extractor.py       # TraceBasedExtractor, MinimalPipeline
 ├── controllers/
-│   ├── controller.py          # OperatorController abstract base class
-│   ├── registry.py            # @register_controller decorator, priority dispatch
-│   ├── transforms/            # TransformController, YProcessingController
-│   ├── models/                # BaseModelController, MetaModelController
-│   ├── splitters/             # SplitterController - CV splits (KFold, etc.)
-│   ├── data/                  # BranchController, MergeController, source_branch, etc.
-│   └── flow/                  # SequentialController, ScopeController, ConditionController
+│   ├── registry.py            # @register_controller, CONTROLLER_REGISTRY
+│   ├── controller.py          # OperatorController (ABC)
+│   ├── data/                  # branch, merge, feature_augmentation, etc.
+│   ├── transforms/            # TransformerMixin controllers
+│   ├── models/                # Model training controllers
+│   ├── splitters/             # Cross-validation controllers
+│   ├── charts/                # Visualization controllers
+│   └── flow/                  # condition, scope, sequential
 ├── data/
-│   ├── dataset.py             # SpectroDataset - main facade
-│   ├── config.py              # DatasetConfigs - normalizes dataset inputs
-│   ├── predictions.py         # Predictions - stores/ranks model outputs
-│   ├── features.py            # Features - internal feature storage
-│   ├── targets.py             # Targets - internal target storage
-│   ├── indexer.py             # Indexer - sample indexing (partition, fold, origin)
-│   └── metadata.py            # Metadata - sample-level metadata
-├── operators/
-│   ├── transforms/            # SNV, MSC, FirstDerivative, etc. (TransformerMixin)
-│   ├── augmentation/          # AddNoise, Shift, etc.
-│   ├── models/                # nicon, decon, meta-model configs
-│   └── splitters/             # KennardStone, SPXY
-└── visualization/             # PredictionAnalyzer, charts
+│   ├── dataset.py             # SpectroDataset (main facade)
+│   ├── features.py            # Features (multi-source coordinator)
+│   ├── targets.py             # Targets (y transformation chain)
+│   ├── predictions.py         # Predictions (storage/ranking facade)
+│   ├── indexer.py             # Indexer (sample tracking)
+│   ├── metadata.py            # Metadata (Polars-backed)
+│   └── _features/
+│       └── feature_source.py  # FeatureSource (per-source storage)
+└── operators/
+    ├── transforms/            # NIRS-specific transformers (SNV, MSC, etc.)
+    ├── models/                # Pre-built models (nicon, decon)
+    └── splitters/             # Data splitting (KS, SPXY)
 ```
 
-### Execution Flow Summary
+### Key Responsibilities
 
-```
-┌─────────────────┐
-│ PipelineRunner  │  User-facing API: runner.run(pipeline, dataset)
-└────────┬────────┘
-         │
-         ▼
-┌──────────────────────┐
-│ PipelineOrchestrator │  Coordinates N pipelines × M datasets
-│                      │  Creates workspace, aggregates predictions
-└──────────┬───────────┘
-           │  for each (pipeline, dataset)
-           ▼
-┌──────────────────┐
-│ PipelineExecutor │  Executes one pipeline on one dataset
-│                  │  Manages step iteration, branch contexts
-└────────┬─────────┘
-         │  for each step
-         ▼
-┌────────────┐
-│ StepRunner │  Parses step, routes to controller
-└─────┬──────┘
-      │
-      ▼
-┌────────────────────┐
-│ OperatorController │  Implements step-specific logic
-│ (via registry)     │  Returns (context, StepOutput)
-└────────────────────┘
-```
+| Component | Responsibility |
+|-----------|----------------|
+| `PipelineRunner` | Public API entry point, delegates to `PipelineOrchestrator` |
+| `PipelineOrchestrator` | Multi-dataset/pipeline coordination, workspace management |
+| `PipelineExecutor` | Single pipeline execution, step iteration, branching |
+| `StepRunner` | Single step dispatch: parse → route → execute |
+| `StepParser` | Normalize diverse step syntaxes to `ParsedStep` |
+| `ControllerRouter` | Match step to controller via registry priority |
+| `OperatorController` | Abstract base for all step handlers |
+| `SpectroDataset` | Multi-source feature/target/metadata facade |
+| `Predictions` | Prediction storage, ranking, OOF reconstruction |
+| `TraceRecorder` | Record execution path for deterministic replay |
 
 ---
 
 ## Payload Model
 
-The pipeline manipulates a **moving payload** that consists of four components:
+The pipeline manipulates a conceptual "payload" composed of four elements:
 
 ### 1. Dataset (`SpectroDataset`)
-- **Location**: `nirs4all/data/dataset.py`
-- **Role**: Holds features (X), targets (Y), metadata, sample indexing
-- **Key methods**: `x(selector, layout)`, `y(selector)`, `add_samples()`, `add_processing()`
-
-### 2. Predictions (`Predictions`)
-- **Location**: `nirs4all/data/predictions.py`
-- **Role**: Stores model predictions with provenance (model, fold, partition, branch)
-- **Key methods**: `add_prediction()`, `filter_predictions()`, `top()`, `get_best()`
-- **Stored fields**: `y_true`, `y_pred`, `y_proba`, `sample_indices`, `fold_id`, `branch_id`, `step_idx`, scores
-
-### 3. Artifacts
-- **Location**: `nirs4all/pipeline/storage/artifacts/`
-- **Role**: Persisted binary objects (fitted transformers, trained models)
-- **System**: `ArtifactRegistry.register()` → `ArtifactRecord` → saved to disk
-- **Identification**: Deterministic artifact_id based on `step:fold:branch_path:source`
-
-### 4. Context (`ExecutionContext` + `RuntimeContext`)
-- **Location**: `nirs4all/pipeline/config/context.py`
-- **Role**: Carries state through pipeline execution
-- **Components**:
-  - `DataSelector`: partition, processing chains, layout, branch_id, branch_path
-  - `PipelineState`: y_processing version, step_number, mode (train/predict)
-  - `StepMetadata`: ephemeral flags for controller coordination
-  - `RuntimeContext`: infrastructure references (saver, manifest_manager, artifact_registry, step_runner)
-
-### Payload Flow
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                         PAYLOAD                                   │
-├──────────────────────────────────────────────────────────────────┤
-│  Dataset         │  Predictions     │  Artifacts    │  Context   │
-│  ─────────       │  ───────────     │  ─────────    │  ───────   │
-│  • X (features)  │  • y_pred        │  • Fitted     │  • Selector│
-│  • Y (targets)   │  • y_true        │    transformers│  • State   │
-│  • Metadata      │  • Scores        │  • Trained    │  • Metadata│
-│  • Folds         │  • Fold/branch   │    models     │  • Custom  │
-│  • Sources       │    provenance    │  • Splitter   │  • Branch  │
-│  • Processings   │  • Sample indices│    states     │    contexts│
-└──────────────────────────────────────────────────────────────────┘
-       ▲                   ▲                  ▲             ▲
-       │                   │                  │             │
-       └───────────────────┴──────────────────┴─────────────┘
-                    Controllers read/write these
+SpectroDataset
+├── _features (Features)
+│   └── sources: List[FeatureSource]
+│       └── data: np.ndarray (samples × processings × features)
+│       └── processing_ids: List[str]
+│       └── headers: List[str]
+├── _targets (Targets)
+│   └── versions: Dict[str, np.ndarray]  # "numeric" → "scaled" → ...
+│   └── transformers: Dict[str, TransformerMixin]
+├── _metadata (Metadata)
+│   └── df: pl.DataFrame
+├── _indexer (Indexer)
+│   └── df: pl.DataFrame  # partition, group, origin, augmentation, etc.
+└── _folds: List[Tuple[train_idx, val_idx]]
+```
+
+### 2. Predictions (`Predictions`)
+
+```
+Predictions
+├── _storage (PredictionStorage)
+│   └── _df: pl.DataFrame  # Metadata columns
+│   └── _array_registry: Dict[id, np.ndarray]  # y_true, y_pred, y_proba
+├── _indexer (PredictionIndexer)
+├── _ranker (PredictionRanker)
+├── _aggregator (PartitionAggregator)
+└── _query (CatalogQueryEngine)
+```
+
+Key fields per prediction entry:
+- `dataset_name`, `config_name`, `pipeline_uid`
+- `model_name`, `model_classname`, `fold_id`
+- `partition` (train/val/test), `step_idx`, `op_counter`
+- `y_true`, `y_pred`, `y_proba` (stored via array registry)
+- `val_score`, `test_score`, `metric`
+- `branch_id`, `branch_path`, `branch_name`
+- `model_artifact_id`, `trace_id`
+
+### 3. Artifacts
+
+Artifacts are persisted binary objects (fitted transformers, trained models):
+
+```python
+@dataclass
+class ArtifactRecord:
+    artifact_id: str          # "s1.MinMaxScaler$abc123:all"
+    step_index: int
+    operator_class: str
+    file_path: Path
+    format: str               # "joblib", "keras", "torch"
+    branch_path: List[int]
+    fold_id: Optional[int]
+    chain_path: str           # "s1.MinMaxScaler>s3.PLS"
+    source_index: Optional[int]
+```
+
+### 4. Context (`ExecutionContext` + `RuntimeContext`)
+
+```python
+@dataclass
+class ExecutionContext:
+    selector: DataSelector      # partition, processing, layout, branch_path
+    state: PipelineState        # y_processing, step_number, mode
+    metadata: StepMetadata      # keyword, ephemeral flags
+    custom: Dict[str, Any]      # branch_contexts, in_branch_mode
+    aggregate_column: Optional[str]
+
+@dataclass
+class RuntimeContext:
+    saver: SimulationSaver
+    manifest_manager: ManifestManager
+    artifact_loader: ArtifactLoader
+    artifact_provider: ArtifactProvider
+    artifact_registry: ArtifactRegistry
+    step_runner: StepRunner
+    trace_recorder: TraceRecorder
+    pipeline_uid: str
+    step_number: int
+    operation_count: int
+    # ... (counters, explainer, etc.)
 ```
 
 ---
 
 ## Dataset Structure & Indexing
 
-### SpectroDataset Internal Architecture
+### Multi-Source Architecture
 
 ```
 SpectroDataset
-├── _indexer (Indexer)
-│   └── sample_records: List[Dict]  # partition, fold_id, origin, excluded, etc.
-├── _features (Features)
-│   └── sources: List[FeatureSource]  # one per data source
-│       └── processings: List[Processing]  # transformation chains
-│           └── data: np.ndarray  # shape (n_samples, n_features)
-├── _targets (Targets)
-│   └── processings: Dict[str, np.ndarray]  # "numeric", "scaled_MinMaxScaler", etc.
-├── _metadata (Metadata)
-│   └── columns: Dict[str, List]  # ID, Group, custom columns
-├── _folds: List[Tuple[train_indices, val_indices]]
-├── _signal_types: List[SignalType]  # per-source signal type
-└── _aggregate_column: Optional[str]  # for prediction aggregation
+└── Features
+    └── sources[0]: FeatureSource  # e.g., "NIR spectra"
+    │   └── data: (N, P₀, F₀)      # N samples, P₀ processings, F₀ features
+    │   └── processing_ids: ["raw", "SNV", "SNV>SG"]
+    └── sources[1]: FeatureSource  # e.g., "markers"
+        └── data: (N, P₁, F₁)
+        └── processing_ids: ["raw", "MinMax"]
 ```
 
-### Multi-Dimensional Indexing
+### Indexer Structure
 
-**Sources** (data provenance):
-- Multiple sensors/modalities (e.g., NIR, Raman, markers)
-- Each source has independent feature headers/units
-- Accessed via `dataset.n_sources`, `dataset.signal_type(source_idx)`
+The `Indexer` maintains a Polars DataFrame tracking sample provenance:
 
-**Transformations/Processings** (per source):
-- Transformation chains: `["raw"]`, `["raw", "SNV"]`, `["raw", "SNV", "D1"]`
-- New processings added via `dataset.add_processing(source, name, data)`
-- Selected via `context.selector.processing = [["raw", "SNV"]]`
-
-**Repetitions** (samples with same target):
-- Multiple measurements per physical sample
-- Tracked via `origin` in indexer (augmented samples point to origin)
-- Aggregation: `dataset.aggregate = "ID"` or `"y"`
+| Column | Type | Description |
+|--------|------|-------------|
+| `_id` | int | Unique sample ID |
+| `partition` | str | "train", "test", "val" |
+| `group` | str/int | Optional grouping key |
+| `origin` | int | Parent sample ID (for augmented) |
+| `augmentation` | str | Augmentation method name |
+| `excluded` | bool | Outlier exclusion flag |
 
 ### Target Transformation Chain
 
-Targets follow a similar transformation pattern:
+```
+Targets.versions:
+  "raw" → (100,)                    # Original y values
+  "numeric" → (100,)                # After label encoding (classification)
+  "scaled_MinMaxScaler_001" → (100,) # After y_processing
 
-```python
-dataset._targets.processings = {
-    "numeric": np.array([...]),               # Original
-    "scaled_MinMaxScaler": np.array([...]),   # After y_processing
-    "encoded_LabelEncoder_001": np.array([...])  # Classification
-}
+Targets.transformers:
+  "scaled_MinMaxScaler_001" → MinMaxScaler(fitted)
 ```
 
-The chain is tracked in `context.state.y_processing` to enable inverse transforms.
+Enables inverse transform for prediction output.
 
 ---
 
 ## Views and Layouts
 
-### Layout Modes
-
-| Layout | Shape | Use Case |
-|--------|-------|----------|
-| `"2d"` | `(samples, features)` | Standard ML models (sklearn, XGBoost) |
-| `"3d"` | `(samples, processings, features)` | CNNs, attention models |
-| `"native"` | `List[np.ndarray]` per source | Multi-head models |
-
-### View Construction
+### SpectroDataset.x() Layouts
 
 ```python
-# 2D layout with source concatenation
+# 2D layout (default): flatten processings, optionally concat sources
 X = dataset.x(selector, layout="2d", concat_source=True)
-# Shape: (n_samples, sum(features_per_source))
+# Shape: (N, sum(P_i * F_i))
 
-# 3D layout without concatenation
+# 2D layout per-source
+X_list = dataset.x(selector, layout="2d", concat_source=False)
+# Returns: [arr₀, arr₁, ...] each (N, P_i * F_i)
+
+# 3D layout: keep processing dimension
 X = dataset.x(selector, layout="3d", concat_source=False)
-# Returns: [array(samples, procs, feats_src0), array(samples, procs, feats_src1), ...]
-
-# Native layout (for multi-input models)
-X = dataset.x(selector, layout="native")
-# Returns: {"NIR": array, "Raman": array, "markers": array}
+# Returns: [arr₀, ...] each (N, P_i, F_i)
 ```
 
-### Selector-Based Filtering
-
-The `DataSelector` drives all data access:
+### DataSelector (View Specification)
 
 ```python
-selector = DataSelector(
-    partition="train",           # "train", "test", "val", "all"
-    processing=[["raw", "SNV"]], # Per-source processing chains
-    layout="2d",
-    fold_id=0,                   # For CV iteration
-    include_augmented=True,      # Include augmented samples?
-    include_excluded=False,      # Include outlier-excluded samples?
-    branch_id=1,                 # Branch context (0-indexed)
-    branch_path=[0, 1],          # Nested branch path
-)
-X = dataset.x(selector)
+@dataclass
+class DataSelector:
+    partition: str = "all"
+    processing: List[List[str]] = [["raw"]]  # Per-source
+    layout: str = "2d"
+    concat_source: bool = True
+    fold_id: Optional[int] = None
+    include_augmented: bool = False
+    branch_id: Optional[int] = None
+    branch_path: List[int] = []
+    branch_name: Optional[str] = None
 ```
+
+Controllers update `selector.processing` as transformations are applied.
 
 ---
 
 ## Operator Execution Patterns
 
-### Controller Pattern
+### Controller Dispatch
 
-All step logic is implemented via controllers:
+```
+StepRunner.execute(step)
+  └─ StepParser.parse(step) → ParsedStep
+  └─ ControllerRouter.route(parsed_step)
+      └─ for controller in CONTROLLER_REGISTRY (sorted by priority):
+           if controller.matches(step, operator, keyword):
+               return controller
+  └─ controller.execute(...)
+```
+
+### Controller Base Class
 
 ```python
-@register_controller
-class TransformController(OperatorController):
-    priority = 100  # Lower = higher priority in matching
+class OperatorController(ABC):
+    priority: int = 100  # Lower = higher priority
 
     @classmethod
-    def matches(cls, step, operator, keyword) -> bool:
-        # Match if operator is TransformerMixin
-        return isinstance(operator, TransformerMixin)
+    def matches(cls, step, operator, keyword) -> bool: ...
 
-    def execute(self, step_info, dataset, context, runtime_context, ...):
-        # 1. Get features
-        X = dataset.x(context.selector)
+    @classmethod
+    def use_multi_source(cls) -> bool: ...
 
-        # 2. Fit/transform
-        operator.fit(X, y)
-        X_transformed = operator.transform(X)
+    @classmethod
+    def supports_prediction_mode(cls) -> bool: ...
 
-        # 3. Update dataset
-        dataset.add_processing(source, name, X_transformed)
-
-        # 4. Register artifact
-        artifact = runtime_context.artifact_registry.register(
-            step_index=runtime_context.step_number,
-            operator=operator,
-            fold_id=None,
-            ...
-        )
-
-        # 5. Return updated context and artifacts
-        return context, StepOutput(artifacts=[artifact])
+    def execute(self, step_info, dataset, context, runtime_context,
+                source, mode, loaded_binaries, prediction_store
+    ) -> Tuple[ExecutionContext, StepOutput]: ...
 ```
 
-### Framework-Specific Patterns
+### Sklearn Transformer Pattern
 
-**sklearn TransformerMixin**:
-- `TransformController` - standard transformers
-- `YProcessingController` - target transformers
-- `FeatureSelectionController` - feature selection
-
-**sklearn Model**:
-- `BaseModelController` - handles CV loop internally
-- Creates N fold artifacts + averaged predictions
-- Registers predictions in `prediction_store`
-
-**TensorFlow/PyTorch/JAX**:
-- `TFModelController`, `TorchModelController`, `JaxModelController`
-- Dynamic model building (shape known only at runtime)
-- Checkpoint saving/loading
-
-### Serialization Boundaries
-
-All operators pass through `serialize_component()` before execution:
+From `TransformController`:
 
 ```python
-# Input (Python objects)
-pipeline = [MinMaxScaler(), PLSRegression(n_components=10)]
+def execute(...):
+    for src in sources:
+        X = dataset.x(selector, include_excluded=True)
 
-# After serialization
-[
-    {"class": "sklearn.preprocessing._data.MinMaxScaler", "params": {}},
-    {"class": "sklearn.cross_decomposition._pls.PLSRegression", "params": {"n_components": 10}}
-]
-```
-
-This enables:
-- YAML/JSON pipeline definitions
-- Reproducible pipeline hashing
-- Artifact identification
-
----
-
-## Prediction Generation and Persistence
-
-### Prediction Flow
-
-```
-┌──────────────────┐
-│ BaseModelController │
-└────────┬─────────┘
-         │ For each fold:
-         ▼
-┌─────────────────────────────────────────┐
-│ 1. Get train/val indices from dataset   │
-│ 2. Train model on train partition       │
-│ 3. Predict on val partition (OOF)       │
-│ 4. Predict on test partition            │
-│ 5. Add predictions to prediction_store  │
-│ 6. Register model artifact              │
-└─────────────────────────────────────────┘
-```
-
-### Prediction Record Fields
-
-```python
-prediction_store.add_prediction(
-    dataset_name="wheat",
-    model_name="PLSRegression",
-    model_classname="sklearn.cross_decomposition._pls.PLSRegression",
-    pipeline_uid="abc123",
-    step_idx=3,
-    fold_id=0,
-    branch_id=1,
-    branch_name="snv_pls",
-    partition="val",          # "train", "val", "test"
-    sample_indices=[...],     # Which samples
-    y_true=np.array([...]),
-    y_pred=np.array([...]),
-    y_proba=np.array([...]),  # For classification
-    val_score=0.85,
-    test_score=0.88,
-    metric="rmse",
-    scores={"val": {"rmse": 0.15, "r2": 0.92}},
-    model_artifact_id="0001:3:0:b0",  # For model loading
-    trace_id="...",           # For execution replay
-)
-```
-
-### OOF Reconstruction
-
-For stacking/merging, predictions are reconstructed from OOF (out-of-fold) values:
-
-```python
-# TrainingSetReconstructor in controllers/models/stacking.py
-reconstructor = TrainingSetReconstructor(
-    prediction_store=prediction_store,
-    source_model_names=["PLS", "RF"],
-)
-result = reconstructor.reconstruct(dataset, context)
-# result.X_train_meta: OOF predictions for train samples
-# result.X_test_meta: Averaged test predictions
-```
-
-This prevents data leakage when merged predictions are used for downstream training.
-
----
-
-## Pipeline Execution Flow
-
-### Single Pipeline Execution (PipelineExecutor)
-
-```python
-# In executor.py
-def _execute_steps(self, steps, dataset, context, runtime_context, ...):
-    for step in steps:
-        self.step_number += 1
-        context = context.with_step_number(self.step_number)
-
-        # Check for branch mode
-        branch_contexts = context.custom.get("branch_contexts", [])
-
-        if branch_contexts and not is_branch_step and not is_merge_step:
-            # Execute on each branch
-            context = self._execute_step_on_branches(...)
+        if mode == "train":
+            transformer.fit(X)
+            X_new = transformer.transform(X)
+            # Register artifact
         else:
-            # Normal execution
-            context = self._execute_single_step(...)
+            transformer = loaded_binaries[...]
+            X_new = transformer.transform(X)
 
-    return context
+        dataset.update_features(old_proc, X_new, new_proc, source=src)
+        context.selector.processing[src].append(new_proc)
+
+    return context, StepOutput(artifacts=[...])
 ```
 
-### Branch Mode Execution
+### TensorFlow/PyTorch Model Pattern
 
-When a `branch` step is encountered:
-
-1. **BranchController.execute()**:
-   - Parses branch definitions
-   - For each branch: creates isolated context copy
-   - Executes branch substeps sequentially
-   - Stores branch contexts in `context.custom["branch_contexts"]`
-
-2. **Post-branch steps**:
-   - Executor detects `branch_contexts` is non-empty
-   - Each step is executed N times (once per branch)
-   - Branch-specific artifacts are tagged with `branch_id`
-
-3. **MergeController.execute()**:
-   - Collects features/predictions from branches
-   - Concatenates into unified dataset
-   - Clears `branch_contexts` (exits branch mode)
-
-### Fold Iteration
-
-For cross-validation, the model controller handles fold iteration internally:
+From `BaseModelController`:
 
 ```python
-# In BaseModelController
-for fold_idx, (train_indices, val_indices) in enumerate(folds):
-    # Get partition data
-    X_train = dataset.x(context.with_partition("train"))
-    y_train = dataset.y(context.with_partition("train"))
+def execute(...):
+    for fold_idx, (train_idx, val_idx) in enumerate(dataset.folds):
+        X_train = dataset.x({"partition": "train"})
+        y_train = dataset.y({"partition": "train"})
 
-    # Train
-    model.fit(X_train, y_train)
+        if mode == "train":
+            model = self.build_model(n_features=X_train.shape[1])  # DYNAMIC
+            model.fit(X_train, y_train)
+            # Save artifact per fold
+        else:
+            model = loaded_binaries[fold_idx]
 
-    # Predict val (OOF)
-    X_val = dataset.x(context.with_fold(fold_idx))
-    y_pred_val = model.predict(X_val)
+        y_pred = model.predict(X_val)
+        prediction_store.add_prediction(...)
 
-    # Store predictions
-    prediction_store.add_prediction(fold_id=fold_idx, partition="val", ...)
+    return context, StepOutput(artifacts=[...])
+```
 
-    # Register artifact
-    artifact_registry.register(step_index, model, fold_id=fold_idx, ...)
+**Key insight**: TF/Keras model `build()` happens at runtime after feature dimension is known.
+
+---
+
+## Prediction Generation & Persistence
+
+### Training Flow
+
+```
+ModelController.execute(mode="train")
+  └─ For each fold:
+      └─ Build/train model
+      └─ model.predict(X_val) → y_pred_val
+      └─ model.predict(X_test) → y_pred_test
+      └─ prediction_store.add_prediction(
+           partition="val", fold_id=fold_idx,
+           y_true, y_pred, sample_indices,
+           model_name, step_idx, branch_id, ...
+         )
+      └─ Save model artifact
+  └─ Aggregate folds → add averaged predictions
+```
+
+### OOF Reconstruction (for Stacking)
+
+```python
+# TrainingSetReconstructor: Reconstruct OOF predictions for meta-model training
+reconstructor = TrainingSetReconstructor(prediction_store, source_model_names)
+result = reconstructor.reconstruct(dataset, context)
+# result.X_train_meta: (N_train, N_models) - OOF predictions
+# result.X_test_meta: (N_test, N_models) - averaged test predictions
+```
+
+### Prediction Persistence
+
+```
+Predictions.save_to_file("predictions.meta.parquet")
+  └─ predictions_meta.parquet  # Metadata columns
+  └─ predictions_arrays.parquet  # y_true, y_pred, y_proba (binary)
+```
+
+---
+
+## Pipeline Organization & Execution
+
+### Current Execution Model
+
+```
+PipelineOrchestrator.execute(pipeline, dataset)
+  └─ Normalize inputs to PipelineConfigs, DatasetConfigs
+  └─ For each dataset config:
+      └─ Create ArtifactRegistry, ExecutorBuilder
+      └─ For each pipeline config (after generation):
+          └─ executor.execute(steps, dataset, context, ...)
+              └─ For each step in steps:
+                  └─ step_runner.execute(step, ...)
+                      └─ Check branch_contexts → dispatch per-branch
+                      └─ Parse → Route → Controller.execute()
+```
+
+### Branching Mechanics
+
+**Branch Creation** (`BranchController`):
+```python
+def execute(...):
+    branch_defs = self._parse_branch_definitions(step_info)
+    branch_contexts = []
+
+    for branch_id, branch_def in enumerate(branch_defs):
+        branch_context = initial_context.copy()
+        branch_context.selector.branch_path = [branch_id]
+
+        # Snapshot features before branch
+        # Execute branch steps
+        for substep in branch_def["steps"]:
+            result = runtime_context.step_runner.execute(substep, ...)
+            branch_context = result.updated_context
+
+        # Snapshot features after branch
+        branch_contexts.append({
+            "branch_id": branch_id,
+            "context": branch_context,
+            "features_snapshot": ...
+        })
+
+    context.custom["branch_contexts"] = branch_contexts
+    context.custom["in_branch_mode"] = True
+```
+
+**Post-Branch Execution** (`PipelineExecutor._execute_steps`):
+```python
+for step in steps:
+    branch_contexts = context.custom.get("branch_contexts", [])
+    is_branch_step = isinstance(step, dict) and "branch" in step
+    is_merge_step = isinstance(step, dict) and "merge" in step
+
+    if branch_contexts and not is_branch_step and not is_merge_step:
+        # Execute step on EACH branch
+        for branch_info in branch_contexts:
+            # Restore features snapshot
+            # Execute step with branch context
+    else:
+        # Normal single-context execution
+```
+
+**Branch Merge** (`MergeController`):
+```python
+def execute(...):
+    # Collect features and/or predictions from branches
+    merged_features = self._collect_features(branch_contexts, ...)
+    merged_predictions = self._collect_predictions(prediction_store, ...)
+
+    # Store merged output
+    dataset.add_merged_features(concatenated)
+
+    # EXIT BRANCH MODE
+    context.custom["branch_contexts"] = []
+    context.custom["in_branch_mode"] = False
 ```
 
 ---
 
 ## Generator Behavior
 
-### Current Generator System
+### Current Design
 
-The generator expands pipeline specifications into concrete variants **before** execution:
+Generators (`_or_`, `_range_`, etc.) expand **before execution**:
 
 ```python
-# In pipeline_config.py
 class PipelineConfigs:
-    def __init__(self, definition, ...):
+    def __init__(self, definition, max_generation_count=10000):
         self.steps = self._load_steps(definition)
         self.steps = serialize_component(self.steps)
 
         if self._has_gen_keys(self.steps):
-            # Expand _or_, _range_, etc.
+            count = count_combinations(self.steps)
             expanded = expand_spec_with_choices(self.steps)
             self.steps = [config for config, choices in expanded]
             self.generator_choices = [choices for config, choices in expanded]
@@ -494,34 +487,27 @@ class PipelineConfigs:
             self.steps = [self.steps]
 ```
 
-### Generator Keywords
-
-| Keyword | Purpose | Example |
-|---------|---------|---------|
-| `_or_` | Choice between alternatives | `{"_or_": [SNV(), MSC()]}` → 2 configs |
-| `_range_` | Numeric sequence | `{"_range_": [5, 15, 5]}` → [5, 10, 15] |
-| `_log_range_` | Logarithmic sequence | `{"_log_range_": [0.001, 1, 4]}` |
-| `_grid_` | Cartesian product | `{"_grid_": {"x": [1, 2], "y": ["A", "B"]}}` |
-| `pick` | Combinations | `{"_or_": [A, B, C], "pick": 2}` → C(3,2) |
-| `count` | Limit variants | `{"_or_": [...], "count": 5}` |
-
-### Branch vs Generator
-
-Currently, **generator expansion happens statically** at `PipelineConfigs` initialization. Branch expansion happens **dynamically** at runtime via `BranchController`.
-
-**Key insight for DAG**: Generator syntax inside branches is handled by `BranchController`:
+**Exception**: Generators inside `branch` are handled at runtime by `BranchController`:
 
 ```python
-# In branch.py
-def _parse_branch_definitions(self, step_info):
-    raw_def = step_info.original_step.get("branch")
-
-    # Handle generator syntax within branch
-    if isinstance(raw_def, dict) and is_generator_node(raw_def):
-        return self._expand_generator_branches(raw_def)
+# In BranchController._parse_branch_definitions:
+if is_generator_node(raw_def):
+    return self._expand_generator_branches(raw_def)
+    # {"_or_": [SNV, MSC, D1]} → 3 runtime branches
 ```
 
-This means generators within branches become **runtime branches**, not separate pipelines.
+### Generator Keywords
+
+| Keyword | Behavior | Scope |
+|---------|----------|-------|
+| `_or_` | Choose from alternatives | Pre-execution OR branch runtime |
+| `_range_` | Numeric sequence | Pre-execution OR branch runtime |
+| `_log_range_` | Logarithmic sequence | Pre-execution |
+| `_grid_` | Cartesian product | Pre-execution |
+| `_sample_` | Statistical sampling | Pre-execution |
+| `pick` | Combinations | Pre-execution |
+| `arrange` | Permutations | Pre-execution |
+| `count` | Limit variants | Pre-execution |
 
 ---
 
@@ -529,107 +515,90 @@ This means generators within branches become **runtime branches**, not separate 
 
 ### What Maps Naturally to Nodes/Edges
 
-| Current Concept | DAG Mapping | Notes |
-|-----------------|-------------|-------|
-| Pipeline step | Node | 1:1 mapping |
-| Step output → next step input | Edge | Implicit today, explicit in DAG |
-| Branch | Fork node | One input, N outputs |
-| Merge | Join node | N inputs, one output |
-| Fold iteration | Sub-graph per fold | Or: fold models as branches |
-| Source branch | Fork by data provenance | Orthogonal to pipeline branches |
+| Current Concept | DAG Mapping |
+|-----------------|-------------|
+| Pipeline step | Node |
+| Context flow | Edge (data dependency) |
+| Controller | Node executor |
+| Dataset | Payload on edges |
+| Branch | Fork node (1 → N edges) |
+| Merge | Join node (N → 1 edges) |
+| Generator in branch | Dynamic node creation |
 
-### Currently Sequential but Could Be DAG
+### What Is Currently Sequential But Could Be DAG
 
-1. **Feature augmentation**: `{"feature_augmentation": [SNV(), D1()]}`
-   - Currently: sequential loop adding each transformer
-   - DAG: parallel nodes, merge at end
-
-2. **Multi-source processing**: `{"source_branch": {...}}`
-   - Currently: sequential per-source
-   - DAG: parallel per-source, merge
-
-3. **Cross-validation folds**:
-   - Currently: loop inside model controller
-   - DAG: N parallel fold nodes → merge (average) node
-
-4. **Generator-based branches**: `{"branch": {"_or_": [A, B, C]}}`
-   - Currently: runtime branch expansion
-   - DAG: explicit fork → N parallel paths → merge
+1. **Cross-source operations**: Steps applied to multiple sources could parallelize
+2. **Independent branches**: Currently sequential iteration, could parallel
+3. **Fold-level training**: Currently sequential, could parallelize per-fold
+4. **Multi-dataset runs**: Already conceptually parallel (separate contexts)
 
 ### Runtime-Only Construction Requirements
 
-**Critical**: Some nodes cannot be pre-defined because their structure depends on earlier transformations:
+```
+⚠️ CRITICAL: These patterns REQUIRE dynamic DAG expansion
 
-1. **TensorFlow/PyTorch model building**:
-   - Input shape unknown until preprocessing completes
-   - Build function called with actual `input_shape` at runtime
-   - **DAG implication**: Model node is a "placeholder" until input shape is available
+1. Feature Dimension Discovery
+   └─ TensorFlow model.build(input_shape) requires knowing X.shape[1]
+   └─ AutoML feature selection changes dimensions
+   └─ PCA n_components="mle" determines dim at fit time
 
-2. **Auto-operators** (e.g., `AutoPreprocessor`):
-   - Selects transformer based on data characteristics
-   - Injects selected transformer into pipeline
-   - **DAG implication**: Dynamic node insertion
+2. Branching from Generator
+   └─ {"branch": {"_or_": [A, B, C]}} expands at runtime
+   └─ Number of branches unknown until step executes
 
-3. **Feature selection with threshold**:
-   - Number of output features unknown until after `fit()`
-   - Downstream nodes depend on this shape
-   - **DAG implication**: Edge cardinality determined at runtime
+3. Condition-Based Flow
+   └─ {"condition": {"if": metric > threshold, "then": ...}}
+   └─ Requires runtime evaluation
 
-4. **Conditional branches**:
-   - `{"condition": {"if": expr, "then": [...], "else": [...]}}`
-   - Branch selection based on runtime evaluation
-   - **DAG implication**: Conditional edge activation
+4. Auto-Operators
+   └─ AutoSelectPreprocessing chooses transform at runtime
+   └─ Decision feeds into subsequent steps
+```
 
-### Current Assumptions That Would Break in DAG
+### Current Assumptions That Would Break in Static DAG
 
-1. **Sequential step numbering**: `step_number = 1, 2, 3, ...`
-   - DAG: Nodes may execute in parallel; need topological ordering
-   - **Solution**: Use node ID, preserve step_number for artifact compatibility
+1. **Shared mutable dataset**: All controllers modify the same `SpectroDataset`
+   - Feature updates are in-place
+   - Branches snapshot/restore features
 
-2. **Single "current" context**: `context = context.with_...`
-   - DAG: Multiple concurrent contexts (one per active branch)
-   - **Solution**: Context per edge, merge node combines contexts
+2. **Sequential context propagation**: `ExecutionContext` flows step-to-step
+   - Processing chains accumulate
+   - Y processing name updates
 
-3. **Implicit data flow**: Next step gets previous step's dataset
-   - DAG: Explicit edge defines which node's output feeds which node's input
-   - **Solution**: Edge metadata specifies source slot → target slot
+3. **Branch context storage**: `context.custom["branch_contexts"]` holds state
+   - Post-branch steps iterate over this list
+   - Merge reads and clears it
 
-4. **Branch contexts in custom dict**: `context.custom["branch_contexts"]`
-   - DAG: Branch contexts are first-class parallel execution paths
-   - **Solution**: DAG executor maintains active branches natively
+4. **Prediction store accumulation**: Single `Predictions` instance collects all
+   - Models from different branches write to same store
+   - OOF reconstruction reads across branches
 
-5. **Fold iteration inside controller**: Model controller loops over folds
-   - DAG: Could model each fold as a parallel sub-graph
-   - **Solution**: Hybrid - keep fold iteration for backward compat, expose as branches optionally
+### Gaps Identified
 
-### Compatibility Summary
-
-| Aspect | Compatibility | Migration Effort |
-|--------|---------------|------------------|
-| Controller pattern | ✅ High | Minimal - controllers become node executors |
-| Operator serialization | ✅ High | No change - already JSON-serializable |
-| Prediction store | ✅ High | No change - branch/fold provenance already tracked |
-| Artifact system | ✅ High | Minor - add node_id to artifact metadata |
-| Dataset views | ✅ High | No change - selector-based access preserved |
-| Generator syntax | ⚠️ Medium | Move to runtime branch expansion |
-| Branch/merge | ⚠️ Medium | Formalize as fork/join nodes |
-| Runtime shape changes | ⚠️ Medium | Support placeholder nodes with deferred configuration |
-| Sequential step numbering | ⚠️ Medium | Add node_id, preserve step_number for compat |
+| Gap | Description | Severity |
+|-----|-------------|----------|
+| No explicit data dependencies | Steps assume sequential order | Medium |
+| No parallel execution infrastructure | Single-threaded, no task scheduler | Low |
+| Feature mutations not tracked | Updates happen in-place | High |
+| Branch state in dict, not graph | `custom["branch_contexts"]` is ad-hoc | Medium |
+| Generator expansion location split | Some pre-run, some at runtime | Low |
 
 ---
 
-## Conclusion
+## Summary
 
-The current nirs4all architecture is **highly compatible** with a DAG transformation because:
+The current architecture is **highly compatible** with a DAG transformation:
 
-1. **Controller pattern** already separates step logic from execution orchestration
-2. **Payload components** (dataset, predictions, artifacts, context) are well-isolated
-3. **Branch/merge** semantics exist and can be formalized as fork/join
-4. **Prediction provenance** already tracks fold, branch, step information
-5. **Serialization** is complete for all operators
+1. **Controller pattern** is already node-like (stateless, receives context)
+2. **Context immutability** (via `copy()`) supports edge semantics
+3. **Artifact registry** provides addressable state storage
+4. **Trace recording** already captures execution graph
 
-Key challenges for DAG migration:
-1. Supporting **dynamic graph expansion** for runtime-only construction (TF models, auto-operators)
-2. Formalizing **fold-as-branches** while preserving backward compatibility
-3. Moving generator expansion from static (pre-execution) to dynamic (in-DAG) where beneficial
-4. Maintaining the **linear syntax** that avoids explicit ancestor declarations
+**Key migration challenges**:
+
+1. Replace in-place dataset mutations with immutable transforms
+2. Formalize branch/merge as graph fork/join
+3. Support dynamic node insertion for runtime-determined shapes
+4. Maintain linear syntax compatibility (implicit ancestor = previous node)
+
+**Recommendation**: Pursue incremental DAG refactoring, not wholesale rewrite. The existing abstractions (`ExecutionContext`, `StepOutput`, controller dispatch) can evolve to support DAG semantics.

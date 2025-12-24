@@ -1,639 +1,1131 @@
-# Document 3 — Adaptation / Refactoring Plan
+# Document 3: Adaptation / Refactoring Plan
 
-**Version**: 1.0.0
 **Date**: December 2025
-**Status**: Migration Plan
+**Author**: Migration Planning
+**Status**: Implementation Roadmap
 
 ---
 
 ## Table of Contents
 
 1. [Executive Summary](#executive-summary)
-2. [Component-by-Component Migration](#component-by-component-migration)
+<<<<<<< Updated upstream
+2. [Component Migration Analysis](#component-migration-analysis)
 3. [Migration Phases](#migration-phases)
-4. [Compatibility Layer](#compatibility-layer)
-5. [Deprecation Schedule](#deprecation-schedule)
-6. [Success Criteria](#success-criteria)
+4. [Compatibility Strategy](#compatibility-strategy)
+5. [Success Criteria](#success-criteria)
+6. [Risk Assessment](#risk-assessment)
+=======
+2. [Key Design Insights](#key-design-insights)
+3. [Component Migration Analysis](#component-migration-analysis)
+4. [Primitive Implementation Order](#primitive-implementation-order)
+5. [Migration Phases](#migration-phases)
+6. [Compatibility Strategy](#compatibility-strategy)
+7. [Success Criteria](#success-criteria)
+8. [Risk Assessment](#risk-assessment)
+>>>>>>> Stashed changes
 
 ---
 
 ## Executive Summary
 
-### Migration Philosophy
+This document outlines the most efficient migration path from the current sequential pipeline execution to the DAG-based model specified in Document 2. The strategy prioritizes:
 
-The migration follows a **surgical approach**:
-1. Add the DAG layer as a parallel execution path
-2. Gradually migrate components while maintaining backward compatibility
-3. Deprecate legacy paths once DAG mode is stable
-4. Remove deprecated code only after sufficient testing
+1. **Incremental adoption** - Each phase delivers working software
+2. **Backward compatibility** - Existing pipelines continue to work
+3. **Minimal disruption** - Refactor abstractions, not implementations
+4. **Test-driven** - Each phase validated by existing + new tests
 
-### Effort Estimation
-
-| Phase | Duration | Risk | Deliverable |
-|-------|----------|------|-------------|
-| Phase 1: Foundations | 2 weeks | Low | Primitives, Payload, DAGGraph |
-| Phase 2: Builder | 2 weeks | Medium | DAGBuilder, linear→DAG conversion |
-| Phase 3: Executor | 3 weeks | Medium | DAGExecutor, scheduler |
-| Phase 4: Controllers | 2 weeks | Low | Controller adaptation, mode flag |
-| Phase 5: Integration | 2 weeks | Medium | PipelineRunner integration |
-| Phase 6: Generator | 1 week | Low | Generator→branches |
-| Phase 7: Stabilization | 2 weeks | Medium | Bug fixes, edge cases |
-
-**Total**: ~14 weeks for full migration
+**Estimated effort**: 6 phases over ~12-16 weeks
 
 ---
 
-## Component-by-Component Migration
+<<<<<<< Updated upstream
+=======
+## Key Design Insights
 
-### 1. Primitives Layer
+### 1. Generators = Pre-Runtime Branches
 
-#### Proposed Solution
+**Insight**: All generator syntax can be expanded to DAG branches before execution.
 
-Create `nirs4all/pipeline/dag/primitives.py`:
+| Generator Location | Current Behavior | DAG Equivalent |
+|--------------------|------------------|----------------|
+| Top-level | Creates N separate pipelines | N separate DAG executions |
+| Inside `branch` | Expands at runtime | N branches (pre-computed) |
+| In `feature_augmentation` | Expands operator list | Fork → apply each → Join(concat) |
+| In `sample_augmentation` | Expands operator list | Apply each, add samples |
+| In `model` params | N/A | N models → Join(select_best) |
+| In `model` list | N/A | N models → Join(select_best) |
 
-```python
-# Signature examples
-def get_features(payload: Payload, selector: DataSelector) -> np.ndarray: ...
-def set_features(payload: Payload, source: int, proc_name: str, data: np.ndarray) -> Payload: ...
-def add_prediction(payload: Payload, record: Dict) -> Payload: ...
-def fork(payload: Payload, n: int) -> List[Payload]: ...
-def join(payloads: List[Payload], strategy: JoinStrategy) -> Payload: ...
-def reconstruct_oof(payload: Payload, models: List[str], partition: str) -> np.ndarray: ...
-def register_artifact(payload: Payload, obj: Any, meta: Dict) -> Tuple[Payload, str]: ...
+**Migration Impact**: Generator expansion logic remains in `PipelineConfigs` and `BranchController`. No runtime node creation needed for generators.
+
+### 2. OOF Safety is Automatic
+
+**Insight**: Once folds are assigned, all data access is automatically OOF-safe.
+
+**Current Implementation** (already works):
+- `assign_folds()` sets up train/val partitions per fold
+- Controllers request data by partition
+- Predictions are stored with fold_id
+- OOF reconstruction uses held-out fold predictions
+
+**Migration Impact**: No changes needed. OOF is an invariant of the current design.
+
+### 3. Folds = Implicit Fork/Join
+
+**Insight**: Model training can be modeled as Fork(N folds) → Train each → Join(aggregate).
+
+```
+Current ModelController:
+  for fold in folds:
+    train(fold)
+    predict(fold)
+  aggregate_predictions()
+
+DAG Equivalent:
+  FORK(folds) → [FoldNode_0, FoldNode_1, ...] → JOIN(aggregate_folds)
 ```
 
-#### Critiques
+**Migration Impact**:
+- Add `VirtualModel` concept for fold aggregation
+- Model artifacts include per-fold models + virtual model metadata
+- Prediction mode uses virtual model aggregation
 
-1. **Critique**: Primitives duplicate existing dataset/prediction methods
-   - **Mitigation**: Primitives are thin wrappers that delegate to existing methods. They provide a consistent interface for DAG execution without duplicating logic.
+### 4. Virtual Model = Aggregated Folds
 
-2. **Critique**: Immutable payload creates memory overhead from copying
-   - **Mitigation**: Use shallow copies—dataset is shared (mutations visible to all branches), only context/predictions are copied. For large datasets, this is negligible.
-
-3. **Critique**: Too many primitives may complicate controller implementation
-   - **Mitigation**: Group primitives into categories (dataset, fold, prediction, flow). Controllers only import what they need. Provide helper functions for common patterns.
-
-#### Chosen Approach
-
-- Implement primitives as a thin facade over existing dataset/prediction methods
-- Payload uses shallow copy for dataset reference, deep copy for context/predictions
-- Primitives module exposes categories via submodules: `primitives.dataset.get_features()`, `primitives.flow.fork()`
-
----
-
-### 2. DAGBuilder
-
-#### Proposed Solution
-
-Create `nirs4all/pipeline/dag/builder.py`:
+**Insight**: The "final model" is actually a virtual model that aggregates fold predictions.
 
 ```python
-class DAGBuilder:
-    def build(self, steps: List[Any], dataset: SpectroDataset) -> DAGGraph:
-        """Convert linear pipeline to DAG."""
+# New artifact structure
+artifacts = {
+    "fold_0": Model,
+    "fold_1": Model,
+    "fold_2": Model,
+    "virtual": VirtualModelMeta(
+        strategy="weighted_mean",
+        weights={0: 0.35, 1: 0.40, 2: 0.25}  # By validation score
+    )
+}
 
-    def _create_fork_node(self, step: Dict, node_id: str) -> ForkNode: ...
-    def _create_join_node(self, step: Dict, node_id: str) -> JoinNode: ...
-    def _create_operator_node(self, step: Any, node_id: str) -> OperatorNode: ...
-    def _build_branch_subgraph(self, graph: DAGGraph, parent: str, steps: List) -> str: ...
+# Prediction mode
+def predict(X):
+    preds = [fold_model.predict(X) for fold_model in fold_models]
+    return aggregate(preds, virtual.strategy, virtual.weights)
 ```
 
-#### Critiques
-
-1. **Critique**: Linear→DAG conversion may not handle all edge cases (nested branches, conditional steps)
-   - **Mitigation**: Start with core cases (branch/merge, splitter, model). Add edge case handling iteratively. Maintain comprehensive test suite with complex pipeline examples.
-
-2. **Critique**: Node ID generation may conflict with existing step_number-based artifact IDs
-   - **Mitigation**: Node IDs use a compatible scheme: `s{step_index}` for linear steps, `s{step_index}.b{branch}` for branches. Artifact system uses node_id but extracts step_index for backward compat.
-
-3. **Critique**: Graph construction requires full step list upfront, preventing streaming
-   - **Mitigation**: Not a problem for nirs4all use cases—pipelines are small (10-50 steps). Streaming construction would complicate dynamic expansion.
-
-#### Chosen Approach
-
-- Node ID scheme: `s{step_index}[.b{branch}][.ss{substep}][.f{fold}]`
-- Handle core patterns first: linear, branch, merge, source_branch, merge_sources
-- Add ConditionController handling in Phase 5
+**Migration Impact**: Add `VirtualModel` dataclass. Update artifact serialization. Update prediction mode to use virtual model.
 
 ---
 
-### 3. DAGExecutor
+>>>>>>> Stashed changes
+## Component Migration Analysis
 
-#### Proposed Solution
+### 1. PipelineRunner / Orchestrator
 
-Create `nirs4all/pipeline/dag/executor.py`:
+**Current Responsibility**: Entry point, multi-pipeline/dataset coordination
+
+**Migration Solution**:
 
 ```python
-class DAGExecutor:
-    def __init__(self, mode: str = "train", ...): ...
+# Current signature
+class PipelineRunner:
+    def run(self, config: PipelineConfigs, datasets: DatasetConfigs, ...) -> Tuple[Predictions, Dict]
 
-    def execute(self, graph: DAGGraph, initial_payload: Payload) -> Payload:
-        """Execute DAG and return final payload."""
+# Proposed changes (minimal)
+class PipelineRunner:
+    def run(self, config: PipelineConfigs, datasets: DatasetConfigs,
+            execution_mode: str = "sequential",  # NEW: "sequential" | "dag"
+            ...) -> Tuple[Predictions, Dict]
 
-    def _execute_node(self, node: DAGNode, inputs: List[Payload]) -> Union[Payload, List[Payload]]:
-        """Execute single node based on type."""
+    def _run_sequential(self, ...):
+        """Original implementation - calls PipelineExecutor."""
+        return self._orchestrator.execute(...)
 
-    def _expand_node(self, graph: DAGGraph, node: DAGNode, inputs: List[Payload]) -> None:
-        """Handle dynamic node expansion."""
-
-class TopologicalScheduler:
-    def get_ready_nodes(self) -> List[str]:
-        """Return nodes with all inputs satisfied."""
-
-    def mark_complete(self, node_id: str) -> None: ...
-    def is_complete(self) -> bool: ...
+    def _run_dag(self, ...):
+        """New DAG path - calls DAGBuilder + DAGExecutor."""
+        dag = DAGBuilder(steps).build()
+        executor = DAGExecutor(dag, runtime)
+        return executor.execute(initial_payload)
 ```
 
-#### Critiques
+**Critiques**:
 
-1. **Critique**: Topological scheduling doesn't support parallelism
-   - **Mitigation**: Initially, execute sequentially (simpler, deterministic). Add optional parallel execution in a later phase using thread pool for CPU-bound or process pool for GPU-bound nodes.
+1. **Critique**: Adding `execution_mode` parameter increases API surface
+   - **Mitigation**: Default to "sequential", DAG opt-in. Remove sequential once stable.
 
-2. **Critique**: Dynamic expansion modifies graph during execution, breaking invariants
-   - **Mitigation**: Dynamic expansion only adds nodes/edges, never removes. Scheduler handles new nodes by recalculating ready set. Mark expanded nodes as EXPANDED to prevent re-expansion.
+2. **Critique**: Two code paths doubles maintenance
+   - **Mitigation**: Share StepRunner, controllers, artifacts. Only execution scheduling differs.
 
-3. **Critique**: Payload propagation through edges may have edge cases for multi-input nodes
-   - **Mitigation**: Define clear edge slot semantics. JOIN nodes receive ordered list based on slot names. Add validation that all expected inputs are present before execution.
+3. **Critique**: Users must choose mode
+   - **Mitigation**: Auto-detect: if pipeline uses advanced DAG features (conditional, parallel), use DAG mode.
 
-#### Chosen Approach
-
-- Sequential execution initially for simplicity and determinism
-- Scheduler recalculates ready nodes after dynamic expansion
-- Edge slots use deterministic naming: `branch_0`, `branch_1`, `fold_0`, etc.
+**Final Approach**: Add internal `_run_dag()` path, controlled by `execution_mode` with auto-detection. Orchestrator delegates to appropriate executor.
 
 ---
 
-### 4. Controller Adaptation
+### 2. Controllers
 
-#### Proposed Solution
+**Current Responsibility**: Execute single step, return updated context + artifacts
 
-Add DAG mode detection to controllers:
+**Migration Solution**:
 
 ```python
+# Current signature (unchanged)
 class OperatorController(ABC):
-    @abstractmethod
-    def execute(self, step_info, dataset, context, runtime_context, ...):
-        """Execute step. In DAG mode, receives Payload instead of dataset+context."""
-        pass
+    def execute(
+        self,
+        step_info: ParsedStep,
+        dataset: SpectroDataset,
+        context: ExecutionContext,
+        runtime_context: RuntimeContext,
+        source: int = -1,
+        mode: str = "train",
+        loaded_binaries: Optional[List[Tuple[str, Any]]] = None,
+        prediction_store: Optional[Predictions] = None
+    ) -> Tuple[ExecutionContext, StepOutput]: ...
 
-    def execute_dag(self, node: DAGNode, input_payload: Payload, runtime_context: RuntimeContext) -> Payload:
-        """DAG-native execution. Default delegates to execute()."""
-        # Convert payload to legacy format
-        dataset = input_payload.dataset
-        context = input_payload.context
+# NEW: Wrapper for DAG execution
+class DAGNodeAdapter:
+    """Adapts existing controller to DAGNode interface."""
 
-        # Call legacy execute
-        updated_context, output = self.execute(step_info, dataset, context, runtime_context, ...)
+    def __init__(self, controller: OperatorController, step_info: ParsedStep):
+        self.controller = controller
+        self.step_info = step_info
 
-        # Convert back to payload
-        return input_payload.with_context(updated_context)
+    def execute(self, payload_in: Payload, runtime: RuntimeContext) -> Payload:
+        # Convert Payload → ExecutionContext
+        context = payload_in.to_execution_context()
+        dataset = payload_in.get_dataset()
+
+        # Call existing controller
+        result_context, output = self.controller.execute(
+            step_info=self.step_info,
+            dataset=dataset,
+            context=context,
+            runtime_context=runtime,
+            mode=payload_in.mode,
+            prediction_store=payload_in.prediction_store
+        )
+
+        # Convert result → Payload
+        return payload_in.with_updates(result_context, output)
 ```
 
-#### Critiques
+**Critiques**:
 
-1. **Critique**: Dual interface (execute vs execute_dag) complicates controller development
-   - **Mitigation**: Default `execute_dag()` implementation wraps `execute()`. Controllers only override `execute_dag()` if they need DAG-specific behavior. Most controllers work unchanged.
+1. **Critique**: Adapter adds indirection/overhead
+   - **Mitigation**: Adapter is thin (< 20 lines). Controllers remain unchanged.
 
-2. **Critique**: Payload↔legacy conversion may lose information
-   - **Mitigation**: Payload contains all legacy fields (dataset, context, predictions, artifacts). Conversion is lossless. Add validation in tests.
+2. **Critique**: Controllers still mutate dataset
+   - **Mitigation**: Phase 2 introduces DatasetView; controllers transition gradually.
 
-3. **Critique**: Controllers that modify dataset in-place will affect all branches
-   - **Mitigation**: This is intentional—dataset is shared for efficiency. Branches that need isolation (like different preprocessing) use `add_processing()` which creates new processing chains. Document this behavior clearly.
+3. **Critique**: Some controllers (Branch, Merge) have complex return types
+   - **Mitigation**: Create specialized adapters: ForkNodeAdapter, JoinNodeAdapter.
 
-#### Chosen Approach
-
-- Add `execute_dag()` with default delegation to `execute()`
-- Controllers opt-in to DAG-native behavior by overriding `execute_dag()`
-- Priority controllers to migrate: `TransformController`, `BaseModelController`, `BranchController`, `MergeController`
+**Final Approach**: Keep controllers unchanged. Introduce `DAGNodeAdapter` to bridge controller interface to DAGNode. Specialized adapters for Branch/Merge.
 
 ---
 
-### 5. Generator Migration
+### 3. Dataset (SpectroDataset)
 
-#### Proposed Solution
+**Current Responsibility**: Mutable container for features, targets, metadata
 
-Move generator expansion from static (PipelineConfigs) to dynamic (DAGBuilder):
+**Migration Solution**:
 
 ```python
-# In pipeline_config.py - detect generator syntax
+# Phase 1: Add append-only processing registration (non-breaking)
+class SpectroDataset:
+    def register_processing(
+        self,
+        source: int,
+        processing_name: str,
+        features: np.ndarray,
+        parent_processing: Optional[str] = None
+    ) -> str:
+        """Append-only registration of new processing.
+
+        Returns the full processing chain name.
+        Existing update_features() calls this internally.
+        """
+        chain_name = f"{parent_processing}>{processing_name}" if parent_processing else processing_name
+        self._features.sources[source].append_processing(chain_name, features)
+        return chain_name
+
+# Phase 2: Add DatasetView for immutable access
+@dataclass(frozen=True)
+class DatasetView:
+    dataset_id: str                      # Reference to shared dataset
+    processing: Tuple[Tuple[str, ...]]   # Immutable per-source
+    partition: str
+    sample_mask: Optional[Tuple[int, ...]]
+
+    def materialize(self, dataset: SpectroDataset) -> np.ndarray:
+        """Convert view to actual array."""
+        selector = self.to_selector()
+        return dataset.x(selector)
+```
+
+**Critiques**:
+
+1. **Critique**: Two access patterns (direct vs view) is confusing
+   - **Mitigation**: Document clearly. Views are for DAG mode, direct for backward compat.
+
+2. **Critique**: Append-only storage increases memory
+   - **Mitigation**: Only store transformed arrays, not copies. Add optional GC.
+
+3. **Critique**: Processing chain names can get long
+   - **Mitigation**: Use hash-based shortnames internally, full names for debugging.
+
+**Final Approach**:
+- Phase 1: Add `register_processing()` as thin wrapper around existing mutation
+- Phase 2: Add `DatasetView` for DAG mode
+- No changes to existing `update_features()` callers
+
+---
+
+### 4. Operator Execution (StepRunner)
+
+**Current Responsibility**: Parse step, route to controller, execute
+
+**Migration Solution**:
+
+```python
+# StepRunner remains unchanged - it's already "node-like"
+
+# NEW: DAGBuilder creates nodes from steps
+class DAGBuilder:
+    def __init__(self, steps: List[Any], parser: StepParser, router: ControllerRouter):
+        self.steps = steps
+        self.parser = parser
+        self.router = router
+
+    def build(self) -> DAG:
+        """Convert linear steps to DAG structure."""
+        dag = DAG()
+        prev_node_id = "START"
+
+        for step_idx, step in enumerate(self.steps):
+            parsed = self.parser.parse(step)
+            controller = self.router.route(parsed, step)
+
+            if parsed.keyword == "branch":
+                node = self._create_fork_node(step_idx, parsed, controller, prev_node_id)
+            elif parsed.keyword in ("merge", "merge_sources", "merge_predictions"):
+                node = self._create_join_node(step_idx, parsed, controller, prev_node_id)
+            else:
+                node = self._create_operator_node(step_idx, parsed, controller, prev_node_id)
+
+            dag.add_node(node)
+            prev_node_id = node.node_id
+
+        dag.finalize(prev_node_id)  # Connect to END
+        return dag
+```
+
+**Critiques**:
+
+1. **Critique**: Duplicates parsing logic from StepRunner
+   - **Mitigation**: DAGBuilder uses StepRunner's parser/router directly.
+
+2. **Critique**: Linear syntax doesn't expose parallel opportunities
+   - **Mitigation**: DAGBuilder can analyze steps for implicit parallelism (multi-source).
+
+3. **Critique**: Branch/merge detection is fragile
+   - **Mitigation**: Use controller.matches() or add node_type() method to controllers.
+
+**Final Approach**: DAGBuilder reuses StepParser and ControllerRouter. StepRunner unchanged (used inside node adapters).
+
+---
+
+### 5. Predictions
+
+**Current Responsibility**: Store, query, rank predictions
+
+**Migration Solution**:
+
+```python
+# Predictions class unchanged - already shared/append-only
+
+# NEW: Add DAG-aware query methods
+class Predictions:
+    def get_by_node_id(self, node_id: str, partition: str = "val") -> List[Dict]:
+        """Query predictions by DAG node ID."""
+        # node_id format: "step_3_branch_0"
+        parts = node_id.split("_")
+        step_idx = int(parts[1])
+        branch_id = int(parts[3]) if len(parts) > 3 else None
+
+        return self.filter_predictions(
+            step_idx=step_idx,
+            branch_id=branch_id,
+            partition=partition
+        )
+
+    def get_by_chain(self, chain_path: str, partition: str = "val") -> List[Dict]:
+        """Query predictions by operator chain path."""
+        # chain_path format: "s1.MinMax>s3.SNV>s5.PLS"
+        return self.filter_predictions(
+            preprocessings=chain_path,  # Already supported!
+            partition=partition
+        )
+```
+
+**Critiques**:
+
+1. **Critique**: node_id parsing is brittle
+   - **Mitigation**: Use structured node IDs or store node_id in prediction record.
+
+2. **Critique**: Chain path query may be slow (string matching)
+   - **Mitigation**: Add index on preprocessings column. Already Polars, indexing is fast.
+
+3. **Critique**: Adding fields to prediction records increases storage
+   - **Mitigation**: node_id and chain_path are optional, computed on query.
+
+**Final Approach**: Add optional query methods. Predictions core unchanged.
+
+---
+
+### 6. Generator
+
+**Current Responsibility**: Expand `_or_`, `_range_` into pipeline variants
+
+**Migration Solution**:
+
+<<<<<<< Updated upstream
+```python
+# Current: expand_spec() called in PipelineConfigs.__init__
+
+# NEW: Split behavior by location
 class PipelineConfigs:
     def __init__(self, definition, ...):
-        if self._has_gen_keys(self.steps):
-            if self._generator_at_top_level():
-                # Keep static expansion for top-level generators
-                self.steps = expand_spec(self.steps)
-            else:
-                # Mark for DAG-time expansion (branch generators)
-                self.steps = [self.steps]  # Single pipeline with branch generators
+        # Only expand TOP-LEVEL generators (outside branch)
+        if self._has_gen_keys(self.steps, skip_branch=True):
+            self.steps = expand_spec(self.steps)
 
-# In DAGBuilder - expand at fork creation
-def _create_fork_node(self, step: Dict, node_id: str) -> ForkNode:
-    branch_def = step.get("branch")
+        # Generators INSIDE branch are kept for runtime expansion
+        # BranchController already handles this
 
-    if is_generator_node(branch_def):
-        # Expand generator to branches at DAG build time
-        expanded = expand_spec(branch_def)
-        return ForkNode(
-            node_id=node_id,
-            fork_type=ForkType.GENERATOR,
-            branch_specs=[{"steps": [e]} for e in expanded],
-            generator_spec=branch_def,  # Keep original for serialization
-        )
-    else:
-        return ForkNode(
-            node_id=node_id,
-            fork_type=ForkType.BRANCH,
-            branch_specs=self._parse_branch_specs(branch_def),
-        )
+# DAG mode: generators create dynamic nodes
+class GeneratorNode(DAGNode):
+    def execute(self, payload_in: Payload, runtime: RuntimeContext) -> List[Payload]:
+        expanded = expand_spec(self.generator_spec)
+        child_nodes = []
+
+        for variant in expanded:
+            child = runtime.dag.create_dynamic_node(variant, self.node_id)
+            child_nodes.append(child)
+
+        return [node.execute(payload_in, runtime) for node in child_nodes]
 ```
 
-#### Critiques
+**Critiques**:
 
-1. **Critique**: Mixing static and dynamic expansion is confusing
-   - **Mitigation**: Clear rule: top-level generators expand statically (N pipelines), branch-level generators expand dynamically (N branches). Document with examples.
+1. **Critique**: Top-level vs branch-level distinction is confusing
+   - **Mitigation**: Document clearly. Top-level = separate pipelines, branch-level = DAG branches.
 
-2. **Critique**: Large generator expansions (1000+ variants) create huge graphs
-   - **Mitigation**: Apply `count` limiter at expansion time. Implement streaming expansion for very large spaces. Log warnings for >100 branches.
+2. **Critique**: Dynamic node creation complicates DAG analysis
+   - **Mitigation**: Mark dynamic nodes. Static analysis uses bounds (count parameter).
 
-3. **Critique**: Generator choices tracking (`generator_choices`) is lost in DAG mode
-   - **Mitigation**: Store `generator_spec` in ForkNode. Extract choices from selected branch path for serialization. Add `get_generator_choices(branch_path)` method.
+3. **Critique**: Memory for large generator spaces
+   - **Mitigation**: Use `expand_spec_iter()` for lazy expansion when count > threshold.
 
-#### Chosen Approach
-
-- Top-level generators remain static (multiple pipelines)
-- Branch-level generators expand at DAGBuilder time (multiple branches)
-- Store original generator spec for serialization/replay
-
----
-
-### 6. Predictions Store Integration
-
-#### Proposed Solution
-
-Minimal changes—Predictions already has provenance tracking:
+**Final Approach**: Keep current split behavior. DAG mode uses GeneratorNode for in-branch expansion.
+=======
+**Insight**: Generators don't need runtime expansion. They can be fully expanded before DAG construction.
 
 ```python
-# No changes to Predictions class needed
+# Current behavior (already correct):
+# - Top-level generators → separate pipeline runs
+# - In-branch generators → BranchController expands at parse time
 
-# Ensure DAG execution uses existing add_prediction() with proper provenance
-def add_prediction_from_dag(payload: Payload, pred_data: Dict):
-    """Helper to add prediction with DAG provenance."""
-    payload.predictions.add_prediction(
-        dataset_name=payload.dataset.name,
-        pipeline_uid=payload.context.custom.get("pipeline_uid"),
-        step_idx=payload.source_node_id.split(".")[0][1:],  # Extract step index
-        branch_id=extract_branch_id(payload.branch_path),
-        branch_name=extract_branch_name(payload.context),
-        fold_id=payload.fold_id,
-        **pred_data
-    )
+# Unified rule:
+# ALL generators → expand to branches before execution
+
+class DAGBuilder:
+    def build(self, steps):
+        for step in steps:
+            if is_generator_step(step):
+                # Expand generator to explicit branches
+                expanded = expand_generator_to_branches(step)
+                # Continue with expanded form
 ```
 
-#### Critiques
+**Generator Expansion Rules**:
 
-1. **Critique**: Node ID differs from step_idx in predictions
-   - **Mitigation**: Extract step_idx from node_id (`s3.b0` → step_idx=3). Predictions continue to use step_idx for backward compat.
+| Context | Generator | Expansion | Implicit Merge |
+|---------|-----------|-----------|----------------|
+| `feature_augmentation` | `{"_or_": [A,B,C], "size": 2}` | All combinations applied | Concat features |
+| `sample_augmentation` | `{"_or_": [A,B]}` | All operators applied | Add samples |
+| `model` params | `{"_range_": [5,15,5]}` | Sequential models | Select best |
+| `model` list | `[A, B, C]` | Sequential models | Select best |
+| `branch` content | `{"_or_": [A,B,C]}` | N branches | Explicit merge |
 
-2. **Critique**: Predictions from parallel fold branches may have ordering issues
-   - **Mitigation**: Predictions are stored with fold_id. Ordering is handled by sort on retrieval. No execution-order dependency.
+**Critiques**:
 
-3. **Critique**: Branch path tracking may not match between DAG and legacy modes
-   - **Mitigation**: DAG uses same branch_path format as legacy (`[0, 1]` for nested branches). Ensure BranchController and DAGBuilder produce identical paths.
+1. **Critique**: Pre-expansion may create large DAGs
+   - **Mitigation**: `count` parameter limits expansion. Already enforced.
 
-#### Chosen Approach
+2. **Critique**: Implicit merges need to be made explicit
+   - **Mitigation**: Controller semantics define the merge (documented per controller).
 
-- No changes to Predictions class
-- Helper function ensures consistent provenance extraction from DAG payload
-- Validate branch_path equivalence in integration tests
+3. **Critique**: Different controllers handle generators differently
+   - **Mitigation**: Formalize: generators = operator lists, controllers define how lists are processed.
+
+**Final Approach**: Generators expand to explicit structures before execution. No dynamic node creation for generators.
+>>>>>>> Stashed changes
 
 ---
 
-### 7. Artifact System Integration
+### 7. Serialization
 
-#### Proposed Solution
+**Current Responsibility**: Serialize configs, manifests, artifacts
 
-Extend `ArtifactRecord` with optional node_id:
+**Migration Solution**:
+
+```python
+# Existing serialization unchanged
+
+# NEW: DAG serialization for replay
+@dataclass
+class SerializedDAG:
+    """Serializable DAG representation."""
+
+    nodes: List[Dict[str, Any]]  # Each node's config
+    edges: List[Tuple[str, str]]  # (from_id, to_id)
+    execution_order: List[str]   # Topological order
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "SerializedDAG":
+        return cls(**data)
+
+# Integration with existing manifest
+class ManifestManager:
+    def save_dag(self, dag: DAG, manifest_path: Path):
+        """Save DAG structure alongside existing manifest."""
+        dag_data = dag.serialize()
+
+        # Existing manifest format extended
+        manifest = self.load_manifest(manifest_path)
+        manifest["dag"] = dag_data.to_dict()
+        self._write_manifest(manifest_path, manifest)
+```
+
+**Critiques**:
+
+1. **Critique**: DAG in manifest increases file size
+   - **Mitigation**: DAG is compact (~1KB per node). Optional field.
+
+2. **Critique**: ExecutionTrace already captures similar info
+   - **Mitigation**: Merge: DAG = static structure, Trace = dynamic execution. Trace references DAG nodes.
+
+3. **Critique**: Two serialization formats (manifest + trace)
+   - **Mitigation**: Trace is primary for replay. DAG optional for visualization.
+
+**Final Approach**: DAG serialization optional extension to manifest. ExecutionTrace remains primary replay mechanism.
+
+---
+
+### 8. Charts/Logging
+
+**Current Responsibility**: Visualization, progress tracking
+
+**Migration Solution**:
+
+```python
+# ChartController unchanged - receives Payload, produces chart
+
+# NEW: DAG visualization
+class DAGVisualizer:
+    """Generate visual representation of DAG."""
+
+    def to_mermaid(self, dag: DAG) -> str:
+        """Generate Mermaid diagram syntax."""
+        lines = ["graph TD"]
+        for node in dag.nodes.values():
+            for parent_id in node.parents:
+                lines.append(f"    {parent_id} --> {node.node_id}")
+            lines.append(f"    {node.node_id}[{node.operator_class}]")
+        return "\n".join(lines)
+
+    def to_ascii(self, dag: DAG) -> str:
+        """Generate ASCII art representation."""
+        # ... tree-like ASCII output
+
+# Integration with logging
+class DAGExecutor:
+    def _on_node_complete(self, node: DAGNode):
+        logger.info(f"✓ Node {node.node_id}: {node.operator_class}")
+        if self.verbose >= 2:
+            logger.debug(f"  Input shape: {node.payload_in.shape}")
+            logger.debug(f"  Output shape: {node.payload_out.shape}")
+```
+
+**Critiques**:
+
+1. **Critique**: ASCII visualization hard for large DAGs
+   - **Mitigation**: Add collapsing, show only active path.
+
+2. **Critique**: Progress tracking different from sequential
+   - **Mitigation**: Show node count: "Step 5/12 (node_3a)"
+
+3. **Critique**: Chart controllers need dataset access
+   - **Mitigation**: ChartController receives Payload.materialize() as before.
+
+**Final Approach**: Add DAGVisualizer utility. ChartController unchanged. Logging adds node context.
+
+---
+
+<<<<<<< Updated upstream
+## Migration Phases
+
+### Phase 0: Preparation (2 weeks)
+
+**Goal**: Create foundation without breaking anything
+
+**Tasks**:
+1. Add `DatasetView` dataclass (frozen, no behavior yet)
+2. Add `Payload` dataclass (immutable snapshot)
+3. Add `DAGNode`, `DAG` dataclasses (structure only)
+4. Write unit tests for new dataclasses
+5. No changes to execution path
+
+**Deliverables**:
+- `nirs4all/pipeline/dag/` package
+- `dag/node.py`, `dag/payload.py`, `dag/view.py`
+- 100% test coverage on new code
+
+**Validation**:
+- All existing tests pass
+- No behavior change
+
+---
+
+### Phase 1: DAGBuilder (3 weeks)
+
+**Goal**: Convert linear pipeline to DAG structure
+
+**Tasks**:
+1. Implement `DAGBuilder.build()` - creates DAG from steps
+2. Implement `DAGNodeAdapter` - wraps controllers
+3. Implement `ForkNodeAdapter`, `JoinNodeAdapter` for branch/merge
+4. Add `DAG.serialize()` / `DAG.deserialize()`
+5. Add Mermaid visualization
+
+**Deliverables**:
+- `dag/builder.py`
+- `dag/adapters.py`
+- `dag/serialization.py`
+- `dag/visualizer.py`
+
+**Validation**:
+- Can build DAG from any existing example pipeline
+- DAG visualization matches expected structure
+- Serialization round-trip works
+
+---
+
+### Phase 2: DAGExecutor (Sequential) (3 weeks)
+
+**Goal**: Execute DAG in topological order (sequential, matching current behavior)
+
+**Tasks**:
+1. Implement `DAGExecutor.execute()` - topological traversal
+2. Implement `Payload.to_execution_context()` conversion
+3. Implement `Payload.with_updates()` for result propagation
+4. Add `execution_mode="dag"` to PipelineRunner
+5. Extensive comparison testing: same results as sequential mode
+
+**Deliverables**:
+- `dag/executor.py`
+- Updated `pipeline/runner.py`
+- Comparison test suite
+
+**Validation**:
+- All examples produce identical results in both modes
+- All unit tests pass
+- Performance within 10% of sequential
+
+---
+
+### Phase 3: Dynamic Nodes (2 weeks)
+
+**Goal**: Support runtime node creation
+
+**Tasks**:
+1. Implement `DAGExecutor.create_dynamic_node()`
+2. Implement `GeneratorNode` for in-branch generators
+3. Implement `FoldNode` for per-fold expansion
+4. Add `is_dynamic` flag to trace recording
+
+**Deliverables**:
+- Updated `dag/executor.py`
+- `dag/dynamic_nodes.py`
+- Test suite for dynamic expansion
+
+**Validation**:
+- Generator-in-branch examples work
+- TensorFlow/PyTorch models build correctly
+- Dynamic nodes appear in trace
+
+---
+
+### Phase 4: Immutable Dataset Access (3 weeks)
+
+**Goal**: Controllers use DatasetView for reads
+
+**Tasks**:
+1. Add `SpectroDataset.register_processing()` (append-only)
+2. Add `DatasetView.materialize()`
+3. Add `DataAccessor` for controller use
+4. Migrate controllers to use accessor (gradual)
+5. Deprecate direct dataset mutation in DAG mode
+
+**Deliverables**:
+- Updated `data/dataset.py`
+- `dag/accessor.py`
+- Migration guide for custom controllers
+
+**Validation**:
+- Controllers work with accessor
+- No correctness regression
+- Memory usage acceptable
+=======
+## Primitive Implementation Order
+
+Based on Document 2's axioms, here is the **dependency-ordered** implementation sequence:
+
+### Tier 1: Foundation (No Dependencies)
+
+These primitives have no dependencies on other primitives:
+
+| Primitive | Implementation | Exists Today? |
+|-----------|---------------|---------------|
+| `materialize(view)` | `SpectroDataset.x()`, `SpectroDataset.y()` | ✅ Yes |
+| `store_artifact(obj, meta)` | `ArtifactRegistry.register()` | ✅ Yes |
+| `store_predictions(preds, meta)` | `Predictions.add_prediction()` | ✅ Yes |
+| `filter_samples(view, mask)` | `DataSelector.with_partition()` | ✅ Yes |
+
+### Tier 2: Data Modification (Depends on Tier 1)
+
+| Primitive | Implementation | Exists Today? |
+|-----------|---------------|---------------|
+| `register_processing(ds, src, name, X)` | Add to `FeatureSource` | ⚠️ Partial |
+| `add_samples(ds, X, y, origin)` | `SpectroDataset.add_samples()` | ✅ Yes |
+| `assign_folds(ds, splitter)` | `SplitterController` logic | ✅ Yes |
+
+### Tier 3: Operators (Depends on Tier 1-2)
+
+| Primitive | Implementation | Exists Today? |
+|-----------|---------------|---------------|
+| `apply_transform(X, op)` | `operator.transform(X)` | ✅ Yes |
+| `fit_transform(view, op)` | `operator.fit(X_train).transform(X)` | ✅ Yes |
+| `fit_transform_target(view, op)` | `YProcessingController` logic | ✅ Yes |
+
+### Tier 4: Model Training (Depends on Tier 1-3)
+
+| Primitive | Implementation | Exists Today? |
+|-----------|---------------|---------------|
+| `train_fold(view, model, fold_id)` | `ModelController` per-fold logic | ✅ Yes |
+| `aggregate_folds(preds, strategy)` | **NEW**: `VirtualModel` | ❌ No |
+
+### Tier 5: Flow Control (Depends on Tier 1-4)
+
+| Primitive | Implementation | Exists Today? |
+|-----------|---------------|---------------|
+| `fork(view, N, by)` | `BranchController` snapshot logic | ✅ Yes |
+| `join(views, mode, agg)` | `MergeController` merge logic | ✅ Yes |
+| `select_best(store, criteria)` | `PredictionRanker.rank()` | ✅ Yes |
+
+### Implementation Summary
+
+| Status | Count | Action |
+|--------|-------|--------|
+| ✅ Exists | 13 | Formalize as explicit primitives, add tests |
+| ⚠️ Partial | 1 | Extend `register_processing()` for append-only |
+| ❌ New | 1 | Implement `VirtualModel` for fold aggregation |
+
+### VirtualModel Implementation
 
 ```python
 @dataclass
-class ArtifactRecord:
-    artifact_id: str
-    step_index: int
-    fold_id: Optional[int]
-    branch_path: List[int]
-    # New field
-    node_id: Optional[str] = None  # e.g., "s3.b0.f2"
+class VirtualModel:
+    """Aggregated fold models for prediction."""
+
+    fold_artifact_ids: List[str]  # References to fold model artifacts
+    aggregation: str              # "mean", "weighted_mean", "vote", "all"
+    weights: Optional[Dict[int, float]] = None  # Per-fold weights
 
     @classmethod
-    def from_dag_node(cls, node: DAGNode, fold_id: Optional[int], ...):
-        return cls(
-            artifact_id=generate_id(node.node_id, fold_id),
-            step_index=extract_step_index(node.node_id),
-            fold_id=fold_id,
-            branch_path=extract_branch_path(node.node_id),
-            node_id=node.node_id,
+    def from_fold_predictions(cls, pred_store, model_name, metric="rmse"):
+        """Create from prediction store with automatic weighting."""
+        fold_preds = pred_store.filter_predictions(
+            model_name=model_name, partition="val"
         )
+
+        # Compute weights from validation scores
+        weights = {}
+        for pred in fold_preds:
+            fold_id = pred["fold_id"]
+            score = pred["val_score"]
+            # Inverse for "lower is better" metrics
+            weights[fold_id] = 1.0 / (score + 1e-10) if metric in LOWER_BETTER else score
+
+        # Normalize
+        total = sum(weights.values())
+        weights = {k: v/total for k, v in weights.items()}
+
+        return cls(
+            fold_artifact_ids=[p["model_artifact_id"] for p in fold_preds],
+            aggregation="weighted_mean",
+            weights=weights
+        )
+
+    def predict(self, X, artifact_loader):
+        """Aggregate predictions from fold models."""
+        fold_preds = []
+        for artifact_id in self.fold_artifact_ids:
+            model = artifact_loader.load(artifact_id)
+            fold_preds.append(model.predict(X))
+
+        if self.aggregation == "mean":
+            return np.mean(fold_preds, axis=0)
+        elif self.aggregation == "weighted_mean":
+            weight_list = [self.weights[i] for i in range(len(fold_preds))]
+            return np.average(fold_preds, axis=0, weights=weight_list)
+        elif self.aggregation == "vote":
+            return mode(fold_preds, axis=0)
+        elif self.aggregation == "all":
+            return np.stack(fold_preds, axis=-1)
 ```
-
-#### Critiques
-
-1. **Critique**: Adding node_id changes artifact schema, may break existing artifacts
-   - **Mitigation**: node_id is optional with default None. Existing artifacts continue to work. node_id only populated for DAG-mode artifacts.
-
-2. **Critique**: Artifact loading by step_index may match wrong artifacts in DAG mode
-   - **Mitigation**: DAG mode uses node_id for precise matching. Legacy mode continues using step_index+branch_path. Add fallback logic for mixed scenarios.
-
-3. **Critique**: artifact_id generation differs between modes
-   - **Mitigation**: Use consistent format: `{pipeline}:{step}:{fold}:b{branch_path}`. DAG mode just has more specific step identifiers.
-
-#### Chosen Approach
-
-- Add optional `node_id` field to `ArtifactRecord`
-- Generate `artifact_id` consistently between modes
-- Use node_id for DAG-mode loading, step_index for legacy fallback
-
----
-
-### 8. Charts/Visualization Integration
-
-#### Proposed Solution
-
-No changes needed—charts operate on final predictions and dataset:
-
-```python
-# Charts receive dataset and predictions after execution
-# No dependency on DAG vs legacy execution
-
-# Existing code continues to work:
-analyzer = PredictionAnalyzer(predictions, dataset)
-analyzer.plot_scatter(partition="test")
-```
-
-#### Critiques
-
-1. **Critique**: DAG execution trace visualization may need new charts
-   - **Mitigation**: Add optional DAG visualization module in Phase 5. Not blocking for core migration.
-
-2. **Critique**: Per-branch charts may need branch_path filtering
-   - **Mitigation**: Predictions already support branch filtering. Charts work as-is with `predictions.filter(branch_id=0)`.
-
-3. **Critique**: Charts inside pipeline (e.g., chart steps) need DAG adaptation
-   - **Mitigation**: ChartController follows same pattern as other controllers—add `execute_dag()` with default delegation.
-
-#### Chosen Approach
-
-- No changes for post-execution visualization
-- ChartController gets standard `execute_dag()` default implementation
-- Add DAG visualization in later phase (optional)
 
 ---
 
 ## Migration Phases
 
-### Phase 1: Foundations (2 weeks)
+### Phase 0: Primitives Formalization (2 weeks)
+
+**Goal**: Create explicit primitive functions from existing code
+
+**Tasks**:
+1. Extract `materialize()` as standalone function wrapping `dataset.x()`
+2. Extract `fit_transform()` as standalone function
+3. Extract `assign_folds()` as standalone function
+4. Add `register_processing()` with append-only semantics
+5. Create `VirtualModel` dataclass for fold aggregation
+6. Write unit tests for each primitive
 
 **Deliverables**:
-- `nirs4all/pipeline/dag/__init__.py`
-- `nirs4all/pipeline/dag/primitives.py` - All primitive operations
-- `nirs4all/pipeline/dag/payload.py` - Payload dataclass
-- `nirs4all/pipeline/dag/graph.py` - DAGGraph, DAGNode, DAGEdge
-- Unit tests for primitives and payload
+- `nirs4all/pipeline/primitives/` package
+- `primitives/data.py` (materialize, register_processing, add_samples)
+- `primitives/operators.py` (fit_transform, apply_transform)
+- `primitives/models.py` (train_fold, VirtualModel)
+- `primitives/flow.py` (fork, join, select_best)
+- 100% test coverage on primitives
 
-**Exit Criteria**:
-- All primitives have unit tests
-- Payload round-trip (create → serialize → deserialize) works
-- DAGGraph supports add/remove nodes/edges, topological sort
+**Validation**:
+- All existing tests pass
+- Primitives are drop-in replacements for existing logic
 
-### Phase 2: Builder (2 weeks)
+---
 
-**Deliverables**:
-- `nirs4all/pipeline/dag/builder.py` - DAGBuilder
-- `nirs4all/pipeline/dag/node_types.py` - NodeType enum, typed nodes
-- Tests for linear→DAG conversion
+### Phase 1: VirtualModel Integration (2 weeks)
 
-**Exit Criteria**:
-- Linear pipeline (no branches) converts correctly
-- Branch/merge converts correctly
-- Nested branches convert correctly
-- Node IDs match expected scheme
+**Goal**: Integrate VirtualModel into ModelController
 
-### Phase 3: Executor (3 weeks)
+**Tasks**:
+1. Create `VirtualModel` with aggregation strategies (mean, weighted_mean, vote)
+2. Update `BaseModelController` to create VirtualModel after fold training
+3. Store VirtualModel metadata in artifact registry
+4. Update prediction mode to use VirtualModel.predict()
+5. Update manifest serialization for VirtualModel
 
 **Deliverables**:
-- `nirs4all/pipeline/dag/executor.py` - DAGExecutor
-- `nirs4all/pipeline/dag/scheduler.py` - TopologicalScheduler
-- Integration tests with real controllers
+- `models/virtual_model.py`
+- Updated `controllers/models/base_model.py`
+- Updated `pipeline/storage/artifacts/`
 
-**Exit Criteria**:
-- Simple pipeline executes correctly via DAG
-- Branch/merge pipeline executes correctly
-- Predictions match legacy execution
-- Artifacts saved with correct IDs
+**Validation**:
+- Model training produces VirtualModel artifacts
+- Prediction mode correctly aggregates fold predictions
+- Weighted averaging uses validation scores
 
-### Phase 4: Controller Adaptation (2 weeks)
+---
 
-**Deliverables**:
-- Updated `OperatorController` base class with `execute_dag()`
-- Adapted `TransformController`
-- Adapted `BaseModelController`
-- Adapted `BranchController`, `MergeController`
+### Phase 2: DAG Data Structures (2 weeks)
 
-**Exit Criteria**:
-- Core controllers work in DAG mode
-- Legacy mode still works (no regression)
-- Fold iteration works as expected
+**Goal**: Create DAG representation without changing execution
 
-### Phase 5: Integration (2 weeks)
+**Tasks**:
+1. Add `DatasetView` dataclass (frozen, immutable)
+2. Add `Payload` dataclass (carries view + context)
+3. Add `DAGNode`, `DAG` dataclasses
+4. Implement `DAGBuilder.build()` - converts pipeline to DAG
+5. Add Mermaid/ASCII visualization
 
 **Deliverables**:
-- Updated `PipelineRunner` with DAG mode flag
-- Updated `PipelineExecutor` to use DAG when enabled
-- End-to-end tests with all Q*.py examples
+- `nirs4all/pipeline/dag/` package
+- `dag/node.py`, `dag/payload.py`, `dag/view.py`
+- `dag/builder.py`, `dag/visualizer.py`
 
-**Exit Criteria**:
-- All examples pass in both legacy and DAG mode
-- Predictions identical between modes (within floating-point tolerance)
-- Artifacts loadable for prediction in DAG mode
+**Validation**:
+- Can build DAG from any example pipeline
+- DAG visualization matches expected structure
+- No execution yet - structure only
 
-### Phase 6: Generator Migration (1 week)
+---
+
+### Phase 3: DAGExecutor (3 weeks)
+
+**Goal**: Execute DAG using primitives
+
+**Tasks**:
+1. Implement `DAGExecutor.execute()` with topological traversal
+2. Implement `Payload.to_execution_context()` conversion
+3. Wire primitives into node execution
+4. Handle Fork/Join nodes for branches
+5. Add `execution_mode="dag"` to PipelineRunner
+6. Extensive comparison testing
 
 **Deliverables**:
-- Updated `PipelineConfigs` to detect branch-level generators
-- Updated `DAGBuilder` to expand generators to branches
-- Tests for generator→branches conversion
+- `dag/executor.py`
+- Updated `pipeline/runner.py`
+- Comparison test suite
 
-**Exit Criteria**:
-- `{"branch": {"_or_": [A, B, C]}}` expands to 3 branches
-- `{"_or_": [A, B]}` at top level still creates 2 pipelines
-- Generator choices trackable for serialization
+**Validation**:
+- All examples produce identical results in both modes
+- OOF safety maintained
+- Performance within 10% of sequential
 
-### Phase 7: Stabilization (2 weeks)
+---
+
+### Phase 4: Generator Unification (2 weeks)
+
+**Goal**: All generators expand to explicit DAG structures before execution
+
+**Tasks**:
+1. Unify generator expansion: all contexts use same expansion logic
+2. Document implicit merges per controller type
+3. Ensure generators in branches become explicit Fork/Join
+4. Update BranchController to use DAGBuilder for generator expansion
+5. Test complex nested generator scenarios
 
 **Deliverables**:
-- Bug fixes from integration testing
-- Documentation updates
-- Performance benchmarks
-- Migration guide for custom controllers
+- Updated `controllers/data/branch.py`
+- `dag/generator_expansion.py`
+- Documentation of expansion rules
+- Test suite for generator → DAG conversion
 
-**Exit Criteria**:
-- No regressions in CI
-- Performance within 10% of legacy mode
+**Validation**:
+- All generator examples work identically
+- No dynamic node creation needed
+- Expansion is deterministic and predictable
+
+**Implicit Merge Rules (Documented)**:
+
+| Controller | Generator In | Implicit Merge |
+|------------|--------------|----------------|
+| `feature_augmentation` | `_or_` with `size` | Concat features (all applied) |
+| `sample_augmentation` | `_or_` | All applied (no merge - samples added) |
+| `concat_transform` | `_or_` | Concat features (parallel transforms) |
+| `model` | `_range_` params | Select best by validation |
+| `model` | List of models | Select best by validation |
+| `branch` | `_or_` | Explicit merge required |
+>>>>>>> Stashed changes
+
+---
+
+### Phase 5: Parallel Execution (Optional) (2 weeks)
+
+**Goal**: Execute independent nodes in parallel
+
+**Tasks**:
+1. Add `DAGExecutor.execute_parallel()` using ThreadPoolExecutor
+2. Identify parallelizable node groups (independent branches, folds)
+3. Add `parallel=True` option to PipelineRunner
+4. Benchmark parallel vs sequential
+
+**Deliverables**:
+- `dag/parallel_executor.py`
+- Benchmark results
+
+**Validation**:
+- Parallel execution produces identical results
+- Speedup for multi-branch/fold pipelines
+- Thread-safe dataset access
+
+---
+
+### Phase 6: Deprecation & Cleanup (2 weeks)
+
+**Goal**: Clean up, document, default to DAG mode
+
+**Tasks**:
+1. Make DAG mode default (`execution_mode="dag"`)
+2. Add deprecation warnings for sequential-only features
+3. Update all documentation
+4. Remove legacy code (after deprecation period)
+5. Performance optimization pass
+
+**Deliverables**:
+- Updated documentation
+- Deprecation warnings
+- Version 1.0 release notes
+
+**Validation**:
+- All examples work with DAG mode
+- No regressions
 - Documentation complete
 
 ---
 
-## Compatibility Layer
+## Compatibility Strategy
 
-### Legacy Mode Preservation
+### Pipeline Syntax Compatibility
 
-```python
-class PipelineRunner:
-    def __init__(self, ..., use_dag: bool = False):
-        self.use_dag = use_dag
-
-    def run(self, pipeline, dataset, ...):
-        if self.use_dag:
-            return self._run_dag_mode(pipeline, dataset, ...)
-        else:
-            return self._run_legacy_mode(pipeline, dataset, ...)
-```
-
-### Controller Compatibility
+**Guarantee**: All existing pipeline YAML/Python definitions work unchanged
 
 ```python
-class OperatorController(ABC):
-    def execute_dag(self, node, payload, runtime_context) -> Payload:
-        """DAG execution. Default wraps legacy execute()."""
-        # Extract legacy format
-        step_info = ParsedStep.from_node(node)
-        dataset = payload.dataset
-        context = payload.context
-
-        # Call legacy
-        updated_context, output = self.execute(
-            step_info, dataset, context, runtime_context, ...
-        )
-
-        # Wrap result
-        return payload.with_context(updated_context).with_artifacts(output.artifacts)
+# This works today and after migration:
+pipeline = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=5),
+    {"model": PLSRegression(n_components=10)}
+]
+runner = PipelineRunner()
+predictions, results = runner.run(PipelineConfigs(pipeline), DatasetConfigs(data))
 ```
 
-### Artifact Loading Compatibility
+### API Compatibility
+
+| API | Status | Notes |
+|-----|--------|-------|
+| `PipelineRunner.run()` | ✅ Unchanged | execution_mode param added |
+| `PipelineConfigs` | ✅ Unchanged | Still expands generators |
+| `DatasetConfigs` | ✅ Unchanged | No changes |
+| `SpectroDataset` | ✅ Unchanged | New methods added, none removed |
+| `Predictions` | ✅ Unchanged | New query methods added |
+| All controllers | ✅ Unchanged | Wrapped by adapters |
+| All operators | ✅ Unchanged | No changes |
+
+### Custom Controller Compatibility
 
 ```python
-class ArtifactLoader:
-    def load_by_id(self, artifact_id: str):
-        # Try new format first (with node_id)
-        if self._is_dag_format(artifact_id):
-            return self._load_dag_artifact(artifact_id)
-        else:
-            return self._load_legacy_artifact(artifact_id)
-
-    def get_step_binaries(self, step_index: int, branch_path: List[int] = None):
-        # Works for both modes
-        return self._find_artifacts(step_index=step_index, branch_path=branch_path)
+# Existing custom controllers work without changes:
+@register_controller
+class MyCustomController(OperatorController):
+    def execute(self, step_info, dataset, context, ...):
+        # This code works in both modes
+        X = dataset.x(context.selector)
+        X_new = self.transform(X)
+        dataset.update_features(..., X_new, ...)
+        return context, StepOutput(artifacts=[...])
 ```
 
----
+In DAG mode, `DAGNodeAdapter` wraps this controller transparently.
 
-## Deprecation Schedule
+### Deprecation Timeline
 
-### Phase A: Soft Deprecation (Post Phase 5)
-
-- Add deprecation warnings to legacy mode
-- Document DAG mode as recommended
-- Keep legacy mode fully functional
-
-```python
-if not self.use_dag:
-    warnings.warn(
-        "Legacy pipeline execution is deprecated. "
-        "Use PipelineRunner(use_dag=True) for improved performance. "
-        "Legacy mode will be removed in v2.0.",
-        DeprecationWarning
-    )
-```
-
-### Phase B: Hard Deprecation (v1.x → v2.0)
-
-- Default `use_dag=True`
-- Legacy mode emits louder warnings
-- Announce removal in release notes
-
-### Phase C: Removal (v2.0)
-
-- Remove `_run_legacy_mode()`
-- Remove legacy execute paths from PipelineExecutor
-- Simplify controller base class (remove execute, keep execute_dag)
-- Update all documentation
+| Phase | Deprecated | Removed |
+|-------|------------|---------|
+| Phase 2 | - | - |
+| Phase 4 | Direct dataset mutation in controllers | - |
+| Phase 6 | `execution_mode="sequential"` | - |
+| v2.0 | - | `execution_mode="sequential"` |
 
 ---
 
 ## Success Criteria
 
-### Functional Criteria
+### Phase Completion Criteria
 
-| Criterion | Validation Method |
-|-----------|-------------------|
-| All examples pass | Run `examples/run.sh` in DAG mode |
-| Predictions match | Compare predictions between modes |
-| Artifacts loadable | Round-trip train→predict test |
-| Branch/merge works | Stacking example produces same results |
-| Generator→branches | New test case with branch generators |
+| Phase | Criterion |
+|-------|-----------|
+| 0 | New dataclasses exist, all tests pass |
+| 1 | DAG builds from all examples, visualization works |
+| 2 | DAG execution matches sequential for all examples |
+| 3 | Dynamic nodes work (generators, TF build) |
+| 4 | Controllers use accessor, no behavior change |
+| 5 | Parallel execution faster for multi-branch |
+| 6 | DAG mode is default, docs complete |
 
-### Performance Criteria
+### Test Coverage Requirements
 
-| Criterion | Target |
-|-----------|--------|
-| Execution time | Within 10% of legacy mode |
-| Memory usage | Within 20% of legacy mode |
-| Startup time | No regression |
+```
+Phase 0: 100% coverage on new dataclasses
+Phase 1: 95% coverage on builder/adapters
+Phase 2: 90% coverage on executor, comparison tests pass
+Phase 3: 90% coverage on dynamic nodes
+Phase 4: 80% coverage on accessor migration
+Phase 5: 80% coverage on parallel execution
+Phase 6: Maintain overall 85% coverage
+```
 
-### Compatibility Criteria
+### Performance Requirements
 
-| Criterion | Validation Method |
-|-----------|-------------------|
-| Legacy controllers work | Run unmodified Q*.py examples |
-| Artifacts from legacy mode load | Cross-mode prediction test |
-| Custom controllers work | Test with user-contributed controllers |
+| Metric | Target |
+|--------|--------|
+| DAG build time | < 100ms for 50-step pipeline |
+| DAG execution overhead | < 5% vs sequential |
+| Memory overhead | < 20% increase |
+| Parallel speedup | > 2x for 4+ branches |
 
-### Test Coverage
+### Acceptance Criteria
 
-| Component | Minimum Coverage |
-|-----------|------------------|
-| Primitives | 95% |
-| DAGBuilder | 90% |
-| DAGExecutor | 90% |
-| Scheduler | 85% |
-| Controller adapters | 80% |
+1. **All 20+ examples run successfully** with DAG mode
+2. **Predictions are identical** between modes (within numerical precision)
+3. **Artifacts are interchangeable** (train sequential, predict DAG or vice versa)
+4. **ExecutionTrace captures DAG structure** for replay
+5. **Custom controllers work** without modification
+6. **Documentation is complete** with migration guide
+
+---
+
+## Risk Assessment
+
+### High Risk
+
+| Risk | Probability | Impact | Mitigation |
+|------|-------------|--------|------------|
+| Breaking changes to controller API | Low | High | Adapter pattern isolates controllers |
+| Performance regression | Medium | Medium | Benchmark at each phase, optimize |
+| Memory explosion from immutability | Medium | Medium | Append-only, not full copies |
+
+### Medium Risk
+
+| Risk | Probability | Impact | Mitigation |
+|------|-------------|--------|------------|
+| Complex debugging in DAG mode | Medium | Medium | DAG visualization, detailed trace |
+| Thread safety issues in parallel | Medium | Medium | Extensive concurrent testing |
+| Generator expansion edge cases | Low | Medium | Comprehensive generator tests |
+
+### Low Risk
+
+| Risk | Probability | Impact | Mitigation |
+|------|-------------|--------|------------|
+| Documentation lag | Medium | Low | Docs updated per phase |
+| User confusion with two modes | Low | Low | Clear messaging, deprecation |
 
 ---
 
 ## Summary
 
-This migration plan provides:
+The migration to DAG-based execution follows these principles:
 
-1. **Incremental approach**: Each phase is independently testable
-2. **Backward compatibility**: Legacy mode preserved throughout
-3. **Clear exit criteria**: Each phase has measurable deliverables
-4. **Minimal disruption**: Controllers adapt via default delegation
-5. **Reversibility**: Can pause migration at any phase boundary
+1. **Adapter, not rewrite**: Controllers wrapped, not reimplemented
+2. **Incremental delivery**: Each phase is independently valuable
+3. **Backward compatible**: Existing code keeps working
+4. **Test-driven**: Extensive validation at each phase
+5. **Performance-conscious**: Benchmarked throughout
 
-The key to success is maintaining the **parallel execution paths** until DAG mode is proven stable, then gradually deprecating legacy mode.
+The estimated timeline of 12-16 weeks allows for careful implementation with minimal risk to existing functionality. The final system will support:
 
-### Immediate Next Steps
+- Linear syntax with implicit DAG structure
+- Dynamic node creation for runtime decisions
+- Parallel execution for independent branches
+- Deterministic replay from traces
+- Full backward compatibility during transition
 
-1. Create `nirs4all/pipeline/dag/` package structure
-2. Implement `Payload` dataclass
-3. Implement core primitives (`get_features`, `set_features`, `fork`, `join`)
-4. Write unit tests for primitives
-5. Begin DAGGraph implementation
-
-### Risk Mitigations
-
-| Risk | Mitigation |
-|------|------------|
-| Controller incompatibility | Default delegation preserves behavior |
-| Artifact ID mismatch | Consistent format, fallback logic |
-| Performance regression | Benchmark at each phase |
-| Scope creep | Strict phase boundaries, no feature additions |
+This migration unlocks future capabilities (distributed execution, advanced caching, partial replay) while preserving nirs4all's pragmatic, domain-specific design.
