@@ -27,7 +27,10 @@ from nirs4all.core.task_type import TaskType
 
 logger = get_logger(__name__)
 from sklearn.base import TransformerMixin
-from typing import Optional, Union, List, Tuple, Dict, Any, Literal
+from typing import Optional, Union, List, Tuple, Dict, Any, Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nirs4all.operators.data.repetition import RepetitionConfig
 
 
 class SpectroDataset:
@@ -689,6 +692,487 @@ class SpectroDataset:
             float: Confidence level (0-1) for chi-square critical value
         """
         return self._aggregate_outlier_threshold
+
+    # ========== Repetition Transformation Methods ==========
+
+    def _get_sample_groups(self, column: str) -> Dict[Any, List[int]]:
+        """Get sample groups by a metadata column or target values.
+
+        Groups samples by the unique values in the specified column, returning
+        a mapping from each unique value to the list of row indices that share
+        that value.
+
+        Args:
+            column: Column name to group by. Special values:
+                - "y": Group by target values (y_true)
+                - Any other string: Metadata column name
+
+        Returns:
+            Dict mapping group keys (sample IDs) to lists of row indices.
+
+        Raises:
+            ValueError: If column is "y" but no targets exist, or if column
+                not found in metadata.
+
+        Example:
+            >>> groups = dataset._get_sample_groups("Sample_ID")
+            >>> # {'sample_001': [0, 1, 2, 3], 'sample_002': [4, 5, 6, 7], ...}
+        """
+        from collections import defaultdict
+
+        if column.lower() == "y":
+            # Group by target values
+            if self._targets.num_samples == 0:
+                raise ValueError(
+                    "Cannot group by 'y': no target values available. "
+                    "Add targets first using add_targets(). [Error: REP-E003]"
+                )
+            y = self._targets.get_targets("numeric")
+            if y is None or len(y) == 0:
+                raise ValueError(
+                    "Cannot group by 'y': no target values available. "
+                    "Add targets first using add_targets(). [Error: REP-E003]"
+                )
+            groups: Dict[Any, List[int]] = defaultdict(list)
+            for idx, val in enumerate(y):
+                # Use tuple for array values (multi-output), else raw value
+                key = tuple(val) if hasattr(val, '__iter__') and not isinstance(val, str) else val
+                groups[key].append(idx)
+            return dict(groups)
+        else:
+            # Group by metadata column
+            if column not in self.metadata_columns:
+                raise ValueError(
+                    f"Column '{column}' not found in metadata. "
+                    f"Available columns: {self.metadata_columns}. [Error: REP-E001]"
+                )
+            col_values = self.metadata_column(column)
+            groups = defaultdict(list)
+            for idx, val in enumerate(col_values):
+                groups[val].append(idx)
+            return dict(groups)
+
+    def _validate_repetition_groups(
+        self,
+        groups: Dict[Any, List[int]],
+        config: "RepetitionConfig"
+    ) -> Tuple[Dict[Any, List[int]], int]:
+        """Validate and optionally adjust sample groups for equal repetitions.
+
+        Args:
+            groups: Dict mapping sample IDs to row indices lists.
+            config: RepetitionConfig with validation settings.
+
+        Returns:
+            Tuple of (validated_groups, n_reps) where n_reps is the number
+            of repetitions per sample.
+
+        Raises:
+            ValueError: If groups have unequal sizes and on_unequal="error",
+                or if expected_reps doesn't match actual counts.
+        """
+        from nirs4all.operators.data.repetition import UnequelRepsStrategy
+
+        if not groups:
+            raise ValueError(
+                "No sample groups found. Check that the grouping column "
+                "has valid values. [Error: REP-E002]"
+            )
+
+        # Get counts per group
+        counts = {k: len(v) for k, v in groups.items()}
+        unique_counts = set(counts.values())
+        min_count = min(unique_counts)
+        max_count = max(unique_counts)
+
+        # Determine expected repetitions
+        if config.expected_reps is not None:
+            n_reps = config.expected_reps
+        else:
+            # Use mode (most common count) as expected
+            from collections import Counter
+            count_freq = Counter(counts.values())
+            n_reps = count_freq.most_common(1)[0][0]
+
+        # Check for unequal counts
+        if len(unique_counts) > 1 or (config.expected_reps and n_reps not in unique_counts):
+            strategy = config.get_unequal_strategy()
+
+            if strategy == UnequelRepsStrategy.ERROR:
+                count_summary = {c: sum(1 for v in counts.values() if v == c) for c in unique_counts}
+                raise ValueError(
+                    f"Unequal repetition counts detected: {count_summary}. "
+                    f"Expected {n_reps} repetitions per sample. "
+                    f"Use on_unequal='drop', 'pad', or 'truncate' to handle this. "
+                    f"[Error: REP-E002]"
+                )
+
+            elif strategy == UnequelRepsStrategy.DROP:
+                # Keep only groups with expected count
+                groups = {k: v for k, v in groups.items() if len(v) == n_reps}
+                if not groups:
+                    raise ValueError(
+                        f"After dropping, no samples remain with {n_reps} repetitions. "
+                        f"[Error: REP-E002]"
+                    )
+                logger.warning(
+                    f"Dropped {len(counts) - len(groups)} samples with != {n_reps} repetitions"
+                )
+
+            elif strategy == UnequelRepsStrategy.TRUNCATE:
+                # Use minimum count
+                n_reps = min_count
+                groups = {k: v[:n_reps] for k, v in groups.items()}
+                logger.warning(
+                    f"Truncated all groups to {n_reps} repetitions (minimum)"
+                )
+
+            elif strategy == UnequelRepsStrategy.PAD:
+                # Pad will be handled during reshaping (use NaN/repeat last)
+                n_reps = max_count
+                logger.warning(
+                    f"Will pad shorter groups to {n_reps} repetitions with NaN"
+                )
+
+        # Sort indices within each group if preserve_order is True
+        if config.preserve_order:
+            groups = {k: sorted(v) for k, v in groups.items()}
+
+        return groups, n_reps
+
+    def reshape_reps_to_sources(self, config: "RepetitionConfig") -> None:
+        """Transform repetitions into separate data sources.
+
+        Each repetition index becomes a new source, reducing the number of
+        samples but increasing the number of sources. This enables per-source
+        branching and multi-source modeling strategies.
+
+        Input: n_sources × (n_samples, n_pp, n_features)
+        Output: (n_sources × n_reps) × (n_unique_samples, n_pp, n_features)
+
+        Args:
+            config: RepetitionConfig with column and options.
+
+        Raises:
+            ValueError: If grouping column not found, groups have unequal sizes
+                and on_unequal="error", or no valid groups found.
+
+        Example:
+            >>> # With 120 samples (30 unique × 4 reps), 1 source, 500 features
+            >>> config = RepetitionConfig(column="Sample_ID")
+            >>> dataset.reshape_reps_to_sources(config)
+            >>> # Result: 4 sources × (30 samples, 1 pp, 500 features)
+        """
+        # Resolve column
+        column = config.resolve_column(self.aggregate)
+
+        # Get and validate groups
+        groups = self._get_sample_groups(column)
+        groups, n_reps = self._validate_repetition_groups(groups, config)
+
+        n_unique = len(groups)
+        n_existing_sources = self.n_sources
+
+        logger.info(
+            f"Reshaping repetitions to sources: "
+            f"{self.num_samples} samples → {n_unique} samples × {n_reps} reps"
+        )
+        logger.info(f"  Sources: {n_existing_sources} → {n_existing_sources * n_reps}")
+
+        # Collect new source data
+        # For each existing source, create n_reps new sources
+        new_sources_data = []
+        new_processing_ids = []
+
+        for src_idx in range(n_existing_sources):
+            # Get current source data in 3D layout
+            X = self.x({}, layout="3d", concat_source=False, include_augmented=True, include_excluded=True)
+            if isinstance(X, list):
+                X_src = X[src_idx]
+            else:
+                X_src = X
+
+            n_pp = X_src.shape[1]
+            n_features = X_src.shape[2]
+            processing_ids = self.features_processings(src_idx)
+
+            # Create one new source per repetition index
+            for rep_idx in range(n_reps):
+                # Gather samples for this repetition
+                rep_data = np.zeros((n_unique, n_pp, n_features), dtype=X_src.dtype)
+
+                for sample_idx, (sample_id, row_indices) in enumerate(groups.items()):
+                    if rep_idx < len(row_indices):
+                        rep_data[sample_idx] = X_src[row_indices[rep_idx]]
+                    else:
+                        # Pad with NaN for missing repetitions
+                        rep_data[sample_idx] = np.nan
+
+                new_sources_data.append(rep_data)
+                new_processing_ids.append(processing_ids)
+
+        # Get sample keys in order
+        sample_keys = list(groups.keys())
+
+        # Rebuild metadata - take first row from each group
+        first_indices = [groups[k][0] for k in sample_keys]
+        old_metadata = self._metadata.df if self._metadata.num_rows > 0 else None
+
+        # Clear and rebuild the dataset
+        self._rebuild_dataset_from_sources(
+            sources_data=new_sources_data,
+            processing_ids=new_processing_ids,
+            sample_keys=sample_keys,
+            old_metadata=old_metadata,
+            first_indices=first_indices,
+            config=config,
+            transformation_type="sources"
+        )
+
+        logger.success(
+            f"Reshaped to {len(new_sources_data)} sources × {n_unique} samples"
+        )
+
+    def reshape_reps_to_preprocessings(self, config: "RepetitionConfig") -> None:
+        """Transform repetitions into additional preprocessing slots.
+
+        Each repetition becomes a new preprocessing dimension, reducing the
+        number of samples but increasing the preprocessing count. This enables
+        multi-preprocessing modeling strategies.
+
+        Input: n_sources × (n_samples, n_pp, n_features)
+        Output: n_sources × (n_unique_samples, n_pp × n_reps, n_features)
+
+        Args:
+            config: RepetitionConfig with column and options.
+
+        Raises:
+            ValueError: If grouping column not found, groups have unequal sizes
+                and on_unequal="error", or no valid groups found.
+
+        Example:
+            >>> # With 120 samples (30 unique × 4 reps), 1 source, 1 pp, 500 features
+            >>> config = RepetitionConfig(column="Sample_ID")
+            >>> dataset.reshape_reps_to_preprocessings(config)
+            >>> # Result: 1 source × (30 samples, 4 pp, 500 features)
+        """
+        # Resolve column
+        column = config.resolve_column(self.aggregate)
+
+        # Get and validate groups
+        groups = self._get_sample_groups(column)
+        groups, n_reps = self._validate_repetition_groups(groups, config)
+
+        n_unique = len(groups)
+        n_existing_sources = self.n_sources
+
+        logger.info(
+            f"Reshaping repetitions to preprocessings: "
+            f"{self.num_samples} samples → {n_unique} samples × {n_reps} reps"
+        )
+
+        # Collect new source data
+        new_sources_data = []
+        new_processing_ids = []
+
+        for src_idx in range(n_existing_sources):
+            # Get current source data in 3D layout
+            X = self.x({}, layout="3d", concat_source=False, include_augmented=True, include_excluded=True)
+            if isinstance(X, list):
+                X_src = X[src_idx]
+            else:
+                X_src = X
+
+            n_existing_pp = X_src.shape[1]
+            n_features = X_src.shape[2]
+            existing_processing_ids = self.features_processings(src_idx)
+
+            # New shape: (n_unique, n_existing_pp * n_reps, n_features)
+            new_n_pp = n_existing_pp * n_reps
+            new_data = np.zeros((n_unique, new_n_pp, n_features), dtype=X_src.dtype)
+
+            # Build new processing names
+            new_pp_names = []
+            for rep_idx in range(n_reps):
+                for pp_name in existing_processing_ids:
+                    new_pp_names.append(config.get_pp_name(rep_idx, pp_name))
+
+            # Fill data: for each unique sample, stack all repetitions
+            for sample_idx, (sample_id, row_indices) in enumerate(groups.items()):
+                for rep_idx in range(n_reps):
+                    if rep_idx < len(row_indices):
+                        row_idx = row_indices[rep_idx]
+                        # Copy all existing preprocessings for this repetition
+                        pp_start = rep_idx * n_existing_pp
+                        pp_end = pp_start + n_existing_pp
+                        new_data[sample_idx, pp_start:pp_end] = X_src[row_idx]
+                    else:
+                        # Pad with NaN
+                        pp_start = rep_idx * n_existing_pp
+                        pp_end = pp_start + n_existing_pp
+                        new_data[sample_idx, pp_start:pp_end] = np.nan
+
+            new_sources_data.append(new_data)
+            new_processing_ids.append(new_pp_names)
+
+            logger.info(
+                f"  Source {src_idx}: {n_existing_pp} pp → {new_n_pp} pp"
+            )
+
+        # Get sample keys in order
+        sample_keys = list(groups.keys())
+
+        # Rebuild metadata - take first row from each group
+        first_indices = [groups[k][0] for k in sample_keys]
+        old_metadata = self._metadata.df if self._metadata.num_rows > 0 else None
+
+        # Clear and rebuild the dataset
+        self._rebuild_dataset_from_sources(
+            sources_data=new_sources_data,
+            processing_ids=new_processing_ids,
+            sample_keys=sample_keys,
+            old_metadata=old_metadata,
+            first_indices=first_indices,
+            config=config,
+            transformation_type="preprocessings"
+        )
+
+        logger.success(
+            f"Reshaped to {n_unique} samples × {new_sources_data[0].shape[1]} preprocessings"
+        )
+
+    def _rebuild_dataset_from_sources(
+        self,
+        sources_data: List[np.ndarray],
+        processing_ids: List[List[str]],
+        sample_keys: List[Any],
+        old_metadata: Optional[Any],
+        first_indices: List[int],
+        config: "RepetitionConfig",
+        transformation_type: str
+    ) -> None:
+        """Rebuild dataset with new sources/structure after repetition transformation.
+
+        This internal method replaces the feature storage, indexer, and metadata
+        with new data after rep_to_sources or rep_to_pp transformation.
+
+        Args:
+            sources_data: List of 3D arrays, one per new source.
+            processing_ids: List of processing ID lists, one per new source.
+            sample_keys: Sample identifiers (from grouping column).
+            old_metadata: Original metadata DataFrame (or None).
+            first_indices: Row indices to extract metadata from (first per group).
+            config: RepetitionConfig for naming options.
+            transformation_type: "sources" or "preprocessings" for logging.
+        """
+        n_samples = len(sample_keys)
+        n_sources = len(sources_data)
+
+        # Reset feature storage
+        from nirs4all.data._features import FeatureSource
+        from nirs4all.data.features import Features
+        from nirs4all.data.indexer import Indexer
+
+        # Create new features block
+        new_features = Features()
+        new_features.sources = []
+
+        for src_idx, (data_3d, pp_ids) in enumerate(zip(sources_data, processing_ids)):
+            source = FeatureSource()
+            # Add samples as 2D (first pp), then reset with full 3D
+            source.reset_features(data_3d, pp_ids)
+            new_features.sources.append(source)
+
+        # Create new indexer with reduced sample count
+        new_indexer = Indexer()
+
+        # Get partition info from old indexer if possible
+        old_partitions = self._indexer.get_column_values("partition")
+        new_partitions = [str(old_partitions[idx]) for idx in first_indices] if old_partitions else None
+
+        # Get group info
+        old_groups = self._indexer.get_column_values("group")
+        new_groups = [old_groups[idx] for idx in first_indices] if old_groups else None
+
+        # Add samples to new indexer by partition to respect the partition type constraint
+        # Partition needs to be a single value, so we add samples per partition group
+        if new_partitions:
+            # Group samples by partition
+            from collections import defaultdict
+            partition_indices: Dict[str, List[int]] = defaultdict(list)
+            for idx, part in enumerate(new_partitions):
+                partition_indices[part].append(idx)
+
+            # Add samples partition by partition
+            for partition, idxs in partition_indices.items():
+                groups_for_partition = [new_groups[i] for i in idxs] if new_groups else None
+                new_indexer.add_samples(
+                    count=len(idxs),
+                    partition=partition,  # type: ignore
+                    group=groups_for_partition,
+                    processings=processing_ids[0] if processing_ids else ["raw"]
+                )
+        else:
+            # All train by default
+            new_indexer.add_samples(
+                count=n_samples,
+                partition="train",
+                group=new_groups,
+                processings=processing_ids[0] if processing_ids else ["raw"]
+            )
+
+        # Rebuild metadata if exists
+        if old_metadata is not None and len(old_metadata) > 0:
+            import polars as pl
+
+            # Extract rows corresponding to first_indices
+            new_metadata_rows = old_metadata[first_indices]
+
+            # Reset metadata block using add_metadata (proper method)
+            from nirs4all.data.metadata import Metadata
+            new_metadata = Metadata()
+            # Remove row_id if present before adding
+            if "row_id" in new_metadata_rows.columns:
+                new_metadata_rows = new_metadata_rows.drop("row_id")
+            new_metadata.add_metadata(new_metadata_rows)
+
+            self._metadata = new_metadata
+            self._metadata_accessor = self._metadata_accessor.__class__(
+                new_indexer, new_metadata
+            )
+
+        # Rebuild targets if exists (use first_indices)
+        if self._targets.num_samples > 0:
+            old_y = self._targets.get_targets("numeric")
+            if old_y is not None and len(old_y) > 0:
+                new_y = old_y[first_indices]
+                # Reset targets block
+                from nirs4all.data.targets import Targets
+                new_targets = Targets()
+                new_targets.add_targets(new_y)
+
+                # Copy task type
+                if self._targets.task_type:
+                    new_targets.set_task_type(self._targets.task_type, forced=True)
+
+                self._targets = new_targets
+                self._target_accessor = self._target_accessor.__class__(
+                    new_indexer, new_targets
+                )
+
+        # Replace internal storage
+        self._features = new_features
+        self._indexer = new_indexer
+        self._feature_accessor = self._feature_accessor.__class__(
+            new_indexer, new_features
+        )
+
+        # Reset signal types for new sources
+        self._signal_types = [SignalType.AUTO] * n_sources
+        self._signal_type_forced = [False] * n_sources
+
+        # Clear folds (CV needs to be re-run on new sample count)
+        self._folds = []
 
     def short_preprocessings_str(self) -> str:
         """Get shortened processing string for display."""

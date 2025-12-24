@@ -65,7 +65,8 @@ examples=(
   "Q32_export_bundle.py"
   "Q33_retrain_transfer.py"
   "Q34_aggregation.py"
-  "Q35_metadata_branching.py"
+  "Q35_metadata_branching.py",
+  "Q36_repetition_transform.py",
   "Q_meta_stacking.py"
   "Q_complex_all_keywords.py"
   "Q_feature_augmentation_modes.py"

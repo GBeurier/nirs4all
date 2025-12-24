@@ -17,6 +17,10 @@ from .merge import (
     MergeConfig,
     SourceMergeConfig,
 )
+from .repetition import (
+    RepetitionConfig,
+    UnequelRepsStrategy,
+)
 
 __all__ = [
     # Enums
@@ -28,8 +32,10 @@ __all__ = [
     "ShapeMismatchStrategy",
     "SourceMergeStrategy",
     "SourceIncompatibleStrategy",
+    "UnequelRepsStrategy",
     # Dataclasses
     "BranchPredictionConfig",
     "MergeConfig",
     "SourceMergeConfig",
+    "RepetitionConfig",
 ]
