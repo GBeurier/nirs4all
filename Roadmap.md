@@ -2,19 +2,12 @@
 
 
 **Features**:
-Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications) and dataset configs that cover all cases.
-Or from synthetic data generator.
-Creates use cases that covers all the diversity of controllers and syntax for pipelines
 
-> [PipelineDAGChart] Display the whole DAG with data shape before each step
-
-> [feat] review repetitions mechanisms: to sources, to preprocessing
 > [feat] branch from metadata columns
-
+> [feat] review repetitions mechanisms: to sources, to preprocessing
 
 > [Runner] Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
 > [signature] change signatures to nirs4all.run(pipeline, dataset, config), nirs4all.predict, etc. Add nirs4all config.
-
 
 > [score] Fix avg, w_avg evaluation
 
@@ -26,7 +19,13 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 
 > [pytoml] Update imports and configs. Anticipate ui dependencies.
 
+
 > [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
+
+Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications) and dataset configs that cover all cases.
+Or from synthetic data generator.
+Creates use cases that covers all the diversity of controllers and syntax for pipelines
+
 > [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
 > [Examples] Clean and document
 > [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
@@ -34,12 +33,9 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 
 
 **Major Review**:
-
 > Artifact overview and maybe refactoring
 > GLOBAL REVIEW OF WORKFLOW MECHANISM (X,Y,M,Pred - indexed on Models, pp, branches, etc. - with context - What about ?)
-
 > transfer, stacking, branching, multisource, pp, aggregation, pipeline inputs (launch from model, folder, file, yaml, json, etc.)
-
 
 **RELEASE** 0.6.0: MVP
 
@@ -67,7 +63,10 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 >   - [Charts] check dataviz. Missing histograms
 
 
-
+> [DAG] Pipeline as DAG
+> [Pipeline] as a GridSearchCVGridSearchCV or FineTuner. Generation as a choices optimization provider.
+> [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
+> [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
 > [Pipeline_Bundle] Change / edit pipeline step
 
 > [SHAP] verify shap for tf, torch, jax, Fix imports and np compat
@@ -78,6 +77,8 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 
 > [Complete_Review] Review modules one by one: pipeline, dataset, controllers, core,
 
+> [Observers] Replace data copy for analysis (pp dataset copy) by observers. Observers are controllers that can aggregate data and can be queried anytime to get the data and analyze them
+
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
 
 > [PLS] Implement variable selection methods (CARS and MC-UVE done)
@@ -87,9 +88,6 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 
 > [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
 
-> [Pipeline] as a GridSearchCVGridSearchCV or FineTuner. Generation as a choices optimization provider.
-> [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
-> [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
 
 > [Dummy_Controller] remove totally and manage exceptions
 

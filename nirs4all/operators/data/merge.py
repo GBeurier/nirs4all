@@ -48,6 +48,243 @@ class MergeMode(Enum):
     ALL = "all"
 
 
+class BranchType(Enum):
+    """Type of branch based on sample handling.
+
+    Attributes:
+        COPY: All branches see all samples (default branching behavior).
+        METADATA_PARTITIONER: Branches partition samples by metadata column.
+        SAMPLE_PARTITIONER: Branches partition samples by filter (e.g., outlier).
+    """
+
+    COPY = "copy"
+    METADATA_PARTITIONER = "metadata_partitioner"
+    SAMPLE_PARTITIONER = "sample_partitioner"
+
+
+class DisjointSelectionCriterion(Enum):
+    """Criterion for selecting top-N models in disjoint branch merge.
+
+    When branches have different model counts, we select top-N models
+    from each branch based on this criterion.
+
+    Attributes:
+        MSE: Select by lowest Mean Squared Error (default for regression).
+        RMSE: Select by lowest Root Mean Squared Error.
+        MAE: Select by lowest Mean Absolute Error.
+        R2: Select by highest R² score.
+        ORDER: Select first N in definition order (no ranking).
+    """
+
+    MSE = "mse"
+    RMSE = "rmse"
+    MAE = "mae"
+    R2 = "r2"
+    ORDER = "order"
+
+
+@dataclass
+class DisjointBranchInfo:
+    """Information about a single branch in a disjoint merge.
+
+    Captures per-branch statistics and model selection details for
+    comprehensive merge metadata.
+
+    Attributes:
+        n_samples: Number of samples in this branch partition.
+        sample_ids: List of sample indices belonging to this branch.
+        n_models_original: Original number of models in the branch.
+        n_models_selected: Number of models selected for merge.
+        selected_models: List of selected model details with name, score, column.
+        dropped_models: List of dropped model details with name, score.
+    """
+
+    n_samples: int
+    sample_ids: List[int]
+    n_models_original: int = 0
+    n_models_selected: int = 0
+    selected_models: List[Dict[str, Any]] = field(default_factory=list)
+    dropped_models: List[Dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "n_samples": self.n_samples,
+            "sample_ids": self.sample_ids,
+            "n_models_original": self.n_models_original,
+            "n_models_selected": self.n_models_selected,
+            "selected_models": self.selected_models,
+            "dropped_models": self.dropped_models,
+        }
+
+
+@dataclass
+class DisjointMergeMetadata:
+    """Complete metadata for a disjoint sample branch merge.
+
+    This dataclass captures all information about a disjoint merge operation
+    for logging, debugging, and downstream use. Matches the specification
+    in docs/reports/disjoint_sample_branch_merging.md Section 6.
+
+    Attributes:
+        merge_type: Always "disjoint_samples" for disjoint merges.
+        n_columns: Number of output columns (prediction features).
+        select_by: Selection criterion used (mse, rmse, mae, r2, order).
+        branches: Per-branch information as Dict[branch_name, DisjointBranchInfo].
+        column_mapping: Maps output column index to per-branch model names.
+            Example: {0: {"red": "RF", "blue": "PLS"}, 1: {"red": "PLS", "blue": "RF"}}
+        is_heterogeneous: True if different branches have different models per column.
+        feature_dim: Feature dimension (for feature merges).
+
+    Example:
+        >>> metadata = DisjointMergeMetadata(
+        ...     merge_type="disjoint_samples",
+        ...     n_columns=2,
+        ...     select_by="mse",
+        ...     branches={
+        ...         "red": DisjointBranchInfo(n_samples=50, sample_ids=[...], ...),
+        ...         "blue": DisjointBranchInfo(n_samples=100, sample_ids=[...], ...),
+        ...     },
+        ...     column_mapping={
+        ...         0: {"red": "RF", "blue": "PLS"},
+        ...         1: {"red": "PLS", "blue": "RF"},
+        ...     },
+        ... )
+    """
+
+    merge_type: str = "disjoint_samples"
+    n_columns: int = 0
+    select_by: str = "mse"
+    branches: Dict[str, "DisjointBranchInfo"] = field(default_factory=dict)
+    column_mapping: Dict[int, Dict[str, str]] = field(default_factory=dict)
+    is_heterogeneous: bool = False
+    feature_dim: Optional[int] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization/logging.
+
+        Returns:
+            Dictionary representation suitable for YAML/JSON serialization.
+        """
+        return {
+            "merge_type": self.merge_type,
+            "n_columns": self.n_columns,
+            "select_by": self.select_by,
+            "branches": {
+                name: info.to_dict() for name, info in self.branches.items()
+            },
+            "column_mapping": self.column_mapping,
+            "is_heterogeneous": self.is_heterogeneous,
+            "feature_dim": self.feature_dim,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DisjointMergeMetadata":
+        """Create from dictionary representation.
+
+        Args:
+            data: Dictionary with metadata fields.
+
+        Returns:
+            DisjointMergeMetadata instance.
+        """
+        branches = {}
+        if "branches" in data:
+            for name, info_dict in data["branches"].items():
+                branches[name] = DisjointBranchInfo(
+                    n_samples=info_dict.get("n_samples", 0),
+                    sample_ids=info_dict.get("sample_ids", []),
+                    n_models_original=info_dict.get("n_models_original", 0),
+                    n_models_selected=info_dict.get("n_models_selected", 0),
+                    selected_models=info_dict.get("selected_models", []),
+                    dropped_models=info_dict.get("dropped_models", []),
+                )
+
+        return cls(
+            merge_type=data.get("merge_type", "disjoint_samples"),
+            n_columns=data.get("n_columns", 0),
+            select_by=data.get("select_by", "mse"),
+            branches=branches,
+            column_mapping=data.get("column_mapping", {}),
+            is_heterogeneous=data.get("is_heterogeneous", False),
+            feature_dim=data.get("feature_dim"),
+        )
+
+    def get_branch_summary(self) -> str:
+        """Get a summary string for logging.
+
+        Returns:
+            Human-readable summary of branch statistics.
+        """
+        parts = []
+        for name, info in self.branches.items():
+            parts.append(f"'{name}' ({info.n_samples} samples)")
+        return ", ".join(parts)
+
+    def get_column_mapping_summary(self) -> List[str]:
+        """Get column mapping summary for logging.
+
+        Returns:
+            List of strings describing each column's model mapping.
+        """
+        summaries = []
+        for col_idx, mapping in sorted(self.column_mapping.items()):
+            model_names = set(mapping.values())
+            if len(model_names) == 1:
+                # Homogeneous column - all branches use same model
+                summaries.append(f"Column {col_idx}: {list(model_names)[0]} (all branches)")
+            else:
+                # Heterogeneous column
+                mapping_str = ", ".join(f"{branch}: {model}" for branch, model in mapping.items())
+                summaries.append(f"Column {col_idx}: {mapping_str}")
+        return summaries
+
+    def log_summary(self, logger_func) -> None:
+        """Log merge summary using provided logger function.
+
+        Args:
+            logger_func: Logger function (e.g., logger.info)
+        """
+        logger_func(
+            f"Merging {len(self.branches)} disjoint branches: {self.get_branch_summary()}"
+        )
+        total_samples = sum(info.n_samples for info in self.branches.values())
+        logger_func(f"Output: {total_samples} samples × {self.n_columns} columns")
+
+    def log_warnings(self, logger_warning_func) -> None:
+        """Log warnings for heterogeneous columns and dropped models.
+
+        Args:
+            logger_warning_func: Logger warning function (e.g., logger.warning)
+        """
+        # Log model count asymmetry and dropped models
+        model_counts = {
+            name: info.n_models_original for name, info in self.branches.items()
+        }
+        unique_counts = set(model_counts.values())
+
+        if len(unique_counts) > 1:
+            logger_warning_func(
+                f"Model count differs across branches. Using N={self.n_columns} columns (minimum)."
+            )
+            for name, info in self.branches.items():
+                if info.dropped_models:
+                    dropped_names = [m.get("name", "?") for m in info.dropped_models]
+                    selected_names = [m.get("name", "?") for m in info.selected_models]
+                    logger_warning_func(
+                        f"  Branch '{name}': selected {selected_names}; dropped {dropped_names}"
+                    )
+                else:
+                    selected_names = [m.get("name", "?") for m in info.selected_models]
+                    logger_warning_func(f"  Branch '{name}': all models selected")
+
+        # Log heterogeneous column mapping
+        if self.is_heterogeneous:
+            logger_warning_func("Column mapping is heterogeneous:")
+            for summary in self.get_column_mapping_summary():
+                logger_warning_func(f"  {summary}")
+
+
 class SelectionStrategy(Enum):
     """How to select models within a branch for prediction merging.
 
@@ -360,6 +597,13 @@ class MergeConfig:
         >>>
         >>> # Unsafe mode (with warning)
         >>> MergeConfig(collect_predictions=True, unsafe=True)
+        >>>
+        >>> # Disjoint branch merge with n_columns override
+        >>> MergeConfig(
+        ...     collect_predictions=True,
+        ...     n_columns=2,
+        ...     select_by="mse"
+        ... )
     """
 
     collect_features: bool = False
@@ -375,6 +619,9 @@ class MergeConfig:
     unsafe: bool = False
     output_as: str = "features"  # Default to "features" for backward compatibility
     source_names: Optional[List[str]] = None
+    # Disjoint sample branch merge options (Phase 2)
+    n_columns: Optional[int] = None  # Force output column count for disjoint prediction merge
+    select_by: str = "mse"  # Criterion for selecting top-N models (mse, rmse, mae, r2, order)
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -418,6 +665,27 @@ class MergeConfig:
                 UserWarning,
                 stacklevel=2
             )
+
+        # Validate n_columns
+        if self.n_columns is not None and self.n_columns < 1:
+            raise ValueError(
+                f"n_columns must be >= 1, got {self.n_columns}"
+            )
+
+        # Validate select_by
+        valid_select_by = ("mse", "rmse", "mae", "r2", "order")
+        if self.select_by not in valid_select_by:
+            raise ValueError(
+                f"select_by must be one of {valid_select_by}, got '{self.select_by}'"
+            )
+
+    def get_selection_criterion(self) -> "DisjointSelectionCriterion":
+        """Get the selection criterion enum for disjoint branch merging.
+
+        Returns:
+            DisjointSelectionCriterion enum value.
+        """
+        return DisjointSelectionCriterion(self.select_by)
 
     def has_per_branch_config(self) -> bool:
         """Check if using advanced per-branch prediction configuration.
@@ -551,6 +819,13 @@ class MergeConfig:
         if self.source_names:
             result["source_names"] = self.source_names
 
+        # Disjoint branch merge options
+        if self.n_columns is not None:
+            result["n_columns"] = self.n_columns
+
+        if self.select_by != "mse":  # Only serialize non-default
+            result["select_by"] = self.select_by
+
         return result
 
     @classmethod
@@ -594,6 +869,8 @@ class MergeConfig:
             unsafe=data.get("unsafe", False),
             output_as=data.get("output_as", "sources"),
             source_names=data.get("source_names"),
+            n_columns=data.get("n_columns"),
+            select_by=data.get("select_by", "mse"),
         )
 
 

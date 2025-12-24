@@ -38,6 +38,7 @@ class BranchType(Enum):
     NONE = "none"                           # No branching
     PREPROCESSING = "preprocessing"         # {"branch": {...}}
     SAMPLE_PARTITIONER = "sample_partitioner"  # {"branch": {"by": "sample_partitioner"}}
+    METADATA_PARTITIONER = "metadata_partitioner"  # {"branch": {"by": "metadata_partitioner", "column": ...}}
     OUTLIER_EXCLUDER = "outlier_excluder"   # {"branch": {"by": "outlier_excluder"}}
     GENERATOR = "generator"                 # {"_or_": [...]} or generator syntax
     NESTED = "nested"                       # Multiple levels of branching
@@ -177,6 +178,8 @@ class BranchValidator:
         # Validate based on branch type
         if branch_info.branch_type == BranchType.SAMPLE_PARTITIONER:
             self._validate_sample_partitioner(context, source_model_names, result)
+        elif branch_info.branch_type == BranchType.METADATA_PARTITIONER:
+            self._validate_metadata_partitioner(context, source_model_names, result)
         elif branch_info.branch_type == BranchType.OUTLIER_EXCLUDER:
             self._validate_outlier_excluder(context, source_model_names, result)
         elif branch_info.branch_type == BranchType.PREPROCESSING:
@@ -216,6 +219,24 @@ class BranchValidator:
         branch_path = getattr(selector, 'branch_path', None) or []
 
         # Detect branch type from custom context
+        if custom.get('metadata_partitioner_active'):
+            branch_type = BranchType.METADATA_PARTITIONER
+            partition_info = custom.get('metadata_partition', {})
+            sample_indices = partition_info.get('sample_indices', [])
+            n_samples = partition_info.get('n_samples', len(sample_indices))
+
+            return BranchInfo(
+                branch_type=branch_type,
+                branch_id=branch_id,
+                branch_name=branch_name,
+                branch_path=list(branch_path),
+                partition_info=partition_info,
+                sample_indices=sample_indices,
+                n_samples=n_samples,
+                is_nested=len(branch_path) > 1,
+                nesting_depth=len(branch_path)
+            )
+
         if custom.get('sample_partitioner_active'):
             branch_type = BranchType.SAMPLE_PARTITIONER
             partition_info = custom.get('sample_partition', {})
@@ -395,6 +416,82 @@ class BranchValidator:
 
         result.add_warning(
             f"Stacking within sample_partitioner partition '{partition_type}'. "
+            f"Only models from the same partition will be used as sources."
+        )
+
+    def _validate_metadata_partitioner(
+        self,
+        context: 'ExecutionContext',
+        source_model_names: List[str],
+        result: BranchValidationResult
+    ) -> None:
+        """Validate metadata partitioner branching for stacking.
+
+        Metadata partitioner creates disjoint sample sets based on metadata
+        column values. Stacking is only valid within the same partition.
+
+        Args:
+            context: Execution context.
+            source_model_names: Source model names.
+            result: Validation result to update.
+        """
+        result.compatibility = StackingCompatibility.WITHIN_PARTITION_ONLY
+
+        current_branch_id = result.branch_info.branch_id
+        current_partition = result.branch_info.partition_info or {}
+        partition_value = current_partition.get('partition_value', 'unknown')
+        column_name = current_partition.get('column', 'unknown')
+
+        # Get sample indices for current partition
+        current_samples = set(result.branch_info.sample_indices or [])
+
+        if not current_samples:
+            result.add_warning(
+                f"Metadata partitioner branch '{partition_value}' has no sample "
+                f"indices recorded. Stacking will proceed but may have issues."
+            )
+
+        # Check source models are from same partition
+        for model_name in source_model_names:
+            model_preds = self.prediction_store.filter_predictions(
+                model_name=model_name,
+                load_arrays=False
+            )
+
+            for pred in model_preds:
+                pred_branch_id = pred.get('branch_id')
+                pred_samples = set(pred.get('sample_indices', []))
+
+                # Skip if no sample indices
+                if not pred_samples:
+                    continue
+
+                # Check if from different branch
+                if pred_branch_id is not None and pred_branch_id != current_branch_id:
+                    # Check sample overlap
+                    if current_samples and pred_samples:
+                        overlap = current_samples & pred_samples
+                        overlap_ratio = len(overlap) / max(len(current_samples), 1)
+
+                        if overlap_ratio < 0.1:  # Less than 10% overlap
+                            result.add_error(
+                                f"Source model '{model_name}' is from a different "
+                                f"metadata partition with disjoint samples "
+                                f"(only {100*overlap_ratio:.1f}% overlap). "
+                                f"Cross-partition stacking is not supported with metadata_partitioner. "
+                                f"Stack only with models from the current '{column_name}={partition_value}' partition."
+                            )
+                            return
+
+        # Add hint for source filtering
+        result.source_filter_hint = {
+            'branch_id': current_branch_id,
+            'partition_value': partition_value,
+            'column': column_name
+        }
+
+        result.add_warning(
+            f"Stacking within metadata_partitioner partition '{column_name}={partition_value}'. "
             f"Only models from the same partition will be used as sources."
         )
 
@@ -640,6 +737,8 @@ def detect_branch_type(context: 'ExecutionContext') -> BranchType:
     """
     custom = context.custom
 
+    if custom.get('metadata_partitioner_active'):
+        return BranchType.METADATA_PARTITIONER
     if custom.get('sample_partitioner_active'):
         return BranchType.SAMPLE_PARTITIONER
     if custom.get('outlier_excluder_active'):
@@ -674,7 +773,7 @@ def is_stacking_compatible(context: 'ExecutionContext') -> bool:
         return True
 
     # Compatible within partition
-    if branch_type == BranchType.SAMPLE_PARTITIONER:
+    if branch_type in (BranchType.SAMPLE_PARTITIONER, BranchType.METADATA_PARTITIONER):
         return True  # But only within partition
 
     # Limited support
@@ -687,3 +786,92 @@ def is_stacking_compatible(context: 'ExecutionContext') -> bool:
         return len(branch_path) <= BranchValidator.MAX_NESTING_DEPTH
 
     return True
+
+
+def is_disjoint_branch(context: 'ExecutionContext') -> bool:
+    """Check if the current branch context represents disjoint sample branching.
+
+    Disjoint branches partition samples into non-overlapping sets, where each
+    sample exists in exactly ONE branch. This is in contrast to copy branches
+    where all branches see all samples.
+
+    Disjoint branch types:
+        - METADATA_PARTITIONER: Branches by metadata column value
+        - SAMPLE_PARTITIONER: Branches by outlier status
+
+    Copy branch types:
+        - PREPROCESSING: All branches see all samples
+        - GENERATOR: All branches see all samples (model variants)
+
+    Args:
+        context: Execution context with branch info.
+
+    Returns:
+        True if current context represents a disjoint sample branch.
+    """
+    branch_type = detect_branch_type(context)
+
+    # Disjoint branch types
+    if branch_type in (BranchType.METADATA_PARTITIONER, BranchType.SAMPLE_PARTITIONER):
+        return True
+
+    # Check for explicit markers in context.custom
+    custom = context.custom
+
+    # metadata_partition indicates disjoint samples by metadata column
+    if custom.get('metadata_partition') is not None:
+        return True
+
+    # sample_partition indicates disjoint samples by filter (outliers/inliers)
+    if custom.get('sample_partition') is not None:
+        return True
+
+    return False
+
+
+def get_disjoint_branch_info(context: 'ExecutionContext') -> Optional[Dict[str, Any]]:
+    """Get information about the disjoint branch if applicable.
+
+    Args:
+        context: Execution context with branch info.
+
+    Returns:
+        Dict with partition info, or None if not a disjoint branch.
+        Keys may include:
+            - partition_type: "metadata" or "sample"
+            - column: Metadata column name (for metadata partitioner)
+            - partition_value: Value(s) for this partition
+            - sample_indices: List of sample indices in this partition
+            - n_samples: Number of samples in this partition
+    """
+    if not is_disjoint_branch(context):
+        return None
+
+    custom = context.custom
+
+    # Check for metadata_partition
+    metadata_partition = custom.get('metadata_partition')
+    if metadata_partition is not None:
+        return {
+            'partition_type': 'metadata',
+            'column': metadata_partition.get('column'),
+            'partition_value': metadata_partition.get('partition_value'),
+            'partition_values': metadata_partition.get('partition_values'),
+            'sample_indices': metadata_partition.get('sample_indices', []),
+            'train_sample_indices': metadata_partition.get('train_sample_indices', []),
+            'n_samples': metadata_partition.get('n_samples', 0),
+            'n_train_samples': metadata_partition.get('n_train_samples', 0),
+        }
+
+    # Check for sample_partition
+    sample_partition = custom.get('sample_partition')
+    if sample_partition is not None:
+        return {
+            'partition_type': 'sample',
+            'partition_value': sample_partition.get('partition_type'),  # e.g., "outliers" or "inliers"
+            'sample_indices': sample_partition.get('sample_indices', []),
+            'n_samples': sample_partition.get('n_samples', 0),
+            'filter_config': sample_partition.get('filter_config'),
+        }
+
+    return None

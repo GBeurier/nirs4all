@@ -68,6 +68,7 @@ class BundleMetadata:
         preprocessing_chain: Summary of preprocessing steps
         trace_id: ID of the execution trace (if available)
         original_manifest: Subset of original manifest metadata
+        partitioner_routing: Routing info for metadata partitioner branches
     """
     bundle_format_version: str = "1.0"
     nirs4all_version: str = ""
@@ -79,6 +80,7 @@ class BundleMetadata:
     preprocessing_chain: str = ""
     trace_id: Optional[str] = None
     original_manifest: Dict[str, Any] = field(default_factory=dict)
+    partitioner_routing: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BundleMetadata":
@@ -101,6 +103,7 @@ class BundleMetadata:
             preprocessing_chain=data.get("preprocessing_chain", ""),
             trace_id=data.get("trace_id"),
             original_manifest=data.get("original_manifest", {}),
+            partitioner_routing=data.get("partitioner_routing", {}),
         )
 
 
@@ -1011,6 +1014,218 @@ class BundleLoader:
             logger.debug(f"Imported bundle artifact {artifact_key} as {artifact_id}")
 
         return id_mapping
+
+    # =========================================================================
+    # Phase 4: Metadata-Based Prediction Routing
+    # =========================================================================
+
+    def has_partitioner_routing(self) -> bool:
+        """Check if the bundle has metadata partitioner routing info.
+
+        Returns:
+            True if the bundle contains partitioner routing configuration.
+        """
+        if self.metadata is None:
+            return False
+        return bool(self.metadata.partitioner_routing)
+
+    def get_partitioner_routing(self, step_index: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Get partitioner routing info for a specific step or all steps.
+
+        Args:
+            step_index: Specific step index, or None for all
+
+        Returns:
+            Routing info dict or None
+        """
+        if not self.has_partitioner_routing():
+            return None
+
+        if step_index is not None:
+            return self.metadata.partitioner_routing.get(str(step_index))
+
+        return self.metadata.partitioner_routing
+
+    def predict_with_metadata(
+        self,
+        X: np.ndarray,
+        metadata: Dict[str, np.ndarray],
+        fallback_branch: Optional[int] = None
+    ) -> np.ndarray:
+        """Run prediction with metadata-based sample routing.
+
+        For bundles with metadata partitioner branches, this method routes
+        each sample to the appropriate branch based on its metadata value.
+        Each sample is processed by the transformers and models from its
+        matching branch.
+
+        Args:
+            X: Input features as numpy array (n_samples, n_features)
+            metadata: Dict mapping column names to value arrays. Must include
+                the column used for partitioning during training.
+            fallback_branch: Optional branch ID to use for samples with
+                unknown metadata values. If None, raises error for unknowns.
+
+        Returns:
+            Predictions as numpy array
+
+        Raises:
+            ValueError: If required metadata column is missing or
+                samples have unknown values without fallback.
+
+        Example:
+            >>> loader = BundleLoader("model.n4a")
+            >>> X_new = np.random.randn(100, 500)
+            >>> metadata = {"site": np.array(["A"]*50 + ["B"]*50)}
+            >>> y_pred = loader.predict_with_metadata(X_new, metadata)
+        """
+        if not self.has_partitioner_routing():
+            # No partitioner - use standard prediction
+            logger.debug("No partitioner routing info, using standard prediction")
+            return self.predict(X)
+
+        if self.artifact_provider is None:
+            raise RuntimeError("Bundle not loaded properly: no artifact provider")
+
+        n_samples = X.shape[0]
+        y_pred = np.full(n_samples, np.nan)
+
+        # Process each partitioner step
+        for step_idx_str, routing_info in self.metadata.partitioner_routing.items():
+            step_idx = int(step_idx_str)
+            column = routing_info.get("column")
+
+            if not column:
+                logger.warning(f"Partitioner at step {step_idx} has no column info")
+                continue
+
+            if column not in metadata:
+                available_cols = list(metadata.keys())
+                raise ValueError(
+                    f"Metadata column '{column}' required for prediction routing "
+                    f"but not found. Available columns: {available_cols}"
+                )
+
+            column_values = metadata[column]
+            if len(column_values) != n_samples:
+                raise ValueError(
+                    f"Metadata column '{column}' has {len(column_values)} values "
+                    f"but X has {n_samples} samples"
+                )
+
+            # Get partition configuration
+            partitions = routing_info.get("partitions", [])
+            group_values = routing_info.get("group_values", {})
+
+            if not partitions:
+                logger.warning(f"Partitioner at step {step_idx} has no partition info")
+                continue
+
+            # Build partition-to-branch mapping
+            partition_to_branch = {name: idx for idx, name in enumerate(partitions)}
+
+            # Build value-to-partition mapping
+            value_to_partition = {}
+            if group_values:
+                # Grouped values
+                for group_name, values in group_values.items():
+                    for v in values:
+                        value_to_partition[v] = group_name
+            # Add direct partition names as values
+            for partition_name in partitions:
+                if partition_name not in value_to_partition:
+                    value_to_partition[partition_name] = partition_name
+
+            # Route samples to branches
+            sample_branches: Dict[int, List[int]] = {}  # branch_id -> sample_indices
+            unknown_samples = []
+
+            for sample_idx, value in enumerate(column_values):
+                # Find partition for this value
+                partition_name = value_to_partition.get(value)
+
+                if partition_name is None:
+                    # Try string conversion
+                    partition_name = value_to_partition.get(str(value))
+
+                if partition_name is None:
+                    # Check if value itself is a partition name
+                    if value in partition_to_branch:
+                        partition_name = value
+                    elif str(value) in partition_to_branch:
+                        partition_name = str(value)
+
+                if partition_name is not None and partition_name in partition_to_branch:
+                    branch_id = partition_to_branch[partition_name]
+                    if branch_id not in sample_branches:
+                        sample_branches[branch_id] = []
+                    sample_branches[branch_id].append(sample_idx)
+                else:
+                    unknown_samples.append(sample_idx)
+
+            # Handle unknown samples
+            if unknown_samples:
+                if fallback_branch is not None:
+                    if fallback_branch not in sample_branches:
+                        sample_branches[fallback_branch] = []
+                    sample_branches[fallback_branch].extend(unknown_samples)
+                    logger.warning(
+                        f"{len(unknown_samples)} samples with unknown metadata values "
+                        f"routed to fallback branch {fallback_branch}"
+                    )
+                else:
+                    unknown_values = set(column_values[i] for i in unknown_samples[:5])
+                    raise ValueError(
+                        f"{len(unknown_samples)} samples have metadata values "
+                        f"not seen during training: {unknown_values}. "
+                        f"Use fallback_branch parameter to handle unknown values."
+                    )
+
+            # Process each branch
+            for branch_id, sample_indices in sample_branches.items():
+                if not sample_indices:
+                    continue
+
+                # Extract subset of data for this branch
+                X_branch = X[sample_indices]
+
+                logger.debug(
+                    f"Branch {branch_id} ({partitions[branch_id] if branch_id < len(partitions) else 'fallback'}): "
+                    f"{len(sample_indices)} samples"
+                )
+
+                # Run prediction with branch path
+                branch_path = [branch_id]
+                y_branch = self.predict(X_branch, branch_path=branch_path)
+
+                # Store predictions in correct positions
+                for local_idx, global_idx in enumerate(sample_indices):
+                    y_pred[global_idx] = y_branch[local_idx] if len(y_branch.shape) == 1 else y_branch[local_idx, 0]
+
+        # Check for any unprocessed samples
+        unprocessed = np.isnan(y_pred)
+        if np.any(unprocessed):
+            n_unprocessed = np.sum(unprocessed)
+            logger.warning(f"{n_unprocessed} samples were not processed (no matching branch)")
+
+        return y_pred
+
+    def get_required_metadata_columns(self) -> List[str]:
+        """Get the metadata columns required for prediction routing.
+
+        Returns:
+            List of column names needed for routing, empty if no routing needed.
+        """
+        if not self.has_partitioner_routing():
+            return []
+
+        columns = []
+        for routing_info in self.metadata.partitioner_routing.values():
+            column = routing_info.get("column")
+            if column and column not in columns:
+                columns.append(column)
+
+        return columns
 
 
 def load_bundle(bundle_path: Union[str, Path]) -> BundleLoader:
