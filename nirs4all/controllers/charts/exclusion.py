@@ -200,7 +200,13 @@ class ExclusionChartController(OperatorController):
         ])
 
         # Get X data for all samples (included + excluded)
-        X_all_raw = dataset.x({"sample": all_indices.tolist()}, layout="2d", concat_source=True)
+        # Must use include_excluded=True since we're visualizing excluded samples
+        X_all_raw = dataset.x(
+            {"sample": all_indices.tolist()},
+            layout="2d",
+            concat_source=True,
+            include_excluded=True
+        )
         # Ensure X_all is a 2D numpy array
         if isinstance(X_all_raw, list):
             X_all = np.vstack(X_all_raw)
@@ -210,7 +216,7 @@ class ExclusionChartController(OperatorController):
         # Get y values if needed
         y_all: Optional[np.ndarray] = None
         if color_by == "y":
-            y_raw = dataset.y({"sample": all_indices.tolist()})
+            y_raw = dataset.y({"sample": all_indices.tolist()}, include_excluded=True)
             if y_raw is not None:
                 y_all = y_raw.flatten() if y_raw.ndim > 1 else y_raw
 

@@ -54,13 +54,24 @@ $examples = @(
     "Q26_nested_or_preprocessing.py",
     "Q27_transfer_analysis.py",
     "Q28_sample_filtering.py",
+    "Q29_signal_conversion.py",
     "Q30_branching.py",
     "Q31_outlier_branching.py",
+    "Q32_export_bundle.py",
+    "Q33_retrain_transfer.py",
+    "Q34_aggregation.py",
+    "Q35_metadata_branching.py",
     "Q_meta_stacking.py",
+    "Q_complex_all_keywords.py",
+    "Q_feature_augmentation_modes.py",
+    "Q_merge_branches.py",
+    "Q_merge_sources.py",
+    "baseline_sota.py",
     "X0_pipeline_sample.py",
     "X1_metadata.py",
-    "X2_sample_augmentation.py",,
-    "X4_features.py",
+    "X2_sample_augmentation.py",
+    "X3_hiba_full.py",
+    "X4_features.py"
 )
 
 # Setup logging if requested
@@ -127,6 +138,9 @@ else {
     Remove-Item Env:\DISABLE_EMOJI -ErrorAction SilentlyContinue
 }
 
+# Track failed examples
+$failedExamples = @()
+
 # SEQUENTIAL
 foreach ($example in $selectedExamples) {
     if (Test-Path "$example") {
@@ -135,32 +149,73 @@ foreach ($example in $selectedExamples) {
         Write-Host "Launch: $example"
         Write-Host "########################################"
 
-        if ($logFile) {
-            # Log the header
-            "===============================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
-            "Starting: $example at $startTime" | Out-File -FilePath $logFile -Append -Encoding UTF8
-            "===============================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        $args = @()
+        if ($Plot) { $args += "--plots" }
+        if ($Show) { $args += "--show" }
 
-            $args = @()
-            if ($Plot) { $args += "--plots" }
-            if ($Show) { $args += "--show" }
+        $exitCode = 0
+        try {
+            if ($logFile) {
+                # Log the header
+                "===============================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
+                "Starting: $example at $startTime" | Out-File -FilePath $logFile -Append -Encoding UTF8
+                "===============================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
 
-             & python $example @args 2>&1 | Tee-Object -FilePath $logFile -Append
+                & python $example @args 2>&1 | Tee-Object -FilePath $logFile -Append
+                $exitCode = $LASTEXITCODE
 
-            # Log the footer
-            "Finished: $example at $(Get-Date)" | Out-File -FilePath $logFile -Append -Encoding UTF8
-            "" | Out-File -FilePath $logFile -Append -Encoding UTF8
+                # Log the footer
+                "Finished: $example at $(Get-Date) (exit code: $exitCode)" | Out-File -FilePath $logFile -Append -Encoding UTF8
+                "" | Out-File -FilePath $logFile -Append -Encoding UTF8
+            }
+            else {
+                & python $example @args
+                $exitCode = $LASTEXITCODE
+            }
         }
-        else {
-            $args = @()
-            if ($Plot) { $args += "--plots" }
-            if ($Show) { $args += "--show" }
+        catch {
+            $exitCode = 1
+            Write-Host "Exception: $_" -ForegroundColor Red
+        }
 
-            & python $example @args
+        # Track failed examples
+        if ($exitCode -ne 0) {
+            $failedExamples += "$example (exit code: $exitCode)"
+            Write-Host "FAILED: $example with exit code $exitCode" -ForegroundColor Red
         }
 
         $endTime = Get-Date
         Write-Host "Finished running: $example (Duration: $(($endTime - $startTime).ToString('hh\:mm\:ss')))"
         Write-Host "########################################"
     }
+}
+
+# Summary of failed examples
+Write-Host ""
+Write-Host "========================================"
+Write-Host "EXECUTION SUMMARY"
+Write-Host "========================================"
+Write-Host "Total examples run: $($selectedExamples.Count)"
+Write-Host "Failed: $($failedExamples.Count)" -ForegroundColor $(if ($failedExamples.Count -gt 0) { "Red" } else { "Green" })
+Write-Host "Passed: $($selectedExamples.Count - $failedExamples.Count)" -ForegroundColor Green
+
+if ($failedExamples.Count -gt 0) {
+    Write-Host ""
+    Write-Host "FAILED EXAMPLES:" -ForegroundColor Red
+    foreach ($failed in $failedExamples) {
+        Write-Host "  - $failed" -ForegroundColor Red
+    }
+    if ($logFile) {
+        "" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        "========================================" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        "FAILED EXAMPLES:" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        foreach ($failed in $failedExamples) {
+            "  - $failed" | Out-File -FilePath $logFile -Append -Encoding UTF8
+        }
+    }
+    exit 1
+}
+else {
+    Write-Host ""
+    Write-Host "All examples passed successfully!" -ForegroundColor Green
 }

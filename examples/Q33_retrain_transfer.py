@@ -118,7 +118,7 @@ def example_1_full_retrain():
     runner = PipelineRunner(save_artifacts=True, verbose=0)
     original_predictions, _ = runner.run(pipeline_config, dataset_config)
 
-    best_original = original_predictions.top(n=1, rank_partition="test")[0]
+    best_original = original_predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     print(f"Original model: {best_original['model_name']}")
     print(f"Original RMSE: {best_original['rmse']:.4f}")
 
@@ -136,7 +136,7 @@ def example_1_full_retrain():
         verbose=0
     )
 
-    best_retrained = retrained_predictions.top(n=1, rank_partition="test")[0]
+    best_retrained = retrained_predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     print(f"Retrained model: {best_retrained['model_name']}")
     print(f"Retrained RMSE: {best_retrained['rmse']:.4f}")
 
@@ -177,7 +177,7 @@ def example_2_transfer_mode(original_prediction):
         verbose=0
     )
 
-    best_transfer = transfer_predictions.top(n=1, rank_partition="test")[0]
+    best_transfer = transfer_predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     print(f"Transfer model: {best_transfer['model_name']}")
     print(f"Transfer RMSE: {best_transfer['rmse']:.4f}")
     print(f"Preprocessing: Reused from original {CHECK}")
@@ -196,7 +196,7 @@ def example_2_transfer_mode(original_prediction):
         verbose=0
     )
 
-    best_transfer_new = transfer_newmodel_predictions.top(n=1, rank_partition="test")[0]
+    best_transfer_new = transfer_newmodel_predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     print(f"Transfer (new model): {best_transfer_new['model_name']}")
     print(f"Transfer RMSE: {best_transfer_new['rmse']:.4f}")
     print(f"Preprocessing: Reused from original {CHECK}")
@@ -242,7 +242,7 @@ def example_3_finetune_mode(original_prediction):
         verbose=0
     )
 
-    best_finetune = finetune_predictions.top(n=1, rank_partition="test")[0]
+    best_finetune = finetune_predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     print(f"Fine-tuned model: {best_finetune['model_name']}")
     print(f"Fine-tuned RMSE: {best_finetune['rmse']:.4f}")
 
@@ -307,7 +307,7 @@ def example_4_extract_and_modify(original_prediction):
         pipeline_name="modified_pipeline"
     )
 
-    best_modified = modified_predictions.top(n=1, rank_partition="test")[0]
+    best_modified = modified_predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     print(f"Modified model: {best_modified['model_name']}")
     print(f"Modified RMSE: {best_modified['rmse']:.4f}")
 
@@ -345,7 +345,7 @@ def example_5_step_mode_control():
     runner = PipelineRunner(save_artifacts=True, verbose=0)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
-    best_pred = predictions.top(n=1, rank_partition="test")[0]
+    best_pred = predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     print(f"Original model RMSE: {best_pred['rmse']:.4f}")
 
     # Define step modes
@@ -377,7 +377,7 @@ def example_5_step_mode_control():
         verbose=0
     )
 
-    best_controlled = controlled_predictions.top(n=1, rank_partition="test")[0]
+    best_controlled = controlled_predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     print(f"Controlled retrain RMSE: {best_controlled['rmse']:.4f}")
 
     print_subsection("Summary")
@@ -415,7 +415,7 @@ def example_6_retrain_from_bundle():
     runner = PipelineRunner(save_artifacts=True, verbose=0)
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
-    best_pred = predictions.top(n=1, rank_partition="test")[0]
+    best_pred = predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
 
     # Export to bundle
     bundle_path = runner.export(best_pred, "exports/for_retrain.n4a")
@@ -435,7 +435,7 @@ def example_6_retrain_from_bundle():
         verbose=0
     )
 
-    best_bundle_retrain = bundle_retrain_predictions.top(n=1, rank_partition="test")[0]
+    best_bundle_retrain = bundle_retrain_predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     print(f"Bundle retrain model: {best_bundle_retrain['model_name']}")
     print(f"Bundle retrain RMSE: {best_bundle_retrain['rmse']:.4f}")
 
@@ -475,7 +475,7 @@ def example_7_compare_modes():
     runner = PipelineRunner(save_artifacts=True, verbose=0)
     original_predictions, _ = runner.run(pipeline_config, dataset_config)
 
-    best_original = original_predictions.top(n=1, rank_partition="test")[0]
+    best_original = original_predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
 
     # Same dataset for fair comparison
     new_dataset = DatasetConfigs(['sample_data/regression'])
@@ -488,7 +488,7 @@ def example_7_compare_modes():
         source=best_original, dataset=new_dataset, mode='full',
         dataset_name='compare_full', verbose=0
     )
-    best_full = full_preds.top(n=1, rank_partition="test")[0]
+    best_full = full_preds.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     results["full"] = best_full['rmse']
     print(f"Full RMSE: {best_full['rmse']:.4f}")
 
@@ -498,7 +498,7 @@ def example_7_compare_modes():
         source=best_original, dataset=new_dataset, mode='transfer',
         dataset_name='compare_transfer', verbose=0
     )
-    best_transfer = transfer_preds.top(n=1, rank_partition="test")[0]
+    best_transfer = transfer_preds.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     results["transfer"] = best_transfer['rmse']
     print(f"Transfer RMSE: {best_transfer['rmse']:.4f}")
 
@@ -508,7 +508,7 @@ def example_7_compare_modes():
         source=best_original, dataset=new_dataset, mode='finetune',
         dataset_name='compare_finetune', verbose=0
     )
-    best_finetune = finetune_preds.top(n=1, rank_partition="test")[0]
+    best_finetune = finetune_preds.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     results["finetune"] = best_finetune['rmse']
     print(f"Finetune RMSE: {best_finetune['rmse']:.4f}")
 

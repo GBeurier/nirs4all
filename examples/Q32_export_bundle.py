@@ -119,7 +119,7 @@ def example_1_train_and_export():
     predictions, _ = runner.run(pipeline_config, dataset_config)
 
     # Get best prediction for export
-    best_prediction = predictions.top(n=1, rank_partition="test")[0]
+    best_prediction = predictions.top(n=1, rank_partition="test", display_metrics=['rmse'])[0]
     print(f"Best model: {best_prediction['model_name']}")
     print(f"Test RMSE: {best_prediction['rmse']:.4f}")
     print(f"Pipeline UID: {best_prediction['pipeline_uid'][:16]}...")
@@ -233,16 +233,19 @@ def example_3_predict_from_bundle(bundle_path, best_prediction):
         verbose=0
     )
 
-    # Verify predictions match
-    if np.allclose(bundle_predictions, original_predictions, rtol=1e-5):
+    # Verify predictions match (flatten both to handle shape differences)
+    bundle_flat = np.asarray(bundle_predictions).flatten()
+    original_flat = np.asarray(original_predictions).flatten()
+
+    if np.allclose(bundle_flat, original_flat, rtol=1e-5):
         print(f"{CHECK} Bundle predictions match original: YES")
     else:
         print(f"{CROSS} Bundle predictions match original: NO")
-        diff = np.abs(bundle_predictions - original_predictions).max()
+        diff = np.abs(bundle_flat - original_flat).max()
         print(f"   Max difference: {diff}")
 
-    print(f"\nFirst 5 predictions (bundle): {bundle_predictions[:5].flatten()}")
-    print(f"First 5 predictions (original): {original_predictions[:5].flatten()}")
+    print(f"\nFirst 5 predictions (bundle): {bundle_flat[:5]}")
+    print(f"First 5 predictions (original): {original_flat[:5]}")
 
     return bundle_predictions
 
@@ -382,7 +385,7 @@ def example_6_batch_export():
 
     # Export top 3 models
     print_subsection("Exporting Top 3 Models")
-    top_models = predictions.top(n=3, rank_partition="test")
+    top_models = predictions.top(n=3, rank_partition="test", display_metrics=['rmse'])
 
     exports_dir = Path("exports/model_zoo")
     exports_dir.mkdir(parents=True, exist_ok=True)

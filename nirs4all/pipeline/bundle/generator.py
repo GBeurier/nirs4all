@@ -535,6 +535,8 @@ class BundleGenerator:
         # Collect artifacts
         artifacts_data = {}
         step_info = {}
+        # Track substep counters for multiple artifacts per step
+        step_substep_counter = {}
 
         if resolved.trace and resolved.artifact_provider:
             for step in resolved.trace.steps:
@@ -552,7 +554,17 @@ class BundleGenerator:
                     if fold_part != "all":
                         key = f"step_{step_index}_fold{fold_part}"
                     else:
-                        key = f"step_{step_index}"
+                        # Handle multiple artifacts per step (e.g., feature_augmentation)
+                        base_key = f"step_{step_index}"
+                        if base_key in artifacts_data:
+                            # Multiple artifacts for same step - use substep counter
+                            if step_index not in step_substep_counter:
+                                step_substep_counter[step_index] = 1
+                            else:
+                                step_substep_counter[step_index] += 1
+                            key = f"step_{step_index}_sub{step_substep_counter[step_index]}"
+                        else:
+                            key = base_key
 
                     artifacts_data[key] = encoded
 
@@ -717,7 +729,8 @@ def get_step_artifacts(step_index: int) -> List[Tuple[str, Any]]:
     results = []
 
     for key in ARTIFACTS:
-        if key == prefix or key.startswith(f"{{prefix}}_fold"):
+        # Match step_N, step_N_foldM, or step_N_subM
+        if key == prefix or key.startswith(f"{{prefix}}_fold") or key.startswith(f"{{prefix}}_sub"):
             results.append((key, load_artifact(key)))
 
     return results
@@ -746,6 +759,40 @@ def get_fold_artifacts(step_index: int) -> List[Tuple[int, Any]]:
 # Prediction Logic
 # =============================================================================
 
+def _apply_y_inverse_transform(y_pred: np.ndarray, y_processing_step_idx: Optional[int]) -> np.ndarray:
+    """Apply inverse transform to predictions if y_processing was used.
+
+    Args:
+        y_pred: Model predictions (possibly in scaled space)
+        y_processing_step_idx: Step index of y_processing transformer, or None
+
+    Returns:
+        Predictions in original scale (inverse transformed if applicable)
+    """
+    if y_processing_step_idx is None:
+        return y_pred
+
+    # Get the y_processing transformer
+    step_artifacts = get_step_artifacts(y_processing_step_idx)
+
+    if not step_artifacts:
+        return y_pred
+
+    # Apply inverse_transform from each y_processing artifact
+    y_current = y_pred
+    for _, transformer in step_artifacts:
+        if hasattr(transformer, 'inverse_transform'):
+            # Ensure proper shape for inverse_transform
+            if y_current.ndim == 1:
+                y_current = y_current.reshape(-1, 1)
+                y_current = transformer.inverse_transform(y_current)
+                y_current = y_current.ravel()
+            else:
+                y_current = transformer.inverse_transform(y_current)
+
+    return y_current
+
+
 def predict(X: np.ndarray) -> np.ndarray:
     """
     Run prediction on input data.
@@ -761,6 +808,7 @@ def predict(X: np.ndarray) -> np.ndarray:
     """
     # Process through each step
     X_current = X.copy()
+    y_processing_step_idx = None  # Track y_processing step for inverse_transform
 
     # Get sorted step indices
     step_indices = sorted(set(
@@ -772,6 +820,11 @@ def predict(X: np.ndarray) -> np.ndarray:
         info = STEP_INFO.get(step_idx, {{}})
         op_type = info.get("operator_type", "")
         op_class = info.get("operator_class", "")
+
+        # Handle y_processing - skip but track for inverse_transform
+        if op_type == "y_processing":
+            y_processing_step_idx = step_idx
+            continue
 
         # Check if this is the model step
         is_model_step = (
@@ -808,11 +861,21 @@ def predict(X: np.ndarray) -> np.ndarray:
                     # Simple average
                     y_pred = np.mean([y for _, y in fold_preds], axis=0)
 
-                return y_pred
+                return _apply_y_inverse_transform(y_pred, y_processing_step_idx)
             else:
                 # Single model
                 _, model = step_artifacts[0]
-                return model.predict(X_current)
+                y_pred = model.predict(X_current)
+                return _apply_y_inverse_transform(y_pred, y_processing_step_idx)
+
+        elif op_type == "feature_augmentation":
+            # Feature augmentation: apply each transformer and concatenate with original
+            feature_channels = [X_current]
+            for key, transformer in step_artifacts:
+                if hasattr(transformer, 'transform'):
+                    X_transformed = transformer.transform(X_current)
+                    feature_channels.append(X_transformed)
+            X_current = np.hstack(feature_channels)
 
         else:
             # Preprocessing step - transform X

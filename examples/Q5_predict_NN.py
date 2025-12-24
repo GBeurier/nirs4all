@@ -19,7 +19,7 @@ from sklearn.preprocessing import MinMaxScaler
 from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transforms import Gaussian, SavitzkyGolay, StandardNormalVariate, Haar
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.models import nicon
+from nirs4all.operators.models.pytorch import nicon
 
 # Build the pipeline with feature augmentation and model persistence
 pipeline = [

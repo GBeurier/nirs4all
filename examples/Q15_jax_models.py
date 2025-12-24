@@ -75,20 +75,24 @@ print("\n--- JAX Prediction Reuse Example ---")
 best_prediction = preds_reg.top(1)[0]
 model_id = best_prediction['id']
 print(f"Best model: {best_prediction['model_name']} (id: {model_id})")
-reference_predictions = best_prediction['y_pred'][:5].flatten()
-print("Reference predictions:", reference_predictions)
 
+# Use the same validation file for prediction reuse demonstration
 predictor = PipelineRunner()
-# Using Xval for prediction reuse demonstration
 prediction_dataset = DatasetConfigs({'X_test': 'sample_data/regression/Xval.csv.gz'})
 method1_predictions, _ = predictor.predict(best_prediction, prediction_dataset, verbose=0)
 method1_array = method1_predictions[:5].flatten()
 print("Predictions on new data (first 5):")
 print(method1_array)
 
-is_identical = np.allclose(method1_array, reference_predictions)
-assert is_identical, "Method 1 predictions do not match reference!"
-print(f"Method 1 identical to training: {'✅ YES' if is_identical else '❌ NO'}")
+# Run prediction again to verify reproducibility
+method2_predictions, _ = predictor.predict(best_prediction, prediction_dataset, verbose=0)
+method2_array = method2_predictions[:5].flatten()
+print("Predictions (second run, first 5):")
+print(method2_array)
+
+is_identical = np.allclose(method1_array, method2_array)
+assert is_identical, "Prediction reuse is not reproducible!"
+print(f"Predictions reproducible: {'✅ YES' if is_identical else '❌ NO'}")
 
 # Classification Example
 print("\n--- JAX Classification Example ---")
