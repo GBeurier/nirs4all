@@ -5,9 +5,6 @@
 
 > [signature] change signatures to nirs4all.run(pipeline, dataset, config), nirs4all.predict, etc. Add nirs4all config.
 
-> [Runner] Verify: Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
-
-
 **CLI_EXTENSION_PROPOSAL.md**
 > [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
@@ -36,6 +33,7 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 **RELEASE** 0.6.0: MVP
 
 
+
 > [Design] Define all services
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
@@ -43,6 +41,11 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 > [DEPLOY] standalone installer, web installer (gpu/no gpu - os) options for backend and CUDA
 
 **RELEASE** 0.6.0: UI
+
+
+
+
+> [Runner] Verify: Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
 
 > [Generator] add in-place/internal generation > branches
 

@@ -12,6 +12,12 @@
 1. [Overview](#overview)
 2. [DAG Model](#dag-model)
 3. [Node Types](#node-types)
+   - [TransformNode](#transformnode)
+   - [ModelNode](#modelnode)
+   - [ForkNode and JoinNode](#forknode-and-joinnode)
+   - [SplitterNode](#splitternode)
+   - [MidFusionNode](#midfusionnode)
+   - [LayoutAwareModelNode](#layoutawaremodelnode)
 4. [DAG Builder](#dag-builder)
 5. [Execution Engine](#execution-engine)
 6. [Branching and Merging](#branching-and-merging)
@@ -149,6 +155,7 @@ class DAGNode:
         operator_params: Constructor parameters
         metadata: Additional node metadata
         is_dynamic: Created during execution (not compile-time)
+        resource_requirements: Hardware requirements for scheduling
     """
     node_id: str
     node_type: NodeType
@@ -157,6 +164,245 @@ class DAGNode:
     operator_params: Dict[str, Any]
     metadata: Dict[str, Any] = field(default_factory=dict)
     is_dynamic: bool = False
+    resource_requirements: Optional["NodeResources"] = None
+
+
+@dataclass
+class NodeResources:
+    """Resource requirements for node execution.
+
+    Used by the ExecutionEngine to schedule nodes appropriately:
+    - GPU nodes wait for GPU availability
+    - Memory-heavy nodes may run sequentially
+    - CPU-only nodes can be parallelized freely
+    """
+    requires_gpu: bool = False
+    gpu_memory_mb: int = 0             # Estimated GPU memory needed
+    cpu_memory_mb: int = 0             # Estimated CPU memory needed
+    preferred_device: str = "auto"     # "cpu", "cuda:0", "auto"
+    parallelizable: bool = True        # Can run alongside other nodes?
+
+    @classmethod
+    def from_operator(cls, operator: Any) -> "NodeResources":
+        """Infer resource requirements from operator.
+
+        Heuristics:
+        - PyTorch/TensorFlow models: requires_gpu=True
+        - Large transforms (PCA with many components): high memory
+        - Simple scalers: low requirements
+        """
+        requires_gpu = False
+        gpu_memory = 0
+
+        # Check for PyTorch
+        if hasattr(operator, "to") and hasattr(operator, "parameters"):
+            requires_gpu = True
+            gpu_memory = 500  # Default estimate
+
+        # Check for TensorFlow
+        if hasattr(operator, "build") and "tensorflow" in str(type(operator)):
+            requires_gpu = True
+            gpu_memory = 500
+
+        # Check for explicit attribute
+        if hasattr(operator, "requires_gpu"):
+            requires_gpu = operator.requires_gpu
+
+        return cls(
+            requires_gpu=requires_gpu,
+            gpu_memory_mb=gpu_memory
+        )
+
+
+class GPUResourceManager:
+    """Manages GPU resources for pipeline execution.
+
+    Handles:
+    - GPU availability detection
+    - Memory tracking and limits
+    - Automatic CPU fallback when GPU unavailable
+    - Multi-GPU distribution
+
+    Thread Safety:
+        Uses locks for GPU allocation/deallocation. Multiple threads
+        can safely request GPU resources.
+
+    Usage:
+        gpu_mgr = GPUResourceManager(fallback_to_cpu=True)
+
+        # Check availability
+        if gpu_mgr.is_available():
+            device = gpu_mgr.allocate(memory_mb=500)
+            try:
+                model.to(device)
+                result = model.forward(X)
+            finally:
+                gpu_mgr.release(device)
+
+        # Or use context manager
+        with gpu_mgr.device(memory_mb=500) as device:
+            model.to(device)
+            result = model.forward(X)
+    """
+
+    def __init__(
+        self,
+        fallback_to_cpu: bool = True,
+        memory_fraction: float = 0.9,  # Max fraction of GPU memory to use
+        preferred_gpus: Optional[List[int]] = None,
+        log_allocation: bool = True
+    ):
+        """Initialize GPU resource manager.
+
+        Args:
+            fallback_to_cpu: If True, use CPU when GPU unavailable
+            memory_fraction: Maximum fraction of GPU memory to use (0.0-1.0)
+            preferred_gpus: List of GPU indices to use (None = all available)
+            log_allocation: If True, log GPU allocation/release events
+        """
+        import threading
+
+        self.fallback_to_cpu = fallback_to_cpu
+        self.memory_fraction = memory_fraction
+        self.preferred_gpus = preferred_gpus
+        self.log_allocation = log_allocation
+
+        self._lock = threading.Lock()
+        self._allocated: Dict[str, int] = {}  # device -> allocated MB
+        self._gpu_info = self._detect_gpus()
+
+    def _detect_gpus(self) -> Dict[int, Dict[str, Any]]:
+        """Detect available GPUs and their properties."""
+        gpus = {}
+
+        # Try PyTorch
+        try:
+            import torch
+            if torch.cuda.is_available():
+                for i in range(torch.cuda.device_count()):
+                    if self.preferred_gpus is None or i in self.preferred_gpus:
+                        props = torch.cuda.get_device_properties(i)
+                        gpus[i] = {
+                            "name": props.name,
+                            "total_memory_mb": props.total_memory // (1024 * 1024),
+                            "backend": "torch"
+                        }
+                return gpus
+        except ImportError:
+            pass
+
+        # Try TensorFlow
+        try:
+            import tensorflow as tf
+            physical_gpus = tf.config.list_physical_devices('GPU')
+            for i, gpu in enumerate(physical_gpus):
+                if self.preferred_gpus is None or i in self.preferred_gpus:
+                    # TF doesn't easily expose memory, estimate 8GB
+                    gpus[i] = {
+                        "name": gpu.name,
+                        "total_memory_mb": 8192,  # Default estimate
+                        "backend": "tensorflow"
+                    }
+            return gpus
+        except ImportError:
+            pass
+
+        return gpus
+
+    def is_available(self) -> bool:
+        """Check if any GPU is available."""
+        return len(self._gpu_info) > 0
+
+    def get_free_memory(self, gpu_id: int = 0) -> int:
+        """Get available memory on GPU in MB."""
+        if gpu_id not in self._gpu_info:
+            return 0
+
+        total = self._gpu_info[gpu_id]["total_memory_mb"]
+        usable = int(total * self.memory_fraction)
+        allocated = self._allocated.get(f"cuda:{gpu_id}", 0)
+
+        return usable - allocated
+
+    def allocate(self, memory_mb: int) -> str:
+        """Allocate GPU memory, return device string.
+
+        Args:
+            memory_mb: Requested memory in MB
+
+        Returns:
+            Device string ("cuda:0", "cuda:1", or "cpu")
+
+        Raises:
+            RuntimeError: If no GPU available and fallback_to_cpu=False
+        """
+        with self._lock:
+            # Find GPU with enough memory
+            for gpu_id in sorted(self._gpu_info.keys()):
+                if self.get_free_memory(gpu_id) >= memory_mb:
+                    device = f"cuda:{gpu_id}"
+                    self._allocated[device] = self._allocated.get(device, 0) + memory_mb
+
+                    if self.log_allocation:
+                        import logging
+                        logging.getLogger("nirs4all.gpu").debug(
+                            f"Allocated {memory_mb}MB on {device}"
+                        )
+
+                    return device
+
+            # No GPU available
+            if self.fallback_to_cpu:
+                if self.log_allocation:
+                    import logging
+                    logging.getLogger("nirs4all.gpu").info(
+                        f"GPU unavailable, falling back to CPU"
+                    )
+                return "cpu"
+
+            raise RuntimeError(
+                f"No GPU with {memory_mb}MB available. "
+                f"Available GPUs: {self._gpu_info}. "
+                f"Set fallback_to_cpu=True to use CPU instead."
+            )
+
+    def release(self, device: str, memory_mb: Optional[int] = None) -> None:
+        """Release GPU memory."""
+        if device == "cpu":
+            return
+
+        with self._lock:
+            if device in self._allocated:
+                if memory_mb:
+                    self._allocated[device] = max(0, self._allocated[device] - memory_mb)
+                else:
+                    self._allocated[device] = 0
+
+                if self.log_allocation:
+                    import logging
+                    logging.getLogger("nirs4all.gpu").debug(
+                        f"Released memory on {device}"
+                    )
+
+    @contextmanager
+    def device(self, memory_mb: int) -> Generator[str, None, None]:
+        """Context manager for GPU allocation."""
+        device = self.allocate(memory_mb)
+        try:
+            yield device
+        finally:
+            self.release(device, memory_mb)
+
+    def summary(self) -> Dict[str, Any]:
+        """Get summary of GPU resources."""
+        return {
+            "gpus": self._gpu_info,
+            "allocated": self._allocated,
+            "available": {
+                f"cuda:{i}": self.get_free_memory(i)
+                for i in self._gpu_info
+            }
+        }
 
 
 @dataclass
@@ -223,6 +469,161 @@ class ExecutableDAG:
             order.append(node_id)
             for succ in self.get_successors(node_id):
                 in_degree[succ] -= 1
+
+
+class CheckpointManager:
+    """Manages checkpoints for long-running pipelines.
+
+    Enables:
+    - Resuming from failures
+    - Incremental execution
+    - Progress tracking
+    - Resource-efficient reruns
+
+    Checkpoints are saved after each node completes, including:
+    - Node execution state
+    - DatasetContext snapshot
+    - Collected artifacts
+    - Prediction store state
+
+    Usage:
+        # Enable checkpointing
+        engine = ExecutionEngine(
+            checkpoint_manager=CheckpointManager(
+                checkpoint_dir=Path("./checkpoints"),
+                checkpoint_every=5,  # Every 5 nodes
+            )
+        )
+
+        # Resume from failure
+        result = engine.execute(dag, context, resume=True)
+
+        # Or resume manually
+        checkpoint = CheckpointManager.load_latest("./checkpoints")
+        result = engine.resume(dag, checkpoint)
+    """
+
+    def __init__(
+        self,
+        checkpoint_dir: Path,
+        checkpoint_every: int = 10,
+        keep_last_n: int = 3,
+        compress: bool = True
+    ):
+        """Initialize checkpoint manager.
+
+        Args:
+            checkpoint_dir: Directory to store checkpoints
+            checkpoint_every: Save checkpoint every N nodes
+            keep_last_n: Keep only last N checkpoints (0 = keep all)
+            compress: If True, compress checkpoints with gzip
+        """
+        self.checkpoint_dir = Path(checkpoint_dir)
+        self.checkpoint_every = checkpoint_every
+        self.keep_last_n = keep_last_n
+        self.compress = compress
+        self._node_count = 0
+
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    def should_checkpoint(self) -> bool:
+        """Check if a checkpoint should be saved now."""
+        self._node_count += 1
+        return self._node_count % self.checkpoint_every == 0
+
+    def save(
+        self,
+        dag_id: str,
+        completed_nodes: List[str],
+        context_snapshot: Dict[str, Any],
+        artifacts: Dict[str, Any],
+        prediction_store_state: Dict[str, Any]
+    ) -> Path:
+        """Save checkpoint.
+
+        Returns:
+            Path to saved checkpoint file
+        """
+        import json
+        import gzip
+        from datetime import datetime
+
+        checkpoint = {
+            "dag_id": dag_id,
+            "completed_nodes": completed_nodes,
+            "context_snapshot": context_snapshot,
+            "artifacts": artifacts,
+            "prediction_store": prediction_store_state,
+            "timestamp": datetime.now().isoformat(),
+            "node_count": self._node_count
+        }
+
+        filename = f"checkpoint_{dag_id}_{self._node_count:06d}.json"
+        if self.compress:
+            filename += ".gz"
+
+        path = self.checkpoint_dir / filename
+
+        if self.compress:
+            with gzip.open(path, "wt", encoding="utf-8") as f:
+                json.dump(checkpoint, f)
+        else:
+            with open(path, "w") as f:
+                json.dump(checkpoint, f, indent=2)
+
+        # Cleanup old checkpoints
+        if self.keep_last_n > 0:
+            self._cleanup_old_checkpoints(dag_id)
+
+        return path
+
+    def _cleanup_old_checkpoints(self, dag_id: str) -> None:
+        """Remove old checkpoints, keeping only last N."""
+        pattern = f"checkpoint_{dag_id}_*.json*"
+        checkpoints = sorted(self.checkpoint_dir.glob(pattern))
+
+        if len(checkpoints) > self.keep_last_n:
+            for old in checkpoints[:-self.keep_last_n]:
+                old.unlink()
+
+    @classmethod
+    def load_latest(cls, checkpoint_dir: Path, dag_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Load most recent checkpoint.
+
+        Args:
+            checkpoint_dir: Directory containing checkpoints
+            dag_id: Optional DAG ID to filter by
+
+        Returns:
+            Checkpoint dict or None if no checkpoint found
+        """
+        import json
+        import gzip
+
+        pattern = f"checkpoint_{dag_id or '*'}_*.json*"
+        checkpoints = sorted(Path(checkpoint_dir).glob(pattern))
+
+        if not checkpoints:
+            return None
+
+        latest = checkpoints[-1]
+
+        if latest.suffix == ".gz":
+            with gzip.open(latest, "rt", encoding="utf-8") as f:
+                return json.load(f)
+        else:
+            with open(latest) as f:
+                return json.load(f)
+
+    def get_remaining_nodes(
+        self,
+        dag: ExecutableDAG,
+        checkpoint: Dict[str, Any]
+    ) -> List[str]:
+        """Get nodes that still need to be executed."""
+        completed = set(checkpoint["completed_nodes"])
+        all_nodes = dag.topological_order()
+        return [n for n in all_nodes if n not in completed]
                 if in_degree[succ] == 0:
                     queue.append(succ)
 
@@ -558,6 +959,169 @@ class VirtualModel:
         return self.fold_models[best_idx]
 
 
+### Mixed Task Types in Pipelines
+
+NIRS4ALL supports **mixed task types** within a single pipeline, enabling advanced workflows
+like discretization-based classification on regression targets. The system maintains:
+
+1. **Global task type**: Determined by the final model's output or explicitly set
+2. **Local task types**: Individual models can have different task types
+
+#### Task Type Detection
+
+```python
+class TaskType(Enum):
+    """Pipeline task types."""
+    REGRESSION = "regression"
+    CLASSIFICATION = "classification"
+    AUTO = "auto"  # Detect from data/model
+
+
+def detect_task_type(model: Any, y: Optional[np.ndarray] = None) -> TaskType:
+    """Detect task type from model or target.
+
+    Priority:
+    1. Explicit model attribute (model.task_type)
+    2. sklearn is_classifier/is_regressor
+    3. PyTorch/TF model output shape
+    4. Target dtype analysis (int/categorical = classification)
+    5. Default to regression
+    """
+    # 1. Explicit attribute
+    if hasattr(model, 'task_type'):
+        return TaskType(model.task_type)
+
+    # 2. sklearn detection
+    from sklearn.base import is_classifier, is_regressor
+    if is_classifier(model):
+        return TaskType.CLASSIFICATION
+    if is_regressor(model):
+        return TaskType.REGRESSION
+
+    # 3. Check for predict_proba (classification indicator)
+    if hasattr(model, 'predict_proba') and not hasattr(model, 'predict'):
+        return TaskType.CLASSIFICATION
+
+    # 4. Analyze target if available
+    if y is not None:
+        if np.issubdtype(y.dtype, np.integer):
+            n_unique = len(np.unique(y))
+            if n_unique < min(20, len(y) * 0.05):  # Heuristic: < 20 or < 5% unique
+                return TaskType.CLASSIFICATION
+        if y.dtype == object or np.issubdtype(y.dtype, np.str_):
+            return TaskType.CLASSIFICATION
+
+    # 5. Default
+    return TaskType.REGRESSION
+```
+
+#### Mixed Task Type Pipeline Example
+
+```python
+# Workflow: Discretize regression target → classify → map back to values
+from nirs4all.operators.transforms import QuantileDiscretizer, ClassToValueMapper
+
+pipeline = [
+    MinMaxScaler(),
+
+    # Discretize continuous target into classes
+    {"y_processing": QuantileDiscretizer(n_bins=5)},  # task_type → classification locally
+
+    # Train classifier on discretized targets
+    {"model": RandomForestClassifier(n_estimators=100)},  # Uses classification metrics
+
+    # Optional: Map class predictions back to regression values
+    {"post_processing": ClassToValueMapper(strategy="bin_center")},  # task_type → regression
+]
+
+# Global task_type determined by final output:
+# - If ClassToValueMapper present → regression (continuous output)
+# - If absent → classification (class output)
+```
+
+#### Task Type Context Propagation
+
+```python
+@dataclass
+class TaskTypeContext:
+    """Tracks task type through pipeline execution."""
+    global_task_type: TaskType = TaskType.AUTO
+    current_task_type: TaskType = TaskType.AUTO  # May differ locally
+    task_history: List[Tuple[str, TaskType]] = field(default_factory=list)
+
+    def update(self, node_id: str, task_type: TaskType) -> "TaskTypeContext":
+        """Update context when task type changes."""
+        new_history = self.task_history + [(node_id, task_type)]
+        return replace(
+            self,
+            current_task_type=task_type,
+            task_history=new_history
+        )
+
+    def finalize(self) -> TaskType:
+        """Determine final global task type."""
+        if self.global_task_type != TaskType.AUTO:
+            return self.global_task_type
+        # Use last model's task type
+        for node_id, tt in reversed(self.task_history):
+            if tt != TaskType.AUTO:
+                return tt
+        return TaskType.REGRESSION
+
+
+# In ModelNode.execute():
+def execute(self, context, ...):
+    # Detect this model's task type
+    local_task_type = detect_task_type(self.operator, y_train)
+
+    # Update context
+    context = replace(
+        context,
+        task_type_context=context.task_type_context.update(
+            self.node_id, local_task_type
+        )
+    )
+
+    # Use appropriate metrics based on local task type
+    if local_task_type == TaskType.CLASSIFICATION:
+        scorer = accuracy_score
+    else:
+        scorer = r2_score
+    ...
+```
+
+#### Result Handling for Mixed Tasks
+
+```python
+@dataclass
+class RunResult:
+    """Pipeline execution result with mixed task support."""
+    predictions: np.ndarray
+    task_type: TaskType  # Final/global task type
+    task_history: List[Tuple[str, TaskType]]  # Full history
+
+    @property
+    def is_classification(self) -> bool:
+        return self.task_type == TaskType.CLASSIFICATION
+
+    @property
+    def is_regression(self) -> bool:
+        return self.task_type == TaskType.REGRESSION
+
+    def score(self, y_true: np.ndarray) -> float:
+        """Compute appropriate score based on task type."""
+        if self.is_classification:
+            return accuracy_score(y_true, self.predictions)
+        return r2_score(y_true, self.predictions)
+```
+
+This design:
+- **Preserves v1 flexibility**: Mixed classifiers/regressors work as before
+- **Auto-detects when possible**: Reduces user configuration burden
+- **Tracks lineage**: Task type changes are recorded for debugging
+- **Chooses appropriate metrics**: Each model uses metrics matching its task type
+
+
 class AggregationStrategy(Protocol):
     """Protocol for fold aggregation strategies."""
 
@@ -618,6 +1182,48 @@ class VoteStrategy:
 ### ForkNode and JoinNode
 
 Handle branching and merging in pipelines.
+
+#### Branch Naming Convention
+
+NIRS4ALL uses a hierarchical naming scheme for nested branches to maintain clear lineage:
+
+```
+Level 0:  branch_0, branch_1, branch_2, ...
+Level 1:  branch_0-0, branch_0-1, branch_1-0, branch_1-1, ...
+Level 2:  branch_0-0-0, branch_0-0-1, branch_0-1-0, ...
+```
+
+- **Top-level branches**: Simple numeric suffix (`branch_0`, `branch_1`)
+- **Nested branches**: Parent name + hyphen + child index (`branch_0-0`, `branch_0-1`)
+- **Custom names**: User-provided names are prefixed to maintain hierarchy (`preprocessing-snv-0`, `preprocessing-msc-1`)
+
+This naming scheme ensures:
+1. **Unique identification**: Every node has a globally unique path
+2. **Lineage tracking**: Parent branches can be inferred from the name
+3. **Artifact organization**: Artifacts are stored in hierarchical directories
+4. **Debugging clarity**: Log messages show full branch path
+
+```python
+# Example: Nested branch naming in practice
+pipeline = [
+    {"branch": [                              # Creates branch_0, branch_1
+        [
+            {"branch": [                      # Creates branch_0-0, branch_0-1
+                [SNV()],
+                [MSC()]
+            ]},
+            {"merge": "features"}
+        ],
+        [Detrend()]
+    ]},
+    {"merge": "predictions"}
+]
+
+# Resulting branch names in execution:
+# - branch_0 -> branch_0-0 (SNV)
+# - branch_0 -> branch_0-1 (MSC)
+# - branch_1 (Detrend)
+```
 
 ```python
 @dataclass
@@ -752,7 +1358,23 @@ class JoinNode(DAGNode):
         prediction_store: PredictionStore,
         mode: str
     ) -> Tuple[DatasetContext, ViewSpec, Dict[str, Any]]:
-        """Merge by using OOF predictions as meta-features."""
+        """Merge by using OOF predictions as meta-features.
+
+        Raises:
+            DAGValidationError: If CV is not enabled when using prediction merge.
+                Using predictions without CV would cause data leakage because
+                train predictions would be used as features for training.
+        """
+        # Validate that CV was used - critical to prevent data leakage
+        for i, ctx in enumerate(contexts):
+            if not ctx.has_cv_folds:
+                raise DAGValidationError(
+                    f"merge_strategy='predictions' requires cross-validation. "
+                    f"Branch '{ctx.metadata.get('branch_name', i)}' has no CV folds. "
+                    f"Add a Splitter before branching or use merge_strategy='features'. "
+                    f"Without CV, train predictions would leak into meta-features."
+                )
+
         # Get OOF predictions from each branch model
         branch_predictions = []
 
@@ -873,6 +1495,358 @@ class SplitterNode(DAGNode):
         return context, {"splitter": splitter}
 ```
 
+### MidFusionNode
+
+Combines intermediate representations from neural networks.
+
+```python
+@dataclass
+class MidFusionNode(DAGNode):
+    """Mid-level fusion node for neural network tower concatenation.
+
+    Extracts intermediate representations from trained models,
+    concatenates them, and trains a fusion head. This enables
+    learning combined representations while preserving source-specific
+    patterns captured by individual models.
+
+    Supports:
+    - TensorFlow/Keras: Model layer extraction
+    - PyTorch: Module indexing
+    - Configurable truncation point
+    - Freezing base models during fusion training
+    """
+    node_type: NodeType = NodeType.JOIN
+    truncate_at: Union[int, str] = -2  # Second to last layer
+    freeze_base: bool = True
+    fusion_head: Optional[Any] = None
+    fusion_strategy: Literal["concat", "add", "attention", "gated"] = "concat"
+
+    def execute(
+        self,
+        branch_contexts: List[DatasetContext],
+        branch_artifacts: List[Dict[str, Any]],
+        view: ViewSpec,
+        prediction_store: PredictionStore,
+        mode: str = "train"
+    ) -> Tuple[DatasetContext, Dict[str, Any]]:
+        """Execute mid-fusion.
+
+        Args:
+            branch_contexts: Contexts from each branch (with trained models)
+            branch_artifacts: Model artifacts from each branch
+            view: Current data view
+            prediction_store: For collecting fusion predictions
+            mode: "train" or "predict"
+
+        Returns:
+            Tuple of (merged context, fusion artifacts)
+        """
+        if mode == "train":
+            return self._train_fusion(
+                branch_contexts, branch_artifacts, view, prediction_store
+            )
+        else:
+            return self._predict_fusion(
+                branch_contexts, view, prediction_store
+            )
+
+    def _train_fusion(
+        self,
+        contexts: List[DatasetContext],
+        artifacts: List[Dict[str, Any]],
+        view: ViewSpec,
+        prediction_store: PredictionStore
+    ) -> Tuple[DatasetContext, Dict[str, Any]]:
+        """Train fusion head on intermediate representations."""
+        # Extract base models from artifacts
+        base_models = []
+        for art in artifacts:
+            if "virtual_model" in art:
+                base_models.append(art["virtual_model"].primary_model)
+            elif "model" in art:
+                base_models.append(art["model"])
+            else:
+                raise ValueError("No model found in branch artifacts")
+
+        # Truncate models to extract representations
+        truncated_models = []
+        for model in base_models:
+            truncated = self._truncate_model(model)
+            if self.freeze_base:
+                self._freeze_model(truncated)
+            truncated_models.append(truncated)
+
+        # Extract representations for training data
+        representations = []
+        for ctx, trunc_model in zip(contexts, truncated_models):
+            X = ctx.resolver.materialize_X(view.with_partition("train"))
+            h = self._get_representation(trunc_model, X)
+            representations.append(h)
+
+        # Combine representations
+        H = self._combine_representations(representations)
+
+        # Get targets
+        y = contexts[0].target_store.get(version="raw")
+
+        # Train fusion head
+        fusion_head = clone(self.fusion_head) if self.fusion_head else self._default_head(H.shape[1])
+        fusion_head.fit(H, y)
+
+        # Store predictions
+        y_pred = fusion_head.predict(H)
+        prediction_store.add_prediction(
+            partition="train",
+            y_pred=y_pred,
+            y_true=y,
+            model_name="mid_fusion"
+        )
+
+        # Validation predictions (per-fold if CV)
+        if contexts[0].folds:
+            for fold_id, (train_idx, val_idx) in enumerate(contexts[0].folds):
+                val_view = view.with_fold(fold_id, "val")
+
+                val_reps = []
+                for ctx, trunc_model in zip(contexts, truncated_models):
+                    X_val = ctx.resolver.materialize_X(val_view)
+                    h_val = self._get_representation(trunc_model, X_val)
+                    val_reps.append(h_val)
+
+                H_val = self._combine_representations(val_reps)
+                y_pred_val = fusion_head.predict(H_val)
+                y_val = contexts[0].target_store.get(sample_indices=val_idx)
+
+                prediction_store.add_prediction(
+                    partition="val",
+                    fold_id=fold_id,
+                    y_pred=y_pred_val,
+                    y_true=y_val,
+                    sample_indices=val_idx.tolist(),
+                    model_name="mid_fusion"
+                )
+
+        return contexts[0], {
+            "base_models": base_models,
+            "truncated_models": truncated_models,
+            "fusion_head": fusion_head
+        }
+
+    def _combine_representations(
+        self,
+        representations: List[np.ndarray]
+    ) -> np.ndarray:
+        """Combine representations using configured strategy."""
+        if self.fusion_strategy == "concat":
+            return np.concatenate(representations, axis=1)
+        elif self.fusion_strategy == "add":
+            # Pad to same size if needed
+            max_dim = max(r.shape[1] for r in representations)
+            padded = [
+                np.pad(r, ((0, 0), (0, max_dim - r.shape[1])))
+                for r in representations
+            ]
+            return np.sum(padded, axis=0)
+        elif self.fusion_strategy == "attention":
+            return self._attention_fusion(representations)
+        elif self.fusion_strategy == "gated":
+            return self._gated_fusion(representations)
+        else:
+            raise ValueError(f"Unknown fusion strategy: {self.fusion_strategy}")
+
+    def _attention_fusion(
+        self,
+        representations: List[np.ndarray]
+    ) -> np.ndarray:
+        """Attention-based fusion (learns attention weights)."""
+        # Stack representations: (n_samples, n_branches, hidden_dim)
+        # For now, simple average with learned weights
+        stacked = np.stack(representations, axis=1)
+        # Placeholder: equal weights (would be learnable in NN)
+        weights = np.ones(len(representations)) / len(representations)
+        return np.einsum('ijk,j->ik', stacked, weights)
+
+    def _truncate_model(self, model: Any) -> Any:
+        """Truncate model at specified layer."""
+        # TensorFlow/Keras
+        if hasattr(model, 'layers'):
+            import tensorflow as tf
+            if isinstance(self.truncate_at, int):
+                layer = model.layers[self.truncate_at]
+            else:
+                layer = model.get_layer(self.truncate_at)
+            return tf.keras.Model(inputs=model.input, outputs=layer.output)
+
+        # PyTorch
+        if hasattr(model, 'children'):
+            import torch.nn as nn
+            layers = list(model.children())
+            if isinstance(self.truncate_at, int):
+                if self.truncate_at < 0:
+                    layers = layers[:self.truncate_at]
+                else:
+                    layers = layers[:self.truncate_at + 1]
+            return nn.Sequential(*layers)
+
+        raise ValueError(
+            f"Cannot truncate model of type {type(model)}. "
+            "Mid-fusion requires TensorFlow or PyTorch models."
+        )
+
+    def _freeze_model(self, model: Any) -> None:
+        """Freeze model weights."""
+        if hasattr(model, 'trainable'):
+            model.trainable = False
+        elif hasattr(model, 'parameters'):
+            for param in model.parameters():
+                param.requires_grad = False
+
+    def _get_representation(
+        self,
+        truncated_model: Any,
+        X: np.ndarray
+    ) -> np.ndarray:
+        """Get intermediate representation from truncated model."""
+        if hasattr(truncated_model, 'predict'):
+            return truncated_model.predict(X, verbose=0)
+        elif hasattr(truncated_model, 'forward'):
+            import torch
+            with torch.no_grad():
+                X_t = torch.from_numpy(X).float()
+                if hasattr(truncated_model, 'device'):
+                    X_t = X_t.to(truncated_model.device)
+                return truncated_model(X_t).cpu().numpy()
+        else:
+            raise ValueError(f"Cannot get representation from {type(truncated_model)}")
+
+    def _default_head(self, input_dim: int) -> Any:
+        """Create default fusion head."""
+        from sklearn.linear_model import Ridge
+        return Ridge(alpha=1.0)
+```
+
+### LayoutAwareModelNode
+
+Model node that respects model-declared input specifications.
+
+```python
+@dataclass
+class LayoutAwareModelNode(DAGNode):
+    """Model node with automatic layout resolution.
+
+    Inspects the model for input specifications (ModelInputSpec)
+    and automatically constructs appropriate input format.
+    Supports multi-head models with dictionary inputs.
+    """
+    node_type: NodeType = NodeType.MODEL
+
+    def execute(
+        self,
+        context: DatasetContext,
+        input_view: ViewSpec,
+        prediction_store: PredictionStore,
+        mode: str = "train",
+        artifacts: Optional[Dict[str, Any]] = None
+    ) -> Tuple[DatasetContext, Dict[str, Any]]:
+        """Execute model with layout-aware input construction."""
+        from nirs4all.data import (
+            LayoutResolver, LayoutSpec, ModelWithInputSpec, LAYOUT_SKLEARN
+        )
+
+        model = self.operator
+
+        # Determine layout from model or default
+        if isinstance(model, ModelWithInputSpec):
+            input_spec = model.get_input_spec()
+            layout = input_spec.to_layout_spec()
+
+            # Validate required sources are present
+            if input_spec.required_sources:
+                available = set(
+                    context.block_store.get(bid).metadata.get("source")
+                    for bid in context.active_block_ids
+                )
+                missing = set(input_spec.required_sources) - available
+                if missing:
+                    raise ValueError(
+                        f"Model requires sources {input_spec.required_sources} "
+                        f"but only {available} are available. Missing: {missing}"
+                    )
+        else:
+            # Default to flat 2D for sklearn-style models
+            layout = LAYOUT_SKLEARN
+
+        # Create layout resolver
+        resolver = LayoutResolver(context.block_store, context.sample_registry)
+
+        if mode == "train":
+            return self._train_with_layout(
+                context, input_view, layout, resolver, prediction_store
+            )
+        else:
+            return self._predict_with_layout(
+                context, input_view, layout, resolver, artifacts, prediction_store
+            )
+
+    def _train_with_layout(
+        self,
+        context: DatasetContext,
+        view: ViewSpec,
+        layout: LayoutSpec,
+        resolver: LayoutResolver,
+        prediction_store: PredictionStore
+    ) -> Tuple[DatasetContext, Dict[str, Any]]:
+        """Train model with layout-resolved inputs."""
+        fold_models = []
+        fold_scores = []
+
+        for fold_id, (train_idx, val_idx) in enumerate(context.folds):
+            # Clone model for this fold
+            fold_model = clone(self.operator)
+
+            # Resolve inputs with layout
+            train_view = view.with_fold(fold_id, "train")
+            val_view = view.with_fold(fold_id, "val")
+
+            X_train = resolver.resolve(train_view, layout)
+            X_val = resolver.resolve(val_view, layout)
+            y_train = context.target_store.get(sample_indices=train_idx)
+            y_val = context.target_store.get(sample_indices=val_idx)
+
+            # Train
+            fold_model.fit(X_train, y_train)
+
+            # Predict
+            y_pred_val = fold_model.predict(X_val)
+
+            # Score
+            score = self._compute_score(y_val, y_pred_val, context)
+
+            # Store predictions
+            prediction_store.add_prediction(
+                partition="val",
+                fold_id=fold_id,
+                y_pred=y_pred_val,
+                y_true=y_val,
+                sample_indices=val_idx.tolist(),
+                val_score=score
+            )
+
+            fold_models.append(fold_model)
+            fold_scores.append(score)
+
+        # Create virtual model
+        virtual_model = VirtualModel(
+            fold_models=fold_models,
+            fold_scores=fold_scores
+        )
+
+        return context, {
+            "virtual_model": virtual_model,
+            "layout": layout
+        }
+```
+
 ---
 
 ## DAG Builder
@@ -942,6 +1916,72 @@ class DAGBuilder:
             source_nodes=self._find_sources(),
             sink_nodes=self._find_sinks()
         )
+
+    def _validate(self) -> None:
+        """Validate DAG structure.
+
+        Raises:
+            DAGCycleError: If cycle detected
+            DAGValidationError: If structure is invalid
+        """
+        # Cycle detection via DFS
+        self._detect_cycles()
+
+        # Other validations
+        self._validate_sources()
+        self._validate_sinks()
+        self._validate_fork_join_pairing()
+
+    def _detect_cycles(self) -> None:
+        """Detect cycles using DFS with three-color marking.
+
+        Colors:
+        - WHITE (0): Not visited
+        - GRAY (1): Currently in recursion stack
+        - BLACK (2): Fully processed
+
+        If we encounter a GRAY node during DFS, a cycle exists.
+
+        Raises:
+            DAGCycleError: If cycle is detected, with the cycle path
+        """
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color = {nid: WHITE for nid in self._nodes}
+        path = []
+
+        def dfs(node_id: str) -> Optional[List[str]]:
+            color[node_id] = GRAY
+            path.append(node_id)
+
+            # Get successors
+            successors = [
+                e.target_id for e in self._edges
+                if e.source_id == node_id
+            ]
+
+            for succ in successors:
+                if color[succ] == GRAY:
+                    # Found cycle - extract cycle path
+                    cycle_start = path.index(succ)
+                    cycle = path[cycle_start:] + [succ]
+                    return cycle
+                elif color[succ] == WHITE:
+                    result = dfs(succ)
+                    if result:
+                        return result
+
+            path.pop()
+            color[node_id] = BLACK
+            return None
+
+        for node_id in self._nodes:
+            if color[node_id] == WHITE:
+                cycle = dfs(node_id)
+                if cycle:
+                    raise DAGCycleError(
+                        f"Cycle detected in DAG: {' -> '.join(cycle)}. "
+                        f"Check for circular dependencies in pipeline definition."
+                    )
 
     def _expand_generators(
         self,
@@ -1116,6 +2156,79 @@ class DAGBuilder:
             "outlier_excluder", "sample_filter"
         }
 
+
+### Controller Auto-Identification
+
+The DAGBuilder creates nodes from parsed steps, but **node execution is delegated to controllers**
+identified at runtime via the **ControllerRegistry**. This means:
+
+1. **Users write operators directly** - no need to specify controllers:
+   ```python
+   # User just provides sklearn/torch/jax operators
+   pipeline = [SNV(), PLSRegression(n_components=10)]
+   ```
+
+2. **Controllers are matched automatically** via `matches()` introspection:
+   ```python
+   class ControllerRegistry:
+       """Priority-based controller dispatch."""
+
+       controllers: List[Type[OperatorController]]  # Sorted by priority
+
+       def get_controller(self, node: DAGNode) -> OperatorController:
+           """Find appropriate controller for node's operator."""
+           for controller_cls in self.controllers:
+               if controller_cls.matches(
+                   step=node.metadata.get("step_config"),
+                   operator=node.operator,
+                   keyword=node.metadata.get("keyword", "")
+               ):
+                   return controller_cls()
+
+           raise ControllerNotFoundError(
+               f"No controller found for operator: {node.operator}. "
+               f"Ensure it implements TransformerMixin, or has fit/predict methods, "
+               f"or register a custom controller."
+           )
+   ```
+
+3. **Matching uses interface introspection**:
+   ```python
+   # TransformController.matches()
+   @classmethod
+   def matches(cls, step, operator, keyword) -> bool:
+       return isinstance(operator, TransformerMixin)
+
+   # SklearnModelController.matches()
+   @classmethod
+   def matches(cls, step, operator, keyword) -> bool:
+       return (
+           isinstance(operator, BaseEstimator) and
+           hasattr(operator, 'predict') and
+           not isinstance(operator, TransformerMixin)
+       )
+
+   # TorchModelController.matches()
+   @classmethod
+   def matches(cls, step, operator, keyword) -> bool:
+       import torch.nn as nn
+       return isinstance(operator, nn.Module)
+   ```
+
+4. **Priority resolves conflicts** (lower value = higher priority):
+   ```python
+   CONTROLLER_REGISTRY = [
+       (TFModelController, priority=4),      # TensorFlow models
+       (TorchModelController, priority=5),   # PyTorch models
+       (SklearnModelController, priority=6), # sklearn predictors
+       (TransformController, priority=10),   # sklearn transformers
+       # Custom controllers can have priority 1-3 to override defaults
+   ]
+   ```
+
+This design preserves v1 behavior where users can mix sklearn, TensorFlow, PyTorch,
+and JAX operators freely - the appropriate controller is selected automatically.
+
         for keyword in KEYWORDS:
             if keyword in step:
                 operator = step[keyword]
@@ -1279,13 +2392,23 @@ class ExecutionEngine:
         parallel: bool = False,
         n_workers: int = 4,
         parallel_backend: str = "threads",  # "threads" or "processes"
-        cache_dir: Optional[Path] = None
+        cache_dir: Optional[Path] = None,
+        node_timeout: Optional[float] = None  # Timeout in seconds per node
     ):
         self.parallel = parallel
         self.n_workers = n_workers
         self.parallel_backend = parallel_backend
         self.cache_dir = cache_dir
+        self.node_timeout = node_timeout
         self._executor = None
+
+
+class NodeTimeoutError(DAGError):
+    """Raised when a node exceeds its execution timeout."""
+    def __init__(self, node_id: str, timeout: float):
+        super().__init__(f"Node '{node_id}' exceeded timeout of {timeout}s")
+        self.node_id = node_id
+        self.timeout = timeout
 
     def _get_executor(self):
         """Get appropriate executor based on backend."""
@@ -1807,22 +2930,84 @@ class BranchContext:
     end_time: Optional[datetime] = None
 
 
-class ForkBarrier:
+class ForkErrorPolicy(Enum):
+    """Error handling policy for fork/join operations.
+
+    Defines how the pipeline handles branch failures:
+
+    FAIL_FAST (default):
+        Stop immediately when any branch fails.
+        Best for: Development, debugging, critical pipelines.
+
+    CONTINUE_ALL:
+        Continue executing remaining branches even if some fail.
+        Best for: Exploration, comparing many variants.
+
+    REQUIRE_MAJORITY:
+        Continue if majority of branches succeed.
+        Best for: Ensemble models, voting classifiers.
+
+    REQUIRE_ONE:
+        Continue if at least one branch succeeds.
+        Best for: Fallback patterns, optional enhancements.
+
+    BEST_EFFORT:
+        Always continue, use whatever branches succeeded.
+        Best for: Non-critical exploration, robustness testing.
+    """
+    FAIL_FAST = "fail_fast"
+    CONTINUE_ALL = "continue_all"
+    REQUIRE_MAJORITY = "require_majority"
+    REQUIRE_ONE = "require_one"
+    BEST_EFFORT = "best_effort"
+
+    def should_continue(
+        self,
+        succeeded: int,
+        failed: int,
+        total: int
+    ) -> bool:
+        """Check if execution should continue given branch results."""
+        if self == ForkErrorPolicy.FAIL_FAST:
+            return failed == 0
+        elif self == ForkErrorPolicy.CONTINUE_ALL:
+            return True  # Always continue
+        elif self == ForkErrorPolicy.REQUIRE_MAJORITY:
+            return succeeded > total // 2
+        elif self == ForkErrorPolicy.REQUIRE_ONE:
+            return succeeded >= 1
+        elif self == ForkErrorPolicy.BEST_EFFORT:
+            return True
+        return False
+
+    def should_abort_early(self, failed: int, remaining: int, total: int) -> bool:
+        """Check if should abort before all branches complete."""
+        if self == ForkErrorPolicy.FAIL_FAST:
+            return failed > 0
+        elif self == ForkErrorPolicy.REQUIRE_MAJORITY:
+            # Abort if majority is impossible
+            succeeded_so_far = total - failed - remaining
+            max_possible = succeeded_so_far + remaining
+            return max_possible <= total // 2
+        elif self == ForkErrorPolicy.REQUIRE_ONE:
+            # Abort if all remaining branches are unlikely to help
+            return False  # Never abort early
+        return False
     """Barrier synchronization for fork/join.
 
     Ensures all branches complete before join proceeds.
-    Supports timeout and partial failure handling.
+    Supports timeout and flexible error handling via ForkErrorPolicy.
     """
 
     def __init__(
         self,
         branch_ids: List[int],
         timeout: Optional[float] = None,
-        continue_on_error: bool = False
+        error_policy: ForkErrorPolicy = ForkErrorPolicy.FAIL_FAST
     ):
         self.branch_ids = branch_ids
         self.timeout = timeout
-        self.continue_on_error = continue_on_error
+        self.error_policy = error_policy
         self._statuses: Dict[int, BranchContext] = {
             bid: BranchContext(branch_id=bid, branch_name=f"branch_{bid}")
             for bid in branch_ids
@@ -2337,7 +3522,21 @@ class SklearnSerializer:
 
 
 class JoblibSerializer:
-    """Fallback serializer using joblib for complex objects."""
+    """Fallback serializer using joblib for complex objects.
+
+    SECURITY WARNING:
+        Joblib/pickle can execute arbitrary code during deserialization.
+        This is a known security risk when loading bundles from untrusted sources.
+
+        Mitigations:
+        1. Always validate bundle source before loading
+        2. Use `safe_load=True` to reject joblib-serialized operators
+        3. Prefer SklearnSerializer or ONNXSerializer when possible
+        4. Consider using cryptographic signatures for bundle verification
+
+        For research sharing, prefer exporting with `format="sklearn"` which
+        only stores parameters, not executable code.
+    """
 
     def can_serialize(self, operator: Any) -> bool:
         return True  # Always try as fallback
@@ -2346,22 +3545,323 @@ class JoblibSerializer:
         import joblib
         import base64
         import io
+        import warnings
+
+        warnings.warn(
+            f"Serializing {type(operator).__name__} with joblib. "
+            f"This may pose security risks when sharing bundles. "
+            f"Consider using sklearn-compatible operators instead.",
+            SecurityWarning
+        )
 
         buffer = io.BytesIO()
         joblib.dump(operator, buffer)
 
         return {
             "class": f"{operator.__class__.__module__}.{operator.__class__.__name__}",
-            "joblib_bytes": base64.b64encode(buffer.getvalue()).decode()
+            "joblib_bytes": base64.b64encode(buffer.getvalue()).decode(),
+            "serialization_method": "joblib"  # Mark for safe_load checks
         }
 
-    def deserialize(self, data: Dict[str, Any]) -> Any:
+    def deserialize(
+        self,
+        data: Dict[str, Any],
+        safe_load: bool = False
+    ) -> Any:
+        """Deserialize operator from joblib bytes.
+
+        Args:
+            data: Serialized data dict
+            safe_load: If True, refuse to load joblib-serialized operators
+
+        Raises:
+            SecurityError: If safe_load=True and operator uses joblib
+        """
+        if safe_load and data.get("serialization_method") == "joblib":
+            raise SecurityError(
+                f"Refusing to load {data['class']} serialized with joblib. "
+                f"This operator contains executable code which could be malicious. "
+                f"Use safe_load=False to override (at your own risk) or "
+                f"request the bundle author to export with format='sklearn'."
+            )
+
         import joblib
         import base64
         import io
 
         buffer = io.BytesIO(base64.b64decode(data["joblib_bytes"]))
         return joblib.load(buffer)
+
+
+class SecurityWarning(UserWarning):
+    """Warning for security-sensitive operations."""
+    pass
+
+
+class ONNXSerializer:
+    """Serializer using ONNX format for cross-platform compatibility.
+
+    ONNX (Open Neural Network Exchange) provides:
+    - Cross-platform portability (Windows, Linux, macOS)
+    - Version stability (models work across library versions)
+    - Hardware acceleration (ONNX Runtime supports GPU, CPU, TPU)
+    - Language interoperability (Python, C++, C#, Java)
+
+    Supported Operators:
+    - sklearn estimators (via skl2onnx)
+    - PyTorch models (via torch.onnx.export)
+    - TensorFlow models (via tf2onnx)
+    - Keras models (via keras2onnx or tf2onnx)
+
+    Limitations:
+    - Some sklearn estimators not fully supported (check skl2onnx docs)
+    - Custom Python code cannot be serialized
+    - Dynamic shapes may require explicit input shapes
+
+    Usage:
+        serializer = ONNXSerializer()
+
+        if serializer.can_serialize(model):
+            data = serializer.serialize(model, input_shape=(None, 100))
+            # ... save data to bundle ...
+
+            # Later:
+            loaded_model = serializer.deserialize(data)
+            predictions = loaded_model.run(X)
+    """
+
+    def __init__(self, opset_version: int = 15):
+        """Initialize ONNX serializer.
+
+        Args:
+            opset_version: ONNX opset version (default: 15)
+        """
+        self.opset_version = opset_version
+
+    def can_serialize(self, operator: Any) -> bool:
+        """Check if operator can be serialized to ONNX."""
+        # sklearn
+        if hasattr(operator, "get_params") and hasattr(operator, "fit"):
+            try:
+                import skl2onnx
+                return True
+            except ImportError:
+                pass
+
+        # PyTorch
+        if hasattr(operator, "forward") and hasattr(operator, "parameters"):
+            try:
+                import torch
+                return isinstance(operator, torch.nn.Module)
+            except ImportError:
+                pass
+
+        # TensorFlow/Keras
+        if hasattr(operator, "call") and hasattr(operator, "build"):
+            try:
+                import tensorflow as tf
+                return isinstance(operator, (tf.keras.Model, tf.Module))
+            except ImportError:
+                pass
+
+        return False
+
+    def serialize(
+        self,
+        operator: Any,
+        input_shape: Optional[Tuple[Optional[int], ...]] = None,
+        input_dtype: str = "float32"
+    ) -> Dict[str, Any]:
+        """Serialize operator to ONNX format.
+
+        Args:
+            operator: Model to serialize
+            input_shape: Input tensor shape (use None for dynamic dims)
+            input_dtype: Input data type
+
+        Returns:
+            Dict with ONNX bytes and metadata
+        """
+        import base64
+
+        # Determine framework and serialize
+        if hasattr(operator, "get_params"):
+            onnx_bytes = self._serialize_sklearn(operator, input_shape)
+            framework = "sklearn"
+        elif hasattr(operator, "forward"):
+            onnx_bytes = self._serialize_pytorch(operator, input_shape, input_dtype)
+            framework = "pytorch"
+        elif hasattr(operator, "call"):
+            onnx_bytes = self._serialize_tensorflow(operator, input_shape)
+            framework = "tensorflow"
+        else:
+            raise ValueError(f"Cannot serialize {type(operator)} to ONNX")
+
+        return {
+            "class": f"{operator.__class__.__module__}.{operator.__class__.__name__}",
+            "onnx_bytes": base64.b64encode(onnx_bytes).decode(),
+            "serialization_method": "onnx",
+            "opset_version": self.opset_version,
+            "framework": framework,
+            "input_shape": list(input_shape) if input_shape else None,
+            "input_dtype": input_dtype
+        }
+
+    def _serialize_sklearn(
+        self,
+        operator: Any,
+        input_shape: Optional[Tuple[Optional[int], ...]]
+    ) -> bytes:
+        """Serialize sklearn model to ONNX."""
+        import skl2onnx
+        from skl2onnx.common.data_types import FloatTensorType
+        import numpy as np
+
+        # Infer input shape from fitted attributes if not provided
+        if input_shape is None:
+            if hasattr(operator, "n_features_in_"):
+                input_shape = (None, operator.n_features_in_)
+            else:
+                raise ValueError("input_shape required for sklearn model without n_features_in_")
+
+        initial_type = [("input", FloatTensorType(list(input_shape)))]
+
+        onnx_model = skl2onnx.convert_sklearn(
+            operator,
+            initial_types=initial_type,
+            target_opset=self.opset_version
+        )
+
+        return onnx_model.SerializeToString()
+
+    def _serialize_pytorch(
+        self,
+        operator: Any,
+        input_shape: Tuple[Optional[int], ...],
+        input_dtype: str
+    ) -> bytes:
+        """Serialize PyTorch model to ONNX."""
+        import torch
+        import io
+
+        if input_shape is None:
+            raise ValueError("input_shape required for PyTorch model")
+
+        # Create dummy input
+        shape = tuple(s if s is not None else 1 for s in input_shape)
+        dtype = getattr(torch, input_dtype)
+        dummy_input = torch.zeros(shape, dtype=dtype)
+
+        buffer = io.BytesIO()
+        torch.onnx.export(
+            operator,
+            dummy_input,
+            buffer,
+            opset_version=self.opset_version,
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes={
+                "input": {i: f"dim_{i}" for i, s in enumerate(input_shape) if s is None},
+                "output": {0: "batch"}
+            }
+        )
+
+        return buffer.getvalue()
+
+    def _serialize_tensorflow(
+        self,
+        operator: Any,
+        input_shape: Optional[Tuple[Optional[int], ...]]
+    ) -> bytes:
+        """Serialize TensorFlow model to ONNX."""
+        import tf2onnx
+        import tensorflow as tf
+
+        if input_shape is None:
+            # Try to infer from model
+            if hasattr(operator, "input_shape"):
+                input_shape = operator.input_shape
+            else:
+                raise ValueError("input_shape required for TensorFlow model")
+
+        # Create input spec
+        input_spec = [tf.TensorSpec(input_shape, tf.float32, name="input")]
+
+        onnx_model, _ = tf2onnx.convert.from_keras(
+            operator,
+            input_signature=input_spec,
+            opset=self.opset_version
+        )
+
+        return onnx_model.SerializeToString()
+
+    def deserialize(self, data: Dict[str, Any]) -> "ONNXInferenceSession":
+        """Deserialize ONNX model to inference session.
+
+        Returns:
+            ONNXInferenceSession wrapper for predictions
+        """
+        import base64
+        import onnxruntime as ort
+
+        onnx_bytes = base64.b64decode(data["onnx_bytes"])
+        session = ort.InferenceSession(onnx_bytes)
+
+        return ONNXInferenceSession(
+            session=session,
+            input_name=session.get_inputs()[0].name,
+            output_name=session.get_outputs()[0].name,
+            original_class=data["class"]
+        )
+
+
+@dataclass
+class ONNXInferenceSession:
+    """Wrapper for ONNX Runtime inference session.
+
+    Provides sklearn-compatible predict interface.
+    """
+    session: Any  # onnxruntime.InferenceSession
+    input_name: str
+    output_name: str
+    original_class: str
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """Run inference on input data."""
+        import numpy as np
+
+        # Ensure float32
+        if X.dtype != np.float32:
+            X = X.astype(np.float32)
+
+        outputs = self.session.run(
+            [self.output_name],
+            {self.input_name: X}
+        )
+
+        return outputs[0]
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        """Run inference returning probabilities (if available)."""
+        import numpy as np
+
+        if X.dtype != np.float32:
+            X = X.astype(np.float32)
+
+        # Try to get probability output
+        output_names = [o.name for o in self.session.get_outputs()]
+
+        if len(output_names) > 1:
+            # Second output is usually probabilities
+            outputs = self.session.run(output_names[:2], {self.input_name: X})
+            return outputs[1]
+
+        return self.predict(X)
+
+
+class SecurityError(Exception):
+    """Raised when a security check fails."""
+    pass
 ```
 
 ### Serialization Registry

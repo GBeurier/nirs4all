@@ -69,7 +69,7 @@ NIRS4ALL v2.0 is a ground-up redesign that separates concerns into three distinc
 2. **Copy-on-Write Data Flow**: Blocks use CoW semantics for memory efficiency; views are lightweight references
 3. **DAG-Native Execution**: All pipelines compile to a directed acyclic graph
 4. **Reproducibility by Design**: Hash-based lineage for every transformation with full random state tracking
-5. **Backend Agnosticism**: Data layer works with NumPy, Polars, or xarray
+5. **Layered Array Backend**: NumPy for feature arrays (primary), Polars for metadata/registry (performance), xarray optional for labeled 3D data
 6. **Preserve v1 UX**: All flexible syntax options (class/instance/dict/YAML) remain supported
 7. **Domain-Aware**: First-class support for NIRS-specific concepts (sample repetitions, aggregation keys, spectral preprocessing)
 
@@ -518,26 +518,82 @@ class ParsedStep:
 
 ### Operator Registry Pattern
 
-Controllers use priority-based registry for seamless integration:
+**Users write operators directly - controllers are auto-identified at runtime.**
+
+This is a core UX principle: users never need to specify which controller handles an operator.
+The ControllerRegistry uses interface introspection to dispatch automatically:
 
 ```python
-# Any sklearn TransformerMixin works automatically
+# === User writes this (v1 and v2 identical) ===
 from sklearn.preprocessing import StandardScaler
-pipeline = [StandardScaler(), PLSRegression()]
+from sklearn.cross_decomposition import PLSRegression
+import torch.nn as nn
 
-# Custom transformers just need TransformerMixin
-class MyTransform(TransformerMixin, BaseEstimator):
-    def fit(self, X, y=None): return self
-    def transform(self, X): return X * 2
-
-# Automatic controller dispatch based on operator type
-CONTROLLER_REGISTRY = [
-    (TransformController, priority=100),     # Catches TransformerMixin
-    (ModelController, priority=100),         # Catches predictors
-    (TFModelController, priority=50),        # Higher priority for TF
-    # ... specialized controllers have lower priority (higher precedence)
+# Mix sklearn, TensorFlow, PyTorch - all auto-detected
+pipeline = [
+    StandardScaler(),           # → TransformController (TransformerMixin detected)
+    PLSRegression(),            # → SklearnModelController (predict method detected)
+    MyCustomTransform(),        # → TransformController (TransformerMixin detected)
+    # MyTorchModel(),           # → TorchModelController (nn.Module detected)
 ]
+
+# No explicit controller specification needed!
+result = nirs4all.run(pipeline, data)
 ```
+
+#### How Controller Matching Works
+
+```python
+class ControllerRegistry:
+    """Priority-based controller dispatch via interface introspection."""
+
+    controllers: List[Type[OperatorController]]  # Sorted by priority (lower = higher)
+
+    def get_controller(self, operator: Any, keyword: str = "") -> OperatorController:
+        """Find appropriate controller for operator.
+
+        The registry iterates through controllers in priority order.
+        Each controller's matches() method uses introspection:
+        - TransformController: checks isinstance(op, TransformerMixin)
+        - SklearnModelController: checks hasattr(op, 'predict') and is_regressor/is_classifier
+        - TorchModelController: checks isinstance(op, nn.Module)
+        - TFModelController: checks isinstance(op, tf.keras.Model)
+        """
+        for controller_cls in self.controllers:
+            if controller_cls.matches(step=None, operator=operator, keyword=keyword):
+                return controller_cls()
+
+        raise ControllerNotFoundError(
+            f"No controller found for: {type(operator).__name__}. "
+            f"Ensure it has fit/transform methods (TransformerMixin) "
+            f"or fit/predict methods (model)."
+        )
+
+# Built-in priority order (lower number = higher priority)
+CONTROLLER_REGISTRY = [
+    (TFModelController, priority=4),        # TensorFlow models
+    (TorchModelController, priority=5),     # PyTorch models
+    (JaxModelController, priority=5),       # JAX/Flax models
+    (SklearnModelController, priority=6),   # sklearn predictors
+    (TransformController, priority=10),     # sklearn transformers (catch-all)
+]
+
+# Custom controllers can use priority 1-3 to override defaults
+@register_controller
+class MySpecialController(OperatorController):
+    priority = 2  # Will be checked before all built-in controllers
+
+    @classmethod
+    def matches(cls, step, operator, keyword):
+        return isinstance(operator, MySpecialOperator)
+```
+
+#### Why This Matters
+
+1. **Zero configuration**: Drop in any sklearn/TF/Torch/JAX operator
+2. **v1 compatibility**: Existing pipelines work unchanged
+3. **Extensible**: Custom controllers can override defaults
+4. **Framework-agnostic**: Mix frameworks in one pipeline
 
 ---
 
@@ -648,6 +704,197 @@ class ForkNode:
         if errors:
             raise BranchExecutionError(errors)
         return results
+```
+
+---
+
+## Logging Strategy
+
+### Structured Logging with DAG Context
+
+nirs4all uses structured logging that correlates log entries with DAG execution context. This enables efficient debugging and monitoring of complex pipelines.
+
+```python
+import logging
+from contextlib import contextmanager
+from typing import List, Optional, Dict, Any
+from dataclasses import dataclass, field
+from datetime import datetime
+
+
+@dataclass
+class LogContext:
+    """Structured logging context for pipeline execution."""
+    run_id: str
+    node_stack: List[str] = field(default_factory=list)
+    branch_id: Optional[int] = None
+    fold_id: Optional[int] = None
+    start_time: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dict for structured logging."""
+        return {
+            "run_id": self.run_id,
+            "node_path": "/".join(self.node_stack),
+            "branch_id": self.branch_id,
+            "fold_id": self.fold_id,
+            "elapsed_ms": (datetime.now() - self.start_time).total_seconds() * 1000
+        }
+
+
+class PipelineLogger:
+    """Structured logger with DAG context tracking.
+
+    Integrates with Python's logging module while adding:
+    - Node execution context (which node is running)
+    - Branch and fold tracking
+    - Timing information
+    - Structured output for log aggregation tools
+
+    Attributes:
+        run_id: Unique identifier for this pipeline run
+        verbose: Verbosity level (0=silent, 1=progress, 2=debug, 3=trace)
+    """
+
+    def __init__(self, run_id: str, verbose: int = 1):
+        self.run_id = run_id
+        self.verbose = verbose
+        self._context = LogContext(run_id=run_id)
+        self._logger = logging.getLogger(f"nirs4all.run.{run_id}")
+
+        # Configure based on verbosity
+        level = {0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG, 3: 5}.get(verbose, logging.INFO)
+        self._logger.setLevel(level)
+
+    @contextmanager
+    def node_context(self, node_id: str, node_type: str = ""):
+        """Context manager for node execution logging.
+
+        All log entries within this context include the node information.
+
+        Args:
+            node_id: Unique node identifier
+            node_type: Type of node (transform, model, fork, etc.)
+
+        Example:
+            with logger.node_context("snv_01", "transform"):
+                logger.info("Applying SNV normalization")
+                # Log entry includes: {"node_path": "snv_01", ...}
+        """
+        self._context.node_stack.append(node_id)
+        start = datetime.now()
+
+        if self.verbose >= 2:
+            self._logger.debug(f"Entering {node_type} node: {node_id}")
+
+        try:
+            yield
+        finally:
+            elapsed = (datetime.now() - start).total_seconds()
+            if self.verbose >= 2:
+                self._logger.debug(f"Exiting {node_id} (took {elapsed:.3f}s)")
+            self._context.node_stack.pop()
+
+    @contextmanager
+    def branch_context(self, branch_id: int):
+        """Context manager for branch execution."""
+        old_branch = self._context.branch_id
+        self._context.branch_id = branch_id
+        try:
+            yield
+        finally:
+            self._context.branch_id = old_branch
+
+    @contextmanager
+    def fold_context(self, fold_id: int):
+        """Context manager for fold execution."""
+        old_fold = self._context.fold_id
+        self._context.fold_id = fold_id
+        try:
+            yield
+        finally:
+            self._context.fold_id = old_fold
+
+    def log(self, level: int, message: str, **extra):
+        """Log with structured context.
+
+        Args:
+            level: Logging level (DEBUG, INFO, WARNING, ERROR)
+            message: Log message
+            **extra: Additional structured fields
+        """
+        record = {
+            **self._context.to_dict(),
+            **extra
+        }
+        self._logger.log(level, message, extra={"structured": record})
+
+    def info(self, message: str, **extra):
+        """Log info message."""
+        if self.verbose >= 1:
+            self.log(logging.INFO, message, **extra)
+
+    def debug(self, message: str, **extra):
+        """Log debug message."""
+        if self.verbose >= 2:
+            self.log(logging.DEBUG, message, **extra)
+
+    def warning(self, message: str, **extra):
+        """Log warning message."""
+        self.log(logging.WARNING, message, **extra)
+
+    def error(self, message: str, **extra):
+        """Log error message."""
+        self.log(logging.ERROR, message, **extra)
+
+    def progress(self, current: int, total: int, message: str = ""):
+        """Log progress update.
+
+        Args:
+            current: Current step number
+            total: Total steps
+            message: Optional progress message
+        """
+        if self.verbose >= 1:
+            pct = current / total * 100 if total > 0 else 0
+            self.info(f"[{current}/{total}] {pct:.0f}% {message}",
+                     progress_current=current, progress_total=total)
+```
+
+### Verbosity Levels
+
+| Level | Description | Use Case |
+|-------|-------------|----------|
+| 0 | Silent | Production, batch processing |
+| 1 | Progress | Normal usage, shows step progress |
+| 2 | Debug | Development, shows node entry/exit + shapes |
+| 3 | Trace | Deep debugging, shows all internal operations |
+
+### Integration with Monitoring Tools
+
+The structured logging output can be captured by log aggregation tools:
+
+```python
+import json
+import logging
+
+class JSONFormatter(logging.Formatter):
+    """JSON formatter for structured log output."""
+
+    def format(self, record):
+        log_entry = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "message": record.getMessage(),
+        }
+        if hasattr(record, "structured"):
+            log_entry.update(record.structured)
+        return json.dumps(log_entry)
+
+# Configure JSON logging for production
+handler = logging.StreamHandler()
+handler.setFormatter(JSONFormatter())
+logging.getLogger("nirs4all").addHandler(handler)
 ```
 
 ---
@@ -844,6 +1091,36 @@ class RunResult:
         }
 ```
 
+### Cross-Platform Numerical Variance
+
+**Important**: Even with identical seeds and versions, floating-point results may differ across:
+- Different CPU architectures (x86 vs ARM)
+- Different OS (Linux vs Windows vs macOS)
+- Different BLAS/LAPACK implementations (OpenBLAS vs MKL vs Apple Accelerate)
+- Different compiler optimizations
+
+**Mitigation Strategies**:
+
+1. **Tolerance-Based Comparisons**: Use relative tolerance (e.g., r² ± 0.001) for reproducibility checks
+2. **Platform Recording**: The `platform_info` field captures OS and architecture
+3. **Deterministic BLAS**: For strict reproducibility, use `OPENBLAS_NUM_THREADS=1` or similar
+4. **Validation Mode**: `run(..., validate_reproducibility=True)` compares results against reference
+
+```python
+# Example: Validating cross-platform reproducibility
+result = nirs4all.run(pipeline, data, random_state=42)
+
+# Compare against reference (from different machine)
+ref = nirs4all.load_reference("reference_results.npz")
+if not np.allclose(result.y_pred, ref.y_pred, rtol=1e-3):
+    warnings.warn(
+        f"Results differ from reference. "
+        f"Max diff: {np.max(np.abs(result.y_pred - ref.y_pred))}. "
+        f"This may be due to platform differences: "
+        f"{result.reproducibility.platform_info} vs {ref.platform_info}"
+    )
+```
+
 ---
 
 ## Feature Preservation Matrix
@@ -873,6 +1150,91 @@ Every feature from v1.x must exist in v2.0:
 | Metadata filtering | `ViewSpec.filter` | Declarative sample selection |
 | **Flexible syntax** | `StepParser` with normalization | Class/instance/dict/YAML/JSON all supported |
 | **Operator registry** | `ControllerRegistry` priority dispatch | Seamless sklearn/TF/Torch/JAX integration |
+
+---
+
+## Extensibility and Plugin System
+
+nirs4all is designed for extensibility without forking. New operators can be added via the `ControllerRegistry`.
+
+### Adding Custom Operators
+
+```python
+from nirs4all.controllers import register_controller, OperatorController
+from sklearn.base import BaseEstimator, TransformerMixin
+
+# 1. Define your custom transformer (sklearn-compatible)
+class WavelengthCalibrator(TransformerMixin, BaseEstimator):
+    """Calibrate wavelength axis using reference peaks."""
+
+    def __init__(self, reference_peaks: List[float], tolerance: float = 1.0):
+        self.reference_peaks = reference_peaks
+        self.tolerance = tolerance
+
+    def fit(self, X, y=None):
+        # Detect peaks and compute calibration
+        self.shift_ = self._compute_shift(X)
+        return self
+
+    def transform(self, X):
+        return self._apply_shift(X, self.shift_)
+
+
+# 2. (Optional) Register custom controller if special handling needed
+@register_controller
+class WavelengthCalibratorController(OperatorController):
+    """Controller for wavelength calibration."""
+    priority = 45  # Higher priority than generic transform
+
+    @classmethod
+    def matches(cls, step, operator, keyword) -> bool:
+        return isinstance(operator, WavelengthCalibrator)
+
+    def execute(self, step_info, dataset, context, runtime_context, **kwargs):
+        # Custom execution logic
+        return self._default_transform_execute(...)
+```
+
+### Plugin Discovery
+
+Plugins are discovered via entry points:
+
+```toml
+# In your package's pyproject.toml
+[project.entry-points."nirs4all.controllers"]
+my_controller = "my_package.controllers:MyController"
+
+[project.entry-points."nirs4all.transforms"]
+my_transform = "my_package.transforms:MyTransform"
+```
+
+```python
+# nirs4all loads plugins at startup
+def _load_plugins():
+    from importlib.metadata import entry_points
+
+    eps = entry_points(group="nirs4all.controllers")
+    for ep in eps:
+        controller_class = ep.load()
+        register_controller(controller_class)
+
+    eps = entry_points(group="nirs4all.transforms")
+    for ep in eps:
+        # Make transform available in syntax
+        transform_class = ep.load()
+        TRANSFORM_REGISTRY[ep.name] = transform_class
+```
+
+### Extension Points
+
+| Extension Point | Entry Point Group | Description |
+|-----------------|-------------------|-------------|
+| Controllers | `nirs4all.controllers` | Custom step execution logic |
+| Transforms | `nirs4all.transforms` | Custom preprocessing operators |
+| Models | `nirs4all.models` | Custom model architectures |
+| Splitters | `nirs4all.splitters` | Custom CV strategies |
+| Explainers | `nirs4all.explainers` | Custom explanation methods |
+| Aggregators | `nirs4all.aggregators` | Custom prediction aggregation |
 
 ---
 
@@ -911,6 +1273,128 @@ Every feature from v1.x must exist in v2.0:
 2. **Document 3: DAG Engine** - Node types, execution, branching
 3. **Document 4: API Layer** - Static API, sklearn estimators
 4. **Document 5: Implementation Plan** - Phases, testing, migration
+
+---
+
+## Execution Flow Diagrams
+
+### Training Flow Sequence
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant run() as nirs4all.run()
+    participant DAGBuilder
+    participant ExecutionEngine
+    participant DatasetContext
+    participant FeatureBlockStore
+    participant VirtualModel
+
+    User->>run(): run(pipeline, data, cv=5)
+
+    Note over run(): 1. Data Initialization
+    run()->>DatasetContext: from_data(data)
+    DatasetContext->>FeatureBlockStore: register_source(X)
+    FeatureBlockStore-->>DatasetContext: block_id
+
+    Note over run(): 2. DAG Compilation
+    run()->>DAGBuilder: build(pipeline)
+    DAGBuilder->>DAGBuilder: expand_generators()
+    DAGBuilder->>DAGBuilder: validate_dag()
+    DAGBuilder-->>run(): ExecutableDAG
+
+    Note over run(): 3. Execution
+    run()->>ExecutionEngine: execute(dag, context, mode="train")
+
+    loop For each node in topological order
+        ExecutionEngine->>DatasetContext: materialize(view)
+        DatasetContext->>FeatureBlockStore: get(block_ids)
+        FeatureBlockStore-->>DatasetContext: arrays
+        DatasetContext-->>ExecutionEngine: X, y
+
+        ExecutionEngine->>ExecutionEngine: node.execute(X, y)
+        ExecutionEngine->>FeatureBlockStore: register_transform(new_data)
+        FeatureBlockStore-->>ExecutionEngine: new_block_id
+    end
+
+    Note over run(): 4. Model Aggregation
+    ExecutionEngine->>VirtualModel: aggregate(fold_models)
+    VirtualModel-->>ExecutionEngine: aggregated_model
+
+    ExecutionEngine-->>run(): ExecutionResult
+    run()-->>User: RunResult
+```
+
+### Prediction Flow Sequence
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant predict() as nirs4all.predict()
+    participant BundleLoader
+    participant ExecutionEngine
+    participant DatasetContext
+    participant VirtualModel
+
+    User->>predict(): predict(model, new_data)
+
+    Note over predict(): 1. Load Model
+    predict()->>BundleLoader: load(model_path)
+    BundleLoader-->>predict(): VirtualModel, artifacts, DAG
+
+    Note over predict(): 2. Prepare Data
+    predict()->>DatasetContext: from_data(new_data, artifacts)
+
+    Note over predict(): 3. Build Minimal DAG
+    predict()->>predict(): build_minimal_dag()
+    Note right of predict(): Only transform nodes,<br/>no splitter/training
+
+    Note over predict(): 4. Execute Transforms
+    predict()->>ExecutionEngine: execute(dag, mode="predict")
+
+    loop For each transform node
+        ExecutionEngine->>ExecutionEngine: apply_fitted_transform()
+    end
+
+    ExecutionEngine-->>predict(): transformed_context
+
+    Note over predict(): 5. Aggregate Predictions
+    predict()->>VirtualModel: predict(X_transformed)
+    VirtualModel->>VirtualModel: aggregate_fold_predictions()
+    VirtualModel-->>predict(): y_pred
+
+    predict()-->>User: PredictResult
+```
+
+### Fork/Join Execution
+
+```mermaid
+sequenceDiagram
+    participant Engine as ExecutionEngine
+    participant ForkNode
+    participant Branch0 as Branch 0
+    participant Branch1 as Branch 1
+    participant Barrier as ForkBarrier
+    participant JoinNode
+
+    Engine->>ForkNode: execute(context)
+    ForkNode->>Barrier: create(branch_ids=[0,1])
+
+    par Parallel Branch Execution
+        ForkNode->>Branch0: execute_branch(0)
+        Branch0->>Barrier: mark_completed(0, result)
+    and
+        ForkNode->>Branch1: execute_branch(1)
+        Branch1->>Barrier: mark_completed(1, result)
+    end
+
+    ForkNode->>Barrier: wait_for_all()
+    Barrier-->>ForkNode: all_results
+
+    ForkNode->>JoinNode: execute(branch_results)
+    JoinNode->>JoinNode: merge_strategy()
+    JoinNode-->>Engine: merged_context
+```
 
 ---
 
