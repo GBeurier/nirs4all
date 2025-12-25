@@ -16,6 +16,10 @@
 5. [Session Management](#session-management)
 6. [Explainer Abstraction](#explainer-abstraction)
 7. [UX Syntax Flexibility](#ux-syntax-flexibility)
+   - [Pipeline Step Formats](#pipeline-step-formats)
+   - [Data Input Formats](#data-input-formats)
+   - [Layout Configuration Syntax](#layout-configuration-syntax)
+   - [Fusion Syntax](#fusion-syntax)
 8. [CLI Interface](#cli-interface)
 9. [Configuration Files](#configuration-files)
 
@@ -67,18 +71,110 @@ The API Layer provides three levels of access to nirs4all:
 
 from .api import run, predict, explain, retrain
 from .api import session, RunResult, PredictResult, ExplainResult
-from .sklearn import NIRSRegressor, NIRSClassifier, NIRSSearchCV
+from .sklearn import NIRSRegressor, NIRSClassifier, NIRSPipeline, NIRSSearchCV
 
 __all__ = [
     # Functions
-    "run", "predict", "explain", "retrain",
+    "run", "predict", "explain", "retrain", "visualize_pipeline",
     # Session
     "session",
     # Results
     "RunResult", "PredictResult", "ExplainResult",
     # sklearn estimators
-    "NIRSRegressor", "NIRSClassifier", "NIRSSearchCV",
+    "NIRSRegressor", "NIRSClassifier", "NIRSPipeline", "NIRSSearchCV",
 ]
+```
+
+### visualize_pipeline() - DAG Debugging
+
+```python
+def visualize_pipeline(
+    pipeline: PipelineSpec,
+    *,
+    output: Optional[str] = None,
+    format: str = "html",
+    expand_generators: bool = True,
+    show_node_ids: bool = False,
+    highlight_branches: bool = True,
+) -> Union[str, None]:
+    """Visualize a pipeline as a DAG graph for debugging.
+
+    Compiles the pipeline to a DAG and generates a visual representation
+    without executing the pipeline. Useful for understanding complex
+    branching, verifying generator expansion, and debugging.
+
+    Args:
+        pipeline: Pipeline specification (same formats as run())
+        output: Output file path. If None, returns HTML/DOT string.
+            Supported extensions: .html, .svg, .png, .dot
+        format: Output format when `output` is None:
+            - "html": Interactive HTML with pan/zoom (default)
+            - "dot": Graphviz DOT source
+            - "ascii": Text-based tree representation
+        expand_generators: If True, expand _or_, _range_, _grid_ generators.
+            If False, show generators as single nodes.
+        show_node_ids: Include internal node IDs in labels
+        highlight_branches: Color-code different branches
+
+    Returns:
+        If output is None, returns the visualization string.
+        If output is specified, writes to file and returns None.
+
+    Examples:
+        >>> # Quick visualization in Jupyter
+        >>> from IPython.display import HTML
+        >>> HTML(nirs4all.visualize_pipeline(my_pipeline))
+
+        >>> # Save to file for sharing
+        >>> nirs4all.visualize_pipeline(
+        ...     complex_pipeline,
+        ...     output="my_dag.html"
+        ... )
+
+        >>> # ASCII for terminal/logs
+        >>> print(nirs4all.visualize_pipeline(pipeline, format="ascii"))
+        Pipeline: my_pipeline
+        ├── MinMaxScaler
+        ├── ForkNode (2 branches)
+        │   ├─[0] SNV → PLSRegression
+        │   └─[1] MSC → RandomForest
+        └── JoinNode (merge=predictions)
+
+        >>> # See generator expansion
+        >>> pipeline = [{"_or_": [SNV, MSC, Detrend]}, PLSRegression()]
+        >>> nirs4all.visualize_pipeline(pipeline, expand_generators=True)
+        # Shows 3 separate pipeline variants
+
+    Notes:
+        This function only compiles the DAG - it does not require data
+        and does not execute any transformations or models.
+    """
+    from .dag import DAGBuilder, DAGRenderer
+
+    # Build DAG (no execution)
+    builder = DAGBuilder()
+    dag = builder.build(pipeline, expand_generators=expand_generators)
+
+    # Render
+    renderer = DAGRenderer(
+        show_node_ids=show_node_ids,
+        highlight_branches=highlight_branches
+    )
+
+    if format == "html":
+        content = renderer.to_html(dag)
+    elif format == "dot":
+        content = renderer.to_dot(dag)
+    elif format == "ascii":
+        content = renderer.to_ascii(dag)
+    else:
+        raise ValueError(f"Unknown format: {format}. Use 'html', 'dot', or 'ascii'")
+
+    if output:
+        Path(output).write_text(content)
+        return None
+
+    return content
 ```
 
 ### run() - Training
@@ -90,6 +186,7 @@ def run(
     *,
     name: str = "",
     cv: Optional[CVSpec] = None,
+    layout: Optional[LayoutSpec] = None,
     verbose: int = 1,
     save_artifacts: bool = True,
     workspace: Optional[str] = None,
@@ -114,9 +211,15 @@ def run(
             - DatasetContext object
         name: Pipeline name for tracking (auto-generated if empty)
         cv: Cross-validation specification. Can be:
-            - int: Number of folds (uses KFold)
+            - int: Number of folds (auto-detects KFold for regression,
+                   StratifiedKFold for classification based on y dtype)
             - sklearn splitter: ShuffleSplit(n_splits=5)
-            - None: Uses default 5-fold
+            - None: Uses default 5-fold with task auto-detection
+        layout: Default layout specification for model inputs. Can be:
+            - LayoutSpec: Full specification (see Data Layer docs)
+            - str: Shorthand ("2d", "3d", "dict", "pytorch", "tensorflow")
+            - None: Auto-detect from model (if ModelWithInputSpec) or 2D
+            Models with get_input_spec() override this default.
         verbose: Verbosity level (0=silent, 1=progress, 2=debug)
         save_artifacts: If True, save trained models and artifacts
         workspace: Output directory (default: ./workspace)
@@ -152,16 +255,34 @@ def run(
         ...     data
         ... )
         >>> result.top(5)  # Best 5 configurations
+
+        >>> # With layout for 3D models (PyTorch Conv1D)
+        >>> result = nirs4all.run(
+        ...     [MinMaxScaler(), {"model": Conv1DNet()}],
+        ...     data,
+        ...     layout="pytorch"  # Use LAYOUT_PYTORCH_1D preset
+        ... )
+
+        >>> # With multi-source and multi-head model
+        >>> result = nirs4all.run(
+        ...     [{"model": MultiHeadNN()}],
+        ...     {"NIR": X_nir, "markers": X_markers, "y": y},
+        ...     layout=LAYOUT_MULTI_HEAD  # Dict per source
+        ... )
     """
     # Normalize inputs
     context = _normalize_data(data)
     dag = _build_dag(pipeline, cv)
 
+    # Resolve layout
+    resolved_layout = _resolve_layout(layout)
+
     # Configure engine
     engine = ExecutionEngine(
         parallel=n_jobs > 1,
         n_workers=n_jobs,
-        verbose=verbose
+        verbose=verbose,
+        default_layout=resolved_layout
     )
 
     # Execute
@@ -180,6 +301,134 @@ def run(
         context=exec_result.context,
         dag=dag
     )
+
+
+def _resolve_layout(
+    layout: Optional[Union[str, LayoutSpec]]
+) -> Optional[LayoutSpec]:
+    """Resolve layout shorthand to LayoutSpec.
+
+    Args:
+        layout: User-provided layout specification
+
+    Returns:
+        LayoutSpec or None for auto-detection
+    """
+    from nirs4all.data import (
+        LayoutSpec, LayoutMode,
+        LAYOUT_SKLEARN, LAYOUT_TENSORFLOW_1D, LAYOUT_PYTORCH_1D,
+        LAYOUT_MULTI_HEAD, LAYOUT_TRANSFORMER
+    )
+
+    if layout is None:
+        return None
+    if isinstance(layout, LayoutSpec):
+        return layout
+
+    # Shorthand mapping
+    LAYOUT_PRESETS = {
+        "2d": LAYOUT_SKLEARN,
+        "flat": LAYOUT_SKLEARN,
+        "sklearn": LAYOUT_SKLEARN,
+        "3d": LAYOUT_PYTORCH_1D,
+        "volume": LAYOUT_PYTORCH_1D,
+        "pytorch": LAYOUT_PYTORCH_1D,
+        "torch": LAYOUT_PYTORCH_1D,
+        "tensorflow": LAYOUT_TENSORFLOW_1D,
+        "keras": LAYOUT_TENSORFLOW_1D,
+        "tf": LAYOUT_TENSORFLOW_1D,
+        "dict": LAYOUT_MULTI_HEAD,
+        "multi_head": LAYOUT_MULTI_HEAD,
+        "multihead": LAYOUT_MULTI_HEAD,
+        "transformer": LAYOUT_TRANSFORMER,
+        "seq": LAYOUT_TRANSFORMER,
+    }
+
+    if layout in LAYOUT_PRESETS:
+        return LAYOUT_PRESETS[layout]
+
+    raise ValueError(
+        f"Unknown layout shorthand: '{layout}'. "
+        f"Valid options: {list(LAYOUT_PRESETS.keys())}"
+    )
+
+
+def _infer_cv_splitter(cv: CVSpec, y: np.ndarray) -> BaseCrossValidator:
+    """Infer appropriate CV splitter based on task type.
+
+    Args:
+        cv: User-provided CV specification
+        y: Target values for task inference
+
+    Returns:
+        Configured sklearn splitter
+    """
+    from sklearn.model_selection import KFold, StratifiedKFold
+
+    if isinstance(cv, BaseCrossValidator):
+        return cv
+
+    n_splits = cv if isinstance(cv, int) else 5
+
+    # Infer task type from y
+    if _is_classification_target(y):
+        return StratifiedKFold(n_splits=n_splits, shuffle=True)
+    else:
+        return KFold(n_splits=n_splits, shuffle=True)
+
+
+def _is_classification_target(y: np.ndarray) -> bool:
+    """Detect if target is classification (discrete) or regression (continuous).
+
+    Heuristics:
+    1. Integer dtype with few unique values → classification
+    2. Object/string dtype → classification
+    3. Float with many unique values → regression
+    """
+    if y.dtype.kind in ('U', 'S', 'O'):  # String/object
+        return True
+    if y.dtype.kind in ('i', 'u'):  # Integer
+        n_unique = len(np.unique(y))
+        return n_unique < min(20, len(y) * 0.05)  # <5% unique or <20 classes
+    # Float: check if actually discrete
+    n_unique = len(np.unique(y))
+    return n_unique < 10 and np.allclose(y, y.astype(int))
+
+
+### Async API (Future)
+
+For long-running pipelines in interactive environments (Jupyter, REPL),
+async variants may be added in a future release:
+
+```python
+# Future API (not in MVP)
+async def run_async(
+    pipeline: PipelineSpec,
+    data: DataSpec,
+    *,
+    progress_callback: Optional[Callable[[float, str], None]] = None,
+    **kwargs
+) -> RunResult:
+    """Async version of run() for non-blocking execution.
+
+    Allows:
+    - Progress callbacks during execution
+    - Cancellation via asyncio.CancelledError
+    - Concurrent runs in Jupyter notebooks
+
+    Example:
+        >>> async def progress(pct, msg):
+        ...     print(f"{pct:.0%}: {msg}")
+        >>>
+        >>> result = await nirs4all.run_async(
+        ...     pipeline, data, progress_callback=progress
+        ... )
+    """
+    # Implementation would use asyncio.to_thread for CPU-bound work
+    pass
+```
+
+This is deferred to post-MVP to focus on core functionality first.
 
 
 # Type aliases for flexibility
@@ -218,6 +467,7 @@ def predict(
     aggregation: str = "weighted_mean",
     fold: Optional[Union[int, str]] = None,
     lazy_load: bool = True,
+    random_state: Optional[int] = None,  # For reproducible fold="random"
     **kwargs
 ) -> PredictResult:
     """Apply trained model to new data.
@@ -237,19 +487,30 @@ def predict(
             - None: Use all folds with aggregation (default)
             - int: Use specific fold index (0, 1, 2, ...)
             - "best": Use the best-scoring fold model only
-            - "random": Use a random fold (for diversity)
+            - "random": Use a random fold (seeded by random_state for reproducibility)
         lazy_load: If True, only load required fold models (default).
             Set to False to load all models upfront.
+        random_state: Random seed for reproducibility when fold="random".
+            If None and fold="random", uses system entropy (non-reproducible).
         **kwargs: Additional options
 
     Returns:
         PredictResult with predictions and metadata
+
+    Note on fold="random":
+        The random fold selection is seeded by random_state for reproducibility.
+        If random_state is None, each call may select a different fold.
 
     Examples:
         >>> # From training result
         >>> train_result = nirs4all.run(pipeline, train_data)
         >>> pred_result = nirs4all.predict(train_result, test_data)
         >>> y_pred = pred_result.y_pred
+
+        >>> # Reproducible random fold selection
+        >>> pred_result = nirs4all.predict(
+        ...     model, data, fold="random", random_state=42
+        ... )
 
         >>> # From exported bundle (fast: loads only best fold)
         >>> pred_result = nirs4all.predict(
@@ -841,7 +1102,67 @@ from typing import Literal
 StepNaming = Literal["explicit", "positional", "class"]
 
 
-class NIRSRegressor(BaseEstimator, RegressorMixin):
+class NIRSEstimator(BaseEstimator):
+    """Base class for nirs4all sklearn estimators.
+
+    Supports mixed task types within a single pipeline. The final task type
+    is auto-detected from the pipeline output, allowing workflows like:
+    - Discretize regression targets → train classifier → map back to values
+    - Train regressor → threshold to classes
+
+    The `task_type` parameter controls API behavior (score(), predict_proba()),
+    while internal models use their own appropriate metrics.
+    """
+
+    def __init__(
+        self,
+        pipeline: Union[List[Any], Callable],
+        cv: CVSpec = 5,
+        task_type: Literal["auto", "regression", "classification"] = "auto",
+        step_naming: StepNaming = "positional",
+        verbose: int = 0,
+        random_state: Optional[int] = None,
+        n_jobs: int = 1
+    ):
+        self.pipeline = pipeline
+        self.cv = cv
+        self.task_type = task_type
+        self.step_naming = step_naming
+        self.verbose = verbose
+        self.random_state = random_state
+        self.n_jobs = n_jobs
+
+    def _resolve_task_type(self) -> str:
+        """Resolve actual task type after fitting.
+
+        Priority:
+        1. Explicit task_type parameter (if not "auto")
+        2. Result's detected task type
+        3. Default based on estimator class
+        """
+        if self.task_type != "auto":
+            return self.task_type
+
+        if hasattr(self, "result_") and hasattr(self.result_, "task_type"):
+            return self.result_.task_type.value
+
+        # Default based on class
+        if isinstance(self, NIRSClassifier):
+            return "classification"
+        return "regression"
+
+    @property
+    def is_classifier(self) -> bool:
+        """Whether this estimator behaves as a classifier."""
+        return self._resolve_task_type() == "classification"
+
+    @property
+    def is_regressor(self) -> bool:
+        """Whether this estimator behaves as a regressor."""
+        return self._resolve_task_type() == "regression"
+
+
+class NIRSRegressor(NIRSEstimator, RegressorMixin):
     """sklearn-compatible regressor wrapping nirs4all pipeline.
 
     Enables use with:
@@ -1111,12 +1432,64 @@ class NIRSRegressor(BaseEstimator, RegressorMixin):
         return new_pipeline
 
 
-class NIRSClassifier(NIRSRegressor):
+class NIRSClassifier(NIRSEstimator, ClassifierMixin):
     """sklearn-compatible classifier wrapping nirs4all pipeline.
 
     Same interface as NIRSRegressor, but with classification-specific
     methods (predict_proba, score uses accuracy).
+
+    Inherits mixed task type support from NIRSEstimator.
     """
+
+    def __init__(
+        self,
+        pipeline: Union[List[Any], Callable],
+        cv: CVSpec = 5,
+        step_naming: StepNaming = "positional",
+        verbose: int = 0,
+        random_state: Optional[int] = None,
+        n_jobs: int = 1
+    ):
+        super().__init__(
+            pipeline=pipeline,
+            cv=cv,
+            task_type="classification",  # Default to classification
+            step_naming=step_naming,
+            verbose=verbose,
+            random_state=random_state,
+            n_jobs=n_jobs
+        )
+
+    def fit(self, X, y, **fit_params):
+        """Fit the classifier to data."""
+        # Use same logic as NIRSRegressor.fit
+        pipeline = self.pipeline() if callable(self.pipeline) else self.pipeline
+        self.step_names_, self._step_map = self._resolve_step_names(pipeline)
+
+        if not self._has_splitter(pipeline):
+            pipeline = self._add_cv(pipeline)
+
+        self.result_ = run(
+            pipeline=pipeline,
+            data=(X, y),
+            cv=self.cv,
+            verbose=self.verbose,
+            random_state=self.random_state,
+            n_jobs=self.n_jobs,
+            **fit_params
+        )
+
+        self.dag_ = self.result_._dag
+        self.best_model_ = self.result_.best_model
+        self.best_score_ = self.result_.best_score
+        self.classes_ = np.unique(y)  # Required for sklearn classifiers
+
+        return self
+
+    def predict(self, X):
+        """Generate class predictions."""
+        check_is_fitted(self, ["best_model_"])
+        return self.best_model_.predict(X)
 
     def predict_proba(self, X):
         """Predict class probabilities.
@@ -1138,6 +1511,121 @@ class NIRSClassifier(NIRSRegressor):
         from sklearn.metrics import accuracy_score
         y_pred = self.predict(X)
         return accuracy_score(y, y_pred, sample_weight=sample_weight)
+
+
+class NIRSPipeline(NIRSEstimator):
+    """Unified sklearn-compatible estimator with automatic task detection.
+
+    This is the recommended estimator for mixed task type pipelines where
+    the final task type depends on the pipeline configuration.
+
+    Unlike NIRSRegressor/NIRSClassifier which enforce a task type,
+    NIRSPipeline auto-detects from the pipeline's final output.
+
+    Examples:
+        >>> # Discretize then classify, map back to regression
+        >>> pipe = NIRSPipeline([
+        ...     MinMaxScaler(),
+        ...     {"y_processing": QuantileDiscretizer(n_bins=5)},
+        ...     {"model": RandomForestClassifier()},
+        ...     {"post_processing": ClassToValueMapper()}
+        ... ])
+        >>> pipe.fit(X, y)
+        >>> pipe.is_regressor  # True (ClassToValueMapper outputs continuous)
+
+        >>> # Same pipeline without mapper → classification
+        >>> pipe2 = NIRSPipeline([
+        ...     MinMaxScaler(),
+        ...     {"y_processing": QuantileDiscretizer(n_bins=5)},
+        ...     {"model": RandomForestClassifier()}
+        ... ])
+        >>> pipe2.fit(X, y)
+        >>> pipe2.is_classifier  # True
+    """
+
+    def __init__(
+        self,
+        pipeline: Union[List[Any], Callable],
+        cv: CVSpec = 5,
+        step_naming: StepNaming = "positional",
+        verbose: int = 0,
+        random_state: Optional[int] = None,
+        n_jobs: int = 1
+    ):
+        super().__init__(
+            pipeline=pipeline,
+            cv=cv,
+            task_type="auto",  # Always auto-detect
+            step_naming=step_naming,
+            verbose=verbose,
+            random_state=random_state,
+            n_jobs=n_jobs
+        )
+
+    def fit(self, X, y, **fit_params):
+        """Fit the pipeline to data with auto task detection."""
+        pipeline = self.pipeline() if callable(self.pipeline) else self.pipeline
+        self.step_names_, self._step_map = self._resolve_step_names(pipeline)
+
+        if not self._has_splitter(pipeline):
+            pipeline = self._add_cv(pipeline)
+
+        self.result_ = run(
+            pipeline=pipeline,
+            data=(X, y),
+            cv=self.cv,
+            verbose=self.verbose,
+            random_state=self.random_state,
+            n_jobs=self.n_jobs,
+            **fit_params
+        )
+
+        self.dag_ = self.result_._dag
+        self.best_model_ = self.result_.best_model
+        self.best_score_ = self.result_.best_score
+
+        # Store detected task type
+        self._detected_task_type = self.result_.task_type.value
+
+        # Set classes_ if classification
+        if self.is_classifier:
+            self.classes_ = np.unique(y)
+
+        return self
+
+    def predict(self, X):
+        """Generate predictions."""
+        check_is_fitted(self, ["best_model_"])
+        return self.best_model_.predict(X)
+
+    def predict_proba(self, X):
+        """Predict class probabilities (classification only)."""
+        if not self.is_classifier:
+            raise AttributeError(
+                "predict_proba is only available for classification tasks. "
+                f"Detected task type: {self._resolve_task_type()}"
+            )
+        check_is_fitted(self, ["best_model_"])
+        if hasattr(self.best_model_, "predict_proba"):
+            return self.best_model_.predict_proba(X)
+        raise AttributeError("Model does not support predict_proba")
+
+    def score(self, X, y, sample_weight=None):
+        """Return appropriate score based on detected task type."""
+        y_pred = self.predict(X)
+        if self.is_classifier:
+            from sklearn.metrics import accuracy_score
+            return accuracy_score(y, y_pred, sample_weight=sample_weight)
+        else:
+            from sklearn.metrics import r2_score
+            return r2_score(y, y_pred, sample_weight=sample_weight)
+
+    # Inherit helper methods from NIRSRegressor
+    _resolve_step_names = NIRSRegressor._resolve_step_names
+    _has_splitter = NIRSRegressor._has_splitter
+    _add_cv = NIRSRegressor._add_cv
+    get_params = NIRSRegressor.get_params
+    set_params = NIRSRegressor.set_params
 ```
 
 ### NIRSSearchCV
@@ -2494,6 +2982,115 @@ nirs4all.run(pipeline, {
 })
 ```
 
+### Layout Configuration Syntax
+
+```python
+# Layout can be specified at run() level or per-model
+
+# 1. Shorthand string
+nirs4all.run(pipeline, data, layout="pytorch")  # 3D channels-first
+nirs4all.run(pipeline, data, layout="tensorflow")  # 3D channels-last
+nirs4all.run(pipeline, data, layout="dict")  # Multi-head dict input
+
+# 2. LayoutSpec object
+from nirs4all.data import LayoutSpec, LayoutMode, JoinStrategy, PaddingStrategy
+
+layout = LayoutSpec(
+    mode=LayoutMode.VOLUME_3D,
+    source_join=JoinStrategy.STACK,
+    processing_join=JoinStrategy.STACK,
+    on_asymmetric=PaddingStrategy.PAD_ZERO,
+    channel_order="first"  # PyTorch convention
+)
+nirs4all.run(pipeline, data, layout=layout)
+
+# 3. Layout presets
+from nirs4all.data import (
+    LAYOUT_SKLEARN,        # Flat 2D, concatenate everything
+    LAYOUT_PYTORCH_1D,     # 3D (N, C, L) for Conv1D
+    LAYOUT_TENSORFLOW_1D,  # 3D (N, L, C) for Conv1D
+    LAYOUT_MULTI_HEAD,     # Dict per source
+    LAYOUT_TRANSFORMER,    # Sequence format
+)
+
+# 4. Per-model layout (via ModelInputSpec)
+class MyModel:
+    def get_input_spec(self):
+        return ModelInputSpec(
+            layout=LayoutMode.MULTI_INPUT,
+            input_names=["spectra", "metadata"],
+            required_sources=["spectra"]
+        )
+# Model's input spec overrides default layout
+```
+
+### Fusion Syntax
+
+```python
+# Early Fusion (feature-level)
+pipeline = [
+    {"source_branch": {
+        "NIR": [SNV()],
+        "markers": [VarianceThreshold()],
+    }},
+    {"merge_sources": "concat"},  # ← Early fusion
+    {"model": PLSRegression(n_components=10)}
+]
+
+# Late Fusion (prediction-level)
+pipeline = [
+    {"branch": [
+        [SNV(), {"model": PLSRegression(10)}],
+        [MSC(), {"model": RandomForest()}],
+    ]},
+    {"merge": "predictions"},  # ← Late fusion (OOF stacking)
+    {"meta_model": LinearRegression()}
+]
+
+# Mid Fusion (representation-level) - NEW
+from nirs4all.operators import MidFusionConfig
+
+pipeline = [
+    {"branch": [
+        [{"source": "NIR"}, SNV(), {"model": Conv1DNet(layers=[64, 32])}],
+        [{"source": "markers"}, {"model": DenseNet(layers=[32])}],
+    ]},
+    {"mid_fusion": MidFusionConfig(
+        truncate_at=-2,          # Remove last 2 layers
+        freeze_base=True,        # Freeze pretrained weights
+        fusion_strategy="concat", # or "add", "attention", "gated"
+        fusion_head=Dense(units=16)  # Final head to train
+    )},
+]
+
+# YAML equivalent for mid-fusion
+```
+
+```yaml
+steps:
+  - branch:
+      - - source: NIR
+        - class: nirs4all.transforms.SNV
+        - keyword: model
+          class: nirs4all.models.Conv1DNet
+          params:
+            layers: [64, 32]
+      - - source: markers
+        - keyword: model
+          class: nirs4all.models.DenseNet
+          params:
+            layers: [32]
+
+  - mid_fusion:
+      truncate_at: -2
+      freeze_base: true
+      fusion_strategy: concat
+      fusion_head:
+        class: nirs4all.models.Dense
+        params:
+          units: 16
+```
+
 ### Normalization Pipeline
 
 ```python
@@ -2713,6 +3310,7 @@ nirs4all validate [OPTIONS] PIPELINE
 Options:
   --strict                  Fail on warnings
   --show-dag                Print DAG structure
+  --dry-run                 Compile and validate without execution
 
 Arguments:
   PIPELINE  Path to pipeline YAML file
@@ -2723,6 +3321,34 @@ Validates:
   - Parameter validity
   - DAG structure (no cycles)
   - Generator expansion limits
+```
+
+#### `dry-run` - Preview Execution
+
+```bash
+nirs4all dry-run [OPTIONS] PIPELINE DATA
+
+Options:
+  --show-dag                Print compiled DAG structure
+  --show-variants INTEGER   Show first N generator variants
+  --estimate-memory         Estimate memory requirements
+  --output-format [text|json|mermaid]  Output format [default: text]
+
+Arguments:
+  PIPELINE  Path to pipeline YAML file
+  DATA      Path to data file (for shape inference)
+
+Output includes:
+  - DAG node count and structure
+  - Estimated generator expansions
+  - Memory estimation per node
+  - Execution order preview
+  - Resource requirements (GPU/CPU)
+
+Examples:
+  nirs4all dry-run pipeline.yaml data.csv --show-dag
+  nirs4all dry-run complex.yaml . --estimate-memory
+  nirs4all dry-run pipeline.yaml data.csv --output-format mermaid > dag.md
 ```
 
 ### Implementation
@@ -3332,6 +3958,420 @@ def run_from_config(config_path: Union[str, Path]) -> RunResult:
         result.export(**config["export"])
 
     return result
+```
+
+---
+
+## Accessibility and Output Formatting
+
+### Color-Blind Friendly Outputs
+
+All CLI outputs and generated visualizations use a color-blind friendly palette:
+
+```python
+# Default color palette (distinguishable for all color vision types)
+COLORBLIND_PALETTE = {
+    "primary": "#0077BB",    # Blue
+    "secondary": "#EE7733",  # Orange
+    "success": "#009988",    # Teal
+    "warning": "#EE3377",    # Magenta
+    "error": "#CC3311",      # Red
+    "neutral": "#BBBBBB",    # Gray
+}
+
+# For terminal output (using ANSI codes)
+TERM_STYLES = {
+    "ok": "\033[92m",       # Green (with underline for colorblind)
+    "warn": "\033[93m\033[4m",  # Yellow + underline
+    "error": "\033[91m\033[1m", # Red + bold
+    "reset": "\033[0m",
+}
+
+# Accessibility options
+class OutputConfig:
+    """Configuration for accessible output."""
+    use_colors: bool = True
+    use_unicode_symbols: bool = True  # ✓ vs [OK]
+    high_contrast: bool = False
+
+    @classmethod
+    def from_env(cls) -> "OutputConfig":
+        """Load from environment variables."""
+        import os
+        return cls(
+            use_colors=os.environ.get("NO_COLOR") is None,
+            use_unicode_symbols=os.environ.get("NIRS4ALL_ASCII_ONLY") is None,
+            high_contrast=os.environ.get("NIRS4ALL_HIGH_CONTRAST") is not None,
+        )
+```
+
+### Accessible Visualizations
+
+```python
+def configure_accessible_plots():
+    """Configure matplotlib for accessibility."""
+    import matplotlib.pyplot as plt
+
+    # Use colorblind-friendly colormap
+    plt.rcParams['axes.prop_cycle'] = plt.cycler(
+        color=['#0077BB', '#33BBEE', '#009988', '#EE7733',
+               '#CC3311', '#EE3377', '#BBBBBB']
+    )
+
+    # Use patterns in addition to colors
+    plt.rcParams['hatch.linewidth'] = 2.0
+
+    # Larger fonts for readability
+    plt.rcParams['font.size'] = 12
+    plt.rcParams['axes.labelsize'] = 14
+```
+
+---
+
+## Parameter Naming Conventions
+
+NIRS4ALL v2.0 adopts consistent parameter naming across the entire API to reduce confusion and improve discoverability.
+
+### Standardized Parameters
+
+| Parameter | Type | Description | Usage |
+|-----------|------|-------------|-------|
+| `random_state` | `int \| None` | Random seed for reproducibility | All randomized operations |
+| `n_jobs` | `int` | Number of parallel workers | sklearn-compatible parallelism |
+| `verbose` | `int` | Verbosity level (0-3) | Logging and progress output |
+| `copy` | `bool` | Whether to copy input data | Transforms that modify data |
+
+### Design Rationale
+
+**Why `random_state` not `seed`?**
+- sklearn convention uses `random_state`
+- Supports both int seeds and `np.random.RandomState` objects
+- Familiar to Python ML practitioners
+
+**Why `n_jobs` not `n_workers`?**
+- sklearn convention uses `n_jobs`
+- Internally, `n_jobs=-1` means "use all CPUs"
+- Maps directly to joblib/sklearn parallelism
+
+**Internal vs External Naming**
+
+```python
+# User-facing API: sklearn conventions
+def run(pipeline, data, random_state=None, n_jobs=1):
+    ...
+    # Internally: may use different naming
+    engine = ExecutionEngine(
+        parallel=n_jobs > 1,
+        n_workers=n_jobs  # Internal parameter
+    )
+```
+
+### Parameter Inheritance
+
+Parameters set at the top level propagate to nested components:
+
+```python
+# random_state propagates to all randomized operators
+result = nirs4all.run(
+    [ShuffleSplit(), RandomForestRegressor()],
+    data,
+    random_state=42  # Applied to both ShuffleSplit and RandomForest
+)
+
+# Unless explicitly overridden
+result = nirs4all.run(
+    [ShuffleSplit(random_state=123), RandomForestRegressor()],
+    data,
+    random_state=42  # Only RandomForest gets 42; ShuffleSplit keeps 123
+)
+```
+
+---
+
+## Troubleshooting Guide
+
+Common issues and their solutions.
+
+### Installation Issues
+
+#### `ModuleNotFoundError: No module named 'nirs4all'`
+
+**Cause**: nirs4all not installed or not in Python path.
+
+```bash
+# Solution: Install nirs4all
+pip install nirs4all
+
+# Or verify installation
+nirs4all test-install
+```
+
+#### `ImportError: sklearn version conflict`
+
+**Cause**: Incompatible sklearn version.
+
+```bash
+# Solution: Check version requirements
+pip install 'scikit-learn>=1.3.0'
+```
+
+### Pipeline Errors
+
+#### `GeneratorExplosionError: Generator expansion exceeds limit`
+
+**Cause**: `_or_`, `_range_`, or `_grid_` expansion creates too many variants.
+
+```python
+# Problem: This creates 5! = 120 combinations
+pipeline = [
+    {"_or_": [SNV, MSC, Detrend, SG, Gaussian]},
+    {"_or_": [PCA, VarianceThreshold, SelectKBest]},
+    {"_or_": [PLS, RandomForest, SVR]},
+]
+
+# Solution: Limit expansion or use count parameter
+pipeline = [
+    {"_or_": [SNV, MSC, Detrend], "count": 2},  # Only 2 random choices
+    PCA(n_components=10),
+    {"_or_": [PLS, RandomForest]},  # 2 models
+]
+# Now: 2 × 1 × 2 = 4 combinations
+```
+
+#### `DAGError: Cycle detected in pipeline`
+
+**Cause**: Pipeline contains a circular dependency.
+
+```python
+# Problem: Feature back-reference creates cycle
+pipeline = [
+    A(),
+    {"branch": [[B()], [C()]]},
+    {"merge": "features"},
+    D(uses_output_of=A),  # References earlier step → cycle!
+]
+
+# Solution: Restructure to be acyclic
+```
+
+#### `ShapeMismatchError: X and y have different sample counts`
+
+**Cause**: Feature and target arrays don't align.
+
+```python
+# Solution: Verify data shapes
+print(f"X shape: {X.shape}, y shape: {y.shape}")
+
+# Common fix: Ensure same number of samples
+assert X.shape[0] == y.shape[0], "Sample count mismatch"
+```
+
+### Training Errors
+
+#### `ValueError: Unknown target type 'continuous'` in classifier
+
+**Cause**: Using classification model with regression targets.
+
+```python
+# Problem
+from sklearn.ensemble import RandomForestClassifier
+
+result = nirs4all.run(
+    [RandomForestClassifier()],  # Classifier!
+    data  # But data has continuous y
+)
+
+# Solution: Use regressor or discretize targets
+from sklearn.ensemble import RandomForestRegressor
+
+result = nirs4all.run(
+    [RandomForestRegressor()],  # Regressor for continuous y
+    data
+)
+
+# Or discretize
+from nirs4all.operators.transforms import QuantileDiscretizer
+
+result = nirs4all.run(
+    [
+        {"y_processing": QuantileDiscretizer(n_bins=5)},
+        RandomForestClassifier(),
+    ],
+    data
+)
+```
+
+#### `MemoryError` during training
+
+**Cause**: Dataset too large for available RAM.
+
+```python
+# Solutions:
+
+# 1. Use out-of-core processing
+result = nirs4all.run(
+    pipeline,
+    data,
+    memory_map=True  # Memory-map large arrays
+)
+
+# 2. Reduce data size
+result = nirs4all.run(
+    [
+        {"feature_selection": SelectKBest(k=100)},  # Reduce features
+        model,
+    ],
+    data
+)
+
+# 3. Use incremental learning
+from sklearn.linear_model import SGDRegressor
+
+result = nirs4all.run(
+    [SGDRegressor()],  # Supports partial_fit
+    data,
+    batch_size=1000  # Process in batches
+)
+```
+
+### Prediction Errors
+
+#### `BundleVersionError: sklearn version mismatch`
+
+**Cause**: Bundle trained with different sklearn version.
+
+```python
+# Error message:
+# sklearn version mismatch. Bundle: 1.2.0, Current: 1.4.0
+
+# Solution 1: Use matching sklearn version
+pip install 'scikit-learn==1.2.0'
+
+# Solution 2: Retrain with current sklearn
+result = nirs4all.retrain(
+    "path/to/bundle.n4a",
+    training_data,
+    update_versions=True
+)
+
+# Solution 3: Force load (may produce incorrect predictions!)
+predictions = nirs4all.predict(
+    "path/to/bundle.n4a",
+    new_data,
+    ignore_version_errors=True  # Use with caution
+)
+```
+
+#### `ValueError: Input has wrong number of features`
+
+**Cause**: Prediction data has different number of wavelengths than training data.
+
+```python
+# Solution: Ensure same wavelength range
+print(f"Model expects: {model.n_features_in_} features")
+print(f"New data has: {X_new.shape[1]} features")
+
+# If wavelengths differ, resample to match
+from nirs4all.operators.transforms import WavelengthResampler
+
+resampler = WavelengthResampler(
+    source_wl=new_wavelengths,
+    target_wl=model_wavelengths
+)
+X_resampled = resampler.fit_transform(X_new)
+```
+
+### Performance Issues
+
+#### Slow training with large datasets
+
+```python
+# Solutions:
+
+# 1. Enable parallelism
+result = nirs4all.run(pipeline, data, n_jobs=-1)  # Use all CPUs
+
+# 2. Reduce cross-validation
+from sklearn.model_selection import ShuffleSplit
+
+result = nirs4all.run(
+    [ShuffleSplit(n_splits=3), model],  # 3 instead of 10 folds
+    data
+)
+
+# 3. Use faster algorithms
+from sklearn.linear_model import RidgeCV  # Much faster than GridSearchCV
+
+result = nirs4all.run(
+    [RidgeCV(alphas=np.logspace(-3, 3, 100))],
+    data
+)
+
+# 4. Profile to find bottleneck
+result = nirs4all.run(
+    pipeline,
+    data,
+    profile=True  # Writes timing info to logs
+)
+```
+
+#### High memory usage during fork/join
+
+```python
+# Cause: Each branch creates full data copies
+
+# Solution: Enable memory-efficient mode
+result = nirs4all.run(
+    [
+        {"branch": [branch1, branch2, branch3]},
+        {"merge": "predictions"},
+    ],
+    data,
+    memory_efficient=True  # Use disk for intermediate results
+)
+```
+
+### Debugging Tips
+
+#### Enable verbose logging
+
+```python
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("nirs4all").setLevel(logging.DEBUG)
+
+# Or use verbose parameter
+result = nirs4all.run(pipeline, data, verbose=3)  # Maximum verbosity
+```
+
+#### Visualize pipeline before running
+
+```python
+# Debug pipeline structure
+nirs4all.visualize_pipeline(pipeline, output="pipeline.html")
+
+# Check generator expansion
+nirs4all.visualize_pipeline(
+    pipeline,
+    expand_generators=True,
+    output="expanded_pipeline.html"
+)
+```
+
+#### Inspect intermediate results
+
+```python
+# Use session for step-by-step debugging
+with nirs4all.session() as s:
+    s.load(data)
+
+    for step in pipeline:
+        print(f"Before {step}: X.shape = {s.X.shape}")
+        s.execute_step(step)
+        print(f"After {step}: X.shape = {s.X.shape}")
+
+    result = s.finalize()
 ```
 
 ---

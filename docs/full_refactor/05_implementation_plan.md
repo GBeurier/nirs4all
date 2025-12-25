@@ -42,6 +42,67 @@
 - [ ] **Numerical equivalence within tolerance (r² ± 0.001)**
 - [ ] **All edge case tests passing**
 
+### Performance KPIs
+
+Measurable targets to validate v2.0 performance:
+
+| Metric | Target | Measurement Method |
+|--------|--------|--------------------|
+| CoW Overhead | <5% vs naive copy | Benchmark on 10K×2K array |
+| Pipeline Compile | <100ms for 50-step pipeline | `time.perf_counter()` |
+| DAG Execution (linear) | <5% vs v1 sequential | Q1 example benchmark |
+| DAG Execution (parallel) | >2× speedup with 4 workers | Branching pipeline benchmark |
+| Memory Peak | ≤110% of v1 for same data | `tracemalloc` profiling |
+| Bundle Load | <500ms for 10-fold model | Time from disk to predict-ready |
+| Hash Computation | <1ms per block | Benchmark on 1K×1K array |
+| View Materialization | <10ms for 1M samples | ViewResolver benchmark |
+
+```python
+# Benchmark suite (run before release)
+class PerformanceBenchmarks:
+    """Performance validation suite."""
+
+    def benchmark_cow_overhead(self):
+        """CoW must not exceed 5% overhead."""
+        X = np.random.randn(10000, 2000)
+
+        # Baseline
+        t0 = time.perf_counter()
+        for _ in range(50):
+            X_copy = X.copy()
+        baseline = time.perf_counter() - t0
+
+        # CoW
+        t0 = time.perf_counter()
+        for _ in range(50):
+            block = FeatureBlock(X, cow=True)
+            _ = block.data  # Read-only access
+        cow_time = time.perf_counter() - t0
+
+        overhead = (cow_time - baseline) / baseline
+        assert overhead < 0.05, f"CoW overhead {overhead:.1%} > 5%"
+
+    def benchmark_parallel_speedup(self):
+        """Parallel execution must show >2× speedup."""
+        pipeline = [
+            {"branch": [[slow_transform()] * 4] * 4},
+            PLSRegression()
+        ]
+
+        # Sequential
+        t0 = time.perf_counter()
+        run(pipeline, data, n_jobs=1)
+        seq_time = time.perf_counter() - t0
+
+        # Parallel
+        t0 = time.perf_counter()
+        run(pipeline, data, n_jobs=4)
+        par_time = time.perf_counter() - t0
+
+        speedup = seq_time / par_time
+        assert speedup > 2.0, f"Speedup {speedup:.1f}× < 2×"
+```
+
 ---
 
 ## Phase 0: Interface Contracts
@@ -361,9 +422,55 @@ def test_feature_block_store_satisfies_protocol():
 
 ## Development Phases
 
-### Phase 0: Foundation (Weeks 1-2)
+### Phase 0: Foundation (Weeks 1-5)
 
-**Goal**: Core abstractions with full test coverage
+**Goal**: Core abstractions with full test coverage + validation spikes
+
+**Extended Timeline Rationale**: Per external review, the foundation phase is critical.
+If CoW, thread-safety, or GC mechanisms are flawed, the entire architecture collapses.
+The additional time includes prototyping for risk mitigation.
+
+#### 0.0 Prototyping Spikes (Week 1)
+
+Before committing to the full design, build minimal spikes to validate risky components:
+
+| Spike | Goal | Success Criteria |
+|-------|------|------------------|
+| CoW Performance | Validate CoW overhead is acceptable | <5% overhead vs naive copy |
+| Polars GC | Test garbage collection with Polars | No memory leaks in 1000-iteration loop |
+| Hash Collision | Stress-test lineage hashing | No collisions in 100K synthetic blocks |
+| Thread Safety | Concurrent block registration | No race conditions with 16 threads |
+
+```python
+# Example spike: CoW performance validation
+def spike_cow_performance():
+    """Validate CoW overhead is acceptable."""
+    import time
+    import numpy as np
+
+    # Create large array
+    X = np.random.randn(10000, 2000)  # ~150MB
+
+    # Baseline: naive copy
+    t0 = time.time()
+    for _ in range(100):
+        X_copy = X.copy()
+        X_copy[0, 0] = 999  # Modify
+    naive_time = time.time() - t0
+
+    # CoW approach
+    t0 = time.time()
+    for _ in range(100):
+        block = FeatureBlock(data=X, cow=True)
+        derived = block.derive(lambda x: x)  # No-op transform
+        # Should NOT copy until mutation
+    cow_time = time.time() - t0
+
+    overhead = (cow_time - naive_time) / naive_time * 100
+    print(f"CoW overhead: {overhead:.1f}%")
+
+    assert overhead < 5, f"CoW overhead {overhead}% exceeds 5% threshold"
+```
 
 #### 0.1 FeatureBlock Core
 
@@ -1520,6 +1627,616 @@ class TestBranchWithDifferentSampleCounts:
         assert result.y_pred.shape == (100,)
 ```
 
+
+### Automated Performance Benchmarks
+
+Per the critical review, KPIs are defined but not automatically tested. This section adds automated performance benchmarks that run in CI.
+
+```python
+# tests/benchmarks/test_performance.py
+"""Automated performance benchmarks with pytest-benchmark.
+
+These tests run in CI to detect performance regressions.
+They measure critical paths and compare against baseline KPIs.
+"""
+import numpy as np
+import pytest
+from pathlib import Path
+
+from nirs4all import run
+from nirs4all.data import FeatureBlockStore
+from nirs4all.dag import DAGBuilder, ExecutionEngine
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.linear_model import Ridge
+from sklearn.cross_decomposition import PLSRegression
+from nirs4all.operators.transforms import SNV
+
+
+# === KPI Definitions ===
+# From Architecture Overview document
+KPI_THROUGHPUT_100K_SAMPLES = 30.0  # seconds max
+KPI_COW_OVERHEAD_PERCENT = 5.0      # max overhead vs naive copy
+KPI_LINEAR_PIPELINE_OVERHEAD = 1.05 # max 5% overhead vs sklearn
+KPI_FIRST_PIPELINE_SECONDS = 2.0    # cold start max
+KPI_MEMORY_OVERHEAD_PERCENT = 10.0  # vs raw arrays
+
+
+class TestThroughputBenchmarks:
+    """Benchmarks for data throughput."""
+
+    @pytest.fixture
+    def large_dataset(self):
+        """Generate 100K sample dataset."""
+        np.random.seed(42)
+        X = np.random.randn(100_000, 200)
+        y = np.random.randn(100_000)
+        return X, y
+
+    @pytest.mark.benchmark(min_rounds=3)
+    def test_100k_samples_throughput(self, benchmark, large_dataset):
+        """100K samples through simple pipeline must complete in <30s."""
+        X, y = large_dataset
+
+        def run_pipeline():
+            return run(
+                [MinMaxScaler(), {"model": PLSRegression(n_components=10)}],
+                (X, y),
+                cv=3
+            )
+
+        result = benchmark(run_pipeline)
+
+        assert result.y_pred.shape == (100_000,)
+        assert benchmark.stats["mean"] < KPI_THROUGHPUT_100K_SAMPLES
+
+    @pytest.mark.benchmark(min_rounds=5)
+    def test_10k_samples_simple_pipeline(self, benchmark):
+        """10K samples baseline benchmark."""
+        np.random.seed(42)
+        X = np.random.randn(10_000, 100)
+        y = np.random.randn(10_000)
+
+        def run_pipeline():
+            return run(
+                [MinMaxScaler(), SNV(), {"model": PLSRegression(10)}],
+                (X, y),
+                cv=5
+            )
+
+        result = benchmark(run_pipeline)
+        assert result.y_pred.shape == (10_000,)
+
+
+class TestCopyOnWriteBenchmarks:
+    """Benchmarks for CoW efficiency."""
+
+    @pytest.mark.benchmark(min_rounds=10)
+    def test_cow_overhead(self, benchmark):
+        """CoW overhead must be <5% vs naive copy."""
+        np.random.seed(42)
+        data = np.random.randn(10_000, 500)
+
+        store = FeatureBlockStore()
+
+        def cow_operations():
+            # Register initial block
+            block_id = store.register_source(data, source_name="test")
+
+            # Perform multiple derive operations (CoW path)
+            current_id = block_id
+            for i in range(10):
+                block = store.get(current_id)
+                # Simulate transform that modifies data
+                new_data = block.data * 1.01 + 0.001
+                current_id = store.register_transform(
+                    parent_id=current_id,
+                    data=new_data,
+                    transform_info={"op": f"scale_{i}"}
+                )
+
+            return current_id
+
+        result_cow = benchmark(cow_operations)
+
+        # Compare with naive copy baseline
+        import time
+        start = time.perf_counter()
+        current = data.copy()
+        for i in range(10):
+            current = current * 1.01 + 0.001
+        naive_time = time.perf_counter() - start
+
+        overhead = (benchmark.stats["mean"] - naive_time) / naive_time * 100
+        assert overhead < KPI_COW_OVERHEAD_PERCENT, \
+            f"CoW overhead {overhead:.1f}% exceeds KPI {KPI_COW_OVERHEAD_PERCENT}%"
+
+
+class TestSklearnComparisonBenchmarks:
+    """Benchmarks comparing nirs4all to raw sklearn."""
+
+    @pytest.mark.benchmark(min_rounds=5)
+    def test_linear_pipeline_overhead(self, benchmark):
+        """Linear pipeline overhead vs sklearn must be <5%."""
+        np.random.seed(42)
+        X = np.random.randn(5_000, 100)
+        y = np.random.randn(5_000)
+
+        # NIRS4ALL version
+        def nirs4all_pipeline():
+            return run(
+                [MinMaxScaler(), {"model": PLSRegression(n_components=10)}],
+                (X, y),
+                cv=5
+            )
+
+        nirs4all_result = benchmark(nirs4all_pipeline)
+
+        # sklearn baseline
+        from sklearn.model_selection import cross_val_predict
+        from sklearn.pipeline import make_pipeline
+
+        import time
+        start = time.perf_counter()
+        for _ in range(3):  # Average over 3 runs
+            pipe = make_pipeline(MinMaxScaler(), PLSRegression(n_components=10))
+            sklearn_pred = cross_val_predict(pipe, X, y, cv=5)
+        sklearn_time = (time.perf_counter() - start) / 3
+
+        overhead = benchmark.stats["mean"] / sklearn_time
+        assert overhead < KPI_LINEAR_PIPELINE_OVERHEAD, \
+            f"Overhead {overhead:.2f}x exceeds KPI {KPI_LINEAR_PIPELINE_OVERHEAD}x"
+
+
+class TestColdStartBenchmarks:
+    """Benchmarks for cold start time."""
+
+    @pytest.mark.benchmark(min_rounds=3)
+    def test_first_pipeline_cold_start(self, benchmark):
+        """First pipeline must start in <2s."""
+        np.random.seed(42)
+        X = np.random.randn(100, 50)
+        y = np.random.randn(100)
+
+        def cold_start():
+            # Simulate cold start by importing fresh
+            import importlib
+            import nirs4all
+            importlib.reload(nirs4all)
+
+            return nirs4all.run(
+                [MinMaxScaler(), {"model": PLSRegression(5)}],
+                (X, y),
+                cv=3
+            )
+
+        result = benchmark(cold_start)
+        assert benchmark.stats["mean"] < KPI_FIRST_PIPELINE_SECONDS
+
+
+class TestMemoryBenchmarks:
+    """Benchmarks for memory efficiency."""
+
+    def test_memory_overhead(self):
+        """Memory overhead vs raw arrays must be <10%."""
+        import tracemalloc
+
+        np.random.seed(42)
+        data = np.random.randn(10_000, 200)
+        raw_size = data.nbytes / (1024 * 1024)  # MB
+
+        tracemalloc.start()
+
+        store = FeatureBlockStore()
+        block_id = store.register_source(data, source_name="test")
+
+        # Register some derived blocks
+        for i in range(5):
+            block = store.get(block_id)
+            new_id = store.register_transform(
+                parent_id=block_id,
+                data=block.data + i,
+                transform_info={"op": f"add_{i}"}
+            )
+
+        current, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        peak_mb = peak / (1024 * 1024)
+        # Expected: raw_size * (1 + 5 derived) = 6x if no CoW
+        # With CoW: should be closer to raw_size * 1.1
+
+        overhead = (peak_mb - raw_size) / raw_size * 100
+        assert overhead < KPI_MEMORY_OVERHEAD_PERCENT, \
+            f"Memory overhead {overhead:.1f}% exceeds KPI {KPI_MEMORY_OVERHEAD_PERCENT}%"
+```
+
+#### CI Integration for Benchmarks
+
+```yaml
+# .github/workflows/benchmark.yml
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]" pytest-benchmark
+
+      - name: Run benchmarks
+        run: |
+          pytest tests/benchmarks/ \
+            --benchmark-json=benchmark_results.json \
+            --benchmark-compare-fail=mean:10%
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark_results.json
+```
+
+
+### Multi-Framework Integration Tests
+
+Per the critical review, there are no tests for mixed sklearn/PyTorch/TensorFlow pipelines. This section adds comprehensive multi-framework tests.
+
+```python
+# tests/integration/test_multi_framework.py
+"""Tests for mixed framework pipelines.
+
+These tests verify that nirs4all correctly handles pipelines
+combining sklearn, PyTorch, TensorFlow, and JAX models.
+"""
+import numpy as np
+import pytest
+from nirs4all import run
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import Ridge
+
+
+# === Framework Availability ===
+try:
+    import torch
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+
+try:
+    import tensorflow as tf
+    HAS_TF = True
+except ImportError:
+    HAS_TF = False
+
+try:
+    import jax
+    HAS_JAX = True
+except ImportError:
+    HAS_JAX = False
+
+
+pytestmark = pytest.mark.integration
+
+
+class TestSklearnPyTorchMix:
+    """Tests for sklearn + PyTorch pipelines."""
+
+    @pytest.mark.skipif(not HAS_TORCH, reason="PyTorch not installed")
+    def test_sklearn_preprocess_torch_model(self):
+        """sklearn preprocessing → PyTorch model."""
+        from nirs4all.models import TorchMLP
+
+        X = np.random.randn(200, 50).astype(np.float32)
+        y = np.random.randn(200).astype(np.float32)
+
+        pipeline = [
+            StandardScaler(),
+            {"model": TorchMLP(
+                hidden_dims=[32, 16],
+                epochs=10,
+                device="cpu"
+            )}
+        ]
+
+        result = run(pipeline, (X, y), cv=3)
+        assert result.y_pred.shape == (200,)
+
+    @pytest.mark.skipif(not HAS_TORCH, reason="PyTorch not installed")
+    def test_torch_feature_sklearn_model(self):
+        """PyTorch feature extractor → sklearn model."""
+        from nirs4all.models import TorchAutoEncoder
+
+        X = np.random.randn(200, 100).astype(np.float32)
+        y = np.random.randn(200).astype(np.float32)
+
+        pipeline = [
+            # PyTorch autoencoder for feature extraction
+            {"feature_extraction": TorchAutoEncoder(
+                encoding_dim=20,
+                epochs=10,
+                device="cpu"
+            )},
+            # sklearn model on encoded features
+            {"model": Ridge(alpha=1.0)}
+        ]
+
+        result = run(pipeline, (X, y), cv=3)
+        assert result.y_pred.shape == (200,)
+
+    @pytest.mark.skipif(not HAS_TORCH, reason="PyTorch not installed")
+    def test_branch_sklearn_and_torch(self):
+        """Parallel branches: one sklearn, one PyTorch."""
+        from sklearn.ensemble import RandomForestRegressor
+        from nirs4all.models import TorchMLP
+
+        X = np.random.randn(200, 50).astype(np.float32)
+        y = np.random.randn(200).astype(np.float32)
+
+        pipeline = [
+            StandardScaler(),
+            {"branch": [
+                [{"model": RandomForestRegressor(n_estimators=10)}],
+                [{"model": TorchMLP(hidden_dims=[16], epochs=5, device="cpu")}]
+            ]},
+            {"merge": "predictions"},
+            {"model": Ridge()}  # Meta-learner
+        ]
+
+        result = run(pipeline, (X, y), cv=3)
+        assert result.y_pred.shape == (200,)
+
+
+class TestSklearnTensorFlowMix:
+    """Tests for sklearn + TensorFlow pipelines."""
+
+    @pytest.mark.skipif(not HAS_TF, reason="TensorFlow not installed")
+    def test_sklearn_preprocess_tf_model(self):
+        """sklearn preprocessing → TensorFlow model."""
+        from nirs4all.models import KerasMLP
+
+        X = np.random.randn(200, 50).astype(np.float32)
+        y = np.random.randn(200).astype(np.float32)
+
+        pipeline = [
+            StandardScaler(),
+            {"model": KerasMLP(
+                hidden_dims=[32, 16],
+                epochs=10
+            )}
+        ]
+
+        result = run(pipeline, (X, y), cv=3)
+        assert result.y_pred.shape == (200,)
+
+    @pytest.mark.skipif(not HAS_TF, reason="TensorFlow not installed")
+    def test_tf_and_sklearn_ensemble(self):
+        """Ensemble of TensorFlow and sklearn models."""
+        from sklearn.ensemble import RandomForestRegressor
+        from nirs4all.models import KerasMLP
+
+        X = np.random.randn(200, 50).astype(np.float32)
+        y = np.random.randn(200).astype(np.float32)
+
+        pipeline = [
+            StandardScaler(),
+            {"branch": [
+                [{"model": RandomForestRegressor(n_estimators=10)}],
+                [{"model": KerasMLP(hidden_dims=[16], epochs=5)}]
+            ]},
+            {"merge": "predictions"},
+            {"model": Ridge()}
+        ]
+
+        result = run(pipeline, (X, y), cv=3)
+        assert result.y_pred.shape == (200,)
+
+
+class TestThreeFrameworkMix:
+    """Tests combining sklearn, PyTorch, and TensorFlow."""
+
+    @pytest.mark.skipif(
+        not (HAS_TORCH and HAS_TF),
+        reason="Both PyTorch and TensorFlow required"
+    )
+    def test_three_framework_branch(self):
+        """Branches with sklearn, PyTorch, and TensorFlow models."""
+        from sklearn.ensemble import GradientBoostingRegressor
+        from nirs4all.models import TorchMLP, KerasMLP
+
+        X = np.random.randn(300, 50).astype(np.float32)
+        y = np.random.randn(300).astype(np.float32)
+
+        pipeline = [
+            StandardScaler(),
+            {"branch": [
+                [{"model": GradientBoostingRegressor(n_estimators=10)}],
+                [{"model": TorchMLP(hidden_dims=[16], epochs=5, device="cpu")}],
+                [{"model": KerasMLP(hidden_dims=[16], epochs=5)}]
+            ]},
+            {"merge": "predictions"},
+            {"model": Ridge()}
+        ]
+
+        result = run(pipeline, (X, y), cv=3)
+        assert result.y_pred.shape == (300,)
+
+    @pytest.mark.skipif(
+        not (HAS_TORCH and HAS_TF),
+        reason="Both PyTorch and TensorFlow required"
+    )
+    def test_sequential_framework_chain(self):
+        """Sequential: sklearn → PyTorch → TensorFlow → sklearn."""
+        from nirs4all.models import TorchAutoEncoder, KerasAutoEncoder
+
+        X = np.random.randn(200, 100).astype(np.float32)
+        y = np.random.randn(200).astype(np.float32)
+
+        pipeline = [
+            # sklearn: standardize
+            StandardScaler(),
+            # PyTorch: reduce dimensions
+            {"feature_extraction": TorchAutoEncoder(
+                encoding_dim=30,
+                epochs=5,
+                device="cpu"
+            )},
+            # TensorFlow: further reduce
+            {"feature_extraction": KerasAutoEncoder(
+                encoding_dim=10,
+                epochs=5
+            )},
+            # sklearn: final model
+            {"model": Ridge(alpha=1.0)}
+        ]
+
+        result = run(pipeline, (X, y), cv=3)
+        assert result.y_pred.shape == (200,)
+
+
+class TestJAXIntegration:
+    """Tests for JAX model integration."""
+
+    @pytest.mark.skipif(not HAS_JAX, reason="JAX not installed")
+    def test_sklearn_preprocess_jax_model(self):
+        """sklearn preprocessing → JAX model."""
+        from nirs4all.models import JAXRegressor
+
+        X = np.random.randn(200, 50).astype(np.float32)
+        y = np.random.randn(200).astype(np.float32)
+
+        pipeline = [
+            StandardScaler(),
+            {"model": JAXRegressor(
+                hidden_dims=[32, 16],
+                epochs=10
+            )}
+        ]
+
+        result = run(pipeline, (X, y), cv=3)
+        assert result.y_pred.shape == (200,)
+
+
+class TestFrameworkSerializationRoundtrip:
+    """Tests that multi-framework models serialize correctly."""
+
+    @pytest.mark.skipif(not HAS_TORCH, reason="PyTorch not installed")
+    def test_torch_model_bundle_roundtrip(self, tmp_path):
+        """PyTorch model survives bundle export/import."""
+        from nirs4all.models import TorchMLP
+        import nirs4all
+
+        X = np.random.randn(100, 30).astype(np.float32)
+        y = np.random.randn(100).astype(np.float32)
+        X_new = np.random.randn(20, 30).astype(np.float32)
+
+        # Train
+        result = run(
+            [StandardScaler(), {"model": TorchMLP(hidden_dims=[16], epochs=5, device="cpu")}],
+            (X, y),
+            cv=3
+        )
+
+        # Export
+        bundle_path = tmp_path / "torch_model.n4a"
+        result.export(bundle_path)
+
+        # Predict with loaded bundle
+        predictions = nirs4all.predict(bundle_path, X_new)
+
+        assert predictions.shape == (20,)
+        assert not np.any(np.isnan(predictions))
+
+    @pytest.mark.skipif(not HAS_TF, reason="TensorFlow not installed")
+    def test_tensorflow_model_bundle_roundtrip(self, tmp_path):
+        """TensorFlow model survives bundle export/import."""
+        from nirs4all.models import KerasMLP
+        import nirs4all
+
+        X = np.random.randn(100, 30).astype(np.float32)
+        y = np.random.randn(100).astype(np.float32)
+        X_new = np.random.randn(20, 30).astype(np.float32)
+
+        # Train
+        result = run(
+            [StandardScaler(), {"model": KerasMLP(hidden_dims=[16], epochs=5)}],
+            (X, y),
+            cv=3
+        )
+
+        # Export
+        bundle_path = tmp_path / "tf_model.n4a"
+        result.export(bundle_path)
+
+        # Predict with loaded bundle
+        predictions = nirs4all.predict(bundle_path, X_new)
+
+        assert predictions.shape == (20,)
+        assert not np.any(np.isnan(predictions))
+
+
+class TestDeviceManagement:
+    """Tests for GPU/CPU device management in multi-framework pipelines."""
+
+    @pytest.mark.skipif(not HAS_TORCH, reason="PyTorch not installed")
+    @pytest.mark.gpu
+    def test_torch_gpu_cpu_switching(self):
+        """PyTorch model correctly uses GPU when available."""
+        import torch
+        from nirs4all.models import TorchMLP
+
+        X = np.random.randn(100, 30).astype(np.float32)
+        y = np.random.randn(100).astype(np.float32)
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        result = run(
+            [StandardScaler(), {"model": TorchMLP(
+                hidden_dims=[16],
+                epochs=5,
+                device=device
+            )}],
+            (X, y),
+            cv=3
+        )
+
+        assert result.y_pred.shape == (100,)
+
+    @pytest.mark.skipif(
+        not (HAS_TORCH and HAS_TF),
+        reason="Both frameworks required"
+    )
+    @pytest.mark.gpu
+    def test_mixed_gpu_allocation(self):
+        """Mixed framework pipeline correctly shares GPU."""
+        from nirs4all.models import TorchMLP, KerasMLP
+
+        X = np.random.randn(100, 30).astype(np.float32)
+        y = np.random.randn(100).astype(np.float32)
+
+        pipeline = [
+            StandardScaler(),
+            {"branch": [
+                [{"model": TorchMLP(hidden_dims=[16], epochs=3, device="cuda")}],
+                [{"model": KerasMLP(hidden_dims=[16], epochs=3)}]  # TF auto-detects
+            ]},
+            {"merge": "predictions"}
+        ]
+
+        result = run(pipeline, (X, y), cv=3)
+        assert result.y_pred.shape == (100,)
+```
+
 ---
 
 ## Migration from v1.x
@@ -1567,6 +2284,72 @@ class PipelineRunner:
 ```
 
 ### Migration Guide
+
+This guide helps existing NIRS4ALL v1.x users transition to v2.0. The new version maintains backwards compatibility through a shim layer while offering a cleaner, more powerful API.
+
+#### Quick Start for v1 Users
+
+**1. Update your imports** (optional, v1 imports still work):
+```python
+# v1.x style (still works with deprecation warnings)
+from nirs4all.pipeline import PipelineRunner, PipelineConfigs
+from nirs4all.data import DatasetConfigs
+
+# v2.0 style (recommended)
+import nirs4all
+```
+
+**2. Simplify your code**:
+```python
+# v1.x - verbose configuration
+runner = PipelineRunner(verbose=1, save_artifacts=True)
+predictions, per_dataset = runner.run(
+    PipelineConfigs([SNV(), PLSRegression()], "my_pipe"),
+    DatasetConfigs("data.csv")
+)
+best = predictions.get_best()
+
+# v2.0 - streamlined
+result = nirs4all.run([SNV(), PLSRegression()], "data.csv", name="my_pipe")
+best = result.best
+```
+
+**3. Convert your bundles**:
+```bash
+# CLI tool to convert v1 .n4a bundles to v2 format
+nirs4all convert-bundle my_model_v1.n4a my_model_v2.n4a
+```
+
+#### Step-by-Step Migration
+
+| Step | v1.x Code | v2.0 Equivalent | Notes |
+|------|-----------|-----------------|-------|
+| 1 | `PipelineRunner(...)` | `nirs4all.run(...)` | Options passed as kwargs |
+| 2 | `PipelineConfigs([...], name)` | Direct list `[...]` | Name as kwarg |
+| 3 | `DatasetConfigs("path")` | Just `"path"` | Accepts path, dict, or DataFrame |
+| 4 | `predictions.get_best()` | `result.best` | Property access |
+| 5 | `.analyze()` | `result.plot()` | Method renamed |
+| 6 | `runner.run(...).predictions` | `result.predictions` | Same structure |
+
+#### Frequently Asked Questions
+
+**Q: Do I have to rewrite all my v1 code immediately?**
+A: No. The v1 API is available via `nirs4all.compat` and will work with deprecation warnings for at least 6 months. Migrate at your own pace.
+
+**Q: Will my trained models (.n4a bundles) still work?**
+A: v1 bundles need conversion to v2 format. Use `nirs4all convert-bundle` or load through the compat layer: `nirs4all.compat.load("model_v1.n4a")`.
+
+**Q: Are my custom transformers compatible?**
+A: Yes! Any sklearn-compatible transformer (`fit`/`transform` interface) works unchanged. No modifications needed.
+
+**Q: How do I access metadata like I used to with SpectroDataset?**
+A: Metadata access is now through `result.context.registry.get_metadata()` or via `result.df` for pandas-style access.
+
+**Q: Where did my `per_dataset` results go?**
+A: Multi-dataset results are in `result.datasets` dictionary keyed by dataset name.
+
+**Q: Can I mix v1 and v2 syntax in the same pipeline?**
+A: Yes, the compat shim handles mixed syntax. However, we recommend full migration for new projects.
 
 #### Before (v1.x)
 
@@ -1930,14 +2713,70 @@ Before advancing to the next phase, these criteria must be met:
 
 | Phase | Gate Criteria |
 |-------|---------------|
-| 0 → 1,2 | All Protocol classes defined and documented |
+| 0 → 1,2 | All Protocol classes defined and documented; **spikes validated** |
 | 1 → 3 | DatasetContext satisfies DataProvider protocol |
 | 2 → 3 | ExecutionEngine runs linear DAGs correctly |
 | 3 → 4 | VirtualModel predict works; bundle exports |
 | 4 → 5 | `nirs4all.run()` produces valid RunResult |
 | 5 → 6 | Core transforms (SNV, MSC, etc.) pass sklearn tests |
 | 6 → 7 | ≥80% examples passing; numerical equivalence holds |
-| 7 → Release | All tests pass; docs complete; benchmarks acceptable |
+| 7 → Beta | All tests pass; docs complete; benchmarks acceptable |
+| Beta → Release | **User beta testing complete (2 weeks)** |
+
+---
+
+## Beta Testing Phase
+
+**Goal**: Validate v2.0 with real users before final release
+
+### Beta Program Structure
+
+| Week | Activity | Participants |
+|------|----------|--------------|
+| 1 | Onboarding, migration assistance | 5-10 v1 power users |
+| 2 | Intensive testing, feedback collection | Same cohort |
+
+### Beta Criteria
+
+**Entry Criteria** (before beta):
+- All Q1-Q36 examples passing
+- Migration guide complete
+- No known critical bugs
+- Bundle export/import working
+
+**Exit Criteria** (for release):
+- No critical issues from beta testers
+- All feedback triaged (fixed or documented)
+- Performance acceptable for real workflows
+- Migration path validated by ≥3 users
+
+### Beta Feedback Collection
+
+```python
+# Beta feedback integration
+@dataclass
+class BetaFeedback:
+    """Structured beta feedback for tracking."""
+    category: str  # "bug", "ux", "performance", "docs"
+    severity: str  # "critical", "major", "minor", "suggestion"
+    description: str
+    reproduction_steps: Optional[str]
+    user_id: str  # Anonymous
+    v1_comparison: Optional[str]  # How v1 handled this
+
+# Collect via:
+# 1. GitHub Issues with [BETA] prefix
+# 2. In-app feedback: nirs4all.report_feedback(...)
+# 3. Weekly sync calls with beta cohort
+```
+
+### Beta User Selection
+
+Priority for beta invitation:
+1. Active v1 users with complex pipelines
+2. Users who reported v1 bugs (understand edge cases)
+3. Diverse domain backgrounds (pharma, food, agri)
+4. Mix of technical levels (researchers, engineers)
 
 ---
 
