@@ -6,11 +6,36 @@
 
 NIRS4ALL is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
 
+## Quick Start
+
+```python
+import nirs4all
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import ShuffleSplit
+
+# Define and run a pipeline in one step
+result = nirs4all.run(
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3),
+        {"model": PLSRegression(n_components=10)}
+    ],
+    dataset="path/to/data",
+    verbose=1
+)
+
+print(f"Best RMSE: {result.best_rmse:.4f}")
+result.export("exports/best_model.n4a")
+```
+
 ```{toctree}
 :maxdepth: 2
 :caption: Contents:
 
 architecture
+api/module_api
+api/sklearn_integration
 api/modules
 ```
 

@@ -3,10 +3,50 @@ NIRS4All - A comprehensive package for Near-Infrared Spectroscopy data processin
 
 This package provides tools for spectroscopy data handling, preprocessing, model building,
 and pipeline management with support for multiple ML backends.
+
+Public API (recommended):
+    nirs4all.run(pipeline, dataset, **kwargs)    - Train a pipeline
+    nirs4all.predict(model, data, **kwargs)      - Make predictions
+    nirs4all.explain(model, data, **kwargs)      - Generate SHAP explanations
+    nirs4all.retrain(source, data, **kwargs)     - Retrain a pipeline
+    nirs4all.session(**kwargs)                   - Create execution session
+
+Classes (for advanced usage):
+    nirs4all.PipelineRunner    - Direct runner access
+    nirs4all.PipelineConfigs   - Pipeline configuration
+    nirs4all.DatasetConfigs    - Dataset configuration (from nirs4all.data)
+
+Example:
+    >>> import nirs4all
+    >>> from sklearn.preprocessing import MinMaxScaler
+    >>> from sklearn.cross_decomposition import PLSRegression
+    >>>
+    >>> result = nirs4all.run(
+    ...     pipeline=[MinMaxScaler(), PLSRegression(10)],
+    ...     dataset="sample_data/regression",
+    ...     verbose=1
+    ... )
+    >>> print(f"Best RMSE: {result.best_rmse:.4f}")
+    >>> result.export("exports/best_model.n4a")
+
+See examples/Q40_new_api.py for more usage examples.
 """
 __version__ = "0.5.1"
 
-# Core pipeline components - most commonly used
+# Module-level API (primary interface) - Phase 2
+from .api import (
+    run,
+    predict,
+    explain,
+    retrain,
+    session,
+    Session,
+    RunResult,
+    PredictResult,
+    ExplainResult,
+)
+
+# Core pipeline components - for advanced usage
 from .pipeline import PipelineRunner, PipelineConfigs
 from .controllers import register_controller, CONTROLLER_REGISTRY
 
@@ -20,7 +60,18 @@ from .utils import (
 
 # Make commonly used classes available at package level
 __all__ = [
-    # Pipeline components
+    # Module-level API (NEW - primary interface)
+    "run",
+    "predict",
+    "explain",
+    "retrain",
+    "session",
+    "Session",
+    "RunResult",
+    "PredictResult",
+    "ExplainResult",
+
+    # Pipeline components (advanced usage)
     "PipelineRunner",
     "PipelineConfigs",
 
