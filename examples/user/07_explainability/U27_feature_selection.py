@@ -129,10 +129,10 @@ runner = PipelineRunner(
 predictions_cars, _ = runner.run(pipeline_config, dataset_config)
 
 # Get results
-best_cars = predictions_cars.top(1, rank_metric='rmse')[0]
+best_cars = predictions_cars.top(1, rank_metric='mse')[0]
 print(f"\nCARS Results:")
-print(f"  RMSE: {best_cars['rmse']:.4f}")
-print(f"  R²: {best_cars['r2']:.4f}")
+print(f"  MSE: {best_cars.get('test_mse', best_cars.get('mse', 'N/A'))}")
+print(f"  R²: {best_cars.get('test_r2', best_cars.get('r2', 'N/A'))}")
 
 
 # =============================================================================
@@ -182,10 +182,10 @@ print("\nRunning MC-UVE pipeline...")
 predictions_mcuve, _ = runner.run(pipeline_config_mcuve, dataset_config)
 
 # Get results
-best_mcuve = predictions_mcuve.top(1, rank_metric='rmse')[0]
+best_mcuve = predictions_mcuve.top(1, rank_metric='mse')[0]
 print(f"\nMC-UVE Results:")
-print(f"  RMSE: {best_mcuve['rmse']:.4f}")
-print(f"  R²: {best_mcuve['r2']:.4f}")
+print(f"  MSE: {best_mcuve.get('test_mse', best_mcuve.get('mse', 'N/A'))}")
+print(f"  R²: {best_mcuve.get('test_r2', best_mcuve.get('r2', 'N/A'))}")
 
 
 # =============================================================================
@@ -210,10 +210,10 @@ pipeline_config_baseline = PipelineConfigs(baseline_pipeline, name="Baseline")
 print("Running baseline pipeline...")
 predictions_baseline, _ = runner.run(pipeline_config_baseline, dataset_config)
 
-best_baseline = predictions_baseline.top(1, rank_metric='rmse')[0]
+best_baseline = predictions_baseline.top(1, rank_metric='mse')[0]
 print(f"\nBaseline Results:")
-print(f"  RMSE: {best_baseline['rmse']:.4f}")
-print(f"  R²: {best_baseline['r2']:.4f}")
+print(f"  MSE: {best_baseline.get('test_mse', best_baseline.get('mse', 'N/A'))}")
+print(f"  R²: {best_baseline.get('test_r2', best_baseline.get('r2', 'N/A'))}")
 
 
 # =============================================================================
@@ -228,19 +228,19 @@ Comparison of feature selection methods:
 """)
 
 results = [
-    ("Baseline", best_baseline['rmse'], best_baseline['r2']),
-    ("CARS", best_cars['rmse'], best_cars['r2']),
-    ("MC-UVE", best_mcuve['rmse'], best_mcuve['r2']),
+    ("Baseline", best_baseline.get('test_mse', 0), best_baseline.get('test_r2', 0)),
+    ("CARS", best_cars.get('test_mse', 0), best_cars.get('test_r2', 0)),
+    ("MC-UVE", best_mcuve.get('test_mse', 0), best_mcuve.get('test_r2', 0)),
 ]
 
-# Sort by RMSE
+# Sort by MSE
 results_sorted = sorted(results, key=lambda x: x[1])
 
-print(f"{'Method':<15} {'RMSE':>10} {'R²':>10}")
+print(f"{'Method':<15} {'MSE':>10} {'R²':>10}")
 print("-" * 37)
-for name, rmse, r2 in results_sorted:
+for name, mse, r2 in results_sorted:
     marker = "★" if name == results_sorted[0][0] else " "
-    print(f"{marker}{name:<14} {rmse:>10.4f} {r2:>10.4f}")
+    print(f"{marker}{name:<14} {mse:>10.4f} {r2:>10.4f}")
 
 best_method = results_sorted[0][0]
 print(f"\nBest method: {best_method}")

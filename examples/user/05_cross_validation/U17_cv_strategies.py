@@ -27,6 +27,7 @@ Difficulty: ★★☆☆☆
 import argparse
 
 # Third-party imports
+import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import (
@@ -108,7 +109,7 @@ result_kfold = nirs4all.run(
     verbose=1
 )
 
-print(f"\nKFold (5 splits) - RMSE: {result_kfold.best_rmse:.4f}")
+print(f"\nKFold (5 splits) - RMSE: {result_kfold.best_score:.4f}")
 
 
 # =============================================================================
@@ -140,7 +141,7 @@ result_shuffle = nirs4all.run(
     verbose=1
 )
 
-print(f"\nShuffleSplit (10 splits, 25% test) - RMSE: {result_shuffle.best_rmse:.4f}")
+print(f"\nShuffleSplit (10 splits, 25% test) - RMSE: {result_shuffle.best_score:.4f}")
 
 
 # =============================================================================
@@ -172,7 +173,7 @@ result_repeated = nirs4all.run(
     verbose=1
 )
 
-print(f"\nRepeatedKFold (5×3 = 15 folds) - RMSE: {result_repeated.best_rmse:.4f}")
+print(f"\nRepeatedKFold (5×3 = 15 folds) - RMSE: {result_repeated.best_score:.4f}")
 
 
 # =============================================================================
@@ -187,24 +188,29 @@ StratifiedKFold preserves class proportions in each fold.
 Essential for imbalanced classification datasets.
 """)
 
+# Create synthetic balanced classification data for demo
+np.random.seed(42)
+X_classif = np.random.randn(60, 100)  # 60 samples, 100 features
+y_classif = np.array([0]*20 + [1]*20 + [2]*20)  # 3 classes, 20 each
+
 pipeline_stratified = [
     MinMaxScaler(),
     StandardNormalVariate(),
 
-    # Stratified 5-fold
-    StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+    # Stratified 3-fold
+    StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
 
     {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
 ]
 
 result_stratified = nirs4all.run(
     pipeline=pipeline_stratified,
-    dataset="sample_data/classification",
+    dataset=(X_classif, y_classif),
     name="StratifiedKFold",
     verbose=1
 )
 
-accuracy = (1 - result_stratified.best_rmse) * 100
+accuracy = (1 - result_stratified.best_score) * 100
 print(f"\nStratifiedKFold - Accuracy: {accuracy:.1f}%")
 
 
@@ -220,24 +226,25 @@ Combines stratification with random splitting.
 Flexible test_size while preserving class balance.
 """)
 
+# Reuse balanced synthetic data from Section 5
 pipeline_strat_shuffle = [
     MinMaxScaler(),
     StandardNormalVariate(),
 
     # Stratified random splits
-    StratifiedShuffleSplit(n_splits=10, test_size=0.3, random_state=42),
+    StratifiedShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
 
     {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
 ]
 
 result_strat_shuffle = nirs4all.run(
     pipeline=pipeline_strat_shuffle,
-    dataset="sample_data/classification",
+    dataset=(X_classif, y_classif),
     name="StratShuffleSplit",
     verbose=1
 )
 
-accuracy = (1 - result_strat_shuffle.best_rmse) * 100
+accuracy = (1 - result_strat_shuffle.best_score) * 100
 print(f"\nStratifiedShuffleSplit - Accuracy: {accuracy:.1f}%")
 
 
@@ -271,7 +278,7 @@ result_timeseries = nirs4all.run(
     verbose=1
 )
 
-print(f"\nTimeSeriesSplit - RMSE: {result_timeseries.best_rmse:.4f}")
+print(f"\nTimeSeriesSplit - RMSE: {result_timeseries.best_score:.4f}")
 print("Note: For truly temporal data, use TimeSeriesSplit to avoid look-ahead bias.")
 
 
@@ -309,7 +316,7 @@ result_loo = nirs4all.run(
     verbose=1
 )
 
-print(f"\nLeaveOneOut (30 folds) - RMSE: {result_loo.best_rmse:.4f}")
+print(f"\nLeaveOneOut (30 folds) - RMSE: {result_loo.best_score:.4f}")
 
 
 # =============================================================================
@@ -342,7 +349,7 @@ for name, cv in cv_strategies:
         name=name,
         verbose=0
     )
-    print(f"   {name:20s}: RMSE={result.best_rmse:.4f}")
+    print(f"   {name:20s}: RMSE={result.best_score:.4f}")
 
 
 # =============================================================================

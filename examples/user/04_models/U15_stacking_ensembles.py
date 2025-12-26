@@ -142,9 +142,9 @@ result_stacking = nirs4all.run(
 )
 
 print(f"\nResults comparison:")
-for pred in result_stacking.top(5):
+for pred in result_stacking.top(5, display_metrics=['rmse', 'r2']):
     model = pred.get('model_name', 'Unknown')
-    print(f"   {model}: RMSE={pred['rmse']:.4f}")
+    print(f"   {model}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -184,8 +184,8 @@ result_voting = nirs4all.run(
 )
 
 print(f"\nVoting results:")
-for pred in result_voting.top(5):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for pred in result_voting.top(5, display_metrics=['rmse', 'r2']):
+    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -234,9 +234,9 @@ result_stacking_clf = nirs4all.run(
 )
 
 print(f"\nClassification results:")
-for pred in result_stacking_clf.top(5):
+for pred in result_stacking_clf.top(5, display_metrics=['rmse', 'r2']):
     model = pred.get('model_name', 'Unknown')
-    accuracy = (1 - pred['rmse']) * 100
+    accuracy = (1 - pred.get('rmse', 0)) * 100
     print(f"   {model}: Accuracy={accuracy:.1f}%")
 
 
@@ -286,9 +286,9 @@ result_voting_clf = nirs4all.run(
 )
 
 print(f"\nVoting classifier results:")
-for pred in result_voting_clf.top(5):
+for pred in result_voting_clf.top(5, display_metrics=['rmse', 'r2']):
     model = pred.get('model_name', 'Unknown')
-    accuracy = (1 - pred['rmse']) * 100
+    accuracy = (1 - pred.get('rmse', 0)) * 100
     print(f"   {model}: Accuracy={accuracy:.1f}%")
 
 
@@ -340,8 +340,8 @@ result_custom = nirs4all.run(
 )
 
 print(f"\nCustom ensemble results:")
-for pred in result_custom.top(5):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for pred in result_custom.top(5, display_metrics=['rmse', 'r2']):
+    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================

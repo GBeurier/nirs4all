@@ -106,7 +106,7 @@ predictions, _ = runner.run(pipeline_config, dataset_config)
 # Get best prediction for export
 best_prediction = predictions.top(n=1, rank_partition="test")[0]
 print(f"\nBest model: {best_prediction['model_name']}")
-print(f"Test RMSE: {best_prediction['rmse']:.4f}")
+print(f"Test MSE: {best_prediction.get('test_mse', best_prediction.get('mse', 'N/A'))}")
 print(f"Pipeline UID: {best_prediction['pipeline_uid'][:16]}...")
 
 
@@ -294,7 +294,7 @@ for i, pred in enumerate(top_models, 1):
     bundle_name = f"rank_{i}_{model_name}.n4a"
     bundle = runner_multi.export(pred, model_zoo / bundle_name)
     print(f"  {i}. {pred['model_name']} -> {bundle.name}")
-    print(f"     RMSE: {pred['rmse']:.4f}")
+    print(f"     RMSE: {pred.get('rmse', 0):.4f}")
 
 print(f"\n✓ Exported {len(top_models)} models to {model_zoo}")
 

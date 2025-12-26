@@ -127,8 +127,7 @@ result = nirs4all.run(
 
 print(f"\n📊 Training complete!")
 print(f"   Generated {result.num_predictions} predictions")
-print(f"   Best RMSE: {result.best_rmse:.4f}")
-print(f"   Best R²: {result.best_r2:.4f}")
+print(f"   Best Score (MSE): {result.best_score:.4f}")
 
 
 # =============================================================================
@@ -138,11 +137,12 @@ print("\n" + "-" * 60)
 print("Top 5 Models")
 print("-" * 60)
 
-for i, pred in enumerate(result.top(n=5), 1):
+# Use display_metrics to get RMSE and R² values
+for i, pred in enumerate(result.top(n=5, display_metrics=['rmse', 'r2']), 1):
     model_name = pred.get('model_name', 'unknown')
     preproc = pred.get('preprocessings', 'N/A')
-    rmse = pred.get('test_rmse', pred.get('rmse', 0))
-    r2 = pred.get('test_r2', pred.get('r2', 0))
+    rmse = pred.get('rmse', 0)
+    r2 = pred.get('r2', 0)
     print(f"{i}. {model_name} | RMSE: {rmse:.4f} | R²: {r2:.4f}")
     print(f"   Preprocessing: {preproc}")
 

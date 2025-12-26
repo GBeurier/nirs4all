@@ -114,51 +114,50 @@ The Developer Path covers advanced features for power users and contributors.
 |---------|-------------|------------|
 | D01_branching_basics.py | Introduction to branching | ★★★☆☆ |
 | D02_branching_advanced.py | BranchAnalyzer, statistics | ★★★★☆ |
-| D03_merge_strategies.py | Merge features/predictions | ★★★★☆ |
-| D04_source_branching.py | Per-source preprocessing | ★★★★☆ |
+| D03_merge_basics.py | Merge features/predictions | ★★★★☆ |
+| D04_merge_sources.py | Per-source preprocessing | ★★★★☆ |
 | D05_meta_stacking.py | Multi-level stacking | ★★★★★ |
 
 ### 02_generators/ - Generators
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| D06_generator_basics.py | _or_, pick, count, _range_ | ★★★☆☆ |
+| D06_generator_syntax.py | _or_, pick, count, _range_ | ★★★☆☆ |
 | D07_generator_advanced.py | _grid_, _zip_, _chain_, _sample_ | ★★★★☆ |
-| D08_generator_nested.py | Nested generators, _cartesian_ | ★★★★★ |
-| D09_constraints_presets.py | Constraints and presets | ★★★★★ |
+| D08_generator_iterators.py | Generator iterators | ★★★★★ |
+| D09_nested_generators.py | Nested generators, _cartesian_ | ★★★★★ |
 
 ### 03_deep_learning/ - Deep Learning
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| D10_nicon_tensorflow.py | TensorFlow nicon models | ★★★★☆ |
-| D11_pytorch_models.py | Custom PyTorch models | ★★★★☆ |
-| D12_jax_models.py | JAX/Flax models | ★★★★☆ |
+| D10_pytorch_models.py | Custom PyTorch models | ★★★★☆ |
+| D11_jax_models.py | JAX/Flax models | ★★★★☆ |
+| D12_tensorflow_models.py | TensorFlow nicon models | ★★★★☆ |
 | D13_framework_comparison.py | TF vs PyTorch vs JAX | ★★★★★ |
 
 ### 04_transfer_learning/ - Transfer Learning
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| D14_retrain_modes.py | Full, transfer, finetune modes | ★★★★☆ |
-| D15_transfer_analysis.py | TransferPreprocessingSelector | ★★★★☆ |
-| D16_domain_adaptation.py | PCA analysis for transfer | ★★★★★ |
+| D14_transfer_analysis.py | TransferPreprocessingSelector | ★★★★☆ |
+| D15_retrain_modes.py | Full, transfer, finetune modes | ★★★★☆ |
+| D16_pca_geometry.py | PCA analysis for transfer | ★★★★★ |
 
 ### 05_advanced_features/ - Advanced Features
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| D17_outlier_partitioning.py | Sample partitioning | ★★★★☆ |
-| D18_metadata_branching.py | Metadata-based branching | ★★★★☆ |
+| D17_metadata_branching.py | Metadata-based branching | ★★★★☆ |
+| D18_concat_transform.py | Concatenated transformers | ★★★☆☆ |
 | D19_repetition_transform.py | Repetition to sources/preprocessing | ★★★★☆ |
-| D20_concat_transform.py | Concatenated transformers | ★★★☆☆ |
 
 ### 06_internals/ - Internals
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| D21_session_workflow.py | Session-based workflows | ★★★☆☆ |
-| D22_custom_controllers.py | Custom controller development | ★★★★★ |
+| D20_session_workflow.py | Session-based workflows | ★★★☆☆ |
+| D21_custom_controllers.py | Custom controller development | ★★★★★ |
 
 ---
 

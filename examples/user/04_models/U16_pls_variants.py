@@ -128,8 +128,8 @@ result_ikpls = nirs4all.run(
 )
 
 print("\nPLS vs IKPLS comparison:")
-for pred in result_ikpls.top(10):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for pred in result_ikpls.top(10, display_metrics=['rmse', 'r2']):
+    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -172,8 +172,8 @@ result_opls = nirs4all.run(
 )
 
 print("\nOPLS results:")
-for pred in result_opls.top(5):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for pred in result_opls.top(5, display_metrics=['rmse', 'r2']):
+    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -211,8 +211,8 @@ result_sparse = nirs4all.run(
 )
 
 print("\nSparsePLS results:")
-for pred in result_sparse.top(5):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for pred in result_sparse.top(5, display_metrics=['rmse', 'r2']):
+    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -255,8 +255,8 @@ result_ipls = nirs4all.run(
 )
 
 print("\nIntervalPLS results:")
-for pred in result_ipls.top(5):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for pred in result_ipls.top(5, display_metrics=['rmse', 'r2']):
+    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -295,8 +295,8 @@ result_robust = nirs4all.run(
 )
 
 print("\nRobustPLS results:")
-for pred in result_robust.top(5):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for pred in result_robust.top(5, display_metrics=['rmse', 'r2']):
+    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -334,8 +334,8 @@ result_kernel = nirs4all.run(
 )
 
 print("\nKernelPLS results:")
-for pred in result_kernel.top(5):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for pred in result_kernel.top(5, display_metrics=['rmse', 'r2']):
+    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -372,9 +372,9 @@ result_plsda = nirs4all.run(
 )
 
 print("\nPLSDA/OPLSDA results:")
-for pred in result_plsda.top(5):
+for pred in result_plsda.top(5, display_metrics=['rmse', 'r2']):
     model = pred.get('model_name', 'Unknown')
-    accuracy = (1 - pred['rmse']) * 100
+    accuracy = (1 - pred.get('rmse', 0)) * 100
     print(f"   {model}: Accuracy={accuracy:.1f}%")
 
 
@@ -421,8 +421,8 @@ result_all = nirs4all.run(
 )
 
 print("\nAll PLS variants ranked:")
-for i, pred in enumerate(result_all.top(10), 1):
-    print(f"   {i}. {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for i, pred in enumerate(result_all.top(10, display_metrics=['rmse', 'r2']), 1):
+    print(f"   {i}. {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================

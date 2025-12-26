@@ -165,11 +165,12 @@ print("-" * 60)
 predictions = result.predictions
 
 # Display top models with classification metrics
-for i, pred in enumerate(predictions.top(5, rank_metric='accuracy'), 1):
+# Use display_metrics to include accuracy and balanced_recall in results
+for i, pred in enumerate(predictions.top(5, rank_metric='accuracy', display_metrics=['accuracy', 'balanced_recall']), 1):
     model_name = pred.get('model_name', 'unknown')
     preproc = pred.get('preprocessings', 'N/A')
-    accuracy = pred.get('test_accuracy', pred.get('accuracy', 0))
-    balanced = pred.get('test_balanced_recall', pred.get('balanced_recall', 0))
+    accuracy = pred.get('accuracy', 0)
+    balanced = pred.get('balanced_recall', 0)
     print(f"{i}. {model_name}")
     print(f"   Accuracy: {accuracy:.4f} | Balanced Recall: {balanced:.4f}")
     print(f"   Preprocessing: {preproc}")

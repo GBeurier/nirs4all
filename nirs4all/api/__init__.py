@@ -38,8 +38,8 @@ For more examples, see the examples/Q40_new_api.py file.
 # Result classes (Phase 1)
 from .result import RunResult, PredictResult, ExplainResult
 
-# Session (Phase 3 - stub available, full impl later)
-from .session import Session, session
+# Session (Phase 3 - full implementation)
+from .session import Session, session, load_session
 
 # Module-level functions (Phase 2)
 from .run import run
@@ -56,6 +56,7 @@ __all__ = [
     # Session
     "Session",
     "session",
+    "load_session",
     # Result classes
     "RunResult",
     "PredictResult",

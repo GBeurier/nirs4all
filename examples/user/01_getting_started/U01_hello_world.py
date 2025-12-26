@@ -90,8 +90,7 @@ print("-" * 60)
 # The result object provides convenient accessors
 print(f"\n📊 Pipeline Results:")
 print(f"   Number of predictions: {result.num_predictions}")
-print(f"   Best RMSE: {result.best_rmse:.4f}")
-print(f"   Best R²: {result.best_r2:.4f}")
+print(f"   Best Score (MSE): {result.best_score:.4f}")
 
 # Get the best model details
 best = result.best
@@ -100,6 +99,7 @@ if best:
     print(f"   Model name: {best.get('model_name', 'unknown')}")
     print(f"   Dataset: {best.get('dataset_name', 'unknown')}")
     print(f"   Fold: {best.get('fold_id', 'unknown')}")
+    print(f"   Test score: {best.get('test_score', 'N/A')}")
 
 
 # =============================================================================
@@ -109,9 +109,10 @@ print("\n" + "-" * 60)
 print("Top 3 Models")
 print("-" * 60)
 
-for i, pred in enumerate(result.top(n=3), 1):
-    rmse = pred.get('test_rmse', pred.get('rmse', 0))
-    r2 = pred.get('test_r2', pred.get('r2', 0))
+# Get top 3 with display_metrics to include RMSE and R²
+for i, pred in enumerate(result.top(n=3, display_metrics=['rmse', 'r2']), 1):
+    rmse = pred.get('rmse', 0)
+    r2 = pred.get('r2', 0)
     print(f"   {i}. {pred.get('model_name', 'unknown')} - RMSE: {rmse:.4f}, R²: {r2:.4f}")
 
 
@@ -125,14 +126,13 @@ print("""
 What we learned:
 1. A pipeline is a list of processing steps
 2. Use nirs4all.run() to train - no boilerplate needed
-3. Results are accessed via result.best_rmse, result.top(n), etc.
+3. Results are accessed via result.best_score, result.top(n), etc.
 
 Key API:
   result = nirs4all.run(pipeline, dataset, name, ...)
-  result.best_rmse    # Best RMSE score
-  result.best_r2      # Best R² score
-  result.top(n=5)     # Top N predictions
-  result.best         # Best prediction entry
+  result.best_score   # Best model's primary score
+  result.best         # Best prediction entry (dict)
+  result.top(n=5, display_metrics=['rmse', 'r2'])  # Top N predictions
 
 Next: U02_basic_regression.py - Add preprocessing and visualization
 """)

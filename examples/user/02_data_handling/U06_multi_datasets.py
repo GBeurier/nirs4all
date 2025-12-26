@@ -122,11 +122,11 @@ result = nirs4all.run(
 )
 
 predictions = result.predictions
-predictions_per_dataset = result.predictions_per_dataset
+per_dataset = result.per_dataset
 
 print(f"\n📊 Training complete!")
 print(f"   Total predictions: {predictions.num_predictions}")
-print(f"   Datasets processed: {len(predictions_per_dataset)}")
+print(f"   Datasets processed: {len(per_dataset)}")
 
 
 # =============================================================================
@@ -136,19 +136,20 @@ print("\n" + "-" * 60)
 print("Per-Dataset Results")
 print("-" * 60)
 
-for dataset_name, dataset_pred_dict in predictions_per_dataset.items():
+for dataset_name, dataset_info in per_dataset.items():
     print(f"\n📁 Dataset: {dataset_name}")
 
     # Get the Predictions object from the dict
-    dataset_predictions = dataset_pred_dict['run_predictions']
+    dataset_predictions = dataset_info.get('run_predictions')
 
-    # Get top 3 models for this dataset
-    top_models = dataset_predictions.top(n=3, rank_metric='rmse')
-    print("   Top 3 models:")
-    for idx, model in enumerate(top_models, 1):
-        rmse = model.get('test_rmse', model.get('rmse', 0))
-        r2 = model.get('test_r2', model.get('r2', 0))
-        print(f"   {idx}. {model['model_name']} - RMSE: {rmse:.4f}, R²: {r2:.4f}")
+    if dataset_predictions:
+        # Get top 3 models for this dataset with display_metrics
+        top_models = dataset_predictions.top(n=3, rank_metric='rmse', display_metrics=['rmse', 'r2'])
+        print("   Top 3 models:")
+        for idx, model in enumerate(top_models, 1):
+            rmse = model.get('rmse', 0)
+            r2 = model.get('r2', 0)
+            print(f"   {idx}. {model['model_name']} - RMSE: {rmse:.4f}, R²: {r2:.4f}")
 
 
 # =============================================================================
@@ -201,21 +202,26 @@ print("\n" + "-" * 60)
 print("Best Model Selection")
 print("-" * 60)
 
-# Overall best model
-best = predictions.get_best(ascending=True)  # ascending=True for RMSE
-print(f"\n🏆 Overall Best Model:")
-print(f"   Model: {best.get('model_name')}")
-print(f"   Dataset: {best.get('dataset_name')}")
-print(f"   RMSE: {best.get('test_rmse', best.get('rmse', 0)):.4f}")
-print(f"   R²: {best.get('test_r2', best.get('r2', 0)):.4f}")
+# Overall best model - use top() with display_metrics
+best_list = predictions.top(n=1, rank_metric='rmse', display_metrics=['rmse', 'r2'])
+if best_list:
+    best = best_list[0]
+    print(f"\n🏆 Overall Best Model:")
+    print(f"   Model: {best.get('model_name')}")
+    print(f"   Dataset: {best.get('dataset_name')}")
+    print(f"   RMSE: {best.get('rmse', 0):.4f}")
+    print(f"   R²: {best.get('r2', 0):.4f}")
 
 # Best model per dataset
 print("\n🏆 Best Model Per Dataset:")
-for dataset_name, dataset_pred_dict in predictions_per_dataset.items():
-    dataset_preds = dataset_pred_dict['run_predictions']
-    best_for_ds = dataset_preds.get_best(ascending=True)
-    rmse = best_for_ds.get('test_rmse', best_for_ds.get('rmse', 0))
-    print(f"   {dataset_name}: {best_for_ds.get('model_name')} (RMSE: {rmse:.4f})")
+for dataset_name, dataset_info in per_dataset.items():
+    dataset_preds = dataset_info.get('run_predictions')
+    if dataset_preds:
+        best_for_ds_list = dataset_preds.top(n=1, rank_metric='rmse', display_metrics=['rmse'])
+        if best_for_ds_list:
+            best_for_ds = best_for_ds_list[0]
+            rmse = best_for_ds.get('rmse', 0)
+            print(f"   {dataset_name}: {best_for_ds.get('model_name')} (RMSE: {rmse:.4f})")
 
 
 # =============================================================================
@@ -231,7 +237,7 @@ Multi-Dataset Analysis:
      dataset=['path1', 'path2', 'path3']
 
   2. Access per-dataset results:
-     result.predictions_per_dataset  # Dict of {name: predictions}
+     result.per_dataset  # Dict of {name: {run_predictions: Predictions}}
 
   3. Cross-dataset visualization:
      analyzer.plot_heatmap(x_var="model_name", y_var="dataset_name")
