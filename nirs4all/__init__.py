@@ -10,6 +10,7 @@ Public API (recommended):
     nirs4all.explain(model, data, **kwargs)      - Generate SHAP explanations
     nirs4all.retrain(source, data, **kwargs)     - Retrain a pipeline
     nirs4all.session(**kwargs)                   - Create execution session
+    nirs4all.load_session(path)                  - Load saved session
 
 Classes (for advanced usage):
     nirs4all.PipelineRunner    - Direct runner access
@@ -40,6 +41,7 @@ from .api import (
     explain,
     retrain,
     session,
+    load_session,
     Session,
     RunResult,
     PredictResult,
@@ -66,6 +68,7 @@ __all__ = [
     "explain",
     "retrain",
     "session",
+    "load_session",
     "Session",
     "RunResult",
     "PredictResult",

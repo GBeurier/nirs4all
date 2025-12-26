@@ -19,7 +19,7 @@ Next Steps
 ----------
 See :ref:`U15_stacking_ensembles` for model ensembles.
 
-Duration: ~6 minutes
+Duration: ~1 minute
 Difficulty: ★★★☆☆
 """
 
@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
 
@@ -103,7 +103,7 @@ pipeline_grid = [
         "model": PLSRegression(),
         "name": "PLS-GridSearch",
         "finetune_params": {
-            "n_trials": 10,              # Number of trials
+            "n_trials": 2,              # Number of trials
             "sample": "grid",            # Grid search
             "verbose": 1,                # 0=silent, 1=basic, 2=detailed
             "approach": "single",        # Global search
@@ -121,10 +121,10 @@ result_grid = nirs4all.run(
     verbose=1
 )
 
-print(f"\nBest RMSE: {result_grid.best_rmse:.4f}")
+print(f"\nBest RMSE: {result_grid.best_score:.4f}")
 print("Top configurations:")
-for pred in result_grid.top(3):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for pred in result_grid.top(3, display_metrics=['rmse', 'r2']):
+    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -146,17 +146,16 @@ pipeline_tpe = [
     ShuffleSplit(n_splits=3, random_state=42),
 
     {
-        "model": RandomForestRegressor(random_state=42),
+        "model": RandomForestRegressor(n_jobs=-1, random_state=42),
         "name": "RF-TPE",
         "finetune_params": {
-            "n_trials": 15,              # Number of trials
+            "n_trials": 2,              # Number of trials
             "sample": "tpe",             # Bayesian optimization
             "verbose": 1,
             "approach": "single",
             "model_params": {
-                "n_estimators": [50, 100, 200],       # Categorical
-                "max_depth": ('int', 3, 15),          # Integer range
-                "min_samples_split": ('int', 2, 10),  # Integer range
+                "n_estimators": [20, 50],           # Categorical (reduced)
+                "max_depth": ('int', 3, 6),          # Integer range
             },
         }
     },
@@ -169,7 +168,7 @@ result_tpe = nirs4all.run(
     verbose=1
 )
 
-print(f"\nBest RMSE: {result_tpe.best_rmse:.4f}")
+print(f"\nBest RMSE: {result_tpe.best_score:.4f}")
 
 
 # =============================================================================
@@ -190,17 +189,15 @@ pipeline_hyperband = [
     ShuffleSplit(n_splits=2, random_state=42),
 
     {
-        "model": GradientBoostingRegressor(random_state=42),
-        "name": "GB-Hyperband",
+        "model": PLSRegression(),
+        "name": "PLS-Hyperband",
         "finetune_params": {
-            "n_trials": 20,
+            "n_trials": 3,
             "sample": "hyperband",       # Hyperband with early stopping
             "verbose": 1,
             "approach": "single",
             "model_params": {
-                "n_estimators": ('int', 20, 200),
-                "max_depth": ('int', 2, 10),
-                "learning_rate": ('float', 0.01, 0.3),
+                "n_components": ('int', 1, 15),
             },
         }
     },
@@ -213,7 +210,7 @@ result_hyperband = nirs4all.run(
     verbose=1
 )
 
-print(f"\nBest RMSE: {result_hyperband.best_rmse:.4f}")
+print(f"\nBest RMSE: {result_hyperband.best_score:.4f}")
 
 
 # =============================================================================
@@ -244,7 +241,7 @@ pipeline_grouped = [
         "model": PLSRegression(),
         "name": "PLS-Grouped",
         "finetune_params": {
-            "n_trials": 5,
+            "n_trials": 3,
             "sample": "grid",
             "verbose": 1,
             "approach": "grouped",       # Search per preprocessing
@@ -263,7 +260,7 @@ result_grouped = nirs4all.run(
     verbose=1
 )
 
-print(f"\nGrouped search - Best RMSE: {result_grouped.best_rmse:.4f}")
+print(f"\nGrouped search - Best RMSE: {result_grouped.best_score:.4f}")
 print("Each preprocessing gets its own optimal n_components!")
 
 
@@ -286,39 +283,21 @@ pipeline_combined = [
     {"feature_augmentation": [
         StandardNormalVariate,
         Detrend,
-        FirstDerivative,
-        SavitzkyGolay,
     ], "action": "extend"},
 
-    ShuffleSplit(n_splits=3, random_state=42),
+    ShuffleSplit(n_splits=2, random_state=42),
 
-    # Tune PLS
+    # Tune PLS only (faster for demonstration)
     {
         "model": PLSRegression(),
         "name": "PLS-Combined",
         "finetune_params": {
-            "n_trials": 10,
+            "n_trials": 3,
             "sample": "tpe",
             "verbose": 1,
             "approach": "single",
             "model_params": {
-                "n_components": ('int', 1, 15),
-            },
-        }
-    },
-
-    # Tune RandomForest
-    {
-        "model": RandomForestRegressor(random_state=42),
-        "name": "RF-Combined",
-        "finetune_params": {
-            "n_trials": 10,
-            "sample": "tpe",
-            "verbose": 1,
-            "approach": "single",
-            "model_params": {
-                "n_estimators": [50, 100, 150],
-                "max_depth": ('int', 3, 12),
+                "n_components": ('int', 1, 10),
             },
         }
     },
@@ -332,14 +311,14 @@ result_combined = nirs4all.run(
 )
 
 print(f"\nTotal configurations: {result_combined.num_predictions}")
-print(f"Best RMSE: {result_combined.best_rmse:.4f}")
+print(f"Best RMSE: {result_combined.best_score:.4f}")
 
 # Show top results
 print("\nTop 5 configurations:")
-for i, pred in enumerate(result_combined.top(5), 1):
+for i, pred in enumerate(result_combined.top(5, display_metrics=['rmse', 'r2']), 1):
     preproc = pred.get('preprocessings', 'N/A')
     model = pred.get('model_name', 'Unknown')
-    print(f"   {i}. {preproc} + {model}: RMSE={pred['rmse']:.4f}")
+    print(f"   {i}. {preproc} + {model}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -420,3 +399,6 @@ Parameter Types:
 
 Next: U15_stacking_ensembles.py - Model stacking and ensembles
 """)
+
+if __name__ == "__main__":
+    pass

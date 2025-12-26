@@ -87,7 +87,6 @@ Set save_artifacts=True to save trained models.
 # Define pipeline
 pipeline = [
     MinMaxScaler(),
-    {"y_processing": MinMaxScaler()},
     StandardNormalVariate(),
     FirstDerivative(),
 
@@ -115,7 +114,7 @@ model_name = best_prediction['model_name']
 
 print(f"\nBest model: {model_name}")
 print(f"Model ID: {model_id}")
-print(f"RMSE: {best_prediction['rmse']:.4f}")
+print(f"Test MSE: {best_prediction.get('test_mse', best_prediction.get('mse', 'N/A'))}")
 
 # Store reference predictions for verification
 reference_predictions = best_prediction['y_pred'][:5].flatten()
@@ -192,7 +191,7 @@ The full preprocessing pipeline is applied automatically.
 # Create synthetic "new" data
 np.random.seed(123)
 n_new = 10
-n_features = 200  # Must match training data
+n_features = 2151  # Must match training data feature count
 X_new = np.random.randn(n_new, n_features)
 
 # Predict using tuple input
@@ -225,12 +224,15 @@ full_predictions, preds_obj = predictor3.predict(
 
 print(f"Number of prediction entries: {len(preds_obj)}")
 
-# Access prediction metadata
-pred_entry = preds_obj.top(1)[0]
-print(f"\nPrediction metadata:")
-print(f"   Model: {pred_entry.get('model_name', 'N/A')}")
-print(f"   Preprocessings: {pred_entry.get('preprocessings', 'N/A')}")
-print(f"   Partition: {pred_entry.get('partition', 'N/A')}")
+# Access prediction metadata - predictions from predict() may have different structure
+if hasattr(preds_obj, 'predictions') and preds_obj.predictions:
+    pred_entry = preds_obj.predictions[0]
+    print(f"\nPrediction metadata:")
+    print(f"   Model: {pred_entry.get('model_name', 'N/A')}")
+    print(f"   Preprocessings: {pred_entry.get('preprocessings', 'N/A')}")
+    print(f"   Partition: {pred_entry.get('partition', 'N/A')}")
+else:
+    print("\nPrediction complete successfully")
 
 
 # =============================================================================

@@ -107,31 +107,30 @@ developer_examples=(
   # 01_advanced_pipelines
   "developer/01_advanced_pipelines/D01_branching_basics.py"
   "developer/01_advanced_pipelines/D02_branching_advanced.py"
-  "developer/01_advanced_pipelines/D03_merge_strategies.py"
-  "developer/01_advanced_pipelines/D04_source_branching.py"
+  "developer/01_advanced_pipelines/D03_merge_basics.py"
+  "developer/01_advanced_pipelines/D04_merge_sources.py"
   "developer/01_advanced_pipelines/D05_meta_stacking.py"
   # 02_generators
-  "developer/02_generators/D06_generator_basics.py"
+  "developer/02_generators/D06_generator_syntax.py"
   "developer/02_generators/D07_generator_advanced.py"
-  "developer/02_generators/D08_generator_nested.py"
-  "developer/02_generators/D09_constraints_presets.py"
+  "developer/02_generators/D08_generator_iterators.py"
+  "developer/02_generators/D09_nested_generators.py"
   # 03_deep_learning
-  "developer/03_deep_learning/D10_nicon_tensorflow.py"
-  "developer/03_deep_learning/D11_pytorch_models.py"
-  "developer/03_deep_learning/D12_jax_models.py"
+  "developer/03_deep_learning/D10_pytorch_models.py"
+  "developer/03_deep_learning/D11_jax_models.py"
+  "developer/03_deep_learning/D12_tensorflow_models.py"
   "developer/03_deep_learning/D13_framework_comparison.py"
   # 04_transfer_learning
-  "developer/04_transfer_learning/D14_retrain_modes.py"
-  "developer/04_transfer_learning/D15_transfer_analysis.py"
-  "developer/04_transfer_learning/D16_domain_adaptation.py"
+  "developer/04_transfer_learning/D14_transfer_analysis.py"
+  "developer/04_transfer_learning/D15_retrain_modes.py"
+  "developer/04_transfer_learning/D16_pca_geometry.py"
   # 05_advanced_features
-  "developer/05_advanced_features/D17_outlier_partitioning.py"
-  "developer/05_advanced_features/D18_metadata_branching.py"
+  "developer/05_advanced_features/D17_metadata_branching.py"
+  "developer/05_advanced_features/D18_concat_transform.py"
   "developer/05_advanced_features/D19_repetition_transform.py"
-  "developer/05_advanced_features/D20_concat_transform.py"
   # 06_internals
-  "developer/06_internals/D21_session_workflow.py"
-  "developer/06_internals/D22_custom_controllers.py"
+  "developer/06_internals/D20_session_workflow.py"
+  "developer/06_internals/D21_custom_controllers.py"
 )
 
 # Reference examples (new structure)
@@ -144,66 +143,68 @@ reference_examples=(
 
 # Legacy examples (old Q*/X* structure - for transition period)
 legacy_examples=(
-  "Q1_classif.py"
-  "Q1_regression.py"
-  "Q2_groupsplit.py"
-  "Q2_multimodel.py"
-  "Q2B_force_group.py"
-  "Q3_finetune.py"
-  "Q4_multidatasets.py"
-  "Q5_predict.py"
-  "Q5_predict_NN.py"
-  "Q6_multisource.py"
-  "Q7_discretization.py"
-  "Q8_shap.py"
-  "Q9_acp_spread.py"
-  "Q10_resampler.py"
-  "Q11_flexible_inputs.py"
-  "Q12_sample_augmentation.py"
-  "Q13_nm_headers.py"
-  "Q14_workspace.py"
-  "Q15_jax_models.py"
-  "Q16_pytorch_models.py"
-  "Q17_nicon_comparison.py"
-  "Q18_stacking.py"
-  "Q19_pls_methods.py"
-  "Q21_feature_selection.py"
-  "Q22_concat_transform.py"
-  "Q23_generator_syntax.py"
-  "Q23b_generator.py"
-  "Q24_generator_advanced.py"
-  "Q25_complex_pipeline_pls.py"
-  "Q26_nested_or_preprocessing.py"
-  "Q27_transfer_analysis.py"
-  "Q28_sample_filtering.py"
-  "Q29_signal_conversion.py"
-  "Q30_branching.py"
-  "Q31_outlier_branching.py"
-  "Q32_export_bundle.py"
-  "Q33_retrain_transfer.py"
-  "Q34_aggregation.py"
-  "Q35_metadata_branching.py"
-  "Q36_repetition_transform.py"
-  "Q40_new_api.py"
-  "Q41_sklearn_shap.py"
-  "Q42_session_workflow.py"
-  "Q_meta_stacking.py"
-  "Q_complex_all_keywords.py"
-  "Q_feature_augmentation_modes.py"
-  "Q_merge_branches.py"
-  "Q_merge_sources.py"
-  "Q_sklearn_wrapper.py"
-  "X0_pipeline_sample.py"
-  "X1_metadata.py"
-  "X2_sample_augmentation.py"
-  "X4_features.py"
+  "legacy/Q1_classif.py"
+  "legacy/Q1_regression.py"
+  "legacy/Q2_groupsplit.py"
+  "legacy/Q2_multimodel.py"
+  "legacy/Q2B_force_group.py"
+  "legacy/Q3_finetune.py"
+  "legacy/Q4_multidatasets.py"
+  "legacy/Q5_predict.py"
+  "legacy/Q5_predict_NN.py"
+  "legacy/Q6_multisource.py"
+  "legacy/Q7_discretization.py"
+  "legacy/Q8_shap.py"
+  "legacy/Q9_acp_spread.py"
+  "legacy/Q10_resampler.py"
+  "legacy/Q11_flexible_inputs.py"
+  "legacy/Q12_sample_augmentation.py"
+  "legacy/Q13_nm_headers.py"
+  "legacy/Q14_workspace.py"
+  "legacy/Q15_jax_models.py"
+  "legacy/Q16_pytorch_models.py"
+  "legacy/Q17_nicon_comparison.py"
+  "legacy/Q18_stacking.py"
+  "legacy/Q19_pls_methods.py"
+  "legacy/Q21_feature_selection.py"
+  "legacy/Q22_concat_transform.py"
+  "legacy/Q23_generator_syntax.py"
+  "legacy/Q23b_generator.py"
+  "legacy/Q24_generator_advanced.py"
+  "legacy/Q25_complex_pipeline_pls.py"
+  "legacy/Q26_nested_or_preprocessing.py"
+  "legacy/Q27_transfer_analysis.py"
+  "legacy/Q28_sample_filtering.py"
+  "legacy/Q29_signal_conversion.py"
+  "legacy/Q30_branching.py"
+  "legacy/Q31_outlier_branching.py"
+  "legacy/Q32_export_bundle.py"
+  "legacy/Q33_retrain_transfer.py"
+  "legacy/Q34_aggregation.py"
+  "legacy/Q35_metadata_branching.py"
+  "legacy/Q36_repetition_transform.py"
+  "legacy/Q40_new_api.py"
+  "legacy/Q41_sklearn_shap.py"
+  "legacy/Q42_session_workflow.py"
+  "legacy/Q_meta_stacking.py"
+  "legacy/Q_complex_all_keywords.py"
+  "legacy/Q_feature_augmentation_modes.py"
+  "legacy/Q_merge_branches.py"
+  "legacy/Q_merge_sources.py"
+  "legacy/Q_sklearn_wrapper.py"
+  "legacy/X0_pipeline_sample.py"
+  "legacy/X1_metadata.py"
+  "legacy/X2_sample_augmentation.py"
+  "legacy/X3_hiba_full.py"
+  "legacy/X4_features.py"
+  "legacy/baseline_sota.py"
 )
 
 # Deep learning examples to skip in quick mode (basenames)
 dl_examples_patterns=(
-  "D10_nicon_tensorflow.py"
-  "D11_pytorch_models.py"
-  "D12_jax_models.py"
+  "D10_pytorch_models.py"
+  "D11_jax_models.py"
+  "D12_tensorflow_models.py"
   "D13_framework_comparison.py"
   "Q15_jax_models.py"
   "Q16_pytorch_models.py"
@@ -244,7 +245,7 @@ filter_existing() {
 # Build selected examples based on category
 build_examples_list() {
   local examples=()
-  
+
   case "$CATEGORY" in
     user)
       examples=("${user_examples[@]}")
@@ -267,7 +268,7 @@ build_examples_list() {
       exit 1
       ;;
   esac
-  
+
   # Filter to existing files only
   local existing=()
   for ex in "${examples[@]}"; do
@@ -275,7 +276,7 @@ build_examples_list() {
       existing+=("$ex")
     fi
   done
-  
+
   # Apply quick mode filter
   if [ "$QUICK" -eq 1 ]; then
     local filtered=()
@@ -287,7 +288,7 @@ build_examples_list() {
     existing=("${filtered[@]}")
     echo "Quick mode: Skipping deep learning examples"
   fi
-  
+
   echo "${existing[@]}"
 }
 

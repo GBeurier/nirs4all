@@ -137,7 +137,7 @@ dataset = DatasetConfigs("sample_data/regression")
 for config, name in dataset.configs:
     ds = dataset.get_dataset(config, name)
     X = ds.x({})
-    y = ds.y
+    y = ds.y({})  # y() is a method, needs selector
     break
 
 print(f"Data shape: X={X.shape}, y={y.shape}")

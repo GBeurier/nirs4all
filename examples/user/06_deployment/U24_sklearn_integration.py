@@ -133,7 +133,7 @@ dataset = DatasetConfigs("sample_data/regression")
 for config, name in dataset.configs:
     ds = dataset.get_dataset(config, name)
     X_test = ds.x({})[:20]  # First 20 samples
-    y_test = ds.y[:20]
+    y_test = ds.y({})[:20]  # y() is a method, needs selector
     break
 
 # Predict like sklearn

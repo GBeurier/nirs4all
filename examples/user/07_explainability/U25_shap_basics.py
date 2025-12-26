@@ -103,7 +103,7 @@ best_prediction = predictions.top(
 )[0]
 
 print(f"\nBest model: {best_prediction['model_name']}")
-print(f"RMSE: {best_prediction['rmse']:.4f}")
+print(f"Test MSE: {best_prediction.get('test_mse', best_prediction.get('mse', 'N/A'))}")
 
 
 # =============================================================================

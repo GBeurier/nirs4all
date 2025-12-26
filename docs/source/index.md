@@ -33,6 +33,8 @@ result.export("exports/best_model.n4a")
 :maxdepth: 2
 :caption: Contents:
 
+tutorials
+reference
 architecture
 api/module_api
 api/sklearn_integration

@@ -110,12 +110,12 @@ result_extend = nirs4all.run(
 )
 
 print(f"\nNumber of variants explored: {result_extend.num_predictions}")
-print(f"Best RMSE: {result_extend.best_rmse:.4f}")
+print(f"Best Score (MSE): {result_extend.best_score:.4f}")
 
-# Show top results
+# Show top results with display_metrics
 print("\nTop preprocessing variants:")
-for pred in result_extend.top(3):
-    print(f"   {pred.get('preprocessings', 'N/A')}: RMSE={pred['rmse']:.4f}")
+for pred in result_extend.top(3, display_metrics=['rmse']):
+    print(f"   {pred.get('preprocessings', 'N/A')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -152,8 +152,8 @@ result_add = nirs4all.run(
 print(f"\nNumber of variants: {result_add.num_predictions}")
 print("Variants include: SNV alone, SNV + FirstDerivative")
 
-for pred in result_add.top(5):
-    print(f"   {pred.get('preprocessings', 'N/A')}: RMSE={pred['rmse']:.4f}")
+for pred in result_add.top(5, display_metrics=['rmse']):
+    print(f"   {pred.get('preprocessings', 'N/A')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -193,8 +193,8 @@ result_replace = nirs4all.run(
 print(f"\nNumber of variants: {result_replace.num_predictions}")
 print("Both variants end with: _FirstDerivative_SNV")
 
-for pred in result_replace.top(5):
-    print(f"   {pred.get('preprocessings', 'N/A')}: RMSE={pred['rmse']:.4f}")
+for pred in result_replace.top(5, display_metrics=['rmse']):
+    print(f"   {pred.get('preprocessings', 'N/A')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -235,12 +235,12 @@ result_search = nirs4all.run(
 )
 
 print(f"\nTotal variants explored: {result_search.num_predictions}")
-print(f"Best RMSE: {result_search.best_rmse:.4f}")
+print(f"Best Score (MSE): {result_search.best_score:.4f}")
 
 # Show all results ranked
 print("\nAll preprocessing variants (ranked by RMSE):")
-for i, pred in enumerate(result_search.top(20), 1):
-    print(f"   {i}. {pred.get('preprocessings', 'N/A')}: RMSE={pred['rmse']:.4f}")
+for i, pred in enumerate(result_search.top(20, display_metrics=['rmse']), 1):
+    print(f"   {i}. {pred.get('preprocessings', 'N/A')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================

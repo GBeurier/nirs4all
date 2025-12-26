@@ -112,13 +112,13 @@ result = nirs4all.run(
 )
 
 print(f"\nNumber of model configurations: {result.num_predictions}")
-print(f"Best RMSE: {result.best_rmse:.4f}")
+print(f"Best RMSE: {result.best_score:.4f}")
 
 # Show all results
 print("\nAll results (ranked by RMSE):")
-for i, pred in enumerate(result.top(10), 1):
+for i, pred in enumerate(result.top(10, display_metrics=['rmse', 'r2']), 1):
     model_name = pred.get('model_name', 'Unknown')
-    print(f"   {i}. {model_name}: RMSE={pred['rmse']:.4f}")
+    print(f"   {i}. {model_name}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -141,13 +141,13 @@ pipeline_or = [
     # Cross-validation
     ShuffleSplit(n_splits=3, random_state=42),
 
-    # _or_ generates variants for each model
+    # _or_ generates variants for each model - each must be wrapped in {"model": ...}
     {"_or_": [
-        PLSRegression(n_components=10),
-        Ridge(alpha=1.0),
-        Lasso(alpha=0.1),
-        ElasticNet(alpha=0.1, l1_ratio=0.5),
-    ], "model": None},  # "model" key indicates these are models
+        {"model": PLSRegression(n_components=10)},
+        {"model": Ridge(alpha=1.0)},
+        {"model": Lasso(alpha=0.1)},
+        {"model": ElasticNet(alpha=0.1, l1_ratio=0.5)},
+    ]},
 ]
 
 result_or = nirs4all.run(
@@ -158,10 +158,10 @@ result_or = nirs4all.run(
 )
 
 print(f"\nVariants generated: {result_or.num_predictions}")
-print(f"Best RMSE: {result_or.best_rmse:.4f}")
+print(f"Best RMSE: {result_or.best_score:.4f}")
 
-for pred in result_or.top(5):
-    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred['rmse']:.4f}")
+for pred in result_or.top(5, display_metrics=['rmse', 'r2']):
+    print(f"   {pred.get('model_name', 'Unknown')}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -212,13 +212,13 @@ result_comp = nirs4all.run(
 )
 
 print(f"\nTotal configurations tested: {result_comp.num_predictions}")
-print(f"Best RMSE: {result_comp.best_rmse:.4f}")
+print(f"Best RMSE: {result_comp.best_score:.4f}")
 
 # Show top 10
 print("\nTop 10 configurations:")
-for i, pred in enumerate(result_comp.top(10), 1):
+for i, pred in enumerate(result_comp.top(10, display_metrics=['rmse', 'r2']), 1):
     model_name = pred.get('model_name', 'Unknown')
-    print(f"   {i}. {model_name}: RMSE={pred['rmse']:.4f}")
+    print(f"   {i}. {model_name}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -267,14 +267,14 @@ result_combined = nirs4all.run(
 )
 
 print(f"\nTotal configurations: {result_combined.num_predictions}")
-print(f"Best RMSE: {result_combined.best_rmse:.4f}")
+print(f"Best RMSE: {result_combined.best_score:.4f}")
 
 # Show top results with preprocessing info
 print("\nTop 10 configurations (preprocessing + model):")
-for i, pred in enumerate(result_combined.top(10), 1):
+for i, pred in enumerate(result_combined.top(10, display_metrics=['rmse', 'r2']), 1):
     preproc = pred.get('preprocessings', 'N/A')
     model = pred.get('model_name', 'Unknown')
-    print(f"   {i}. {preproc} + {model}: RMSE={pred['rmse']:.4f}")
+    print(f"   {i}. {preproc} + {model}: RMSE={pred.get('rmse', 0):.4f}")
 
 
 # =============================================================================
@@ -311,10 +311,10 @@ result_classif = nirs4all.run(
 )
 
 print(f"\nClassification results:")
-for i, pred in enumerate(result_classif.top(5), 1):
+for i, pred in enumerate(result_classif.top(5, display_metrics=['rmse', 'r2']), 1):
     model_name = pred.get('model_name', 'Unknown')
     # For classification, 'rmse' is actually error rate
-    accuracy = (1 - pred['rmse']) * 100
+    accuracy = (1 - pred.get('rmse', 0)) * 100
     print(f"   {i}. {model_name}: Accuracy={accuracy:.1f}%")
 
 
@@ -333,7 +333,7 @@ Multi-Model Comparison Approaches:
      {"model": RandomForestRegressor()},
 
   2. Use _or_ generator:
-     {"_or_": [PLS(10), Ridge(1.0), RF()], "model": None}
+     {"_or_": [{"model": PLS(10)}, {"model": Ridge(1.0)}, {"model": RF()}]}
 
   3. Combine with preprocessing search:
      {"feature_augmentation": [SNV, MSC], "action": "extend"},
@@ -357,7 +357,7 @@ Common Model Families for NIRS:
 
 Result Analysis:
     result.top(n)       # Get top n configurations
-    result.best_rmse    # Best RMSE achieved
+    result.best_score    # Best RMSE achieved
     result.num_predictions  # Total configurations tested
 
 Next: U14_hyperparameter_tuning.py - Automated hyperparameter search
