@@ -3,27 +3,26 @@
 
 **Features**:
 
-> [signature] change signatures to nirs4all.run(pipeline, dataset, config), nirs4all.predict, etc. Add nirs4all config.
-
-**CLI_EXTENSION_PROPOSAL.md**
-> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
-> [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
-
-
-> [pytoml] Update imports and configs. Anticipate ui dependencies.
-
-
-> [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
-
-Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications) and dataset configs that cover all cases.
-Or from synthetic data generator.
-Creates use cases that covers all the diversity of controllers and syntax for pipelines
+> [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
+> [Examples] Clean and document
+> [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
+> [Example] The full integration example with all features in one, using branching, multidatasets, etc.
 
 > [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
 > [Examples] Clean and document
 > [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
 > [Example] The full integration example with all features in one, using branching, multidatasets, etc.
 
+
+
+> [pytoml] Update imports and configs. Anticipate ui dependencies.
+
+> [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
+
+Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications) and dataset configs that cover all cases.
+Or from synthetic data generator. + their respective dataconfig
+Creates use cases that covers all the diversity of controllers and syntax for pipelines -
+Create the example synth pipelines x synth datasets for testing purpose
 
 **Major Review**:
 > Artifact overview and maybe refactoring
@@ -42,6 +41,10 @@ Creates use cases that covers all the diversity of controllers and syntax for pi
 
 **RELEASE** 0.6.0: UI
 
+
+**CLI_EXTENSION_PROPOSAL.md**
+> [CLI] nirs4all renaming: nirs4all.train(), .predict(), .explain(), .transfer(), .resume(), .stack(), .analyze()
+> [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
 
 
