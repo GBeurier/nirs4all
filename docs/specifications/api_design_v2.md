@@ -4,8 +4,13 @@
 
 - **Author**: GitHub Copilot (Claude Opus 4.5)
 - **Date**: December 24, 2025
-- **Status**: Draft Proposal
+- **Status**: Draft Proposal (Reviewed)
 - **Scope**: Public API redesign for nirs4all 0.6+
+- **Companion Document**: [api_v2_migration_roadmap.md](api_v2_migration_roadmap.md) - Critical review and implementation roadmap
+
+> **Note**: This document has been updated based on the critical review in the migration roadmap.
+> Key changes: thin wrapper pattern for `run()`, `NIRSPipeline.from_result()` class method,
+> `NIRSPipelineSearch` dropped (generator syntax provides this).
 
 ---
 
@@ -261,6 +266,7 @@ class RunConfig:
     # Logging control
     log_file: bool = True
     log_format: str = "pretty"  # "pretty", "minimal", "json"
+    json_output: bool = False  # Output predictions as JSON
     use_unicode: bool = True
     use_colors: bool = True
 
@@ -312,10 +318,13 @@ class ExplainConfig:
 ```python
 # nirs4all/api/result.py
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from pathlib import Path
 import numpy as np
+
+if TYPE_CHECKING:
+    from nirs4all.pipeline import PipelineRunner
 
 from nirs4all.data.predictions import Predictions
 
@@ -327,6 +336,7 @@ class RunResult:
     """
     predictions: Predictions
     per_dataset: Dict[str, Any]
+    _runner: Optional["PipelineRunner"] = field(default=None, repr=False)
 
     # Convenience accessors
     @property
@@ -351,8 +361,13 @@ class RunResult:
 
     def export(self, output_path: str, format: str = "n4a") -> Path:
         """Export best model to bundle."""
-        # Delegate to bundle generator
-        ...
+        if self._runner is None:
+            raise RuntimeError("Cannot export: runner reference not available")
+        return self._runner.export(
+            source=self.best,
+            output_path=output_path,
+            format=format
+        )
 
 
 @dataclass
@@ -531,15 +546,18 @@ def run(
     """Execute a training pipeline on a dataset.
 
     This is the primary entry point for training ML pipelines on NIRS data.
-    It handles all configuration normalization and delegates to PipelineRunner.
+    It's a thin wrapper around PipelineRunner - all normalization of pipeline
+    and dataset formats is handled by the existing PipelineRunner.run() method.
 
     Args:
-        pipeline: Pipeline definition (steps list, path, or PipelineConfigs)
-        dataset: Dataset definition (path, arrays, dict, or DatasetConfigs)
+        pipeline: Pipeline definition (steps list, path, or PipelineConfigs).
+            PipelineRunner already handles normalization.
+        dataset: Dataset definition (path, arrays, dict, or DatasetConfigs).
+            PipelineRunner already handles normalization.
         name: Optional pipeline name for identification
         config: Optional RunConfig for execution settings
         session: Optional Session for resource reuse
-        **overrides: Override specific config values
+        **overrides: Override specific config values (verbose, save_artifacts, etc.)
 
     Returns:
         RunResult with predictions, best model, and artifacts
@@ -565,108 +583,56 @@ def run(
         ...     config=RunConfig(verbose=1, save_artifacts=True, random_state=42)
         ... )
     """
-    # Merge config with overrides
-    effective_config = _merge_config(config, overrides)
+    # Build runner kwargs from config and overrides
+    runner_kwargs = _build_runner_kwargs(config, overrides)
 
-    # Get or create runner
-    runner = _get_runner(session, effective_config)
+    # Get runner from session or create new one
+    if session is not None:
+        runner = session.runner
+    else:
+        runner = PipelineRunner(**runner_kwargs)
 
-    # Normalize pipeline
-    pipeline_config = _normalize_pipeline(pipeline, name, effective_config)
-
-    # Normalize dataset
-    dataset_config = _normalize_dataset(dataset)
-
-    # Execute
+    # Execute - PipelineRunner.run() handles all format normalization
     predictions, per_dataset = runner.run(
-        pipeline_config,
-        dataset_config,
-        max_generation_count=effective_config.max_generation_count
+        pipeline=pipeline,
+        dataset=dataset,
+        pipeline_name=name
     )
 
     return RunResult(
         predictions=predictions,
-        per_dataset=per_dataset
+        per_dataset=per_dataset,
+        _runner=runner  # Store for export() support
     )
 
 
-def _merge_config(
+def _build_runner_kwargs(
     config: Optional[RunConfig],
     overrides: Dict[str, Any]
-) -> RunConfig:
-    """Merge config with override values."""
-    if config is None:
-        config = RunConfig()
+) -> Dict[str, Any]:
+    """Build PipelineRunner kwargs from config and overrides.
 
-    # Apply overrides
-    for key, value in overrides.items():
-        if hasattr(config, key):
-            setattr(config, key, value)
+    This uses a thin wrapper approach - we pass kwargs directly to
+    PipelineRunner rather than duplicating normalization logic.
+    """
+    # Start with config values if provided
+    if config is not None:
+        kwargs = config.to_dict()
+    else:
+        kwargs = {}
 
-    return config
+    # Apply overrides (these take precedence)
+    kwargs.update(overrides)
 
-
-def _get_runner(
-    session: Optional[Session],
-    config: RunConfig
-) -> PipelineRunner:
-    """Get runner from session or create new one."""
-    if session is not None:
-        return session.runner
-
-    return PipelineRunner(
-        workspace_path=config.workspace_path,
-        verbose=config.verbose,
-        save_artifacts=config.save_artifacts,
-        save_charts=config.save_charts,
-        random_state=config.random_state,
-        continue_on_error=config.continue_on_error,
-        show_spinner=config.show_spinner,
-        keep_datasets=config.keep_datasets,
-        plots_visible=config.plots_visible,
-        log_file=config.log_file,
-        log_format=config.log_format,
-        use_unicode=config.use_unicode,
-        use_colors=config.use_colors,
-        show_progress_bar=config.show_progress_bar,
-    )
+    return kwargs
 
 
-def _normalize_pipeline(
-    pipeline: PipelineSpec,
-    name: str,
-    config: RunConfig
-) -> PipelineConfigs:
-    """Normalize pipeline to PipelineConfigs."""
-    if isinstance(pipeline, PipelineConfigs):
-        return pipeline
-
-    return PipelineConfigs(
-        pipeline,
-        name=name or "pipeline",
-        max_generation_count=config.max_generation_count
-    )
-
-
-def _normalize_dataset(dataset: DatasetSpec) -> DatasetConfigs:
-    """Normalize dataset to DatasetConfigs."""
-    if isinstance(dataset, DatasetConfigs):
-        return dataset
-
-    # Handle tuple of arrays
-    if isinstance(dataset, tuple):
-        if len(dataset) == 1:
-            return DatasetConfigs({"X_test": dataset[0]})
-        elif len(dataset) == 2:
-            return DatasetConfigs({"train_x": dataset[0], "train_y": dataset[1]})
-        elif len(dataset) == 3:
-            return DatasetConfigs({
-                "train_x": dataset[0],
-                "train_y": dataset[1],
-                "train_m": dataset[2]
-            })
-
-    return DatasetConfigs(dataset)
+# NOTE: Pipeline and dataset normalization is handled by PipelineRunner.run()
+# which already accepts flexible input types:
+#   - pipeline: Union[PipelineConfigs, List[Any], Dict, str]
+#   - dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple, Dict, List, str]
+#
+# We don't duplicate this logic here (thin wrapper pattern).
 ```
 
 ### 4.6 sklearn Meta-Estimator
@@ -690,16 +656,25 @@ class NIRSPipeline(BaseEstimator, RegressorMixin):
 
     Wraps a nirs4all pipeline to provide sklearn's BaseEstimator interface.
     This enables:
-    - Direct use with sklearn tools (cross_validate, GridSearchCV)
     - SHAP compatibility for model explanation
     - Optuna integration for hyperparameter tuning
     - joblib serialization for deployment
 
-    The pipeline stores configuration at __init__ time (sklearn requirement)
-    and performs actual setup in fit(). After fitting, the pipeline exposes:
-    - model_: The fitted final model (for SHAP direct access)
-    - preprocessor_: Fitted preprocessing chain
-    - pipeline_: Full fitted MinimalPipeline
+    **IMPORTANT**: This class can be used in two modes:
+
+    1. **Prediction wrapper** (recommended): Wrap an already-trained pipeline
+       using class methods `from_result()` or `from_bundle()`. In this mode,
+       `fit()` raises NotImplementedError.
+
+    2. **Training mode**: Pass `steps` to __init__ and call `fit()`. This
+       delegates to `nirs4all.run()` internally. Note that cross-validation
+       creates multiple models; the primary model (fold 0) is exposed via
+       `model_` property.
+
+    After fitting or loading, the pipeline exposes:
+    - model_: The primary fitted model (fold 0 for CV, for SHAP access)
+    - preprocessor_: Fitted preprocessing chain (if available)
+    - pipeline_: MinimalPipeline for prediction replay
 
     Parameters
     ----------
@@ -783,6 +758,10 @@ class NIRSPipeline(BaseEstimator, RegressorMixin):
     def fit(self, X, y, **fit_params):
         """Fit the pipeline.
 
+        Delegates to nirs4all.run() internally. If cross-validation is used,
+        multiple models are created (one per fold). The `model_` property
+        returns the primary model (fold 0) for SHAP compatibility.
+
         Parameters
         ----------
         X : array-like of shape (n_samples, n_features)
@@ -798,7 +777,20 @@ class NIRSPipeline(BaseEstimator, RegressorMixin):
         -------
         self : NIRSPipeline
             Fitted estimator.
+
+        Raises
+        ------
+        NotImplementedError
+            If this instance was created via from_result() or from_bundle()
+            (prediction wrapper mode).
         """
+        # Check if this is a prediction wrapper
+        if hasattr(self, '_minimal_pipeline') and self._minimal_pipeline is not None:
+            raise NotImplementedError(
+                "This NIRSPipeline was created from a trained model and cannot be refit.\n"
+                "Create a new NIRSPipeline with steps to train a new model."
+            )
+
         # Validate input
         X, y = check_X_y(X, y, multi_output=True, y_numeric=True)
 
@@ -993,6 +985,73 @@ class NIRSPipeline(BaseEstimator, RegressorMixin):
         for key, value in params.items():
             setattr(self, key, value)
         return self
+
+    # =========================================================================
+    # Class methods for prediction wrapper mode
+    # =========================================================================
+
+    @classmethod
+    def from_result(cls, result: "RunResult", model_index: int = 0) -> "NIRSPipeline":
+        """Create wrapper from nirs4all RunResult.
+
+        This creates a prediction-only wrapper. The `fit()` method will
+        raise NotImplementedError.
+
+        Parameters
+        ----------
+        result : RunResult
+            Result from nirs4all.run()
+
+        model_index : int, default=0
+            Which model to wrap (0 = best by ranking)
+
+        Returns
+        -------
+        NIRSPipeline
+            Prediction wrapper ready for predict() and SHAP analysis
+        """
+        pipe = cls(steps=[])  # Empty steps for wrapper mode
+        pipe._load_from_result(result, model_index)
+        return pipe
+
+    @classmethod
+    def from_bundle(cls, bundle_path: str) -> "NIRSPipeline":
+        """Create wrapper from exported .n4a bundle.
+
+        Parameters
+        ----------
+        bundle_path : str
+            Path to .n4a bundle file
+
+        Returns
+        -------
+        NIRSPipeline
+            Prediction wrapper ready for predict()
+        """
+        from nirs4all.pipeline.bundle import BundleLoader
+
+        pipe = cls(steps=[])  # Empty steps for wrapper mode
+        loader = BundleLoader(bundle_path)
+        pipe._minimal_pipeline = loader.minimal_pipeline
+        pipe._artifact_provider = loader.artifact_provider
+        return pipe
+
+    def _load_from_result(self, result, model_index):
+        """Internal: load minimal pipeline from RunResult."""
+        from nirs4all.pipeline.trace import TraceBasedExtractor
+
+        predictions = result.predictions.top(n=model_index + 1)
+        if model_index >= len(predictions):
+            raise ValueError(f"model_index {model_index} >= available models {len(predictions)}")
+
+        target = predictions[model_index]
+        extractor = TraceBasedExtractor()
+        self._minimal_pipeline = extractor.extract(
+            result.per_dataset.get('execution_trace'),
+            result.per_dataset.get('artifact_provider')
+        )
+        self.pipeline_ = self._minimal_pipeline
+        self.model_ = self._minimal_pipeline.get_model() if self._minimal_pipeline else None
 
 
 class NIRSPipelineClassifier(NIRSPipeline, ClassifierMixin):
@@ -1516,10 +1575,11 @@ predictions, _ = runner.run(
 - [ ] Test with sklearn cross_validate, GridSearchCV
 
 ### Phase 3: Advanced sklearn (v0.7.0)
-- [ ] Implement `NIRSPipelineSearch` meta-estimator
+- [ ] ~~Implement `NIRSPipelineSearch` meta-estimator~~ (DROPPED - generator syntax provides this)
 - [ ] Add Optuna integration example
-- [ ] Support `partial_fit()` for streaming
-- [ ] Differentiable preprocessing for gradient SHAP
+- [ ] Document generator syntax for hyperparameter search
+- [ ] Support `partial_fit()` for streaming (if demand)
+- [ ] Differentiable preprocessing for gradient SHAP (if demand)
 
 ### Phase 4: Documentation (v0.6.0)
 - [ ] Update README with new API examples

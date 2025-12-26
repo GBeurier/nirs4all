@@ -150,7 +150,94 @@ Each command will print a summary of the test results and alert you to any missi
 
 ## Quick Start
 
-### Basic Pipeline Example
+### Simple API (Recommended)
+
+```python
+import nirs4all
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import ShuffleSplit
+from sklearn.cross_decomposition import PLSRegression
+
+# Define your pipeline as a simple list
+pipeline = [
+    MinMaxScaler(),                           # Scale features
+    {"y_processing": MinMaxScaler()},         # Scale target values
+    ShuffleSplit(n_splits=3, test_size=0.25), # Cross-validation
+    {"model": PLSRegression(n_components=10)} # Model
+]
+
+# Run with the new module-level API
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset="path/to/your/data",
+    name="MyPipeline",
+    verbose=1
+)
+
+# Access results with convenient properties
+print(f"Best RMSE: {result.best_rmse:.4f}")
+print(f"Best R²: {result.best_r2:.4f}")
+
+# Get top 3 models
+for i, model in enumerate(result.top(n=3), 1):
+    print(f"{i}. {model['model_name']}: RMSE = {model.get('test_score', 0):.4f}")
+
+# Export best model for deployment
+result.export("exports/best_model.n4a")
+```
+
+### Session for Multiple Runs
+
+```python
+import nirs4all
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.ensemble import RandomForestRegressor
+
+# Session shares workspace and configuration across runs
+with nirs4all.session(verbose=1, save_artifacts=True) as s:
+    # Compare different models with shared configuration
+    result_pls = nirs4all.run(
+        pipeline=[MinMaxScaler(), PLSRegression(n_components=10)],
+        dataset="path/to/data",
+        name="PLS",
+        session=s
+    )
+
+    result_rf = nirs4all.run(
+        pipeline=[MinMaxScaler(), RandomForestRegressor(n_estimators=100)],
+        dataset="path/to/data",
+        name="RandomForest",
+        session=s
+    )
+
+    print(f"PLS RMSE: {result_pls.best_rmse:.4f}")
+    print(f"RF RMSE: {result_rf.best_rmse:.4f}")
+```
+
+### sklearn Integration & SHAP
+
+```python
+import nirs4all
+from nirs4all.sklearn import NIRSPipeline
+import shap
+
+# Train with nirs4all
+result = nirs4all.run(pipeline, dataset)
+
+# Wrap for sklearn compatibility
+pipe = NIRSPipeline.from_result(result)
+
+# Use with SHAP
+explainer = shap.Explainer(pipe.predict, X_background)
+shap_values = explainer(X_test)
+shap.summary_plot(shap_values)
+
+# Or load from exported bundle
+pipe = NIRSPipeline.from_bundle("exports/model.n4a")
+y_pred = pipe.predict(X_new)
+```
+
+### Classic API (Still Supported)
 
 ```python
 from sklearn.preprocessing import MinMaxScaler
@@ -354,6 +441,12 @@ These tutorials demonstrate real-world workflows and best practices for producti
 
 Ready-to-run example scripts demonstrating common NIRS workflows:
 
+### New Module-Level API (v0.6+)
+- **[Q40_new_api.py](examples/Q40_new_api.py)** - Comprehensive example of the new `nirs4all.run()` API with sessions
+- **[Q_sklearn_wrapper.py](examples/Q_sklearn_wrapper.py)** - sklearn integration with `NIRSPipeline`, SHAP, and model export
+- **[Q41_sklearn_shap.py](examples/Q41_sklearn_shap.py)** - SHAP explanations with NIRSPipeline for spectral feature importance
+- **[Q42_session_workflow.py](examples/Q42_session_workflow.py)** - Session-based workflow for comparing multiple pipelines
+
 ### Basic Examples
 - **[Q1_regression.py](examples/Q1_regression.py)** - Basic regression with PLS models and preprocessing combinations
 - **[Q1_classif.py](examples/Q1_classif.py)** - Classification pipeline with Random Forest and preprocessing
@@ -385,17 +478,20 @@ Ready-to-run example scripts demonstrating common NIRS workflows:
 - **[custom_nicon.py](examples/custom_nicon.py)** - Custom NICON (NIRS Convolutional Network) model implementations
 
 Run any example with: `python examples/<example_name>.py`
-t
+
 ## Documentation
 
 ### User Guide
 
+- **[API Migration Guide](docs/user_guide/api_migration.md)** - Migrating from classic API to new module-level API
 - **[Preprocessing Guide](docs/user_guide/preprocessing.md)** - Complete reference of transformers (nirs4all, sklearn, scipy) with usage examples
 - **[Preprocessing Cheatsheet](docs/user_guide/preprocessing_cheatsheet.md)** - Quick reference for preprocessing operations
 - **[Sample Augmentation Guide](docs/user_guide/sample_augmentation.md)** - Data augmentation techniques for NIRS
 
 ### API Reference
 
+- **[Module-Level API](docs/api/module_api.md)** - `nirs4all.run()`, `predict()`, `explain()`, `session()`
+- **[sklearn Integration](docs/api/sklearn_integration.md)** - `NIRSPipeline` for sklearn/SHAP compatibility
 - **[Data Module](docs/api/data.md)** - Dataset handling and data loading APIs
 - **[Pipeline Module](docs/api/pipeline.md)** - Pipeline configuration and execution APIs
 - **[Workspace Module](docs/api/workspace.md)** - Workspace management and organization

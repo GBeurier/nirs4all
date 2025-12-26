@@ -51,23 +51,25 @@ The type aliases `PipelineSpec` and `DatasetSpec` in the design document are **a
 
 #### Issues Identified
 
-| Issue | Location | Impact |
-|-------|----------|--------|
-| **Duplicated normalization** | Design's `_normalize_pipeline()` duplicates `PipelineConfigs._load_steps()` | Maintenance burden, divergence risk |
-| **Missing parameters** | `RunConfig` missing `json_output`, `random_state` | Config/Runner mismatch |
-| **Configuration drift** | Two paths: RunConfig + PipelineRunner(**kwargs) | User confusion |
+| Issue | Location | Impact | Status |
+|-------|----------|--------|--------|
+| **Duplicated normalization** | Design's `_normalize_pipeline()` duplicates `PipelineConfigs._load_steps()` | Maintenance burden, divergence risk | ✅ Fixed |
+| **Missing parameters** | `RunConfig` missing `json_output`, `random_state` | Config/Runner mismatch | ✅ Fixed |
+| **Configuration drift** | Two paths: RunConfig + PipelineRunner(**kwargs) | User confusion | ✅ Fixed (thin wrapper) |
 
 #### Recommendation
 
 **Thin wrapper approach** - Don't duplicate normalization logic:
 
 ```python
-# Correct implementation pattern
+# Correct implementation pattern (now in api_design_v2.md)
 def run(pipeline, dataset, *, name="", **runner_kwargs) -> RunResult:
     runner = PipelineRunner(**runner_kwargs)
     predictions, per_dataset = runner.run(pipeline, dataset, pipeline_name=name)
     return RunResult(predictions=predictions, per_dataset=per_dataset, _runner=runner)
 ```
+
+**Status**: ✅ The api_design_v2.md has been updated to use this pattern.
 
 **Rationale**: PipelineRunner and DatasetConfigs already handle all format conversions. The module-level API should be a convenience layer, not a reimplementation.
 
@@ -89,10 +91,10 @@ best = predictions.top(n=1)[0]  # Manual step
 
 The Result wrapper classes add genuine value. However:
 
-| Issue | Solution |
-|-------|----------|
-| `RunResult.export()` needs runner reference | Store `_runner` attribute |
-| Missing artifacts path access | Add from `per_dataset` dict |
+| Issue | Solution | Status |
+|-------|----------|--------|
+| `RunResult.export()` needs runner reference | Store `_runner` attribute | ✅ Updated in design |
+| Missing artifacts path access | Add from `per_dataset` dict | ✅ Updated in design |
 
 ---
 
@@ -171,7 +173,13 @@ For the `shap_model` property (lines 880-888), which fold's model should be retu
 
 #### Verdict: ⚠️ REQUIRES MAJOR REVISION
 
-The NIRSPipeline as designed cannot work. Proposed alternative:
+The NIRSPipeline as originally designed had issues with CV fold semantics. The api_design_v2.md has been updated to include:
+
+1. `from_result()` and `from_bundle()` class methods for prediction wrapper mode
+2. `fit()` raises `NotImplementedError` when in wrapper mode
+3. Clear documentation about fold 0 being the primary model for `model_` property
+
+Proposed alternative (now incorporated into design):
 
 ```python
 class NIRSPipeline(BaseEstimator, RegressorMixin):
@@ -990,56 +998,55 @@ Defer these to future versions:
 
 ### Pre-Implementation
 
-- [ ] Review this roadmap with stakeholders
-- [ ] Decide on Phase 6A (config classes) - implement or defer
-- [ ] Create feature branch `feature/api-v2`
+- [x] Review this roadmap with stakeholders
+- [x] Decide on Phase 6A (config classes) - implement
 
 ### Phase 0 Checklist
-- [ ] Create `nirs4all/api/` directory
-- [ ] Create `nirs4all/sklearn/` directory
-- [ ] Stub out all new files with docstrings
-- [ ] Ensure all existing tests pass
+- [x] Create `nirs4all/api/` directory
+- [x] Create `nirs4all/sklearn/` directory
+- [x] Stub out all new files with docstrings
+- [x] Ensure all existing tests pass
 
 ### Phase 1 Checklist
-- [ ] Implement `RunResult` with all properties
-- [ ] Implement `PredictResult`
-- [ ] Implement `ExplainResult`
-- [ ] Add unit tests (≥90% coverage)
+- [x] Implement `RunResult` with all properties
+- [x] Implement `PredictResult`
+- [x] Implement `ExplainResult`
+- [x] Add unit tests (≥90% coverage)
 
 ### Phase 2 Checklist
-- [ ] Implement `run()` function
-- [ ] Implement `predict()` function
-- [ ] Implement `explain()` function
-- [ ] Implement `retrain()` function
-- [ ] Update `__init__.py` exports
-- [ ] Add integration tests
-- [ ] Create example file
+- [x] Implement `run()` function
+- [x] Implement `predict()` function
+- [x] Implement `explain()` function
+- [x] Implement `retrain()` function
+- [x] Update `__init__.py` exports
+- [x] Add integration tests
+- [x] Create example file
 
 ### Phase 3 Checklist
-- [ ] Implement `Session` class
-- [ ] Implement `session()` context manager
-- [ ] Modify API functions to accept session
-- [ ] Add tests for session lifecycle
-- [ ] Create example file
+- [x] Implement `Session` class
+- [x] Implement `session()` context manager
+- [x] Modify API functions to accept session
+- [x] Add tests for session lifecycle
+- [x] Create example file (dedicated session example)
 
 ### Phase 4 Checklist
-- [ ] Implement `NIRSPipeline` base class
-- [ ] Implement `from_result()` class method
-- [ ] Implement `from_bundle()` class method
-- [ ] Implement `predict()` method
-- [ ] Implement `model_` property
-- [ ] Implement `NIRSPipelineClassifier`
-- [ ] Add SHAP integration tests
-- [ ] Create example file
+- [x] Implement `NIRSPipeline` base class
+- [x] Implement `from_result()` class method
+- [x] Implement `from_bundle()` class method
+- [x] Implement `predict()` method
+- [x] Implement `model_` property
+- [x] Implement `NIRSPipelineClassifier`
+- [x] Add SHAP integration tests
+- [x] Create example file
 
 ### Phase 5 Checklist
-- [ ] Update README.md
-- [ ] Create migration guide
-- [ ] Update RTD documentation
-- [ ] Create comprehensive examples
-- [ ] Review all existing examples
+- [x] Update README.md
+- [x] Create migration guide
+- [x] Update RTD documentation
+- [x] Create comprehensive examples
+- [x] Review all existing examples
 
-### Release Checklist
+### Release Checklist (TO DO MANUALLY)
 - [ ] Version bump to 0.6.0
 - [ ] Update CHANGELOG.md
 - [ ] Tag release
