@@ -5,10 +5,15 @@ This section contains step-by-step guides for common tasks and workflows with NI
 ```{toctree}
 :maxdepth: 2
 
-preprocessing
-branching_merging
-stacking
-export_deploy
+data/index
+preprocessing/index
+augmentation/index
+pipelines/index
+models/index
+deployment/index
+visualization/index
+troubleshooting/index
+logging
 ```
 
 ## Overview
@@ -18,62 +23,91 @@ The User Guide provides practical how-to guides organized by topic. Each guide f
 ::::{grid} 2
 :gutter: 3
 
+:::{grid-item-card} 📊 Data Handling
+:link: data/index
+:link-type: doc
+
+Load and manage spectroscopic data from various formats. Filter samples and aggregate predictions.
+
++++
+{bdg-primary}`Essential`
+:::
+
 :::{grid-item-card} 🔬 Preprocessing
-:link: preprocessing
+:link: preprocessing/index
 :link-type: doc
 
 Master spectral preprocessing techniques: SNV, MSC, derivatives, Savitzky-Golay, and more.
 
 +++
-See {doc}`preprocessing`
+{bdg-success}`Spectral`
 :::
 
-:::{grid-item-card} 🌿 Branching & Merging
-:link: branching_merging
+:::{grid-item-card} 📈 Augmentation
+:link: augmentation/index
 :link-type: doc
 
-Create parallel pipelines with different preprocessing strategies.
+Improve model robustness with sample and feature augmentation techniques.
 
 +++
-See {doc}`branching_merging`
+{bdg-info}`Training`
 :::
 
-:::{grid-item-card} 📚 Stacking
-:link: stacking
+:::{grid-item-card} 🔀 Pipelines
+:link: pipelines/index
 :link-type: doc
 
-Build meta-models that combine predictions from multiple base models.
+Advanced pipeline patterns: branching, merging, stacking, and generators.
 
 +++
-See {doc}`stacking`
+{bdg-warning}`Advanced`
 :::
 
-:::{grid-item-card} 📦 Export & Deploy
-:link: export_deploy
+:::{grid-item-card} 🎯 Models
+:link: models/index
 :link-type: doc
 
-Package trained pipelines as standalone bundles for production.
+Train and compare machine learning models with hyperparameter tuning.
 
 +++
-See {doc}`export_deploy`
+{bdg-primary}`ML`
+:::
+
+:::{grid-item-card} 📦 Deployment
+:link: deployment/index
+:link-type: doc
+
+Export trained pipelines as standalone bundles for production use.
+
++++
+{bdg-success}`Production`
+:::
+
+:::{grid-item-card} 📊 Visualization
+:link: visualization/index
+:link-type: doc
+
+Analyze predictions, residuals, and explain model behavior with SHAP.
+
++++
+{bdg-info}`Analysis`
+:::
+
+:::{grid-item-card} 🔧 Troubleshooting
+:link: troubleshooting/index
+:link-type: doc
+
+Migration guides, common issues, and solutions.
+
++++
+{bdg-warning}`Help`
 :::
 
 ::::
 
-## Coming Soon
+## Additional Topics
 
-The following guides are planned:
-
-- **Data Handling** - Loading and managing spectroscopic data from various formats
-- **Models** - Training and comparing different machine learning models
-- **Cross-Validation** - Proper validation strategies including group-based splitting
-- **Hyperparameter Tuning** - Optimize pipelines with Optuna integration
-- **Explainability** - SHAP values and feature importance analysis
-- **Logging** - Configure logging for debugging and monitoring
-
-:::{tip}
-For now, see the {doc}`/examples/index` for working examples of these features.
-:::
+- {doc}`logging` - Configure logging for debugging and monitoring
 
 ## See Also
 

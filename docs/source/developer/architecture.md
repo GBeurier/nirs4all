@@ -261,7 +261,7 @@ The system provides multiple extension points:
 
 - {doc}`controllers` - Controller registry system
 - {doc}`/reference/pipeline_syntax` - Complete pipeline syntax
-- {doc}`/user_guide/branching_merging` - User-facing branching documentation
+- {doc}`/user_guide/pipelines/branching` - User-facing branching documentation
 - {doc}`/examples/index` - Working examples including advanced usage
 
 **Source files:**

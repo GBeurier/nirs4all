@@ -7,7 +7,14 @@ Complete reference documentation for NIRS4ALL APIs, syntax, and operators.
 
 pipeline_syntax
 operator_catalog
+generator_keywords
+combination_generator
+configuration
+metrics
+predictions_api
 cli
+workspace
+storage
 ```
 
 ## Overview
@@ -37,6 +44,51 @@ Complete listing of all available operators: preprocessors, splitters, models, a
 {bdg-success}`All Operators`
 :::
 
+:::{grid-item-card} 🔧 Generator Keywords
+:link: generator_keywords
+:link-type: doc
+
+Reference for `_or_`, `_range_`, `_choice_` and other generator keywords.
+
++++
+{bdg-info}`Generators`
+:::
+
+:::{grid-item-card} ⚙️ Configuration
+:link: configuration
+:link-type: doc
+
+Complete PipelineConfigs and DatasetConfigs specification.
+
++++
+{bdg-info}`Config`
+:::
+
+::::
+
+::::{grid} 2
+:gutter: 3
+
+:::{grid-item-card} 📊 Metrics
+:link: metrics
+:link-type: doc
+
+All evaluation metrics for regression and classification.
+
++++
+{bdg-primary}`Evaluation`
+:::
+
+:::{grid-item-card} 📈 Predictions API
+:link: predictions_api
+:link-type: doc
+
+Complete guide to the Predictions and PredictionResultsList objects.
+
++++
+{bdg-info}`Results`
+:::
+
 :::{grid-item-card} 💻 CLI Reference
 :link: cli
 :link-type: doc
@@ -44,30 +96,28 @@ Complete listing of all available operators: preprocessors, splitters, models, a
 Command-line interface documentation for all `nirs4all` workspace commands.
 
 +++
-{bdg-info}`Commands`
+{bdg-warning}`Commands`
 :::
 
-:::{grid-item-card} 🐍 API Reference
-:link: /api/module_api
+:::{grid-item-card} 📁 Workspace
+:link: workspace
 :link-type: doc
 
-Module-level API: `nirs4all.run()`, `nirs4all.predict()`, and related functions.
+Workspace architecture and directory structure.
 
 +++
-{bdg-warning}`Python API`
+{bdg-secondary}`Organization`
 :::
 
 ::::
 
 ## API Documentation
 
-Detailed API documentation is also available:
-
-- {doc}`/api/module_api` - Module-level API (`nirs4all.run()`, `nirs4all.predict()`, etc.)
-- {doc}`/api/sklearn_integration` - sklearn-compatible `NIRSPipeline` wrapper
+Detailed API documentation is also available in the {doc}`/api/modules` section.
 
 ## See Also
 
 - {doc}`/user_guide/index` - Step-by-step how-to guides
 - {doc}`/developer/architecture` - Architecture overview for developers
+- {doc}`/developer/artifacts` - Artifacts and storage developer guide
 - {doc}`/examples/index` - Working examples organized by topic

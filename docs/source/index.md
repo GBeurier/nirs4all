@@ -94,6 +94,7 @@ user_guide/index
 reference/index
 developer/index
 examples/index
+api/modules
 ```
 
 ## What is Near-Infrared Spectroscopy (NIRS)?

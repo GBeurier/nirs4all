@@ -1520,8 +1520,8 @@ pipeline = [
 
 - {doc}`operator_catalog` - All built-in nirs4all operators
 - {doc}`cli` - Command-line interface reference
-- {doc}`/user_guide/preprocessing` - Preprocessing guide
-- {doc}`/user_guide/branching_merging` - Branching and merging guide
+- {doc}`/user_guide/preprocessing/index` - Preprocessing guide
+- {doc}`/user_guide/pipelines/branching` - Branching and merging guide
 - {doc}`/developer/architecture` - Pipeline architecture overview
 
 ---

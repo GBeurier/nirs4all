@@ -78,6 +78,17 @@ Advanced examples for power users:
 - **D04_merge_sources.py** - Multi-source data handling
 - **D05_meta_stacking.py** - Meta-model stacking ensembles
 
+## Reference Examples (R01-R04)
+
+Standalone reference examples for testing and demonstration:
+
+| Example | Topic | Description |
+|---------|-------|-------------|
+| **R01_pipeline_syntax.py** | Pipeline Syntax | Complete syntax demonstration |
+| **R02_generator_reference.py** | Generators | All generator keywords |
+| **R03_all_keywords.py** | Keywords | All pipeline keywords |
+| **R04_legacy_api.py** | Legacy API | Deprecated API examples |
+
 ## Running Examples
 
 ```bash
@@ -142,6 +153,8 @@ print(f"Best RMSE: {result.best_rmse:.4f}")
 
 ## See Also
 
-- {doc}`/getting_started/index` - Installation and quick start
+- {doc}`/getting_started/installation` - Installation guide
+- {doc}`/getting_started/quickstart` - Quick start in 5 minutes
+- {doc}`/getting_started/concepts` - Core concepts
 - {doc}`/user_guide/index` - Detailed how-to guides
 - {doc}`/reference/pipeline_syntax` - Complete pipeline syntax
