@@ -286,7 +286,7 @@ build_examples_list() {
       fi
     done
     existing=("${filtered[@]}")
-    echo "Quick mode: Skipping deep learning examples"
+    echo "Quick mode: Skipping deep learning examples" >&2
   fi
 
   echo "${existing[@]}"
@@ -323,14 +323,16 @@ fi
 # Handle Selection Parameters (-i, -b, -e, -n)
 # =============================================================================
 
+# Validate mutually exclusive options
+# -i (single index) and -n (name pattern) are exclusive
+# -b and -e can be used together (range) but not with -i or -n
 paramCount=0
 if [ "${INDEX:-0}" -gt 0 ]; then paramCount=$((paramCount+1)); fi
-if [ "${BEGIN:-0}" -gt 0 ]; then paramCount=$((paramCount+1)); fi
-if [ "${END:-0}" -gt 0 ]; then paramCount=$((paramCount+1)); fi
+if [ "${BEGIN:-0}" -gt 0 ] || [ "${END:-0}" -gt 0 ]; then paramCount=$((paramCount+1)); fi
 if [ -n "${NAME}" ]; then paramCount=$((paramCount+1)); fi
 
 if [ "$paramCount" -gt 1 ]; then
-  echo "Error: Specify only one of -i (Index), -b (Begin), -e (End), or -n (Name)." >&2
+  echo "Error: Specify only one of -i (Index), -b/-e (Range), or -n (Name)." >&2
   exit 1
 fi
 

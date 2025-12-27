@@ -5,17 +5,8 @@
 name: Verify Examples
 
 on:
-  push:
-    branches: [main, master]
-    paths:
-      - 'examples/**'
-      - 'nirs4all/**'
-      - '.github/workflows/examples.yml'
-  pull_request:
-    branches: [main, master]
-    paths:
-      - 'examples/**'
-      - 'nirs4all/**'
+  # Examples only run on schedule or manual trigger to save CI time
+  # Regular push/PR only run unit/integration tests (see CI.yaml)
   schedule:
     # Run weekly on Sunday at 00:00 UTC
     - cron: '0 0 * * 0'
@@ -57,7 +48,6 @@ jobs:
   verify-user-path:
     runs-on: ubuntu-latest
     needs: verify-quick-examples
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -85,7 +75,6 @@ jobs:
   verify-developer-path:
     runs-on: ubuntu-latest
     needs: verify-quick-examples
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
