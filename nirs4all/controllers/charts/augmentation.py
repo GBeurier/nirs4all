@@ -334,7 +334,7 @@ class AugmentationChartController(OperatorController):
         ax1.set_title(f"Original ({len(base_indices_list)} samples) - {processing_name}", fontsize=10)
 
         # Get colormap for different transformers
-        cmap = plt.colormaps.get_cmap('Set2')
+        cmap = plt.colormaps['Set2']
         colors = cmap(np.linspace(0, 1, max(n_transformers, 1)))
 
         # Plot each transformer group

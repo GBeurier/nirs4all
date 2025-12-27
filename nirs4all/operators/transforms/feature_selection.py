@@ -173,7 +173,7 @@ class CARS(TransformerMixin, BaseEstimator):
         if y is None:
             raise ValueError("CARS requires y (target values) for fitting")
 
-        X = check_array(X, dtype=np.float64, force_all_finite='allow-nan')
+        X = check_array(X, dtype=np.float64, ensure_all_finite='allow-nan')
         y = np.asarray(y).ravel()
 
         if len(y) != X.shape[0]:
@@ -287,7 +287,7 @@ class CARS(TransformerMixin, BaseEstimator):
         """
         check_is_fitted(self, ['selected_indices_', 'selection_mask_'])
 
-        X = check_array(X, dtype=np.float64, force_all_finite='allow-nan')
+        X = check_array(X, dtype=np.float64, ensure_all_finite='allow-nan')
 
         if X.shape[1] != self.n_features_in_:
             raise ValueError(
@@ -475,7 +475,7 @@ class MCUVE(TransformerMixin, BaseEstimator):
         if y is None:
             raise ValueError("MC-UVE requires y (target values) for fitting")
 
-        X = check_array(X, dtype=np.float64, force_all_finite='allow-nan')
+        X = check_array(X, dtype=np.float64, ensure_all_finite='allow-nan')
         y = np.asarray(y).ravel()
 
         if len(y) != X.shape[0]:
@@ -597,7 +597,7 @@ class MCUVE(TransformerMixin, BaseEstimator):
         """
         check_is_fitted(self, ['selected_indices_', 'selection_mask_'])
 
-        X = check_array(X, dtype=np.float64, force_all_finite='allow-nan')
+        X = check_array(X, dtype=np.float64, ensure_all_finite='allow-nan')
 
         if X.shape[1] != self.n_features_in_:
             raise ValueError(

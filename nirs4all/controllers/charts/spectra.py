@@ -309,11 +309,11 @@ class SpectraChartController(OperatorController):
             n_unique = len(unique_values)
 
             if n_unique <= 10:
-                colormap = cm.get_cmap('tab10', n_unique)
+                colormap = plt.colormaps['tab10'].resampled(n_unique)
             elif n_unique <= 20:
-                colormap = cm.get_cmap('tab20', n_unique)
+                colormap = plt.colormaps['tab20'].resampled(n_unique)
             else:
-                colormap = cm.get_cmap('hsv', n_unique)
+                colormap = plt.colormaps['hsv'].resampled(n_unique)
 
             # Create mapping from actual values to discrete indices
             value_to_index = {val: idx for idx, val in enumerate(unique_values)}
@@ -321,7 +321,7 @@ class SpectraChartController(OperatorController):
             y_min, y_max = 0, n_unique - 1
         else:
             # Use continuous colormap for regression
-            colormap = plt.colormaps.get_cmap('viridis')
+            colormap = plt.colormaps['viridis']
             y_min, y_max = y_sorted.min(), y_sorted.max()
 
             # Normalize y values to [0, 1] for colormap
@@ -428,11 +428,11 @@ class SpectraChartController(OperatorController):
             n_unique = len(unique_values)
 
             if n_unique <= 10:
-                colormap = cm.get_cmap('tab10', n_unique)
+                colormap = plt.colormaps['tab10'].resampled(n_unique)
             elif n_unique <= 20:
-                colormap = cm.get_cmap('tab20', n_unique)
+                colormap = plt.colormaps['tab20'].resampled(n_unique)
             else:
-                colormap = cm.get_cmap('hsv', n_unique)
+                colormap = plt.colormaps['hsv'].resampled(n_unique)
 
             # Create mapping from actual values to discrete indices
             value_to_index = {val: idx for idx, val in enumerate(unique_values)}
@@ -440,7 +440,7 @@ class SpectraChartController(OperatorController):
             y_min, y_max = 0, n_unique - 1
         else:
             # Use continuous colormap for regression
-            colormap = plt.colormaps.get_cmap('viridis')
+            colormap = plt.colormaps['viridis']
             y_min, y_max = y_sorted.min(), y_sorted.max()
 
             # Normalize y values to [0, 1] for colormap

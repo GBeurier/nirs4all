@@ -1,6 +1,7 @@
 <div align="center">
 
-<img src="docs/assets/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
+<img src="docs/source/assets/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
+<img src="docs/source/assets/logo-cirad-en.jpg" width="300" alt="CIRAD Logo">
 
 # NIRS4ALL
 
@@ -25,6 +26,10 @@
 
 NIRS4ALL bridges the gap between spectroscopic data and machine learning by providing a unified framework for **data loading**, **preprocessing**, **model training**, and **evaluation**. Built for researchers and practitioners working with Near-Infrared Spectroscopy data.
 
+<div align="center">
+<img src="docs/source/assets/pipeline.jpg" width="400" alt="Performance Heatmap">
+</div>
+
 ### Key Features
 
 - **NIRS-Specific Preprocessing** — SNV, MSC, Savitzky-Golay, derivatives, and 25+ spectral transforms
@@ -36,8 +41,9 @@ NIRS4ALL bridges the gap between spectroscopic data and machine learning by prov
 - **sklearn Compatible** — `NIRSPipeline` wrapper for SHAP, cross-validation, and more
 
 <div align="center">
-<img src="docs/assets/heatmap.png" width="400" alt="Performance Heatmap">
-<img src="docs/assets/candlestick.png" width="400" alt="Performance Distribution">
+<img src="docs/source/assets/heatmap.png" width="400" alt="Performance Heatmap">
+<img src="docs/source/assets/candlestick.png" width="400" alt="Performance Distribution">
+<img src="docs/source/assets/stacking.png" width="400" alt="Regression Scatter Plot">
 <br><em>Advanced visualization capabilities for model performance analysis</em>
 </div>
 
