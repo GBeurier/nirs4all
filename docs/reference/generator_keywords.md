@@ -23,13 +23,18 @@ This document provides a comprehensive reference for all generator keywords used
    - [_tags_](#_tags_)
    - [_metadata_](#_metadata_)
 4. [Phase 4: Production Keywords](#phase-4-production-keywords)
+   - [_cartesian_](#_cartesian_)
    - [_mutex_](#_mutex_)
    - [_requires_](#_requires_)
+   - [_depends_on_](#_depends_on_)
    - [_exclude_](#_exclude_)
    - [_preset_](#_preset_)
-5. [API Functions](#api-functions)
-6. [Selection Semantics: pick vs arrange](#selection-semantics-pick-vs-arrange)
-7. [Common Patterns and Examples](#common-patterns-and-examples)
+5. [Modifier Keywords](#modifier-keywords)
+   - [_seed_](#_seed_)
+   - [_weights_](#_weights_)
+6. [API Functions](#api-functions)
+7. [Selection Semantics: pick vs arrange](#selection-semantics-pick-vs-arrange)
+8. [Common Patterns and Examples](#common-patterns-and-examples)
 
 ---
 
@@ -43,9 +48,10 @@ The generator module expands pipeline configuration specifications into concrete
 from nirs4all.pipeline.config.generator import (
     # Core API
     expand_spec,
+    expand_spec_with_choices,
     count_combinations,
 
-    # Iterator API (Phase 4)
+    # Iterator API
     expand_spec_iter,
     batch_iter,
     iter_with_progress,
@@ -53,18 +59,97 @@ from nirs4all.pipeline.config.generator import (
     # Validation
     validate_spec,
     validate_config,
+    validate_expanded_configs,
 
     # Presets
+    PRESET_KEYWORD,
     register_preset,
+    unregister_preset,
     get_preset,
+    get_preset_info,
     list_presets,
+    clear_presets,
+    has_preset,
+    is_preset_reference,
+    resolve_preset,
     resolve_presets_recursive,
+    export_presets,
+    import_presets,
+    register_builtin_presets,
+
+    # Constraints
+    apply_mutex_constraint,
+    apply_requires_constraint,
+    apply_exclude_constraint,
+    apply_all_constraints,
+    parse_constraints,
+    validate_constraints,
 
     # Export utilities
     to_dataframe,
     diff_configs,
     summarize_configs,
+    get_expansion_tree,
     print_expansion_tree,
+    format_config_table,
+    ExpansionTreeNode,
+
+    # Keyword constants
+    OR_KEYWORD,
+    RANGE_KEYWORD,
+    LOG_RANGE_KEYWORD,
+    GRID_KEYWORD,
+    ZIP_KEYWORD,
+    CHAIN_KEYWORD,
+    SAMPLE_KEYWORD,
+    CARTESIAN_KEYWORD,
+    SIZE_KEYWORD,
+    COUNT_KEYWORD,
+    SEED_KEYWORD,
+    WEIGHTS_KEYWORD,
+    PICK_KEYWORD,
+    ARRANGE_KEYWORD,
+    THEN_PICK_KEYWORD,
+    THEN_ARRANGE_KEYWORD,
+    TAGS_KEYWORD,
+    METADATA_KEYWORD,
+    MUTEX_KEYWORD,
+    REQUIRES_KEYWORD,
+    DEPENDS_ON_KEYWORD,
+    EXCLUDE_KEYWORD,
+
+    # Detection functions
+    is_generator_node,
+    is_pure_or_node,
+    is_pure_range_node,
+    is_pure_log_range_node,
+    is_pure_grid_node,
+    is_pure_zip_node,
+    is_pure_chain_node,
+    is_pure_sample_node,
+    is_pure_cartesian_node,
+
+    # Extraction functions
+    extract_modifiers,
+    extract_base_node,
+    extract_or_choices,
+    extract_range_spec,
+    extract_tags,
+    extract_metadata,
+    extract_constraints,
+
+    # Strategies (advanced usage)
+    ExpansionStrategy,
+    get_strategy,
+    register_strategy,
+    RangeStrategy,
+    OrStrategy,
+    LogRangeStrategy,
+    GridStrategy,
+    ZipStrategy,
+    ChainStrategy,
+    SampleStrategy,
+    CartesianStrategy,
 )
 ```
 
@@ -443,6 +528,45 @@ Attach arbitrary metadata to configurations.
 
 ## Phase 4: Production Keywords
 
+### `_cartesian_`
+
+Generate the Cartesian product of multiple stages (each with `_or_` choices), then apply pick/arrange selection on the resulting complete pipelines. This is the key pattern for preprocessing pipeline generation.
+
+**Syntax:**
+```python
+{"_cartesian_": [stage1, stage2, ...]}
+{"_cartesian_": [stage1, stage2, ...], "pick": N}
+{"_cartesian_": [stage1, stage2, ...], "arrange": N}
+```
+
+**Examples:**
+```python
+# Generate all pipeline combinations (3×3×3 = 27), then pick 2
+{"_cartesian_": [
+    {"_or_": ["MSC", "SNV", "EMSC"]},
+    {"_or_": ["SavGol", "Gaussian", None]},
+    {"_or_": [None, "Deriv1", "Deriv2"]}
+], "pick": 2}
+# → All 2-combinations of the 27 complete pipelines
+
+# Pick 1-3 complete pipelines with count limit
+{"_cartesian_": [
+    {"_or_": ["A", "B"]},
+    {"_or_": ["X", "Y"]}
+], "pick": (1, 3), "count": 20}
+```
+
+**Difference from `_grid_`:**
+- `_grid_` produces dicts (parameter combinations)
+- `_cartesian_` produces lists (ordered stages), ideal for preprocessing pipelines
+
+**Use cases:**
+- Preprocessing pipeline generation
+- Any staged pipeline where order matters
+- When you want to select from complete pipeline variants
+
+---
+
 ### `_mutex_`
 
 Mutual exclusion constraint - certain items cannot appear together.
@@ -478,6 +602,21 @@ Dependency constraint - if item A is selected, item B must also be selected.
 # Valid: [A,C], [B,C], [B,D], [C,D]
 # Invalid: [A,B], [A,D] (A without C)
 ```
+
+---
+
+### `_depends_on_`
+
+Conditional expansion - expansion depends on the value of another parameter.
+
+**Syntax:**
+```python
+{"_or_": [...], "_depends_on_": "other_param"}
+```
+
+**Use cases:**
+- Conditional hyperparameter spaces
+- Parameters that only apply when another parameter has a certain value
 
 ---
 
@@ -540,6 +679,48 @@ results = expand_spec(resolved)
 
 ---
 
+## Modifier Keywords
+
+### `_seed_`
+
+Provide a deterministic seed for random operations within a node. This ensures reproducible generation when using `count` or random sampling.
+
+**Syntax:**
+```python
+{"_or_": [...], "count": N, "_seed_": 42}
+{"_sample_": {...}, "_seed_": 42}
+```
+
+**Examples:**
+```python
+# Reproducible random selection
+{"_or_": ["A", "B", "C", "D", "E"], "count": 2, "_seed_": 42}
+# → Same 2 items every time
+
+# Reproducible sampling
+{"_sample_": {"distribution": "uniform", "from": 0, "to": 1, "num": 5}, "_seed_": 123}
+# → Same 5 values every time
+```
+
+---
+
+### `_weights_`
+
+Provide weights for weighted random selection when using `count`.
+
+**Syntax:**
+```python
+{"_or_": [...], "count": N, "_weights_": [w1, w2, ...]}
+```
+
+**Examples:**
+```python
+# Weighted random selection (A is 3x more likely than others)
+{"_or_": ["A", "B", "C", "D"], "count": 2, "_weights_": [3, 1, 1, 1]}
+```
+
+---
+
 ## API Functions
 
 ### Core Functions
@@ -548,18 +729,21 @@ results = expand_spec(resolved)
 # Expand a specification to all variants
 results = expand_spec(spec, seed=None)
 
+# Expand with choice tracking (returns configs and choice paths)
+results, choices = expand_spec_with_choices(spec, seed=None)
+
 # Count variants without generating
 count = count_combinations(spec)
 ```
 
-### Iterator Functions (Phase 4)
+### Iterator Functions
 
 ```python
 # Lazy iteration for large spaces
 for config in expand_spec_iter(spec, seed=None):
     process(config)
 
-# With sampling
+# With sampling (uses reservoir sampling for uniform distribution)
 configs = list(expand_spec_iter(spec, seed=42, sample_size=100))
 
 # Batch processing
@@ -577,49 +761,125 @@ for i, config in iter_with_progress(spec, report_every=1000):
 # Register a preset
 register_preset(name, spec, description=None, tags=None, overwrite=False)
 
-# Get preset info
+# Get preset specification
 spec = get_preset(name)
+
+# Get preset info (spec, description, tags)
 info = get_preset_info(name)
 
-# List and manage
-names = list_presets(tags=None)
+# List and manage presets
+names = list_presets(tags=None)  # Filter by tags optionally
 has_preset(name)
 unregister_preset(name)
 clear_presets()
 
-# Resolve presets in a config
+# Resolve presets in a config (handles circular reference detection)
 resolved = resolve_presets_recursive(config)
+
+# Check if a node is a preset reference
+is_preset_reference(node)
+
+# Export/import presets
+presets_dict = export_presets()
+count = import_presets(presets_dict, overwrite=False)
+
+# Register built-in presets (standard_scalers, pls_components, learning_rates)
+register_builtin_presets()
+```
+
+### Constraint Functions
+
+```python
+# Apply individual constraints
+filtered = apply_mutex_constraint(results, mutex_groups)
+filtered = apply_requires_constraint(results, requires_groups)
+filtered = apply_exclude_constraint(results, exclude_combos)
+
+# Apply all constraints at once
+filtered = apply_all_constraints(results, mutex_groups, requires_groups, exclude_combos)
+
+# Parse and validate constraints
+parsed = parse_constraints(constraint_spec)
+errors = validate_constraints(constraint_spec)
 ```
 
 ### Export Functions
 
 ```python
 # Convert to pandas DataFrame
-df = to_dataframe(configs, flatten=True)
+df = to_dataframe(configs, flatten=True, prefix_sep=".", include_index=True)
 
 # Compare configurations
 diff = diff_configs(config1, config2)
 
 # Summary statistics
-summary = summarize_configs(configs)
+summary = summarize_configs(configs, max_unique=10)
 
 # Tree visualization
-tree_str = print_expansion_tree(spec)
+tree_str = print_expansion_tree(spec, indent="  ", show_counts=True, max_depth=None)
 tree_node = get_expansion_tree(spec)
+
+# ASCII table formatting
+table_str = format_config_table(configs, columns=None, max_rows=20)
 ```
 
 ### Validation Functions
 
 ```python
-from nirs4all.pipeline.config.generator import validate_spec, validate_config
-
 # Validate a specification
 result = validate_spec(spec)
 if not result.is_valid:
     print(result.errors)
 
+# Validate a config dict
+result = validate_config(config, schema=None)
+
 # Validate expanded configs
 results = validate_expanded_configs(configs, schema=None)
+```
+
+### Detection Functions
+
+```python
+# Check if a node contains any generator keywords
+is_generator_node(node)  # True if has _or_, _range_, etc.
+
+# Check for specific node types
+is_pure_or_node(node)       # Only OR-related keys
+is_pure_range_node(node)    # Only range-related keys
+is_pure_log_range_node(node)
+is_pure_grid_node(node)
+is_pure_zip_node(node)
+is_pure_chain_node(node)
+is_pure_sample_node(node)
+is_pure_cartesian_node(node)
+
+# Check for specific keywords
+has_or_keyword(node)
+has_range_keyword(node)
+has_log_range_keyword(node)
+has_grid_keyword(node)
+has_zip_keyword(node)
+has_chain_keyword(node)
+has_sample_keyword(node)
+has_cartesian_keyword(node)
+```
+
+### Extraction Functions
+
+```python
+# Extract modifiers (size, count, pick, arrange, etc.)
+modifiers = extract_modifiers(node)
+
+# Extract non-keyword keys
+base = extract_base_node(node)
+
+# Extract specific elements
+choices = extract_or_choices(node)      # From _or_ node
+range_spec = extract_range_spec(node)   # From _range_ node
+tags = extract_tags(node)               # From _tags_
+metadata = extract_metadata(node)       # From _metadata_
+constraints = extract_constraints(node) # From _mutex_, _requires_, etc.
 ```
 
 ---
@@ -760,15 +1020,56 @@ for config in expand_spec_iter(large_spec):
 sample = list(expand_spec_iter(large_spec, seed=42, sample_size=1000))
 ```
 
+### 8. Preprocessing Pipeline with Cartesian
+
+```python
+# Generate all stage combinations, then select complete pipelines
+{
+    "_cartesian_": [
+        # Stage 1: Scatter correction
+        {"_or_": ["MSC", "SNV", "EMSC", None]},
+        # Stage 2: Smoothing
+        {"_or_": [
+            {"class": "SavitzkyGolay", "window": 11},
+            {"class": "Gaussian", "sigma": 2},
+            None
+        ]},
+        # Stage 3: Derivative
+        {"_or_": [
+            {"class": "FirstDerivative"},
+            {"class": "SecondDerivative"},
+            None
+        ]}
+    ],
+    "pick": (1, 3),  # Select 1-3 complete pipelines
+    "count": 50       # Limit to 50 variants
+}
+```
+
+### 9. Reproducible Random Search
+
+```python
+# Use _seed_ for reproducible random selection
+{
+    "_or_": [
+        {"class": "PLS", "n_components": {"_range_": [2, 20]}},
+        {"class": "RF", "n_estimators": {"_or_": [100, 200, 500]}},
+        {"class": "SVR", "C": {"_log_range_": [0.1, 100, 10]}}
+    ],
+    "count": 10,
+    "_seed_": 42  # Same 10 configs every time
+}
+```
+
 ---
 
 ## See Also
 
-- [Examples: Q23_generator_syntax.py](../../examples/Q23_generator_syntax.py) - Comprehensive examples
-- [Examples: Q24_generator_advanced.py](../../examples/Q24_generator_advanced.py) - Advanced features
-- [Examples: Q25_complex_pipeline_pls.py](../../examples/Q25_complex_pipeline_pls.py) - Complete PLS pipeline
+- [Legacy Examples: Q23_generator_syntax.py](../../examples/legacy/Q23_generator_syntax.py) - Comprehensive examples
+- [Legacy Examples: Q24_generator_advanced.py](../../examples/legacy/Q24_generator_advanced.py) - Advanced features
+- [Legacy Examples: Q25_complex_pipeline_pls.py](../../examples/legacy/Q25_complex_pipeline_pls.py) - Complete PLS pipeline
 
 ---
 
-*Document created: December 8, 2025*
-*Version: Phase 4 Complete*
+*Document updated: December 27, 2025*
+*Version: Phase 4+ Complete*
