@@ -30,9 +30,9 @@ Example:
     >>> print(f"Best RMSE: {result.best_rmse:.4f}")
     >>> result.export("exports/best_model.n4a")
 
-See examples/Q40_new_api.py for more usage examples.
+See examples/ for more usage examples.
 """
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 # Module-level API (primary interface) - Phase 2
 from .api import (

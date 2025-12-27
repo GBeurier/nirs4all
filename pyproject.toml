@@ -4,89 +4,158 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nirs4all"
-version = "0.5.1"
-description = "NIRS Analyses made easy."
+version = "0.6.0"
+description = "A comprehensive Python library for Near-Infrared Spectroscopy (NIRS) data analysis with ML/DL pipelines."
 authors = [
-    { name="Gregory Beurier", email="beurier@cirad.fr" },
-    { name="Denis Cornet", email="denis.cornet@cirad.fr" },
-    { name="Lauriane Rouan", email="lauriane.rouan@cirad.fr" }
+    { name = "Gregory Beurier", email = "beurier@cirad.fr" },
+    { name = "Denis Cornet", email = "denis.cornet@cirad.fr" },
+    { name = "Lauriane Rouan", email = "lauriane.rouan@cirad.fr" }
 ]
 readme = "README.md"
 license = { file = "LICENSE" }
 
 maintainers = [
-  { name = "Gregory Beurier", email = "gregory.beurier@cirad.fr" }
+    { name = "Gregory Beurier", email = "gregory.beurier@cirad.fr" }
+]
+
+keywords = [
+    "nirs",
+    "near-infrared",
+    "spectroscopy",
+    "chemometrics",
+    "machine-learning",
+    "deep-learning",
+    "preprocessing",
+    "pls",
+    "sklearn",
+    "tensorflow",
+    "pytorch",
+    "jax"
 ]
 
 classifiers = [
-  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
-  "Programming Language :: Python :: 3",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: CEA CNRS Inria Logiciel Libre License, version 2.1 (CeCILL-2.1)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Typing :: Typed",
 ]
 
 requires-python = ">=3.11"
 dependencies = [
-    "numpy>=1.20.0",
+    # Core scientific computing
+    "numpy>=1.24.0",
     "pandas>=2.0.0",
-    "scipy>=1.5.0",
-    "scikit-learn>=0.24.0",
-    "PyWavelets>=1.1.0",
-    "joblib>=0.16.0",
-    "jsonschema>=3.2.0",
-    "kennard-stone>=0.5.0",
+    "scipy>=1.10.0",
+    "scikit-learn>=1.2.0",
+
+    # Data processing
+    "polars>=0.20.0",
+    "pyarrow>=14.0.0",
+    "h5py>=3.8.0",
+
+    # Signal processing
+    "PyWavelets>=1.4.0",
+
+    # Optimization & hyperparameter tuning
+    "optuna>=3.0.0",
+
+    # Visualization
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+
+    # Model explainability
+    "shap>=0.42.0",
+
+    # Utilities
+    "joblib>=1.2.0",
+    "jsonschema>=4.17.0",
+    "pyyaml>=6.0.0",
+    "packaging>=23.0",
+
+    # NIRS-specific splitting methods
+    "kennard-stone>=2.2.0",
     "twinning>=0.0.5",
-    "optuna>=2.0.0",
-    "matplotlib>=3.0.0",
-    "polars>=0.18.0",
-    "pyarrow>=10.0.0",
-    "pyyaml>=5.4.0",
-    "seaborn>=0.11.0",
-    "h5py>=3.0.0",
-    "packaging>=20.0",
-    "shap>=0.41.0",
 ]
 
 [project.optional-dependencies]
-tensorflow = ["tensorflow>=2.10.0"]
-gpu = ["tensorflow[and-cuda]>=2.10.0"]
-torch = ["torch>=2.0.0"]
+# Deep learning backends
+tensorflow = ["tensorflow>=2.14.0"]
+gpu = ["tensorflow[and-cuda]>=2.14.0"]
+torch = ["torch>=2.1.0"]
 keras = ["keras>=3.0.0"]
-jax = ["jax>=0.4.10", "jaxlib>=0.4.10"]
-pls = ["ikpls>=1.0.0", "pyopls>=20.0", "mbpls>=1.0.0", "trendfitter>=0.0.6", "sparse-pls>=0.1.0"]
+jax = ["jax>=0.4.20", "jaxlib>=0.4.20", "flax>=0.8.0"]
+
+# Advanced PLS variants
+pls = [
+    "ikpls>=1.1.0",
+    "pyopls>=20.0",
+    "mbpls>=1.0.0",
+    "trendfitter>=0.0.6",
+    "sparse-pls>=0.1.0"
+]
+
+# Complete installation with all ML frameworks
 all = [
-    "tensorflow>=2.10.0",
-    "torch>=2.0.0",
+    "tensorflow>=2.14.0",
+    "torch>=2.1.0",
     "keras>=3.0.0",
-    "jax>=0.4.10",
-    "jaxlib>=0.4.10",
-    "ikpls>=1.0.0",
+    "jax>=0.4.20",
+    "jaxlib>=0.4.20",
+    "flax>=0.8.0",
+    "ikpls>=1.1.0",
     "pyopls>=20.0",
     "mbpls>=1.0.0",
     "trendfitter>=0.0.6",
     "sparse-pls>=0.1.0"
 ]
+
+# Complete installation with GPU support
 all-gpu = [
-    "tensorflow[and-cuda]>=2.10.0",
-    "torch>=2.0.0",
+    "tensorflow[and-cuda]>=2.14.0",
+    "torch>=2.1.0",
     "keras>=3.0.0",
-    "jax>=0.4.10",
-    "jaxlib>=0.4.10",
-    "flax",
-    "ikpls>=1.0.0",
+    "jax[cuda12]>=0.4.20",
+    "jaxlib>=0.4.20",
+    "flax>=0.8.0",
+    "ikpls>=1.1.0",
     "pyopls>=20.0",
     "mbpls>=1.0.0",
     "trendfitter>=0.0.6",
     "sparse-pls>=0.1.0"
 ]
 
+# Development dependencies
 dev = [
-    "pytest",
-    "pytest-cov",
-    "pytest-xdist",
-    "build"
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.5.0",
+    "pytest-benchmark>=4.0.0",
+    "build>=1.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
 ]
 
+# Documentation
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=2.0.0",
+    "myst-parser>=2.0.0",
+    "sphinx-copybutton>=0.5.0",
+    "sphinx-design>=0.5.0",
+]
+
+# Report generation
 reports = [
-    "pypandoc>=1.11",
+    "pypandoc>=1.12",
     "PyPDF2>=3.0.0",
     "pdf2image>=1.16.0"
 ]
@@ -94,28 +163,76 @@ reports = [
 [project.scripts]
 nirs4all = "nirs4all.cli.main:main"
 
+[project.urls]
+Homepage = "https://github.com/GBeurier/nirs4all"
+Documentation = "https://nirs4all.readthedocs.io"
+Repository = "https://github.com/GBeurier/nirs4all"
+Issues = "https://github.com/GBeurier/nirs4all/issues"
+Changelog = "https://github.com/GBeurier/nirs4all/blob/main/CHANGELOG.md"
+
 [tool.setuptools.packages.find]
 include = ["nirs4all*"]
 
+[tool.setuptools.package-data]
+nirs4all = ["py.typed"]
+
+# Ruff configuration (replaces flake8 + pylint for linting)
+[tool.ruff]
+line-length = 220
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["E402", "F841", "F401", "E302", "E305", "W293", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*" = ["B", "SIM"]
+
+# Pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "sklearn: sklearn-only tests",
+    "tensorflow: TensorFlow tests",
+    "torch: PyTorch tests",
+    "jax: JAX tests",
+    "slow: slow running tests",
+    "gpu: GPU-requiring tests",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["nirs4all"]
+omit = ["*/tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+# Legacy tool configuration (for compatibility)
 [tool.pylint.'MESSAGES CONTROL']
 disable = ["invalid-name", "trailing-whitespace", "line-too-long", "import-outside-toplevel"]
 
 [tool.pylint.'FORMAT']
 max-line-length = 220
 
-[tool.flake8]
-max-line-length = 220
-ignore = ["E402","F841","F401","E302","E305","W293","W901","W291"]
-exclude = ["build", "dist", ".venv", "docs", "sample_data"]
-
-[project.urls]
-Homepage = "https://github.com/gbeurier/nirs4all"
-Documentation = "https://github.com/gbeurier/nirs4all#readme"
-Issues = "https://github.com/gbeurier/nirs4all/issues"
-
 [tool.nirs4all]
 product_owner = { name = "Denis Cornet", email = "denis.cornet@cirad.fr" }
 contributors = [
-  { name = "Denis Cornet" },
-  { name = "Lauriane Rouan" }
+    { name = "Denis Cornet" },
+    { name = "Lauriane Rouan" }
 ]
