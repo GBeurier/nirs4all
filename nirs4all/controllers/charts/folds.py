@@ -294,12 +294,12 @@ class FoldChartController(OperatorController):
 
             # Use a highly contrastive colormap (tab20, tab20b, tab20c for many categories)
             if n_unique <= 10:
-                colormap = cm.get_cmap('tab10', n_unique)
+                colormap = plt.colormaps['tab10'].resampled(n_unique)
             elif n_unique <= 20:
-                colormap = cm.get_cmap('tab20', n_unique)
+                colormap = plt.colormaps['tab20'].resampled(n_unique)
             else:
                 # For many categories, use a combination or hsv
-                colormap = cm.get_cmap('hsv', n_unique)
+                colormap = plt.colormaps['hsv'].resampled(n_unique)
 
             # Create a mapping from actual values to discrete indices
             value_to_index = {val: idx for idx, val in enumerate(unique_values)}
@@ -312,7 +312,7 @@ class FoldChartController(OperatorController):
         else:
             # For continuous y values (regression): use continuous colormap
             y_min, y_max = y_values.min(), y_values.max()
-            colormap = cm.get_cmap('viridis')
+            colormap = plt.colormaps['viridis']
             # Normalize y values to [0, 1] for colormap
             if y_max != y_min:
                 y_normalized = (y_values - y_min) / (y_max - y_min)
@@ -546,11 +546,11 @@ class FoldChartController(OperatorController):
 
             # Create discrete colormap for colorbar
             if n_unique <= 10:
-                cmap_discrete = cm.get_cmap('tab10', n_unique)
+                cmap_discrete = plt.colormaps['tab10'].resampled(n_unique)
             elif n_unique <= 20:
-                cmap_discrete = cm.get_cmap('tab20', n_unique)
+                cmap_discrete = plt.colormaps['tab20'].resampled(n_unique)
             else:
-                cmap_discrete = cm.get_cmap('hsv', n_unique)
+                cmap_discrete = plt.colormaps['hsv'].resampled(n_unique)
 
             # Create boundaries between discrete values
             boundaries = np.arange(n_unique + 1) - 0.5

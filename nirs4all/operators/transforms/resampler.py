@@ -166,7 +166,7 @@ class Resampler(TransformerMixin, BaseEstimator):
         self : Resampler
             Fitted resampler.
         """
-        X = check_array(X, dtype=np.float64, force_all_finite='allow-nan', copy=self.copy)
+        X = check_array(X, dtype=np.float64, ensure_all_finite='allow-nan', copy=self.copy)
 
         if wavelengths is None:
             raise ValueError(
@@ -240,7 +240,7 @@ class Resampler(TransformerMixin, BaseEstimator):
         """
         check_is_fitted(self, ['original_wavelengths_', 'interpolator_params_'])
 
-        X = check_array(X, dtype=np.float64, force_all_finite='allow-nan', copy=self.copy)
+        X = check_array(X, dtype=np.float64, ensure_all_finite='allow-nan', copy=self.copy)
 
         # Check that input matches the original shape
         if X.shape[1] != self.n_features_in_:

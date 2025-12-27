@@ -363,15 +363,15 @@ class ExclusionChartController(OperatorController):
             unique_y = np.unique(y_values)
             n_unique = len(unique_y)
             if n_unique <= 10:
-                cmap = cm.get_cmap('tab10', n_unique)
+                cmap = plt.colormaps['tab10'].resampled(n_unique)
             else:
-                cmap = cm.get_cmap('viridis')
+                cmap = plt.colormaps['viridis']
 
             # Normalize y to [0, 1]
             y_to_idx = {v: i for i, v in enumerate(unique_y)}
             y_norm = np.array([y_to_idx[v] / max(n_unique - 1, 1) for v in y_values])
         else:
-            cmap = cm.get_cmap('viridis')
+            cmap = plt.colormaps['viridis']
             y_min, y_max = y_values.min(), y_values.max()
             if y_max > y_min:
                 y_norm = (y_values - y_min) / (y_max - y_min)
@@ -443,9 +443,9 @@ class ExclusionChartController(OperatorController):
 
         # Use tab10/tab20 for discrete reasons
         if n_reasons <= 10:
-            cmap = cm.get_cmap('tab10', n_reasons)
+            cmap = plt.colormaps['tab10'].resampled(n_reasons)
         else:
-            cmap = cm.get_cmap('tab20', n_reasons)
+            cmap = plt.colormaps['tab20'].resampled(n_reasons)
 
         reason_to_idx = {r: i for i, r in enumerate(unique_reasons)}
         reason_colors: Dict[str, Any] = {r: cmap(i / max(n_reasons - 1, 1)) for i, r in enumerate(unique_reasons)}

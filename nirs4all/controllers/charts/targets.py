@@ -228,7 +228,7 @@ class YChartController(OperatorController):
             common_bins = None
 
         # Get colormap
-        viridis_cmap = cm.get_cmap('viridis')
+        viridis_cmap = plt.colormaps['viridis']
 
         # Plot each fold's validation set
         for fold_idx, (train_idx, val_idx) in enumerate(folds):
@@ -439,7 +439,7 @@ class YChartController(OperatorController):
         test_stats = f'Test (n={len(y_test_flat)}):\nMean: {np.mean(y_test_flat):.3f}\nStd: {np.std(y_test_flat):.3f}'
 
         # Use 0.1/0.9 positions from viridis colormap
-        viridis_cmap = cm.get_cmap('viridis')
+        viridis_cmap = plt.colormaps['viridis']
         train_color = viridis_cmap(0.9)  # Bright yellow-green for train
         test_color = viridis_cmap(0.1)   # Dark purple-blue for test
 
@@ -495,7 +495,7 @@ class YChartController(OperatorController):
         x_pos = np.arange(len(unique_values))
 
         # Use 0.1 and 0.9 positions from viridis colormap
-        viridis_cmap = cm.get_cmap('viridis')
+        viridis_cmap = plt.colormaps['viridis']
         train_color = viridis_cmap(0.9)  # Bright yellow-green
         test_color = viridis_cmap(0.1)   # Dark purple-blue
 
@@ -557,7 +557,7 @@ class YChartController(OperatorController):
 
         # If one dataset is empty, just plot the other one
         if len(y_train) == 0:
-            viridis_cmap = cm.get_cmap('viridis')
+            viridis_cmap = plt.colormaps['viridis']
             test_color = viridis_cmap(0.1)  # Dark purple-blue for test
             bins = np.linspace(np.min(y_test), np.max(y_test), 31)
             ax.hist(y_test, bins=bins, label='Test', color=test_color, alpha=0.7)
@@ -567,7 +567,7 @@ class YChartController(OperatorController):
             return
 
         if len(y_test) == 0:
-            viridis_cmap = cm.get_cmap('viridis')
+            viridis_cmap = plt.colormaps['viridis']
             train_color = viridis_cmap(0.9)  # Bright yellow-green for train
             bins = np.linspace(np.min(y_train), np.max(y_train), 31)
             ax.hist(y_train, bins=bins, label='Train', color=train_color, alpha=0.7)
@@ -584,7 +584,7 @@ class YChartController(OperatorController):
         bins = np.linspace(y_min, y_max, n_bins + 1)
 
         # Create histograms with 0.1/0.9 viridis colors based on layout
-        viridis_cmap = cm.get_cmap('viridis')
+        viridis_cmap = plt.colormaps['viridis']
         train_color = viridis_cmap(0.9)  # Bright yellow-green
         test_color = viridis_cmap(0.1)   # Dark purple-blue
 

@@ -76,7 +76,7 @@ class SpectralDistributionController(OperatorController):
         has_cv_folds = folds is not None and len(folds) > 1
 
         # Get colormap colors
-        viridis_cmap = cm.get_cmap('viridis')
+        viridis_cmap = plt.colormaps['viridis']
         train_color = viridis_cmap(0.85)
         train_color_dark = viridis_cmap(0.95)
         test_color = viridis_cmap(0.15)
