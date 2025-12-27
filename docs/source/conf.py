@@ -20,7 +20,7 @@ def setup(app):
 project = 'Nirs4all'
 copyright = '2025, Gregory Beurier'
 author = 'Gregory Beurier'
-release = '0.4.2'
+release = '0.5.1'
 
 # -- General configuration ---------------------------------------------------
 
@@ -29,8 +29,10 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinx.ext.viewcode',
     'sphinx.ext.githubpages',
+    'sphinx.ext.intersphinx',     # Cross-reference to sklearn, numpy, etc.
     'myst_parser',
     'sphinx_copybutton',
+    'sphinx_design',               # Cards, tabs, grids
 ]
 
 templates_path = ['_templates']
@@ -60,5 +62,16 @@ napoleon_use_rtype = True
 myst_enable_extensions = [
     "colon_fence",
     "deflist",
+    "substitution",               # Variable substitution
+    "tasklist",                   # Checkboxes
+    "attrs_block",                # Block attributes
 ]
 myst_heading_anchors = 3
+
+# Intersphinx for cross-references to external documentation
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+    'numpy': ('https://numpy.org/doc/stable/', None),
+    'sklearn': ('https://scikit-learn.org/stable/', None),
+    'pandas': ('https://pandas.pydata.org/docs/', None),
+}

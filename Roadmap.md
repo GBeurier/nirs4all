@@ -2,16 +2,10 @@
 
 
 **Features**:
-
-> [Examples] update, clean and document examples and tutorial notebooks, Add examples with custom classes
-> [Examples] Clean and document
-> [Examples] Orgzanize and optimize the full run, add verbose global variables, REVIEW the tranformations to ensure pp are still ok and used by models.
-> [Example] The full integration example with all features in one, using branching, multidatasets, etc.
+> [Docs] Redo documentation and integrate into RTD. Update rtd api docs.
+> [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
 
 > [pytoml] Update imports and configs. Anticipate ui dependencies.
-
-> [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
-> [Docs] Redo documentation and integrate into RTD. Update rtd api docs.
 
 Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications) and dataset configs that cover all cases.
 Or from synthetic data generator. + their respective dataconfig

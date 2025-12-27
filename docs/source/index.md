@@ -4,7 +4,58 @@
 <img src="assets/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
 </div>
 
-NIRS4ALL is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
+**NIRS4ALL** is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
+
+::::{grid} 2
+:gutter: 3
+
+:::{grid-item-card} 🚀 Getting Started
+:link: getting_started/index
+:link-type: doc
+:class-card: sd-bg-light
+
+New to nirs4all? Start here with installation and your first pipeline.
+
++++
+{bdg-primary}`Beginner` {bdg-info}`5 min`
+:::
+
+:::{grid-item-card} 📖 User Guide
+:link: user_guide/index
+:link-type: doc
+:class-card: sd-bg-light
+
+Step-by-step guides for preprocessing, stacking, export, and more.
+
++++
+{bdg-secondary}`How-to` {bdg-success}`Task-oriented`
+:::
+
+:::{grid-item-card} 📚 Reference
+:link: reference/index
+:link-type: doc
+:class-card: sd-bg-light
+
+Complete API reference, pipeline syntax, and operator catalog.
+
++++
+{bdg-warning}`Reference` {bdg-dark}`Complete`
+:::
+
+:::{grid-item-card} 🔧 Developer Guide
+:link: developer/index
+:link-type: doc
+:class-card: sd-bg-light
+
+Architecture, internals, and contribution guidelines.
+
++++
+{bdg-danger}`Advanced` {bdg-info}`Contribute`
+:::
+
+::::
+
+---
 
 ## Quick Start
 
@@ -29,16 +80,20 @@ print(f"Best RMSE: {result.best_rmse:.4f}")
 result.export("exports/best_model.n4a")
 ```
 
+:::{tip}
+See {doc}`examples/index` for 50+ working examples organized by topic.
+:::
+
 ```{toctree}
 :maxdepth: 2
 :caption: Contents:
+:hidden:
 
-tutorials
-reference
-architecture
-api/module_api
-api/sklearn_integration
-api/modules
+getting_started/index
+user_guide/index
+reference/index
+developer/index
+examples/index
 ```
 
 ## What is Near-Infrared Spectroscopy (NIRS)?

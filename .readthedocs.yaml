@@ -1,24 +1,33 @@
 # .readthedocs.yaml
+# Read the Docs configuration file for Sphinx
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html
+
 version: 2
 
 # Build documentation in the docs/ directory with Sphinx
 sphinx:
   configuration: docs/source/conf.py
-
-# Build documentation with MkDocs
-# mkdocs:
-#   configuration: mkdocs.yml
+  fail_on_warning: false  # Set to true once docs are complete
 
 # Optionally build your docs in additional formats such as PDF and ePub
 formats: all
 
-
-# Optionally declare the version of the tools you want to use
+# Build settings
 build:
   os: ubuntu-22.04
   tools:
     python: "3.11"
+  jobs:
+    post_checkout:
+      # Ensure git history is available for version detection
+      - git fetch --unshallow || true
 
 python:
   install:
-    - requirements: "docs/readthedocs.requirements.txt"
+    # Install documentation dependencies
+    - requirements: docs/readthedocs.requirements.txt
+    # Install nirs4all package in editable mode for autodoc
+    - method: pip
+      path: .
+      extra_requirements: []
+
