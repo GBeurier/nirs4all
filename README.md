@@ -1,90 +1,47 @@
 <div align="center">
+
 <img src="docs/assets/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
 
+# NIRS4ALL
+
+**A comprehensive Python library for Near-Infrared Spectroscopy data analysis**
+
 [![PyPI version](https://img.shields.io/pypi/v/nirs4all.svg)](https://pypi.org/project/nirs4all/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/release/python-311/)
-[![License: CECILL-2.1](https://img.shields.io/badge/license-CECILL--2.1-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: CeCILL-2.1](https://img.shields.io/badge/license-CeCILL--2.1-blue.svg)](LICENSE)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+
+[Documentation](https://nirs4all.readthedocs.io) •
+[Installation](#installation) •
+[Quick Start](#quick-start) •
+[Examples](examples/) •
+[Contributing](CONTRIBUTING.md)
+
 </div>
-<!-- [![Build](https://github.com/gbeurier/nirs4all/actions/workflows/CI.yml/badge.svg)](https://github.com/gbeurier/nirs4all/actions/workflows/CI.yml) -->
-<!-- [![Documentation Status](https://readthedocs.org/projects/nirs4all/badge/?version=latest)](https://nirs4all.readthedocs.io/) -->
-<!-- [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1234567.svg)](https://doi.org/10.5281/zenodo.1234567) -->
 
-NIRS4ALL is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
+---
 
-<!-- <img src="docs/assets/pipeline.jpg" width="700" alt="NIRS4ALL Pipeline"> -->
+## Overview
 
-## What is Near-Infrared Spectroscopy (NIRS)?
+NIRS4ALL bridges the gap between spectroscopic data and machine learning by providing a unified framework for **data loading**, **preprocessing**, **model training**, and **evaluation**. Built for researchers and practitioners working with Near-Infrared Spectroscopy data.
 
-Near-Infrared Spectroscopy (NIRS) is a rapid and non-destructive analytical technique that uses the near-infrared region of the electromagnetic spectrum (approximately 700-2500 nm). NIRS measures how near-infrared light interacts with the molecular bonds in materials, particularly C-H, N-H, and O-H bonds, providing information about the chemical composition of samples.
+### Key Features
 
-### Key advantages of NIRS:
-- Non-destructive analysis
-- Minimal sample preparation
-- Rapid results (seconds to minutes)
-- Potential for on-line/in-line implementation
-- Simultaneous measurement of multiple parameters
-
-### Common applications:
-- Agriculture: soil analysis, crop quality assessment
-- Food industry: quality control, authenticity verification
-- Pharmaceutical: raw material verification, process monitoring
-- Medical: tissue monitoring, brain imaging
-- Environmental: pollutant detection, water quality monitoring
-
-### Notes:
-
-NIRS4All is in active development; APIs and docs are subject to change.
-Pre-1.0 notice: interfaces and documentation may change without notice.
-
-## Features
-
-NIRS4ALL offers a wide range of functionalities:
-
-1. **Spectrum Preprocessing**:
-   - Baseline correction
-   - Standard normal variate (SNV)
-   - Robust normal variate
-   - Savitzky-Golay filtering
-   - Normalization
-   - Detrending
-   - Multiplicative scatter correction
-   - Derivative computation
-   - Gaussian filtering
-   - Haar wavelet transformation
-   - And more...
-
-2. **Data Splitting Methods**:
-   - Kennard Stone
-   - SPXY
-   - Random sampling
-   - Stratified sampling
-   - K-means
-   - And more...
-
-3. **Model Integration**:
-   - Scikit-learn models
-   - TensorFlow/Keras models
-   - Pre-configured neural networks dedicated to the NIRS: nicon & decon (see publication below)
-   - PyTorch models (via extensions)
-   - JAX models (via extensions)
-
-4. **Model Fine-tuning**:
-   - Hyperparameter optimization with Optuna
-   - Grid search and random search
-   - Cross-validation strategies
-
-5. **Visualization**:
-   - Preprocessing effect visualization
-   - Model performance visualization
-   - Feature importance analysis
-   - Classification metrics
-   - Residual analysis
+- **NIRS-Specific Preprocessing** — SNV, MSC, Savitzky-Golay, derivatives, and 25+ spectral transforms
+- **Multi-Backend ML** — Seamless integration with scikit-learn, TensorFlow, PyTorch, and JAX
+- **Declarative Pipelines** — Define complex workflows with simple, readable syntax
+- **Hyperparameter Tuning** — Built-in Optuna integration for automated optimization
+- **Rich Visualizations** — Performance heatmaps, candlestick plots, SHAP explanations
+- **Model Deployment** — Export trained pipelines as portable `.n4a` bundles
+- **sklearn Compatible** — `NIRSPipeline` wrapper for SHAP, cross-validation, and more
 
 <div align="center">
 <img src="docs/assets/heatmap.png" width="400" alt="Performance Heatmap">
 <img src="docs/assets/candlestick.png" width="400" alt="Performance Distribution">
 <br><em>Advanced visualization capabilities for model performance analysis</em>
 </div>
+
+---
 
 ## Installation
 
@@ -93,60 +50,45 @@ NIRS4ALL offers a wide range of functionalities:
 ```bash
 pip install nirs4all
 ```
+
 This installs the core library with scikit-learn support. Deep learning frameworks are optional.
 
-### With Additional ML Frameworks
+### With ML Backends
 
 ```bash
-# With TensorFlow support (CPU)
+# TensorFlow
 pip install nirs4all[tensorflow]
 
-# With TensorFlow support (GPU)
-pip install nirs4all[gpu]
-
-# With PyTorch support
+# PyTorch
 pip install nirs4all[torch]
 
-# With Keras support
-pip install nirs4all[keras]
-
-# With JAX support
+# JAX
 pip install nirs4all[jax]
 
-# With all ML frameworks
+# All frameworks
 pip install nirs4all[all]
 
-# With all ML frameworks and GPU support for TensorFlow
+# All frameworks with GPU support
 pip install nirs4all[all-gpu]
 ```
 
 ### Development Installation
 
-For developers who want to contribute:
-
 ```bash
-git clone https://github.com/gbeurier/nirs4all.git
+git clone https://github.com/GBeurier/nirs4all.git
 cd nirs4all
-pip install -e .[dev]
+pip install -e ".[dev]"
 ```
 
-## Installation Testing
-
-After installing `nirs4all`, you can verify your installation and environment using the built-in CLI test commands:
+### Verify Installation
 
 ```bash
-# Basic installation test: checks required dependencies and versions
-nirs4all --test-install
-
-# Integration test: runs sklearn, tensorflow, and optuna pipelines on sample data
-nirs4all --test-integration
-
-# Check version
-nirs4all --version
+nirs4all --test-install      # Check dependencies
+nirs4all --test-integration  # Run integration tests
+nirs4all --version           # Check version
 ```
 
-Each command will print a summary of the test results and alert you to any missing dependencies or issues with your environment.
-
+---
 
 ## Quick Start
 
@@ -158,15 +100,15 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import ShuffleSplit
 from sklearn.cross_decomposition import PLSRegression
 
-# Define your pipeline as a simple list
+# Define your pipeline
 pipeline = [
-    MinMaxScaler(),                           # Scale features
-    {"y_processing": MinMaxScaler()},         # Scale target values
-    ShuffleSplit(n_splits=3, test_size=0.25), # Cross-validation
-    {"model": PLSRegression(n_components=10)} # Model
+    MinMaxScaler(),
+    {"y_processing": MinMaxScaler()},
+    ShuffleSplit(n_splits=3, test_size=0.25),
+    {"model": PLSRegression(n_components=10)}
 ]
 
-# Run with the new module-level API
+# Train and evaluate
 result = nirs4all.run(
     pipeline=pipeline,
     dataset="path/to/your/data",
@@ -174,15 +116,11 @@ result = nirs4all.run(
     verbose=1
 )
 
-# Access results with convenient properties
+# Access results
 print(f"Best RMSE: {result.best_rmse:.4f}")
 print(f"Best R²: {result.best_r2:.4f}")
 
-# Get top 3 models
-for i, model in enumerate(result.top(n=3), 1):
-    print(f"{i}. {model['model_name']}: RMSE = {model.get('test_score', 0):.4f}")
-
-# Export best model for deployment
+# Export for deployment
 result.export("exports/best_model.n4a")
 ```
 
@@ -190,31 +128,30 @@ result.export("exports/best_model.n4a")
 
 ```python
 import nirs4all
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor
 
-# Session shares workspace and configuration across runs
 with nirs4all.session(verbose=1, save_artifacts=True) as s:
-    # Compare different models with shared configuration
-    result_pls = nirs4all.run(
+    # Compare models with shared configuration
+    pls_result = nirs4all.run(
         pipeline=[MinMaxScaler(), PLSRegression(n_components=10)],
-        dataset="path/to/data",
+        dataset="data/wheat.csv",
         name="PLS",
         session=s
     )
 
-    result_rf = nirs4all.run(
+    rf_result = nirs4all.run(
         pipeline=[MinMaxScaler(), RandomForestRegressor(n_estimators=100)],
-        dataset="path/to/data",
+        dataset="data/wheat.csv",
         name="RandomForest",
         session=s
     )
 
-    print(f"PLS RMSE: {result_pls.best_rmse:.4f}")
-    print(f"RF RMSE: {result_rf.best_rmse:.4f}")
+    print(f"PLS: {pls_result.best_rmse:.4f} | RF: {rf_result.best_rmse:.4f}")
 ```
 
-### sklearn Integration & SHAP
+### sklearn Integration with SHAP
 
 ```python
 import nirs4all
@@ -231,344 +168,203 @@ pipe = NIRSPipeline.from_result(result)
 explainer = shap.Explainer(pipe.predict, X_background)
 shap_values = explainer(X_test)
 shap.summary_plot(shap_values)
-
-# Or load from exported bundle
-pipe = NIRSPipeline.from_bundle("exports/model.n4a")
-y_pred = pipe.predict(X_new)
 ```
 
-### Classic API (Still Supported)
+---
+
+## Pipeline Syntax
+
+NIRS4ALL uses a declarative syntax for defining pipelines:
 
 ```python
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import ShuffleSplit
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import RandomForestRegressor
+from nirs4all.operators.transforms import SNV, SavitzkyGolay, FirstDerivative
 
-from nirs4all.data import DatasetConfigs
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.transforms import (
-    StandardNormalVariate, SavitzkyGolay, MultiplicativeScatterCorrection
-)
-
-# Define your processing pipeline
 pipeline = [
-    MinMaxScaler(),                    # Scale features
-    StandardNormalVariate(),           # Apply SNV transformation
-    ShuffleSplit(n_splits=3),         # 3-fold cross-validation
-    {"y_processing": MinMaxScaler()}, # Scale target values
+    # Preprocessing
+    MinMaxScaler(),
+    SNV(),
+    SavitzkyGolay(window_length=11, polyorder=2),
+
+    # Target scaling
+    {"y_processing": MinMaxScaler()},
+
+    # Cross-validation
+    ShuffleSplit(n_splits=5, test_size=0.2),
+
+    # Models to compare
     {"model": PLSRegression(n_components=10)},
     {"model": RandomForestRegressor(n_estimators=100)},
-]
 
-# Create configurations
-pipeline_config = PipelineConfigs(pipeline, name="MyPipeline")
-dataset_config = DatasetConfigs("path/to/your/data")
-
-# Run the pipeline
-runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1)
-predictions, predictions_per_datasets = runner.run(pipeline_config, dataset_config)
-
-# Analyze results
-top_models = predictions.top(n=5, rank_metric='rmse')
-print("Top 5 models by RMSE:")
-for i, model in enumerate(top_models):
-    print(f"{i+1}. {model['model_name']}: RMSE = {model['rmse']:.4f}")
-```
-
-### Advanced Pipeline with Feature Augmentation
-
-```python
-from nirs4all.operators.transforms import (
-    Detrend, FirstDerivative, Gaussian, Haar
-)
-
-# Define multiple preprocessing options
-preprocessors = [Detrend, FirstDerivative, Gaussian, StandardNormalVariate]
-
-# Advanced pipeline with feature augmentation
-pipeline = [
-    "chart_2d",  # Generate visualization
-    MinMaxScaler(),
-    {"y_processing": MinMaxScaler()},
+    # Neural network with training parameters
     {
-        "feature_augmentation": {
-            "_or_": preprocessors,
-            "size": [1, (1, 2)],  # Single and paired transformations
-            "count": 7           # Generate 7 different combinations
-        }
-    },
-    ShuffleSplit(n_splits=3, test_size=0.25),
-]
-
-# Add multiple PLS models with different components
-for n_comp in range(5, 31, 5):
-    pipeline.append({
-        "name": f"PLS-{n_comp}_components",
-        "model": PLSRegression(n_components=n_comp)
-    })
-
-# Run and analyze
-pipeline_config = PipelineConfigs(pipeline, "AdvancedPipeline")
-runner = PipelineRunner(save_artifacts=False, save_charts=False)
-predictions, _ = runner.run(pipeline_config, dataset_config)
-```
-
-### Neural Network Integration
-
-```python
-from nirs4all.operators.models.tensorflow.nicon import nicon
-
-# Pipeline with pre-configured neural network
-pipeline = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-    ShuffleSplit(n_splits=3),
-    {"y_processing": MinMaxScaler()},
-    {"model": PLSRegression(n_components=15)},
-    {
-        "model": nicon,  # Pre-configured convolutional neural network
+        "model": nicon,
         "name": "NICON-CNN",
-        "train_params": {
-            "epochs": 100,
-            "patience": 20,
-            "verbose": 1
-        }
+        "train_params": {"epochs": 100, "patience": 20}
     }
 ]
-
-pipeline_config = PipelineConfigs(pipeline, "NeuralNetworkPipeline")
-runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1)
-predictions, _ = runner.run(pipeline_config, dataset_config)
-
-# Compare neural network with traditional models
-top_models = predictions.top(n=3, rank_metric='rmse')
-for i, model in enumerate(top_models):
-    print(f"{i+1}. {model['model_name']}: RMSE = {model['rmse']:.4f}")
 ```
 
-### Hyperparameter Optimization
+### Advanced Features
 
 ```python
-# Pipeline with automated hyperparameter tuning
-pipeline = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-    ShuffleSplit(n_splits=3),
-    {"y_processing": MinMaxScaler()},
-    {
-        "model": PLSRegression(),
-        "name": "PLS-Optimized",
-        "finetune_params": {
-            "n_trials": 50,
-            "verbose": 1,
-            "approach": "single",  # "grouped" or "single"
-            "model_params": {
-                'n_components': ('int', 1, 30),
-            },
-        }
+# Feature augmentation - generate preprocessing combinations
+{
+    "feature_augmentation": {
+        "_or_": [SNV, FirstDerivative, SavitzkyGolay],
+        "size": [1, (1, 2)],
+        "count": 5
     }
-]
+}
 
-pipeline_config = PipelineConfigs(pipeline, "OptimizedPipeline")
-runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1)
-predictions, _ = runner.run(pipeline_config, dataset_config)
+# Hyperparameter optimization
+{
+    "model": PLSRegression(),
+    "finetune_params": {
+        "n_trials": 50,
+        "model_params": {"n_components": ("int", 1, 30)}
+    }
+}
 
-# Get the best optimized model
-best_model = predictions.top(n=1, rank_metric='rmse')[0]
-print(f"Best model: {best_model['model_name']} with RMSE: {best_model['rmse']:.4f}")
+# Branching for parallel preprocessing paths
+{
+    "branch": [
+        [SNV(), PLSRegression(n_components=10)],
+        [MSC(), RandomForestRegressor()]
+    ]
+}
+
+# Merge branch outputs (stacking)
+{"merge": "predictions"}
 ```
 
-### Visualization and Analysis
+---
 
-```python
-from nirs4all.data.prediction_analyzer import PredictionAnalyzer
-import matplotlib.pyplot as plt
+## Available Transforms
 
-# Create analyzer for your predictions
-analyzer = PredictionAnalyzer(predictions)
+### NIRS-Specific
 
-# Plot top performing models
-fig1 = analyzer.plot_top_k_comparison(k=5, rank_metric='rmse')
-plt.title('Top 5 Models Comparison')
+| Transform | Description |
+|-----------|-------------|
+| `SNV` / `StandardNormalVariate` | Standard Normal Variate normalization |
+| `RNV` / `RobustNormalVariate` | Robust Normal Variate (outlier-resistant) |
+| `MSC` / `MultiplicativeScatterCorrection` | Multiplicative Scatter Correction |
+| `SavitzkyGolay` | Smoothing and derivative computation |
+| `FirstDerivative` / `SecondDerivative` | Spectral derivatives |
+| `Detrend` | Remove linear/polynomial trends |
+| `Gaussian` | Gaussian smoothing |
+| `Haar` | Haar wavelet decomposition |
 
-# Create heatmap of model performance across preprocessing methods
-fig2 = analyzer.plot_variable_heatmap(
-    x_var="model_name",
-    y_var="preprocessings",
-    metric='rmse'
-)
-plt.title('Model Performance Heatmap')
+### Signal Processing
 
-# Candlestick plot for model variability
-fig3 = analyzer.plot_variable_candlestick(
-    filters={"partition": "test"},
-    variable="model_name"
-)
-plt.title('Model Performance Variability')
+| Transform | Description |
+|-----------|-------------|
+| `Baseline` | Baseline correction |
+| `ReflectanceToAbsorbance` | Convert R to A using Beer-Lambert |
+| `Resampler` | Wavelength interpolation |
+| `CARS` / `MCUVE` | Feature selection methods |
 
-plt.show(block=False)
-```
+### Splitting Methods
 
-## Tutorials
+| Splitter | Description |
+|----------|-------------|
+| `KennardStone` | Kennard-Stone algorithm |
+| `SPXY` | Sample set Partitioning based on X and Y |
+| `KMeansSplit` | K-means clustering based split |
 
-NIRS4ALL provides comprehensive tutorials to help you master NIRS data analysis:
+See [Preprocessing Guide](docs/user_guide/preprocessing.md) for complete reference.
 
-### 🚀 [Tutorial 1: Beginner's Guide](examples/Tutorial_1_Beginners_Guide.ipynb)
-Perfect for getting started with NIRS4ALL! This tutorial covers:
-- **Basic PLS Regression** - Your first NIRS pipeline
-- **Enhanced Preprocessing** - Spectral data preprocessing techniques
-- **Classification** - Random Forest classification examples
-- **Model Persistence** - Save and reuse trained models
-- **Multiple Datasets** - Cross-dataset validation and analysis
-- **Data Visualization** - Create meaningful plots and charts
-
-Start here if you're new to NIRS analysis or the NIRS4ALL framework.
-
-### 🔬 [Tutorial 2: Advanced Analysis](examples/Tutorial_2_Advanced_Analysis.ipynb)
-For experienced users ready for sophisticated techniques:
-- **Multi-Source Analysis** - Multi-target regression with single datasets
-- **Hyperparameter Optimization** - Automated model tuning with Optuna
-- **Custom Components** - Build your own transformers and models
-- **Configuration Generation** - Dynamic pipeline customization
-- **Advanced Visualizations** - Professional-grade analysis dashboards
-- **Neural Networks** - Deep learning with pre-configured models (nicon, decon)
-- **Complete Workflows** - End-to-end professional analysis
-
-These tutorials demonstrate real-world workflows and best practices for production-ready NIRS analysis.
+---
 
 ## Examples
 
-Ready-to-run example scripts demonstrating common NIRS workflows:
+The `examples/` directory is organized by topic:
 
-### New Module-Level API (v0.6+)
-- **[Q40_new_api.py](examples/Q40_new_api.py)** - Comprehensive example of the new `nirs4all.run()` API with sessions
-- **[Q_sklearn_wrapper.py](examples/Q_sklearn_wrapper.py)** - sklearn integration with `NIRSPipeline`, SHAP, and model export
-- **[Q41_sklearn_shap.py](examples/Q41_sklearn_shap.py)** - SHAP explanations with NIRSPipeline for spectral feature importance
-- **[Q42_session_workflow.py](examples/Q42_session_workflow.py)** - Session-based workflow for comparing multiple pipelines
+### User Examples (`examples/user/`)
 
-### Basic Examples
-- **[Q1_regression.py](examples/Q1_regression.py)** - Basic regression with PLS models and preprocessing combinations
-- **[Q1_classif.py](examples/Q1_classif.py)** - Classification pipeline with Random Forest and preprocessing
-- **[Q1_classif_tf.py](examples/Q1_classif_tf.py)** - Classification with TensorFlow neural networks and confusion matrix visualization
-- **[Q1_groupsplit.py](examples/Q1_groupsplit.py)** - Group-based data splitting for maintaining sample integrity
+| Category | Examples |
+|----------|----------|
+| **Getting Started** | Hello world, basic regression, classification, visualization |
+| **Data Handling** | Multi-source, data loading, metadata |
+| **Preprocessing** | SNV, MSC, derivatives, custom transforms |
+| **Models** | Multi-model, hyperparameter tuning, stacking, PLS variants |
+| **Cross-Validation** | KFold, group splits, nested CV |
+| **Deployment** | Export, prediction, workspace management |
+| **Explainability** | SHAP basics, sklearn integration, feature selection |
 
-### Advanced Pipeline Techniques
-- **[Q2_multimodel.py](examples/Q2_multimodel.py)** - Compare multiple model types (PLS, RF, SVM) in one run
-- **[Q3_finetune.py](examples/Q3_finetune.py)** - Hyperparameter optimization with Optuna
-- **[Q4_multidatasets.py](examples/Q4_multidatasets.py)** - Cross-dataset validation and transfer learning
-- **[Q11_flexible_inputs.py](examples/Q11_flexible_inputs.py)** - All possible input formats for PipelineRunner (configs, dicts, arrays, paths)
-- **[Q12_sample_augmentation.py](examples/Q12_sample_augmentation.py)** - Balanced sample augmentation for imbalanced classification datasets
+### Reference Examples (`examples/reference/`)
 
-### Model Deployment & Prediction
-- **[Q5_predict.py](examples/Q5_predict.py)** - Load saved models and predict on new data
-- **[Q5_predict_NN.py](examples/Q5_predict_NN.py)** - Prediction methods for neural network models
-- **[Q14_workspace.py](examples/Q14_workspace.py)** - Workspace management, library export, and global predictions database
+Complete syntax reference and advanced pipeline patterns.
 
-### Data Processing & Analysis
-- **[Q6_multisource.py](examples/Q6_multisource.py)** - Multi-target regression from single dataset
-- **[Q7_discretization.py](examples/Q7_discretization.py)** - Convert continuous targets to categorical
-- **[Q8_shap.py](examples/Q8_shap.py)** - SHAP analysis for model interpretability
-- **[Q9_acp_spread.py](examples/Q9_acp_spread.py)** - PCA-based dataset analysis and visualization
-- **[Q10_resampler.py](examples/Q10_resampler.py)** - Wavelength resampling and interpolation techniques
-- **[Q13_nm_headers.py](examples/Q13_nm_headers.py)** - Working with nanometer (nm) wavelength headers instead of wavenumbers (cm⁻¹)
+Run examples:
 
-### Custom Models
-- **[custom_NN.py](examples/custom_NN.py)** - Custom TensorFlow neural network architectures for NIRS
-- **[custom_nicon.py](examples/custom_nicon.py)** - Custom NICON (NIRS Convolutional Network) model implementations
+```bash
+cd examples
+./run.sh              # Run all
+./run.sh -i 1         # Run by index
+./run.sh -n "U01*"    # Run by pattern
+```
 
-Run any example with: `python examples/<example_name>.py`
+---
 
 ## Documentation
 
-### User Guide
+| Section | Description |
+|---------|-------------|
+| [**User Guide**](docs/user_guide/) | Preprocessing, API migration, augmentation |
+| [**API Reference**](docs/api/) | Module-level API, sklearn integration, data handling |
+| [**Specifications**](docs/specifications/) | Pipeline syntax, config format, metrics |
+| [**Explanations**](docs/explanations/) | SHAP, resampling, SNV theory |
 
-- **[API Migration Guide](docs/user_guide/api_migration.md)** - Migrating from classic API to new module-level API
-- **[Preprocessing Guide](docs/user_guide/preprocessing.md)** - Complete reference of transformers (nirs4all, sklearn, scipy) with usage examples
-- **[Preprocessing Cheatsheet](docs/user_guide/preprocessing_cheatsheet.md)** - Quick reference for preprocessing operations
-- **[Sample Augmentation Guide](docs/user_guide/sample_augmentation.md)** - Data augmentation techniques for NIRS
+Full documentation: [nirs4all.readthedocs.io](https://nirs4all.readthedocs.io)
 
-### API Reference
-
-- **[Module-Level API](docs/api/module_api.md)** - `nirs4all.run()`, `predict()`, `explain()`, `session()`
-- **[sklearn Integration](docs/api/sklearn_integration.md)** - `NIRSPipeline` for sklearn/SHAP compatibility
-- **[Data Module](docs/api/data.md)** - Dataset handling and data loading APIs
-- **[Pipeline Module](docs/api/pipeline.md)** - Pipeline configuration and execution APIs
-- **[Workspace Module](docs/api/workspace.md)** - Workspace management and organization
-
-### Specifications
-
-- **[Pipeline Syntax](docs/specifications/pipeline_syntax.md)** - Complete pipeline configuration syntax
-- **[Config Format](docs/specifications/config_format.md)** - Pipeline configuration file format and structure
-- **[Metrics](docs/specifications/metrics.md)** - Available metrics and evaluation methods
-- **[Nested Cross-Validation](docs/specifications/nested_cv.md)** - Nested CV for unbiased hyperparameter tuning
-- **[Cross-Dataset Metrics](docs/specifications/cross_dataset_metrics.md)** - Cross-dataset validation metrics
-- **[Group Split](docs/specifications/group_split.md)** - Group-based data splitting strategies
-- **[Serialization](docs/specifications/serialization.md)** - Pipeline serialization and deserialization
-
-### Explanations
-
-- **[SHAP Explanation](docs/explanations/shap.md)** - Model interpretability with SHAP values
-- **[Resampler](docs/explanations/resampler.md)** - Wavelength resampling strategies
-- **[SNV Explanation](docs/explanations/snv.md)** - Standard Normal Variate transformation
-- **[PLS Study](docs/explanations/pls_study.md)** - Partial Least Squares regression analysis
-- **[Metadata Usage](docs/explanations/metadata.md)** - Working with dataset metadata
-
-### Reference
-
-- **[Operator Catalog](docs/reference/operator_catalog.md)** - Complete catalog of available operators
-- **[Combination Generator](docs/reference/combination_generator.md)** - Feature augmentation and preprocessing combinations
-- **[Writing Pipelines](docs/reference/writing_pipelines.md)** - Best practices for pipeline creation
-- **[Outputs vs Artifacts](docs/reference/outputs_vs_artifacts.md)** - Understanding pipeline outputs
-- **[Prediction Results](docs/reference/prediction_results_list.md)** - Understanding prediction results and metrics
-
-Full documentation will be available at [https://nirs4all.readthedocs.io/](https://nirs4all.readthedocs.io/)
-
-## Dependencies
-
-- numpy (>=1.20.0)
-- pandas (>=1.0.0)
-- scipy (>=1.5.0)
-- scikit-learn (>=0.24.0)
-- PyWavelets (>=1.1.0)
-- joblib (>=0.16.0)
-- jsonschema (>=3.2.0)
-- kennard-stone (>=0.5.0)
-- twinning (>=0.0.5)
-- optuna (>=2.0.0)
-
-## Optional Dependencies
-
-- tensorflow (>=2.10.0) - For TensorFlow models
-- torch (>=2.0.0) - For PyTorch models
-- keras (>=3.0.0) - For Keras models
-- jax (>=0.4.10) & jaxlib (>=0.4.10) - For JAX models
+---
 
 ## Research Applications
 
-NIRS4ALL has been successfully used in published research:
+NIRS4ALL has been used in published research:
 
-**Houngbo, M. E., Desfontaines, L., Diman, J. L., Arnau, G., Mestres, C., Davrieux, F., Rouan, L., Beurier, G., Marie‐Magdeleine, C., Meghar, K., Alamu, E. O., Otegbayo, B. O., & Cornet, D. (2024).** *Convolutional neural network allows amylose content prediction in yam (Dioscorea alata L.) flour using near infrared spectroscopy.* **Journal of the Science of Food and Agriculture, 104(8), 4915-4921.** John Wiley & Sons, Ltd.
+> **Houngbo, M. E., et al. (2024).** *Convolutional neural network allows amylose content prediction in yam (Dioscorea alata L.) flour using near infrared spectroscopy.* **Journal of the Science of Food and Agriculture, 104(8), 4915-4921.** John Wiley & Sons, Ltd.
 
-## How to Cite
+---
+
+## Citation
 
 If you use NIRS4ALL in your research, please cite:
 
-```
+```bibtex
 @software{beurier2025nirs4all,
-  author = {Gregory Beurier and Denis Cornet and Camille Noûs and Lauriane Rouan},
-  title = {nirs4all is all your nirs: Open spectroscopy for everyone},
-  url = {https://github.com/gbeurier/nirs4all},
-  version = {0.2.1},
+  author = {Gregory Beurier and Denis Cornet and Lauriane Rouan},
+  title = {NIRS4ALL: Open spectroscopy for everyone},
+  url = {https://github.com/GBeurier/nirs4all},
+  version = {0.6.0},
   year = {2025},
 }
 ```
 
+---
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+- [Report bugs](https://github.com/GBeurier/nirs4all/issues)
+- [Request features](https://github.com/GBeurier/nirs4all/issues)
+- [Improve documentation](docs/)
+
+---
+
 ## License
 
-This project is licensed under the CECILL-2.1 License - see the LICENSE file for details.
+This project is licensed under the [CeCILL-2.1 License](LICENSE) — a French free software license compatible with GPL.
+
+---
 
 ## Acknowledgments
 
 - [CIRAD](https://www.cirad.fr/) for supporting this research
-- [LLMs] for providing fast documentation, nice charts, emojis in logs 😭, and plenty of useless tests, booby-trapped source code, and misleading specifications.
+- The open-source scientific Python community
+
+<div align="center">
+<br>
+<strong>Made for the spectroscopy community</strong>
+</div>
