@@ -2,6 +2,15 @@
 
 Welcome to NIRS4ALL! This section will help you get up and running quickly.
 
+```{toctree}
+:maxdepth: 2
+:hidden:
+
+installation
+quickstart
+concepts
+```
+
 ## Overview
 
 NIRS4ALL is designed to make Near-Infrared Spectroscopy data analysis accessible to everyone. Whether you're a spectroscopy expert or new to the field, this guide will help you:
@@ -10,6 +19,41 @@ NIRS4ALL is designed to make Near-Infrared Spectroscopy data analysis accessible
 2. **Run** your first pipeline in minutes
 3. **Understand** the core concepts
 4. **Explore** what's possible
+
+::::{grid} 3
+:gutter: 3
+
+:::{grid-item-card} 📦 Installation
+:link: installation
+:link-type: doc
+
+Install NIRS4ALL and verify your setup.
+
++++
+{bdg-primary}`First Step`
+:::
+
+:::{grid-item-card} 🚀 Quickstart
+:link: quickstart
+:link-type: doc
+
+Your first pipeline in 5 minutes.
+
++++
+{bdg-success}`5 Minutes`
+:::
+
+:::{grid-item-card} 💡 Core Concepts
+:link: concepts
+:link-type: doc
+
+Understand pipelines, datasets, and results.
+
++++
+{bdg-info}`Essential`
+:::
+
+::::
 
 ## Installation
 
@@ -174,6 +218,6 @@ Architecture and extending the library.
 
 ## See Also
 
-- {doc}`/user_guide/preprocessing` - NIRS-specific preprocessing techniques
+- {doc}`/user_guide/preprocessing/index` - NIRS-specific preprocessing techniques
 - {doc}`/reference/pipeline_syntax` - Complete pipeline syntax reference
 - {doc}`/examples/index` - Working examples for all features

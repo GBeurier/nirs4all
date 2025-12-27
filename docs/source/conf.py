@@ -33,6 +33,7 @@ extensions = [
     'myst_parser',
     'sphinx_copybutton',
     'sphinx_design',               # Cards, tabs, grids
+    'sphinxcontrib.mermaid',
 ]
 
 templates_path = ['_templates']

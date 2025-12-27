@@ -410,7 +410,7 @@ def test_my_controller_priority():
 
 - {doc}`architecture` - High-level architecture overview
 - {doc}`/reference/pipeline_syntax` - Complete pipeline syntax reference
-- {doc}`/user_guide/branching_merging` - User-facing branching documentation
+- {doc}`/user_guide/pipelines/branching` - User-facing branching documentation
 - {doc}`/examples/index` - Working examples
 
 **Source files:**

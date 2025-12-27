@@ -28,6 +28,7 @@ seaborn>=0.11.0
 h5py>=3.0.0
 packaging>=20.0
 shap>=0.41.0
+sphinxcontrib-mermaid
 
 # Install nirs4all package in editable mode
 -e ..

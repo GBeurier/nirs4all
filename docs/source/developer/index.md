@@ -6,7 +6,13 @@ Documentation for developers who want to understand NIRS4ALL internals or contri
 :maxdepth: 2
 
 architecture
+pipeline_architecture
 controllers
+artifacts
+artifacts_internals
+metadata
+outputs_vs_artifacts
+testing
 ```
 
 ## Overview
@@ -30,6 +36,16 @@ High-level overview of the pipeline execution engine, data flow, and component i
 {bdg-primary}`System Design`
 :::
 
+:::{grid-item-card} 🔄 Pipeline Architecture
+:link: pipeline_architecture
+:link-type: doc
+
+Detailed pipeline execution flow and internal mechanics.
+
++++
+{bdg-info}`Internals`
+:::
+
 :::{grid-item-card} 🎮 Controllers
 :link: controllers
 :link-type: doc
@@ -40,20 +56,64 @@ The controller registry system that dispatches pipeline steps to appropriate han
 {bdg-success}`Extension Point`
 :::
 
+:::{grid-item-card} 📦 Artifacts & Storage
+:link: artifacts
+:link-type: doc
+
+User guide for the artifact storage system.
+
++++
+{bdg-warning}`Storage`
+:::
+
 ::::
 
-## Coming Soon
+## Additional Developer Topics
 
-The following developer guides are planned:
+::::{grid} 2
+:gutter: 3
 
-- **Custom Extensions** - Step-by-step guide to writing your own controllers and operators
-- **Artifacts** - The artifact storage system for saving and loading pipeline state
-- **Deep Learning** - Integration patterns for TensorFlow, PyTorch, Keras, and JAX models
-- **Contributing** - Guidelines for contributing code, documentation, and bug reports
+:::{grid-item-card} 🔧 Artifacts Internals
+:link: artifacts_internals
+:link-type: doc
 
-:::{tip}
-For now, see the examples in `examples/developer/` for advanced usage patterns.
+Internal implementation details and extension points for the artifacts system.
+
++++
+{bdg-secondary}`Deep Dive`
 :::
+
+:::{grid-item-card} 📝 Metadata
+:link: metadata
+:link-type: doc
+
+Pipeline and dataset metadata handling.
+
++++
+{bdg-secondary}`Data`
+:::
+
+:::{grid-item-card} 📤 Outputs vs Artifacts
+:link: outputs_vs_artifacts
+:link-type: doc
+
+Understanding the difference between outputs and artifacts.
+
++++
+{bdg-secondary}`Concepts`
+:::
+
+:::{grid-item-card} 🧪 Testing Guide
+:link: testing
+:link-type: doc
+
+Running tests, markers, fixtures, and writing new tests.
+
++++
+{bdg-primary}`Quality`
+:::
+
+::::
 
 ## Quick Start: Custom Controller
 
