@@ -90,9 +90,12 @@ dependencies = [
 # Deep learning backends
 tensorflow = ["tensorflow>=2.14.0"]
 gpu = ["tensorflow[and-cuda]>=2.14.0"]
-torch = ["torch>=2.1.0"]
+torch = ["torch>=2.1.0", "tabpfn>=2.0.0"]
 keras = ["keras>=3.0.0"]
 jax = ["jax>=0.4.20", "jaxlib>=0.4.20", "flax>=0.8.0"]
+
+# AutoML
+autogluon = ["autogluon>=1.0.0"]
 
 # Advanced PLS variants
 pls = [

@@ -1,23 +1,42 @@
-h5py>=3.0.0
-jax>=0.4.10
-jaxlib>=0.4.10
-joblib>=0.16.0
-jsonschema>=3.2.0
-keras>=3.0.0
-kennard-stone>=0.5.0
-matplotlib>=3.0.0
-numpy>=1.20.0
-optuna>=2.0.0
-packaging>=20.0
+# Core scientific computing
+numpy>=1.24.0
 pandas>=2.0.0
-polars>=0.18.0
-pyarrow>=10.0.0
-PyWavelets>=1.1.0
-pyyaml>=5.4.0
-scikit-learn>=0.24.0
-scipy>=1.5.0
-seaborn>=0.11.0
-shap>=0.41.0
-tensorflow>=2.10.0
-torch>=2.0.0
+scipy>=1.10.0
+scikit-learn>=1.2.0
+
+# Data processing
+polars>=0.20.0
+pyarrow>=14.0.0
+h5py>=3.8.0
+
+# Signal processing
+PyWavelets>=1.4.0
+
+# Optimization & hyperparameter tuning
+optuna>=3.0.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Model explainability
+shap>=0.42.0
+
+# Utilities
+joblib>=1.2.0
+jsonschema>=4.17.0
+pyyaml>=6.0.0
+packaging>=23.0
+
+# NIRS-specific splitting methods
+kennard-stone>=2.2.0
 twinning>=0.0.5
+
+# Deep learning backends
+tensorflow>=2.14.0
+torch>=2.1.0
+tabpfn>=2.0.0
+keras>=3.0.0
+jax>=0.4.20
+jaxlib>=0.4.20
+flax>=0.8.0
