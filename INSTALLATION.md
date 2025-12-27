@@ -20,7 +20,7 @@ Before installing NIRS4ALL, you'll need:
 
 ## Python Installation
 
-NIRS4ALL requires Python 3.9 or higher. If you don't have Python installed:
+NIRS4ALL requires Python 3.11 or higher. If you don't have Python installed:
 
 ### Windows
 
@@ -30,7 +30,7 @@ NIRS4ALL requires Python 3.9 or higher. If you don't have Python installed:
 
 2. **Install Python:**
    - Run the downloaded installer
-   - ⚠️ **Important:** Check "Add Python to PATH" during installation
+   - **Important:** Check "Add Python to PATH" during installation
    - Choose "Install Now" or customize installation location
 
 3. **Verify Installation:**
@@ -153,7 +153,7 @@ pip install nirs4all[gpu]
 pip install tensorflow[and-cuda]
 ```
 
-⚠️ **Windows GPU Warning:** Starting from TensorFlow 2.11, official GPU support for Windows has been discontinued. For Windows users with NVIDIA GPUs:
+**Windows GPU Warning:** Starting from TensorFlow 2.11, official GPU support for Windows has been discontinued. For Windows users with NVIDIA GPUs:
 - **TensorFlow 2.10** is the last version with native Windows GPU support
 - Consider using **Windows Subsystem for Linux (WSL2)** for newer TensorFlow versions with GPU
 - Alternative: Use **tensorflow-cpu** and leverage other frameworks like PyTorch for GPU acceleration
@@ -205,42 +205,42 @@ nirs4all --test-install
 ```
 
 This command:
-- ✅ Checks Python version (requires ≥3.9)
-- ✅ Verifies all required dependencies with correct versions
-- ✅ Checks for optional ML frameworks (TensorFlow, PyTorch, Keras, JAX)
-- ✅ Tests NIRS4ALL component imports
-- ✅ Shows installation summary
+- Checks Python version (requires 3.11+)
+- Verifies all required dependencies with correct versions
+- Checks for optional ML frameworks (TensorFlow, PyTorch, Keras, JAX)
+- Tests NIRS4ALL component imports
+- Shows installation summary
 
 **Expected output for successful installation:**
 ```
-🔍 Testing NIRS4ALL Installation...
+Testing NIRS4ALL Installation...
 ==================================================
-✓ Python: 3.10.11
+[OK] Python: 3.11.x
 
-📦 Required Dependencies:
-  ✓ numpy: 2.2.5
-  ✓ pandas: 2.2.3
-  ✓ scipy: 1.15.3
-  ✓ sklearn: 1.6.1
-  ✓ pywt: 1.8.0
-  ✓ joblib: 1.5.0
-  ✓ jsonschema: 4.23.0
+Required Dependencies:
+  [OK] numpy: 1.26.x
+  [OK] pandas: 2.x.x
+  [OK] scipy: 1.11.x
+  [OK] sklearn: 1.3.x
+  [OK] pywt: 1.5.x
+  [OK] joblib: 1.3.x
+  [OK] jsonschema: 4.x.x
 
-🔧 Optional ML Frameworks:
-  ✓ tensorflow: 2.20.0
-  ⚠️ torch: Not installed
-  ✓ keras: 3.11.3
-  ⚠️ jax: Not installed
+Optional ML Frameworks:
+  [OK] tensorflow: 2.14.x
+  [--] torch: Not installed
+  [OK] keras: 3.x.x
+  [--] jax: Not installed
 
-🎯 NIRS4ALL Components:
-  ✓ nirs4all.utils.backend_utils: OK
-  ✓ nirs4all.core.runner: OK
-  ✓ nirs4all.data.dataset_loader: OK
-  ✓ nirs4all.transformations: OK
+NIRS4ALL Components:
+  [OK] nirs4all.api: OK
+  [OK] nirs4all.pipeline: OK
+  [OK] nirs4all.data: OK
+  [OK] nirs4all.operators: OK
 
-🎉 Basic installation test PASSED!
-✓ All required dependencies are available
-✓ Available ML frameworks: tensorflow, keras
+Basic installation test PASSED!
+All required dependencies are available
+Available ML frameworks: tensorflow, keras
 ```
 
 ### Integration Test
@@ -252,35 +252,35 @@ nirs4all --test-integration
 ```
 
 This command runs three different pipeline types:
-- 🌳 **Sklearn Extended Pipeline** - Tests multiple PLS models and RandomForest with comprehensive preprocessing
-- 🧠 **TensorFlow Pipeline** - Tests neural network functionality with NICON architecture
-- � **Optuna Extended Pipeline** - Tests hyperparameter optimization with multiple approaches
+- **Sklearn Pipeline** - Tests PLS models and RandomForest with preprocessing
+- **TensorFlow Pipeline** - Tests neural network functionality with NICON architecture
+- **Optuna Pipeline** - Tests hyperparameter optimization
 
 **Expected output for successful integration test:**
 ```
-🧪 NIRS4ALL Integration Test...
+NIRS4ALL Integration Test...
 ==================================================
-🔄 Running Pipeline Integration Tests...
+Running Pipeline Integration Tests...
 ==================================================
 
-🔹 Test: Sklearn Extended Pipeline (Multiple PLS + RandomForest)
-✅ PLSRegression rmse ↓ [test: 2.22], [val: 0.58] - completed successfully (5.4s)
+Test: Sklearn Pipeline (PLS + RandomForest)
+[PASS] PLSRegression rmse [test: 2.22], [val: 0.58] - completed (5.4s)
 
-🔹 Test: TensorFlow Pipeline (NICON Neural Network)
-✅ nicon rmse ↓ [test: 10.26], [val: 10.06] - completed successfully (8.0s)
+Test: TensorFlow Pipeline (NICON Neural Network)
+[PASS] nicon rmse [test: 10.26], [val: 10.06] - completed (8.0s)
 
-🔹 Test: Optuna Extended Pipeline (Comprehensive PLS Optimization)
-✅ PLS-Finetuned-Extended rmse ↓ [test: 2.11], [val: 0.83] - completed successfully (1.2s)
+Test: Optuna Pipeline (PLS Optimization)
+[PASS] PLS-Finetuned rmse [test: 2.11], [val: 0.83] - completed (1.2s)
 
-📋 Integration Test Summary
-✅ PASS Sklearn Extended Pipeline: 5.40s
-✅ PASS TensorFlow Pipeline: 7.96s
-✅ PASS Optuna Extended Pipeline: 1.22s
+Integration Test Summary
+[PASS] Sklearn Pipeline: 5.40s
+[PASS] TensorFlow Pipeline: 7.96s
+[PASS] Optuna Pipeline: 1.22s
 
 Total execution time: 14.58s
-🎉 Integration test PASSED!
-✅ All 3 pipeline tests completed successfully
-🚀 NIRS4ALL is ready for use!
+Integration test PASSED!
+All 3 pipeline tests completed successfully
+NIRS4ALL is ready for use!
 ```
 
 ### Other Useful Commands
@@ -378,13 +378,11 @@ If you encounter issues not covered here:
 Once installed, verify everything works:
 
 ```python
-# Import the new API components
-from nirs4all.data import DatasetConfigs
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.operators.transforms import StandardNormalVariate
+import nirs4all
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
+from nirs4all.operators.transforms import StandardNormalVariate
 
 # Create a simple pipeline
 pipeline = [
@@ -394,21 +392,29 @@ pipeline = [
     {"model": PLSRegression(n_components=5)}
 ]
 
-# Configure and run
-pipeline_config = PipelineConfigs(pipeline, "TestPipeline")
-dataset_config = DatasetConfigs("sample_data/regression")
+# Run with the module-level API
+result = nirs4all.run(
+    pipeline=pipeline,
+    dataset="sample_data/regression",
+    name="TestPipeline",
+    verbose=1
+)
 
-runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=1)
-predictions, _ = runner.run(pipeline_config, dataset_config)
+print(f"Pipeline completed!")
+print(f"Best RMSE: {result.best_rmse:.4f}")
+print(f"Best R²: {result.best_r2:.4f}")
 
-print(f"Pipeline completed! Generated {len(predictions)} predictions.")
-print(f"Best model RMSE: {predictions.top(n=1, rank_metric='rmse')[0]['rmse']:.4f}")
+# Export best model for deployment
+result.export("exports/my_model.n4a")
 ```
 
-🎉 **Congratulations!** NIRS4ALL is now installed and ready to use. Check out the example scripts in the `examples/` directory:
+**Congratulations!** NIRS4ALL is now installed and ready to use.
 
-- `Q1.py` - Basic pipeline with feature augmentation
-- `Q1_finetune.py` - Hyperparameter optimization
-- `Q2.py` - Multi-model comparison
+Check out the example scripts in the `examples/` directory:
 
-For comprehensive tutorials and documentation.
+- `examples/user/01_getting_started/` - Basic pipelines and visualization
+- `examples/user/04_models/` - Multi-model comparison and hyperparameter tuning
+- `examples/user/06_deployment/` - Model export and prediction
+- `examples/reference/` - Complete syntax reference
+
+For comprehensive tutorials and documentation, visit [nirs4all.readthedocs.io](https://nirs4all.readthedocs.io).
