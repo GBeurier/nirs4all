@@ -1,33 +1,48 @@
 ## ROADMAP
 
-
-**Features**:
-> [Docs] Redo documentation and integrate into RTD. Update rtd api docs.
-> [Readme] link to all compatible models references and embed models by task_type and backend / link to all possible transformations (embed / compatible) by type (feature processing - smooth, deriv, etc. and smaple augmentation: noises, rotate, etc.)
-
-> [pytoml] Update imports and configs. Anticipate ui dependencies.
-
 Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications) and dataset configs that cover all cases.
 Or from synthetic data generator. + their respective dataconfig
 Creates use cases that covers all the diversity of controllers and syntax for pipelines -
 Create the example synth pipelines x synth datasets for testing purpose
 
-**Major Review**:
-> Artifact overview and maybe refactoring
-> GLOBAL REVIEW OF WORKFLOW MECHANISM (X,Y,M,Pred - indexed on Models, pp, branches, etc. - with context - What about ?)
-> transfer, stacking, branching, multisource, pp, aggregation, pipeline inputs (launch from model, folder, file, yaml, json, etc.)
-
 **RELEASE** 0.6.0: MVP
 
-
-
 > [Design] Define all services
+> [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
+
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
 
 > [DEPLOY] standalone installer, web installer (gpu/no gpu - os) options for backend and CUDA
 
-**RELEASE** 0.6.0: UI
+
+**Major Review**:
+> Artifact overview and maybe refactoring
+> GLOBAL REVIEW OF WORKFLOW MECHANISM (X,Y,M,Pred - indexed on Models, pp, branches, etc. - with context - What about ?)
+> transfer, stacking, branching, multisource, pp, aggregation, pipeline inputs (launch from model, folder, file, yaml, json, etc.)
+> [Complete_Review] Review modules one by one: pipeline, dataset, controllers, core,
+
+**RELEASE** 0.7.0: UI
+
+> [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
+>   - [MB-PLS] test on multi-source/block ---
+>   - [PLS] Implement variable selection methods (CARS and MC-UVE done)
+
+> [transformerMixin] implement in pytorch for full differentiation
+> [FCK-PLS] full torch model
+
+> [DAG] Pipeline as DAG
+> [Pipeline] as a GridSearchCVGridSearchCV or FineTuner. Generation as a choices optimization provider.
+> [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
+> [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
+> [Pipeline_Bundle] Change / edit pipeline step
+> [SHAP] verify shap for tf, torch, jax, Fix imports and np compat
+> [obj_context] On controller compute something (ie. pp selection), put in in the context, another controller use it (ie. set pp).
+> [Generator] add in-place/internal generation > branches
+> [Observers] Replace data copy for analysis (pp dataset copy) by observers. Observers are controllers that can aggregate data and can be queried anytime to get the data and analyze them
+> - [Runner] Verify: Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
+> [Models] extend the scope of custom model fallback (sklearn only for now), to include custom layouts (ie. custom NN without framework and 3D data, spectrograms, etc.)
+> [Pipeline + Optuna] Pipeline as optuna trial. The pp become a choice param. Goal is to stack pp each time score stop progress, select the good ones by feats augmentation and by pp order (1st, 2nd, etc.) and stop once it drops.
 
 
 **CLI_EXTENSION_PROPOSAL.md**
@@ -35,54 +50,27 @@ Create the example synth pipelines x synth datasets for testing purpose
 > [CLI]  Reup - run / predict / explain - directly on paths (dataset, pipeline config), json and yaml
 
 
-
-> [Runner] Verify: Design logic of 'execution sequence' and 'history' > pp and raw data, use cache by defaut, generalize default inputType (np.array, SpectroDataset, DatasetConfig, ...)
-
-> [Generator] add in-place/internal generation > branches
-
 > [Aggregation] Outlier dedicated exclusion T²
 
-> [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
-> [transformerMixin] implement in pytorch for full differentiation
-
+> [Mid Fusion] Multi head models
+> [Late Fusion] avg / w_avg / asymetric ensembling
 > [Transfer] Partial layers retraining
 
 **Bugs**:
->   - [MB-PLS] test on multi-source/block ---
->   - [Predict] Q5_predict is slow as hell
 >   - [LightGBM] [Warning] No further splits with positive gain, best gain: -inf   >> look if parameters is passed on cloning (maybe there is a hidden bug)
 >   - [Charts] check dataviz. Missing histograms
 
-
-> [DAG] Pipeline as DAG
-> [Pipeline] as a GridSearchCVGridSearchCV or FineTuner. Generation as a choices optimization provider.
-> [Pipeline] as single transformer: pre-instanciate binaries, contruct pipeline, fit(), transform(), predict(), fit_transform(). pour SHAP NN. Decompose run and pipeline (1 pipeline per config tuple)
-> [Pipeline] bring back parallelization of steps (feature_aug, sample_aug)
-> [Pipeline_Bundle] Change / edit pipeline step
-
-> [SHAP] verify shap for tf, torch, jax, Fix imports and np compat
-
-> [obj_context] On controller compute something (ie. pp selection), put in in the context, another controller use it (ie. set pp).
-
 > [onnx] onnx export
-
-> [Complete_Review] Review modules one by one: pipeline, dataset, controllers, core,
-
-> [Observers] Replace data copy for analysis (pp dataset copy) by observers. Observers are controllers that can aggregate data and can be queried anytime to get the data and analyze them
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
 
-> [PLS] Implement variable selection methods (CARS and MC-UVE done)
 
 > [Chart_Controller] Migrates individual controller in operators: x, y, folds, 3d, 2d operators. and more. Both operators and analyzers should be uniformized (inside the pipeline or outside)
 > [Charts] aggregate based on metadata col, convert std indexes (model_name, model_classname, pp, etc.) to enum, keep string only for columns. Add Y as grouping value, add variance, mean, etc. as sort score.
 
-> [Analyses] Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
-
+> [Analyses] Cf. Observers - Question the idea of Analysis Pipeline that use the whole run as input. If yes, move visualization classes as Analyses operator of this pipeline. Choose a default functionning for raw_pp and XXX_pp dedicated to data transformation analysis
 
 > [Dummy_Controller] remove totally and manage exceptions
-
-> [Models] extend the scope of custom model fallback (sklearn only for now), to include custom layouts (ie. custom NN without framework and 3D data, spectrograms, etc.)
 
 > [Optuna] Integrate complex params setters: Stack (sklearn stacking model), Nested_dict (TABPFN inference params)
 > [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
@@ -99,43 +87,17 @@ Create the example synth pipelines x synth datasets for testing purpose
 > [Customizable_Feature_Source] Refactor dataset to allow customizable feature source and customizable layouts to allow datasets with more dimensions (images, lidar)
 
 
-**RELEASE** 0.8: CLI
-
 > [GLOBAL REVIEW] v1.0 signatures freeze (private pattern _module), Complete tests > Prod coverage (transformations, controllers, predictions, datasets, runner)
-
-> [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
-
-**RELEASE**  0.9 alpha: Minimum Viable Product. Signatures frozen.
-
 > [Profiling] Code Optimization, Improve performances
 
-> [REVIEW] Complete documentation (RTD, Tutorial, Examples), remove dead code and #TODOs, validate tests coverage
 
-**RELEASE** 0.10 beta: Operators & Controllers rc
-
-> [WEBAPP] full react version - hidden fastapi / nirs4all
-
-> [DEPLOY] standalone installer, web installer
-
-**RELEASE** 0.11 rc - GUI version (cf. nirs4all_ui)
-
+**RELEASE** beta
 
 
 **RELEASE** 1.0: Release
 
 
-
-**RELEASE** 1.x.x
-
-> [Pipeline + Optuna] Pipeline as optuna trial. The pp become a choice param. Goal is to stack pp each time score stop progress, select the good ones by feats augmentation and by pp order (1st, 2nd, etc.) and stop once it drops.
-
 > [Transfer] Automate model transfer across machines
-
-
-
-> [Mid Fusion] Multi head models
-
-> [Late Fusion] avg / w_avg / asymetric ensembling
 
 > [Clustering Controllers]
 

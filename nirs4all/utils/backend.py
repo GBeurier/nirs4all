@@ -43,6 +43,7 @@ _INSTALL_INSTRUCTIONS: Dict[str, str] = {
     'catboost': 'pip install catboost',
     'optuna': 'pip install optuna',
     'shap': 'pip install shap',
+    'ikpls': 'pip install ikpls',
 }
 
 # Package name mapping (when import name differs from pip name)
@@ -58,6 +59,7 @@ _PACKAGE_MAPPING: Dict[str, str] = {
     'catboost': 'catboost',
     'optuna': 'optuna',
     'shap': 'shap',
+    'ikpls': 'ikpls',
 }
 
 
@@ -152,6 +154,7 @@ TF_AVAILABLE = _LazyAvailability('tensorflow')
 TORCH_AVAILABLE = _LazyAvailability('torch')
 JAX_AVAILABLE = _LazyAvailability('jax')
 KERAS_AVAILABLE = _LazyAvailability('keras')
+IKPLS_AVAILABLE = _LazyAvailability('ikpls')
 
 
 # =============================================================================
@@ -500,3 +503,12 @@ def is_jax_available() -> bool:
         True if JAX is available.
     """
     return is_available('jax')
+
+
+def is_ikpls_available() -> bool:
+    """Check if ikpls is installed.
+
+    Returns:
+        True if ikpls is available.
+    """
+    return is_available('ikpls')
