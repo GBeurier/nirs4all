@@ -20,6 +20,9 @@ Public API:
     session(**kwargs) -> Session
         Create an execution session for resource reuse.
 
+    generate(n_samples, **kwargs) -> SpectroDataset | (X, y)
+        Generate synthetic NIRS data for testing and research.
+
 Example:
     >>> import nirs4all
     >>> from sklearn.preprocessing import MinMaxScaler
@@ -47,6 +50,9 @@ from .predict import predict
 from .explain import explain
 from .retrain import retrain
 
+# Synthetic data generation
+from .generate import generate_namespace as generate
+
 __all__ = [
     # Module-level API functions
     "run",
@@ -57,6 +63,8 @@ __all__ = [
     "Session",
     "session",
     "load_session",
+    # Synthetic data generation
+    "generate",
     # Result classes
     "RunResult",
     "PredictResult",

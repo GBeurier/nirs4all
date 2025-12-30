@@ -1,9 +1,58 @@
 """
 Synthetic test data generator for nirs4all integration tests.
 
-This module creates consistent synthetic NIRS-like datasets with distinctive properties
-for testing various components of the nirs4all pipeline.
+DEPRECATED: This module is deprecated and will be removed in v1.0.
+
+Use the new synthetic data infrastructure instead:
+
+Migration Guide:
+    # Old approach
+    from tests.fixtures.data_generators import SyntheticNIRSDataGenerator
+    gen = SyntheticNIRSDataGenerator(random_state=42)
+    X, y = gen.generate_regression_data(n_samples=100)
+
+    # New approach (recommended)
+    from nirs4all.data.synthetic import SyntheticDatasetBuilder
+    builder = SyntheticDatasetBuilder(n_samples=100, random_state=42)
+    X, y = builder.build_arrays()
+
+    # Or use pytest fixtures (in tests)
+    def test_my_feature(standard_regression_dataset):
+        X = standard_regression_dataset.x({"partition": "train"})
+        y = standard_regression_dataset.y({"partition": "train"})
+
+    # For file-based tests
+    def test_loader(synthetic_dataset_folder):
+        from nirs4all.data import DatasetConfigs
+        dataset = DatasetConfigs(synthetic_dataset_folder).get_datasets()[0]
+
+Available fixtures in tests/conftest.py:
+    - synthetic_builder_factory: Factory for custom configurations
+    - standard_regression_dataset: 200 samples, session-scoped
+    - standard_classification_dataset: 150 samples, 3 classes
+    - standard_binary_dataset: 100 samples, 2 classes
+    - multi_target_dataset: Multiple target variables
+    - multi_source_dataset: Multiple data sources
+    - fresh_regression_dataset: Function-scoped (modifiable)
+    - regression_arrays: Raw (X, y) numpy arrays
+    - synthetic_dataset_folder: Temporary folder with CSV files
+
+See Also:
+    - nirs4all.data.synthetic: New synthetic data module
+    - nirs4all.generate: Top-level generation API
+    - tests/conftest.py: Pytest fixtures documentation
 """
+
+import warnings
+
+# Emit deprecation warning on module import
+warnings.warn(
+    "tests.fixtures.data_generators is deprecated and will be removed in v1.0. "
+    "Use nirs4all.data.synthetic or pytest fixtures from tests/conftest.py instead. "
+    "See module docstring for migration guide.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 import numpy as np
 import pandas as pd
