@@ -44,6 +44,10 @@ exclude_patterns = []
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['assets']
 
+# Custom CSS and JS for width toggle
+html_css_files = ['custom.css']
+html_js_files = ['custom.js']
+
 # -- Extension configuration -------------------------------------------------
 
 # Napoleon settings for Google style docstrings
