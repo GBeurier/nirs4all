@@ -91,6 +91,15 @@ class ThrottledHandler(logging.Handler):
             self._last_progress_time = 0
             self._last_percentage = -1
 
+    def close(self) -> None:
+        """Close this handler and the base handler."""
+        try:
+            if self.base_handler is not None:
+                self.base_handler.close()
+        except Exception:
+            pass
+        super().close()
+
 
 class RotatingRunFileHandler(logging.Handler):
     """Handler that writes logs to run-specific files with rotation.

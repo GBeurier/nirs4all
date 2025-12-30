@@ -315,13 +315,42 @@ def reset_logging() -> None:
     """Reset logging configuration to defaults.
 
     This clears all handlers and resets the configuration. Useful for testing.
+    Ensures file handlers are properly closed to avoid issues on Windows where
+    open file handles prevent file deletion.
     """
     global _config
+
+    # Close stored handlers explicitly first (before removing from logger)
+    # This ensures file handles are released on Windows
+    if _config._file_handler is not None:
+        try:
+            _config._file_handler.flush()
+            _config._file_handler.close()
+        except Exception:
+            pass
+        _config._file_handler = None
+
+    if _config._throttle_handler is not None:
+        try:
+            _config._throttle_handler.close()
+        except Exception:
+            pass
+        _config._throttle_handler = None
+
+    if _config._console_handler is not None:
+        try:
+            _config._console_handler.close()
+        except Exception:
+            pass
+        _config._console_handler = None
 
     # Clear handlers from root logger
     root_logger = logging.getLogger("nirs4all")
     for handler in root_logger.handlers[:]:
-        handler.close()
+        try:
+            handler.close()
+        except Exception:
+            pass
         root_logger.removeHandler(handler)
 
     # Reset configuration

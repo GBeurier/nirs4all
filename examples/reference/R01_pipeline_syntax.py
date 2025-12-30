@@ -282,28 +282,36 @@ model_finetune = {
 }
 
 # 5.4 Neural network model with train_params
-from nirs4all.operators.models.tensorflow.nicon import customizable_nicon
+# Note: TensorFlow models require tensorflow to be installed
+try:
+    from nirs4all.operators.models.tensorflow.nicon import customizable_nicon
+    _HAS_TENSORFLOW = True
+except ImportError:
+    customizable_nicon = None
+    _HAS_TENSORFLOW = False
 
-model_nn = {
-    "model": customizable_nicon,
-    "name": "CustomNICON",
-    "finetune_params": {
-        "n_trials": 30,
-        "sample": "hyperband",
-        "model_params": {
-            "filters_1": [8, 16, 32, 64],
-            "filters_3": [8, 16, 32, 64]
+# Only define if TensorFlow is available
+if _HAS_TENSORFLOW:
+    model_nn = {
+        "model": customizable_nicon,
+        "name": "CustomNICON",
+        "finetune_params": {
+            "n_trials": 30,
+            "sample": "hyperband",
+            "model_params": {
+                "filters_1": [8, 16, 32, 64],
+                "filters_3": [8, 16, 32, 64]
+            },
+            "train_params": {
+                "epochs": 10,  # During hyperparameter search
+                "verbose": 0
+            }
         },
         "train_params": {
-            "epochs": 10,  # During hyperparameter search
+            "epochs": 250,     # Final training
             "verbose": 0
         }
-    },
-    "train_params": {
-        "epochs": 250,     # Final training
-        "verbose": 0
     }
-}
 
 # 5.5 Load saved model
 model_saved_pkl = "my_model.pkl"               # Pickle format
