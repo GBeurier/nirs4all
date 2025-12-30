@@ -81,6 +81,14 @@ shap_params = {
 
 Shows which spectral regions matter most for predictions.
 
+```{figure} ../../assets/shap_spectral.png
+:align: center
+:width: 90%
+:alt: SHAP Spectral Importance Plot
+
+SHAP spectral importance plot showing important wavelength regions.
+```
+
 **Top Panel - Spectrum with Regions:**
 - Black line: Mean spectrum of your data
 - **Colored bands (Viridis)**: Important regions highlighted
@@ -105,6 +113,14 @@ Shows which spectral regions matter most for predictions.
 
 SHAP beeswarm showing feature value vs. SHAP impact, **with binned features**.
 
+```{figure} ../../assets/shap_beeswarm.png
+:align: center
+:width: 90%
+:alt: SHAP Beeswarm Plot
+
+SHAP beeswarm plot showing distribution of SHAP values for binned features.
+```
+
 - Each dot = one sample
 - X-axis: SHAP value (impact on prediction)
 - Color: Feature value (red=high, blue=low)
@@ -118,6 +134,14 @@ SHAP beeswarm showing feature value vs. SHAP impact, **with binned features**.
 ### 3. **Waterfall Plot (Binned)**
 
 Shows how **binned features** contribute to a single prediction.
+
+```{figure} ../../assets/shap_waterfall.png
+:align: center
+:width: 90%
+:alt: SHAP Waterfall Plot
+
+SHAP waterfall plot showing feature contributions to a single prediction.
+```
 
 - Starts from base value (expected value)
 - Each bar = contribution from one binned region

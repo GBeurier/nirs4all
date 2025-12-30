@@ -115,44 +115,6 @@ pytest -m torch        # PyTorch tests
 - **TransformerMixin pattern** for custom transformers (sklearn-compatible)
 - Prefer existing libraries; avoid reinventing
 
-### Example Docstring
-
-```python
-def process_spectra(X: np.ndarray, method: str = "snv") -> np.ndarray:
-    """Apply preprocessing to spectral data.
-
-    Args:
-        X: Spectral data matrix (n_samples, n_wavelengths).
-        method: Preprocessing method name.
-
-    Returns:
-        Preprocessed spectral data.
-
-    Raises:
-        ValueError: If method is not supported.
-    """
-```
-
-### Creating Custom Transformers
-
-Follow sklearn's TransformerMixin pattern:
-
-```python
-from sklearn.base import BaseEstimator, TransformerMixin
-
-class MyTransform(TransformerMixin, BaseEstimator):
-    def __init__(self, param=1.0, *, copy=True):
-        self.param = param
-        self.copy = copy
-
-    def fit(self, X, y=None):
-        # Fit logic (or just return self)
-        return self
-
-    def transform(self, X):
-        # Transform logic
-        return X_transformed
-```
 
 ## Pipeline Configuration
 
@@ -240,23 +202,9 @@ See [docs/specifications/merge_syntax.md](docs/specifications/merge_syntax.md) f
   - `06_internals/` - D01-D02: Session workflow, custom controllers
 - `examples/reference/` - R01-R04: Comprehensive reference examples
 - `examples/legacy/` - Q*/X* examples (deprecated, for transition)
-- `docs/specifications/` - Pipeline syntax, config format specs
-- `docs/user_guide/` - Preprocessing guides, cheatsheets
-- `workspace/` - Default output directory (runs/, logs/, manifests, examples_output/)
-- `exports/` - Exported model bundles (.n4a format)
+- `docs/source/` - Documentation source files (Sphinx)
+- `docs/_internal/` - Internal docs (design, specifications)
 
-## Key Files Reference
-
-| File | Purpose |
-|------|---------|
-| [nirs4all/pipeline/runner.py](nirs4all/pipeline/runner.py) | Main `PipelineRunner` class |
-| [nirs4all/controllers/registry.py](nirs4all/controllers/registry.py) | Controller registration |
-| [nirs4all/controllers/data/merge.py](nirs4all/controllers/data/merge.py) | Merge controller (branch combination) |
-| [nirs4all/controllers/data/source_branch.py](nirs4all/controllers/data/source_branch.py) | Source branch controller |
-| [nirs4all/data/config.py](nirs4all/data/config.py) | `DatasetConfigs` class |
-| [nirs4all/operators/transforms/nirs.py](nirs4all/operators/transforms/nirs.py) | NIRS-specific transforms |
-| [docs/specifications/pipeline_syntax.md](docs/specifications/pipeline_syntax.md) | Full pipeline syntax reference |
-| [docs/specifications/merge_syntax.md](docs/specifications/merge_syntax.md) | Merge and source branch syntax |
 
 ## Important Notes
 
@@ -265,3 +213,4 @@ See [docs/specifications/merge_syntax.md](docs/specifications/merge_syntax.md) f
 - Use `nirs4all --test-install` to verify installation
 - Tuples in configs are converted to lists during YAML serialization
 - Controllers with `supports_prediction_mode() = True` run during prediction
+- After each important modifications ensure that RTD is up to date.

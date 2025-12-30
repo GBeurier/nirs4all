@@ -72,6 +72,8 @@ fig = analyzer.plot_top_k(
 - Figure: `"Top {k} Models Comparison - Ranked by best {rank_metric} ({rank_partition})"`
 - Chart: Model name + ranking/display scores (controlled by `show_scores`)
 
+![Top K Comparison Chart](../../assets/plot_top_k.png)
+
 ---
 
 ### 2. ConfusionMatrixChart (`plot_confusion_matrix`)
@@ -115,6 +117,8 @@ fig = analyzer.plot_confusion_matrix(
 - Figure: `"Dataset: {ds} - Top {k} Confusion Matrices\nRanked by best {rank_metric} ({rank_partition}), Displayed: {display_partition}"`
 - Chart: Model name + scores (controlled by `show_scores`)
 
+![Confusion Matrix Chart](../../assets/plot_confusion_matrix.png)
+
 ---
 
 ### 3. ScoreHistogramChart (`plot_histogram`)
@@ -153,6 +157,8 @@ fig = analyzer.plot_histogram(
 **Title Format**:
 - `"Score Histogram - {display_metric} ({display_partition})\n{n} predictions"`
 
+![Score Histogram Chart](../../assets/plot_histogram.png)
+
 ---
 
 ### 4. CandlestickChart (`plot_candlestick`)
@@ -189,6 +195,8 @@ fig = analyzer.plot_candlestick(
 
 **Title Format**:
 - `"Candlestick - {display_metric} by {variable}\nDisplayed: {display_partition}"`
+
+![Candlestick Chart](../../assets/candlestick.png)
 
 ---
 
@@ -232,6 +240,9 @@ fig = analyzer.plot_heatmap(
     rank_metric='rmse',
     rank_partition='val',
     rank_agg='best',          # Select best model per cell
+```
+
+![Heatmap Chart](../../assets/heatmap.png)
     display_metric='r2',
     display_partition='test',
     display_agg='mean',       # Show mean R2 in cell
