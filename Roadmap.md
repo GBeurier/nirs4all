@@ -1,7 +1,5 @@
 ## ROADMAP
 
-Creates new datasets from nitrosorgh (binary, classif, regression, multisource (with repetitions), in gz, xls, zip, npy, mat, see. specifications) and dataset configs that cover all cases.
-Or from synthetic data generator. + their respective dataconfig
 Creates use cases that covers all the diversity of controllers and syntax for pipelines -
 Create the example synth pipelines x synth datasets for testing purpose
 
