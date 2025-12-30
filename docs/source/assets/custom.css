@@ -1,0 +1,59 @@
+/* Wide view mode - activated by toggle */
+body.wide-view .wy-nav-content {
+    max-width: 1400px !important;  /* Wider but not full width */
+}
+
+/* Width toggle button */
+.width-toggle-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+    background: #2980b9;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 44px;
+    height: 44px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.width-toggle-btn:hover {
+    background: #3498db;
+    transform: scale(1.1);
+}
+
+.width-toggle-btn:active {
+    transform: scale(0.95);
+}
+
+/* Tooltip */
+.width-toggle-btn::after {
+    content: attr(title);
+    position: absolute;
+    right: 54px;
+    background: #333;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+.width-toggle-btn:hover::after {
+    opacity: 1;
+}
+
+/* Ensure tables are responsive */
+.wy-table-responsive {
+    overflow-x: auto;
+}

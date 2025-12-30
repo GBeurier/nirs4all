@@ -102,16 +102,14 @@ result = nirs4all.run(
 )
 print(f"RMSE: {result.best_rmse:.4f}")
 ```
-```
 
 :::{tip}
 See {doc}`examples/index` for 50+ working examples organized by topic.
 :::
 
 ```{toctree}
-:maxdepth: 2
-:caption: Contents:
-:hidden:
+:maxdepth: 3
+:caption: Documentation
 
 getting_started/index
 user_guide/index
