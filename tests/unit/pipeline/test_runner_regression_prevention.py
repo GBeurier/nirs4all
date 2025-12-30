@@ -604,13 +604,13 @@ class TestAPIStability:
         assert hasattr(runner, 'explain')
         assert callable(runner.explain)
 
-    def test_init_parameters_backward_compatible(self):
+    def test_init_parameters_backward_compatible(self, tmp_path):
         """CRITICAL: __init__ parameters must remain backward compatible."""
         # All these initializations must work
         runner1 = PipelineRunner()
         runner2 = PipelineRunner(save_artifacts=False, save_charts=False)
         runner3 = PipelineRunner(verbose=1)
-        runner4 = PipelineRunner(workspace_path=Path.cwd())
+        runner4 = PipelineRunner(workspace_path=tmp_path)  # Use tmp_path, not Path.cwd()
         runner5 = PipelineRunner(random_state=42)
 
         assert all([runner1, runner2, runner3, runner4, runner5])

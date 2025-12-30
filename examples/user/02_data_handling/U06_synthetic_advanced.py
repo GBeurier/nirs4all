@@ -402,13 +402,14 @@ ax2.grid(True, alpha=0.3)
 # Plot 3: Batch effects visualization
 ax3 = axes[1, 0]
 X_batch = dataset_batch.x({}, layout="2d")
+wavelengths_batch = np.linspace(1100, 2400, X_batch.shape[1])  # Create wavelengths for batch dataset
 n_per_batch = len(X_batch) // 3
 colors_batch = ['blue', 'green', 'orange']
 for batch_idx in range(3):
     start = batch_idx * n_per_batch
     end = start + min(20, n_per_batch)
     for i in range(start, end):
-        ax3.plot(wavelengths[:X_batch.shape[1]], X_batch[i], alpha=0.4, linewidth=0.7,
+        ax3.plot(wavelengths_batch, X_batch[i], alpha=0.4, linewidth=0.7,
                  color=colors_batch[batch_idx],
                  label=f"Batch {batch_idx+1}" if i == start else "")
 ax3.set_xlabel("Wavelength (nm)")
@@ -417,18 +418,18 @@ ax3.set_title("Batch Effects (3 measurement sessions)")
 ax3.legend()
 ax3.grid(True, alpha=0.3)
 
-# Plot 4: Component spectra (from first dataset)
+# Plot 4: Component spectra (from full builder dataset)
 ax4 = axes[1, 1]
-X_food = dataset_food.x({}, layout="2d")
-mean_spectrum = X_food.mean(axis=0)
-std_spectrum = X_food.std(axis=0)
-wl_food = np.linspace(1000, 2500, X_food.shape[1])
-ax4.fill_between(wl_food, mean_spectrum - std_spectrum, mean_spectrum + std_spectrum,
+X_full = full_dataset.x({}, layout="2d")
+mean_spectrum = X_full.mean(axis=0)
+std_spectrum = X_full.std(axis=0)
+wl_full = np.linspace(1100, 2400, X_full.shape[1])
+ax4.fill_between(wl_full, mean_spectrum - std_spectrum, mean_spectrum + std_spectrum,
                  alpha=0.3, color='steelblue', label='±1 std')
-ax4.plot(wl_food, mean_spectrum, color='navy', linewidth=2, label='Mean spectrum')
+ax4.plot(wl_full, mean_spectrum, color='navy', linewidth=2, label='Mean spectrum')
 ax4.set_xlabel("Wavelength (nm)")
 ax4.set_ylabel("Absorbance")
-ax4.set_title("Food Dataset: Mean ± Std")
+ax4.set_title("Full Builder Dataset: Mean ± Std")
 ax4.legend()
 ax4.grid(True, alpha=0.3)
 

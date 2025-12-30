@@ -131,8 +131,10 @@ predictions_cars, _ = runner.run(pipeline_config, dataset_config)
 # Get results
 best_cars = predictions_cars.top(1, rank_metric='mse')[0]
 print(f"\nCARS Results:")
-print(f"  MSE: {best_cars.get('test_mse', best_cars.get('mse', 'N/A'))}")
-print(f"  R²: {best_cars.get('test_r2', best_cars.get('r2', 'N/A'))}")
+cars_mse = best_cars.get('test_mse', best_cars.get('mse'))
+cars_r2 = best_cars.get('test_r2', best_cars.get('r2'))
+print(f"  MSE: {cars_mse:.4f}" if cars_mse is not None else "  MSE: (see detailed metrics)")
+print(f"  R²: {cars_r2:.4f}" if cars_r2 is not None else "  R²: (see detailed metrics)")
 
 
 # =============================================================================
@@ -184,8 +186,10 @@ predictions_mcuve, _ = runner.run(pipeline_config_mcuve, dataset_config)
 # Get results
 best_mcuve = predictions_mcuve.top(1, rank_metric='mse')[0]
 print(f"\nMC-UVE Results:")
-print(f"  MSE: {best_mcuve.get('test_mse', best_mcuve.get('mse', 'N/A'))}")
-print(f"  R²: {best_mcuve.get('test_r2', best_mcuve.get('r2', 'N/A'))}")
+mcuve_mse = best_mcuve.get('test_mse', best_mcuve.get('mse'))
+mcuve_r2 = best_mcuve.get('test_r2', best_mcuve.get('r2'))
+print(f"  MSE: {mcuve_mse:.4f}" if mcuve_mse is not None else "  MSE: (see detailed metrics)")
+print(f"  R²: {mcuve_r2:.4f}" if mcuve_r2 is not None else "  R²: (see detailed metrics)")
 
 
 # =============================================================================
@@ -212,8 +216,10 @@ predictions_baseline, _ = runner.run(pipeline_config_baseline, dataset_config)
 
 best_baseline = predictions_baseline.top(1, rank_metric='mse')[0]
 print(f"\nBaseline Results:")
-print(f"  MSE: {best_baseline.get('test_mse', best_baseline.get('mse', 'N/A'))}")
-print(f"  R²: {best_baseline.get('test_r2', best_baseline.get('r2', 'N/A'))}")
+baseline_mse = best_baseline.get('test_mse', best_baseline.get('mse'))
+baseline_r2 = best_baseline.get('test_r2', best_baseline.get('r2'))
+print(f"  MSE: {baseline_mse:.4f}" if baseline_mse is not None else "  MSE: (see detailed metrics)")
+print(f"  R²: {baseline_r2:.4f}" if baseline_r2 is not None else "  R²: (see detailed metrics)")
 
 
 # =============================================================================

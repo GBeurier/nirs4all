@@ -26,6 +26,7 @@ Difficulty: Reference material
 import argparse
 
 # Third-party imports
+import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
@@ -119,7 +120,8 @@ result = nirs4all.run(
 print(f"\nNew API Results:")
 print(f"  Number of predictions: {result.num_predictions}")
 print(f"  Best RMSE: {result.best_rmse:.4f}")
-print(f"  Best R²: {result.best_r2:.4f}")
+r2_val = result.best_r2
+print(f"  Best R²: {r2_val:.4f}" if not np.isnan(r2_val) else "  Best R²: (see test metrics)")
 
 
 # =============================================================================

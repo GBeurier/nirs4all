@@ -310,9 +310,12 @@ result_km = nirs4all.run(
 )
 
 print("\nComparison of signal representations:")
-print(f"   Reflectance:   RMSE = {result_r.best_rmse:.4f}")
-print(f"   Absorbance:    RMSE = {result_a.best_rmse:.4f}")
-print(f"   Kubelka-Munk:  RMSE = {result_km.best_rmse:.4f}")
+rmse_r = result_r.best_rmse
+rmse_a = result_a.best_rmse
+rmse_km = result_km.best_rmse
+print(f"   Reflectance:   RMSE = {rmse_r:.4f}" if not np.isnan(rmse_r) else "   Reflectance:   RMSE = (see detailed metrics)")
+print(f"   Absorbance:    RMSE = {rmse_a:.4f}" if not np.isnan(rmse_a) else "   Absorbance:    RMSE = (see detailed metrics)")
+print(f"   Kubelka-Munk:  RMSE = {rmse_km:.4f}" if not np.isnan(rmse_km) else "   Kubelka-Munk:  RMSE = (see detailed metrics)")
 
 
 # =============================================================================

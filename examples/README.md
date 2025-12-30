@@ -215,6 +215,48 @@ The Developer Path covers advanced features for power users and contributors.
 
 ---
 
+## 🧪 CI Validation Scripts
+
+For stricter testing that catches silent errors (N/A values, NaN metrics, warnings), use the CI validation scripts. These mirror the GitHub Actions workflow locally.
+
+### Linux/Mac
+```bash
+./run_ci_examples.sh                    # Run all with strict validation
+./run_ci_examples.sh -c user            # User examples only
+./run_ci_examples.sh -c developer       # Developer examples only
+./run_ci_examples.sh -c reference       # Reference examples only
+./run_ci_examples.sh -q                 # Quick mode (skip deep learning)
+./run_ci_examples.sh -k                 # Keep going on failures
+./run_ci_examples.sh -v                 # Verbose output
+./run_ci_examples.sh -c user -q -k -v   # Combine options
+```
+
+### Windows PowerShell
+```powershell
+.\run_ci_examples.ps1                           # Run all with strict validation
+.\run_ci_examples.ps1 -Category user            # User examples only
+.\run_ci_examples.ps1 -Category developer       # Developer examples only
+.\run_ci_examples.ps1 -Quick                    # Skip deep learning examples
+.\run_ci_examples.ps1 -KeepGoing                # Don't stop on first failure
+.\run_ci_examples.ps1 -VerboseOutput            # Show all output
+```
+
+### What CI Scripts Check
+
+The CI scripts detect:
+- **Critical errors**: Tracebacks, ValueError, TypeError, ModuleNotFoundError, etc.
+- **Warning patterns**: N/A values, NaN metrics, `[!]` warnings, deprecation warnings
+- **Invalid results**: 0 samples, 0 predictions, empty results
+
+### Output
+
+Results are saved to `workspace/ci_output/run_YYYYMMDD_HHMMSS/`:
+- `summary.txt` - Overall pass/fail summary
+- `errors.txt` - Detailed error information
+- `*.log` - Individual example output logs
+
+---
+
 ## 📋 Migration Status
 
 This directory is being reorganized. During the transition period:

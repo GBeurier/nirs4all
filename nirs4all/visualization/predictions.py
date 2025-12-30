@@ -11,6 +11,7 @@ Includes a caching layer (PredictionCache) to avoid recomputing expensive aggreg
 when multiple charts use the same parameters.
 """
 from matplotlib.figure import Figure
+from pathlib import Path
 from typing import Any, Dict, Optional, Union, List
 import os
 import re
@@ -29,6 +30,21 @@ from nirs4all.visualization.charts import (
     TopKComparisonChart,
     HeatmapChart
 )
+
+
+def _get_default_figures_dir() -> str:
+    """Get the default figures output directory.
+
+    Checks NIRS4ALL_WORKSPACE environment variable first, then falls back
+    to ./workspace in the current working directory.
+
+    Returns:
+        Default figures directory path as string.
+    """
+    env_workspace = os.environ.get("NIRS4ALL_WORKSPACE")
+    if env_workspace:
+        return str(Path(env_workspace) / "figures")
+    return "workspace/figures"
 from nirs4all.core import metrics as evaluator
 from nirs4all.core.metrics import abbreviate_metric
 from nirs4all.core.logging import get_logger
@@ -85,7 +101,7 @@ class PredictionAnalyzer:
         predictions_obj: Predictions,
         dataset_name_override: Optional[str] = None,
         config: Optional[ChartConfig] = None,
-        output_dir: Optional[str] = "workspace/figures",
+        output_dir: Optional[str] = None,
         cache_size: int = 50,
         default_aggregate: Optional[str] = None,
         default_aggregate_method: Optional[str] = None,
@@ -97,7 +113,8 @@ class PredictionAnalyzer:
             predictions_obj: The predictions object containing prediction data.
             dataset_name_override: Optional dataset name override for display.
             config: Optional ChartConfig for customization across all charts.
-            output_dir: Directory to save generated charts. Defaults to "workspace/figures".
+            output_dir: Directory to save generated charts. If None, uses
+                NIRS4ALL_WORKSPACE/figures or defaults to "workspace/figures".
             cache_size: Maximum number of cached query results. Defaults to 50.
             default_aggregate: Default aggregation column for all visualization methods.
                 If set, all plots will use this aggregation unless overridden.
@@ -123,7 +140,7 @@ class PredictionAnalyzer:
         self.predictions = predictions_obj
         self.dataset_name_override = dataset_name_override
         self.config = config or ChartConfig()
-        self.output_dir = output_dir
+        self.output_dir = output_dir if output_dir is not None else _get_default_figures_dir()
         self._cache = PredictionCache(max_entries=cache_size)
         self.default_aggregate = default_aggregate
         self.default_aggregate_method = default_aggregate_method

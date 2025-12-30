@@ -76,3 +76,4 @@ examples/sample_data/sample_source/
 *.n4a
 *.n4a.py
 docs/_build
+/tmp

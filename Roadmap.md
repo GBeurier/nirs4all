@@ -1,13 +1,15 @@
 ## ROADMAP
+Doc is a mess (menu is all over the place). Examples should be more thoroughly presented also.
+
 
 Creates use cases that covers all the diversity of controllers and syntax for pipelines -
 Create the example synth pipelines x synth datasets for testing purpose
 
 **RELEASE** 0.6.0: MVP
 
+
 > [Design] Define all services
 > [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
-
 
 > [WEBAPP] full react version - hidden fastapi / nirs4all
 

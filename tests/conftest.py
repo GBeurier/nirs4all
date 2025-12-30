@@ -15,6 +15,19 @@ Complexity Defaults:
     - Integration tests: "realistic" complexity (more realistic spectra)
 """
 
+# =============================================================================
+# IMPORTANT: Set test workspace BEFORE any nirs4all imports
+# This must happen at module load time, before pytest_configure
+# =============================================================================
+import os
+import tempfile
+
+# Create the test workspace directory immediately at module load
+# This ensures it's set before any test file imports nirs4all
+_TEST_WORKSPACE_DIR = tempfile.mkdtemp(prefix="nirs4all_test_")
+os.environ["NIRS4ALL_WORKSPACE"] = _TEST_WORKSPACE_DIR
+
+# Now safe to import other modules
 from pathlib import Path
 from typing import Tuple
 
@@ -35,6 +48,26 @@ def pytest_configure(config):
     """
     # Use non-interactive backend for all tests
     matplotlib.use('Agg')
+
+
+def pytest_unconfigure(config):
+    """
+    Clean up after all tests complete.
+
+    Removes the temporary workspace directory.
+
+    Args:
+        config: pytest config object (required by pytest hook)
+    """
+    global _TEST_WORKSPACE_DIR
+    if _TEST_WORKSPACE_DIR and os.path.exists(_TEST_WORKSPACE_DIR):
+        import shutil
+        try:
+            shutil.rmtree(_TEST_WORKSPACE_DIR)
+        except Exception:
+            pass  # Best effort cleanup
+    if "NIRS4ALL_WORKSPACE" in os.environ:
+        del os.environ["NIRS4ALL_WORKSPACE"]
 
 
 # =============================================================================
@@ -63,6 +96,20 @@ def _get_csv_variation_generator():
 # =============================================================================
 # Session-Scoped Fixtures (Shared Across All Tests)
 # =============================================================================
+
+
+@pytest.fixture(scope="session")
+def test_workspace():
+    """
+    Get the test workspace directory path.
+
+    This directory is automatically cleaned up after all tests complete.
+    Use this fixture when you need explicit access to the shared test workspace.
+
+    Returns:
+        Path: Path to the shared test workspace directory.
+    """
+    return Path(_TEST_WORKSPACE_DIR)
 
 
 @pytest.fixture(scope="session")

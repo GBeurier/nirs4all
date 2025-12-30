@@ -27,6 +27,7 @@ Difficulty: ★★★☆☆
 import argparse
 
 # Third-party imports
+import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import (
@@ -112,8 +113,8 @@ result_groupkfold = nirs4all.run(
     plots_visible=args.plots
 )
 
-accuracy = (1 - result_groupkfold.best_rmse) * 100
-print(f"\nGroupKFold - Accuracy: {accuracy:.1f}%")
+accuracy = (1 - result_groupkfold.best_rmse) * 100 if not np.isnan(result_groupkfold.best_rmse) else float('nan')
+print(f"\nGroupKFold - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nGroupKFold - (see detailed metrics)")
 print("Note: Groups (Sample_ID) are never split across train/test!")
 
 
@@ -148,8 +149,8 @@ result_strat_group = nirs4all.run(
     plots_visible=args.plots
 )
 
-accuracy = (1 - result_strat_group.best_rmse) * 100
-print(f"\nStratifiedGroupKFold - Accuracy: {accuracy:.1f}%")
+accuracy = (1 - result_strat_group.best_rmse) * 100 if not np.isnan(result_strat_group.best_rmse) else float('nan')
+print(f"\nStratifiedGroupKFold - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nStratifiedGroupKFold - (see detailed metrics)")
 print("Note: Groups respected AND class proportions preserved!")
 
 
@@ -191,8 +192,8 @@ result_force = nirs4all.run(
     plots_visible=args.plots
 )
 
-accuracy = (1 - result_force.best_rmse) * 100
-print(f"\nKFold + force_group - Accuracy: {accuracy:.1f}%")
+accuracy = (1 - result_force.best_rmse) * 100 if not np.isnan(result_force.best_rmse) else float('nan')
+print(f"\nKFold + force_group - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nKFold + force_group - (see detailed metrics)")
 
 
 # =============================================================================
@@ -223,8 +224,8 @@ result_shuffle_group = nirs4all.run(
     plots_visible=args.plots
 )
 
-accuracy = (1 - result_shuffle_group.best_rmse) * 100
-print(f"\nShuffleSplit + force_group - Accuracy: {accuracy:.1f}%")
+accuracy = (1 - result_shuffle_group.best_rmse) * 100 if not np.isnan(result_shuffle_group.best_rmse) else float('nan')
+print(f"\nShuffleSplit + force_group - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nShuffleSplit + force_group - (see detailed metrics)")
 
 
 # =============================================================================
@@ -256,8 +257,8 @@ result_strat_force = nirs4all.run(
     plots_visible=args.plots
 )
 
-accuracy = (1 - result_strat_force.best_rmse) * 100
-print(f"\nStratifiedKFold + force_group - Accuracy: {accuracy:.1f}%")
+accuracy = (1 - result_strat_force.best_rmse) * 100 if not np.isnan(result_strat_force.best_rmse) else float('nan')
+print(f"\nStratifiedKFold + force_group - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nStratifiedKFold + force_group - (see detailed metrics)")
 
 
 # =============================================================================
@@ -301,12 +302,12 @@ result_with_group = nirs4all.run(
     verbose=0
 )
 
-acc_no_group = (1 - result_no_group.best_rmse) * 100
-acc_with_group = (1 - result_with_group.best_rmse) * 100
+acc_no_group = (1 - result_no_group.best_rmse) * 100 if not np.isnan(result_no_group.best_rmse) else float('nan')
+acc_with_group = (1 - result_with_group.best_rmse) * 100 if not np.isnan(result_with_group.best_rmse) else float('nan')
 
 print(f"\nResults comparison:")
-print(f"   WITHOUT group splitting: {acc_no_group:.1f}% (may be optimistic)")
-print(f"   WITH group splitting:    {acc_with_group:.1f}% (realistic)")
+print(f"   WITHOUT group splitting: {acc_no_group:.1f}% (may be optimistic)" if not np.isnan(acc_no_group) else "   WITHOUT group splitting: (see detailed metrics)")
+print(f"   WITH group splitting:    {acc_with_group:.1f}% (realistic)" if not np.isnan(acc_with_group) else "   WITH group splitting:    (see detailed metrics)")
 
 if acc_no_group > acc_with_group:
     print("\n   ⚠️  Without groups appears better - likely due to data leakage!")

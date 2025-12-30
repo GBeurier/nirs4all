@@ -204,7 +204,8 @@ print(f"\n📊 Model trained on resampled data:")
 print(f"   Original features: ~125 wavelengths")
 print(f"   Resampled features: 50 wavelengths")
 print(f"   Best RMSE: {result4.best_rmse:.4f}")
-print(f"   Best R²: {result4.best_r2:.4f}")
+r2_value = result4.best_r2
+print(f"   Best R²: {r2_value:.4f}" if not np.isnan(r2_value) else "   Best R²: (see test metrics)")
 
 
 # =============================================================================
