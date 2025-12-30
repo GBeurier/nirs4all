@@ -87,6 +87,8 @@ $userExamples = @(
     "user/02_data_handling/U06_multi_datasets.py"
     "user/02_data_handling/U07_multi_source.py"
     "user/02_data_handling/U08_wavelength_handling.py"
+    "user/02_data_handling/U09_synthetic_data.py"
+    "user/02_data_handling/U10_synthetic_advanced.py"
     # 03_preprocessing
     "user/03_preprocessing/U09_preprocessing_basics.py"
     "user/03_preprocessing/U10_feature_augmentation.py"
@@ -118,31 +120,32 @@ $developerExamples = @(
     # 01_advanced_pipelines
     "developer/01_advanced_pipelines/D01_branching_basics.py"
     "developer/01_advanced_pipelines/D02_branching_advanced.py"
-    "developer/01_advanced_pipelines/D03_merge_strategies.py"
-    "developer/01_advanced_pipelines/D04_source_branching.py"
+    "developer/01_advanced_pipelines/D03_merge_basics.py"
+    "developer/01_advanced_pipelines/D04_merge_sources.py"
     "developer/01_advanced_pipelines/D05_meta_stacking.py"
     # 02_generators
-    "developer/02_generators/D06_generator_basics.py"
+    "developer/02_generators/D06_generator_syntax.py"
     "developer/02_generators/D07_generator_advanced.py"
-    "developer/02_generators/D08_generator_nested.py"
-    "developer/02_generators/D09_constraints_presets.py"
+    "developer/02_generators/D08_generator_iterators.py"
+    "developer/02_generators/D09_nested_generators.py"
+    "developer/02_generators/D10_synthetic_custom_components.py"
+    "developer/02_generators/D11_synthetic_testing.py"
     # 03_deep_learning
-    "developer/03_deep_learning/D10_nicon_tensorflow.py"
-    "developer/03_deep_learning/D11_pytorch_models.py"
-    "developer/03_deep_learning/D12_jax_models.py"
+    "developer/03_deep_learning/D10_pytorch_models.py"
+    "developer/03_deep_learning/D11_jax_models.py"
+    "developer/03_deep_learning/D12_tensorflow_models.py"
     "developer/03_deep_learning/D13_framework_comparison.py"
     # 04_transfer_learning
-    "developer/04_transfer_learning/D14_retrain_modes.py"
-    "developer/04_transfer_learning/D15_transfer_analysis.py"
-    "developer/04_transfer_learning/D16_domain_adaptation.py"
+    "developer/04_transfer_learning/D14_transfer_analysis.py"
+    "developer/04_transfer_learning/D15_retrain_modes.py"
+    "developer/04_transfer_learning/D16_pca_geometry.py"
     # 05_advanced_features
-    "developer/05_advanced_features/D17_outlier_partitioning.py"
-    "developer/05_advanced_features/D18_metadata_branching.py"
+    "developer/05_advanced_features/D17_metadata_branching.py"
+    "developer/05_advanced_features/D18_concat_transform.py"
     "developer/05_advanced_features/D19_repetition_transform.py"
-    "developer/05_advanced_features/D20_concat_transform.py"
     # 06_internals
-    "developer/06_internals/D21_session_workflow.py"
-    "developer/06_internals/D22_custom_controllers.py"
+    "developer/06_internals/D20_session_workflow.py"
+    "developer/06_internals/D21_custom_controllers.py"
 )
 
 # Reference examples (new structure)
@@ -214,9 +217,9 @@ $legacyExamples = @(
 
 # Deep learning examples to skip in quick mode (basenames)
 $dlExamplesPatterns = @(
-    "D10_nicon_tensorflow.py"
-    "D11_pytorch_models.py"
-    "D12_jax_models.py"
+    "D10_pytorch_models.py"
+    "D11_jax_models.py"
+    "D12_tensorflow_models.py"
     "D13_framework_comparison.py"
     "Q15_jax_models.py"
     "Q16_pytorch_models.py"
