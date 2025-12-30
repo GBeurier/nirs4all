@@ -105,7 +105,8 @@ result = nirs4all.run(
 
 print(f"\nTraining complete!")
 print(f"  Best RMSE: {result.best_rmse:.4f}")
-print(f"  Best R²: {result.best_r2:.4f}")
+r2_val = result.best_r2
+print(f"  Best R²: {r2_val:.4f}" if not np.isnan(r2_val) else "  Best R²: (see test metrics)")
 
 # Wrap for sklearn compatibility
 pipe = NIRSPipeline.from_result(result)

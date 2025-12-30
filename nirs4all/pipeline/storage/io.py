@@ -7,6 +7,7 @@ dataset and pipeline-based folder structure management.
 REFACTORED: Now uses content-addressed artifact storage via serializer.
 Delegates to focused classes: PipelineWriter, WorkspaceExporter, PredictionResolver.
 """
+import os
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,21 @@ import shutil
 from nirs4all.pipeline.storage.io_writer import PipelineWriter
 from nirs4all.pipeline.storage.io_exporter import WorkspaceExporter
 from nirs4all.pipeline.storage.io_resolver import PredictionResolver
+
+
+def _get_default_workspace_path() -> Path:
+    """Get the default workspace path.
+
+    Checks NIRS4ALL_WORKSPACE environment variable first, then falls back
+    to ./workspace in the current working directory.
+
+    Returns:
+        Default workspace path.
+    """
+    env_workspace = os.environ.get("NIRS4ALL_WORKSPACE")
+    if env_workspace:
+        return Path(env_workspace)
+    return Path.cwd() / "workspace"
 
 
 class SimulationSaver:
@@ -65,7 +81,7 @@ class SimulationSaver:
     def exporter(self) -> WorkspaceExporter:
         """Get or create WorkspaceExporter instance."""
         if self._exporter is None:
-            workspace_path = self.base_path.parent.parent if self.base_path else Path.cwd()
+            workspace_path = self.base_path.parent.parent if self.base_path else _get_default_workspace_path()
             self._exporter = WorkspaceExporter(workspace_path)
         return self._exporter
 
@@ -73,7 +89,7 @@ class SimulationSaver:
     def resolver(self) -> PredictionResolver:
         """Get or create PredictionResolver instance."""
         if self._resolver is None:
-            workspace_path = self.base_path.parent.parent if self.base_path else Path.cwd()
+            workspace_path = self.base_path.parent.parent if self.base_path else _get_default_workspace_path()
             self._resolver = PredictionResolver(workspace_path)
         return self._resolver
 

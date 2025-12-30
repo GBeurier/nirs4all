@@ -8,6 +8,8 @@ Predictor and Explainer classes.
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import os
+
 import numpy as np
 
 from nirs4all.core.logging import configure_logging
@@ -20,6 +22,21 @@ from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
 from nirs4all.pipeline.predictor import Predictor
 from nirs4all.pipeline.explainer import Explainer
 from nirs4all.pipeline.retrainer import Retrainer, RetrainMode, StepMode, ExtractedPipeline
+
+
+def _get_default_workspace_path() -> Path:
+    """Get the default workspace path.
+
+    Checks NIRS4ALL_WORKSPACE environment variable first, then falls back
+    to ./workspace in the current working directory.
+
+    Returns:
+        Default workspace path.
+    """
+    env_workspace = os.environ.get("NIRS4ALL_WORKSPACE")
+    if env_workspace:
+        return Path(env_workspace)
+    return Path.cwd() / "workspace"
 
 
 def init_global_random_state(seed: Optional[int] = None):
@@ -149,7 +166,7 @@ class PipelineRunner:
             init_global_random_state(random_state)
 
         if workspace_path is None:
-            workspace_path = Path.cwd() / "workspace"
+            workspace_path = _get_default_workspace_path()
         self.workspace_path = Path(workspace_path)
 
         self.verbose = verbose

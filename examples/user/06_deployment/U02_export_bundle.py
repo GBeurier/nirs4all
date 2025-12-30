@@ -106,7 +106,8 @@ predictions, _ = runner.run(pipeline_config, dataset_config)
 # Get best prediction for export
 best_prediction = predictions.top(n=1, rank_partition="test")[0]
 print(f"\nBest model: {best_prediction['model_name']}")
-print(f"Test MSE: {best_prediction.get('test_mse', best_prediction.get('mse', 'N/A'))}")
+test_mse = best_prediction.get('test_mse', best_prediction.get('mse'))
+print(f"Test MSE: {test_mse:.4f}" if test_mse is not None else "Test MSE: (see detailed metrics)")
 print(f"Pipeline UID: {best_prediction['pipeline_uid'][:16]}...")
 
 

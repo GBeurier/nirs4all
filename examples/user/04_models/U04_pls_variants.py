@@ -459,7 +459,9 @@ if args.plots:
 # Validation: Ensure all results are valid (no NaN metrics)
 # =============================================================================
 import sys
-sys.path.insert(0, '..')  # Add parent dir to find example_utils
+import os
+# Add examples dir to find example_utils
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from example_utils import validate_results
 
 # Validate all results - will exit with code 1 if any have NaN metrics

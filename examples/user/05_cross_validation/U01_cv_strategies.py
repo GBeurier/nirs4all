@@ -210,8 +210,8 @@ result_stratified = nirs4all.run(
     verbose=1
 )
 
-accuracy = (1 - result_stratified.best_score) * 100
-print(f"\nStratifiedKFold - Accuracy: {accuracy:.1f}%")
+accuracy = (1 - result_stratified.best_score) * 100 if not np.isnan(result_stratified.best_score) else float('nan')
+print(f"\nStratifiedKFold - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nStratifiedKFold - (see detailed metrics)")
 
 
 # =============================================================================
@@ -244,8 +244,8 @@ result_strat_shuffle = nirs4all.run(
     verbose=1
 )
 
-accuracy = (1 - result_strat_shuffle.best_score) * 100
-print(f"\nStratifiedShuffleSplit - Accuracy: {accuracy:.1f}%")
+accuracy = (1 - result_strat_shuffle.best_score) * 100 if not np.isnan(result_strat_shuffle.best_score) else float('nan')
+print(f"\nStratifiedShuffleSplit - Accuracy: {accuracy:.1f}%" if not np.isnan(accuracy) else "\nStratifiedShuffleSplit - (see detailed metrics)")
 
 
 # =============================================================================

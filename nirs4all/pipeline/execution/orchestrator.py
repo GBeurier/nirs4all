@@ -1,4 +1,5 @@
 """Pipeline orchestrator for coordinating multiple pipeline executions."""
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -17,6 +18,21 @@ from nirs4all.core.logging import get_logger
 from nirs4all.visualization.reports import TabReportManager
 
 logger = get_logger(__name__)
+
+
+def _get_default_workspace_path() -> Path:
+    """Get the default workspace path.
+
+    Checks NIRS4ALL_WORKSPACE environment variable first, then falls back
+    to ./workspace in the current working directory.
+
+    Returns:
+        Default workspace path.
+    """
+    env_workspace = os.environ.get("NIRS4ALL_WORKSPACE")
+    if env_workspace:
+        return Path(env_workspace)
+    return Path.cwd() / "workspace"
 
 
 class PipelineOrchestrator:
@@ -69,7 +85,7 @@ class PipelineOrchestrator:
         """
         # Workspace configuration
         if workspace_path is None:
-            workspace_path = Path.cwd() / "workspace"
+            workspace_path = _get_default_workspace_path()
         self.workspace_path = Path(workspace_path)
         self.runs_dir = self.workspace_path / "runs"
         self.runs_dir.mkdir(parents=True, exist_ok=True)

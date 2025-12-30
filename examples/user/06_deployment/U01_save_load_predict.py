@@ -114,7 +114,8 @@ model_name = best_prediction['model_name']
 
 print(f"\nBest model: {model_name}")
 print(f"Model ID: {model_id}")
-print(f"Test MSE: {best_prediction.get('test_mse', best_prediction.get('mse', 'N/A'))}")
+test_mse = best_prediction.get('test_mse', best_prediction.get('mse'))
+print(f"Test MSE: {test_mse:.4f}" if test_mse is not None else "Test MSE: (see detailed metrics)")
 
 # Store reference predictions for verification
 reference_predictions = best_prediction['y_pred'][:5].flatten()

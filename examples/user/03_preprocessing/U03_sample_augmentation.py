@@ -27,6 +27,7 @@ Difficulty: ★★★☆☆
 import argparse
 
 # Third-party imports
+import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import ShuffleSplit, GroupKFold
@@ -271,7 +272,8 @@ result_fixed = nirs4all.run(
     name="FixedSize",
     verbose=0
 )
-print(f"   target_size=30 → Result: Accuracy = {100*(1-result_fixed.best_rmse):.1f}%")
+accuracy_fixed = result_fixed.best_accuracy if hasattr(result_fixed, 'best_accuracy') and result_fixed.best_accuracy is not None else (1 - result_fixed.best_rmse if not np.isnan(result_fixed.best_rmse) else float('nan'))
+print(f"   target_size=30 → Result: Accuracy = {100*accuracy_fixed:.1f}%" if not np.isnan(accuracy_fixed) else "   target_size=30 → Result: (see detailed metrics)")
 
 # Option 2: Max factor
 pipeline_maxfactor = [
@@ -291,7 +293,8 @@ result_maxfactor = nirs4all.run(
     name="MaxFactor",
     verbose=0
 )
-print(f"   max_factor=2.0 → Result: Accuracy = {100*(1-result_maxfactor.best_rmse):.1f}%")
+accuracy_maxfactor = result_maxfactor.best_accuracy if hasattr(result_maxfactor, 'best_accuracy') and result_maxfactor.best_accuracy is not None else (1 - result_maxfactor.best_rmse if not np.isnan(result_maxfactor.best_rmse) else float('nan'))
+print(f"   max_factor=2.0 → Result: Accuracy = {100*accuracy_maxfactor:.1f}%" if not np.isnan(accuracy_maxfactor) else "   max_factor=2.0 → Result: (see detailed metrics)")
 
 
 # =============================================================================
