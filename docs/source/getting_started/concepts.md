@@ -46,6 +46,22 @@ dataset = DatasetConfigs({
 })
 ```
 
+You can also generate synthetic data for testing and prototyping:
+
+```python
+import nirs4all
+
+# Generate realistic synthetic NIRS spectra
+dataset = nirs4all.generate.regression(
+    n_samples=500,
+    components=["water", "protein", "lipid"],
+    complexity="realistic"
+)
+```
+
+See {doc}`/user_guide/data/synthetic_data` for more on synthetic data generation.
+```
+
 ### Partitions
 
 Data is organized into partitions:

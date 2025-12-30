@@ -154,6 +154,42 @@ dataset = DatasetConfigs({
 result = nirs4all.run(pipeline, dataset=dataset)
 ```
 
+## No Data? Generate Synthetic NIRS Spectra
+
+Get started immediately with realistic synthetic data:
+
+```python
+import nirs4all
+
+# Generate synthetic NIRS data with known ground truth
+dataset = nirs4all.generate.regression(
+    n_samples=500,
+    components=["water", "protein", "lipid"],
+    complexity="realistic",
+    random_state=42
+)
+
+# Use directly in pipelines
+result = nirs4all.run(
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3),
+        {"model": PLSRegression(n_components=10)}
+    ],
+    dataset=dataset
+)
+
+print(f"RMSE: {result.best_rmse:.4f}")
+```
+
+Synthetic data is perfect for:
+- Learning and experimentation
+- Testing preprocessing pipelines
+- Prototyping before real data arrives
+- Reproducible unit tests
+
+See {doc}`/user_guide/data/synthetic_data` for full documentation.
+
 ## Compare Multiple Models
 
 Run and compare different models in one pipeline:

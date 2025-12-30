@@ -80,6 +80,30 @@ print(f"Best RMSE: {result.best_rmse:.4f}")
 result.export("exports/best_model.n4a")
 ```
 
+### Try Without Data
+
+No dataset? Generate synthetic NIRS spectra to get started:
+
+```python
+import nirs4all
+
+# Generate realistic synthetic NIRS data
+dataset = nirs4all.generate.regression(
+    n_samples=500,
+    components=["water", "protein", "lipid"],
+    complexity="realistic",
+    random_state=42
+)
+
+# Run a pipeline on synthetic data
+result = nirs4all.run(
+    pipeline=[MinMaxScaler(), {"model": PLSRegression(10)}],
+    dataset=dataset
+)
+print(f"RMSE: {result.best_rmse:.4f}")
+```
+```
+
 :::{tip}
 See {doc}`examples/index` for 50+ working examples organized by topic.
 :::
@@ -158,6 +182,13 @@ NIRS4ALL offers a wide range of functionalities:
    - Feature importance analysis
    - Classification metrics
    - Residual analysis
+
+6. **Synthetic Data Generation**:
+   - Physically-motivated NIRS spectra (Beer-Lambert law)
+   - Predefined spectral components (water, protein, lipid, etc.)
+   - Configurable complexity levels for testing
+   - Classification and regression targets
+   - Export to CSV for loader testing
 
 ## Installation
 

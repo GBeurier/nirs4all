@@ -6,13 +6,14 @@ This section covers loading and managing spectroscopic data in NIRS4ALL.
 :maxdepth: 2
 
 loading_data
+synthetic_data
 aggregation
 sample_filtering
 ```
 
 ## Overview
 
-NIRS4ALL provides flexible data handling capabilities for loading spectroscopic data from various formats, filtering samples, and aggregating predictions.
+NIRS4ALL provides flexible data handling capabilities for loading spectroscopic data from various formats, generating synthetic data, filtering samples, and aggregating predictions.
 
 ::::{grid} 2
 :gutter: 3
@@ -25,6 +26,16 @@ Load data from CSV, Excel, MATLAB, NumPy, and Parquet formats.
 
 +++
 {bdg-primary}`Essential`
+:::
+
+:::{grid-item-card} 🧪 Synthetic Data
+:link: synthetic_data
+:link-type: doc
+
+Generate realistic synthetic NIRS spectra for testing and prototyping.
+
++++
+{bdg-info}`New in 0.6`
 :::
 
 :::{grid-item-card} 📊 Aggregation

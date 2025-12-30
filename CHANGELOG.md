@@ -7,9 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.0] - Major API Overhaul and Architecture Improvements - 2025-12-27
 
-This release introduces a new module-level API, complete documentation overhaul, sklearn integration, branching/merging pipelines, and extensive architectural improvements.
+This release introduces a new module-level API, complete documentation overhaul, sklearn integration, branching/merging pipelines, synthetic data generation, and extensive architectural improvements.
 
 ### ✨ New Features
+
+#### Synthetic Data Generation (NEW)
+- **New `nirs4all.generate()` API**: Generate realistic synthetic NIRS spectra for testing and prototyping
+- **Convenience functions**: `nirs4all.generate.regression()`, `nirs4all.generate.classification()`, `nirs4all.generate.multi_source()`
+- **Builder pattern**: `SyntheticDatasetBuilder` with fluent interface for full control
+- **Physically-motivated generation**: Beer-Lambert law with Voigt profile peaks, realistic noise and scatter
+- **Predefined components**: 8 spectral components (water, protein, lipid, starch, cellulose, chlorophyll, oil, nitrogen_compound)
+- **Configurable complexity**: `"simple"` (fast tests), `"realistic"` (typical NIR), `"complex"` (challenging scenarios)
+- **Classification support**: Controllable class separation and imbalanced class weights
+- **Multi-source generation**: Combine NIR spectra with auxiliary data (markers, sensors)
+- **Metadata generation**: Sample IDs, groups for GroupKFold, repetitions
+- **Batch effects simulation**: For domain adaptation research
+- **Export capabilities**: `to_folder()`, `to_csv()` compatible with DatasetConfigs
+- **Real data fitting**: `from_template()` to generate data matching real dataset characteristics
+- **Pytest fixtures**: Comprehensive test fixtures in `tests/conftest.py` for reproducible testing
+- **CSV variation generator**: Test loaders with different formats (delimiters, headers, decimals)
 
 #### Module-Level API (Primary Interface)
 - **New `nirs4all.run()` function**: Simplified entry point for training pipelines with intuitive parameters
@@ -102,11 +118,13 @@ This release introduces a new module-level API, complete documentation overhaul,
 ### 📚 Documentation
 
 - **Complete documentation refactor**: Restructured docs with Sphinx, RTD theme
-- **New API reference**: Module-level API, sklearn integration, data handling
-- **User guides**: Preprocessing guide, API migration guide, augmentation guide
+- **New API reference**: Module-level API, sklearn integration, data handling, synthetic generation
+- **User guides**: Preprocessing guide, API migration guide, augmentation guide, synthetic data guide
 - **Specifications**: Pipeline syntax, config format, metrics, nested CV
 - **40+ pipeline examples**: Comprehensive catalog for branching, merging, multi-source
 - **Reorganized examples**: User examples by topic, reference examples for syntax
+- **Developer guide**: Synthetic data generator internals and extension
+- **Synthetic data examples**: U09, U10 (user), D10, D11 (developer)
 
 ### 🧪 Testing
 
