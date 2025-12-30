@@ -7,7 +7,7 @@ Explore PLS variations for different spectroscopy scenarios.
 This tutorial covers:
 
 * Standard PLSRegression and PLSDA
-* IKPLS (Improved Kernel PLS) for speed
+* IKPLS (Improved Kernel PLS) for speed (requires: pip install ikpls)
 * OPLS/OPLSDA (Orthogonal PLS) for filtering
 * SparsePLS for variable selection
 * SIMPLS, IntervalPLS, RobustPLS, KernelPLS
@@ -37,11 +37,12 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import nirs4all
 from nirs4all.operators.transforms import StandardNormalVariate, FirstDerivative
 from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.utils.backend import IKPLS_AVAILABLE
 
 # PLS operators from nirs4all
 from nirs4all.operators.models.sklearn import (
     PLSDA,           # PLS Discriminant Analysis
-    IKPLS,           # Improved Kernel PLS (fast)
+    IKPLS,           # Improved Kernel PLS (fast) - requires ikpls package
     OPLS,            # Orthogonal PLS
     OPLSDA,          # Orthogonal PLS-DA
     SparsePLS,       # Sparse PLS for variable selection
@@ -64,6 +65,13 @@ args = parser.parse_args()
 print("\n" + "=" * 60)
 print("U16 - PLS Variants")
 print("=" * 60)
+
+# Check for optional IKPLS package
+if IKPLS_AVAILABLE:
+    print("✓ ikpls package detected - IKPLS models available")
+else:
+    print("✗ ikpls package not installed - IKPLS examples will be skipped")
+    print("  Install with: pip install ikpls")
 
 print("""
 Partial Least Squares (PLS) has many variants for different use cases:
@@ -102,6 +110,7 @@ IKPLS (Improved Kernel PLS) is a faster implementation.
 Useful for large datasets with many samples or features.
 """)
 
+# Build pipeline with standard PLS models
 pipeline_ikpls = [
     MinMaxScaler(),
     {"y_processing": MinMaxScaler()},
@@ -113,12 +122,17 @@ pipeline_ikpls = [
     {"model": PLSRegression(n_components=5), "name": "PLS-5"},
     {"model": PLSRegression(n_components=10), "name": "PLS-10"},
     {"model": PLSRegression(n_components=15), "name": "PLS-15"},
-
-    # IKPLS - faster implementation
-    {"model": IKPLS(n_components=5, backend='numpy'), "name": "IKPLS-5"},
-    {"model": IKPLS(n_components=10, backend='numpy'), "name": "IKPLS-10"},
-    {"model": IKPLS(n_components=15, backend='numpy'), "name": "IKPLS-15"},
 ]
+
+# Add IKPLS models only if ikpls package is available
+if IKPLS_AVAILABLE:
+    pipeline_ikpls.extend([
+        {"model": IKPLS(n_components=5, backend='numpy'), "name": "IKPLS-5"},
+        {"model": IKPLS(n_components=10, backend='numpy'), "name": "IKPLS-10"},
+        {"model": IKPLS(n_components=15, backend='numpy'), "name": "IKPLS-15"},
+    ])
+else:
+    print("  (Skipping IKPLS models - ikpls package not installed)")
 
 result_ikpls = nirs4all.run(
     pipeline=pipeline_ikpls,
@@ -396,8 +410,7 @@ pipeline_all = [
     # Standard
     {"model": PLSRegression(n_components=10), "name": "sklearn-PLS"},
 
-    # Fast
-    {"model": IKPLS(n_components=10, backend='numpy'), "name": "IKPLS"},
+    # Fast - SIMPLS (always available)
     {"model": SIMPLS(n_components=10, backend='numpy'), "name": "SIMPLS"},
 
     # Orthogonal
@@ -412,6 +425,11 @@ pipeline_all = [
     # Nonlinear
     {"model": KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='numpy'), "name": "KernelPLS"},
 ]
+
+# Add IKPLS if available
+if IKPLS_AVAILABLE:
+    # Insert after sklearn-PLS for proper comparison grouping
+    pipeline_all.insert(6, {"model": IKPLS(n_components=10, backend='numpy'), "name": "IKPLS"})
 
 result_all = nirs4all.run(
     pipeline=pipeline_all,
@@ -435,6 +453,22 @@ if args.plots:
 
     if args.show:
         plt.show()
+
+
+# =============================================================================
+# Validation: Ensure all results are valid (no NaN metrics)
+# =============================================================================
+import sys
+sys.path.insert(0, '..')  # Add parent dir to find example_utils
+from example_utils import validate_results
+
+# Validate all results - will exit with code 1 if any have NaN metrics
+validate_results(
+    [result_ikpls, result_opls, result_sparse, result_ipls,
+     result_robust, result_kernel, result_plsda, result_all],
+    names=["IKPLS", "OPLS", "SparsePLS", "IntervalPLS",
+           "RobustPLS", "KernelPLS", "PLSDA", "AllPLS"]
+)
 
 
 # =============================================================================

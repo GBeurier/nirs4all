@@ -57,6 +57,15 @@ except ImportError:
     JAX_AVAILABLE = False
     print("JAX not installed - using NumPy backend only")
 
+# Check if ikpls package is available
+from nirs4all.utils.backend import is_available
+IKPLS_AVAILABLE = is_available('ikpls')
+if IKPLS_AVAILABLE:
+    print("ikpls package detected - IKPLS models available")
+else:
+    print("ikpls package not installed - IKPLS models will be skipped")
+    print("  Install with: pip install ikpls")
+
 # TODO: Add variable selection operators as they are implemented
 # from nirs4all.operators.transforms.feature_selection import VIPSelector, CARSSelector
 
@@ -79,10 +88,6 @@ regression_models = [
     # Tier 1: sklearn native PLSRegression
     PLSRegression(n_components=10),
     PLSRegression(n_components=15),
-
-    # Tier 2: IKPLS (Improved Kernel PLS - faster implementation)
-    IKPLS(n_components=10, backend='numpy'),
-    IKPLS(n_components=15, backend='numpy'),
 
     # Tier 2: OPLS (Orthogonal PLS - removes Y-orthogonal variation)
     OPLS(n_components=1, pls_components=1, backend='numpy'),
@@ -137,13 +142,20 @@ regression_models = [
     # LWPLS(n_components=10, lambda_in_similarity=1.0, backend='numpy'),
 ]
 
+# Add IKPLS models only if ikpls package is available
+if IKPLS_AVAILABLE:
+    # Insert IKPLS models after PLSRegression
+    ikpls_models = [
+        IKPLS(n_components=10, backend='numpy'),
+        IKPLS(n_components=15, backend='numpy'),
+    ]
+    # Insert at position 6 (after PLSRegression models)
+    for i, model in enumerate(ikpls_models):
+        regression_models.insert(6 + i, model)
+
 # Add JAX-accelerated models if available
 if JAX_AVAILABLE:
-    regression_models.extend([
-        # IKPLS with JAX backend for GPU/TPU acceleration
-        {"model": IKPLS(n_components=10, backend='jax', algorithm=1), "name": "IKPLS_JAX_10"},
-        {"model": IKPLS(n_components=15, backend='jax', algorithm=1), "name": "IKPLS_JAX_15"},
-
+    jax_models = [
         # OPLS with JAX backend
         {"model": OPLS(n_components=1, pls_components=1, backend='jax'), "name": "OPLS_JAX_1"},
         {"model": OPLS(n_components=2, pls_components=1, backend='jax'), "name": "OPLS_JAX_2"},
@@ -193,7 +205,16 @@ if JAX_AVAILABLE:
         # LWPLS with JAX backend
         {"model": LWPLS(n_components=5, lambda_in_similarity=0.5, backend='jax'), "name": "LWPLS_JAX_5"},
         {"model": LWPLS(n_components=10, lambda_in_similarity=1.0, backend='jax'), "name": "LWPLS_JAX_10"},
-    ])
+    ]
+
+    # Add IKPLS with JAX backend only if ikpls is available
+    if IKPLS_AVAILABLE:
+        jax_models.extend([
+            {"model": IKPLS(n_components=10, backend='jax', algorithm=1), "name": "IKPLS_JAX_10"},
+            {"model": IKPLS(n_components=15, backend='jax', algorithm=1), "name": "IKPLS_JAX_15"},
+        ])
+
+    regression_models.extend(jax_models)
 
 # Note: DiPLS is excluded from pipeline examples because it uses
 # Hankelization which returns fewer predictions than input samples.

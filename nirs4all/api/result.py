@@ -352,6 +352,112 @@ class RunResult:
         """User-friendly string representation."""
         return self.summary()
 
+    def validate(
+        self,
+        check_nan_metrics: bool = True,
+        check_empty: bool = True,
+        raise_on_failure: bool = True,
+        nan_threshold: float = 0.0
+    ) -> Dict[str, Any]:
+        """Validate the run result for common issues.
+
+        Checks for NaN values in metrics, empty predictions, and other issues
+        that might indicate problems with the pipeline execution.
+
+        Args:
+            check_nan_metrics: If True, check for NaN values in metrics.
+            check_empty: If True, check for empty predictions.
+            raise_on_failure: If True, raise ValueError on validation failure.
+            nan_threshold: Maximum allowed ratio of predictions with NaN metrics (0.0 = none allowed).
+
+        Returns:
+            Dictionary with validation results:
+                - valid: True if all checks passed.
+                - issues: List of issue descriptions.
+                - nan_count: Number of predictions with NaN metrics.
+                - total_count: Total number of predictions.
+
+        Raises:
+            ValueError: If raise_on_failure=True and validation fails.
+
+        Example:
+            >>> result = nirs4all.run(pipeline, dataset)
+            >>> result.validate()  # Raises if issues found
+            >>> # Or check without raising
+            >>> report = result.validate(raise_on_failure=False)
+            >>> if not report['valid']:
+            ...     print(f"Issues: {report['issues']}")
+        """
+        issues = []
+        nan_count = 0
+        total_count = self.num_predictions
+
+        # Check for empty predictions
+        if check_empty and total_count == 0:
+            issues.append("No predictions found")
+
+        # Check for NaN metrics
+        if check_nan_metrics and total_count > 0:
+            all_preds = self.predictions.top(n=total_count)
+            for pred in all_preds:
+                has_nan = False
+                # Check common metrics
+                for metric in ['rmse', 'r2', 'accuracy', 'mse', 'mae']:
+                    value = pred.get(metric)
+                    if value is not None and np.isnan(value):
+                        has_nan = True
+                        break
+
+                # Check scores dict
+                if not has_nan:
+                    scores = pred.get('scores', {})
+                    if isinstance(scores, dict):
+                        for partition_scores in scores.values():
+                            if isinstance(partition_scores, dict):
+                                for val in partition_scores.values():
+                                    if isinstance(val, (int, float)) and np.isnan(val):
+                                        has_nan = True
+                                        break
+
+                # Check test_score
+                if not has_nan:
+                    test_score = pred.get('test_score')
+                    if test_score is not None and np.isnan(test_score):
+                        has_nan = True
+
+                if has_nan:
+                    nan_count += 1
+                    model_name = pred.get('model_name', 'unknown')
+                    if nan_count <= 5:  # Only report first 5
+                        issues.append(f"NaN metrics found in prediction: {model_name}")
+
+            if nan_count > 5:
+                issues.append(f"... and {nan_count - 5} more predictions with NaN metrics")
+
+            # Check threshold
+            nan_ratio = nan_count / total_count if total_count > 0 else 0
+            if nan_ratio > nan_threshold:
+                issues.append(
+                    f"NaN ratio ({nan_ratio:.1%}) exceeds threshold ({nan_threshold:.1%})"
+                )
+
+        valid = len(issues) == 0
+
+        report = {
+            'valid': valid,
+            'issues': issues,
+            'nan_count': nan_count,
+            'total_count': total_count,
+        }
+
+        if raise_on_failure and not valid:
+            raise ValueError(
+                f"RunResult validation failed:\n" +
+                "\n".join(f"  - {issue}" for issue in issues)
+            )
+
+        return report
+
 
 @dataclass
 class PredictResult:

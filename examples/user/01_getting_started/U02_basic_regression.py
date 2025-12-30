@@ -186,6 +186,19 @@ print("   ✓ Created histogram")
 
 
 # =============================================================================
+# Validation: Ensure results are valid (no NaN metrics)
+# =============================================================================
+import sys
+import os
+# Add examples dir to find example_utils
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from example_utils import validate_result
+
+# Validate results - will exit with code 1 if NaN metrics found
+validate_result(result, "BasicRegression")
+
+
+# =============================================================================
 # Summary
 # =============================================================================
 print("\n" + "=" * 60)
