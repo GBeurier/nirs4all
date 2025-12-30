@@ -4,35 +4,37 @@ Welcome to the nirs4all examples! This collection provides a progressive learnin
 
 ## 📁 Structure
 
-Examples are organized into two main learning paths:
+Examples are organized into two main learning paths, with **per-folder numbering** (each folder starts at 01):
 
 ```
 examples/
-├── user/                    # 👤 User Path (U01-U27)
-│   ├── 01_getting_started/  # Your first pipelines
-│   ├── 02_data_handling/    # Loading and managing data
-│   ├── 03_preprocessing/    # NIRS preprocessing techniques
-│   ├── 04_models/           # Model training and comparison
-│   ├── 05_cross_validation/ # Validation strategies
-│   ├── 06_deployment/       # Saving, loading, and deploying
-│   └── 07_explainability/   # SHAP and feature importance
+├── user/                    # 👤 User Path
+│   ├── 01_getting_started/  # U01-U04: Your first pipelines
+│   ├── 02_data_handling/    # U01-U06: Loading and managing data
+│   ├── 03_preprocessing/    # U01-U04: NIRS preprocessing techniques
+│   ├── 04_models/           # U01-U04: Model training and comparison
+│   ├── 05_cross_validation/ # U01-U04: Validation strategies
+│   ├── 06_deployment/       # U01-U04: Saving, loading, and deploying
+│   └── 07_explainability/   # U01-U03: SHAP and feature importance
 │
-├── developer/               # 🔧 Developer Path (D01-D22)
-│   ├── 01_advanced_pipelines/  # Branching and merging
-│   ├── 02_generators/          # Pipeline generation syntax
-│   ├── 03_deep_learning/       # TensorFlow, PyTorch, JAX
-│   ├── 04_transfer_learning/   # Domain adaptation
-│   ├── 05_advanced_features/   # Metadata, outliers, etc.
-│   └── 06_internals/           # Custom controllers, sessions
+├── developer/               # 🔧 Developer Path
+│   ├── 01_advanced_pipelines/  # D01-D05: Branching and merging
+│   ├── 02_generators/          # D01-D06: Pipeline generation & synthetic data
+│   ├── 03_deep_learning/       # D01-D04: TensorFlow, PyTorch, JAX
+│   ├── 04_transfer_learning/   # D01-D03: Domain adaptation
+│   ├── 05_advanced_features/   # D01-D03: Metadata, outliers, etc.
+│   └── 06_internals/           # D01-D02: Custom controllers, sessions
 │
 ├── reference/               # 📚 Reference Examples (R01-R04)
 │   └── Complete syntax documentation
 │
-├── benchmarks/              # 📊 Benchmarks
-│   └── Performance comparisons
+├── legacy/                  # 🗄️ Legacy Examples (Q*/X*)
+│   └── Old examples being migrated
 │
 └── sample_data/             # 📂 Sample datasets
 ```
+
+**Output Directory**: Examples save generated files to `workspace/examples_output/`
 
 ---
 
@@ -53,54 +55,56 @@ The User Path provides a complete introduction to nirs4all, from your first pipe
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| U05_flexible_inputs.py | Different input formats (numpy, path, dict) | ★☆☆☆☆ |
-| U06_multi_datasets.py | Analyze multiple datasets | ★★☆☆☆ |
-| U07_multi_source.py | Multi-source data (NIR + other sensors) | ★★★☆☆ |
-| U08_wavelength_handling.py | Wavelength interpolation and units | ★★☆☆☆ |
+| U01_flexible_inputs.py | Different input formats (numpy, path, dict) | ★☆☆☆☆ |
+| U02_multi_datasets.py | Analyze multiple datasets | ★★☆☆☆ |
+| U03_multi_source.py | Multi-source data (NIR + other sensors) | ★★★☆☆ |
+| U04_wavelength_handling.py | Wavelength interpolation and units | ★★☆☆☆ |
+| U05_synthetic_data.py | Generate synthetic NIRS data | ★★☆☆☆ |
+| U06_synthetic_advanced.py | Builder API for synthetic data | ★★★☆☆ |
 
 ### 03_preprocessing/ - Preprocessing
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| U09_preprocessing_basics.py | SNV, MSC, derivatives, smoothing | ★★☆☆☆ |
-| U10_feature_augmentation.py | Feature augmentation modes | ★★★☆☆ |
-| U11_sample_augmentation.py | Sample augmentation (noise, drift) | ★★★☆☆ |
-| U12_signal_conversion.py | Absorbance, reflectance, Kubelka-Munk | ★★☆☆☆ |
+| U01_preprocessing_basics.py | SNV, MSC, derivatives, smoothing | ★★☆☆☆ |
+| U02_feature_augmentation.py | Feature augmentation modes | ★★★☆☆ |
+| U03_sample_augmentation.py | Sample augmentation (noise, drift) | ★★★☆☆ |
+| U04_signal_conversion.py | Absorbance, reflectance, Kubelka-Munk | ★★☆☆☆ |
 
 ### 04_models/ - Models
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| U13_multi_model.py | Compare PLS, RF, Ridge, XGBoost | ★★☆☆☆ |
-| U14_hyperparameter_tuning.py | Optuna optimization | ★★★☆☆ |
-| U15_stacking_ensembles.py | Stacking and Voting | ★★★☆☆ |
-| U16_pls_variants.py | PLSR, OPLS, SparsePLS, iPLS | ★★★☆☆ |
+| U01_multi_model.py | Compare PLS, RF, Ridge, XGBoost | ★★☆☆☆ |
+| U02_hyperparameter_tuning.py | Optuna optimization | ★★★☆☆ |
+| U03_stacking_ensembles.py | Stacking and Voting | ★★★☆☆ |
+| U04_pls_variants.py | PLSR, OPLS, SparsePLS, iPLS | ★★★☆☆ |
 
 ### 05_cross_validation/ - Cross-Validation
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| U17_cv_strategies.py | KFold, ShuffleSplit, RepeatedKFold | ★★☆☆☆ |
-| U18_group_splitting.py | GroupKFold, force_group | ★★★☆☆ |
-| U19_sample_filtering.py | Outlier filtering (IQR, Z-score) | ★★★☆☆ |
-| U20_aggregation.py | Aggregation of repetitions | ★★☆☆☆ |
+| U01_cv_strategies.py | KFold, ShuffleSplit, RepeatedKFold | ★★☆☆☆ |
+| U02_group_splitting.py | GroupKFold, force_group | ★★★☆☆ |
+| U03_sample_filtering.py | Outlier filtering (IQR, Z-score) | ★★★☆☆ |
+| U04_aggregation.py | Aggregation of repetitions | ★★☆☆☆ |
 
 ### 06_deployment/ - Deployment
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| U21_save_load_predict.py | Save, load, and predict | ★★☆☆☆ |
-| U22_export_bundle.py | Export .n4a bundles | ★★☆☆☆ |
-| U23_workspace_management.py | Workspace and artifacts | ★★☆☆☆ |
-| U24_sklearn_integration.py | NIRSPipeline sklearn wrapper | ★★★☆☆ |
+| U01_save_load_predict.py | Save, load, and predict | ★★☆☆☆ |
+| U02_export_bundle.py | Export .n4a bundles | ★★☆☆☆ |
+| U03_workspace_management.py | Workspace and artifacts | ★★☆☆☆ |
+| U04_sklearn_integration.py | NIRSPipeline sklearn wrapper | ★★★☆☆ |
 
 ### 07_explainability/ - Explainability
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| U25_shap_basics.py | SHAP for NIRS | ★★★☆☆ |
-| U26_shap_sklearn.py | SHAP with sklearn wrapper | ★★★☆☆ |
-| U27_feature_selection.py | CARS, MC-UVE, wavelength selection | ★★★☆☆ |
+| U01_shap_basics.py | SHAP for NIRS | ★★★☆☆ |
+| U02_shap_sklearn.py | SHAP with sklearn wrapper | ★★★☆☆ |
+| U03_feature_selection.py | CARS, MC-UVE, wavelength selection | ★★★☆☆ |
 
 ---
 
@@ -118,46 +122,48 @@ The Developer Path covers advanced features for power users and contributors.
 | D04_merge_sources.py | Per-source preprocessing | ★★★★☆ |
 | D05_meta_stacking.py | Multi-level stacking | ★★★★★ |
 
-### 02_generators/ - Generators
+### 02_generators/ - Generators & Synthetic Data
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| D06_generator_syntax.py | _or_, pick, count, _range_ | ★★★☆☆ |
-| D07_generator_advanced.py | _grid_, _zip_, _chain_, _sample_ | ★★★★☆ |
-| D08_generator_iterators.py | Generator iterators | ★★★★★ |
-| D09_nested_generators.py | Nested generators, _cartesian_ | ★★★★★ |
+| D01_generator_syntax.py | _or_, pick, count, _range_ | ★★★☆☆ |
+| D02_generator_advanced.py | _grid_, _zip_, _chain_, _sample_ | ★★★★☆ |
+| D03_generator_iterators.py | Generator iterators | ★★★★★ |
+| D04_nested_generators.py | Nested generators, _cartesian_ | ★★★★★ |
+| D05_synthetic_custom_components.py | Custom NIR bands & components | ★★★★☆ |
+| D06_synthetic_testing.py | Testing with synthetic data | ★★★★☆ |
 
 ### 03_deep_learning/ - Deep Learning
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| D10_pytorch_models.py | Custom PyTorch models | ★★★★☆ |
-| D11_jax_models.py | JAX/Flax models | ★★★★☆ |
-| D12_tensorflow_models.py | TensorFlow nicon models | ★★★★☆ |
-| D13_framework_comparison.py | TF vs PyTorch vs JAX | ★★★★★ |
+| D01_pytorch_models.py | Custom PyTorch models | ★★★★☆ |
+| D02_jax_models.py | JAX/Flax models | ★★★★☆ |
+| D03_tensorflow_models.py | TensorFlow nicon models | ★★★★☆ |
+| D04_framework_comparison.py | TF vs PyTorch vs JAX | ★★★★★ |
 
 ### 04_transfer_learning/ - Transfer Learning
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| D14_transfer_analysis.py | TransferPreprocessingSelector | ★★★★☆ |
-| D15_retrain_modes.py | Full, transfer, finetune modes | ★★★★☆ |
-| D16_pca_geometry.py | PCA analysis for transfer | ★★★★★ |
+| D01_transfer_analysis.py | TransferPreprocessingSelector | ★★★★☆ |
+| D02_retrain_modes.py | Full, transfer, finetune modes | ★★★★☆ |
+| D03_pca_geometry.py | PCA analysis for transfer | ★★★★★ |
 
 ### 05_advanced_features/ - Advanced Features
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| D17_metadata_branching.py | Metadata-based branching | ★★★★☆ |
-| D18_concat_transform.py | Concatenated transformers | ★★★☆☆ |
-| D19_repetition_transform.py | Repetition to sources/preprocessing | ★★★★☆ |
+| D01_metadata_branching.py | Metadata-based branching | ★★★★☆ |
+| D02_concat_transform.py | Concatenated transformers | ★★★☆☆ |
+| D03_repetition_transform.py | Repetition to sources/preprocessing | ★★★★☆ |
 
 ### 06_internals/ - Internals
 
 | Example | Description | Complexity |
 |---------|-------------|------------|
-| D20_session_workflow.py | Session-based workflows | ★★★☆☆ |
-| D21_custom_controllers.py | Custom controller development | ★★★★★ |
+| D01_session_workflow.py | Session-based workflows | ★★★☆☆ |
+| D02_custom_controllers.py | Custom controller development | ★★★★★ |
 
 ---
 
@@ -223,8 +229,10 @@ See [EXAMPLES_REORGANIZATION.md](../docs/EXAMPLES_REORGANIZATION.md) for the ful
 
 ## 💡 Tips
 
-1. **Start with U01**: If you're new to nirs4all, start with `U01_hello_world.py`
-2. **Follow the path**: Examples are numbered for sequential learning
-3. **Check prerequisites**: Some examples require specific packages (TensorFlow, PyTorch, etc.)
-4. **Use `--plots`**: Add `--plots --show` to visualize results
-5. **Read docstrings**: Each example has detailed documentation at the top
+1. **Start with U01**: If you're new to nirs4all, start with `user/01_getting_started/U01_hello_world.py`
+2. **Per-folder numbering**: Each folder has its own U01, U02, etc. - this makes it easier to add new examples
+3. **Follow the path**: Examples within each folder are numbered for sequential learning
+4. **Check prerequisites**: Some examples require specific packages (TensorFlow, PyTorch, etc.)
+5. **Use `--plots`**: Add `--plots --show` to visualize results
+6. **Read docstrings**: Each example has detailed documentation at the top
+7. **Check outputs**: Generated files are saved to `workspace/examples_output/`

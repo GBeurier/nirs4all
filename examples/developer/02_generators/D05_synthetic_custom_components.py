@@ -1,5 +1,5 @@
 """
-D10 - Synthetic Generator: Custom Components
+D05 - Synthetic Generator: Custom Components
 =============================================
 
 Learn to extend the synthetic generator with custom spectral components.
@@ -13,7 +13,7 @@ This tutorial covers:
 
 Prerequisites
 -------------
-Complete user examples U09 and U10 first.
+Complete user examples U05 and U06 first.
 
 Duration: ~5 minutes
 Difficulty: ★★★★☆
@@ -42,20 +42,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from example_utils import get_example_output_path, print_output_location, save_array_summary
 
 # Parse command-line arguments
-parser = argparse.ArgumentParser(description='D10 Custom Components Example')
+parser = argparse.ArgumentParser(description='D05 Custom Components Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
 # Example name for output directory
-EXAMPLE_NAME = "D10_synthetic_custom_components"
+EXAMPLE_NAME = "D05_synthetic_custom_components"
 
 
 # =============================================================================
 # Section 1: Understanding NIRBand
 # =============================================================================
 print("\n" + "=" * 60)
-print("D10 - Custom Spectral Components")
+print("D05 - Custom Spectral Components")
 print("=" * 60)
 
 print("\n" + "-" * 60)

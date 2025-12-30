@@ -2,12 +2,143 @@
 Utility functions for nirs4all examples.
 
 This module provides helper functions used across examples, including
-result validation to ensure tests fail properly when issues occur.
+result validation to ensure tests fail properly when issues occur,
+and output management for saving generated files.
 """
 
+import os
 import sys
+from pathlib import Path
+from typing import Any, List, Optional, Union
+
 import numpy as np
-from typing import Any, List, Optional
+
+
+# =============================================================================
+# Output Directory Management
+# =============================================================================
+
+# Default output directory for example outputs
+_EXAMPLES_OUTPUT_DIR = None
+
+
+def get_examples_output_dir() -> Path:
+    """Get the output directory for example files.
+
+    Returns a path to workspace/examples_output/ which is used for saving
+    plots, generated data, and other artifacts from examples.
+
+    Returns:
+        Path to the examples output directory.
+    """
+    global _EXAMPLES_OUTPUT_DIR
+
+    if _EXAMPLES_OUTPUT_DIR is None:
+        # Find the workspace directory (relative to examples/)
+        examples_dir = Path(__file__).parent
+        workspace_dir = examples_dir.parent / "workspace" / "examples_output"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        _EXAMPLES_OUTPUT_DIR = workspace_dir
+
+    return _EXAMPLES_OUTPUT_DIR
+
+
+def get_example_output_path(
+    example_name: str,
+    filename: str,
+    create_subdir: bool = True
+) -> Path:
+    """Get the output path for a specific example's file.
+
+    Creates a subdirectory for the example if it doesn't exist.
+
+    Args:
+        example_name: Name of the example (e.g., "U01_hello_world").
+        filename: Name of the file to save (e.g., "spectra.png").
+        create_subdir: If True, create a subdirectory for the example.
+
+    Returns:
+        Full path where the file should be saved.
+
+    Example:
+        >>> path = get_example_output_path("D01_synthetic", "generated_spectra.png")
+        >>> plt.savefig(path)
+        >>> print(f"Saved: {path}")
+    """
+    output_dir = get_examples_output_dir()
+
+    if create_subdir:
+        example_dir = output_dir / example_name
+        example_dir.mkdir(parents=True, exist_ok=True)
+        return example_dir / filename
+    else:
+        return output_dir / filename
+
+
+def save_array_summary(
+    arrays: dict,
+    example_name: str,
+    filename: str = "data_summary.txt"
+) -> Path:
+    """Save a summary of generated arrays to a text file.
+
+    Useful for documenting what data was generated in an example.
+
+    Args:
+        arrays: Dictionary of {name: np.ndarray} to summarize.
+        example_name: Name of the example.
+        filename: Output filename.
+
+    Returns:
+        Path to the saved summary file.
+
+    Example:
+        >>> X, y = generate_data()
+        >>> save_array_summary({"X": X, "y": y}, "D01_synthetic")
+    """
+    path = get_example_output_path(example_name, filename)
+
+    lines = [
+        f"Data Summary - {example_name}",
+        "=" * 50,
+        ""
+    ]
+
+    for name, arr in arrays.items():
+        if isinstance(arr, np.ndarray):
+            lines.extend([
+                f"{name}:",
+                f"  Shape: {arr.shape}",
+                f"  Dtype: {arr.dtype}",
+                f"  Range: [{arr.min():.6g}, {arr.max():.6g}]",
+                f"  Mean:  {arr.mean():.6g}",
+                f"  Std:   {arr.std():.6g}",
+                ""
+            ])
+        else:
+            lines.append(f"{name}: {type(arr).__name__}")
+            lines.append("")
+
+    with open(path, 'w') as f:
+        f.write('\n'.join(lines))
+
+    return path
+
+
+def print_output_location(path: Union[str, Path], description: str = "Output") -> None:
+    """Print the location of a saved output file.
+
+    Args:
+        path: Path to the saved file.
+        description: Description of what was saved.
+    """
+    path = Path(path)
+    # Make path relative to workspace for cleaner output
+    try:
+        rel_path = path.relative_to(Path(__file__).parent.parent)
+        print(f"   📁 {description}: {rel_path}")
+    except ValueError:
+        print(f"   📁 {description}: {path}")
 
 
 def validate_result(

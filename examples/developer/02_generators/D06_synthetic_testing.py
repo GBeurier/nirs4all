@@ -1,5 +1,5 @@
 """
-D11 - Synthetic Generator: Testing Integration
+D06 - Synthetic Generator: Testing Integration
 ===============================================
 
 Learn to use synthetic data generation for testing and benchmarking.
@@ -14,7 +14,7 @@ This tutorial covers:
 
 Prerequisites
 -------------
-Complete user examples U09, U10, and developer example D10 first.
+Complete user examples U05, U06, and developer example D05 first.
 
 Duration: ~5 minutes
 Difficulty: ★★★★☆
@@ -51,20 +51,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from example_utils import get_example_output_path, print_output_location, save_array_summary
 
 # Parse command-line arguments
-parser = argparse.ArgumentParser(description='D11 Testing Integration Example')
+parser = argparse.ArgumentParser(description='D06 Testing Integration Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
 # Example name for output directory
-EXAMPLE_NAME = "D11_synthetic_testing"
+EXAMPLE_NAME = "D06_synthetic_testing"
 
 
 # =============================================================================
 # Section 1: Reproducible Test Data
 # =============================================================================
 print("\n" + "=" * 60)
-print("D11 - Synthetic Data for Testing")
+print("D06 - Synthetic Data for Testing")
 print("=" * 60)
 
 print("\n" + "-" * 60)

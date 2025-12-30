@@ -6,10 +6,12 @@ NIRS4ALL includes comprehensive examples organized into two learning paths.
 
 Examples are located in the [`examples/`](https://github.com/GBeurier/nirs4all/tree/main/examples) directory of the repository.
 
+**Important**: Examples use **per-folder numbering** - each folder starts from 01 (e.g., U01-U04 in getting_started, U01-U06 in data_handling).
+
 ::::{grid} 2
 :gutter: 3
 
-:::{grid-item-card} 👤 User Path (U01-U27)
+:::{grid-item-card} 👤 User Path
 :class-card: sd-bg-light
 
 Progressive examples for learning NIRS4ALL from basics to advanced usage.
@@ -18,7 +20,7 @@ Progressive examples for learning NIRS4ALL from basics to advanced usage.
 {bdg-primary}`Beginner` {bdg-success}`Step-by-step`
 :::
 
-:::{grid-item-card} 🔧 Developer Path (D01-D22)
+:::{grid-item-card} 🔧 Developer Path
 :class-card: sd-bg-light
 
 Advanced examples for power users and contributors.
@@ -29,57 +31,57 @@ Advanced examples for power users and contributors.
 
 ::::
 
-## User Path (U01-U27)
+## User Path
 
-Progressive examples for learning NIRS4ALL:
+Progressive examples for learning NIRS4ALL. Each folder has its own numbering (U01, U02, etc.):
 
-| Range | Folder | Topic | Description |
-|-------|--------|-------|-------------|
-| U01-U04 | `01_getting_started/` | Getting Started | First steps with pipelines |
-| U05-U10 | `02_data_handling/` | Data Handling | Loading, managing, and generating data |
-| U11-U14 | `03_preprocessing/` | Preprocessing | Spectral preprocessing techniques |
-| U15-U18 | `04_models/` | Models | Model training and comparison |
-| U19-U22 | `05_cross_validation/` | Cross-Validation | Validation strategies |
-| U23-U26 | `06_deployment/` | Deployment | Export and production usage |
-| U27-U29 | `07_explainability/` | Explainability | SHAP and feature importance |
+| Folder | Topic | Examples | Description |
+|--------|-------|----------|-------------|
+| `01_getting_started/` | Getting Started | U01-U04 | First steps with pipelines |
+| `02_data_handling/` | Data Handling | U01-U06 | Loading, managing, and generating data |
+| `03_preprocessing/` | Preprocessing | U01-U04 | Spectral preprocessing techniques |
+| `04_models/` | Models | U01-U04 | Model training and comparison |
+| `05_cross_validation/` | Cross-Validation | U01-U04 | Validation strategies |
+| `06_deployment/` | Deployment | U01-U04 | Export and production usage |
+| `07_explainability/` | Explainability | U01-U03 | SHAP and feature importance |
 
-### Getting Started Examples
+### Getting Started Examples (01_getting_started/)
 
 - **U01_hello_world.py** - Simplest possible pipeline
 - **U02_basic_regression.py** - Complete regression workflow
 - **U03_basic_classification.py** - Classification with NIRS data
 - **U04_visualization.py** - Plotting predictions and residuals
 
-### Data Handling Examples
+### Data Handling Examples (02_data_handling/)
 
-- **U05_loading_csv.py** - Load data from CSV files
-- **U06_loading_matlab.py** - Load data from MATLAB files
-- **U07_multi_source.py** - Handle multiple data sources
-- **U08_metadata.py** - Work with sample metadata
-- **U09_synthetic_data.py** - Generate synthetic NIRS spectra
-- **U10_synthetic_advanced.py** - Advanced synthetic data with builder API
+- **U01_flexible_inputs.py** - Different input formats
+- **U02_multi_datasets.py** - Analyze multiple datasets
+- **U03_multi_source.py** - Handle multiple data sources
+- **U04_wavelength_handling.py** - Wavelength interpolation and units
+- **U05_synthetic_data.py** - Generate synthetic NIRS spectra
+- **U06_synthetic_advanced.py** - Advanced synthetic data with builder API
 
-### Preprocessing Examples
+### Preprocessing Examples (03_preprocessing/)
 
-- **U11_preprocessing_basics.py** - SNV, MSC, derivatives
-- **U12_feature_augmentation.py** - Multiple preprocessing views
-- **U13_sample_augmentation.py** - Data augmentation for training
-- **U14_signal_conversion.py** - Reflectance to absorbance
+- **U01_preprocessing_basics.py** - SNV, MSC, derivatives
+- **U02_feature_augmentation.py** - Multiple preprocessing views
+- **U03_sample_augmentation.py** - Data augmentation for training
+- **U04_signal_conversion.py** - Reflectance to absorbance
 
-## Developer Path (D01-D22)
+## Developer Path
 
-Advanced examples for power users:
+Advanced examples for power users. Each folder has its own numbering (D01, D02, etc.):
 
-| Range | Folder | Topic | Description |
-|-------|--------|-------|-------------|
-| D01-D05 | `01_advanced_pipelines/` | Advanced Pipelines | Branching, merging, stacking |
-| D06-D11 | `02_generators/` | Generators | Hyperparameter sweeps, synthetic data |
-| D12-D15 | `03_deep_learning/` | Deep Learning | TF/PyTorch/JAX integration |
-| D16-D18 | `04_transfer_learning/` | Transfer Learning | Model adaptation |
-| D19-D21 | `05_advanced_features/` | Advanced Features | Custom extensions |
-| D22-D24 | `06_internals/` | Internals | Understanding the engine |
+| Folder | Topic | Examples | Description |
+|--------|-------|----------|-------------|
+| `01_advanced_pipelines/` | Advanced Pipelines | D01-D05 | Branching, merging, stacking |
+| `02_generators/` | Generators & Synthetic | D01-D06 | Hyperparameter sweeps, synthetic data |
+| `03_deep_learning/` | Deep Learning | D01-D04 | TF/PyTorch/JAX integration |
+| `04_transfer_learning/` | Transfer Learning | D01-D03 | Model adaptation |
+| `05_advanced_features/` | Advanced Features | D01-D03 | Custom extensions |
+| `06_internals/` | Internals | D01-D02 | Understanding the engine |
 
-### Branching and Stacking Examples
+### Branching and Stacking Examples (01_advanced_pipelines/)
 
 - **D01_branching_basics.py** - Creating parallel preprocessing paths
 - **D02_branching_advanced.py** - Complex branching patterns
@@ -87,14 +89,14 @@ Advanced examples for power users:
 - **D04_merge_sources.py** - Multi-source data handling
 - **D05_meta_stacking.py** - Meta-model stacking ensembles
 
-### Generator Examples
+### Generator & Synthetic Data Examples (02_generators/)
 
-- **D06_range_generator.py** - Parameter range sweeps
-- **D07_or_generator.py** - Alternative preprocessing paths
-- **D08_cartesian_generator.py** - Cartesian product generation
-- **D09_custom_generator.py** - Custom pipeline generators
-- **D10_synthetic_custom_components.py** - Custom spectral components for synthetic data
-- **D11_synthetic_testing.py** - Using synthetic data for testing
+- **D01_generator_syntax.py** - Basic generator syntax
+- **D02_generator_advanced.py** - Advanced generator patterns
+- **D03_generator_iterators.py** - Generator iterators
+- **D04_nested_generators.py** - Nested generators
+- **D05_synthetic_custom_components.py** - Custom spectral components for synthetic data
+- **D06_synthetic_testing.py** - Using synthetic data for testing
 
 ## Reference Examples (R01-R04)
 
