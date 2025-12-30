@@ -11,6 +11,7 @@ Public API (recommended):
     nirs4all.retrain(source, data, **kwargs)     - Retrain a pipeline
     nirs4all.session(**kwargs)                   - Create execution session
     nirs4all.load_session(path)                  - Load saved session
+    nirs4all.generate(n_samples, **kwargs)       - Generate synthetic NIRS data
 
 Classes (for advanced usage):
     nirs4all.PipelineRunner    - Direct runner access
@@ -30,6 +31,14 @@ Example:
     >>> print(f"Best RMSE: {result.best_rmse:.4f}")
     >>> result.export("exports/best_model.n4a")
 
+Synthetic Data Generation:
+    >>> # Generate synthetic data for testing
+    >>> dataset = nirs4all.generate(n_samples=1000, random_state=42)
+    >>>
+    >>> # Use convenience functions
+    >>> dataset = nirs4all.generate.regression(n_samples=500)
+    >>> dataset = nirs4all.generate.classification(n_samples=300, n_classes=3)
+
 See examples/ for more usage examples.
 """
 __version__ = "0.6.0"
@@ -46,6 +55,7 @@ from .api import (
     RunResult,
     PredictResult,
     ExplainResult,
+    generate,
 )
 
 # Core pipeline components - for advanced usage
@@ -73,6 +83,8 @@ __all__ = [
     "RunResult",
     "PredictResult",
     "ExplainResult",
+    # Synthetic data generation
+    "generate",
 
     # Pipeline components (advanced usage)
     "PipelineRunner",
