@@ -12,6 +12,7 @@ artifacts
 artifacts_internals
 metadata
 outputs_vs_artifacts
+synthetic
 testing
 ```
 
@@ -101,6 +102,16 @@ Understanding the difference between outputs and artifacts.
 
 +++
 {bdg-secondary}`Concepts`
+:::
+
+:::{grid-item-card} 🧪 Synthetic Data
+:link: synthetic
+:link-type: doc
+
+Synthetic data generator internals and extension.
+
++++
+{bdg-info}`New in 0.6`
 :::
 
 :::{grid-item-card} 🧪 Testing Guide

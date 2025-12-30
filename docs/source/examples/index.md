@@ -36,12 +36,12 @@ Progressive examples for learning NIRS4ALL:
 | Range | Folder | Topic | Description |
 |-------|--------|-------|-------------|
 | U01-U04 | `01_getting_started/` | Getting Started | First steps with pipelines |
-| U05-U08 | `02_data_handling/` | Data Handling | Loading and managing data |
-| U09-U12 | `03_preprocessing/` | Preprocessing | Spectral preprocessing techniques |
-| U13-U16 | `04_models/` | Models | Model training and comparison |
-| U17-U20 | `05_cross_validation/` | Cross-Validation | Validation strategies |
-| U21-U24 | `06_deployment/` | Deployment | Export and production usage |
-| U25-U27 | `07_explainability/` | Explainability | SHAP and feature importance |
+| U05-U10 | `02_data_handling/` | Data Handling | Loading, managing, and generating data |
+| U11-U14 | `03_preprocessing/` | Preprocessing | Spectral preprocessing techniques |
+| U15-U18 | `04_models/` | Models | Model training and comparison |
+| U19-U22 | `05_cross_validation/` | Cross-Validation | Validation strategies |
+| U23-U26 | `06_deployment/` | Deployment | Export and production usage |
+| U27-U29 | `07_explainability/` | Explainability | SHAP and feature importance |
 
 ### Getting Started Examples
 
@@ -50,12 +50,21 @@ Progressive examples for learning NIRS4ALL:
 - **U03_basic_classification.py** - Classification with NIRS data
 - **U04_visualization.py** - Plotting predictions and residuals
 
+### Data Handling Examples
+
+- **U05_loading_csv.py** - Load data from CSV files
+- **U06_loading_matlab.py** - Load data from MATLAB files
+- **U07_multi_source.py** - Handle multiple data sources
+- **U08_metadata.py** - Work with sample metadata
+- **U09_synthetic_data.py** - Generate synthetic NIRS spectra
+- **U10_synthetic_advanced.py** - Advanced synthetic data with builder API
+
 ### Preprocessing Examples
 
-- **U09_preprocessing_basics.py** - SNV, MSC, derivatives
-- **U10_feature_augmentation.py** - Multiple preprocessing views
-- **U11_sample_augmentation.py** - Data augmentation for training
-- **U12_signal_conversion.py** - Reflectance to absorbance
+- **U11_preprocessing_basics.py** - SNV, MSC, derivatives
+- **U12_feature_augmentation.py** - Multiple preprocessing views
+- **U13_sample_augmentation.py** - Data augmentation for training
+- **U14_signal_conversion.py** - Reflectance to absorbance
 
 ## Developer Path (D01-D22)
 
@@ -64,11 +73,11 @@ Advanced examples for power users:
 | Range | Folder | Topic | Description |
 |-------|--------|-------|-------------|
 | D01-D05 | `01_advanced_pipelines/` | Advanced Pipelines | Branching, merging, stacking |
-| D06-D09 | `02_generators/` | Generators | Hyperparameter sweeps |
-| D10-D13 | `03_deep_learning/` | Deep Learning | TF/PyTorch/JAX integration |
-| D14-D16 | `04_transfer_learning/` | Transfer Learning | Model adaptation |
-| D17-D19 | `05_advanced_features/` | Advanced Features | Custom extensions |
-| D20-D22 | `06_internals/` | Internals | Understanding the engine |
+| D06-D11 | `02_generators/` | Generators | Hyperparameter sweeps, synthetic data |
+| D12-D15 | `03_deep_learning/` | Deep Learning | TF/PyTorch/JAX integration |
+| D16-D18 | `04_transfer_learning/` | Transfer Learning | Model adaptation |
+| D19-D21 | `05_advanced_features/` | Advanced Features | Custom extensions |
+| D22-D24 | `06_internals/` | Internals | Understanding the engine |
 
 ### Branching and Stacking Examples
 
@@ -77,6 +86,15 @@ Advanced examples for power users:
 - **D03_merge_basics.py** - Combining branch outputs
 - **D04_merge_sources.py** - Multi-source data handling
 - **D05_meta_stacking.py** - Meta-model stacking ensembles
+
+### Generator Examples
+
+- **D06_range_generator.py** - Parameter range sweeps
+- **D07_or_generator.py** - Alternative preprocessing paths
+- **D08_cartesian_generator.py** - Cartesian product generation
+- **D09_custom_generator.py** - Custom pipeline generators
+- **D10_synthetic_custom_components.py** - Custom spectral components for synthetic data
+- **D11_synthetic_testing.py** - Using synthetic data for testing
 
 ## Reference Examples (R01-R04)
 

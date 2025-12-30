@@ -8,6 +8,7 @@ Submodules
    :maxdepth: 4
 
    nirs4all.api.explain
+   nirs4all.api.generate
    nirs4all.api.predict
    nirs4all.api.result
    nirs4all.api.retrain
