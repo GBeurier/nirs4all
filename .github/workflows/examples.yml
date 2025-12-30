@@ -29,7 +29,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install numpy
-          python -m pip install -r requirements.txt
+          # Install PyTorch CPU-only (faster, no GPU needed in CI)
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          # Install JAX CPU-only
+          python -m pip install jax jaxlib
+          # Install TensorFlow (CPU by default)
+          python -m pip install tensorflow
+          # Install remaining example dependencies (PLS libs, etc.)
+          python -m pip install -r requirements-examples.txt
           python -m pip install -e .
 
       - name: Run Getting Started examples (U01-U04)
@@ -62,7 +69,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install numpy
-          python -m pip install -r requirements.txt
+          # Install PyTorch CPU-only (faster, no GPU needed in CI)
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          # Install JAX CPU-only
+          python -m pip install jax jaxlib
+          # Install TensorFlow (CPU by default)
+          python -m pip install tensorflow
+          # Install remaining example dependencies (PLS libs, etc.)
+          python -m pip install -r requirements-examples.txt
           python -m pip install -e .
 
       - name: Run all User path examples (quick mode)
@@ -89,7 +103,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install numpy
-          python -m pip install -r requirements.txt
+          # Install PyTorch CPU-only (faster, no GPU needed in CI)
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          # Install JAX CPU-only
+          python -m pip install jax jaxlib
+          # Install TensorFlow (CPU by default)
+          python -m pip install tensorflow
+          # Install remaining example dependencies (PLS libs, etc.)
+          python -m pip install -r requirements-examples.txt
           python -m pip install -e .
 
       - name: Run Developer path examples (quick mode, no DL)

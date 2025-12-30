@@ -33,6 +33,7 @@ kennard-stone>=2.2.0
 twinning>=0.0.5
 
 # Deep learning backends
+# Note: In CI, CPU-only versions are installed before this file
 tensorflow>=2.14.0
 torch>=2.1.0
 tabpfn>=2.0.0

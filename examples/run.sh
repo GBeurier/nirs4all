@@ -76,6 +76,8 @@ user_examples=(
   "user/02_data_handling/U06_multi_datasets.py"
   "user/02_data_handling/U07_multi_source.py"
   "user/02_data_handling/U08_wavelength_handling.py"
+  "user/02_data_handling/U09_synthetic_data.py"
+  "user/02_data_handling/U10_synthetic_advanced.py"
   # 03_preprocessing
   "user/03_preprocessing/U09_preprocessing_basics.py"
   "user/03_preprocessing/U10_feature_augmentation.py"
@@ -115,6 +117,8 @@ developer_examples=(
   "developer/02_generators/D07_generator_advanced.py"
   "developer/02_generators/D08_generator_iterators.py"
   "developer/02_generators/D09_nested_generators.py"
+  "developer/02_generators/D10_synthetic_custom_components.py"
+  "developer/02_generators/D11_synthetic_testing.py"
   # 03_deep_learning
   "developer/03_deep_learning/D10_pytorch_models.py"
   "developer/03_deep_learning/D11_jax_models.py"
