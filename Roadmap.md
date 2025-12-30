@@ -1,7 +1,4 @@
 ## ROADMAP
-Doc is a mess (menu is all over the place). Examples should be more thoroughly presented also.
-
-
 Creates use cases that covers all the diversity of controllers and syntax for pipelines -
 Create the example synth pipelines x synth datasets for testing purpose
 
@@ -23,6 +20,7 @@ Create the example synth pipelines x synth datasets for testing purpose
 > [Complete_Review] Review modules one by one: pipeline, dataset, controllers, core,
 
 **RELEASE** 0.7.0: UI
+> [HuggingFace] Huggingface controller ?
 
 > [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
 >   - [MB-PLS] test on multi-source/block ---

@@ -44,6 +44,17 @@ exclude_patterns = []
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['assets']
 
+# Logo configuration
+html_logo = 'assets/nirs4all_logo.png'
+html_theme_options = {
+    'logo_only': False,
+    'display_version': True,
+    'style_nav_header_background': '#2c3e50',
+}
+
+# Favicon (uses the same logo)
+html_favicon = 'assets/nirs4all_logo.png'
+
 # Custom CSS and JS for width toggle
 html_css_files = ['custom.css']
 html_js_files = ['custom.js']

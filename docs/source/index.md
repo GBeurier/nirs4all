@@ -1,7 +1,9 @@
 # Welcome to NIRS4ALL's documentation!
 
-<div align="center">
-<img src="assets/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
+<div align="center" style="margin-bottom: 20px;">
+<img src="_static/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo" style="margin-bottom: 15px;">
+<br>
+<img src="_static/logo-cirad-en.jpg" width="180" alt="CIRAD Logo">
 </div>
 
 **NIRS4ALL** is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
