@@ -1,5 +1,5 @@
 """
-U09 - Synthetic Data: Generate Test Datasets
+U05 - Synthetic Data: Generate Test Datasets
 =============================================
 
 Learn to generate synthetic NIRS spectra for testing and prototyping.
@@ -17,7 +17,7 @@ Complete the getting_started examples first.
 
 Next Steps
 ----------
-See :ref:`U10_synthetic_advanced` for builder API and customization.
+See :ref:`U06_synthetic_advanced` for builder API and customization.
 
 Duration: ~2 minutes
 Difficulty: ★★☆☆☆
@@ -44,20 +44,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from example_utils import get_example_output_path, print_output_location, save_array_summary
 
 # Parse command-line arguments
-parser = argparse.ArgumentParser(description='U09 Synthetic Data Example')
+parser = argparse.ArgumentParser(description='U05 Synthetic Data Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
 # Example name for output directory
-EXAMPLE_NAME = "U09_synthetic_data"
+EXAMPLE_NAME = "U05_synthetic_data"
 
 
 # =============================================================================
 # Section 1: Basic Generation
 # =============================================================================
 print("\n" + "=" * 60)
-print("U09 - Synthetic NIRS Data Generation")
+print("U05 - Synthetic NIRS Data Generation")
 print("=" * 60)
 
 print("\n" + "-" * 60)
@@ -372,7 +372,7 @@ Predefined Components:
   water, protein, lipid, starch, cellulose,
   chlorophyll, oil, nitrogen_compound
 
-Next: U10_synthetic_advanced.py - Builder API and customization
+Next: U06_synthetic_advanced.py - Builder API and customization
 """)
 
 if args.show:

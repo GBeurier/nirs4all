@@ -74,12 +74,18 @@ MinMaxScaler()                            # Instance
 
 ```bash
 cd examples
-./run.sh              # Run all examples
-./run.sh -i 1         # Run single example by index
-./run.sh -n Q1*.py    # Run by name pattern
-./run.sh -l           # Enable logging to log.txt
-./run.sh -p -s        # Enable plots and show
+./run.sh                  # Run all examples
+./run.sh -c user          # Run only user examples
+./run.sh -c developer     # Run only developer examples
+./run.sh -i 1             # Run single example by index
+./run.sh -n "U01*.py"     # Run by name pattern (matches in any folder)
+./run.sh -n "synthetic"   # Run examples containing "synthetic"
+./run.sh -l               # Enable logging to log.txt
+./run.sh -p -s            # Enable plots and show
+./run.sh -q               # Quick mode: skip deep learning examples
 ```
+
+Examples save outputs (plots, summaries) to `workspace/examples_output/`.
 
 ### Running Tests
 
@@ -217,10 +223,26 @@ See [docs/specifications/merge_syntax.md](docs/specifications/merge_syntax.md) f
 
 ## File Organization
 
-- `examples/Q*.py` - Numbered examples (serve as docs + integration tests)
+- `examples/user/` - User-facing examples organized by topic
+  - `01_getting_started/` - U01-U04: Hello world, regression, classification, visualization
+  - `02_data_handling/` - U01-U06: Inputs, multi-datasets, multi-source, wavelengths, synthetic
+  - `03_preprocessing/` - U01-U04: Basics, feature/sample augmentation, signal conversion
+  - `04_models/` - U01-U04: Multi-model, tuning, stacking, PLS variants
+  - `05_cross_validation/` - U01-U04: CV strategies, group splitting, filtering, aggregation
+  - `06_deployment/` - U01-U04: Save/load, export bundles, workspace, sklearn integration
+  - `07_explainability/` - U01-U03: SHAP basics, sklearn SHAP, feature selection
+- `examples/developer/` - Advanced developer examples
+  - `01_advanced_pipelines/` - D01-D05: Branching, merging, meta-stacking
+  - `02_generators/` - D01-D06: Generator syntax, synthetic data customization
+  - `03_deep_learning/` - D01-D04: PyTorch, JAX, TensorFlow, comparisons
+  - `04_transfer_learning/` - D01-D03: Transfer analysis, retraining, PCA geometry
+  - `05_advanced_features/` - D01-D03: Metadata branching, transforms
+  - `06_internals/` - D01-D02: Session workflow, custom controllers
+- `examples/reference/` - R01-R04: Comprehensive reference examples
+- `examples/legacy/` - Q*/X* examples (deprecated, for transition)
 - `docs/specifications/` - Pipeline syntax, config format specs
 - `docs/user_guide/` - Preprocessing guides, cheatsheets
-- `workspace/` - Default output directory (runs/, logs/, manifests)
+- `workspace/` - Default output directory (runs/, logs/, manifests, examples_output/)
 - `exports/` - Exported model bundles (.n4a format)
 
 ## Key Files Reference

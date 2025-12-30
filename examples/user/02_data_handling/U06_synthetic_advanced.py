@@ -1,5 +1,5 @@
 """
-U10 - Advanced Synthetic Data: Builder API and Customization
+U06 - Advanced Synthetic Data: Builder API and Customization
 =============================================================
 
 Master the full synthetic data generation API for complex scenarios.
@@ -15,7 +15,7 @@ This tutorial covers:
 
 Prerequisites
 -------------
-Complete :ref:`U09_synthetic_data` first.
+Complete :ref:`U05_synthetic_data` first.
 
 Next Steps
 ----------
@@ -48,20 +48,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from example_utils import get_example_output_path, print_output_location, save_array_summary
 
 # Parse command-line arguments
-parser = argparse.ArgumentParser(description='U10 Advanced Synthetic Data Example')
+parser = argparse.ArgumentParser(description='U06 Advanced Synthetic Data Example')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
 # Example name for output directory
-EXAMPLE_NAME = "U10_synthetic_advanced"
+EXAMPLE_NAME = "U06_synthetic_advanced"
 
 
 # =============================================================================
 # Section 1: Builder Pattern Basics
 # =============================================================================
 print("\n" + "=" * 60)
-print("U10 - Advanced Synthetic Data Generation")
+print("U06 - Advanced Synthetic Data Generation")
 print("=" * 60)
 
 print("\n" + "-" * 60)
