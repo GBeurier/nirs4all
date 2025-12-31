@@ -4,14 +4,15 @@ NIRS4All - A comprehensive package for Near-Infrared Spectroscopy data processin
 This package provides tools for spectroscopy data handling, preprocessing, model building,
 and pipeline management with support for multiple ML backends.
 
-Public API (recommended):
-    nirs4all.run(pipeline, dataset, **kwargs)    - Train a pipeline
-    nirs4all.predict(model, data, **kwargs)      - Make predictions
-    nirs4all.explain(model, data, **kwargs)      - Generate SHAP explanations
-    nirs4all.retrain(source, data, **kwargs)     - Retrain a pipeline
-    nirs4all.session(**kwargs)                   - Create execution session
+Public API (recommended)::
+
+    nirs4all.run(pipeline, dataset, ...)         - Train a pipeline
+    nirs4all.predict(model, data, ...)           - Make predictions
+    nirs4all.explain(model, data, ...)           - Generate SHAP explanations
+    nirs4all.retrain(source, data, ...)          - Retrain a pipeline
+    nirs4all.session(...)                        - Create execution session
     nirs4all.load_session(path)                  - Load saved session
-    nirs4all.generate(n_samples, **kwargs)       - Generate synthetic NIRS data
+    nirs4all.generate(n_samples, ...)            - Generate synthetic NIRS data
 
 Classes (for advanced usage):
     nirs4all.PipelineRunner    - Direct runner access
