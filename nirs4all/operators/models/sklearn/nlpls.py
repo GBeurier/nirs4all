@@ -19,16 +19,14 @@ Two implementations are provided:
 
 References
 ----------
-.. [1] Rosipal, R., & Trejo, L. J. (2001). Kernel partial least squares
-       regression in reproducing kernel hilbert space. Journal of Machine
-       Learning Research, 2, 97-123.
-
-.. [2] Zheng, X., Nie, B., Du, J., et al. (2024). A non-linear partial
-       least squares based on monotonic inner relation. Frontiers in
-       Physiology, 15, 1369165. doi:10.3389/fphys.2024.1369165
-
-.. [3] Qin, S. J., & McAvoy, T. J. (1992). Nonlinear PLS modeling using
-       neural networks. Computers & Chemical Engineering, 16(4), 379-391.
+- Rosipal, R., & Trejo, L. J. (2001). Kernel partial least squares
+  regression in reproducing kernel hilbert space. Journal of Machine
+  Learning Research, 2, 97-123.
+- Zheng, X., Nie, B., Du, J., et al. (2024). A non-linear partial
+  least squares based on monotonic inner relation. Frontiers in
+  Physiology, 15, 1369165. doi:10.3389/fphys.2024.1369165
+- Qin, S. J., & McAvoy, T. J. (1992). Nonlinear PLS modeling using
+  neural networks. Computers & Chemical Engineering, 16(4), 379-391.
 """
 
 from __future__ import annotations
@@ -691,23 +689,23 @@ class KernelPLS(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    n_features_in_ : int
+    n_features_in\_ : int
         Number of features seen during fit.
-    n_components_ : int
+    n_components\_ : int
         Actual number of components used.
-    X_train_ : ndarray of shape (n_train, n_features)
+    X_train\_ : ndarray of shape (n_train, n_features)
         Training data (stored for kernel computation at predict time).
-    K_train_ : ndarray of shape (n_train, n_train)
+    K_train\_ : ndarray of shape (n_train, n_train)
         Raw (uncentered) training kernel matrix.
-    y_mean_ : ndarray of shape (n_targets,)
+    y_mean\_ : ndarray of shape (n_targets,)
         Mean of Y (if scale_y=True).
-    y_std_ : ndarray of shape (n_targets,)
+    y_std\_ : ndarray of shape (n_targets,)
         Standard deviation of Y (if scale_y=True).
-    x_scores_ : ndarray of shape (n_train, n_components_)
+    x_scores\_ : ndarray of shape (n_train, n_components)
         X scores in kernel space (T).
-    y_scores_ : ndarray of shape (n_train, n_components_)
+    y_scores\_ : ndarray of shape (n_train, n_components)
         Y scores (U).
-    coef_ : ndarray of shape (n_train, n_targets)
+    coef\_ : ndarray of shape (n_train, n_targets)
         Kernel regression coefficients.
 
     Examples
@@ -745,9 +743,9 @@ class KernelPLS(BaseEstimator, RegressorMixin):
 
     References
     ----------
-    .. [1] Rosipal, R., & Trejo, L. J. (2001). Kernel partial least squares
-           regression in reproducing kernel hilbert space. Journal of Machine
-           Learning Research, 2, 97-123.
+    - Rosipal, R., & Trejo, L. J. (2001). Kernel partial least squares
+      regression in reproducing kernel hilbert space. Journal of Machine
+      Learning Research, 2, 97-123.
     """
 
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)

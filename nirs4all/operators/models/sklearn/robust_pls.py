@@ -9,12 +9,11 @@ Supports both NumPy (CPU) and JAX (GPU/TPU) backends.
 
 References
 ----------
-.. [1] Hubert, M., & Vanden Branden, K. (2003). Robust procedures for
-       partial least squares regression. Chemometrics and Intelligent
-       Laboratory Systems, 65(2), 101-121.
-
-.. [2] Gil, J. A., & Romera, R. (1998). On robust partial least squares
-       (PLS) methods. Journal of Chemometrics, 12(6), 365-378.
+- Hubert, M., & Vanden Branden, K. (2003). Robust procedures for
+  partial least squares regression. Chemometrics and Intelligent
+  Laboratory Systems, 65(2), 101-121.
+- Gil, J. A., & Romera, R. (1998). On robust partial least squares
+  (PLS) methods. Journal of Chemometrics, 12(6), 365-378.
 """
 
 from __future__ import annotations
@@ -616,12 +615,11 @@ class RobustPLS(BaseEstimator, RegressorMixin):
 
     References
     ----------
-    .. [1] Hubert, M., & Vanden Branden, K. (2003). Robust procedures for
-           partial least squares regression. Chemometrics and Intelligent
-           Laboratory Systems, 65(2), 101-121.
-
-    .. [2] Gil, J. A., & Romera, R. (1998). On robust partial least squares
-           (PLS) methods. Journal of Chemometrics, 12(6), 365-378.
+    - Hubert, M., & Vanden Branden, K. (2003). Robust procedures for
+      partial least squares regression. Chemometrics and Intelligent
+      Laboratory Systems, 65(2), 101-121.
+    - Gil, J. A., & Romera, R. (1998). On robust partial least squares
+      (PLS) methods. Journal of Chemometrics, 12(6), 365-378.
     """
 
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
