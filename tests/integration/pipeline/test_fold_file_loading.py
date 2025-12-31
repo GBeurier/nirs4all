@@ -18,6 +18,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import KFold
 from sklearn.cross_decomposition import PLSRegression
 
+from nirs4all.core.logging import reset_logging
 from nirs4all.pipeline import PipelineRunner, PipelineConfigs
 from nirs4all.data import DatasetConfigs, SpectroDataset
 
@@ -40,6 +41,8 @@ class TestFoldFileLoadingIntegration:
         """Create a temporary workspace directory."""
         workspace = tempfile.mkdtemp(prefix="nirs4all_test_")
         yield workspace
+        # Close logging file handlers before cleanup (Windows compatibility)
+        reset_logging()
         shutil.rmtree(workspace, ignore_errors=True)
 
     def test_fold_round_trip(self, sample_data, temp_workspace):
