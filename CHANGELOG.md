@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - GitHub Actions CI/CD Update - 2025-12-31
+
+### 🔧 Infrastructure
+
+- **GitHub Actions**: Updated CI/CD workflows for improved build and deployment processes
+
 ## [0.6.0] - Major API Overhaul and Architecture Improvements - 2025-12-27
 
 This release introduces a new module-level API, complete documentation overhaul, sklearn integration, branching/merging pipelines, synthetic data generation, and extensive architectural improvements.

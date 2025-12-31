@@ -4,10 +4,11 @@ name: CI
 on:
   push:
     branches: [ main, master ]
-    # run the full test+coverage job when a tag is pushed
-    tags: ['*']
   pull_request:
     branches: [ main, master ]
+
+# Note: Full tests with coverage run in publish.yml before PyPI release
+# This workflow runs quick tests for regular development
 
 jobs:
   tests:
@@ -33,19 +34,6 @@ jobs:
       - name: Install package (editable)
         run: python -m pip install -e .
 
-      - name: Run quick pytest (only on commits / PRs)
-        if: "!startsWith(github.ref, 'refs/tags/')"
+      - name: Run quick pytest
         run: |
           python -m pytest -v tests/integration/pipeline/
-
-      - name: Run full pytest + coverage (only on tag push)
-        if: "startsWith(github.ref, 'refs/tags/')"
-        run: |
-          python -m pytest -v tests/ --cov=nirs4all --cov-report=xml
-
-      - name: Upload coverage to Codecov
-        if: "startsWith(github.ref, 'refs/tags/')"
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.xml
-          fail_ci_if_error: false
