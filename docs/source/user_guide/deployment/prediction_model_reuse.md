@@ -360,4 +360,4 @@ predictions, _ = runner.retrain(
 
 - [Export and Bundles](export_bundles.md) - Export models for deployment
 - [Retrain and Transfer](retrain_transfer.md) - Retrain models on new data
-- [Migration Guide](migration_guide.md) - Upgrade from older versions
+- {doc}`/user_guide/index` - Complete user guide
