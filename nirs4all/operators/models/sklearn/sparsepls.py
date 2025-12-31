@@ -4,15 +4,7 @@ See pls.py for full documentation and usage examples.
 """
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
-import logging
 
-def _check_sparse_pls_available():
-    """Check if sparse-pls package is available."""
-    try:
-        import sparse_pls
-        return True
-    except ImportError:
-        return False
 
 def _check_jax_available():
     """Check if JAX is available for GPU acceleration."""
@@ -21,6 +13,163 @@ def _check_jax_available():
         return True
     except ImportError:
         return False
+
+
+# =============================================================================
+# NumPy Backend Implementation
+# =============================================================================
+
+def _soft_threshold_numpy(z, alpha):
+    """Soft thresholding operator for L1 regularization (NumPy)."""
+    return np.sign(z) * np.maximum(np.abs(z) - alpha, 0.0)
+
+
+def _sparse_pls_fit_numpy(X, y, n_components, alpha, max_iter, tol):
+    """Fit Sparse PLS using pure NumPy.
+
+    Implements the same algorithm as the JAX version for consistent results.
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Training data.
+    y : ndarray of shape (n_samples,) or (n_samples, n_targets)
+        Target values.
+    n_components : int
+        Number of components to extract.
+    alpha : float
+        Regularization strength for L1 penalty.
+    max_iter : int
+        Maximum number of iterations.
+    tol : float
+        Convergence tolerance.
+
+    Returns
+    -------
+    B : ndarray
+        Regression coefficients.
+    W : ndarray
+        Weight matrix.
+    P : ndarray
+        X loading matrix.
+    Q : ndarray
+        Y loading matrix.
+    X_mean, X_std, y_mean, y_std : ndarray
+        Preprocessing parameters.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+
+    n_samples, n_features = X.shape
+
+    # Center and scale (matching sklearn StandardScaler behavior)
+    X_mean = np.mean(X, axis=0, keepdims=True)
+    X_std = np.std(X, axis=0, keepdims=True, ddof=0)
+    X_std = np.where(X_std < 1e-10, 1.0, X_std)
+    X_scaled = (X - X_mean) / X_std
+
+    y = y.reshape(-1, 1) if y.ndim == 1 else y
+    n_targets = y.shape[1]
+    y_mean = np.mean(y, axis=0, keepdims=True)
+    y_std = np.std(y, axis=0, keepdims=True, ddof=0)
+    y_std = np.where(y_std < 1e-10, 1.0, y_std)
+    y_scaled = (y - y_mean) / y_std
+
+    # Initialize weight matrices
+    W = np.zeros((n_features, n_components), dtype=np.float64)
+    C = np.zeros((n_targets, n_components), dtype=np.float64)
+    P = np.zeros((n_features, n_components), dtype=np.float64)
+    Q = np.zeros((n_targets, n_components), dtype=np.float64)
+
+    X_res = X_scaled.copy()
+    Y_res = y_scaled.copy()
+
+    for comp_i in range(n_components):
+        # Initialize c
+        c = np.ones((n_targets, 1), dtype=np.float64)
+        c = c / np.linalg.norm(c)
+
+        # Alternating optimization with soft thresholding
+        for _ in range(max_iter):
+            c_old = c.copy()
+
+            # Compute w = soft_threshold(X.T @ Y @ c, alpha)
+            z_w = X_res.T @ Y_res @ c
+            w = _soft_threshold_numpy(z_w, alpha)
+            w_norm = np.linalg.norm(w)
+            if w_norm > 1e-10:
+                w = w / w_norm
+
+            # Compute t = X @ w
+            t = X_res @ w
+
+            # Compute c = soft_threshold(Y.T @ t, alpha)
+            z_c = Y_res.T @ t
+            c = _soft_threshold_numpy(z_c, alpha)
+            c_norm = np.linalg.norm(c)
+            if c_norm > 1e-10:
+                c = c / c_norm
+
+            # Check convergence
+            if np.linalg.norm(c - c_old) < tol:
+                break
+
+        # Final w computation
+        z_w = X_res.T @ Y_res @ c
+        w = _soft_threshold_numpy(z_w, alpha)
+        w_norm = np.linalg.norm(w)
+        if w_norm > 1e-10:
+            w = w / w_norm
+
+        # Calculate scores
+        t = X_res @ w
+        u = Y_res @ c
+
+        # Normalize scores
+        t_norm = np.linalg.norm(t)
+        if t_norm > 1e-10:
+            t_safe = t / t_norm
+            u_safe = u / t_norm
+        else:
+            t_safe = t
+            u_safe = u
+
+        # Calculate loadings
+        p = X_res.T @ t_safe
+        q = Y_res.T @ t_safe
+
+        # Store
+        W[:, comp_i] = w.ravel()
+        C[:, comp_i] = c.ravel()
+        P[:, comp_i] = p.ravel()
+        Q[:, comp_i] = q.ravel()
+
+        # Deflate
+        X_res = X_res - np.outer(t_safe, p)
+        Y_res = Y_res - np.outer(t_safe, q)
+
+    # Compute final regression coefficients: B = W @ inv(P.T @ W) @ Q.T
+    PtW = P.T @ W
+    PtW_reg = PtW + 1e-5 * np.eye(n_components)
+    PtW_inv = np.linalg.pinv(PtW_reg)
+    B_final = W @ PtW_inv @ Q.T
+
+    return B_final, W, P, Q, X_mean, X_std, y_mean, y_std
+
+
+def _sparse_pls_predict_numpy(X, B, X_mean, X_std, y_mean, y_std):
+    """Predict using Sparse PLS coefficients (NumPy)."""
+    X = np.asarray(X, dtype=np.float64)
+    X_scaled = (X - X_mean) / X_std
+    y_pred_scaled = X_scaled @ B
+    return y_pred_scaled * y_std + y_mean
+
+
+def _sparse_pls_transform_numpy(X, W, X_mean, X_std):
+    """Transform X to latent space using Sparse PLS weights (NumPy)."""
+    X = np.asarray(X, dtype=np.float64)
+    X_scaled = (X - X_mean) / X_std
+    return X_scaled @ W
 
 def _get_jax_sparse_pls_functions():
     """Get JAX-accelerated Sparse PLS functions.
@@ -227,7 +376,7 @@ class SparsePLS(BaseEstimator, RegressorMixin):
         Whether to scale X and y before fitting.
     backend : str, default='numpy'
         Backend to use for computation. Options are:
-        - 'numpy': Use NumPy backend via sparse-pls package (CPU only).
+        - 'numpy': Use NumPy backend (CPU only).
         - 'jax': Use JAX backend (supports GPU/TPU acceleration).
         JAX backend requires JAX: ``pip install jax``
         For GPU support: ``pip install jax[cuda12]``
@@ -258,9 +407,6 @@ class SparsePLS(BaseEstimator, RegressorMixin):
 
     Notes
     -----
-    NumPy backend requires the `sparse-pls` package: ``pip install sparse-pls``
-
-    JAX backend uses a custom implementation and does not require sparse-pls.
     For JAX with GPU support: ``pip install jax[cuda12]``
 
     The alpha parameter controls the trade-off between prediction accuracy
@@ -331,8 +477,7 @@ class SparsePLS(BaseEstimator, RegressorMixin):
         Raises
         ------
         ImportError
-            If sparse-pls package is not installed (NumPy backend),
-            or JAX is not available (JAX backend).
+            If JAX is not available (JAX backend).
         ValueError
             If backend is not 'numpy' or 'jax'.
         """
@@ -381,36 +526,21 @@ class SparsePLS(BaseEstimator, RegressorMixin):
 
             # Store coefficients
             self.coef_ = np.asarray(self._B)
-
-            self._model = None  # Not using sparse-pls package
         else:
-            # NumPy backend using sparse-pls
-            if not _check_sparse_pls_available():
-                raise ImportError(
-                    "sparse-pls package is required for SparsePLS with backend='numpy'. "
-                    "Install it with: pip install sparse-pls"
-                )
-
-            # Suppress verbose INFO logging from sparse_pls
-            logging.getLogger('sparse_pls.model').setLevel(logging.WARNING)
-
-            from sparse_pls import SparsePLS as SPLSModel
-
-            # Create and fit sparse-pls model
-            self._model = SPLSModel(
-                n_components=self.n_components_,
-                alpha=self.alpha,
-                max_iter=self.max_iter,
-                tol=self.tol,
-                scale=self.scale,
+            # NumPy backend - native implementation
+            result = _sparse_pls_fit_numpy(
+                X, y,
+                self.n_components_,
+                self.alpha,
+                self.max_iter,
+                self.tol
             )
-            self._model.fit(X, y)
+            (self._B, self._W, self._P, self._Q,
+             self._X_mean, self._X_std,
+             self._y_mean, self._y_std) = result
 
-            # Store coefficients for compatibility
-            if hasattr(self._model, 'coef_'):
-                self.coef_ = self._model.coef_
-            else:
-                self.coef_ = None
+            # Store coefficients
+            self.coef_ = self._B
 
         return self
 
@@ -442,7 +572,11 @@ class SparsePLS(BaseEstimator, RegressorMixin):
             )
             y_pred = np.asarray(y_pred)
         else:
-            y_pred = self._model.predict(X)
+            y_pred = _sparse_pls_predict_numpy(
+                X, self._B,
+                self._X_mean, self._X_std,
+                self._y_mean, self._y_std
+            )
 
         # Flatten if single target and 2D
         if hasattr(y_pred, 'ndim') and y_pred.ndim > 1 and y_pred.shape[1] == 1:
@@ -463,14 +597,16 @@ class SparsePLS(BaseEstimator, RegressorMixin):
         T : ndarray of shape (n_samples, n_components)
             Latent variables (scores).
         """
-        if self.backend == 'jax':
-            raise NotImplementedError(
-                "transform() is not implemented for JAX backend. "
-                "Use backend='numpy' for transform functionality."
-            )
-
         X = np.asarray(X)
-        return self._model.transform(X)
+
+        if self.backend == 'jax':
+            import jax.numpy as jnp
+
+            X_jax = jnp.asarray(X)
+            X_scaled = (X_jax - self._X_mean) / self._X_std
+            return np.asarray(X_scaled @ self._W)
+        else:
+            return _sparse_pls_transform_numpy(X, self._W, self._X_mean, self._X_std)
 
     def get_selected_features(self):
         """Get indices of selected (non-zero) features.

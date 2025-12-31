@@ -36,6 +36,4 @@ twinning>=0.0.5
 # NIRS-specific modeling methods
 ikpls>=1.1.0
 pyopls>=20.0
-mbpls>=1.0.0
 trendfitter>=0.0.6
-sparse-pls>=0.1.0
