@@ -169,5 +169,5 @@ for train_idx, test_idx in wrapper.split(X, y, groups=sample_ids):
 
 ## Related
 
-- [SPXYGFold](../reports/spxygfold_analysis.md): SPXY-based group-aware splitter
 - [Writing Pipelines](./writing_pipelines.md): General pipeline authoring guide
+- {doc}`/reference/pipeline_syntax` - Pipeline syntax reference

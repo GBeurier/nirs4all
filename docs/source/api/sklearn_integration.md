@@ -420,4 +420,4 @@ groups = wavelength_bins(n_features=X.shape[1], bin_size=50)
 - [Module-Level API](module_api.md) - `nirs4all.run()`, `predict()`, etc.
 - [Q_sklearn_wrapper.py](https://github.com/gbeurier/nirs4all/blob/main/examples/Q_sklearn_wrapper.py) - Complete example
 - [Q41_sklearn_shap.py](https://github.com/gbeurier/nirs4all/blob/main/examples/Q41_sklearn_shap.py) - SHAP example
-- [API Migration Guide](../../user_guide/api_migration.md) - Migrating from classic API
+- {doc}`/user_guide/index` - Complete user guide

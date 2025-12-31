@@ -527,9 +527,8 @@ if len(results) > 100:
 
 ## Related Documentation
 
-- [Configuration Format](config_format.md)
-- [Nested Cross Validation](nested_cross_validation.md)
-- [Usage Examples](../examples/)
+- {doc}`/reference/pipeline_syntax` - Pipeline syntax reference
+- {doc}`/examples/index` - Working examples
 
 ---
 

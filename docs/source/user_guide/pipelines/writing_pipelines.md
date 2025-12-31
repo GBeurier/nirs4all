@@ -79,10 +79,10 @@ These produce **different serializations** and **different hashes**.
 
 **All syntaxes are normalized** during serialization to a canonical form for hash-based uniqueness:
 
-```json
+```python
 {
     "class": "module.path.ClassName",
-    "params": {"param1": value1}
+    "params": {"param1": "value1"}
 }
 ```
 

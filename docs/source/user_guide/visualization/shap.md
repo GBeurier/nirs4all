@@ -248,7 +248,9 @@ shap_params = {
     'bin_stride': 10,              # int: same for all, dict: per-viz
     'bin_aggregation': 'sum'       # str: same for all, dict: per-viz
 }
-```## Interpreting Results
+```
+
+## Interpreting Results
 
 ### Spectral Importance
 

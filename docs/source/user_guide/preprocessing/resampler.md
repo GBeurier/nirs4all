@@ -273,9 +273,9 @@ The resampler stores these parameters for prediction mode:
 
 ## See Also
 
-- [StandardNormalVariate](./transformations.md#snv) - Spectral normalization
-- [SavitzkyGolay](./transformations.md#savitzky-golay) - Smoothing and derivatives
-- [MultiplicativeScatterCorrection](./transformations.md#msc) - Scatter correction
+- {doc}`/user_guide/preprocessing/snv` - Spectral normalization
+- {doc}`/user_guide/preprocessing/cheatsheet` - Preprocessing cheatsheet
+- {doc}`/user_guide/preprocessing/index` - All preprocessing options
 
 ## References
 

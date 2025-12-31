@@ -48,7 +48,6 @@ html_static_path = ['assets']
 html_logo = 'assets/nirs4all_logo.png'
 html_theme_options = {
     'logo_only': False,
-    'display_version': True,
     'style_nav_header_background': '#2c3e50',
 }
 
@@ -91,3 +90,35 @@ intersphinx_mapping = {
     'sklearn': ('https://scikit-learn.org/stable/', None),
     'pandas': ('https://pandas.pydata.org/docs/', None),
 }
+
+# Suppress warnings for ambiguous cross-references (classes exported at multiple levels)
+# These are valid exports that create multiple documentation entries
+nitpick_ignore = [
+    # nirs4all.data module re-exports
+    ('py:class', 'Predictions'),
+    ('py:class', 'SignalType'),
+    ('py:class', 'PredictionAnalyzer'),
+    # nirs4all.pipeline.config module re-exports
+    ('py:class', 'ExecutionContext'),
+    # nirs4all.pipeline module re-exports
+    ('py:class', 'PipelineRunner'),
+    ('py:class', 'PipelineOrchestrator'),
+    ('py:class', 'Predictor'),
+    ('py:class', 'Explainer'),
+    ('py:class', 'PipelineLibrary'),
+    ('py:class', 'ExecutionTrace'),
+    ('py:class', 'BundleLoader'),
+    ('py:class', 'ArtifactRegistry'),
+    # nirs4all.api module re-exports
+    ('py:class', 'RunResult'),
+    # nirs4all.operators.models module re-exports
+    ('py:class', 'PLSDA'),
+]
+
+# Suppress nitpicky mode for missing references that are intentionally simplified
+nitpick_ignore_regex = [
+    # Ignore missing internal cross-references
+    (r'py:.*', r'nirs4all\.data\..*'),
+    (r'py:.*', r'nirs4all\.pipeline\..*'),
+    (r'py:.*', r'nirs4all\.api\..*'),
+]

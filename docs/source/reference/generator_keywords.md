@@ -1065,9 +1065,9 @@ sample = list(expand_spec_iter(large_spec, seed=42, sample_size=1000))
 
 ## See Also
 
-- [Legacy Examples: Q23_generator_syntax.py](../../examples/legacy/Q23_generator_syntax.py) - Comprehensive examples
-- [Legacy Examples: Q24_generator_advanced.py](../../examples/legacy/Q24_generator_advanced.py) - Advanced features
-- [Legacy Examples: Q25_complex_pipeline_pls.py](../../examples/legacy/Q25_complex_pipeline_pls.py) - Complete PLS pipeline
+- {doc}`/examples/index` - Working examples organized by topic
+- {doc}`/reference/pipeline_syntax` - Pipeline syntax reference
+- {doc}`/reference/combination_generator` - Combination generator syntax
 
 ---
 

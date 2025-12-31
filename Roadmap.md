@@ -1,8 +1,8 @@
 ## ROADMAP
-Creates use cases that covers all the diversity of controllers and syntax for pipelines -
-Create the example synth pipelines x synth datasets for testing purpose
 
-**RELEASE** 0.6.0: MVP
+Add documentation for examples
+
+**RELEASE** 0.6.1: Stable MVP
 
 
 > [Design] Define all services
@@ -14,6 +14,10 @@ Create the example synth pipelines x synth datasets for testing purpose
 
 
 **Major Review**:
+
+Creates use cases that covers all the diversity of controllers and syntax for pipelines -
+Create the example synth pipelines x synth datasets for testing purpose
+
 > Artifact overview and maybe refactoring
 > GLOBAL REVIEW OF WORKFLOW MECHANISM (X,Y,M,Pred - indexed on Models, pp, branches, etc. - with context - What about ?)
 > transfer, stacking, branching, multisource, pp, aggregation, pipeline inputs (launch from model, folder, file, yaml, json, etc.)

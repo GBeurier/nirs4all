@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🔧 Infrastructure
 
 - **GitHub Actions**: Updated CI/CD workflows for improved build and deployment processes
+- **Minor Fixes**: Removed sparse-pls and mbpls dependencies. Implemented natively the numpy versions.
 
 ## [0.6.0] - Major API Overhaul and Architecture Improvements - 2025-12-27
 

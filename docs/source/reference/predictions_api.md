@@ -93,7 +93,7 @@ print(len(top_models))   # 5
 
 The `save()` method creates a structured CSV:
 
-```csv
+```text
 Line 1: dataset_name
 Line 2: model_classname + model_id
 Line 3: fold_id
@@ -280,7 +280,7 @@ class PredictionResult(dict):
 ### CSV File Structure
 
 **With aggregation:**
-```csv
+```text
 dataset_name
 model_classname_id
 fold_id
@@ -291,7 +291,7 @@ y_true_train_foldX,y_pred_train_foldX,y_true_val_foldX,y_pred_val_foldX,y_true_t
 ```
 
 **Without aggregation:**
-```csv
+```text
 dataset_name
 model_classname_id
 fold_id
