@@ -102,9 +102,7 @@ autogluon = ["autogluon>=1.0.0"]
 pls = [
     "ikpls>=1.1.0",
     "pyopls>=20.0",
-    "mbpls>=1.0.0",
     "trendfitter>=0.0.6",
-    "sparse-pls>=0.1.0"
 ]
 
 # Complete installation with all ML frameworks
@@ -117,9 +115,7 @@ all = [
     "flax>=0.8.0",
     "ikpls>=1.1.0",
     "pyopls>=20.0",
-    "mbpls>=1.0.0",
     "trendfitter>=0.0.6",
-    "sparse-pls>=0.1.0"
 ]
 
 # Complete installation with GPU support
@@ -132,9 +128,7 @@ all-gpu = [
     "flax>=0.8.0",
     "ikpls>=1.1.0",
     "pyopls>=20.0",
-    "mbpls>=1.0.0",
     "trendfitter>=0.0.6",
-    "sparse-pls>=0.1.0"
 ]
 
 # Development dependencies

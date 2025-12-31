@@ -883,7 +883,6 @@ class TestMBPLS:
         assert hasattr(model, 'n_features_in_')
         assert hasattr(model, 'n_components_')
         assert hasattr(model, 'coef_')
-        assert hasattr(model, '_model')
         assert model.n_features_in_ == 50
 
     def test_fit_multiblock(self, multiblock_data):
@@ -1131,7 +1130,7 @@ class TestSparsePLS:
         assert result is model
         assert hasattr(model, 'n_features_in_')
         assert hasattr(model, 'n_components_')
-        assert hasattr(model, '_model')
+        assert hasattr(model, 'coef_')
         assert model.n_features_in_ == 50
 
     def test_predict(self, regression_data):

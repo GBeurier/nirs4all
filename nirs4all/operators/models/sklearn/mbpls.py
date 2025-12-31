@@ -8,13 +8,6 @@ to the latent variables according to its relevance to Y.
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
-def _check_mbpls_available():
-    """Check if mbpls package is available."""
-    try:
-        import mbpls
-        return True
-    except ImportError:
-        return False
 
 def _check_jax_available():
     """Check if JAX is available for GPU acceleration."""
@@ -23,6 +16,296 @@ def _check_jax_available():
         return True
     except ImportError:
         return False
+
+
+# =============================================================================
+# NumPy Backend Implementation
+# =============================================================================
+
+def _mbpls_fit_numpy(X, y, n_components, standardize=True):
+    """Fit single-block MBPLS using pure NumPy (NIPALS algorithm).
+
+    Parameters
+    ----------
+    X : ndarray of shape (n_samples, n_features)
+        Training data.
+    y : ndarray of shape (n_samples,) or (n_samples, n_targets)
+        Target values.
+    n_components : int
+        Number of components to extract.
+    standardize : bool, default=True
+        Whether to standardize X and y.
+
+    Returns
+    -------
+    B : ndarray
+        Regression coefficients.
+    W : ndarray
+        Weight matrix.
+    P : ndarray
+        X loading matrix.
+    Q : ndarray
+        Y loading matrix.
+    T : ndarray
+        Score matrix.
+    X_mean, X_std, y_mean, y_std : ndarray
+        Preprocessing parameters.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+
+    n_samples, n_features = X.shape
+
+    # Center and scale
+    X_mean = np.mean(X, axis=0, keepdims=True)
+    if standardize:
+        X_std = np.std(X, axis=0, keepdims=True, ddof=1)
+        X_std = np.where(X_std < 1e-10, 1.0, X_std)
+    else:
+        X_std = np.ones((1, n_features), dtype=np.float64)
+    X_centered = (X - X_mean) / X_std
+
+    y = y.reshape(-1, 1) if y.ndim == 1 else y
+    n_targets = y.shape[1]
+    y_mean = np.mean(y, axis=0, keepdims=True)
+    if standardize:
+        y_std = np.std(y, axis=0, keepdims=True, ddof=1)
+        y_std = np.where(y_std < 1e-10, 1.0, y_std)
+    else:
+        y_std = np.ones((1, n_targets), dtype=np.float64)
+    y_centered = (y - y_mean) / y_std
+
+    # Initialize matrices
+    W = np.zeros((n_features, n_components), dtype=np.float64)
+    P = np.zeros((n_features, n_components), dtype=np.float64)
+    Q = np.zeros((n_targets, n_components), dtype=np.float64)
+    T = np.zeros((n_samples, n_components), dtype=np.float64)
+
+    X_res = X_centered.copy()
+    y_res = y_centered.copy()
+
+    for i in range(n_components):
+        # Weight vector
+        w = X_res.T @ y_res
+        if n_targets == 1:
+            w = w.ravel()
+        else:
+            # For multi-target, use first column
+            w = w[:, 0]
+        w_norm = np.linalg.norm(w)
+        if w_norm > 1e-10:
+            w = w / w_norm
+
+        # Scores
+        t = X_res @ w
+        t_norm = t.T @ t + 1e-10
+
+        # Loadings
+        p = X_res.T @ t / t_norm
+        q = y_res.T @ t / t_norm
+
+        # Store
+        W[:, i] = w
+        P[:, i] = p
+        Q[:, i] = q.ravel()
+        T[:, i] = t
+
+        # Deflate
+        X_res = X_res - np.outer(t, p)
+        y_res = y_res - np.outer(t, q)
+
+    # Compute final regression coefficients: B = W @ inv(P.T @ W) @ Q.T
+    PtW = P.T @ W
+    PtW_reg = PtW + 1e-10 * np.eye(n_components)
+    PtW_inv = np.linalg.pinv(PtW_reg)
+    B_final = W @ PtW_inv @ Q.T
+
+    return B_final, W, P, Q, T, X_mean, X_std, y_mean, y_std
+
+
+def _mbpls_fit_multiblock_numpy(X_blocks, y, n_components, standardize=True):
+    """Fit multiblock MBPLS using pure NumPy.
+
+    Parameters
+    ----------
+    X_blocks : list of ndarray
+        List of X blocks, each of shape (n_samples, n_features_block).
+    y : ndarray of shape (n_samples,) or (n_samples, n_targets)
+        Target values.
+    n_components : int
+        Number of components to extract.
+    standardize : bool, default=True
+        Whether to standardize blocks.
+
+    Returns
+    -------
+    B : ndarray
+        Regression coefficients for concatenated features.
+    W : ndarray
+        Weight matrix.
+    P : ndarray
+        X loading matrix.
+    Q : ndarray
+        Y loading matrix.
+    T : ndarray
+        Super score matrix.
+    block_weights : list of ndarray
+        Block-level weight matrices.
+    X_means, X_stds : list of ndarray
+        Preprocessing parameters for each block.
+    y_mean, y_std : ndarray
+        Preprocessing parameters for y.
+    """
+    n_blocks = len(X_blocks)
+    n_samples = X_blocks[0].shape[0]
+
+    y = np.asarray(y, dtype=np.float64)
+    y = y.reshape(-1, 1) if y.ndim == 1 else y
+    n_targets = y.shape[1]
+
+    # Preprocess y
+    y_mean = np.mean(y, axis=0, keepdims=True)
+    if standardize:
+        y_std = np.std(y, axis=0, keepdims=True, ddof=1)
+        y_std = np.where(y_std < 1e-10, 1.0, y_std)
+    else:
+        y_std = np.ones((1, n_targets), dtype=np.float64)
+    y_centered = (y - y_mean) / y_std
+
+    # Preprocess each block
+    X_centered_blocks = []
+    X_means = []
+    X_stds = []
+    block_sizes = []
+
+    for X_block in X_blocks:
+        X_block = np.asarray(X_block, dtype=np.float64)
+        n_features_block = X_block.shape[1]
+        block_sizes.append(n_features_block)
+
+        X_mean = np.mean(X_block, axis=0, keepdims=True)
+        if standardize:
+            X_std = np.std(X_block, axis=0, keepdims=True, ddof=1)
+            X_std = np.where(X_std < 1e-10, 1.0, X_std)
+        else:
+            X_std = np.ones((1, n_features_block), dtype=np.float64)
+
+        X_means.append(X_mean)
+        X_stds.append(X_std)
+        X_centered_blocks.append((X_block - X_mean) / X_std)
+
+    total_features = sum(block_sizes)
+
+    # Initialize matrices
+    W = np.zeros((total_features, n_components), dtype=np.float64)
+    P = np.zeros((total_features, n_components), dtype=np.float64)
+    Q = np.zeros((n_targets, n_components), dtype=np.float64)
+    T = np.zeros((n_samples, n_components), dtype=np.float64)
+    block_weights = [np.zeros((bs, n_components), dtype=np.float64) for bs in block_sizes]
+
+    X_res_blocks = [X.copy() for X in X_centered_blocks]
+    y_res = y_centered.copy()
+
+    for comp in range(n_components):
+        # Compute block scores and weights
+        block_scores = []
+        for b, X_res in enumerate(X_res_blocks):
+            # Block weight
+            w_b = X_res.T @ y_res
+            if n_targets == 1:
+                w_b = w_b.ravel()
+            else:
+                w_b = w_b[:, 0]
+            w_norm = np.linalg.norm(w_b)
+            if w_norm > 1e-10:
+                w_b = w_b / w_norm
+
+            # Block score
+            t_b = X_res @ w_b
+            block_scores.append(t_b)
+            block_weights[b][:, comp] = w_b
+
+        # Super score (average of block scores)
+        t = np.mean(block_scores, axis=0)
+        t_norm = np.linalg.norm(t)
+        if t_norm > 1e-10:
+            t = t / t_norm
+        t_dot = t.T @ t + 1e-10
+
+        T[:, comp] = t
+
+        # Compute loadings for each block and concatenate
+        p_concat = []
+        for b, X_res in enumerate(X_res_blocks):
+            p_b = X_res.T @ t / t_dot
+            p_concat.append(p_b)
+
+        p_full = np.concatenate(p_concat)
+        P[:, comp] = p_full
+
+        # Y loading
+        q = y_res.T @ t / t_dot
+        Q[:, comp] = q.ravel()
+
+        # Concatenated weight
+        w_full = np.concatenate([block_weights[b][:, comp] for b in range(n_blocks)])
+        W[:, comp] = w_full
+
+        # Deflate each block
+        for b, X_res in enumerate(X_res_blocks):
+            p_b = p_concat[b]
+            X_res_blocks[b] = X_res - np.outer(t, p_b)
+
+        y_res = y_res - np.outer(t, q)
+
+    # Compute final regression coefficients
+    PtW = P.T @ W
+    PtW_reg = PtW + 1e-10 * np.eye(n_components)
+    PtW_inv = np.linalg.pinv(PtW_reg)
+    B_final = W @ PtW_inv @ Q.T
+
+    return B_final, W, P, Q, T, block_weights, X_means, X_stds, y_mean, y_std
+
+
+def _mbpls_predict_numpy(X, B, X_mean, X_std, y_mean, y_std):
+    """Predict using MBPLS coefficients (NumPy)."""
+    X = np.asarray(X, dtype=np.float64)
+    X_centered = (X - X_mean) / X_std
+    y_pred_centered = X_centered @ B
+    return y_pred_centered * y_std + y_mean
+
+
+def _mbpls_predict_multiblock_numpy(X_blocks, B, X_means, X_stds, y_mean, y_std):
+    """Predict using multiblock MBPLS coefficients (NumPy)."""
+    # Preprocess and concatenate blocks
+    X_centered_list = []
+    for b, X_block in enumerate(X_blocks):
+        X_block = np.asarray(X_block, dtype=np.float64)
+        X_centered = (X_block - X_means[b]) / X_stds[b]
+        X_centered_list.append(X_centered)
+
+    X_concat = np.hstack(X_centered_list)
+    y_pred_centered = X_concat @ B
+    return y_pred_centered * y_std + y_mean
+
+
+def _mbpls_transform_numpy(X, W, X_mean, X_std):
+    """Transform X to latent space (NumPy)."""
+    X = np.asarray(X, dtype=np.float64)
+    X_centered = (X - X_mean) / X_std
+    return X_centered @ W
+
+
+def _mbpls_transform_multiblock_numpy(X_blocks, W, X_means, X_stds, block_sizes):
+    """Transform multiblock X to latent space (NumPy)."""
+    X_centered_list = []
+    for b, X_block in enumerate(X_blocks):
+        X_block = np.asarray(X_block, dtype=np.float64)
+        X_centered = (X_block - X_means[b]) / X_stds[b]
+        X_centered_list.append(X_centered)
+
+    X_concat = np.hstack(X_centered_list)
+    return X_concat @ W
 
 # =============================================================================
 # JAX Backend Implementations
@@ -147,23 +430,19 @@ class MBPLS(BaseEstimator, RegressorMixin):
     multiple sensors) into a single predictive model. Each block contributes
     to the latent variables according to its relevance to Y.
 
-    This wrapper adapts the mbpls package for single-block usage in nirs4all
-    pipelines. For true multiblock usage, access the underlying model.
-
     Parameters
     ----------
     n_components : int, default=5
         Number of latent variables to extract.
     method : str, default='NIPALS'
-        Decomposition method. Options: 'NIPALS', 'SVD', 'SIMPLS'.
-        Note: Only used with NumPy backend.
+        Decomposition method. Currently only 'NIPALS' is supported.
     standardize : bool, default=True
         Whether to standardize blocks before fitting.
     max_tol : float, default=1e-14
         Convergence tolerance for NIPALS.
     backend : str, default='numpy'
         Backend to use for computation. Options are:
-        - 'numpy': Use NumPy backend via mbpls package (CPU only).
+        - 'numpy': Use NumPy backend (CPU only).
         - 'jax': Use JAX backend (supports GPU/TPU acceleration).
           Note: JAX backend only supports single-block mode.
         JAX backend requires JAX: ``pip install jax``
@@ -188,18 +467,16 @@ class MBPLS(BaseEstimator, RegressorMixin):
     >>> model.fit(X, y)
     MBPLS(n_components=5)
     >>> predictions = model.predict(X)
+    >>> # Multiblock usage
+    >>> X1 = np.random.randn(100, 30)
+    >>> X2 = np.random.randn(100, 20)
+    >>> model.fit([X1, X2], y)
     >>> # JAX backend for GPU acceleration
     >>> model_jax = MBPLS(n_components=5, backend='jax')
 
     Notes
     -----
-    NumPy backend requires the `mbpls` package: ``pip install mbpls``
-
-    JAX backend uses a custom implementation and does not require mbpls.
     For JAX with GPU support: ``pip install jax[cuda12]``
-
-    For true multiblock usage with multiple X blocks, use the underlying
-    mbpls.mbpls.MBPLS class directly with a list of X matrices.
 
     See Also
     --------
@@ -285,11 +562,13 @@ class MBPLS(BaseEstimator, RegressorMixin):
             X_blocks = [np.asarray(x) for x in X]
             self.n_features_in_ = sum(x.shape[1] for x in X_blocks)
             self._is_multiblock = True
+            self._block_sizes = [x.shape[1] for x in X_blocks]
         else:
             X = np.asarray(X)
             X_blocks = [X]
             self.n_features_in_ = X.shape[1]
             self._is_multiblock = False
+            self._block_sizes = [X.shape[1]]
 
         y = np.asarray(y)
         if y.ndim == 1:
@@ -322,31 +601,31 @@ class MBPLS(BaseEstimator, RegressorMixin):
              self._X_mean, self._X_std,
              self._y_mean, self._y_std) = result
 
-            # Store coefficients (final component)
-            self.coef_ = np.asarray(self._B[self.n_components_ - 1])
-
-            self._model = None  # Not using mbpls package
+            # Store coefficients
+            self.coef_ = np.asarray(self._B)
         else:
-            # NumPy backend using mbpls
-            if not _check_mbpls_available():
-                raise ImportError(
-                    "mbpls package is required for MBPLS with backend='numpy'. "
-                    "Install it with: pip install mbpls"
+            # NumPy backend - native implementation
+            if self._is_multiblock:
+                result = _mbpls_fit_multiblock_numpy(
+                    X_blocks, y,
+                    self.n_components_,
+                    standardize=self.standardize
                 )
+                (self._B, self._W, self._P, self._Q, self._T,
+                 self._block_weights, self._X_means, self._X_stds,
+                 self._y_mean, self._y_std) = result
+            else:
+                result = _mbpls_fit_numpy(
+                    X_blocks[0], y,
+                    self.n_components_,
+                    standardize=self.standardize
+                )
+                (self._B, self._W, self._P, self._Q, self._T,
+                 self._X_mean, self._X_std,
+                 self._y_mean, self._y_std) = result
 
-            from mbpls.mbpls import MBPLS as MBPLSModel
-
-            # Fit MB-PLS model
-            self._model = MBPLSModel(
-                n_components=self.n_components_,
-                method=self.method,
-                standardize=self.standardize,
-                max_tol=self.max_tol,
-            )
-            self._model.fit(X_blocks, y)
-
-            # Store coefficients for compatibility
-            self.coef_ = self._model.beta_
+            # Store coefficients
+            self.coef_ = self._B
 
         return self
 
@@ -383,7 +662,18 @@ class MBPLS(BaseEstimator, RegressorMixin):
             )
             y_pred = np.asarray(y_pred)
         else:
-            y_pred = self._model.predict(X_blocks)
+            if self._is_multiblock:
+                y_pred = _mbpls_predict_multiblock_numpy(
+                    X_blocks, self._B,
+                    self._X_means, self._X_stds,
+                    self._y_mean, self._y_std
+                )
+            else:
+                y_pred = _mbpls_predict_numpy(
+                    X_blocks[0], self._B,
+                    self._X_mean, self._X_std,
+                    self._y_mean, self._y_std
+                )
 
         # Flatten if single target
         if y_pred.ndim > 1 and y_pred.shape[1] == 1:
@@ -404,19 +694,30 @@ class MBPLS(BaseEstimator, RegressorMixin):
         T : ndarray of shape (n_samples, n_components)
             Latent variables (scores).
         """
-        if self.backend == 'jax':
-            raise NotImplementedError(
-                "transform() is not implemented for JAX backend. "
-                "Use backend='numpy' for transform functionality."
-            )
-
         if isinstance(X, list):
             X_blocks = [np.asarray(x) for x in X]
         else:
             X = np.asarray(X)
             X_blocks = [X]
 
-        return self._model.transform(X_blocks)
+        if self.backend == 'jax':
+            import jax.numpy as jnp
+
+            X_jax = jnp.asarray(X_blocks[0])
+            X_centered = (X_jax - self._X_mean) / self._X_std
+            return np.asarray(X_centered @ self._W)
+        else:
+            if self._is_multiblock:
+                return _mbpls_transform_multiblock_numpy(
+                    X_blocks, self._W,
+                    self._X_means, self._X_stds,
+                    self._block_sizes
+                )
+            else:
+                return _mbpls_transform_numpy(
+                    X_blocks[0], self._W,
+                    self._X_mean, self._X_std
+                )
 
     def get_params(self, deep=True):
         """Get parameters for this estimator.
