@@ -8,15 +8,14 @@ Supports both NumPy (CPU) and JAX (GPU/TPU) backends.
 
 References
 ----------
-.. [1] Norgaard, L., Saudland, A., Wagner, J., Nielsen, J. P., Munck, L., &
-       Engelsen, S. B. (2000). Interval partial least-squares regression
-       (iPLS): A comparative chemometric study with an example from
-       near-infrared spectroscopy. Applied Spectroscopy, 54(3), 413-419.
-
-.. [2] Leardi, R., & Nørgaard, L. (2004). Sequential application of backward
-       interval partial least squares and genetic algorithms for the
-       selection of relevant spectral regions. Journal of Chemometrics,
-       18(11), 486-497.
+- Norgaard, L., Saudland, A., Wagner, J., Nielsen, J. P., Munck, L., &
+  Engelsen, S. B. (2000). Interval partial least-squares regression
+  (iPLS): A comparative chemometric study with an example from
+  near-infrared spectroscopy. Applied Spectroscopy, 54(3), 413-419.
+- Leardi, R., & Nørgaard, L. (2004). Sequential application of backward
+  interval partial least squares and genetic algorithms for the
+  selection of relevant spectral regions. Journal of Chemometrics,
+  18(11), 486-497.
 """
 
 from __future__ import annotations
@@ -1100,25 +1099,25 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    n_features_in_ : int
+    n_features_in\_ : int
         Number of features seen during fit.
-    n_components_ : int
+    n_components\_ : int
         Actual number of components used in final model.
-    interval_scores_ : ndarray of shape (n_intervals_,)
+    interval_scores\_ : ndarray of shape (n_intervals,)
         Cross-validation scores for each interval.
-    interval_starts_ : ndarray of shape (n_intervals_,)
+    interval_starts\_ : ndarray of shape (n_intervals,)
         Start indices for each interval.
-    interval_ends_ : ndarray of shape (n_intervals_,)
+    interval_ends\_ : ndarray of shape (n_intervals,)
         End indices for each interval.
-    n_intervals_ : int
+    n_intervals\_ : int
         Actual number of intervals.
-    selected_intervals_ : list of int
+    selected_intervals\_ : list of int
         Indices of selected intervals.
-    selected_regions_ : list of tuple
+    selected_regions\_ : list of tuple
         (start, end) pairs for selected spectral regions.
-    coef_ : ndarray of shape (n_selected_features, n_targets)
+    coef\_ : ndarray of shape (n_selected_features, n_targets)
         Regression coefficients for selected features.
-    feature_mask_ : ndarray of shape (n_features,)
+    feature_mask\_ : ndarray of shape (n_features,)
         Boolean mask indicating selected features.
 
     Examples
@@ -1156,9 +1155,9 @@ class IntervalPLS(BaseEstimator, RegressorMixin):
 
     References
     ----------
-    .. [1] Norgaard, L., et al. (2000). Interval partial least-squares
-           regression (iPLS): A comparative chemometric study with an example
-           from near-infrared spectroscopy. Applied Spectroscopy, 54(3), 413-419.
+    - Norgaard, L., et al. (2000). Interval partial least-squares
+      regression (iPLS): A comparative chemometric study with an example
+      from near-infrared spectroscopy. Applied Spectroscopy, 54(3), 413-419.
     """
 
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)

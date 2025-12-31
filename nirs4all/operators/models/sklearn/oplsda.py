@@ -68,9 +68,9 @@ class OPLSDA(BaseEstimator, ClassifierMixin):
 
     References
     ----------
-    .. [1] Bylesjö, M., et al. (2006). OPLS discriminant analysis: combining
-           the strengths of PLS-DA and SIMCA classification. Journal of
-           Chemometrics, 20(8-10), 341-351.
+    - Bylesjö, M., et al. (2006). OPLS discriminant analysis: combining
+      the strengths of PLS-DA and SIMCA classification. Journal of
+      Chemometrics, 20(8-10), 341-351.
     """
 
     def __init__(

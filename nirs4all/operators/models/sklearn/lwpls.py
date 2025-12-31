@@ -11,12 +11,11 @@ Supports both NumPy (CPU) and JAX (GPU/TPU) backends.
 
 References
 ----------
-.. [1] Kim, S., Kano, M., Nakagawa, H., & Hasebe, S. (2011).
-       Estimation of active pharmaceutical ingredient content using
-       locally weighted partial least squares and statistical wavelength
-       selection. International Journal of Pharmaceutics, 421(2), 269-274.
-
-.. [2] https://datachemeng.com/locallyweightedpartialleastsquares/
+- Kim, S., Kano, M., Nakagawa, H., & Hasebe, S. (2011).
+  Estimation of active pharmaceutical ingredient content using
+  locally weighted partial least squares and statistical wavelength
+  selection. International Journal of Pharmaceutics, 421(2), 269-274.
+- https://datachemeng.com/locallyweightedpartialleastsquares/
 
 License
 -------
@@ -838,17 +837,17 @@ class LWPLS(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    n_features_in_ : int
+    n_features_in\_ : int
         Number of features seen during fit.
-    n_components_ : int
+    n_components\_ : int
         Actual number of components used (limited by data dimensions).
-    X_train_ : ndarray of shape (n_samples, n_features)
+    X_train\_ : ndarray of shape (n_samples, n_features)
         Stored training X data (standardized if scale=True).
-    y_train_ : ndarray of shape (n_samples,)
+    y_train\_ : ndarray of shape (n_samples,)
         Stored training y data (standardized if scale=True).
-    x_scaler_ : StandardScaler or None
+    x_scaler\_ : StandardScaler or None
         Fitted scaler for X (if scale=True).
-    y_scaler_ : StandardScaler or None
+    y_scaler\_ : StandardScaler or None
         Fitted scaler for y (if scale=True).
 
     Examples
@@ -905,9 +904,9 @@ class LWPLS(BaseEstimator, RegressorMixin):
 
     References
     ----------
-    .. [1] Kim, S., et al. (2011). Estimation of active pharmaceutical
-           ingredient content using locally weighted partial least squares.
-           International Journal of Pharmaceutics, 421(2), 269-274.
+    - Kim, S., et al. (2011). Estimation of active pharmaceutical
+      ingredient content using locally weighted partial least squares.
+      International Journal of Pharmaceutics, 421(2), 269-274.
     """
 
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)
@@ -1033,7 +1032,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
             Samples to predict.
         n_components : int, optional
             Number of components to use for prediction.
-            If None, uses n_components_ (all fitted components).
+            If None, uses ``n_components_`` (all fitted components).
 
         Returns
         -------
@@ -1112,7 +1111,7 @@ class LWPLS(BaseEstimator, RegressorMixin):
 
         Returns
         -------
-        y_pred_all : ndarray of shape (n_samples, n_components_)
+        y_pred_all : ndarray of shape (n_samples, n_components)
             Predictions where column i contains predictions using i+1 components.
         """
         check_is_fitted(self, ['X_train_', 'y_train_', 'n_components_'])

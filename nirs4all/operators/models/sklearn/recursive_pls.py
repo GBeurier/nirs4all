@@ -8,16 +8,14 @@ Supports both NumPy (CPU) and JAX (GPU/TPU) backends.
 
 References
 ----------
-.. [1] Qin, S. J. (1998). Recursive PLS algorithms for adaptive data modeling.
-       Computers & Chemical Engineering, 22(4-5), 503-514.
-
-.. [2] Helland, K., Berntsen, H. E., Borgen, O. S., & Martens, H. (1992).
-       Recursive algorithm for partial least squares regression.
-       Chemometrics and Intelligent Laboratory Systems, 14(1-3), 129-137.
-
-.. [3] Dayal, B. S., & MacGregor, J. F. (1997). Recursive exponentially
-       weighted PLS and its applications to adaptive control and prediction.
-       Journal of Process Control, 7(3), 169-179.
+- Qin, S. J. (1998). Recursive PLS algorithms for adaptive data modeling.
+  Computers & Chemical Engineering, 22(4-5), 503-514.
+- Helland, K., Berntsen, H. E., Borgen, O. S., & Martens, H. (1992).
+  Recursive algorithm for partial least squares regression.
+  Chemometrics and Intelligent Laboratory Systems, 14(1-3), 129-137.
+- Dayal, B. S., & MacGregor, J. F. (1997). Recursive exponentially
+  weighted PLS and its applications to adaptive control and prediction.
+  Journal of Process Control, 7(3), 169-179.
 """
 
 from __future__ import annotations
@@ -544,12 +542,11 @@ class RecursivePLS(BaseEstimator, RegressorMixin):
 
     References
     ----------
-    .. [1] Qin, S. J. (1998). Recursive PLS algorithms for adaptive data
-           modeling. Computers & Chemical Engineering, 22(4-5), 503-514.
-
-    .. [2] Dayal, B. S., & MacGregor, J. F. (1997). Recursive exponentially
-           weighted PLS and its applications to adaptive control and prediction.
-           Journal of Process Control, 7(3), 169-179.
+    - Qin, S. J. (1998). Recursive PLS algorithms for adaptive data
+      modeling. Computers & Chemical Engineering, 22(4-5), 503-514.
+    - Dayal, B. S., & MacGregor, J. F. (1997). Recursive exponentially
+      weighted PLS and its applications to adaptive control and prediction.
+      Journal of Process Control, 7(3), 169-179.
     """
 
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)

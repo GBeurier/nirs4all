@@ -418,9 +418,9 @@ class SparsePLS(BaseEstimator, RegressorMixin):
 
     References
     ----------
-    .. [1] Lê Cao, K.-A., et al. (2008). Sparse PLS discriminant analysis:
-           biologically relevant feature selection and graphical displays
-           for multiclass problems. BMC Bioinformatics, 9(1), 1-18.
+    - Lê Cao, K.-A., et al. (2008). Sparse PLS discriminant analysis:
+      biologically relevant feature selection and graphical displays
+      for multiclass problems. BMC Bioinformatics, 9(1), 1-18.
     """
 
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)

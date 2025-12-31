@@ -12,17 +12,15 @@ Supports both NumPy (CPU) and JAX (GPU/TPU) backends.
 
 References
 ----------
-.. [1] Bylesjo, M., Rantalainen, M., Cloarec, O., Nicholson, J. K.,
-       Holmes, E., & Trygg, J. (2006). OPLS discriminant analysis:
-       combining the strengths of PLS-DA and SIMCA classification.
-       Journal of Chemometrics, 20(8-10), 341-351.
-
-.. [2] Rantalainen, M., Bylesjo, M., Cloarec, O., Nicholson, J. K.,
-       Holmes, E., & Trygg, J. (2007). Kernel-based orthogonal
-       projections to latent structures (K-OPLS). Journal of
-       Chemometrics, 21(7-9), 376-385.
-
-.. [3] ConsensusOPLS R package: https://github.com/sib-swiss/ConsensusOPLS
+- Bylesjo, M., Rantalainen, M., Cloarec, O., Nicholson, J. K.,
+  Holmes, E., & Trygg, J. (2006). OPLS discriminant analysis:
+  combining the strengths of PLS-DA and SIMCA classification.
+  Journal of Chemometrics, 20(8-10), 341-351.
+- Rantalainen, M., Bylesjo, M., Cloarec, O., Nicholson, J. K.,
+  Holmes, E., & Trygg, J. (2007). Kernel-based orthogonal
+  projections to latent structures (K-OPLS). Journal of
+  Chemometrics, 21(7-9), 376-385.
+- ConsensusOPLS R package: https://github.com/sib-swiss/ConsensusOPLS
 """
 
 from __future__ import annotations
@@ -599,25 +597,25 @@ class KOPLS(BaseEstimator, RegressorMixin):
 
     Attributes
     ----------
-    n_features_in_ : int
+    n_features_in\_ : int
         Number of features seen during fit.
-    n_components_ : int
+    n_components\_ : int
         Actual number of predictive components used.
-    n_ortho_components_ : int
+    n_ortho_components\_ : int
         Actual number of orthogonal components used.
-    X_train_ : ndarray of shape (n_samples, n_features)
+    X_train\_ : ndarray of shape (n_samples, n_features)
         Training data (stored for kernel computation at predict time).
-    y_mean_ : ndarray of shape (n_targets,)
+    y_mean\_ : ndarray of shape (n_targets,)
         Mean of Y.
-    y_std_ : ndarray of shape (n_targets,)
+    y_std\_ : ndarray of shape (n_targets,)
         Standard deviation of Y.
-    x_scores_ : ndarray of shape (n_samples, n_components_)
+    x_scores\_ : ndarray of shape (n_samples, n_components)
         X scores from filtered kernel PLS (T).
-    y_scores_ : ndarray of shape (n_samples, n_components_)
+    y_scores\_ : ndarray of shape (n_samples, n_components)
         Y scores (U).
-    y_loadings_ : ndarray of shape (n_targets, n_components_)
+    y_loadings\_ : ndarray of shape (n_targets, n_components)
         Y loadings (C).
-    ortho_scores_ : ndarray of shape (n_samples, n_ortho_components_)
+    ortho_scores\_ : ndarray of shape (n_samples, n_ortho_components)
         Orthogonal scores (T_ortho).
 
     Examples
@@ -640,12 +638,11 @@ class KOPLS(BaseEstimator, RegressorMixin):
 
     References
     ----------
-    .. [1] Rantalainen, M., Bylesjo, M., Cloarec, O., Nicholson, J. K.,
-           Holmes, E., & Trygg, J. (2007). Kernel-based orthogonal
-           projections to latent structures (K-OPLS). Journal of
-           Chemometrics, 21(7-9), 376-385.
-
-    .. [2] ConsensusOPLS R package: https://github.com/sib-swiss/ConsensusOPLS
+    - Rantalainen, M., Bylesjo, M., Cloarec, O., Nicholson, J. K.,
+      Holmes, E., & Trygg, J. (2007). Kernel-based orthogonal
+      projections to latent structures (K-OPLS). Journal of
+      Chemometrics, 21(7-9), 376-385.
+    - ConsensusOPLS R package: https://github.com/sib-swiss/ConsensusOPLS
     """
 
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)

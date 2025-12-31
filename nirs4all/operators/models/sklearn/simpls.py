@@ -8,10 +8,9 @@ Supports both NumPy (CPU) and JAX (GPU/TPU) backends.
 
 References
 ----------
-.. [1] de Jong, S. (1993). SIMPLS: An alternative approach to partial least
-       squares regression. Chemometrics and Intelligent Laboratory Systems,
-       18(3), 251-263.
-       https://doi.org/10.1016/0169-7439(93)85002-X
+- de Jong, S. (1993). SIMPLS: An alternative approach to partial least
+  squares regression. Chemometrics and Intelligent Laboratory Systems,
+  18(3), 251-263. https://doi.org/10.1016/0169-7439(93)85002-X
 """
 
 from __future__ import annotations
@@ -480,9 +479,9 @@ class SIMPLS(BaseEstimator, RegressorMixin):
 
     References
     ----------
-    .. [1] de Jong, S. (1993). SIMPLS: An alternative approach to partial
-           least squares regression. Chemometrics and Intelligent Laboratory
-           Systems, 18(3), 251-263.
+    - de Jong, S. (1993). SIMPLS: An alternative approach to partial
+      least squares regression. Chemometrics and Intelligent Laboratory
+      Systems, 18(3), 251-263.
     """
 
     # Explicitly declare estimator type for sklearn compatibility (e.g., StackingRegressor)

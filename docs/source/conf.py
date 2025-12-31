@@ -122,3 +122,16 @@ nitpick_ignore_regex = [
     (r'py:.*', r'nirs4all\.pipeline\..*'),
     (r'py:.*', r'nirs4all\.api\..*'),
 ]
+
+# Autodoc settings
+autodoc_default_options = {
+    'members': True,
+    'undoc-members': True,
+    'show-inheritance': True,
+}
+
+# Suppress duplicate object description warnings for re-exported classes
+# These are intentionally exported at multiple levels for user convenience
+suppress_warnings = [
+    'autodoc.duplicate_object',
+]
