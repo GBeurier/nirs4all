@@ -134,4 +134,7 @@ autodoc_default_options = {
 # These are intentionally exported at multiple levels for user convenience
 suppress_warnings = [
     'autodoc.duplicate_object',
+    'autosummary',
+    'ref.python',
+    'ref.*',
 ]

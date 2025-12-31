@@ -38,8 +38,14 @@ build>=1.0.0
 pytest>=7.4.0
 pytest-cov>=4.1.0
 
-# Deep learning (for tests)
+# Deep learning backends
 tensorflow>=2.14.0
+torch>=2.1.0
+tabpfn>=2.0.0
+keras>=3.0.0
+jax>=0.4.20
+jaxlib>=0.4.20
+flax>=0.8.0
 
 # NIRS-specific modeling methods
 ikpls>=1.1.0
