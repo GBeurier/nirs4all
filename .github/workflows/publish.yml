@@ -2,14 +2,81 @@
 name: Build & Publish
 
 on:
-  push:
-    tags: [ 'v*' ]           # every git tag triggers a TestPyPI dry‑run
   release:
-    types: [ published ]     # clicking “Publish Release” triggers real PyPI
+    types: [ published ]     # clicking "Publish Release" triggers real PyPI
   workflow_dispatch:         # manual button in the Actions tab
 
 jobs:
+  # Run full test suite before publishing
+  run-tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true        # Stop immediately if any test fails
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install test deps
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install numpy -r requirements-test.txt
+
+      - name: Install package (editable)
+        run: python -m pip install -e .
+
+      - name: Run full pytest + coverage
+        run: |
+          python -m pytest -v tests/ --cov=nirs4all --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  # Build and verify documentation
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install documentation dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r docs/readthedocs.requirements.txt
+
+      - name: Install nirs4all package
+        run: python -m pip install -e .
+
+      - name: Build documentation
+        run: |
+          cd docs
+          sphinx-build -b html source _build/html -W --keep-going
+
+      - name: Upload documentation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-html
+          path: docs/_build/html/
+          retention-days: 7
+
+  # Build distribution packages (after tests pass)
   build:
+    needs: [run-tests, build-docs]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,30 +98,9 @@ jobs:
           name: dist
           path: dist
 
-#   publish-testpypi:
-#     needs: build
-#     if: startsWith(github.ref, 'refs/tags/')
-#     runs-on: ubuntu-latest
-#     environment: testpypi
-#     permissions:
-#       id-token: write
-#       contents: read
-#     steps:
-#       - uses: actions/download-artifact@v4
-#         with:
-#           name: dist
-#           path: dist
-
-#       - name: Upload to TestPyPI
-#         uses: pypa/gh-action-pypi-publish@release/v1
-#         with:
-#           repository-url: https://test.pypi.org/legacy/
-
+  # Publish to PyPI (only after build succeeds, which requires tests + docs)
   publish-pypi:
     needs: build
-    if: |
-      github.event_name == 'release' && github.event.action == 'published' ||
-      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
