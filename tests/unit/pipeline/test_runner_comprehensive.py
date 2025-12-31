@@ -36,6 +36,7 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import ShuffleSplit, KFold
 
+from nirs4all.core.logging import reset_logging
 from nirs4all.pipeline.runner import PipelineRunner
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 from nirs4all.data.config import DatasetConfigs
@@ -56,6 +57,8 @@ def temp_workspace():
     """Create a temporary workspace directory."""
     temp_dir = tempfile.mkdtemp()
     yield Path(temp_dir)
+    # Close logging file handlers before cleanup (Windows compatibility)
+    reset_logging()
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 

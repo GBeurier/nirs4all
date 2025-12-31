@@ -134,6 +134,7 @@ class TestRunFunction:
     def test_run_with_runner_kwargs(self, sample_regression_data_path):
         """Test run() passes kwargs to PipelineRunner correctly."""
         import nirs4all
+        from nirs4all.core.logging import reset_logging
 
         pipeline = [
             MinMaxScaler(),
@@ -151,6 +152,10 @@ class TestRunFunction:
             )
 
             assert result.num_predictions > 0
+
+            # Reset logging to close file handlers before temp directory cleanup
+            # This is required on Windows where open file handles prevent deletion
+            reset_logging()
 
     def test_run_with_random_state(self, sample_regression_data_path):
         """Test run() with random_state for reproducibility."""
