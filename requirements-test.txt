@@ -8,6 +8,7 @@ scikit-learn>=1.2.0
 polars>=0.20.0
 pyarrow>=14.0.0
 h5py>=3.8.0
+openpyxl>=3.1.0
 
 # Signal processing
 PyWavelets>=1.4.0
