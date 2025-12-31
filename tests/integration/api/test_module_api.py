@@ -9,12 +9,15 @@ Tests the new simplified API functions:
 - nirs4all.session()
 """
 
-import pytest
-import numpy as np
-from pathlib import Path
-import tempfile
+import gc
 import os
+import sys
+import tempfile
+import time
+from pathlib import Path
 
+import numpy as np
+import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 from sklearn.preprocessing import MinMaxScaler
@@ -142,7 +145,12 @@ class TestRunFunction:
             {"model": PLSRegression(n_components=5)}
         ]
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        # Use ignore_cleanup_errors=True to handle Windows file locking issues
+        # where file handles may not be immediately released after close()
+        cleanup_errors = sys.version_info >= (3, 10)
+        tmpdir_kwargs = {"ignore_cleanup_errors": True} if cleanup_errors else {}
+
+        with tempfile.TemporaryDirectory(**tmpdir_kwargs) as tmpdir:
             result = nirs4all.run(
                 pipeline=pipeline,
                 dataset=sample_regression_data_path,
@@ -156,6 +164,14 @@ class TestRunFunction:
             # Reset logging to close file handlers before temp directory cleanup
             # This is required on Windows where open file handles prevent deletion
             reset_logging()
+
+            # Force garbage collection to release any lingering file handles
+            # This helps on Windows where file handles may be held by cyclic refs
+            gc.collect()
+
+            # Small delay to allow OS to release file handles (Windows issue)
+            if sys.platform == "win32":
+                time.sleep(0.1)
 
     def test_run_with_random_state(self, sample_regression_data_path):
         """Test run() with random_state for reproducibility."""
