@@ -16,6 +16,12 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: ['3.11', '3.13']
     steps:
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -45,6 +51,11 @@ jobs:
   build-docs:
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -81,6 +92,11 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
