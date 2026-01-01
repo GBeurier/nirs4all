@@ -217,6 +217,13 @@ class RunResult:
             >>> grouped = result.top(3, group_by='dataset_name', return_grouped=True)
             >>> for key, results in grouped.items():
             ...     print(f"{key}: {len(results)} results")
+            >>>
+            >>> # Multi-column grouping: top 2 per (dataset, model) combination
+            >>> top_per_combo = result.top(2, group_by=['dataset_name', 'model_name'])
+            >>> # Group keys are tuples: ('wheat', 'PLSRegression'), ('corn', 'RandomForest')
+            >>> for r in top_per_combo:
+            ...     dataset, model = r['group_key']
+            ...     print(f"{dataset}/{model}: {r['test_score']:.4f}")
         """
         return self.predictions.top(n=n, **kwargs)
 
