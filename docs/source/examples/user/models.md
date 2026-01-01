@@ -138,6 +138,46 @@ for i, pred in enumerate(result.top(10, display_metrics=['rmse', 'r2']), 1):
 - Optuna integration for smart search
 - Early stopping and pruning
 
+### Parameter Type Reference
+
+NIRS4ALL supports all Optuna parameter types via flexible syntax:
+
+**Tuple Format (most common):**
+```python
+"model_params": {
+    "n_components": ('int', 1, 20),        # Integer uniform [1, 20]
+    "n_layers": ('int_log', 1, 100),       # Integer log-uniform [1, 100]
+    "tol": ('float', 1e-6, 1e-4),          # Float uniform [1e-6, 1e-4]
+    "lr": ('float_log', 1e-5, 1e-1),       # Float log-uniform [1e-5, 1e-1]
+    "kernel": ['rbf', 'linear', 'poly'],   # Categorical
+}
+```
+
+**Dict Format (most flexible):**
+```python
+"model_params": {
+    # Integer with step
+    "n_estimators": {'type': 'int', 'min': 10, 'max': 100, 'step': 10},
+    # Integer log-scale
+    "max_iter": {'type': 'int', 'min': 100, 'max': 10000, 'log': True},
+    # Float with step (discrete)
+    "learning_rate": {'type': 'float', 'min': 0.1, 'max': 1.0, 'step': 0.1},
+    # Float log-scale (recommended for regularization, learning rates)
+    "alpha": {'type': 'float', 'min': 1e-5, 'max': 1e-1, 'log': True},
+    # Categorical
+    "solver": {'type': 'categorical', 'choices': ['lbfgs', 'sgd', 'adam']},
+}
+```
+
+### When to Use Log-Scale
+
+Use `float_log` or `int_log` for parameters spanning multiple orders of magnitude:
+- **Learning rates**: `('float_log', 1e-5, 1e-1)`
+- **Regularization (alpha, lambda)**: `('float_log', 1e-6, 1.0)`
+- **Number of iterations**: `('int_log', 100, 10000)`
+
+Log-uniform sampling ensures each order of magnitude gets equal exploration probability.
+
 ### Grid Search with _range_
 
 ```python
@@ -191,24 +231,26 @@ pipeline = [
 For smarter search (Bayesian optimization):
 
 ```python
-from nirs4all.optimization import OptunaConfig
-
-optuna_config = OptunaConfig(
-    n_trials=50,
-    metric='rmse',
-    direction='minimize',
-
-    # Define search space
-    params={
-        'n_components': {'type': 'int', 'low': 2, 'high': 30},
-        'alpha': {'type': 'float', 'low': 0.001, 'high': 10.0, 'log': True}
+pipeline = [
+    SNV(),
+    ShuffleSplit(n_splits=3),
+    {
+        "model": Ridge(),
+        "finetune_params": {
+            "n_trials": 50,
+            "sample": "tpe",          # Bayesian optimization
+            "verbose": 1,
+            "approach": "single",
+            "model_params": {
+                "alpha": ('float_log', 1e-4, 1e2),  # Log-uniform sampling
+            }
+        }
     }
-)
+]
 
 result = nirs4all.run(
     pipeline=pipeline,
-    dataset="sample_data/regression",
-    optuna_config=optuna_config
+    dataset="sample_data/regression"
 )
 ```
 

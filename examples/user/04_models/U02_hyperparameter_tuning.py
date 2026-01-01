@@ -74,10 +74,17 @@ nirs4all uses Optuna for efficient hyperparameter optimization:
      grouped   - Search per preprocessing group
      individual - Search per fold (most thorough)
 
-  📉 PARAMETER TYPES
-     ('int', min, max)    - Integer range
-     ('float', min, max)  - Float range
-     [val1, val2, ...]    - Categorical choices
+  📉 PARAMETER TYPES (Tuple Format)
+     ('int', min, max)        - Integer uniform sampling
+     ('int_log', min, max)    - Integer log-uniform sampling
+     ('float', min, max)      - Float uniform sampling
+     ('float_log', min, max)  - Float log-uniform (for learning rates, regularization)
+     [val1, val2, ...]        - Categorical choices
+
+  📋 PARAMETER TYPES (Dict Format - most flexible)
+     {'type': 'int', 'min': 1, 'max': 10, 'step': 2}
+     {'type': 'float', 'min': 0.0, 'max': 1.0, 'log': True}
+     {'type': 'categorical', 'choices': [v1, v2, v3]}
 """)
 
 
@@ -172,10 +179,59 @@ print(f"\nBest RMSE: {result_tpe.best_score:.4f}")
 
 
 # =============================================================================
-# Section 4: Hyperband for Deep Learning
+# Section 4: Log-Scale Parameters
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 4: Hyperband Optimization")
+print("Section 4: Log-Scale Parameters")
+print("-" * 60)
+
+print("""
+Use 'float_log' or 'int_log' for parameters that span multiple orders
+of magnitude (learning rates, regularization, etc.).
+
+Log-uniform sampling ensures each order of magnitude gets equal
+exploration probability:
+  ('float_log', 1e-5, 1e-1) → samples 1e-5, 1e-4, 1e-3, 1e-2, 1e-1 equally
+""")
+
+from sklearn.linear_model import Ridge
+
+pipeline_log = [
+    StandardNormalVariate(),
+
+    ShuffleSplit(n_splits=3, random_state=42),
+
+    {
+        "model": Ridge(),
+        "name": "Ridge-LogScale",
+        "finetune_params": {
+            "n_trials": 5,
+            "sample": "tpe",
+            "verbose": 1,
+            "approach": "single",
+            "model_params": {
+                # Log-uniform: good for regularization spanning 1e-4 to 1e+2
+                "alpha": ('float_log', 1e-4, 1e2),
+            },
+        }
+    },
+]
+
+result_log = nirs4all.run(
+    pipeline=pipeline_log,
+    dataset="sample_data/regression",
+    name="LogScale",
+    verbose=1
+)
+
+print(f"\nBest RMSE: {result_log.best_score:.4f}")
+
+
+# =============================================================================
+# Section 5: Hyperband for Deep Learning
+# =============================================================================
+print("\n" + "-" * 60)
+print("Section 5: Hyperband Optimization")
 print("-" * 60)
 
 print("""
@@ -214,10 +270,10 @@ print(f"\nBest RMSE: {result_hyperband.best_score:.4f}")
 
 
 # =============================================================================
-# Section 5: Tuning Approaches
+# Section 6: Tuning Approaches
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 5: Tuning Approaches")
+print("Section 6: Tuning Approaches")
 print("-" * 60)
 
 print("""
@@ -265,10 +321,10 @@ print("Each preprocessing gets its own optimal n_components!")
 
 
 # =============================================================================
-# Section 6: Combined Preprocessing + Model Tuning
+# Section 7: Combined Preprocessing + Model Tuning
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 6: Combined Preprocessing + Model Tuning")
+print("Section 7: Combined Preprocessing + Model Tuning")
 print("-" * 60)
 
 print("""
@@ -322,10 +378,10 @@ for i, pred in enumerate(result_combined.top(5, display_metrics=['rmse', 'r2']),
 
 
 # =============================================================================
-# Section 7: Visualizing Tuning Results
+# Section 8: Visualizing Tuning Results
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 7: Visualizing Tuning Results")
+print("Section 8: Visualizing Tuning Results")
 print("-" * 60)
 
 if args.plots:
@@ -392,10 +448,33 @@ Tuning Approaches:
   grouped    - Per preprocessing group (balanced)
   individual - Per fold (most thorough)
 
-Parameter Types:
-  ('int', min, max)     - Integer range
-  ('float', min, max)   - Float range
-  [val1, val2, val3]    - Categorical choices
+Parameter Types (Tuple Format):
+  ('int', min, max)        - Integer uniform sampling
+  ('int_log', min, max)    - Integer log-uniform sampling
+  ('float', min, max)      - Float uniform sampling
+  ('float_log', min, max)  - Float log-uniform (for learning rates, regularization)
+  [val1, val2, val3]       - Categorical choices
+
+Parameter Types (Dict Format - most flexible):
+  {'type': 'int', 'min': 1, 'max': 10}              - Basic integer
+  {'type': 'int', 'min': 1, 'max': 10, 'step': 2}   - Stepped integer
+  {'type': 'int', 'min': 1, 'max': 1000, 'log': True}  - Log-scale integer
+  {'type': 'float', 'min': 0.0, 'max': 1.0}         - Basic float
+  {'type': 'float', 'min': 1e-5, 'max': 1e-1, 'log': True}  - Log-scale float
+  {'type': 'categorical', 'choices': [v1, v2, v3]}  - Categorical
+
+Examples:
+  # Learning rate: log-uniform from 1e-5 to 1e-1
+  'lr': ('float_log', 1e-5, 1e-1)
+
+  # Regularization: log-uniform from 1e-6 to 1.0
+  'alpha': ('float_log', 1e-6, 1.0)
+
+  # Number of layers: integer from 1 to 5
+  'n_layers': ('int', 1, 5)
+
+  # Batch size: log-scale powers of 2 feel
+  'batch_size': {'type': 'int', 'min': 16, 'max': 256, 'log': True}
 
 Next: U03_stacking_ensembles.py - Model stacking and ensembles
 """)

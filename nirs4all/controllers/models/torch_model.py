@@ -240,8 +240,18 @@ class PyTorchModelController(BaseModelController):
 
             for batch_X, batch_y in train_loader:
                 optimizer.zero_grad()
+
+                # Support for models that need targets during forward (e.g., FCK-PLS)
+                if hasattr(model, 'set_targets'):
+                    model.set_targets(batch_y)
+
                 outputs = model(batch_X)
                 loss = loss_fn(outputs, batch_y)
+
+                # Support for models with custom regularization
+                if hasattr(model, 'kernel_regularization'):
+                    loss = loss + model.kernel_regularization()
+
                 loss.backward()
                 optimizer.step()
                 train_loss += loss.item()
@@ -254,6 +264,10 @@ class PyTorchModelController(BaseModelController):
                 model.eval()
                 with torch.no_grad():
                     for batch_X, batch_y in val_loader:
+                        # Support for models that need targets during forward
+                        if hasattr(model, 'set_targets'):
+                            model.set_targets(batch_y)
+
                         outputs = model(batch_X)
                         loss = loss_fn(outputs, batch_y)
                         val_loss += loss.item()
