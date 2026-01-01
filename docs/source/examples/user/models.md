@@ -156,8 +156,8 @@ NIRS4ALL supports all Optuna parameter types via flexible syntax:
 **Dict Format (most flexible):**
 ```python
 "model_params": {
-    # Integer with step
-    "n_estimators": {'type': 'int', 'min': 10, 'max': 100, 'step': 10},
+    # Integer with step (e.g., odd values only: 11, 13, 15, ...)
+    "kernel_size": {'type': 'int', 'min': 11, 'max': 51, 'step': 2},
     # Integer log-scale
     "max_iter": {'type': 'int', 'min': 100, 'max': 10000, 'log': True},
     # Float with step (discrete)
@@ -166,6 +166,29 @@ NIRS4ALL supports all Optuna parameter types via flexible syntax:
     "alpha": {'type': 'float', 'min': 1e-5, 'max': 1e-1, 'log': True},
     # Categorical
     "solver": {'type': 'categorical', 'choices': ['lbfgs', 'sgd', 'adam']},
+    # Sorted tuple - generates N sorted values (useful for fractional derivative alphas)
+    "alphas": {'type': 'sorted_tuple', 'length': 4, 'min': 0.0, 'max': 2.0},
+}
+```
+
+**Sorted Tuple Format (for ordered sequences):**
+
+The `sorted_tuple` type generates multiple values within a range and returns them as a sorted tuple.
+This is useful for parameters like fractional derivative orders:
+
+```python
+"model_params": {
+    # Fixed length: 4 floats between 0.0 and 2.0, returned sorted
+    "alphas": {'type': 'sorted_tuple', 'length': 4, 'min': 0.0, 'max': 2.0},
+
+    # Dynamic length: 3-5 floats (length is also optimized)
+    "alphas": {'type': 'sorted_tuple', 'length': ('int', 3, 5), 'min': 0.0, 'max': 2.0},
+
+    # With step for discrete values
+    "alphas": {'type': 'sorted_tuple', 'length': 4, 'min': 0.0, 'max': 2.0, 'step': 0.5},
+
+    # Integer elements
+    "orders": {'type': 'sorted_tuple', 'length': 3, 'min': 1, 'max': 10, 'element_type': 'int'},
 }
 ```
 
@@ -177,6 +200,20 @@ Use `float_log` or `int_log` for parameters spanning multiple orders of magnitud
 - **Number of iterations**: `('int_log', 100, 10000)`
 
 Log-uniform sampling ensures each order of magnitude gets equal exploration probability.
+
+### Common Parameter Patterns
+
+**Odd integers only** (e.g., kernel sizes for convolutions):
+```python
+"kernel_size": {'type': 'int', 'min': 11, 'max': 51, 'step': 2}
+# Samples: 11, 13, 15, ..., 49, 51
+```
+
+**Sorted tuple** (e.g., fractional derivative orders):
+```python
+"alphas": {'type': 'sorted_tuple', 'length': 4, 'min': 0.0, 'max': 2.0}
+# Samples 4 floats in [0, 2], returns them sorted as a tuple
+```
 
 ### Grid Search with _range_
 

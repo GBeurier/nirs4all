@@ -473,6 +473,8 @@ class OptunaManager:
             - {'type': 'float', 'min': 0.0, 'max': 1.0}
             - {'type': 'float', 'min': 0.0, 'max': 1.0, 'step': 0.1}
             - {'type': 'float', 'min': 1e-5, 'max': 1e-1, 'log': True}
+            - {'type': 'sorted_tuple', 'length': 4, 'min': 0.0, 'max': 2.0}
+            - {'type': 'sorted_tuple', 'length': ('int', 3, 5), 'min': 0.0, 'max': 2.0, 'element_type': 'float'}
 
         **Single value**:
             - Any scalar value → Passed through unchanged
@@ -571,6 +573,8 @@ class OptunaManager:
             - {'type': 'categorical', 'choices': [v1, v2, v3]}
             - {'type': 'int', 'min': 1, 'max': 10, 'step': 2, 'log': False}
             - {'type': 'float', 'min': 0.0, 'max': 1.0, 'step': 0.1, 'log': True}
+            - {'type': 'sorted_tuple', 'length': 4, 'min': 0.0, 'max': 2.0}
+            - {'type': 'sorted_tuple', 'length': ('int', 3, 5), 'min': 0.0, 'max': 2.0, 'element_type': 'float'}
 
         Args:
             trial: Optuna trial instance
@@ -610,11 +614,76 @@ class OptunaManager:
 
             return trial.suggest_float(param_name, float(min_val), float(max_val), step=step, log=log)
 
+        elif param_type == 'sorted_tuple':
+            return self._suggest_sorted_tuple(trial, param_name, param_config)
+
         else:
             raise ValueError(
                 f"Unknown parameter type '{param_type}' for parameter '{param_name}'. "
-                f"Supported types: 'categorical', 'int', 'int_log', 'float', 'float_log'"
+                f"Supported types: 'categorical', 'int', 'int_log', 'float', 'float_log', 'sorted_tuple'"
             )
+
+    def _suggest_sorted_tuple(self, trial: Any, param_name: str, param_config: Dict[str, Any]) -> tuple:
+        """
+        Suggest a sorted tuple of values.
+
+        Generates N values within a range and returns them as a sorted tuple.
+        Useful for parameters like 'alphas' that need ordered sequences.
+
+        Supports:
+            - {'type': 'sorted_tuple', 'length': 4, 'min': 0.0, 'max': 2.0}
+            - {'type': 'sorted_tuple', 'length': ('int', 3, 5), 'min': 0.0, 'max': 2.0}
+            - {'type': 'sorted_tuple', 'length': 4, 'min': 0.0, 'max': 2.0, 'element_type': 'int'}
+            - {'type': 'sorted_tuple', 'length': 4, 'min': 0.0, 'max': 2.0, 'step': 0.5}
+
+        Args:
+            trial: Optuna trial instance
+            param_name: Name of the parameter
+            param_config: Dictionary with length, min, max, and optional element_type/step
+
+        Returns:
+            Sorted tuple of sampled values
+        """
+        # Get tuple length - can be fixed or a range
+        length_config = param_config.get('length', 3)
+        if isinstance(length_config, int):
+            length = length_config
+        elif isinstance(length_config, tuple) and len(length_config) == 3:
+            # ('int', min, max) format
+            _, min_len, max_len = length_config
+            length = trial.suggest_int(f"{param_name}_length", int(min_len), int(max_len))
+        elif isinstance(length_config, tuple) and len(length_config) == 2:
+            # (min, max) format
+            min_len, max_len = length_config
+            length = trial.suggest_int(f"{param_name}_length", int(min_len), int(max_len))
+        elif isinstance(length_config, dict):
+            min_len = length_config.get('min', length_config.get('low', 2))
+            max_len = length_config.get('max', length_config.get('high', 5))
+            length = trial.suggest_int(f"{param_name}_length", int(min_len), int(max_len))
+        else:
+            length = int(length_config)
+
+        # Get value range
+        min_val = param_config.get('min', param_config.get('low', 0.0))
+        max_val = param_config.get('max', param_config.get('high', 1.0))
+        step = param_config.get('step')
+        element_type = param_config.get('element_type', 'float')
+
+        # Sample individual elements
+        values = []
+        for i in range(length):
+            elem_name = f"{param_name}_{i}"
+            if element_type in ('int', 'int_log'):
+                log = param_config.get('log', element_type == 'int_log')
+                int_step = int(step) if step is not None else 1
+                val = trial.suggest_int(elem_name, int(min_val), int(max_val), step=int_step, log=log)
+            else:  # float or float_log
+                log = param_config.get('log', element_type == 'float_log')
+                val = trial.suggest_float(elem_name, float(min_val), float(max_val), step=step, log=log)
+            values.append(val)
+
+        # Sort and return as tuple
+        return tuple(sorted(values))
 
     def _is_grid_search_suitable(self, finetune_params: Dict[str, Any]) -> bool:
         """
