@@ -442,22 +442,59 @@ class OptunaManager:
 
         return params
 
-    def _sample_single_parameter(self, trial: Any, param_name: str, param_config: Any) -> Any:
-        """Sample a single parameter based on its configuration."""
+    # Supported parameter type strings for tuple format ('type', min, max)
+    _INT_TYPES = ('int', int, 'builtins.int')
+    _INT_LOG_TYPES = ('int_log', 'log_int')
+    _FLOAT_TYPES = ('float', float, 'builtins.float')
+    _FLOAT_LOG_TYPES = ('float_log', 'log_float')
+    _ALL_RANGE_TYPES = _INT_TYPES + _INT_LOG_TYPES + _FLOAT_TYPES + _FLOAT_LOG_TYPES
 
+    def _sample_single_parameter(self, trial: Any, param_name: str, param_config: Any) -> Any:
+        """
+        Sample a single parameter based on its configuration.
+
+        Supported formats:
+
+        **Tuple format** (most common):
+            - ('int', min, max)        → Integer uniform sampling
+            - ('int_log', min, max)    → Integer log-uniform sampling
+            - ('float', min, max)      → Float uniform sampling
+            - ('float_log', min, max)  → Float log-uniform sampling (recommended for learning rates, regularization)
+            - (min, max)               → Inferred type based on values (int if both int, else float)
+
+        **List format**:
+            - [val1, val2, val3]       → Categorical sampling
+
+        **Dict format** (most flexible):
+            - {'type': 'categorical', 'choices': [v1, v2, v3]}
+            - {'type': 'int', 'min': 1, 'max': 10}
+            - {'type': 'int', 'min': 1, 'max': 10, 'step': 2}
+            - {'type': 'int', 'min': 1, 'max': 1000, 'log': True}
+            - {'type': 'float', 'min': 0.0, 'max': 1.0}
+            - {'type': 'float', 'min': 0.0, 'max': 1.0, 'step': 0.1}
+            - {'type': 'float', 'min': 1e-5, 'max': 1e-1, 'log': True}
+
+        **Single value**:
+            - Any scalar value → Passed through unchanged
+
+        Args:
+            trial: Optuna trial instance
+            param_name: Name of the parameter
+            param_config: Parameter configuration
+
+        Returns:
+            Sampled parameter value
+        """
         if isinstance(param_config, list):
             # Check if this is actually a type specification that was converted from tuple to list
-            # Pattern: ['int'/'float', min, max] from tuple ('int'/'float', min, max)
+            # Pattern: ['int'/'float'/etc., min, max] from tuple ('type', min, max)
             if (len(param_config) == 3 and
-                param_config[0] in ['int', 'float', 'builtins.int', 'builtins.float'] and
+                param_config[0] in self._ALL_RANGE_TYPES and
                 isinstance(param_config[1], (int, float)) and
                 isinstance(param_config[2], (int, float))):
                 # This is a range specification, not a categorical list
                 param_type, min_val, max_val = param_config
-                if param_type in ['int', 'builtins.int']:
-                    return trial.suggest_int(param_name, int(min_val), int(max_val))
-                elif param_type in ['float', 'builtins.float']:
-                    return trial.suggest_float(param_name, float(min_val), float(max_val))
+                return self._suggest_from_type(trial, param_name, param_type, min_val, max_val)
 
             # Regular categorical parameter: [val1, val2, val3]
             return trial.suggest_categorical(param_name, param_config)
@@ -465,12 +502,7 @@ class OptunaManager:
         elif isinstance(param_config, tuple) and len(param_config) == 3:
             # Explicit type tuple: ('type', min, max)
             param_type, min_val, max_val = param_config
-            if param_type in ['int', int]:
-                return trial.suggest_int(param_name, min_val, max_val)
-            elif param_type in ['float', float]:
-                return trial.suggest_float(param_name, float(min_val), float(max_val))
-            else:
-                raise ValueError(f"Unknown parameter type: {param_type}")
+            return self._suggest_from_type(trial, param_name, param_type, min_val, max_val)
 
         elif isinstance(param_config, tuple) and len(param_config) == 2:
             # Range tuple: (min, max) - infer type from values
@@ -481,21 +513,108 @@ class OptunaManager:
                 return trial.suggest_float(param_name, float(min_val), float(max_val))
 
         elif isinstance(param_config, dict):
-            # Dictionary configuration: {'type': 'int', 'min': 1, 'max': 10}
-            param_type = param_config.get('type', 'categorical')
-
-            if param_type == 'categorical':
-                return trial.suggest_categorical(param_name, param_config['choices'])
-            elif param_type == 'int':
-                return trial.suggest_int(param_name, param_config['min'], param_config['max'])
-            elif param_type == 'float':
-                return trial.suggest_float(param_name, param_config['min'], param_config['max'])
-            else:
-                raise ValueError(f"Unknown parameter type in config: {param_type}")
+            # Dictionary configuration with full options
+            return self._suggest_from_dict(trial, param_name, param_config)
 
         else:
             # Single value - pass through unchanged
             return param_config
+
+    def _suggest_from_type(
+        self,
+        trial: Any,
+        param_name: str,
+        param_type: Any,
+        min_val: float,
+        max_val: float,
+        step: Optional[float] = None,
+        log: bool = False
+    ) -> Any:
+        """
+        Suggest a parameter value based on type string.
+
+        Args:
+            trial: Optuna trial instance
+            param_name: Name of the parameter
+            param_type: Type indicator ('int', 'float', 'int_log', 'float_log', etc.)
+            min_val: Minimum value
+            max_val: Maximum value
+            step: Step size (optional, for discrete sampling)
+            log: Whether to use log-uniform sampling (overridden by type suffix)
+
+        Returns:
+            Sampled value
+        """
+        # Determine if log scale from type suffix
+        use_log = log or param_type in self._INT_LOG_TYPES or param_type in self._FLOAT_LOG_TYPES
+
+        if param_type in self._INT_TYPES or param_type in self._INT_LOG_TYPES:
+            # Integer sampling
+            int_step = int(step) if step is not None else 1
+            return trial.suggest_int(param_name, int(min_val), int(max_val), step=int_step, log=use_log)
+
+        elif param_type in self._FLOAT_TYPES or param_type in self._FLOAT_LOG_TYPES:
+            # Float sampling
+            return trial.suggest_float(param_name, float(min_val), float(max_val), step=step, log=use_log)
+
+        else:
+            raise ValueError(
+                f"Unknown parameter type '{param_type}' for parameter '{param_name}'. "
+                f"Supported types: 'int', 'int_log', 'float', 'float_log' (or Python int/float types)"
+            )
+
+    def _suggest_from_dict(self, trial: Any, param_name: str, param_config: Dict[str, Any]) -> Any:
+        """
+        Suggest a parameter value from a dictionary configuration.
+
+        Supports:
+            - {'type': 'categorical', 'choices': [v1, v2, v3]}
+            - {'type': 'int', 'min': 1, 'max': 10, 'step': 2, 'log': False}
+            - {'type': 'float', 'min': 0.0, 'max': 1.0, 'step': 0.1, 'log': True}
+
+        Args:
+            trial: Optuna trial instance
+            param_name: Name of the parameter
+            param_config: Dictionary with 'type' and range/choices
+
+        Returns:
+            Sampled value
+        """
+        param_type = param_config.get('type', 'categorical')
+
+        if param_type == 'categorical':
+            choices = param_config.get('choices', param_config.get('values', []))
+            if not choices:
+                raise ValueError(f"Categorical parameter '{param_name}' requires 'choices' or 'values' list")
+            return trial.suggest_categorical(param_name, choices)
+
+        elif param_type in ('int', 'int_log'):
+            min_val = param_config.get('min', param_config.get('low'))
+            max_val = param_config.get('max', param_config.get('high'))
+            step = param_config.get('step', 1)
+            log = param_config.get('log', param_type == 'int_log')
+
+            if min_val is None or max_val is None:
+                raise ValueError(f"Integer parameter '{param_name}' requires 'min'/'max' or 'low'/'high'")
+
+            return trial.suggest_int(param_name, int(min_val), int(max_val), step=int(step), log=log)
+
+        elif param_type in ('float', 'float_log'):
+            min_val = param_config.get('min', param_config.get('low'))
+            max_val = param_config.get('max', param_config.get('high'))
+            step = param_config.get('step')  # None means continuous
+            log = param_config.get('log', param_type == 'float_log')
+
+            if min_val is None or max_val is None:
+                raise ValueError(f"Float parameter '{param_name}' requires 'min'/'max' or 'low'/'high'")
+
+            return trial.suggest_float(param_name, float(min_val), float(max_val), step=step, log=log)
+
+        else:
+            raise ValueError(
+                f"Unknown parameter type '{param_type}' for parameter '{param_name}'. "
+                f"Supported types: 'categorical', 'int', 'int_log', 'float', 'float_log'"
+            )
 
     def _is_grid_search_suitable(self, finetune_params: Dict[str, Any]) -> bool:
         """
@@ -519,8 +638,8 @@ class OptunaManager:
         for _, param_config in model_params.items():
             # Check if this is a range specification disguised as a list (from tuple-to-list conversion)
             is_list = isinstance(param_config, list)
-            has_len_3 = len(param_config) == 3
-            is_type_spec = param_config[0] in ['int', 'float', 'builtins.int', 'builtins.float'] if is_list and has_len_3 else False
+            has_len_3 = len(param_config) == 3 if is_list else False
+            is_type_spec = param_config[0] in self._ALL_RANGE_TYPES if is_list and has_len_3 else False
             is_min_num = isinstance(param_config[1], (int, float)) if is_list and has_len_3 else False
             is_max_num = isinstance(param_config[2], (int, float)) if is_list and has_len_3 else False
 
@@ -528,12 +647,12 @@ class OptunaManager:
 
             if is_range_spec:
                 # This is a range specification, not categorical
-                # print(f"[DEBUG] Parameter '{param_name}' is a range spec disguised as list, grid search not suitable")
+                # print(f"[DEBUG] Parameter is a range spec disguised as list, grid search not suitable")
                 return False
 
             # Only categorical (list) parameters are suitable for grid search
             if not isinstance(param_config, list):
-                # print(f"[DEBUG] Parameter '{param_name}' is not a list (type: {type(param_config)}), grid search not suitable")
+                # print(f"[DEBUG] Parameter is not a list (type: {type(param_config)}), grid search not suitable")
                 return False
 
         result = True and len(model_params) > 0  # Need at least one parameter
