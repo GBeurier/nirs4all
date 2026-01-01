@@ -553,7 +553,7 @@ Tips:
 
 ## Predefined Spectral Components
 
-The synthetic generator includes **31 predefined spectral components** with band assignments based on published NIR spectroscopy literature. Each component's absorption bands are modeled using Voigt profiles with accurate wavelength positions, widths, and relative intensities.
+The synthetic generator includes **48 predefined spectral components** with band assignments based on published NIR spectroscopy literature. Each component's absorption bands are modeled using Voigt profiles with accurate wavelength positions, widths, and relative intensities.
 
 ### Available Components
 
@@ -572,6 +572,8 @@ The synthetic generator includes **31 predefined spectral components** with band
 | `nitrogen_compound` | Primary/secondary amines | 1500, 2060, 2150 | [1] pp. 52-54 |
 | `urea` | CO(NH₂)₂ | 1480, 1530, 2010, 2170 | [9] p. 1125 |
 | `amino_acid` | Free amino acids | 1520, 2040, 2260 | [3] pp. 215-220 |
+| `casein` | Milk protein | 1510, 1680, 2050, 2180 | [4] pp. 85-88 |
+| `gluten` | Wheat protein complex | 1505, 1680, 2050, 2180, 2290 | [5] pp. 155-160 |
 
 #### Lipids and Hydrocarbons
 
@@ -581,6 +583,7 @@ The synthetic generator includes **31 predefined spectral components** with band
 | `oil` | Vegetable/mineral oils | 1165, 1215, 1410, 1725, 2140, 2305 | [4] pp. 67-72 |
 | `saturated_fat` | Saturated fatty acids | 1195, 1395, 1730, 2315, 2355 | [7] pp. 15-20 |
 | `unsaturated_fat` | Mono/polyunsaturated fats | 1160, 1400, 1720, 2145, 2175 | [7] pp. 20-25 |
+| `waxes` | Cuticular waxes | 1190, 1720, 2310, 2350 | [7] pp. 15-20 |
 | `aromatic` | Benzene derivatives | 1145, 1685, 2150, 2440 | [1] pp. 56-58 |
 | `alkane` | Saturated hydrocarbons | 1190, 1715, 2310, 2360 | [7] pp. 10-15 |
 
@@ -593,15 +596,18 @@ The synthetic generator includes **31 predefined spectral components** with band
 | `glucose` | D-glucose | 1440, 1690, 2080, 2270 | [2] pp. 368-370 |
 | `fructose` | D-fructose | 1430, 1695, 2070, 2260 | [2] pp. 368-370 |
 | `sucrose` | Disaccharide | 1435, 1685, 2075, 2265 | [2] pp. 370-372 |
+| `lactose` | Milk sugar | 1450, 1690, 1940, 2100, 2270 | [12] |
 | `hemicellulose` | Xylan/glucomannan | 1470, 1760, 2085, 2250 | [6] pp. 300-303 |
 | `lignin` | Aromatic polymer | 1140, 1420, 1670, 2130, 2270 | [6] pp. 303-305 |
+| `dietary_fiber` | Plant cell wall material | 1490, 1770, 2090, 2275, 2340 | [6], [5] |
 
-#### Alcohols
+#### Alcohols and Polyols
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
 | `ethanol` | C₂H₅OH | 1410, 1580, 1695, 2050, 2290 | [1] pp. 38-40 |
 | `methanol` | CH₃OH | 1400, 1545, 1705, 2040 | [1] pp. 38-40 |
+| `glycerol` | Polyol (fermentation) | 1450, 1580, 1700, 2060, 2280 | [11] |
 
 #### Organic Acids
 
@@ -610,13 +616,16 @@ The synthetic generator includes **31 predefined spectral components** with band
 | `acetic_acid` | CH₃COOH | 1420, 1700, 1940, 2240 | [8] pp. 8-10 |
 | `citric_acid` | C₆H₈O₇ | 1440, 1920, 2060, 2260 | [4] pp. 78-80 |
 | `lactic_acid` | CH₃CH(OH)COOH | 1430, 1485, 1700, 2020, 2255 | [9] pp. 1128-1130 |
+| `malic_acid` | Fruit acid (apples) | 1440, 1920, 2050, 2255 | [4] pp. 78-80 |
+| `tartaric_acid` | Grape/wine acid | 1435, 1910, 2040, 2260 | [11] |
 
-#### Plant Pigments
+#### Plant Pigments and Phenolics
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
 | `chlorophyll` | Chlorophyll a/b | 1070, 1400, 1730, 2270 | [2] pp. 375-378 |
 | `carotenoid` | β-carotene, xanthophylls | 1050, 1680, 2135, 2280 | [2] pp. 378-380 |
+| `tannins` | Phenolic compounds | 1420, 1670, 2056, 2270 | [6], [11] |
 
 #### Pharmaceutical Compounds
 
@@ -626,53 +635,89 @@ The synthetic generator includes **31 predefined spectral components** with band
 | `aspirin` | Acetylsalicylic acid | 1145, 1435, 1680, 2020, 2140 | [9] pp. 1125-1128 |
 | `paracetamol` | Acetaminophen | 1140, 1390, 1510, 1670, 2055, 2260 | [9] pp. 1132-1135 |
 
-#### Fibers
+#### Fibers and Textiles
 
 | Component | Description | Key Bands (nm) | Reference |
 |-----------|-------------|----------------|-----------|
 | `cotton` | Cotton cellulose | 1200, 1494, 1780, 2100, 2280, 2345 | [6] pp. 295-298 |
 | `polyester` | PET fiber | 1140, 1660, 1720, 2015, 2130, 2255 | [1] pp. 60-62 |
 
+#### Polymers and Plastics
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `polyethylene` | HDPE/LDPE plastic | 1190, 1720, 2310, 2355 | [15] |
+| `polystyrene` | Aromatic polymer | 1145, 1680, 1720, 2170, 2300 | [15] |
+| `natural_rubber` | cis-1,4-polyisoprene | 1160, 1720, 2130, 2250, 2350 | [15] |
+| `nylon` | Polyamide fiber | 1500, 1720, 2050, 2295 | [1] pp. 60-62 |
+
+#### Solvents
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `acetone` | Ketone (propan-2-one) | 1690, 1710, 2100, 2300 | [1] pp. 42-44 |
+
+#### Soil Minerals
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `carbonates` | CaCO₃, MgCO₃ (calcite) | 2330, 2525 | [13] |
+| `gypsum` | CaSO₄·2H₂O | 1740, 1900, 2200 | [13] |
+| `kaolinite` | Clay mineral | 1400, 2160, 2200 | [13] |
+
 ### Component Correlation Groups
 
 Components within the same correlation group can be configured to have correlated concentrations, reflecting real-world relationships:
 
-| Group | Components | Rationale |
+| Group | Components | Application Domain |
 |-------|------------|-----------|
-| 1 | water, moisture | Same chemical species |
-| 2 | protein, nitrogen_compound, urea, amino_acid | Nitrogen-containing |
-| 3 | lipid, oil, saturated_fat, unsaturated_fat | Fatty materials |
-| 4 | starch, cellulose, glucose, fructose, sucrose, hemicellulose, cotton | Carbohydrates |
-| 5 | chlorophyll, carotenoid, lignin | Plant constituents |
-| 6 | aromatic, alkane | Hydrocarbons |
-| 7 | ethanol, methanol | Alcohols |
-| 8 | acetic_acid, citric_acid, lactic_acid | Organic acids |
+| 1 | water, moisture | Moisture analysis |
+| 2 | protein, nitrogen_compound, urea, amino_acid, casein, gluten | Nitrogen/protein analysis |
+| 3 | lipid, oil, saturated_fat, unsaturated_fat, waxes | Fat/oil analysis |
+| 4 | starch, cellulose, glucose, fructose, sucrose, hemicellulose, lactose, dietary_fiber, cotton | Carbohydrate analysis |
+| 5 | chlorophyll, carotenoid, lignin, tannins | Plant constituents |
+| 6 | aromatic, alkane | Petrochemical |
+| 7 | ethanol, methanol, glycerol | Alcohols/polyols |
+| 8 | acetic_acid, citric_acid, lactic_acid, malic_acid, tartaric_acid | Organic acids |
 | 9 | caffeine, aspirin, paracetamol | Pharmaceuticals |
 | 10 | polyester | Synthetic fibers |
+| 11 | polyethylene, polystyrene, natural_rubber, nylon | Polymers |
+| 12 | acetone | Solvents |
+| 13 | carbonates, gypsum, kaolinite | Soil minerals |
 
 ### Usage Example
 
 ```python
 from nirs4all.data.synthetic import ComponentLibrary
 
-# List all available components
+# List all available components (48 total)
 library = ComponentLibrary.from_predefined()
 print(f"Available components: {library.component_names}")
-# ['water', 'moisture', 'protein', 'nitrogen_compound', 'urea', ...]
 
 # Create library with agricultural components
 agri_library = ComponentLibrary.from_predefined([
     "water", "protein", "starch", "cellulose", "oil", "chlorophyll"
 ])
 
-# Create library with pharmaceutical components
-pharma_library = ComponentLibrary.from_predefined([
-    "water", "starch", "cellulose", "caffeine", "aspirin", "paracetamol"
+# Create library with dairy components
+dairy_library = ComponentLibrary.from_predefined([
+    "water", "lactose", "casein", "lipid"
 ])
 
-# Create library with beverage components
-beverage_library = ComponentLibrary.from_predefined([
-    "water", "ethanol", "glucose", "fructose", "citric_acid", "caffeine"
+# Create library with wine/beverage components
+wine_library = ComponentLibrary.from_predefined([
+    "water", "ethanol", "glycerol", "glucose", "fructose",
+    "malic_acid", "tartaric_acid", "tannins"
+])
+
+# Create library with soil analysis components
+soil_library = ComponentLibrary.from_predefined([
+    "water", "carbonates", "gypsum", "kaolinite", "cellulose", "lignin"
+])
+
+# Create library with polymer/plastic components
+polymer_library = ComponentLibrary.from_predefined([
+    "polyethylene", "polystyrene", "nylon", "polyester"
 ])
 ```
 
@@ -699,6 +744,16 @@ The predefined spectral components are based on established NIR spectroscopy lit
 9. Reich, G. (2005). Near-Infrared Spectroscopy and Imaging: Basic Principles and Pharmaceutical Applications. *Advanced Drug Delivery Reviews*, 57(8), 1109-1143. — Pharmaceutical compound band assignments.
 
 10. Blanco, M., & Villarroya, I. (2002). NIR Spectroscopy: A Rapid-Response Analytical Tool. *TrAC Trends in Analytical Chemistry*, 21(4), 240-250. — Review of NIR applications and typical band positions.
+
+11. Martelo-Vidal, M. J., & Vázquez, M. (2014). Application of Artificial Neural Networks Coupled to UV–VIS–NIR Spectroscopy for the Rapid Quantification of Wine Compounds. *CyTA – Journal of Food*, 12(1), 32-39. — Wine fermentation compounds (glycerol, organic acids, tannins).
+
+12. Luypaert, J., Zhang, M. H., & Massart, D. L. (2003). Feasibility Study for the Use of Near Infrared Spectroscopy in the Qualitative and Quantitative Analysis of Green Tea. *Analytica Chimica Acta*, 478(2), 303-312. — Tea and beverage NIR assignments.
+
+13. Khayamim, F., et al. (2015). Visible and Near-Infrared Spectroscopy for the Prediction of Soil Properties. *Spectroscopy Letters*, 48(6), 405-418. — Soil mineral NIR characterization.
+
+14. Shenk, J. S., Workman Jr, J. J., & Westerhaus, M. O. (2008). Application of NIR Spectroscopy to Agricultural Products. In D. A. Burns & E. W. Ciurczak (Eds.), *Handbook of Near-Infrared Analysis* (3rd ed., pp. 347-386). CRC Press. — Comprehensive agricultural NIR band assignments.
+
+15. Lachenal, G. (1995). Dispersive and Fourier Transform Near-Infrared Spectroscopy of Polymeric Materials. *Vibrational Spectroscopy*, 9(1), 93-100. — Polymer NIR band assignments.
 
 ## See Also
 
