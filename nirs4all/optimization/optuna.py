@@ -648,12 +648,12 @@ class OptunaManager:
         length_config = param_config.get('length', 3)
         if isinstance(length_config, int):
             length = length_config
-        elif isinstance(length_config, tuple) and len(length_config) == 3:
-            # ('int', min, max) format
+        elif isinstance(length_config, (tuple, list)) and len(length_config) == 3:
+            # ('int', min, max) or ['int', min, max] format
             _, min_len, max_len = length_config
             length = trial.suggest_int(f"{param_name}_length", int(min_len), int(max_len))
-        elif isinstance(length_config, tuple) and len(length_config) == 2:
-            # (min, max) format
+        elif isinstance(length_config, (tuple, list)) and len(length_config) == 2:
+            # (min, max) or [min, max] format
             min_len, max_len = length_config
             length = trial.suggest_int(f"{param_name}_length", int(min_len), int(max_len))
         elif isinstance(length_config, dict):
