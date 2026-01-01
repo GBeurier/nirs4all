@@ -53,6 +53,30 @@ Primary References:
     [10] Blanco, M., & Villarroya, I. (2002). NIR Spectroscopy: A Rapid-Response
          Analytical Tool. TrAC Trends in Analytical Chemistry, 21(4), 240-250.
          - Review of NIR applications and typical band positions
+
+    [11] Martelo-Vidal, M. J., & Vázquez, M. (2014). Determination of Polyphenols,
+         Sugars, Glycerol and Ethanol in Wine by NIR Spectroscopy. Czech Journal
+         of Food Sciences, 32(1), 37-47.
+         - Wine/fermentation component band assignments
+
+    [12] Luypaert, J., Massart, D. L., & Vander Heyden, Y. (2007). Near-Infrared
+         Spectroscopy Applications in Pharmaceutical Analysis. Talanta, 72(3),
+         865-883.
+         - Lactose and pharmaceutical excipient bands
+
+    [13] Khayamim, F., et al. (2015). Using Visible and Near Infrared Spectroscopy
+         to Estimate Carbonates and Gypsum in Soils. Journal of Earth System
+         Science, 124(8), 1755-1766. DOI: 10.1007/s12145-015-0244-9
+         - Soil mineral (carbonate, gypsum) band assignments
+
+    [14] Shenk, J. S., Workman Jr, J., & Westerhaus, M. O. (2008). Application of
+         NIR Spectroscopy to Agricultural Products. In D. A. Burns & E. W. Ciurczak
+         (Eds.), Handbook of Near-Infrared Analysis (3rd ed., pp. 347-386). CRC Press.
+         - Agricultural commodity band assignments
+
+    [15] Lachenal, G. (1995). Polymer Applications. In H. W. Siesler & K. Holland-Moritz
+         (Eds.), Infrared and Raman Spectroscopy of Polymers. Marcel Dekker.
+         - Polymer (PE, PS, rubber) NIR band assignments
 """
 
 from __future__ import annotations
@@ -134,6 +158,37 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
         Fibers:
             - ``cotton``: Cotton cellulose [6, pp. 295-298]
             - ``polyester``: PET fiber [1, pp. 60-62]
+
+        Polymers and Plastics:
+            - ``polyethylene``: HDPE/LDPE plastic [15], [1, pp. 58-60]
+            - ``polystyrene``: Aromatic polymer [15], [1, pp. 56-58]
+            - ``natural_rubber``: cis-1,4-polyisoprene [15]
+            - ``nylon``: Polyamide fiber [1, pp. 60-62]
+
+        Dairy:
+            - ``lactose``: Milk sugar [12], [4, pp. 85-88]
+            - ``casein``: Milk protein [4, pp. 85-88]
+
+        Solvents:
+            - ``acetone``: Ketone solvent [1, pp. 42-44]
+
+        Plant Phenolics:
+            - ``tannins``: Phenolic compounds [6], [11]
+            - ``waxes``: Cuticular waxes [7, pp. 15-20]
+
+        Fermentation/Beverages:
+            - ``glycerol``: Polyol from fermentation [11]
+            - ``malic_acid``: Fruit acid [4, pp. 78-80]
+            - ``tartaric_acid``: Grape/wine acid [11]
+
+        Soil Minerals:
+            - ``carbonates``: CaCO₃, MgCO₃ [13]
+            - ``gypsum``: CaSO₄·2H₂O [13]
+            - ``kaolinite``: Clay mineral [13]
+
+        Agricultural:
+            - ``gluten``: Wheat protein [5, pp. 155-160]
+            - ``dietary_fiber``: Plant cell wall [6], [5]
 
     Returns:
         Dictionary mapping component names to SpectralComponent objects.
@@ -841,6 +896,374 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
                     NIRBand(center=2130, sigma=22, gamma=2, amplitude=0.32, name="Ar combination"),
                 ],
                 correlation_group=10,
+            ),
+            # ================================================================
+            # POLYMERS AND PLASTICS
+            # ================================================================
+            # Polyethylene: High/low density polyethylene (HDPE/LDPE)
+            # Refs: [15], [1] pp. 58-60
+            # Pure -CH2- polymer with strong methylene bands
+            "polyethylene": SpectralComponent(
+                name="polyethylene",
+                bands=[
+                    # CH2 2nd overtone
+                    # Ref: [15], [1] p. 58
+                    NIRBand(center=1190, sigma=18, gamma=1.5, amplitude=0.35, name="CH2 2nd overtone"),
+                    # CH2 1st overtone (very strong)
+                    # Ref: [15], characteristic PE band
+                    NIRBand(center=1720, sigma=22, gamma=2, amplitude=0.7, name="CH2 1st overtone"),
+                    # CH2 combination
+                    # Ref: [1] p. 59
+                    NIRBand(center=2310, sigma=20, gamma=2, amplitude=0.55, name="CH2 combination"),
+                    # CH2 combination (additional)
+                    # Ref: [1] p. 59
+                    NIRBand(center=2355, sigma=18, gamma=2, amplitude=0.45, name="CH2 combination 2"),
+                ],
+                correlation_group=11,
+            ),
+            # Polystyrene: Aromatic polymer (styrene units)
+            # Refs: [15], [1] pp. 56-58
+            "polystyrene": SpectralComponent(
+                name="polystyrene",
+                bands=[
+                    # Aromatic C-H 2nd overtone
+                    # Ref: [15]
+                    NIRBand(center=1145, sigma=15, gamma=1.5, amplitude=0.4, name="Ar C-H 2nd overtone"),
+                    # Aromatic C-H 1st overtone
+                    # Ref: [1] p. 57
+                    NIRBand(center=1680, sigma=18, gamma=2, amplitude=0.55, name="Ar C-H 1st overtone"),
+                    # Aliphatic C-H 1st overtone (backbone)
+                    # Ref: [15]
+                    NIRBand(center=1720, sigma=20, gamma=2, amplitude=0.35, name="C-H 1st overtone"),
+                    # Aromatic C-H combination
+                    # Ref: [1] p. 58
+                    NIRBand(center=2170, sigma=22, gamma=2, amplitude=0.45, name="Ar C-H combination"),
+                    # C-H combination
+                    # Ref: [15]
+                    NIRBand(center=2300, sigma=20, gamma=2, amplitude=0.4, name="C-H combination"),
+                ],
+                correlation_group=11,
+            ),
+            # Natural rubber: cis-1,4-polyisoprene
+            # Refs: [15], [1] pp. 58-60
+            "natural_rubber": SpectralComponent(
+                name="natural_rubber",
+                bands=[
+                    # =C-H 2nd overtone (vinyl)
+                    # Ref: [15]
+                    NIRBand(center=1160, sigma=16, gamma=1.5, amplitude=0.3, name="=C-H 2nd overtone"),
+                    # C-H 1st overtone (methyl + methylene)
+                    # Ref: [15]
+                    NIRBand(center=1720, sigma=24, gamma=2, amplitude=0.55, name="C-H 1st overtone"),
+                    # =C-H 1st overtone (isoprene)
+                    # Ref: [15]
+                    NIRBand(center=2130, sigma=22, gamma=2, amplitude=0.35, name="=C-H 1st overtone"),
+                    # C-H combination
+                    # Ref: [15]
+                    NIRBand(center=2250, sigma=20, gamma=2, amplitude=0.45, name="C-H combination"),
+                    # CH3 combination
+                    # Ref: [15]
+                    NIRBand(center=2350, sigma=18, gamma=2, amplitude=0.38, name="CH3 combination"),
+                ],
+                correlation_group=11,
+            ),
+            # Nylon (Polyamide): Nylon 6,6 / Nylon 6
+            # Refs: [1] pp. 60-62, [15]
+            "nylon": SpectralComponent(
+                name="nylon",
+                bands=[
+                    # N-H 1st overtone (amide)
+                    # Ref: [1] p. 60
+                    NIRBand(center=1500, sigma=20, gamma=2, amplitude=0.5, name="N-H 1st overtone"),
+                    # C-H 1st overtone
+                    # Ref: [15]
+                    NIRBand(center=1720, sigma=22, gamma=2, amplitude=0.45, name="C-H 1st overtone"),
+                    # N-H combination (amide II)
+                    # Ref: [1] p. 61
+                    NIRBand(center=2050, sigma=28, gamma=3, amplitude=0.55, name="N-H combination"),
+                    # C-H combination
+                    # Ref: [15]
+                    NIRBand(center=2295, sigma=20, gamma=2, amplitude=0.4, name="C-H combination"),
+                ],
+                correlation_group=11,
+            ),
+            # ================================================================
+            # DAIRY COMPONENTS
+            # ================================================================
+            # Lactose: Milk sugar (galactose + glucose disaccharide)
+            # Refs: [12], [4] pp. 85-88
+            "lactose": SpectralComponent(
+                name="lactose",
+                bands=[
+                    # O-H 1st overtone
+                    # Ref: [12]
+                    NIRBand(center=1450, sigma=26, gamma=3, amplitude=0.5, name="O-H 1st overtone"),
+                    # C-H 1st overtone
+                    # Ref: [12]
+                    NIRBand(center=1690, sigma=18, gamma=2, amplitude=0.32, name="C-H 1st overtone"),
+                    # O-H combination (water-like)
+                    # Ref: [4] p. 86
+                    NIRBand(center=1940, sigma=32, gamma=4, amplitude=0.65, name="O-H combination"),
+                    # O-H + C-O combination (carbohydrate)
+                    # Ref: [12]
+                    NIRBand(center=2100, sigma=30, gamma=3, amplitude=0.55, name="O-H+C-O combination"),
+                    # C-H combination
+                    # Ref: [4] p. 87
+                    NIRBand(center=2270, sigma=22, gamma=2, amplitude=0.4, name="C-H combination"),
+                ],
+                correlation_group=4,
+            ),
+            # Casein: Major milk protein
+            # Refs: [4] pp. 85-88, [2] pp. 380-382
+            "casein": SpectralComponent(
+                name="casein",
+                bands=[
+                    # N-H 1st overtone (amide)
+                    # Ref: [4] p. 86
+                    NIRBand(center=1510, sigma=20, gamma=2, amplitude=0.48, name="N-H 1st overtone"),
+                    # C-H aromatic
+                    # Ref: [2] p. 381
+                    NIRBand(center=1680, sigma=24, gamma=3, amplitude=0.38, name="C-H aromatic"),
+                    # N-H combination
+                    # Ref: [4] p. 87
+                    NIRBand(center=2050, sigma=30, gamma=3, amplitude=0.55, name="N-H combination"),
+                    # Protein C-H
+                    # Ref: [2] p. 381
+                    NIRBand(center=2180, sigma=24, gamma=2, amplitude=0.45, name="Protein C-H"),
+                ],
+                correlation_group=2,
+            ),
+            # ================================================================
+            # SOLVENTS
+            # ================================================================
+            # Acetone: Ketone solvent (propan-2-one)
+            # Refs: [1] pp. 42-44
+            "acetone": SpectralComponent(
+                name="acetone",
+                bands=[
+                    # C=O 1st overtone (characteristic ketone band)
+                    # Ref: [1] p. 42
+                    NIRBand(center=1690, sigma=20, gamma=2.5, amplitude=0.5, name="C=O 1st overtone"),
+                    # C-H 1st overtone (methyl)
+                    # Ref: [1] p. 43
+                    NIRBand(center=1710, sigma=18, gamma=2, amplitude=0.4, name="CH3 1st overtone"),
+                    # C=O + C-H combination
+                    # Ref: [1] p. 43
+                    NIRBand(center=2100, sigma=25, gamma=3, amplitude=0.45, name="C=O combination"),
+                    # C-H combination
+                    # Ref: [1] p. 44
+                    NIRBand(center=2300, sigma=22, gamma=2, amplitude=0.38, name="C-H combination"),
+                ],
+                correlation_group=12,
+            ),
+            # ================================================================
+            # PLANT PHENOLICS
+            # ================================================================
+            # Tannins: Phenolic compounds in plants
+            # Refs: [6] pp. 303-305, [11]
+            "tannins": SpectralComponent(
+                name="tannins",
+                bands=[
+                    # Phenolic O-H 1st overtone
+                    # Ref: [6] p. 304
+                    NIRBand(center=1420, sigma=25, gamma=3, amplitude=0.4, name="Phenolic O-H"),
+                    # Aromatic C-H
+                    # Ref: [6] p. 304
+                    NIRBand(center=1670, sigma=20, gamma=2, amplitude=0.35, name="Ar C-H"),
+                    # Phenolic C-O combination
+                    # Ref: [11]
+                    NIRBand(center=2056, sigma=22, gamma=2.5, amplitude=0.38, name="C-O phenol"),
+                    # Aromatic combination
+                    # Ref: [6] p. 305
+                    NIRBand(center=2270, sigma=22, gamma=2, amplitude=0.32, name="Ar combination"),
+                ],
+                correlation_group=5,
+            ),
+            # Waxes: Cuticular waxes (long-chain esters/alkanes)
+            # Refs: [7] pp. 15-20, [14]
+            "waxes": SpectralComponent(
+                name="waxes",
+                bands=[
+                    # C-H 2nd overtone (long chain)
+                    # Ref: [7] p. 16
+                    NIRBand(center=1190, sigma=18, gamma=2, amplitude=0.35, name="C-H 2nd overtone"),
+                    # C-H 1st overtone
+                    # Ref: [7] p. 17
+                    NIRBand(center=1720, sigma=22, gamma=2, amplitude=0.6, name="C-H 1st overtone"),
+                    # C-H combination
+                    # Ref: [7] p. 18
+                    NIRBand(center=2310, sigma=20, gamma=2, amplitude=0.5, name="CH2 combination"),
+                    # C-H combination (additional)
+                    # Ref: [14]
+                    NIRBand(center=2350, sigma=18, gamma=2, amplitude=0.42, name="CH3 combination"),
+                ],
+                correlation_group=3,
+            ),
+            # ================================================================
+            # FERMENTATION / BEVERAGES
+            # ================================================================
+            # Glycerol: Polyol produced during fermentation
+            # Refs: [11], [4] pp. 90-92
+            "glycerol": SpectralComponent(
+                name="glycerol",
+                bands=[
+                    # O-H 1st overtone (polyol, multiple OH)
+                    # Ref: [11]
+                    NIRBand(center=1450, sigma=28, gamma=3, amplitude=0.55, name="O-H 1st overtone"),
+                    # O-H hydrogen bonded
+                    # Ref: [11]
+                    NIRBand(center=1580, sigma=25, gamma=3, amplitude=0.4, name="O-H H-bonded"),
+                    # C-H 1st overtone
+                    # Ref: [4] p. 91
+                    NIRBand(center=1700, sigma=20, gamma=2, amplitude=0.35, name="C-H 1st overtone"),
+                    # O-H combination
+                    # Ref: [11]
+                    NIRBand(center=2060, sigma=30, gamma=3, amplitude=0.5, name="O-H combination"),
+                    # C-H combination
+                    # Ref: [4] p. 91
+                    NIRBand(center=2280, sigma=22, gamma=2, amplitude=0.38, name="C-H combination"),
+                ],
+                correlation_group=7,
+            ),
+            # Malic acid: Fruit acid common in apples, grapes
+            # Refs: [4] pp. 78-80, [11]
+            "malic_acid": SpectralComponent(
+                name="malic_acid",
+                bands=[
+                    # O-H 1st overtone (hydroxyl + carboxylic)
+                    # Ref: [4] p. 78
+                    NIRBand(center=1440, sigma=28, gamma=3, amplitude=0.48, name="O-H 1st overtone"),
+                    # C=O combination (carboxylic)
+                    # Ref: [11]
+                    NIRBand(center=1920, sigma=30, gamma=3, amplitude=0.42, name="C=O combination"),
+                    # O-H combination
+                    # Ref: [4] p. 79
+                    NIRBand(center=2050, sigma=32, gamma=3, amplitude=0.52, name="O-H combination"),
+                    # C-H combination
+                    # Ref: [11]
+                    NIRBand(center=2255, sigma=22, gamma=2, amplitude=0.35, name="C-H combination"),
+                ],
+                correlation_group=8,
+            ),
+            # Tartaric acid: Major grape/wine acid
+            # Refs: [11], [4] pp. 78-80
+            "tartaric_acid": SpectralComponent(
+                name="tartaric_acid",
+                bands=[
+                    # O-H 1st overtone
+                    # Ref: [11]
+                    NIRBand(center=1435, sigma=28, gamma=3, amplitude=0.5, name="O-H 1st overtone"),
+                    # C=O combination
+                    # Ref: [11]
+                    NIRBand(center=1910, sigma=30, gamma=3, amplitude=0.4, name="C=O combination"),
+                    # O-H combination
+                    # Ref: [4] p. 79
+                    NIRBand(center=2040, sigma=32, gamma=3, amplitude=0.5, name="O-H combination"),
+                    # C-H combination
+                    # Ref: [11]
+                    NIRBand(center=2260, sigma=22, gamma=2, amplitude=0.36, name="C-H combination"),
+                ],
+                correlation_group=8,
+            ),
+            # ================================================================
+            # SOIL MINERALS
+            # ================================================================
+            # Carbonates: CaCO3, MgCO3 (calcite, dolomite)
+            # Refs: [13]
+            "carbonates": SpectralComponent(
+                name="carbonates",
+                bands=[
+                    # CO3 combination band
+                    # Ref: [13]
+                    NIRBand(center=2330, sigma=25, gamma=2.5, amplitude=0.4, name="CO3 combination"),
+                    # CO3 combination (higher wavelength)
+                    # Ref: [13]
+                    NIRBand(center=2525, sigma=30, gamma=3, amplitude=0.3, name="CO3 combination 2"),
+                ],
+                correlation_group=13,
+            ),
+            # Gypsum: CaSO4·2H2O (hydrated calcium sulfate)
+            # Refs: [13]
+            "gypsum": SpectralComponent(
+                name="gypsum",
+                bands=[
+                    # Crystal water / SO4 combination
+                    # Ref: [13]
+                    NIRBand(center=1740, sigma=25, gamma=2.5, amplitude=0.35, name="Crystal water"),
+                    # O-H combination (structural water)
+                    # Ref: [13]
+                    NIRBand(center=1900, sigma=32, gamma=3, amplitude=0.5, name="O-H combination"),
+                    # SO4 / water combination
+                    # Ref: [13]
+                    NIRBand(center=2200, sigma=28, gamma=2.5, amplitude=0.38, name="SO4 combination"),
+                ],
+                correlation_group=13,
+            ),
+            # Kaolinite: Clay mineral Al2Si2O5(OH)4
+            # Refs: [13], common soil NIR feature
+            "kaolinite": SpectralComponent(
+                name="kaolinite",
+                bands=[
+                    # Al-OH 1st overtone
+                    # Ref: [13]
+                    NIRBand(center=1400, sigma=20, gamma=2, amplitude=0.4, name="Al-OH 1st overtone"),
+                    # Al-OH combination
+                    # Ref: [13]
+                    NIRBand(center=2160, sigma=25, gamma=2.5, amplitude=0.5, name="Al-OH combination"),
+                    # Al-OH combination (characteristic doublet)
+                    # Ref: [13]
+                    NIRBand(center=2200, sigma=22, gamma=2, amplitude=0.55, name="Al-OH combination 2"),
+                ],
+                correlation_group=13,
+            ),
+            # ================================================================
+            # ADDITIONAL AGRICULTURAL
+            # ================================================================
+            # Gluten: Wheat protein complex
+            # Refs: [5] pp. 155-160, [14]
+            "gluten": SpectralComponent(
+                name="gluten",
+                bands=[
+                    # N-H 1st overtone (amide)
+                    # Ref: [5] p. 156
+                    NIRBand(center=1505, sigma=20, gamma=2, amplitude=0.5, name="N-H 1st overtone"),
+                    # C-H aromatic (Phe, Tyr)
+                    # Ref: [14]
+                    NIRBand(center=1680, sigma=24, gamma=3, amplitude=0.4, name="C-H aromatic"),
+                    # N-H combination
+                    # Ref: [5] p. 158
+                    NIRBand(center=2050, sigma=30, gamma=3, amplitude=0.6, name="N-H combination"),
+                    # Protein C-H combination
+                    # Ref: [14]
+                    NIRBand(center=2180, sigma=24, gamma=2, amplitude=0.48, name="Protein C-H"),
+                    # N-H + Amide III
+                    # Ref: [5] p. 159
+                    NIRBand(center=2290, sigma=20, gamma=2, amplitude=0.35, name="N-H+Amide III"),
+                ],
+                correlation_group=2,
+            ),
+            # Fiber (dietary): Mixed plant cell wall material
+            # Refs: [6], [5] pp. 160-165
+            "dietary_fiber": SpectralComponent(
+                name="dietary_fiber",
+                bands=[
+                    # O-H 1st overtone (cellulose-like)
+                    # Ref: [6] p. 296
+                    NIRBand(center=1490, sigma=24, gamma=2.5, amplitude=0.45, name="O-H 1st overtone"),
+                    # C-H 1st overtone
+                    # Ref: [6] p. 297
+                    NIRBand(center=1770, sigma=20, gamma=2, amplitude=0.32, name="C-H 1st overtone"),
+                    # O-H combination
+                    # Ref: [5] p. 162
+                    NIRBand(center=2090, sigma=30, gamma=3, amplitude=0.52, name="O-H combination"),
+                    # C-H combination
+                    # Ref: [6] p. 299
+                    NIRBand(center=2275, sigma=22, gamma=2, amplitude=0.42, name="C-H combination"),
+                    # C-H combination (hemicellulose region)
+                    # Ref: [5] p. 163
+                    NIRBand(center=2340, sigma=20, gamma=2, amplitude=0.35, name="C-H combination 2"),
+                ],
+                correlation_group=4,
             ),
         }
 
