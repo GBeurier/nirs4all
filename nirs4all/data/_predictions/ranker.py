@@ -608,8 +608,9 @@ class PredictionRanker:
         aggregate_exclude_outliers: bool = False,
         group_by: Optional[Union[str, List[str]]] = None,
         best_per_model: bool = False,
+        return_grouped: bool = False,
         **filters
-    ) -> PredictionResultsList:
+    ) -> Union[PredictionResultsList, Dict[Tuple, PredictionResultsList]]:
         """
         Get top n models ranked by a metric on a specific partition.
 
@@ -617,7 +618,8 @@ class PredictionRanker:
         from `display_partition`. Useful for validation-based selection with test set evaluation.
 
         Args:
-            n: Number of top models to return
+            n: Number of top models to return. When group_by is used, this means
+               top N **per group** (e.g., top 3 per dataset).
             rank_metric: Metric to rank by (if empty, uses record's metric or val_score)
             rank_partition: Partition to rank on (default: "val")
             display_metrics: Metrics to compute for display (default: task_type defaults)
@@ -635,17 +637,24 @@ class PredictionRanker:
                       'mean' (default), 'median', or 'vote' (for classification).
             aggregate_exclude_outliers: If True, exclude outliers using T² statistic
                       before aggregation (default: False).
-            group_by: Group predictions and keep only the best per group.
-                     Can be a single column name (str) or list of columns.
-                     Examples: 'model_name', ['model_name', 'preprocessings']
-                     The global sort order is preserved - first occurrence per group is kept.
+            group_by: Group predictions by column(s). When provided:
+                     - Returns top N results **per group** (not N total)
+                     - Each result includes a 'group_key' field for easy filtering
+                     - Can be a single column name (str) or list of columns
+                     - Examples: 'dataset_name', ['model_name', 'dataset_name']
+                     - The global sort order is preserved within each group
             best_per_model: DEPRECATED - Use group_by=['model_name'] instead.
                            If True, keep only the best prediction per model_name.
+            return_grouped: If True and group_by is set, return a dict mapping
+                           group keys to PredictionResultsList instead of a flat list.
+                           Default: False (returns flat list sorted by global rank).
             **filters: Additional filter criteria (dataset_name, config_name, etc.)
 
         Returns:
-            PredictionResultsList containing top n models, sorted by rank_metric.
-            Each result includes data from display_partition (or all partitions if aggregate=True).
+            - If return_grouped=False (default): PredictionResultsList containing top n
+              models per group, sorted by rank_metric. Each result includes 'group_key'.
+            - If return_grouped=True: Dict mapping group keys (tuples) to
+              PredictionResultsList, one list per group with top n results each.
 
         Raises:
             ValueError: If rank_partition or display_partition is invalid
@@ -660,51 +669,48 @@ class PredictionRanker:
             ...     dataset_name="wheat"
             ... )
             >>>
-            >>> # Get top 3 models with aggregated partitions
-            >>> top_3_agg = ranker.top(
+            >>> # Get top 3 models PER DATASET (flat list)
+            >>> top_per_dataset = ranker.top(
             ...     n=3,
-            ...     rank_metric="r2",
-            ...     rank_partition="val",
-            ...     aggregate_partitions=True,
-            ...     ascending=False  # Higher R² is better
+            ...     rank_metric="rmse",
+            ...     group_by="dataset_name"
             ... )
+            >>> # Result: [ds1_best, ds2_best, ds1_2nd, ds2_2nd, ds1_3rd, ds2_3rd]
+            >>> # Each result has 'group_key' for filtering:
+            >>> ds1_results = [r for r in top_per_dataset if r['group_key'] == ('dataset1',)]
+            >>>
+            >>> # Get top 3 models PER DATASET (grouped dict)
+            >>> grouped = ranker.top(
+            ...     n=3,
+            ...     rank_metric="rmse",
+            ...     group_by="dataset_name",
+            ...     return_grouped=True
+            ... )
+            >>> # Result: {('dataset1',): [...], ('dataset2',): [...]}
+            >>> for group_key, results in grouped.items():
+            ...     print(f"{group_key}: {len(results)} results")
             >>>
             >>> # Get top 5 with predictions aggregated by sample ID
-            >>> # Useful when multiple scans per sample (e.g., 4 scans averaged)
             >>> top_5_by_id = ranker.top(
             ...     n=5,
             ...     rank_metric="rmse",
             ...     aggregate='ID'  # Aggregate by metadata 'ID' column
             ... )
             >>>
-            >>> # Get best prediction per model (for TopK charts)
-            >>> one_per_model = ranker.top(
-            ...     n=10,
+            >>> # Multi-column grouping: top 2 per (dataset, model_class)
+            >>> per_combo = ranker.top(
+            ...     n=2,
             ...     rank_metric="rmse",
-            ...     group_by=["model_name"]  # One result per unique model_name
+            ...     group_by=["dataset_name", "model_classname"]
             ... )
-            >>>
-            >>> # Get best prediction per model class (e.g., PLSRegression, SVR)
-            >>> one_per_class = ranker.top(
-            ...     n=10,
-            ...     rank_metric="rmse",
-            ...     group_by=["model_classname"]  # One result per model class
-            ... )
-            >>>
-            >>> # Multi-column grouping for heatmaps
-            >>> # Get best per (model_name, fold_id) combination
-            >>> per_model_fold = ranker.top(
-            ...     n=100,
-            ...     rank_metric="rmse",
-            ...     group_by=["model_name", "fold_id"]
-            ... )
+            >>> # Each result has group_key like ('wheat', 'PLSRegression')
 
         Notes:
             - If rank_metric matches the stored metric in the data, uses precomputed scores
             - Otherwise, recomputes metric from y_true/y_pred arrays
             - ascending=True means lower scores rank higher (good for RMSE, MAE)
             - ascending=False means higher scores rank higher (good for R², accuracy)
-            - group_by preserves global ranking order: sorts first, then takes first per group
+            - When group_by is used, n means "top N per group", not "N total"
             - aggregate is applied BEFORE ranking to ensure correct score calculation
         """
         # Handle display_partition as list (backward compat)
@@ -890,19 +896,28 @@ class PredictionRanker:
                 effective_group_by = list(group_by)
 
         # Apply group-by filtering if requested
+        # When group_by is set, we keep top N per group (not N total)
         if effective_group_by:
-            seen_groups: set = set()
+            # Count occurrences per group and keep top N per group
+            group_counts: Dict[Tuple, int] = {}
             filtered_scores = []
             for rs in rank_scores:
                 group_key = self._make_group_key(rs, effective_group_by)
-                if group_key not in seen_groups:
-                    seen_groups.add(group_key)
+                current_count = group_counts.get(group_key, 0)
+                if current_count < n:
+                    # Store group_key in the record for later use
+                    rs['_group_key'] = group_key
                     filtered_scores.append(rs)
+                    group_counts[group_key] = current_count + 1
             rank_scores = filtered_scores
-
-        top_keys = rank_scores[:n]
+            # When using group_by, we've already selected top N per group
+            top_keys = rank_scores
+        else:
+            top_keys = rank_scores[:n]
 
         if not top_keys:
+            if return_grouped and effective_group_by:
+                return {}
             return PredictionResultsList([])
 
         # 2) DISPLAY: Get display partition data for top models
@@ -918,6 +933,10 @@ class PredictionRanker:
                 "rank_id": top_key["id"],
                 "fold_id": top_key.get("fold_id")
             })
+
+            # Add group_key if group_by was used
+            if effective_group_by and '_group_key' in top_key:
+                result['group_key'] = top_key['_group_key']
 
             if aggregate_partitions:
                 # Add nested structure for all partitions
@@ -1177,6 +1196,17 @@ class PredictionRanker:
                                         result[metric] = None
 
             results.append(result)
+
+        # Handle return_grouped: organize results by group_key
+        if return_grouped and effective_group_by:
+            grouped: Dict[Tuple, PredictionResultsList] = {}
+            for result in results:
+                group_key = result.get('group_key')
+                if group_key is not None:
+                    if group_key not in grouped:
+                        grouped[group_key] = PredictionResultsList([])
+                    grouped[group_key].append(result)
+            return grouped
 
         return PredictionResultsList(results)
 

@@ -292,6 +292,168 @@ class TestPredictions:
         # Should handle None gracefully
         assert "weights" in preds[0]
 
+    def test_top_group_by_returns_n_per_group(self, base_prediction_params):
+        """Test that group_by returns top N per group, not N total."""
+        predictions = Predictions()
+
+        # Add predictions for 2 datasets, 5 models each
+        for ds_idx, dataset in enumerate(["dataset_A", "dataset_B"]):
+            for i in range(5):
+                predictions.add_prediction(
+                    partition="test",
+                    y_true=np.array([1.0, 2.0]),
+                    y_pred=np.array([1.1, 2.1]),
+                    test_score=0.01 * (i + 1) + ds_idx * 0.1,  # Different scores per dataset
+                    model_name=f"Model_{i}",
+                    dataset_name=dataset,
+                    **{k: v for k, v in base_prediction_params.items()
+                       if k not in ["model_name", "dataset_name"]}
+                )
+
+        # Get top 3 per dataset (should return 6 total: 3 from each dataset)
+        top_per_ds = predictions.top(
+            n=3,
+            rank_partition="test",
+            rank_metric="",
+            ascending=True,
+            group_by="dataset_name"
+        )
+
+        assert len(top_per_ds) == 6  # 3 per dataset * 2 datasets
+
+        # Verify each result has group_key
+        for pred in top_per_ds:
+            assert "group_key" in pred
+            assert isinstance(pred["group_key"], tuple)
+
+        # Count per group
+        group_counts = {}
+        for pred in top_per_ds:
+            key = pred["group_key"]
+            group_counts[key] = group_counts.get(key, 0) + 1
+
+        assert group_counts[("dataset_a",)] == 3  # lowercase due to _make_group_key
+        assert group_counts[("dataset_b",)] == 3
+
+    def test_top_group_by_with_return_grouped(self, base_prediction_params):
+        """Test that return_grouped=True returns a dict of group -> results."""
+        predictions = Predictions()
+
+        # Add predictions for 2 datasets
+        for ds_idx, dataset in enumerate(["dataset_A", "dataset_B"]):
+            for i in range(4):
+                predictions.add_prediction(
+                    partition="test",
+                    y_true=np.array([1.0, 2.0]),
+                    y_pred=np.array([1.1, 2.1]),
+                    test_score=0.01 * (i + 1) + ds_idx * 0.1,
+                    model_name=f"Model_{i}",
+                    dataset_name=dataset,
+                    **{k: v for k, v in base_prediction_params.items()
+                       if k not in ["model_name", "dataset_name"]}
+                )
+
+        # Get top 2 per dataset as grouped dict
+        grouped = predictions.top(
+            n=2,
+            rank_partition="test",
+            rank_metric="",
+            ascending=True,
+            group_by="dataset_name",
+            return_grouped=True
+        )
+
+        assert isinstance(grouped, dict)
+        assert len(grouped) == 2  # 2 datasets
+
+        # Each group should have 2 results
+        for group_key, results in grouped.items():
+            assert len(results) == 2
+            assert isinstance(group_key, tuple)
+
+    def test_top_group_by_multi_column(self, base_prediction_params):
+        """Test group_by with multiple columns."""
+        predictions = Predictions()
+
+        # Add predictions for 2 datasets and 2 model classes
+        for dataset in ["dataset_A", "dataset_B"]:
+            for model_class in ["PLSRegression", "SVR"]:
+                for i in range(3):
+                    predictions.add_prediction(
+                        partition="test",
+                        y_true=np.array([1.0, 2.0]),
+                        y_pred=np.array([1.1, 2.1]),
+                        test_score=0.01 * (i + 1),
+                        model_name=f"{model_class}_{i}",
+                        model_classname=model_class,
+                        dataset_name=dataset,
+                        **{k: v for k, v in base_prediction_params.items()
+                           if k not in ["model_name", "model_classname", "dataset_name"]}
+                    )
+
+        # Get top 2 per (dataset, model_classname) combination
+        top_per_combo = predictions.top(
+            n=2,
+            rank_partition="test",
+            rank_metric="",
+            ascending=True,
+            group_by=["dataset_name", "model_classname"]
+        )
+
+        # 2 datasets * 2 model classes * 2 per group = 8
+        assert len(top_per_combo) == 8
+
+        # Verify group keys have 2 elements
+        for pred in top_per_combo:
+            assert len(pred["group_key"]) == 2
+
+    def test_top_group_by_preserves_global_rank_order(self, base_prediction_params):
+        """Test that group_by preserves global ranking within each group."""
+        predictions = Predictions()
+
+        # Add predictions with known scores
+        scores = [(0.05, "dataset_A"), (0.01, "dataset_A"), (0.03, "dataset_A"),
+                  (0.02, "dataset_B"), (0.06, "dataset_B"), (0.04, "dataset_B")]
+
+        for i, (score, dataset) in enumerate(scores):
+            predictions.add_prediction(
+                partition="test",
+                y_true=np.array([1.0, 2.0]),
+                y_pred=np.array([1.1, 2.1]),
+                test_score=score,
+                model_name=f"Model_{i}",
+                dataset_name=dataset,
+                **{k: v for k, v in base_prediction_params.items()
+                   if k not in ["model_name", "dataset_name"]}
+            )
+
+        # Get top 2 per dataset (ascending = lower is better)
+        top_per_ds = predictions.top(
+            n=2,
+            rank_partition="test",
+            rank_metric="",
+            ascending=True,
+            group_by="dataset_name"
+        )
+
+        # Extract scores per group
+        ds_a_scores = [p["test_score"] for p in top_per_ds if "dataset_a" in str(p["group_key"])]
+        ds_b_scores = [p["test_score"] for p in top_per_ds if "dataset_b" in str(p["group_key"])]
+
+        # Each group should have top 2 lowest scores, in ascending order
+        assert ds_a_scores == sorted(ds_a_scores)  # [0.01, 0.03]
+        assert ds_b_scores == sorted(ds_b_scores)  # [0.02, 0.04]
+
+    def test_top_group_by_empty_result(self, base_prediction_params):
+        """Test group_by with empty predictions returns empty result."""
+        predictions = Predictions()
+
+        result = predictions.top(n=3, group_by="dataset_name")
+        assert len(result) == 0
+
+        grouped = predictions.top(n=3, group_by="dataset_name", return_grouped=True)
+        assert len(grouped) == 0  # Empty dict or empty list
+
 
 # ========================================================================
 # Tests merged from test_predictions_header_units.py

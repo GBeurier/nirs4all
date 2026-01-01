@@ -464,15 +464,17 @@ class Predictions:
         aggregate: Optional[str] = None,
         group_by: Optional[Union[str, List[str]]] = None,
         best_per_model: bool = False,
+        return_grouped: bool = False,
         **filters
-    ) -> PredictionResultsList:
+    ) -> Union[PredictionResultsList, Dict[Tuple, PredictionResultsList]]:
         """
         Get top n models ranked by a metric on a specific partition.
 
         Delegates to PredictionRanker component.
 
         Args:
-            n: Number of top models to return
+            n: Number of top models to return. When group_by is used, this means
+               top N **per group** (e.g., top 3 per dataset).
             rank_metric: Metric to rank by (if empty, uses record's metric or val_score)
             rank_partition: Partition to rank on (default: "val")
             display_metrics: Metrics to compute for display (default: task_type defaults)
@@ -486,16 +488,34 @@ class Predictions:
                       When 'y', groups by y_true values.
                       When a column name (e.g., 'ID'), groups by that metadata column.
                       Aggregated predictions have recalculated metrics.
-            group_by: Group predictions and keep only the best per group.
-                     Can be a single column name (str) or list of columns.
-                     Examples: 'model_name', ['model_name', 'preprocessings']
-                     The global sort order is preserved - first occurrence per group is kept.
+            group_by: Group predictions by column(s). When provided:
+                     - Returns top N results **per group** (not N total)
+                     - Each result includes a 'group_key' field for easy filtering
+                     - Can be a single column name (str) or list of columns
+                     - Examples: 'dataset_name', ['model_name', 'dataset_name']
             best_per_model: DEPRECATED - Use group_by=['model_name'] instead.
                            If True, keep only the best prediction per model_name.
+            return_grouped: If True and group_by is set, return a dict mapping
+                           group keys to PredictionResultsList instead of a flat list.
+                           Default: False (returns flat list sorted by global rank).
             **filters: Additional filter criteria (dataset_name, config_name, etc.)
 
         Returns:
-            PredictionResultsList containing top n models
+            - If return_grouped=False (default): PredictionResultsList containing top n
+              models per group, sorted by rank_metric. Each result includes 'group_key'.
+            - If return_grouped=True: Dict mapping group keys (tuples) to
+              PredictionResultsList, one list per group with top n results each.
+
+        Examples:
+            >>> # Top 3 per dataset (flat list)
+            >>> top_per_ds = predictions.top(n=3, group_by='dataset_name')
+            >>> # Filter by group_key
+            >>> ds1_results = [r for r in top_per_ds if r['group_key'] == ('dataset1',)]
+            >>>
+            >>> # Top 3 per dataset (grouped dict)
+            >>> grouped = predictions.top(n=3, group_by='dataset_name', return_grouped=True)
+            >>> for key, results in grouped.items():
+            ...     print(f"{key}: {len(results)} results")
         """
         return self._ranker.top(
             n=n,
@@ -509,6 +529,7 @@ class Predictions:
             aggregate=aggregate,
             group_by=group_by,
             best_per_model=best_per_model,
+            return_grouped=return_grouped,
             **filters
         )
 
