@@ -272,6 +272,26 @@ dataset = DatasetConfigs([
 ])
 ```
 
+### Using SpectroDataset Directly
+
+For advanced use cases, `nirs4all.run()` also accepts `SpectroDataset` instances directly, bypassing `DatasetConfigs`:
+
+```python
+from nirs4all.data import SpectroDataset
+import nirs4all
+
+# Single SpectroDataset
+result = nirs4all.run(pipeline, my_spectro_dataset)
+
+# Multiple SpectroDataset instances (multi-dataset run)
+result = nirs4all.run(pipeline, [dataset1, dataset2, dataset3])
+```
+
+This is useful when:
+- Using synthetic data generators that return `SpectroDataset`
+- Programmatically constructing datasets
+- Chaining pipeline runs with transformed data
+
 #### With Aggregation
 
 ```python

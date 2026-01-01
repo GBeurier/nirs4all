@@ -115,6 +115,77 @@ class BatchEffectConfig:
 
 
 @dataclass
+class NonLinearConfig:
+    """
+    Configuration for non-linear target relationships.
+
+    Enables polynomial, synergistic, or antagonistic interactions between
+    component concentrations and targets, making prediction harder.
+
+    Attributes:
+        interactions: Type of non-linear interaction.
+            Options: 'none', 'polynomial', 'synergistic', 'antagonistic'.
+        interaction_strength: Blend factor (0 = linear, 1 = fully non-linear).
+        hidden_factors: Number of latent variables affecting target but not spectra.
+        polynomial_degree: Degree for polynomial interactions (2 or 3).
+    """
+
+    interactions: Literal["none", "polynomial", "synergistic", "antagonistic"] = "none"
+    interaction_strength: float = 0.5
+    hidden_factors: int = 0
+    polynomial_degree: int = 2
+
+
+@dataclass
+class ConfounderConfig:
+    """
+    Configuration for spectral-target decoupling and confounding effects.
+
+    Introduces factors that make the target only partially predictable
+    from spectral features, simulating real-world irreducible error.
+
+    Attributes:
+        signal_to_confound_ratio: Proportion of target variance explainable
+            from spectra. 1.0 = fully predictable, 0.5 = 50% unexplainable.
+        n_confounders: Number of confounding variables that affect both
+            spectra and target in different ways.
+        spectral_masking: Fraction of predictive signal hidden in high-noise
+            wavelength regions (0.0-0.5).
+        temporal_drift: If True, the target-spectra relationship gradually
+            changes across samples.
+    """
+
+    signal_to_confound_ratio: float = 1.0
+    n_confounders: int = 0
+    spectral_masking: float = 0.0
+    temporal_drift: bool = False
+
+
+@dataclass
+class MultiRegimeConfig:
+    """
+    Configuration for multi-regime target landscapes.
+
+    Creates regions in feature space where the target-spectra relationship
+    differs, simulating subpopulations.
+
+    Attributes:
+        n_regimes: Number of different relationship regimes.
+        regime_method: How to partition samples into regimes:
+            'concentration', 'spectral', or 'random'.
+        regime_overlap: Overlap between regimes creating transition zones.
+            0 = hard boundaries, 0.5 = smooth transitions.
+        noise_heteroscedasticity: How much prediction noise varies by regime.
+            0 = same noise everywhere, 1 = very different noise levels.
+    """
+
+    n_regimes: int = 1
+    regime_method: Literal["concentration", "spectral", "random"] = "concentration"
+    regime_overlap: float = 0.2
+    noise_heteroscedasticity: float = 0.0
+
+
+@dataclass
 class OutputConfig:
     """
     Configuration for output format.
@@ -165,6 +236,9 @@ class SyntheticDatasetConfig:
     metadata: MetadataConfig = field(default_factory=MetadataConfig)
     partitions: PartitionConfig = field(default_factory=PartitionConfig)
     batch_effects: BatchEffectConfig = field(default_factory=BatchEffectConfig)
+    nonlinear: NonLinearConfig = field(default_factory=NonLinearConfig)
+    confounders: ConfounderConfig = field(default_factory=ConfounderConfig)
+    multi_regime: MultiRegimeConfig = field(default_factory=MultiRegimeConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     name: str = "synthetic_nirs"
 

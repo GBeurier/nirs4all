@@ -83,9 +83,10 @@ class StepRunner:
         # Parse the step
         parsed_step = self.parser.parse(step)
 
-        # Handle None/skip steps
+        # Handle None/skip steps (e.g., from _or_: [None, SNV(), ...] generator syntax)
         if parsed_step.metadata.get("skip", False):
-            logger.warning("No operation defined for this step, skipping.")
+            step_num = context.state.step_number if context and context.state else "?"
+            logger.debug(f"Step {step_num}: None operator selected by generator, skipping (this is normal for _or_/_cartesian_ with None option).")
             return StepResult(updated_context=context, artifacts=[])
 
         # Handle subpipelines (nested lists)

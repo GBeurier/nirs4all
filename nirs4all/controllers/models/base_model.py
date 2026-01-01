@@ -1426,6 +1426,16 @@ class BaseModelController(OperatorController, ABC):
                 else:
                     w_avg_full_scores[partition] = {}
 
+            # IMPORTANT: Override val metrics for avg/w_avg with unbiased scores.
+            # The metrics computed above for 'val' partition are biased because each fold
+            # model predicts on ALL validation samples (including samples it was trained on).
+            # We must use the unbiased scores (mean/weighted mean of individual fold OOF scores)
+            # to ensure correct ranking. This matches the override done for avg_scores.val above.
+            if avg_scores is not None and avg_scores.metric and 'val' in avg_full_scores:
+                avg_full_scores['val'][avg_scores.metric] = avg_scores.val
+            if w_avg_scores is not None and w_avg_scores.metric and 'val' in w_avg_full_scores:
+                w_avg_full_scores['val'][w_avg_scores.metric] = w_avg_scores.val
+
         # Use prediction_assembler component to create prediction dicts
         avg_predictions = self._assemble_avg_prediction(
             dataset, runtime_context, context, base_model_name, model_classname,

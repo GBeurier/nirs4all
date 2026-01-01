@@ -10,6 +10,7 @@ This tutorial covers:
 * Metadata generation (groups, repetitions)
 * Multi-source datasets
 * Batch effects simulation
+* **NEW**: Non-linear target complexity for realistic benchmarks
 * Exporting to files
 * Matching real data characteristics
 
@@ -21,7 +22,7 @@ Next Steps
 ----------
 See developer examples for extending the generator.
 
-Duration: ~3 minutes
+Duration: ~5 minutes
 Difficulty: ★★★☆☆
 """
 
@@ -182,10 +183,127 @@ print("   Useful for testing domain adaptation algorithms.")
 
 
 # =============================================================================
-# Section 5: Export to Files
+# Section 5: Non-Linear Target Complexity (NEW!)
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 5: Export to Files")
+print("Section 5: Non-Linear Target Complexity (NEW!)")
+print("-" * 60)
+
+print("\n⚠️  Default synthetic targets are too easy to predict!")
+print("   Use these options to create more realistic challenges.\n")
+
+# 5a: Polynomial Interactions
+print("5a) Polynomial interactions (C₁², C₁×C₂, etc.):")
+dataset_poly = (
+    SyntheticDatasetBuilder(n_samples=400, random_state=42)
+    .with_features(complexity="realistic")
+    .with_targets(component=0, range=(0, 100))
+    .with_nonlinear_targets(
+        interactions="polynomial",      # polynomial, synergistic, antagonistic
+        interaction_strength=0.6,        # 0=linear, 1=fully non-linear
+        polynomial_degree=2              # Quadratic terms
+    )
+    .with_partitions(train_ratio=0.8)
+    .build()
+)
+print(f"   Created dataset with polynomial target relationships")
+
+# 5b: Hidden Factors (unexplainable variance)
+print("\n5b) Hidden factors (latent variables not in spectra):")
+dataset_hidden = (
+    SyntheticDatasetBuilder(n_samples=400, random_state=42)
+    .with_features(complexity="realistic")
+    .with_targets(component=0, range=(0, 100))
+    .with_nonlinear_targets(
+        hidden_factors=3                # 3 latent variables affect target
+    )
+    .with_partitions(train_ratio=0.8)
+    .build()
+)
+print(f"   Created dataset with 3 hidden factors (irreducible error)")
+
+# 5c: Confounders and Partial Predictability
+print("\n5c) Confounders (partial predictability):")
+dataset_confound = (
+    SyntheticDatasetBuilder(n_samples=400, random_state=42)
+    .with_features(complexity="realistic")
+    .with_targets(component=0, range=(0, 100))
+    .with_target_complexity(
+        signal_to_confound_ratio=0.7,   # Only 70% of target is predictable
+        n_confounders=2,                 # 2 confounding variables
+        temporal_drift=True              # Relationship changes over samples
+    )
+    .with_partitions(train_ratio=0.8)
+    .build()
+)
+print(f"   Created dataset with 70% predictable target + temporal drift")
+
+# 5d: Multi-Regime Landscapes
+print("\n5d) Multi-regime landscapes (subpopulations):")
+dataset_regime = (
+    SyntheticDatasetBuilder(n_samples=400, random_state=42)
+    .with_features(complexity="realistic")
+    .with_targets(component=0, range=(0, 100))
+    .with_complex_target_landscape(
+        n_regimes=3,                     # 3 different relationship regimes
+        regime_method="concentration",   # Partition by concentration space
+        regime_overlap=0.2,              # Smooth transitions
+        noise_heteroscedasticity=0.5     # Noise varies by region
+    )
+    .with_partitions(train_ratio=0.8)
+    .build()
+)
+print(f"   Created dataset with 3 regimes + heteroscedastic noise")
+
+# 5e: Combining All Complexity Features
+print("\n5e) Combining all complexity features (realistic benchmark):")
+dataset_hard = (
+    SyntheticDatasetBuilder(n_samples=500, random_state=42)
+    .with_features(complexity="realistic")
+    .with_targets(component=0, range=(0, 100))
+    # Non-linear interactions
+    .with_nonlinear_targets(
+        interactions="polynomial",
+        interaction_strength=0.4,
+        hidden_factors=2
+    )
+    # Confounders
+    .with_target_complexity(
+        signal_to_confound_ratio=0.75,
+        n_confounders=2
+    )
+    # Multi-regime
+    .with_complex_target_landscape(
+        n_regimes=3,
+        noise_heteroscedasticity=0.3
+    )
+    .with_partitions(train_ratio=0.8)
+    .build()
+)
+print(f"   Created challenging benchmark dataset")
+
+# Quick comparison of prediction difficulty
+print("\n📊 Difficulty comparison (lower R² = harder):")
+from sklearn.metrics import r2_score
+
+for name, ds in [("Simple linear", dataset), ("All complexity", dataset_hard)]:
+    X_tr = ds.x({"partition": "train"}, layout="2d")
+    y_tr = ds.y({"partition": "train"})
+    X_te = ds.x({"partition": "test"}, layout="2d")
+    y_te = ds.y({"partition": "test"})
+
+    pls = PLSRegression(n_components=10)
+    pls.fit(X_tr, y_tr)
+    y_pred = pls.predict(X_te)
+    r2 = r2_score(y_te, y_pred)
+    print(f"   {name:20s}: R² = {r2:.3f}")
+
+
+# =============================================================================
+# Section 6: Export to Files
+# =============================================================================
+print("\n" + "-" * 60)
+print("Section 6: Export to Files")
 print("-" * 60)
 
 # Export synthetic data to files (DatasetConfigs compatible)
@@ -213,10 +331,10 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
 
 # =============================================================================
-# Section 6: Single CSV Export
+# Section 7: Single CSV Export
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 6: Single CSV Export")
+print("Section 7: Single CSV Export")
 print("-" * 60)
 
 with tempfile.TemporaryDirectory() as tmpdir:
@@ -238,10 +356,10 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
 
 # =============================================================================
-# Section 7: Matching Real Data (Template Fitting)
+# Section 8: Matching Real Data (Template Fitting)
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 7: Matching Real Data Characteristics")
+print("Section 8: Matching Real Data Characteristics")
 print("-" * 60)
 
 # First, create some "real" data to mimic
@@ -267,10 +385,10 @@ print("   shape to create synthetic data with similar characteristics.")
 
 
 # =============================================================================
-# Section 8: Full Builder Configuration
+# Section 9: Full Builder Configuration
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 8: Complete Builder Example")
+print("Section 9: Complete Builder Example")
 print("-" * 60)
 
 # Demonstrate all builder options together
@@ -323,10 +441,10 @@ print(f"   - train_ratio: {config.partitions.train_ratio}")
 
 
 # =============================================================================
-# Section 9: Pipeline Integration
+# Section 10: Pipeline Integration
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 9: Complete Pipeline Integration")
+print("Section 10: Complete Pipeline Integration")
 print("-" * 60)
 
 # Build a comprehensive synthetic test
@@ -358,10 +476,10 @@ print(f"\n   Pipeline result: RMSE = {result.best_rmse:.2f}")
 
 
 # =============================================================================
-# Section 10: Visualization of Generated Data
+# Section 11: Visualization of Generated Data
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 10: Visualization of Generated Data")
+print("Section 11: Visualization of Generated Data")
 print("-" * 60)
 
 # Save summary of what was generated
@@ -402,13 +520,14 @@ ax2.grid(True, alpha=0.3)
 # Plot 3: Batch effects visualization
 ax3 = axes[1, 0]
 X_batch = dataset_batch.x({}, layout="2d")
+wavelengths_batch = np.linspace(1100, 2400, X_batch.shape[1])  # Create wavelengths for batch dataset
 n_per_batch = len(X_batch) // 3
 colors_batch = ['blue', 'green', 'orange']
 for batch_idx in range(3):
     start = batch_idx * n_per_batch
     end = start + min(20, n_per_batch)
     for i in range(start, end):
-        ax3.plot(wavelengths[:X_batch.shape[1]], X_batch[i], alpha=0.4, linewidth=0.7,
+        ax3.plot(wavelengths_batch, X_batch[i], alpha=0.4, linewidth=0.7,
                  color=colors_batch[batch_idx],
                  label=f"Batch {batch_idx+1}" if i == start else "")
 ax3.set_xlabel("Wavelength (nm)")
@@ -417,18 +536,18 @@ ax3.set_title("Batch Effects (3 measurement sessions)")
 ax3.legend()
 ax3.grid(True, alpha=0.3)
 
-# Plot 4: Component spectra (from first dataset)
+# Plot 4: Component spectra (from full builder dataset)
 ax4 = axes[1, 1]
-X_food = dataset_food.x({}, layout="2d")
-mean_spectrum = X_food.mean(axis=0)
-std_spectrum = X_food.std(axis=0)
-wl_food = np.linspace(1000, 2500, X_food.shape[1])
-ax4.fill_between(wl_food, mean_spectrum - std_spectrum, mean_spectrum + std_spectrum,
+X_full = full_dataset.x({}, layout="2d")
+mean_spectrum = X_full.mean(axis=0)
+std_spectrum = X_full.std(axis=0)
+wl_full = np.linspace(1100, 2400, X_full.shape[1])
+ax4.fill_between(wl_full, mean_spectrum - std_spectrum, mean_spectrum + std_spectrum,
                  alpha=0.3, color='steelblue', label='±1 std')
-ax4.plot(wl_food, mean_spectrum, color='navy', linewidth=2, label='Mean spectrum')
+ax4.plot(wl_full, mean_spectrum, color='navy', linewidth=2, label='Mean spectrum')
 ax4.set_xlabel("Wavelength (nm)")
 ax4.set_ylabel("Absorbance")
-ax4.set_title("Food Dataset: Mean ± Std")
+ax4.set_title("Full Builder Dataset: Mean ± Std")
 ax4.legend()
 ax4.grid(True, alpha=0.3)
 
@@ -460,6 +579,21 @@ Builder API Methods:
       .with_output(as_dataset, include_metadata)
       .build()
 
+  NEW - Target Complexity Methods:
+
+      .with_nonlinear_targets(interactions, interaction_strength,
+                              hidden_factors, polynomial_degree)
+          interactions: "polynomial", "synergistic", "antagonistic"
+          Creates non-linear target relationships
+
+      .with_target_complexity(signal_to_confound_ratio, n_confounders,
+                              spectral_masking, temporal_drift)
+          Adds confounders and partial predictability
+
+      .with_complex_target_landscape(n_regimes, regime_method,
+                                      regime_overlap, noise_heteroscedasticity)
+          Creates multi-regime targets with subpopulations
+
 Export Functions:
 
   nirs4all.generate.to_folder(path, n_samples, format, ...)
@@ -473,17 +607,24 @@ Export Functions:
 
 Advanced Features:
 
-  Metadata      n_groups for GroupKFold, n_repetitions for
-                replicate measurements
+  Metadata       n_groups for GroupKFold, n_repetitions for
+                 replicate measurements
 
-  Multi-source  Combine NIR spectra with auxiliary data
-                (markers, sensors, etc.)
+  Multi-source   Combine NIR spectra with auxiliary data
+                 (markers, sensors, etc.)
 
-  Batch Effects Simulate measurement session variations
-                for domain adaptation research
+  Batch Effects  Simulate measurement session variations
+                 for domain adaptation research
 
-  Template      Analyze real data and generate synthetic
-                data with similar statistical properties
+  Template       Analyze real data and generate synthetic
+                 data with similar statistical properties
+
+  Non-Linear     Create challenging datasets with:
+  Targets        - Polynomial/synergistic/antagonistic effects
+                 - Hidden factors (irreducible error)
+                 - Confounders (partial predictability)
+                 - Multi-regime landscapes (subpopulations)
+                 - Heteroscedastic noise
 
 Key Use Cases:
 
@@ -492,6 +633,7 @@ Key Use Cases:
   • Prototyping before real data is available
   • Teaching NIRS concepts with controllable examples
   • Domain adaptation research with batch effects
+  • Method comparison with challenging non-linear targets
 """)
 
 if args.show:

@@ -283,6 +283,97 @@ y = target_gen.classification(
 # - "cluster": K-means-like assignment
 ```
 
+## Non-Linear Target Complexity (NEW!)
+
+The `NonLinearTargetProcessor` creates challenging, realistic targets that require
+non-linear models to predict well. It implements three strategies:
+
+### Architecture
+
+```python
+from nirs4all.data.synthetic.targets import (
+    NonLinearTargetProcessor,
+    NonLinearTargetConfig
+)
+
+config = NonLinearTargetConfig(
+    # Proposition 1: Non-linear interactions
+    nonlinear_interactions="polynomial",  # none, polynomial, synergistic, antagonistic
+    interaction_strength=0.5,              # 0=linear, 1=fully non-linear
+    hidden_factors=2,                      # Latent variables not in spectra
+    polynomial_degree=2,                   # 2 or 3
+
+    # Proposition 2: Confounders
+    signal_to_confound_ratio=0.7,         # 1.0=fully predictable
+    n_confounders=2,                       # Confounding variables
+    spectral_masking=0.0,                  # Future: hide signal in noisy regions
+    temporal_drift=True,                   # Relationship changes over samples
+
+    # Proposition 3: Multi-regime
+    n_regimes=3,                           # Different relationship regimes
+    regime_method="concentration",         # concentration, spectral, random
+    regime_overlap=0.2,                    # Transition zone smoothness
+    noise_heteroscedasticity=0.5,          # Noise varies by regime
+)
+
+processor = NonLinearTargetProcessor(config, random_state=42)
+y_complex = processor.process(
+    concentrations=C,
+    y_base=y_linear,
+    spectra=X  # Optional, for spectral-based regime assignment
+)
+```
+
+### Interaction Types
+
+| Type | Formula | Use Case |
+|------|---------|----------|
+| `polynomial` | y = f(C₁², C₁×C₂, ...) | General non-linearity |
+| `synergistic` | y = f(√(C₁×C₂) × (C₁+C₂)) | Chemical synergies |
+| `antagonistic` | y = Vmax×C/(Km+C) × inhibition | Michaelis-Menten kinetics |
+
+### Hidden Factors
+
+Hidden factors are latent variables that affect the target but have **no spectral signature**.
+This creates irreducible prediction error, testing whether models overfit:
+
+```python
+# With hidden_factors=3, about 30% of target variance is unexplainable
+config = NonLinearTargetConfig(
+    nonlinear_interactions="none",
+    hidden_factors=3
+)
+```
+
+### Multi-Regime Landscapes
+
+Different regions of the feature space have different target-spectra relationships:
+
+```python
+# Regime 0: y ∝ C₁ (linear)
+# Regime 1: y ∝ C₁² (quadratic)
+# Regime 2: y ∝ max(y) - y (inverse)
+# Regime 3+: y ∝ C₁/C₂ (ratio)
+
+config = NonLinearTargetConfig(
+    n_regimes=4,
+    regime_method="concentration",  # Partition by concentration space
+    regime_overlap=0.2,             # Smooth transitions
+    noise_heteroscedasticity=0.5    # Different noise per regime
+)
+```
+
+### Extending the Processor
+
+```python
+class CustomTargetProcessor(NonLinearTargetProcessor):
+    def _apply_nonlinear_interactions(self, C, y):
+        # Custom non-linear transformation
+        custom_term = np.sin(C[:, 0] * np.pi) * np.exp(-C[:, 1])
+        strength = self.config.interaction_strength
+        return (1 - strength) * y + strength * custom_term.reshape(-1, 1)
+```
+
 ## Multi-Source Generation
 
 Generate datasets with multiple data types:

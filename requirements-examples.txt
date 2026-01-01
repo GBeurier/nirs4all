@@ -11,6 +11,7 @@ h5py>=3.8.0
 
 # Signal processing
 PyWavelets>=1.4.0
+pybaselines>=1.2.1
 
 # Optimization & hyperparameter tuning
 optuna>=3.0.0

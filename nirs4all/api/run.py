@@ -44,6 +44,7 @@ DatasetSpec = Union[
     Dict[str, Any],               # Dict with X, y, metadata keys
     List[Dict[str, Any]],         # List of dataset dicts (multi-dataset)
     SpectroDataset,               # Direct SpectroDataset instance
+    List[SpectroDataset],         # List of SpectroDataset instances (multi-dataset)
     DatasetConfigs                # Backward compat: existing DatasetConfigs
 ]
 
@@ -81,6 +82,7 @@ def run(
             - Numpy arrays: ``(X, y)`` or ``X`` alone
             - Dict with arrays: ``{"X": X, "y": y, "metadata": meta}``
             - SpectroDataset instance
+            - List of SpectroDataset instances (multi-dataset)
             - DatasetConfigs object (backward compatibility)
 
         name: Optional pipeline name for identification and logging.

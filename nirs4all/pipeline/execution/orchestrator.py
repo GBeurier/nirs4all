@@ -125,7 +125,7 @@ class PipelineOrchestrator:
     def execute(
         self,
         pipeline: Union[PipelineConfigs, List[Any], Dict, str],
-        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        dataset: Union[DatasetConfigs, SpectroDataset, List[SpectroDataset], np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
         pipeline_name: str = "",
         dataset_name: str = "dataset",
         max_generation_count: int = 10000,
@@ -335,12 +335,16 @@ class PipelineOrchestrator:
 
     def _normalize_dataset(
         self,
-        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        dataset: Union[DatasetConfigs, SpectroDataset, List[SpectroDataset], np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
         dataset_name: str = "array_dataset"
     ) -> DatasetConfigs:
         """Normalize dataset input to DatasetConfigs."""
         if isinstance(dataset, DatasetConfigs):
             return dataset
+
+        # Handle list of SpectroDataset instances
+        if isinstance(dataset, list) and len(dataset) > 0 and isinstance(dataset[0], SpectroDataset):
+            return self._wrap_dataset_list(dataset)
 
         # Simplified normalization - delegate to DatasetConfigs
         return DatasetConfigs(dataset) if not isinstance(dataset, (SpectroDataset, np.ndarray, tuple)) else self._wrap_dataset(dataset, dataset_name)
@@ -395,6 +399,36 @@ class PipelineOrchestrator:
         configs._config_aggregates = [None]  # No config-level aggregate
         configs._config_aggregate_methods = [None]  # No config-level aggregate method
         configs._config_aggregate_exclude_outliers = [None]  # No config-level exclude outliers
+        return configs
+
+    def _wrap_dataset_list(self, datasets: List[SpectroDataset]) -> DatasetConfigs:
+        """Wrap a list of SpectroDataset instances in DatasetConfigs."""
+        configs = DatasetConfigs.__new__(DatasetConfigs)
+        configs.configs = []
+        configs.cache = {}
+        configs._task_types = []
+        configs._signal_type_overrides = []
+        configs._aggregates = []
+        configs._aggregate_methods = []
+        configs._aggregate_exclude_outliers = []
+        configs._config_task_types = []
+        configs._config_aggregates = []
+        configs._config_aggregate_methods = []
+        configs._config_aggregate_exclude_outliers = []
+
+        for ds in datasets:
+            configs.configs.append(({"_preloaded_dataset": ds}, ds.name))
+            configs.cache[ds.name] = self._extract_dataset_cache(ds)
+            configs._task_types.append("auto")
+            configs._signal_type_overrides.append(None)
+            configs._aggregates.append(None)
+            configs._aggregate_methods.append(None)
+            configs._aggregate_exclude_outliers.append(False)
+            configs._config_task_types.append(None)
+            configs._config_aggregates.append(None)
+            configs._config_aggregate_methods.append(None)
+            configs._config_aggregate_exclude_outliers.append(None)
+
         return configs
 
     def _split_and_add_data(self, dataset: SpectroDataset, X: np.ndarray, y: Optional[np.ndarray], partition_info: Dict) -> None:
