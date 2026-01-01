@@ -1,43 +1,111 @@
 # GitHub Copilot Instructions for nirs4all
 
-## Project Overview
+## Quick Reference
 
-nirs4all is a Python library for Near-Infrared Spectroscopy (NIRS) data analysis. It provides ML/DL pipelines for classification and regression using scikit-learn, TensorFlow, PyTorch, and JAX backends. The library features a declarative pipeline syntax, automated hyperparameter tuning via Optuna, and comprehensive visualization tools.
+**Version**: 0.6.x | **Python**: 3.11+ | **License**: CeCILL-2.1
 
-**Status**: Pre-1.0 (v0.5.x) - APIs may change; actively remove deprecated/dead code.
+```python
+# Minimal working example
+import nirs4all
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.cross_decomposition import PLSRegression
+
+result = nirs4all.run(
+    pipeline=[MinMaxScaler(), PLSRegression(10)],
+    dataset="sample_data/regression",
+    verbose=1
+)
+print(f"Best RMSE: {result.best_rmse:.4f}")
+```
+
+## Primary API
+
+The **module-level API** is the primary interface. Use these functions:
+
+| Function | Purpose |
+|----------|---------|
+| `nirs4all.run(pipeline, dataset, ...)` | Train a pipeline |
+| `nirs4all.predict(model, data, ...)` | Make predictions |
+| `nirs4all.explain(model, data, ...)` | SHAP explanations |
+| `nirs4all.retrain(source, data, ...)` | Retrain on new data |
+| `nirs4all.session(...)` | Create reusable session |
+| `nirs4all.generate(...)` | Generate synthetic data |
+
+**Result objects**: `RunResult`, `PredictResult`, `ExplainResult` provide `best_score`, `best_rmse`, `best_r2`, `top(n)`, `export()`.
 
 ## Architecture
 
-### Core Components
-
 ```
 nirs4all/
-├── pipeline/          # Pipeline execution engine
-│   ├── runner.py      # PipelineRunner - main entry point
-│   ├── config/        # PipelineConfigs, ExecutionContext
-│   ├── execution/     # PipelineOrchestrator, step execution
-│   ├── bundle/        # Export/import trained pipelines (.n4a)
-│   └── storage/       # Artifacts, manifests, library
-├── controllers/       # Step handlers (registry pattern)
-│   ├── registry.py    # @register_controller decorator
-│   ├── transforms/    # TransformerMixin controllers
-│   ├── models/        # Model training controllers
-│   └── splitters/     # Cross-validation controllers
-├── data/              # Dataset handling
-│   ├── config.py      # DatasetConfigs
-│   ├── dataset.py     # SpectroDataset
-│   └── predictions.py # Predictions result container
-├── operators/         # Pipeline operators
-│   ├── transforms/    # NIRS-specific transformers (SNV, MSC, etc.)
-│   ├── augmentation/  # Data augmentation operators
-│   ├── models/        # Pre-built models (nicon, decon)
-│   └── splitters/     # Data splitting methods (KS, SPXY)
+├── api/               # Module-level API (run, predict, explain, generate)
+├── pipeline/          # Execution engine (PipelineRunner, PipelineOrchestrator)
+├── controllers/       # Step handlers (registry pattern, @register_controller)
+├── data/              # SpectroDataset, DatasetConfigs, Predictions
+├── operators/         # Transforms (SNV, MSC), models (nicon), splitters (KS, SPXY)
+├── sklearn/           # NIRSPipeline sklearn wrapper for SHAP compatibility
 └── visualization/     # PredictionAnalyzer, charts
 ```
 
-### Key Patterns
+### Key Classes
 
-**Controller Registry**: Pipeline steps are dispatched via a priority-based registry. Controllers inherit from `OperatorController` and use `@register_controller`:
+- **`SpectroDataset`**: Core data container with X (features), y (targets), metadata, folds
+- **`PipelineConfigs`**: Pipeline definition wrapper
+- **`DatasetConfigs`**: Dataset path/configuration wrapper
+- **`NIRSPipeline`**: sklearn-compatible wrapper for trained models
+
+## Pipeline Syntax
+
+```python
+pipeline = [
+    # Steps can be classes, instances, or wrapped in dicts
+    MinMaxScaler(),                              # Transformer instance
+    {"y_processing": MinMaxScaler()},            # Target scaling
+    ShuffleSplit(n_splits=3),                    # Cross-validation splitter
+    {"model": PLSRegression(n_components=10)},   # Model step
+]
+```
+
+### Special Keywords
+
+| Keyword | Purpose | Example |
+|---------|---------|---------|
+| `model` | Define model step | `{"model": PLSRegression(10)}` |
+| `y_processing` | Target scaling | `{"y_processing": MinMaxScaler()}` |
+| `branch` | Parallel pipelines | `{"branch": [[SNV(), PLS()], [MSC(), RF()]]}` |
+| `merge` | Combine branches | `{"merge": "predictions"}` |
+| `source_branch` | Per-source preprocessing | `{"source_branch": {"NIR": [...], "markers": [...]}}` |
+| `_or_` | Generator (variants) | `{"_or_": [SNV, MSC, Detrend]}` |
+| `_range_` | Parameter sweep | `{"_range_": [1, 30, 5], "param": "n_components"}` |
+
+## Development Commands
+
+```bash
+# Examples (from examples/ directory)
+./run.sh                  # All examples
+./run.sh -c user          # User examples only
+./run.sh -n "U01*"        # By pattern
+./run.sh -q               # Quick (skip DL)
+
+# Tests
+pytest tests/             # All tests
+pytest tests/unit/        # Unit only
+pytest -m sklearn         # sklearn-only
+pytest --cov=nirs4all     # With coverage
+
+# Verify installation
+nirs4all --test-install
+```
+
+## Code Style
+
+- **Docstrings**: Google style
+- **Line length**: 220 (see pyproject.toml)
+- **Linting**: Ruff (`ruff check .`)
+- **Type hints**: Required for public APIs
+
+## Controller Pattern
+
+Custom operators use the registry pattern:
 
 ```python
 from nirs4all.controllers import register_controller, OperatorController
@@ -50,167 +118,74 @@ class MyController(OperatorController):
     def matches(cls, step, operator, keyword) -> bool:
         return isinstance(operator, MyOperatorType)
 
-    def execute(self, step_info, dataset, context, runtime_context, ...):
-        # Implementation
+    @classmethod
+    def use_multi_source(cls) -> bool:
+        return False
+
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        return True  # Run during prediction
+
+    def execute(self, step_info, dataset, context, runtime_context, **kwargs):
+        # Transform dataset, return (context, StepOutput)
+        pass
 ```
 
-**Pipeline Syntax**: Multiple equivalent syntaxes normalize to canonical form during serialization:
+## Common Tasks
 
+### Generate Synthetic Data
 ```python
-# All valid step formats:
-MinMaxScaler                              # Class
-MinMaxScaler()                            # Instance
-{"preprocessing": MinMaxScaler()}         # Dict wrapper
-{"class": "sklearn...MinMaxScaler"}       # Explicit class path
-{"model": PLSRegression(n_components=10)} # Model step
-{"_or_": [A, B, C], "count": 5}           # Generator (expands to variants)
+dataset = nirs4all.generate(n_samples=500, complexity="realistic")
+# Or specialized generators:
+dataset = nirs4all.generate.regression(n_samples=500)
+dataset = nirs4all.generate.classification(n_samples=300, n_classes=3)
 ```
 
-**SpectroDataset**: Core data container holding X (features), y (targets), metadata, and fold indices. All controllers operate on this.
-
-## Development Workflow
-
-### Running Examples (Integration Tests)
-
-```bash
-cd examples
-./run.sh                  # Run all examples
-./run.sh -c user          # Run only user examples
-./run.sh -c developer     # Run only developer examples
-./run.sh -i 1             # Run single example by index
-./run.sh -n "U01*.py"     # Run by name pattern (matches in any folder)
-./run.sh -n "synthetic"   # Run examples containing "synthetic"
-./run.sh -l               # Enable logging to log.txt
-./run.sh -p -s            # Enable plots and show
-./run.sh -q               # Quick mode: skip deep learning examples
-```
-
-Examples save outputs (plots, summaries) to `workspace/examples_output/`.
-
-### Running Tests
-
-```bash
-pytest tests/                    # All tests
-pytest tests/unit/               # Unit tests only
-pytest tests/integration/        # Integration tests
-pytest tests/unit/data/ -v       # Specific module
-pytest --cov=nirs4all            # With coverage
-```
-
-Tests use `matplotlib.use('Agg')` backend (see `tests/conftest.py`).
-
-### Key Test Markers
-
-```bash
-pytest -m sklearn      # sklearn-only tests
-pytest -m tensorflow   # TensorFlow tests
-pytest -m torch        # PyTorch tests
-```
-
-## Coding Conventions
-
-- **Python 3.11+** required
-- **Google Style Docstrings** for all public functions
-- **PEP 8** with `max-line-length = 220` (see pyproject.toml)
-- **TransformerMixin pattern** for custom transformers (sklearn-compatible)
-- Prefer existing libraries; avoid reinventing
-
-
-## Pipeline Configuration
-
-### Basic Pipeline Structure
-
+### Export/Load Models
 ```python
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.data import DatasetConfigs
+# Export
+result.export("model.n4a")
 
+# Load and predict
+preds = nirs4all.predict("model.n4a", new_data)
+
+# sklearn wrapper for SHAP
+from nirs4all.sklearn import NIRSPipeline
+model = NIRSPipeline.from_bundle("model.n4a")
+```
+
+### Stacking (Meta-models)
+```python
 pipeline = [
-    MinMaxScaler(),                           # Feature scaling
-    {"y_processing": MinMaxScaler()},         # Target scaling
-    {"feature_augmentation": {...}},          # Optional: generate variants
-    ShuffleSplit(n_splits=3),                 # Cross-validation
-    {"model": PLSRegression(n_components=10)} # Model
+    {"branch": [
+        [SNV(), PLSRegression(10)],
+        [MSC(), RandomForestRegressor()],
+    ]},
+    {"merge": "predictions"},  # OOF predictions as features
+    {"model": Ridge()},        # Meta-model
 ]
-
-runner = PipelineRunner(verbose=1, save_artifacts=True)
-predictions, per_dataset = runner.run(
-    PipelineConfigs(pipeline, "MyPipeline"),
-    DatasetConfigs("path/to/data")
-)
 ```
 
-### Generator Syntax for Hyperparameter Sweep
+## File Layout
 
-```python
-# _or_ expands to multiple pipelines
-{"_or_": [Detrend, SNV, Gaussian], "count": 5}
+```
+examples/
+├── user/           # By topic: getting_started, data_handling, preprocessing, etc.
+├── developer/      # Advanced: branching, generators, deep_learning, internals
+└── reference/      # Comprehensive reference examples
 
-# _range_ sweeps parameter values
-{"_range_": [1, 30, 5], "param": "n_components", "model": PLSRegression}
+tests/
+├── unit/           # Fast isolated tests
+└── integration/    # Full pipeline tests
+
+docs/source/        # Sphinx documentation
 ```
 
-### Branching and Merging
+## Reminders
 
-```python
-# Create parallel branches with different preprocessing
-{"branch": [
-    [SNV(), PLSRegression(n_components=10)],      # Branch 0
-    [MSC(), RandomForestRegressor()],              # Branch 1
-]}
-
-# Merge: Exit branch mode and combine outputs
-{"merge": "features"}      # Collect features from all branches
-{"merge": "predictions"}   # Collect OOF predictions (stacking)
-{"merge": {"features": [0], "predictions": [1]}}  # Mixed merge
-
-# Source branching: Per-source preprocessing (multi-source datasets)
-{"source_branch": {
-    "NIR": [SNV(), FirstDerivative()],
-    "markers": [VarianceThreshold()],
-}}
-
-# Source merging: Combine multi-source features
-{"merge_sources": "concat"}   # Horizontal concatenation
-{"merge_sources": "stack"}    # 3D stacking
-```
-
-**Key concepts**:
-- `branch` creates parallel execution paths (N branches → each step runs N times)
-- `merge` ALWAYS exits branch mode (returns to single-path execution)
-- Prediction merging uses OOF reconstruction by default (prevents data leakage)
-- `source_branch` processes each data source with its own pipeline
-- `merge_sources` combines features from different data sources
-
-See [docs/specifications/merge_syntax.md](docs/specifications/merge_syntax.md) for full reference.
-
-## File Organization
-
-- `examples/user/` - User-facing examples organized by topic
-  - `01_getting_started/` - U01-U04: Hello world, regression, classification, visualization
-  - `02_data_handling/` - U01-U06: Inputs, multi-datasets, multi-source, wavelengths, synthetic
-  - `03_preprocessing/` - U01-U04: Basics, feature/sample augmentation, signal conversion
-  - `04_models/` - U01-U04: Multi-model, tuning, stacking, PLS variants
-  - `05_cross_validation/` - U01-U04: CV strategies, group splitting, filtering, aggregation
-  - `06_deployment/` - U01-U04: Save/load, export bundles, workspace, sklearn integration
-  - `07_explainability/` - U01-U03: SHAP basics, sklearn SHAP, feature selection
-- `examples/developer/` - Advanced developer examples
-  - `01_advanced_pipelines/` - D01-D05: Branching, merging, meta-stacking
-  - `02_generators/` - D01-D06: Generator syntax, synthetic data customization
-  - `03_deep_learning/` - D01-D04: PyTorch, JAX, TensorFlow, comparisons
-  - `04_transfer_learning/` - D01-D03: Transfer analysis, retraining, PCA geometry
-  - `05_advanced_features/` - D01-D03: Metadata branching, transforms
-  - `06_internals/` - D01-D02: Session workflow, custom controllers
-- `examples/reference/` - R01-R04: Comprehensive reference examples
-- `examples/legacy/` - Q*/X* examples (deprecated, for transition)
-- `docs/source/` - Documentation source files (Sphinx)
-- `docs/_internal/` - Internal docs (design, specifications)
-
-
-## Important Notes
-
-- After any refactoring or API change, update: examples, docs, and tests
-- The `.venv` contains all dependencies; work within this environment
-- Use `nirs4all --test-install` to verify installation
-- Tuples in configs are converted to lists during YAML serialization
-- Controllers with `supports_prediction_mode() = True` run during prediction
-- After each important modifications ensure that RTD is up to date.
+- Run examples after API changes: `cd examples && ./run.sh -q`
+- Update RTD after significant changes
+- Tuples → lists during YAML serialization
+- Deep learning backends are lazy-loaded
+- Actively remove deprecated and dead code.
+- Use `.venv` when launching python scripts and tests.
