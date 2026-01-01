@@ -182,11 +182,12 @@ class RunResult:
 
     # --- Query methods ---
 
-    def top(self, n: int = 5, **kwargs) -> List[Dict[str, Any]]:
+    def top(self, n: int = 5, **kwargs) -> Union[List[Dict[str, Any]], Dict[tuple, List[Dict[str, Any]]]]:
         """Get top N predictions by ranking.
 
         Args:
-            n: Number of top predictions to return.
+            n: Number of top predictions to return. When group_by is used,
+               this means top N **per group** (e.g., top 3 per dataset).
             **kwargs: Additional arguments passed to predictions.top().
                 Supported kwargs include:
                 - rank_metric: Metric to rank by (default: uses record's metric)
@@ -194,10 +195,28 @@ class RunResult:
                 - display_partition: Partition for display metrics (default: "test")
                 - aggregate_partitions: If True, include train/val/test data
                 - ascending: Sort order (None = infer from metric)
-                - group_by: Group predictions, keep best per group
+                - group_by: Group predictions by column(s). Returns top N per group.
+                  Each result includes 'group_key' for easy filtering.
+                - return_grouped: If True with group_by, return dict of group->results
+                  instead of flat list. Default: False.
 
         Returns:
-            List of prediction dictionaries, ranked by score.
+            - If return_grouped=False (default): List of prediction dicts,
+              ranked by score. With group_by, returns top N per group as flat list.
+            - If return_grouped=True: Dict mapping group keys to lists of predictions.
+
+        Examples:
+            >>> # Top 5 overall
+            >>> result.top(5)
+            >>>
+            >>> # Top 3 per dataset (flat list)
+            >>> top_per_ds = result.top(3, group_by='dataset_name')
+            >>> ds1 = [r for r in top_per_ds if r['group_key'] == ('my_dataset',)]
+            >>>
+            >>> # Top 3 per dataset (grouped dict)
+            >>> grouped = result.top(3, group_by='dataset_name', return_grouped=True)
+            >>> for key, results in grouped.items():
+            ...     print(f"{key}: {len(results)} results")
         """
         return self.predictions.top(n=n, **kwargs)
 

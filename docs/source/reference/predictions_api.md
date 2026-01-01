@@ -174,6 +174,58 @@ for model in top_5:
     print(f"{model.model_name}: {scores}")
 ```
 
+#### Group By: Top N Per Group
+
+The `group_by` parameter allows you to get top N results **per group** instead of N total.
+This is useful when comparing models across multiple datasets or configurations.
+
+```python
+# Get top 3 models PER DATASET (flat list, sorted by global rank)
+top_per_dataset = predictions.top(
+    n=3,
+    rank_metric="rmse",
+    group_by="dataset_name"
+)
+
+# Each result includes 'group_key' for easy filtering
+for pred in top_per_dataset:
+    dataset = pred['group_key'][0]  # group_key is a tuple
+    print(f"{dataset}: {pred.model_name} - RMSE: {pred.get('rmse', 0):.4f}")
+
+# Filter results for a specific dataset
+wheat_results = [r for r in top_per_dataset if r['group_key'] == ('wheat',)]
+```
+
+**Grouped dict output** with `return_grouped=True`:
+
+```python
+# Get top 3 models per dataset as a dictionary
+grouped = predictions.top(
+    n=3,
+    rank_metric="rmse",
+    group_by="dataset_name",
+    return_grouped=True
+)
+
+# Result: {('dataset1',): [...], ('dataset2',): [...]}
+for group_key, results in grouped.items():
+    print(f"\n{group_key[0]}: {len(results)} best models")
+    for i, pred in enumerate(results, 1):
+        print(f"  {i}. {pred.model_name}: RMSE={pred.get('rmse', 0):.4f}")
+```
+
+**Multi-column grouping**:
+
+```python
+# Top 2 per (dataset, model_class) combination
+per_combo = predictions.top(
+    n=2,
+    rank_metric="rmse",
+    group_by=["dataset_name", "model_classname"]
+)
+# Each result has group_key like ('wheat', 'PLSRegression')
+```
+
 ## Complete Workflow Example
 
 ```python

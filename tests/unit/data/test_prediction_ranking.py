@@ -186,17 +186,18 @@ class TestGroupByFiltering:
     """Test group_by filtering for ranking."""
 
     def test_group_by_single_column(self, predictions_with_multiple_models):
-        """Verify group_by=['model_name'] keeps one per model."""
+        """Verify group_by=['model_name'] with n=1 keeps one per model."""
         predictions = predictions_with_multiple_models
 
         results = predictions.top(
-            n=10,
+            n=1,  # n=1 means top 1 per group
             rank_metric="rmse",
             rank_partition="val",
             group_by=["model_name"]
         )
 
-        # Should have 5 unique models
+        # With n=1 and group_by, should have 1 per group = 5 unique models
+        # (n=1 means top 1 per group)
         model_names = [r["model_name"] for r in results]
         assert len(set(model_names)) == len(model_names)  # All unique
         assert len(results) == 5
@@ -206,14 +207,14 @@ class TestGroupByFiltering:
         predictions = predictions_with_multiple_models
 
         results_str = predictions.top(
-            n=10,
+            n=1,  # n=1 per group
             rank_metric="rmse",
             rank_partition="val",
             group_by="model_name"
         )
 
         results_list = predictions.top(
-            n=10,
+            n=1,  # n=1 per group
             rank_metric="rmse",
             rank_partition="val",
             group_by=["model_name"]
@@ -227,24 +228,24 @@ class TestGroupByFiltering:
         """Verify group_by with multiple columns works."""
         predictions = predictions_with_multiple_models
 
-        # Group by (model_classname) - should give 3 unique model classes
+        # Group by (model_classname) - with n=1 should give 1 per class = 3 results
         # PLSRegression, SVR, RandomForestRegressor
         results = predictions.top(
-            n=10,
+            n=1,  # n=1 per group
             rank_metric="rmse",
             rank_partition="val",
             group_by=["model_classname"]
         )
 
-        # Should have 3 unique model classes
+        # Should have 3 unique model classes (1 per class)
         classnames = [r["model_classname"] for r in results]
         assert len(set(classnames)) == len(classnames)  # All unique
         assert len(results) == 3
 
         # Also test multi-column grouping with model_name + fold_id
-        # 5 models x 2 folds = 10 combinations
+        # 5 models x 2 folds = 10 combinations, with n=1 = 10 results
         results_multi = predictions.top(
-            n=20,
+            n=1,  # n=1 per group
             rank_metric="rmse",
             rank_partition="val",
             group_by=["model_name", "fold_id"]
@@ -263,9 +264,9 @@ class TestGroupByFiltering:
             ascending=True  # Lower RMSE is better
         )
 
-        # Get grouped results
+        # Get grouped results (n=1 means best 1 per group)
         grouped_results = predictions.top(
-            n=100,
+            n=1,  # n=1 per group to get best per model
             rank_metric="rmse",
             rank_partition="val",
             group_by=["model_name"],
@@ -279,6 +280,73 @@ class TestGroupByFiltering:
             # Find first occurrence in all_results
             first_in_all = next(r for r in all_results if r["model_name"] == model_name)
             assert grouped["rank_score"] == first_in_all["rank_score"]
+
+    def test_group_by_adds_group_key(self, predictions_with_multiple_models):
+        """Verify group_by adds group_key field to each result."""
+        predictions = predictions_with_multiple_models
+
+        results = predictions.top(
+            n=2,  # top 2 per group
+            rank_metric="rmse",
+            rank_partition="val",
+            group_by=["model_name"]
+        )
+
+        # Each result should have group_key
+        for result in results:
+            assert "group_key" in result
+            assert isinstance(result["group_key"], tuple)
+            # group_key should contain model_name (lowercase due to case-insensitive)
+            assert len(result["group_key"]) == 1
+
+    def test_return_grouped_returns_dict(self, predictions_with_multiple_models):
+        """Verify return_grouped=True returns dict of group -> results."""
+        predictions = predictions_with_multiple_models
+
+        grouped = predictions.top(
+            n=2,  # top 2 per group
+            rank_metric="rmse",
+            rank_partition="val",
+            group_by=["model_classname"],
+            return_grouped=True
+        )
+
+        # Should be a dict
+        assert isinstance(grouped, dict)
+
+        # Should have 3 groups (PLS, SVR, RF)
+        assert len(grouped) == 3
+
+        # Each group should have up to 2 results
+        for group_key, results in grouped.items():
+            assert isinstance(group_key, tuple)
+            assert len(results) <= 2
+            # All results in this group should have matching group_key
+            for r in results:
+                assert r.get("group_key") == group_key
+
+    def test_top_n_per_group_semantic(self, predictions_with_multiple_models):
+        """Verify n means 'top N per group' when group_by is used."""
+        predictions = predictions_with_multiple_models
+
+        # Get top 2 per model_classname
+        # 3 classes * 2 per class = 6 total
+        results = predictions.top(
+            n=2,
+            rank_metric="rmse",
+            rank_partition="val",
+            group_by=["model_classname"]
+        )
+
+        # Count per group
+        group_counts = {}
+        for r in results:
+            key = r["group_key"]
+            group_counts[key] = group_counts.get(key, 0) + 1
+
+        # Each group should have at most 2
+        for key, count in group_counts.items():
+            assert count <= 2
 
 
 class TestDeprecatedBestPerModel:
@@ -304,21 +372,22 @@ class TestDeprecatedBestPerModel:
             assert "best_per_model" in str(deprecation_warnings[0].message)
 
     def test_best_per_model_same_as_group_by_model_name(self, predictions_with_multiple_models):
-        """Verify best_per_model=True gives same result as group_by=['model_name']."""
+        """Verify best_per_model=True gives same result as group_by=['model_name'] with n=1."""
         predictions = predictions_with_multiple_models
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
 
+            # best_per_model=True should behave like group_by=['model_name'] with n=1
             results_deprecated = predictions.top(
-                n=10,
+                n=1,  # n=1 per group
                 rank_metric="rmse",
                 rank_partition="val",
                 best_per_model=True
             )
 
         results_new = predictions.top(
-            n=10,
+            n=1,  # n=1 per group
             rank_metric="rmse",
             rank_partition="val",
             group_by=["model_name"]
@@ -487,9 +556,11 @@ class TestEdgeCases:
         assert len(results) == 0
 
     def test_n_larger_than_available(self, predictions_with_multiple_models):
-        """Verify n larger than available predictions returns all available."""
+        """Verify n larger than available per group returns all available per group."""
         predictions = predictions_with_multiple_models
 
+        # With group_by, n=1000 means up to 1000 per group
+        # Each model has 2 folds, so 2 per model = 10 total
         results = predictions.top(
             n=1000,
             rank_metric="rmse",
@@ -497,14 +568,15 @@ class TestEdgeCases:
             group_by=["model_name"]
         )
 
-        # Should return 5 (number of unique models), not 1000
-        assert len(results) == 5
+        # Should return all predictions per model (2 folds each), so 5 models * 2 = 10
+        assert len(results) == 10
 
     def test_group_by_nonexistent_column(self, predictions_with_multiple_models):
         """Verify group_by with non-existent column still works (groups by None)."""
         predictions = predictions_with_multiple_models
 
         # Should not raise error - all rows will have None for this column
+        # All go into one group (None), so n=10 returns top 10 from that group
         results = predictions.top(
             n=10,
             rank_metric="rmse",
@@ -512,8 +584,9 @@ class TestEdgeCases:
             group_by=["nonexistent_column"]
         )
 
-        # All predictions have None for nonexistent_column, so only 1 result
-        assert len(results) == 1
+        # All predictions have None for nonexistent_column, forming one group
+        # n=10 means top 10 from that group
+        assert len(results) == 10
 
     def test_aggregation_column_not_in_metadata(self, predictions_with_multiple_models):
         """Verify aggregation with missing column warns and falls back."""
