@@ -1221,6 +1221,97 @@ def _changed_kwargs(obj):
 
 ---
 
+## Batch Execution: Multiple Pipelines
+
+You can run **multiple independent pipelines** with a single `nirs4all.run()` call by passing a list of pipelines:
+
+```python
+# Define independent pipelines
+pipeline_pls = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=3),
+    {"model": PLSRegression(n_components=10)}
+]
+
+pipeline_rf = [
+    StandardScaler(),
+    ShuffleSplit(n_splits=3),
+    {"model": RandomForestRegressor()}
+]
+
+pipeline_nn = [
+    MinMaxScaler(),
+    {"y_processing": MinMaxScaler()},
+    ShuffleSplit(n_splits=3),
+    {"model": nicon, "train_params": {"epochs": 100}}
+]
+
+# Run all pipelines independently
+result = nirs4all.run(
+    pipeline=[pipeline_pls, pipeline_rf, pipeline_nn],  # List of pipelines
+    dataset="sample_data/regression",
+    verbose=1
+)
+```
+
+**Key difference from sequential steps**:
+- A **single pipeline** `[step1, step2, step3]` executes steps sequentially
+- A **list of pipelines** `[[step1, step2], [step3, step4]]` executes each pipeline **independently**
+
+### Cartesian Product: Pipelines × Datasets
+
+When you also provide multiple datasets, `nirs4all.run()` executes the **cartesian product**:
+
+```python
+result = nirs4all.run(
+    pipeline=[pipeline_pls, pipeline_rf],   # 2 pipelines
+    dataset=["data/wheat", "data/corn"],    # 2 datasets
+    verbose=1
+)
+# Runs 4 combinations:
+# - pipeline_pls on wheat
+# - pipeline_pls on corn
+# - pipeline_rf on wheat
+# - pipeline_rf on corn
+```
+
+All results are collected into a single `RunResult` for unified comparison.
+
+### When to Use Multiple Pipelines vs Generators
+
+| Use Case | Approach |
+|----------|----------|
+| Compare completely different strategies | List of pipelines |
+| Explore variations within a strategy | Generator syntax (`_or_`, `_range_`) |
+| Benchmark across datasets | List of datasets |
+| Full grid search | Combine both approaches |
+
+**Example combining both**:
+```python
+# Each pipeline uses generators internally
+pipeline_pls = [
+    MinMaxScaler(),
+    {"_or_": [SNV, Detrend]},  # 2 preprocessing variants
+    ShuffleSplit(n_splits=3),
+    {"model": PLSRegression(n_components=10)}
+]  # Expands to 2 configs
+
+pipeline_rf = [
+    StandardScaler(),
+    ShuffleSplit(n_splits=3),
+    {"model": RandomForestRegressor()}
+]  # 1 config
+
+result = nirs4all.run(
+    pipeline=[pipeline_pls, pipeline_rf],  # 2 pipelines (total 3 configs)
+    dataset=["data/wheat", "data/corn"],   # 2 datasets
+    verbose=1
+)
+# Total runs: 3 configs × 2 datasets = 6 runs
+```
+
+---
+
 ## Best Practices
 
 ### ✅ Do

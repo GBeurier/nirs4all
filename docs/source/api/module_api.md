@@ -33,8 +33,8 @@ Execute a training pipeline on a dataset.
 
 ```python
 result = nirs4all.run(
-    pipeline,           # Pipeline definition (list, dict, or path)
-    dataset,            # Dataset (path, arrays, or config)
+    pipeline,           # Pipeline definition (list, dict, path, or list of pipelines)
+    dataset,            # Dataset (path, arrays, config, or list of datasets)
     *,
     name="",            # Pipeline name for logging
     session=None,       # Optional Session for resource sharing
@@ -51,8 +51,8 @@ result = nirs4all.run(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `pipeline` | `PipelineSpec` | Pipeline definition as list of steps, dict config, YAML path, or `PipelineConfigs` |
-| `dataset` | `DatasetSpec` | Dataset as path, numpy arrays, tuple, dict, or `DatasetConfigs` |
+| `pipeline` | `PipelineSpec` | Pipeline definition as list of steps, dict config, YAML path, `PipelineConfigs`, or **list of pipelines** |
+| `dataset` | `DatasetSpec` | Dataset as path, numpy arrays, tuple, dict, `DatasetConfigs`, or **list of datasets** |
 | `name` | `str` | Optional pipeline name for identification |
 | `session` | `Session` | Optional session for resource reuse |
 | `verbose` | `int` | Verbosity: 0=quiet, 1=info, 2=debug, 3=trace |
@@ -63,7 +63,7 @@ result = nirs4all.run(
 
 **Returns:** `RunResult` containing predictions and convenience accessors.
 
-**Example:**
+**Example - Single pipeline:**
 
 ```python
 import nirs4all
@@ -79,6 +79,34 @@ result = nirs4all.run(
 
 print(f"Best RMSE: {result.best_rmse:.4f}")
 print(f"Best R²: {result.best_r2:.4f}")
+```
+
+**Example - Multiple pipelines (batch execution):**
+
+```python
+# Define different strategies
+pipeline_pls = [MinMaxScaler(), PLSRegression(10)]
+pipeline_rf = [StandardScaler(), RandomForestRegressor()]
+
+# Run both independently
+result = nirs4all.run(
+    pipeline=[pipeline_pls, pipeline_rf],  # List of pipelines
+    dataset="sample_data/regression",
+    verbose=1
+)
+print(f"Total configurations: {result.num_predictions}")
+```
+
+**Example - Cartesian product (pipelines × datasets):**
+
+```python
+# 2 pipelines × 2 datasets = 4 runs
+result = nirs4all.run(
+    pipeline=[pipeline_pls, pipeline_rf],
+    dataset=["data/wheat", "data/corn"],
+    verbose=1
+)
+# Runs: PLS×wheat, PLS×corn, RF×wheat, RF×corn
 ```
 
 ### nirs4all.predict()
@@ -345,6 +373,9 @@ Pipeline definition accepts multiple formats:
 
 # PipelineConfigs object (backward compat)
 PipelineConfigs(steps, name="...")
+
+# List of pipelines (batch execution)
+[pipeline1, pipeline2, pipeline3]  # Each runs independently
 ```
 
 ### DatasetSpec
@@ -362,12 +393,30 @@ X  # y inferred as None
 # Dict with arrays
 {"X": X, "y": y, "metadata": meta}
 
-# Multiple datasets
-[{"X": X1, "y": y1}, {"X": X2, "y": y2}]
+# SpectroDataset instance
+SpectroDataset(...)
 
 # DatasetConfigs object (backward compat)
 DatasetConfigs("path")
+
+# List of datasets (batch execution)
+["data/wheat", "data/corn"]  # Each dataset tested
+[dataset1, dataset2]  # List of SpectroDataset instances
 ```
+
+### Batch Execution
+
+When you pass **lists** for both `pipeline` and `dataset`, `nirs4all.run()` executes the **cartesian product**:
+
+```python
+# 3 pipelines × 2 datasets = 6 runs
+result = nirs4all.run(
+    pipeline=[pipeline_a, pipeline_b, pipeline_c],
+    dataset=["data/wheat", "data/corn"]
+)
+```
+
+All results are collected into a single `RunResult` for unified analysis.
 
 ## See Also
 
