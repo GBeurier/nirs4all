@@ -551,13 +551,154 @@ Tips:
 - Use session-scoped fixtures for expensive datasets
 - Generate once, clone for modifications
 
+## Predefined Spectral Components
+
+The synthetic generator includes **31 predefined spectral components** with band assignments based on published NIR spectroscopy literature. Each component's absorption bands are modeled using Voigt profiles with accurate wavelength positions, widths, and relative intensities.
+
+### Available Components
+
+#### Water and Moisture
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `water` | Free water (H₂O) | 1450, 1940, 2500 | [1] pp. 34-36 |
+| `moisture` | Bound water in matrices | 1460, 1930 | [2] pp. 358-362 |
+
+#### Proteins and Nitrogen Compounds
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `protein` | General protein (amide, N-H) | 1510, 1680, 2050, 2180, 2300 | [1] pp. 48-52 |
+| `nitrogen_compound` | Primary/secondary amines | 1500, 2060, 2150 | [1] pp. 52-54 |
+| `urea` | CO(NH₂)₂ | 1480, 1530, 2010, 2170 | [9] p. 1125 |
+| `amino_acid` | Free amino acids | 1520, 2040, 2260 | [3] pp. 215-220 |
+
+#### Lipids and Hydrocarbons
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `lipid` | Triglycerides (C-H) | 1210, 1390, 1720, 2310, 2350 | [1] pp. 44-48 |
+| `oil` | Vegetable/mineral oils | 1165, 1215, 1410, 1725, 2140, 2305 | [4] pp. 67-72 |
+| `saturated_fat` | Saturated fatty acids | 1195, 1395, 1730, 2315, 2355 | [7] pp. 15-20 |
+| `unsaturated_fat` | Mono/polyunsaturated fats | 1160, 1400, 1720, 2145, 2175 | [7] pp. 20-25 |
+| `aromatic` | Benzene derivatives | 1145, 1685, 2150, 2440 | [1] pp. 56-58 |
+| `alkane` | Saturated hydrocarbons | 1190, 1715, 2310, 2360 | [7] pp. 10-15 |
+
+#### Carbohydrates
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `starch` | Amylose/amylopectin | 1460, 1580, 2100, 2270 | [5] pp. 155-160 |
+| `cellulose` | β-1,4-glucan chains | 1490, 1780, 2090, 2280, 2340 | [6] pp. 295-300 |
+| `glucose` | D-glucose | 1440, 1690, 2080, 2270 | [2] pp. 368-370 |
+| `fructose` | D-fructose | 1430, 1695, 2070, 2260 | [2] pp. 368-370 |
+| `sucrose` | Disaccharide | 1435, 1685, 2075, 2265 | [2] pp. 370-372 |
+| `hemicellulose` | Xylan/glucomannan | 1470, 1760, 2085, 2250 | [6] pp. 300-303 |
+| `lignin` | Aromatic polymer | 1140, 1420, 1670, 2130, 2270 | [6] pp. 303-305 |
+
+#### Alcohols
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `ethanol` | C₂H₅OH | 1410, 1580, 1695, 2050, 2290 | [1] pp. 38-40 |
+| `methanol` | CH₃OH | 1400, 1545, 1705, 2040 | [1] pp. 38-40 |
+
+#### Organic Acids
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `acetic_acid` | CH₃COOH | 1420, 1700, 1940, 2240 | [8] pp. 8-10 |
+| `citric_acid` | C₆H₈O₇ | 1440, 1920, 2060, 2260 | [4] pp. 78-80 |
+| `lactic_acid` | CH₃CH(OH)COOH | 1430, 1485, 1700, 2020, 2255 | [9] pp. 1128-1130 |
+
+#### Plant Pigments
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `chlorophyll` | Chlorophyll a/b | 1070, 1400, 1730, 2270 | [2] pp. 375-378 |
+| `carotenoid` | β-carotene, xanthophylls | 1050, 1680, 2135, 2280 | [2] pp. 378-380 |
+
+#### Pharmaceutical Compounds
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `caffeine` | C₈H₁₀N₄O₂ | 1130, 1665, 1695, 2010, 2280 | [9] pp. 1130-1132 |
+| `aspirin` | Acetylsalicylic acid | 1145, 1435, 1680, 2020, 2140 | [9] pp. 1125-1128 |
+| `paracetamol` | Acetaminophen | 1140, 1390, 1510, 1670, 2055, 2260 | [9] pp. 1132-1135 |
+
+#### Fibers
+
+| Component | Description | Key Bands (nm) | Reference |
+|-----------|-------------|----------------|-----------|
+| `cotton` | Cotton cellulose | 1200, 1494, 1780, 2100, 2280, 2345 | [6] pp. 295-298 |
+| `polyester` | PET fiber | 1140, 1660, 1720, 2015, 2130, 2255 | [1] pp. 60-62 |
+
+### Component Correlation Groups
+
+Components within the same correlation group can be configured to have correlated concentrations, reflecting real-world relationships:
+
+| Group | Components | Rationale |
+|-------|------------|-----------|
+| 1 | water, moisture | Same chemical species |
+| 2 | protein, nitrogen_compound, urea, amino_acid | Nitrogen-containing |
+| 3 | lipid, oil, saturated_fat, unsaturated_fat | Fatty materials |
+| 4 | starch, cellulose, glucose, fructose, sucrose, hemicellulose, cotton | Carbohydrates |
+| 5 | chlorophyll, carotenoid, lignin | Plant constituents |
+| 6 | aromatic, alkane | Hydrocarbons |
+| 7 | ethanol, methanol | Alcohols |
+| 8 | acetic_acid, citric_acid, lactic_acid | Organic acids |
+| 9 | caffeine, aspirin, paracetamol | Pharmaceuticals |
+| 10 | polyester | Synthetic fibers |
+
+### Usage Example
+
+```python
+from nirs4all.data.synthetic import ComponentLibrary
+
+# List all available components
+library = ComponentLibrary.from_predefined()
+print(f"Available components: {library.component_names}")
+# ['water', 'moisture', 'protein', 'nitrogen_compound', 'urea', ...]
+
+# Create library with agricultural components
+agri_library = ComponentLibrary.from_predefined([
+    "water", "protein", "starch", "cellulose", "oil", "chlorophyll"
+])
+
+# Create library with pharmaceutical components
+pharma_library = ComponentLibrary.from_predefined([
+    "water", "starch", "cellulose", "caffeine", "aspirin", "paracetamol"
+])
+
+# Create library with beverage components
+beverage_library = ComponentLibrary.from_predefined([
+    "water", "ethanol", "glucose", "fructose", "citric_acid", "caffeine"
+])
+```
+
 ## References
 
-1. Workman Jr, J., & Weyer, L. (2012). *Practical Guide and Spectral Atlas for Interpretive Near-Infrared Spectroscopy*. CRC Press.
+The predefined spectral components are based on established NIR spectroscopy literature:
 
-2. Burns, D. A., & Ciurczak, E. W. (2007). *Handbook of Near-Infrared Analysis*. CRC Press.
+1. Workman Jr, J., & Weyer, L. (2012). *Practical Guide and Spectral Atlas for Interpretive Near-Infrared Spectroscopy* (2nd ed.). CRC Press. — Comprehensive NIR band assignments and spectral atlas.
 
-3. NIR band assignments based on spectroscopic databases and published literature.
+2. Burns, D. A., & Ciurczak, E. W. (Eds.). (2007). *Handbook of Near-Infrared Analysis* (3rd ed.). CRC Press. — Theory and applications of NIR spectroscopy.
+
+3. Siesler, H. W., Ozaki, Y., Kawata, S., & Heise, H. M. (Eds.). (2002). *Near-Infrared Spectroscopy: Principles, Instruments, Applications*. Wiley-VCH. — Detailed overtone/combination band theory.
+
+4. Osborne, B. G., Fearn, T., & Hindle, P. H. (1993). *Practical NIR Spectroscopy with Applications in Food and Beverage Analysis* (2nd ed.). Longman Scientific & Technical. — Food and agricultural applications.
+
+5. Williams, P. C., & Norris, K. H. (Eds.). (2001). *Near-Infrared Technology in the Agricultural and Food Industries* (2nd ed.). AACC International. — Band assignments for agricultural commodities.
+
+6. Schwanninger, M., Rodrigues, J. C., & Fackler, K. (2011). A Review of Band Assignments in Near Infrared Spectra of Wood and Wood Components. *Journal of Near Infrared Spectroscopy*, 19(5), 287-308. — Comprehensive wood/cellulose band assignments.
+
+7. Murray, I. (1986). The NIR Spectra of Homologous Series of Organic Compounds. In P. C. Williams & K. H. Norris (Eds.), *Near-Infrared Technology in the Agricultural and Food Industries*. AACC. — Fundamental hydrocarbon and alcohol band positions.
+
+8. Bokobza, L. (1998). Near Infrared Spectroscopy. *Journal of Near Infrared Spectroscopy*, 6(1), 3-17. — Review of NIR fundamentals and band assignments.
+
+9. Reich, G. (2005). Near-Infrared Spectroscopy and Imaging: Basic Principles and Pharmaceutical Applications. *Advanced Drug Delivery Reviews*, 57(8), 1109-1143. — Pharmaceutical compound band assignments.
+
+10. Blanco, M., & Villarroya, I. (2002). NIR Spectroscopy: A Rapid-Response Analytical Tool. *TrAC Trends in Analytical Chemistry*, 21(4), 240-250. — Review of NIR applications and typical band positions.
 
 ## See Also
 

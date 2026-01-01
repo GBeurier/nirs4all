@@ -19,6 +19,31 @@ jobs:
         os: [ubuntu-latest, windows-latest]  # , macos-latest --- macos timeout issues
         python-version: ['3.11', '3.13']
     steps:
+      - name: Free disk space (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          echo "=== Initial disk space ==="
+          df -h /
+          echo "=== Removing unnecessary tools ==="
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /opt/hostedtoolcache/go
+          sudo rm -rf /opt/hostedtoolcache/Ruby
+          sudo rm -rf /opt/hostedtoolcache/node
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /usr/local/share/edge_driver
+          sudo rm -rf /usr/local/share/gecko_driver
+          sudo rm -rf /usr/local/share/chromedriver-linux64
+          sudo rm -rf /opt/microsoft
+          sudo docker image prune --all --force
+          sudo apt-get clean
+          echo "=== Final disk space ==="
+          df -h /
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
