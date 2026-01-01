@@ -185,7 +185,7 @@ The simplest way to run a pipeline:
 
 ```python
 result = nirs4all.run(
-    pipeline=pipeline,           # List of steps
+    pipeline=pipeline,           # List of steps (or list of pipelines)
     dataset=dataset,             # See below for supported formats
     name="MyPipeline",           # Pipeline name
     verbose=1,                   # 0=silent, 1=progress, 2=debug
@@ -195,18 +195,46 @@ result = nirs4all.run(
 )
 ```
 
+### Supported Pipeline Formats
+
+The `pipeline` parameter accepts:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| List of steps | `[MinMaxScaler(), PLSRegression()]` | Single pipeline |
+| Dict config | `{"pipeline": [...]}` | Dict with steps |
+| Path to config | `"config.yaml"` or `"config.json"` | Load from file |
+| `PipelineConfigs` | `PipelineConfigs(steps)` | Direct config object |
+| **List of pipelines** | `[pipeline1, pipeline2, ...]` | Run each independently |
+
 ### Supported Dataset Formats
 
-The `dataset` parameter accepts multiple formats:
+The `dataset` parameter accepts:
 
-| Format | Example |
-|--------|----------|
-| Path to folder | `"sample_data/regression"` |
-| Numpy arrays | `(X, y)` or `X` alone |
-| Dict with arrays | `{"X": X, "y": y, "metadata": meta}` |
-| `SpectroDataset` | Direct dataset instance |
-| `List[SpectroDataset]` | Multiple datasets for multi-dataset runs |
-| `DatasetConfigs` | Full configuration object |
+| Format | Example | Description |
+|--------|---------|-------------|
+| Path to folder | `"sample_data/regression"` | Auto-load from folder |
+| Numpy arrays | `(X, y)` or `X` alone | Direct arrays |
+| Dict with arrays | `{"X": X, "y": y, "metadata": meta}` | Dict with data |
+| `SpectroDataset` | Direct dataset instance | Pre-built dataset |
+| `DatasetConfigs` | Full configuration object | Complete config |
+| **List of datasets** | `[dataset1, dataset2, ...]` | Run on each dataset |
+
+### Batch Execution: Pipelines × Datasets
+
+When you provide **multiple pipelines** and/or **multiple datasets**, `nirs4all.run()` executes the **cartesian product**:
+
+```python
+# 2 pipelines × 2 datasets = 4 runs
+result = nirs4all.run(
+    pipeline=[pipeline_a, pipeline_b],
+    dataset=["data/wheat", "data/corn"],
+    verbose=1
+)
+# Runs: pipeline_a×wheat, pipeline_a×corn, pipeline_b×wheat, pipeline_b×corn
+```
+
+All results are collected into a single `RunResult` for unified analysis.
 
 For more control, use `PipelineRunner` directly:
 

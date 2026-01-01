@@ -222,6 +222,58 @@ for pred in result.top(n=5, display_metrics=['rmse', 'r2']):
     print(f"{pred['model_name']}: RMSE={pred['rmse']:.4f}")
 ```
 
+## Run Multiple Pipelines at Once
+
+Pass a list of pipelines to execute them all independently:
+
+```python
+# Define different pipeline strategies
+pipeline_pls = [
+    MinMaxScaler(),
+    ShuffleSplit(n_splits=3),
+    {"model": PLSRegression(n_components=10)}
+]
+
+pipeline_rf = [
+    StandardScaler(),
+    ShuffleSplit(n_splits=3),
+    {"model": RandomForestRegressor(n_estimators=100)}
+]
+
+pipeline_ridge = [
+    MinMaxScaler(),
+    FirstDerivative(),
+    ShuffleSplit(n_splits=3),
+    {"model": Ridge(alpha=1.0)}
+]
+
+# Run all three pipelines with one call
+result = nirs4all.run(
+    pipeline=[pipeline_pls, pipeline_rf, pipeline_ridge],  # List of pipelines
+    dataset="sample_data/regression",
+    verbose=1
+)
+
+print(f"Total configurations tested: {result.num_predictions}")
+print(f"Best RMSE: {result.best_rmse:.4f}")
+```
+
+## Run on Multiple Datasets
+
+Test the same pipeline(s) across different datasets:
+
+```python
+# Cartesian product: each pipeline × each dataset
+result = nirs4all.run(
+    pipeline=[pipeline_pls, pipeline_rf],   # 2 pipelines
+    dataset=["data/wheat", "data/corn"],    # 2 datasets
+    verbose=1
+)
+# Runs 4 combinations: PLS×wheat, PLS×corn, RF×wheat, RF×corn
+
+print(f"Tested {result.num_predictions} configurations")
+```
+
 ## Visualize Results
 
 Create publication-quality visualizations:
