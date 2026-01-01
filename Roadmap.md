@@ -76,7 +76,8 @@ Create the example synth pipelines x synth datasets for testing purpose
 
 > [Optuna] Integrate complex params setters: Stack (sklearn stacking model), Nested_dict (TABPFN inference params)
 > [Optuna] Add pruner (test BOHB ou successive halving pruner). Simplify force params in model to reuse best_params from older runs, review the syntax
-> [Optuna] Allows complex scenarios (random X trials then TPE X trials)
+> [Optuna] Allow complex scenarios (random X trials then TPE X trials)
+> [Optuna] Allow sampling on training params not only finetune/model params
 
 > [Operators] Reintroduce operators tests (cf. pinard for TransformerMixin) _ add data aug operators en masse.
 

@@ -256,18 +256,74 @@ dataset = nirs4all.generate(complexity="complex", n_samples=1000)
 
 ### Predefined Components
 
-Available spectral components based on known NIR band assignments:
+The generator includes **31 predefined spectral components** with physically-accurate NIR band assignments based on published spectroscopy literature. Use these directly or as building blocks for custom scenarios.
 
+**Water & Moisture:**
 | Component | Key Bands (nm) | Description |
 |-----------|----------------|-------------|
-| `"water"` | 1450, 1940, 2500 | O-H overtones and combinations |
-| `"protein"` | 1510, 1680, 2050, 2180 | N-H and C-H bonds |
-| `"lipid"` | 1210, 1390, 1720, 2310 | C-H stretching |
-| `"starch"` | 1460, 1580, 2100, 2270 | O-H and C-O combinations |
-| `"cellulose"` | 1490, 1780, 2090, 2280 | Cellulose fingerprint |
-| `"chlorophyll"` | 1070, 1400, 2270 | Plant pigments |
-| `"oil"` | 1165, 1725, 2305 | Unsaturated C-H |
-| `"nitrogen_compound"` | 1500, 2060, 2150 | N-H combinations |
+| `"water"` | 1450, 1940, 2500 | Free water O-H overtones |
+| `"moisture"` | 1460, 1930 | Bound water in organic matrices |
+
+**Proteins & Nitrogen Compounds:**
+| Component | Key Bands (nm) | Description |
+|-----------|----------------|-------------|
+| `"protein"` | 1510, 1680, 2050, 2180 | Amide N-H and aromatic C-H |
+| `"nitrogen_compound"` | 1500, 2060, 2150 | Primary/secondary amines |
+| `"urea"` | 1480, 1530, 2010, 2170 | Urea CO(NH₂)₂ |
+| `"amino_acid"` | 1520, 2040, 2260 | Free amino acids |
+
+**Lipids & Hydrocarbons:**
+| Component | Key Bands (nm) | Description |
+|-----------|----------------|-------------|
+| `"lipid"` | 1210, 1390, 1720, 2310 | Triglyceride C-H stretching |
+| `"oil"` | 1165, 1725, 2305 | Vegetable/mineral oils |
+| `"saturated_fat"` | 1195, 1730, 2315 | Saturated fatty acids |
+| `"unsaturated_fat"` | 1160, 1720, 2145 | Mono/polyunsaturated fats (=C-H) |
+| `"aromatic"` | 1145, 1685, 2150 | Benzene derivatives |
+| `"alkane"` | 1190, 1715, 2310 | Saturated hydrocarbons |
+
+**Carbohydrates:**
+| Component | Key Bands (nm) | Description |
+|-----------|----------------|-------------|
+| `"starch"` | 1460, 1580, 2100, 2270 | Amylose/amylopectin |
+| `"cellulose"` | 1490, 1780, 2090, 2280 | β-1,4-glucan chains |
+| `"glucose"` | 1440, 1690, 2080, 2270 | D-glucose monosaccharide |
+| `"fructose"` | 1430, 1695, 2070 | D-fructose (fruit sugar) |
+| `"sucrose"` | 1435, 1685, 2075 | Disaccharide (table sugar) |
+| `"hemicellulose"` | 1470, 1760, 2085 | Xylan/glucomannan |
+| `"lignin"` | 1140, 1420, 1670, 2130 | Aromatic plant polymer |
+
+**Alcohols:**
+| Component | Key Bands (nm) | Description |
+|-----------|----------------|-------------|
+| `"ethanol"` | 1410, 1580, 1695, 2050 | Ethanol C₂H₅OH |
+| `"methanol"` | 1400, 1545, 1705, 2040 | Methanol CH₃OH |
+
+**Organic Acids:**
+| Component | Key Bands (nm) | Description |
+|-----------|----------------|-------------|
+| `"acetic_acid"` | 1420, 1700, 1940 | Acetic acid CH₃COOH |
+| `"citric_acid"` | 1440, 1920, 2060 | Citric acid (fruit acids) |
+| `"lactic_acid"` | 1430, 1485, 1700, 2020 | Lactic acid |
+
+**Plant Pigments:**
+| Component | Key Bands (nm) | Description |
+|-----------|----------------|-------------|
+| `"chlorophyll"` | 1070, 1400, 1730, 2270 | Chlorophyll a/b |
+| `"carotenoid"` | 1050, 1680, 2135 | β-carotene, xanthophylls |
+
+**Pharmaceuticals:**
+| Component | Key Bands (nm) | Description |
+|-----------|----------------|-------------|
+| `"caffeine"` | 1130, 1665, 1695, 2010 | Caffeine C₈H₁₀N₄O₂ |
+| `"aspirin"` | 1145, 1435, 1680, 2020 | Acetylsalicylic acid |
+| `"paracetamol"` | 1140, 1390, 1510, 1670 | Acetaminophen |
+
+**Fibers:**
+| Component | Key Bands (nm) | Description |
+|-----------|----------------|-------------|
+| `"cotton"` | 1200, 1494, 1780, 2100 | Cotton cellulose fiber |
+| `"polyester"` | 1140, 1660, 1720, 2015 | PET synthetic fiber |
 
 ```python
 # Use specific components
@@ -275,6 +331,15 @@ dataset = nirs4all.generate(
     components=["water", "protein", "lipid"],
     n_samples=1000
 )
+
+# List all available components
+from nirs4all.data.synthetic import ComponentLibrary
+library = ComponentLibrary.from_predefined()
+print(library.component_names)  # All 29 component names
+```
+
+```{seealso}
+For detailed band assignments with literature references, see {doc}`/developer/synthetic`.
 ```
 
 ### Concentration Distributions

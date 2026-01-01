@@ -384,19 +384,28 @@ class PLSSolvedHead(nn.Module):
             W_list = []
             Zr = Zc
             Yr = Yc
-            r = min(self.n_components, Zc.shape[1], Zc.shape[0] - 1)
+            r = min(self.n_components, Zc.shape[1], max(1, Zc.shape[0] - 1))
 
             for _ in range(r):
                 C = Zr.T @ Yr  # (D, m)
                 c = C.sum(dim=1)  # (D,) - sum across targets
-                w = c / (torch.norm(c) + self.eps)
+                norm_c = torch.norm(c)
+                if norm_c < self.eps:
+                    # Degenerate case: stop early
+                    break
+                w = c / (norm_c + self.eps)
                 t = Zr @ w[:, None]  # (B, 1)
                 # Deflation (X only)
                 p = (Zr.T @ t) / (t.T @ t + self.eps)  # (D, 1)
                 Zr = Zr - t @ p.T
                 W_list.append(w)
 
-            W = torch.stack(W_list, dim=1)  # (D, r)
+            if len(W_list) == 0:
+                # Fallback: use identity-like projection
+                W = torch.eye(Zc.shape[1], min(self.n_components, Zc.shape[1]),
+                             device=Zc.device, dtype=Zc.dtype)
+            else:
+                W = torch.stack(W_list, dim=1)  # (D, r)
         else:
             raise ValueError(f"Unknown mode={self.mode}")
 
@@ -427,14 +436,40 @@ class FCKPLSTorchModel(nn.Module):
         n_components: int = 10,
         ridge_lambda: float = 1e-3,
         pls_mode: str = "deflation",  # deflation works for single-target, svd only for multi-target
+        feature_mode: Literal["interleaved", "concatenated"] = "interleaved",
     ):
         super().__init__()
         self.extractor = extractor
+        self.feature_mode = feature_mode
         self.head = PLSSolvedHead(
             n_components=n_components,
             ridge_lambda=ridge_lambda,
             mode=pls_mode,
         )
+
+    def flatten_features(self, Z: torch.Tensor) -> torch.Tensor:
+        """
+        Flatten conv features according to feature_mode.
+
+        Args:
+            Z: (B, K, L) convolved features - K kernels, L wavelengths
+
+        Returns:
+            Zf: (B, K*L) flattened features
+
+        Modes:
+            - "interleaved": wavelength-major order [k0_w0, k1_w0, ..., kK-1_w0, k0_w1, ...]
+              Groups all kernel responses at each wavelength position together.
+              Better for PLS as it preserves local spectral structure.
+            - "concatenated": kernel-major order [k0_w0, k0_w1, ..., k0_wL-1, k1_w0, ...]
+              All responses from kernel 0, then kernel 1, etc.
+        """
+        if self.feature_mode == "interleaved":
+            # (B, K, L) -> (B, L, K) -> (B, L*K)
+            return Z.permute(0, 2, 1).flatten(1)
+        else:  # concatenated
+            # (B, K, L) -> (B, K*L)
+            return Z.flatten(1)
 
     def forward(
         self,
@@ -450,7 +485,7 @@ class FCKPLSTorchModel(nn.Module):
             Z: raw conv features (for analysis)
         """
         Z = self.extractor(X)  # (B, K, L)
-        Zf = Z.flatten(1)  # (B, K*L)
+        Zf = self.flatten_features(Z)  # (B, K*L) or (B, L*K) depending on mode
         Yhat, aux = self.head(Zf, Y)
         return Yhat, aux, Z
 
@@ -515,6 +550,10 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
         Ridge regularization for PLS regression
     pls_mode : str, default="deflation"
         "deflation" (works for single-target) or "svd" (multi-target only)
+    feature_mode : str, default="interleaved"
+        How to arrange flattened features:
+        - "interleaved": wavelength-major order, groups kernel responses per wavelength
+        - "concatenated": kernel-major order, all of kernel 0 then kernel 1, etc.
     init_mode : str, default="random"
         Kernel initialization: "random", "derivative", "fractional" (v1 only)
     alpha_max : float, default=2.0
@@ -540,6 +579,7 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
         n_components: int = 10,
         ridge_lambda: float = 1e-3,
         pls_mode: str = "deflation",  # deflation for single-target, svd for multi-target
+        feature_mode: Literal["interleaved", "concatenated"] = "interleaved",
         # v1 params
         init_mode: str = "random",
         # v2 params
@@ -556,6 +596,7 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
         self.n_components = n_components
         self.ridge_lambda = ridge_lambda
         self.pls_mode = pls_mode
+        self.feature_mode = feature_mode
         self.init_mode = init_mode
         self.alpha_max = alpha_max
         self.tau = tau
@@ -573,6 +614,13 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
         self.n_targets_: Optional[int] = None
         self._y_1d: bool = False
         self.training_history_: List[Dict[str, float]] = []
+
+    def _flatten_features(self, Z: torch.Tensor) -> torch.Tensor:
+        """Flatten features according to feature_mode (for use during training)."""
+        if self.feature_mode == "interleaved":
+            return Z.permute(0, 2, 1).flatten(1)  # (B, K, L) -> (B, L, K) -> (B, L*K)
+        else:
+            return Z.flatten(1)  # (B, K, L) -> (B, K*L)
 
     def _build_extractor(self) -> nn.Module:
         if self.version == "v1":
@@ -683,11 +731,11 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
             opt.zero_grad(set_to_none=True)
 
             # Forward on TRAIN data - fit PLS head
-            Z_train = extractor(Xt_train).flatten(1)
+            Z_train = self._flatten_features(extractor(Xt_train))
             yhat_train, aux = head(Z_train, yt_train)
 
             # Forward on VAL data using TRAIN's PLS solution
-            Z_val = extractor(Xt_val).flatten(1)
+            Z_val = self._flatten_features(extractor(Xt_val))
             z_mean = aux['z_mean']
             y_mean = aux['y_mean']
             W = aux['W']
@@ -740,6 +788,7 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
             n_components=self.n_components,
             ridge_lambda=self.ridge_lambda,
             pls_mode=self.pls_mode,
+            feature_mode=self.feature_mode,
         ).to(device)
 
         self.model_ = model.eval()
@@ -754,7 +803,7 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
         with torch.no_grad():
             model = self.model_
             Z = model.extractor(Xt)
-            Zf = Z.flatten(1)
+            Zf = model.flatten_features(Z)
             _, aux = model.head(Zf, yt)
 
             self.head_cache_ = {
@@ -793,7 +842,7 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
 
         cache = self.head_cache_
         Z = self.model_.extractor(Xt)
-        Zf = Z.flatten(1)
+        Zf = self.model_.flatten_features(Z)
 
         Zc = Zf - cache["z_mean"]
         T = Zc @ cache["W"]
@@ -834,7 +883,7 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
 
         cache = self.head_cache_
         Z = self.model_.extractor(Xt)
-        Zf = Z.flatten(1)
+        Zf = self.model_.flatten_features(Z)
 
         Zc = Zf - cache["z_mean"]
         T = Zc @ cache["W"]
@@ -869,6 +918,7 @@ class FCKPLSTorch(BaseEstimator, RegressorMixin, TransformerMixin):
             "n_components": self.n_components,
             "ridge_lambda": self.ridge_lambda,
             "pls_mode": self.pls_mode,
+            "feature_mode": self.feature_mode,
             "init_mode": self.init_mode,
             "alpha_max": self.alpha_max,
             "tau": self.tau,
@@ -932,3 +982,228 @@ def create_fckpls_v2(
         train_cfg=cfg,
         **kwargs,
     )
+
+
+# =============================================================================
+# nirs4all-compatible Module Wrapper
+# =============================================================================
+
+class FCKPLSModule(nn.Module):
+    """
+    nirs4all-compatible FCK-PLS module.
+
+    This wrapper makes FCK-PLS compatible with nirs4all's PyTorchModelController
+    by providing a standard forward(x) interface while internally managing the
+    PLS computation that requires Y.
+
+    The model has two modes:
+    - Training: Expects set_targets(y) to be called before forward(x)
+    - Inference: Uses cached PLS parameters from the last training batch
+
+    Parameters
+    ----------
+    input_shape : tuple
+        Shape of input (channels, sequence_length) for spectral data
+    params : dict
+        Configuration parameters:
+        - version: "v1" or "v2" (default: "v1")
+        - n_kernels: number of conv kernels (default: 16)
+        - kernel_size: size of each kernel (default: 31)
+        - n_components: PLS components (default: 10)
+        - ridge_lambda: ridge regularization (default: 1e-3)
+        - pls_mode: "deflation" or "svd" (default: "deflation")
+        - feature_mode: "interleaved" or "concatenated" (default: "interleaved")
+        - init_mode: kernel init for v1 (default: "random")
+        - alpha_max: max fractional order for v2 (default: 2.0)
+        - tau: smoothness for v2 (default: 1.0)
+    num_classes : int
+        Number of output targets (default: 1 for regression)
+    """
+
+    def __init__(
+        self,
+        input_shape: Tuple[int, int],
+        params: Optional[Dict[str, Any]] = None,
+        num_classes: int = 1,
+    ):
+        super().__init__()
+        params = params or {}
+
+        self.input_shape = input_shape
+        self.num_classes = num_classes
+
+        # Extract parameters
+        version = params.get("version", "v1")
+        n_kernels = params.get("n_kernels", 16)
+        kernel_size = params.get("kernel_size", 31)
+        n_components = params.get("n_components", 10)
+        ridge_lambda = params.get("ridge_lambda", 1e-3)
+        pls_mode = params.get("pls_mode", "deflation")
+        feature_mode = params.get("feature_mode", "interleaved")
+        init_mode = params.get("init_mode", "random")
+        alpha_max = params.get("alpha_max", 2.0)
+        tau = params.get("tau", 1.0)
+
+        # Store feature mode for flattening
+        self.feature_mode = feature_mode
+
+        # Build extractor
+        if version == "v1":
+            self.extractor = LearnableKernelBank(
+                n_kernels=n_kernels,
+                kernel_size=kernel_size,
+                init_mode=init_mode,
+            )
+        else:  # v2
+            self.extractor = FractionalKernelBank(
+                n_kernels=n_kernels,
+                kernel_size=kernel_size,
+                alpha_max=alpha_max,
+                tau=tau,
+            )
+
+        # PLS head
+        self.head = PLSSolvedHead(
+            n_components=n_components,
+            ridge_lambda=ridge_lambda,
+            mode=pls_mode,
+        )
+
+        # Cache for inference
+        self._head_cache: Optional[Dict[str, torch.Tensor]] = None
+        self._current_targets: Optional[torch.Tensor] = None
+
+        # Store params for regularization (version-specific)
+        self._version = version
+        if version == "v1":
+            self._reg_params = {
+                "smooth_w": params.get("reg_smooth", 1e-3),
+                "zeromean_w": params.get("reg_zeromean", 1e-3),
+                "l2_w": params.get("reg_l2", 0.0),
+            }
+        else:  # v2
+            self._reg_params = {
+                "alpha_w": params.get("alpha_w", 1e-4),
+                "sigma_w": params.get("sigma_w", 1e-4),
+            }
+
+    def set_targets(self, y: torch.Tensor) -> None:
+        """Set targets for the next forward pass (training mode)."""
+        self._current_targets = y
+
+    def flatten_features(self, Z: torch.Tensor) -> torch.Tensor:
+        """Flatten features according to feature_mode."""
+        if self.feature_mode == "interleaved":
+            return Z.permute(0, 2, 1).flatten(1)  # (B, K, L) -> (B, L, K) -> (B, L*K)
+        else:
+            return Z.flatten(1)  # (B, K, L) -> (B, K*L)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass compatible with nirs4all's training loop.
+
+        During training (when targets are set via set_targets()):
+            Computes PLS and returns predictions.
+
+        During inference (eval mode with cached parameters):
+            Uses cached PLS parameters for prediction.
+        """
+        # Handle 3D input (N, C, L) - extract features
+        if x.ndim == 2:
+            # (N, L) -> (N, 1, L) for conv
+            x = x.unsqueeze(1)
+
+        # Apply convolutional feature extraction
+        Z = self.extractor(x[:, 0, :] if x.shape[1] == 1 else x.mean(dim=1))  # (B, K, L)
+        Zf = self.flatten_features(Z)
+
+        if self.training and self._current_targets is not None:
+            # Training mode: compute PLS with current targets
+            Y = self._current_targets
+            if Y.ndim == 1:
+                Y = Y.unsqueeze(1)
+
+            Yhat, aux = self.head(Zf, Y)
+            self._head_cache = {k: v.detach().clone() for k, v in aux.items()}
+            return Yhat
+
+        elif self._head_cache is not None:
+            # Inference mode: use cached parameters
+            W = self._head_cache["W"]
+            B = self._head_cache["B"]
+            z_mean = self._head_cache["z_mean"]
+            y_mean = self._head_cache["y_mean"]
+
+            Zc = Zf - z_mean
+            T = Zc @ W
+            Yhat = T @ B + y_mean
+            return Yhat
+
+        else:
+            # No cache available - return zeros (shouldn't happen in normal use)
+            warnings.warn("FCKPLSModule: No cached parameters available for inference")
+            return torch.zeros(x.shape[0], self.num_classes, device=x.device, dtype=x.dtype)
+
+    def kernel_regularization(self) -> torch.Tensor:
+        """Compute kernel regularization loss."""
+        return self.extractor.kernel_regularization(**self._reg_params)
+
+    def get_kernels(self) -> np.ndarray:
+        """Get learned kernels as numpy array."""
+        return self.extractor.get_kernels()
+
+
+# =============================================================================
+# nirs4all Factory Functions
+# =============================================================================
+
+try:
+    from nirs4all.utils import framework
+
+    @framework("pytorch")
+    def fckpls(input_shape: Tuple[int, int], params: Optional[Dict[str, Any]] = None) -> FCKPLSModule:
+        """
+        FCK-PLS model factory for nirs4all (regression).
+
+        Creates a Fractional Convolutional Kernel PLS model compatible with
+        nirs4all's pipeline system.
+
+        Args:
+            input_shape: (channels, sequence_length) tuple
+            params: Configuration dict with keys:
+                - version: "v1" (learnable kernels) or "v2" (alpha/sigma parametric)
+                - n_kernels: number of convolution kernels (default: 16)
+                - kernel_size: kernel size (default: 31)
+                - n_components: PLS components (default: 10)
+                - ridge_lambda: ridge regularization (default: 1e-3)
+                - pls_mode: "deflation" or "svd" (default: "deflation")
+                - init_mode: kernel initialization for v1 (default: "random")
+                - alpha_max: max fractional order for v2 (default: 2.0)
+
+        Returns:
+            FCKPLSModule compatible with nirs4all's PyTorchModelController
+        """
+        return FCKPLSModule(input_shape, params or {}, num_classes=1)
+
+    @framework("pytorch")
+    def fckpls_v1(input_shape: Tuple[int, int], params: Optional[Dict[str, Any]] = None) -> FCKPLSModule:
+        """FCK-PLS V1 with learnable free kernels (regression)."""
+        p = dict(params or {})
+        p["version"] = "v1"
+        return FCKPLSModule(input_shape, p, num_classes=1)
+
+    @framework("pytorch")
+    def fckpls_v2(input_shape: Tuple[int, int], params: Optional[Dict[str, Any]] = None) -> FCKPLSModule:
+        """FCK-PLS V2 with alpha/sigma parametric kernels (regression)."""
+        p = dict(params or {})
+        p["version"] = "v2"
+        return FCKPLSModule(input_shape, p, num_classes=1)
+
+    # Note: Classification variants are not provided because PLS is inherently
+    # a regression method. For PLS-DA (Discriminant Analysis), the output
+    # needs additional thresholding/classification layers which would require
+    # a different architecture.
+
+except ImportError:
+    # nirs4all not available - skip factory function registration
+    pass
