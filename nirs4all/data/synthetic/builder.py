@@ -36,7 +36,7 @@ from .config import (
 )
 from ._constants import DEFAULT_WAVELENGTH_START, DEFAULT_WAVELENGTH_END, DEFAULT_WAVELENGTH_STEP
 from .metadata import MetadataGenerator, MetadataGenerationResult
-from .targets import TargetGenerator
+from .targets import TargetGenerator, NonLinearTargetProcessor, NonLinearTargetConfig
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -98,6 +98,24 @@ class BuilderState:
     # Output configuration
     as_dataset: bool = True
     include_metadata: bool = False
+
+    # === Proposition 1: Non-linear interactions ===
+    nonlinear_interactions: Literal["none", "polynomial", "synergistic", "antagonistic"] = "none"
+    interaction_strength: float = 0.5  # 0 = linear, 1 = strong non-linearity
+    hidden_factors: int = 0  # Latent variables affecting y but not spectra
+    polynomial_degree: int = 2  # Degree for polynomial interactions
+
+    # === Proposition 2: Spectral-target decoupling / confounders ===
+    signal_to_confound_ratio: float = 1.0  # 1.0 = fully predictable, 0.5 = 50% predictable
+    n_confounders: int = 0  # Variables affecting both spectra and target differently
+    spectral_masking: float = 0.0  # Fraction of signal hidden in noisy regions
+    temporal_drift: bool = False  # Target relationship changes over samples
+
+    # === Proposition 3: Multi-regime target landscapes ===
+    n_regimes: int = 1  # Number of different relationship regimes
+    regime_method: Literal["concentration", "spectral", "random"] = "concentration"
+    regime_overlap: float = 0.2  # Overlap between regimes (transition zones)
+    noise_heteroscedasticity: float = 0.0  # Noise varies by regime (0 = homoscedastic)
 
     # Cached generated data
     _X: Optional[np.ndarray] = field(default=None, repr=False)
@@ -485,6 +503,160 @@ class SyntheticDatasetBuilder:
         self.state.n_batches = n_batches
         return self
 
+    def with_nonlinear_targets(
+        self,
+        *,
+        interactions: Literal["none", "polynomial", "synergistic", "antagonistic"] = "polynomial",
+        interaction_strength: float = 0.5,
+        hidden_factors: int = 0,
+        polynomial_degree: int = 2,
+    ) -> SyntheticDatasetBuilder:
+        """
+        Configure non-linear relationships between concentrations and targets.
+
+        This introduces non-linear mixture effects that make targets harder to
+        predict with simple linear models, simulating real chemical interactions.
+
+        Args:
+            interactions: Type of non-linear interaction:
+                - "none": Pure linear relationship (default behavior).
+                - "polynomial": Include terms like C1², C1×C2, etc.
+                - "synergistic": Non-additive effects where combinations enhance target.
+                - "antagonistic": Saturation/inhibition (Michaelis-Menten-like).
+            interaction_strength: Blend factor between linear and non-linear.
+                0 = purely linear, 1 = fully non-linear. Default 0.5.
+            hidden_factors: Number of latent variables that affect target but have
+                NO spectral signature. Forces models to learn robust features.
+            polynomial_degree: Maximum degree for polynomial interactions (2 or 3).
+
+        Returns:
+            Self for method chaining.
+
+        Example:
+            >>> # Make targets require non-linear models
+            >>> builder.with_nonlinear_targets(
+            ...     interactions="polynomial",
+            ...     interaction_strength=0.7,
+            ...     hidden_factors=2
+            ... )
+        """
+        if interaction_strength < 0 or interaction_strength > 1:
+            raise ValueError(f"interaction_strength must be in [0, 1], got {interaction_strength}")
+        if polynomial_degree not in (2, 3):
+            raise ValueError(f"polynomial_degree must be 2 or 3, got {polynomial_degree}")
+        if hidden_factors < 0:
+            raise ValueError(f"hidden_factors must be >= 0, got {hidden_factors}")
+
+        self.state.nonlinear_interactions = interactions
+        self.state.interaction_strength = interaction_strength
+        self.state.hidden_factors = hidden_factors
+        self.state.polynomial_degree = polynomial_degree
+        return self
+
+    def with_target_complexity(
+        self,
+        *,
+        signal_to_confound_ratio: float = 0.7,
+        n_confounders: int = 2,
+        spectral_masking: float = 0.0,
+        temporal_drift: bool = False,
+    ) -> SyntheticDatasetBuilder:
+        """
+        Configure spectral-target decoupling and confounding effects.
+
+        This introduces factors that make the target only partially predictable
+        from spectral features, simulating real-world irreducible error.
+
+        Args:
+            signal_to_confound_ratio: Proportion of target variance explainable
+                from spectra. 1.0 = fully predictable, 0.5 = 50% unexplainable.
+                Default 0.7 (70% predictable).
+            n_confounders: Number of confounding variables that affect both
+                spectra and target in different ways. Default 2.
+            spectral_masking: Fraction of predictive signal hidden in high-noise
+                wavelength regions (0.0-0.5). Default 0.0.
+            temporal_drift: If True, the target-spectra relationship gradually
+                changes across samples, testing model robustness.
+
+        Returns:
+            Self for method chaining.
+
+        Example:
+            >>> # Add realistic confounding
+            >>> builder.with_target_complexity(
+            ...     signal_to_confound_ratio=0.6,
+            ...     n_confounders=3,
+            ...     temporal_drift=True
+            ... )
+        """
+        if signal_to_confound_ratio < 0 or signal_to_confound_ratio > 1:
+            raise ValueError(
+                f"signal_to_confound_ratio must be in [0, 1], got {signal_to_confound_ratio}"
+            )
+        if spectral_masking < 0 or spectral_masking > 0.5:
+            raise ValueError(f"spectral_masking must be in [0, 0.5], got {spectral_masking}")
+        if n_confounders < 0:
+            raise ValueError(f"n_confounders must be >= 0, got {n_confounders}")
+
+        self.state.signal_to_confound_ratio = signal_to_confound_ratio
+        self.state.n_confounders = n_confounders
+        self.state.spectral_masking = spectral_masking
+        self.state.temporal_drift = temporal_drift
+        return self
+
+    def with_complex_target_landscape(
+        self,
+        *,
+        n_regimes: int = 3,
+        regime_method: Literal["concentration", "spectral", "random"] = "concentration",
+        regime_overlap: float = 0.2,
+        noise_heteroscedasticity: float = 0.5,
+    ) -> SyntheticDatasetBuilder:
+        """
+        Configure multi-regime target landscapes with spatially-varying relationships.
+
+        This creates regions in feature space where the target-spectra relationship
+        differs, simulating subpopulations like ripe/unripe fruit or healthy/diseased.
+
+        Args:
+            n_regimes: Number of different relationship regimes. Default 3.
+            regime_method: How to partition samples into regimes:
+                - "concentration": Regimes based on concentration space clustering.
+                - "spectral": Regimes based on spectral feature patterns.
+                - "random": Random regime assignment (baseline difficulty).
+            regime_overlap: Overlap between regimes creating transition zones.
+                0 = hard boundaries, 0.5 = smooth transitions. Default 0.2.
+            noise_heteroscedasticity: How much prediction noise varies by regime.
+                0 = same noise everywhere, 1 = very different noise levels.
+                Default 0.5.
+
+        Returns:
+            Self for method chaining.
+
+        Example:
+            >>> # Create challenging multi-regime landscape
+            >>> builder.with_complex_target_landscape(
+            ...     n_regimes=4,
+            ...     regime_method="concentration",
+            ...     regime_overlap=0.3,
+            ...     noise_heteroscedasticity=0.7
+            ... )
+        """
+        if n_regimes < 1:
+            raise ValueError(f"n_regimes must be >= 1, got {n_regimes}")
+        if regime_overlap < 0 or regime_overlap > 0.5:
+            raise ValueError(f"regime_overlap must be in [0, 0.5], got {regime_overlap}")
+        if noise_heteroscedasticity < 0 or noise_heteroscedasticity > 1:
+            raise ValueError(
+                f"noise_heteroscedasticity must be in [0, 1], got {noise_heteroscedasticity}"
+            )
+
+        self.state.n_regimes = n_regimes
+        self.state.regime_method = regime_method
+        self.state.regime_overlap = regime_overlap
+        self.state.noise_heteroscedasticity = noise_heteroscedasticity
+        return self
+
     def with_output(
         self,
         *,
@@ -616,11 +788,65 @@ class SyntheticDatasetBuilder:
             else:
                 y = np.full_like(y, (min_val + max_val) / 2)
 
+        # === Apply non-linear complexity (Propositions 1, 2, 3) ===
+        if self._has_nonlinear_complexity():
+            y = self._apply_nonlinear_complexity(C, y)
+
         # Flatten if single target
-        if y.shape[1] == 1:
+        if y.ndim > 1 and y.shape[1] == 1:
             y = y.ravel()
 
         return y
+
+    def _has_nonlinear_complexity(self) -> bool:
+        """Check if any non-linear complexity options are enabled."""
+        return (
+            self.state.nonlinear_interactions != "none"
+            or self.state.hidden_factors > 0
+            or self.state.signal_to_confound_ratio < 1.0
+            or self.state.n_confounders > 0
+            or self.state.temporal_drift
+            or self.state.n_regimes > 1
+            or self.state.noise_heteroscedasticity > 0
+        )
+
+    def _apply_nonlinear_complexity(
+        self,
+        C: np.ndarray,
+        y: np.ndarray,
+    ) -> np.ndarray:
+        """Apply non-linear target complexity using NonLinearTargetProcessor."""
+        config = NonLinearTargetConfig(
+            # Proposition 1: Non-linear interactions
+            nonlinear_interactions=self.state.nonlinear_interactions,
+            interaction_strength=self.state.interaction_strength,
+            hidden_factors=self.state.hidden_factors,
+            polynomial_degree=self.state.polynomial_degree,
+            # Proposition 2: Confounders
+            signal_to_confound_ratio=self.state.signal_to_confound_ratio,
+            n_confounders=self.state.n_confounders,
+            spectral_masking=self.state.spectral_masking,
+            temporal_drift=self.state.temporal_drift,
+            # Proposition 3: Multi-regime
+            n_regimes=self.state.n_regimes,
+            regime_method=self.state.regime_method,
+            regime_overlap=self.state.regime_overlap,
+            noise_heteroscedasticity=self.state.noise_heteroscedasticity,
+        )
+
+        processor = NonLinearTargetProcessor(
+            config=config,
+            random_state=self.state.random_state,
+        )
+
+        # Get spectra for spectral-based regime assignment
+        spectra = self.state._X
+
+        return processor.process(
+            concentrations=C,
+            y_base=y,
+            spectra=spectra,
+        )
 
     def _build_dataset(self) -> SpectroDataset:
         """Build SpectroDataset from generated data."""

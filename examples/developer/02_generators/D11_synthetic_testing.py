@@ -11,6 +11,7 @@ This tutorial covers:
 * Exporting test datasets
 * Comparing real and synthetic data
 * Performance benchmarking
+* **NEW**: Non-linear target complexity for realistic benchmarks
 
 Prerequisites
 -------------
@@ -224,7 +225,7 @@ print("-" * 60)
 # Use synthetic data to benchmark different models
 print("\nBenchmarking PLS component selection on synthetic data...")
 
-# Generate a challenging but controlled dataset
+# Generate a challenging but controlled dataset with non-linear complexity
 benchmark_data = (
     SyntheticDatasetBuilder(n_samples=300, random_state=42)
     .with_features(
@@ -232,6 +233,12 @@ benchmark_data = (
         components=["water", "protein", "lipid", "starch"]
     )
     .with_targets(component="protein", range=(0, 100))
+    # NEW: Add non-linear complexity for realistic benchmarking
+    .with_nonlinear_targets(
+        interactions="polynomial",
+        interaction_strength=0.3,
+        hidden_factors=1
+    )
     .with_partitions(train_ratio=0.8)
     .build()
 )
@@ -242,7 +249,7 @@ X_test = benchmark_data.x({"partition": "test"}, layout="2d")
 y_test = benchmark_data.y({"partition": "test"})
 
 # Benchmark different n_components
-print(f"\n📊 PLS n_components optimization:")
+print(f"\n📊 PLS n_components optimization (with non-linear targets):")
 print(f"   {'n_comp':<8} {'RMSE':>10} {'R²':>10} {'Time':>10}")
 print(f"   {'-'*8} {'-'*10} {'-'*10} {'-'*10}")
 

@@ -289,9 +289,9 @@ class DatasetConfigs:
 
     def _load_dataset(self, config, name) -> SpectroDataset:
         """Load dataset from config, applying config-level signal_type if specified."""
-        # Handle preloaded datasets
+        # Handle preloaded datasets - return a deep copy to avoid mutation across pipeline variants
         if isinstance(config, dict) and "_preloaded_dataset" in config:
-            return config["_preloaded_dataset"]
+            return copy.deepcopy(config["_preloaded_dataset"])
 
         dataset = SpectroDataset(name=name)
         if name in self.cache:

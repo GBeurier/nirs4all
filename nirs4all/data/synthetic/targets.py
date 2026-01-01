@@ -635,3 +635,513 @@ def generate_classification_targets(
         class_weights=class_weights,
         separation=separation,
     )
+
+
+@dataclass
+class NonLinearTargetConfig:
+    """
+    Configuration for non-linear target complexity.
+
+    Attributes:
+        nonlinear_interactions: Type of non-linear interaction.
+        interaction_strength: Blend factor (0=linear, 1=fully non-linear).
+        hidden_factors: Latent variables not in spectra.
+        polynomial_degree: Degree for polynomial interactions.
+        signal_to_confound_ratio: Predictability from spectra.
+        n_confounders: Confounding variables.
+        spectral_masking: Signal in noisy regions.
+        temporal_drift: Relationship changes over samples.
+        n_regimes: Number of relationship regimes.
+        regime_method: How to partition into regimes.
+        regime_overlap: Transition zone smoothness.
+        noise_heteroscedasticity: Per-regime noise variation.
+    """
+
+    # Proposition 1: Non-linear interactions
+    nonlinear_interactions: Literal["none", "polynomial", "synergistic", "antagonistic"] = "none"
+    interaction_strength: float = 0.5
+    hidden_factors: int = 0
+    polynomial_degree: int = 2
+
+    # Proposition 2: Confounders
+    signal_to_confound_ratio: float = 1.0
+    n_confounders: int = 0
+    spectral_masking: float = 0.0
+    temporal_drift: bool = False
+
+    # Proposition 3: Multi-regime
+    n_regimes: int = 1
+    regime_method: Literal["concentration", "spectral", "random"] = "concentration"
+    regime_overlap: float = 0.2
+    noise_heteroscedasticity: float = 0.0
+
+
+class NonLinearTargetProcessor:
+    """
+    Process targets with non-linear relationships, confounders, and multi-regime landscapes.
+
+    This class implements three propositions for making synthetic targets harder to predict:
+
+    1. **Non-linear interactions**: Polynomial, synergistic, or antagonistic effects.
+    2. **Spectral-target decoupling**: Confounders and partial predictability.
+    3. **Multi-regime landscapes**: Different relationships in different regions.
+
+    Args:
+        config: NonLinearTargetConfig with all settings.
+        random_state: Random seed for reproducibility.
+
+    Example:
+        >>> config = NonLinearTargetConfig(
+        ...     nonlinear_interactions="polynomial",
+        ...     interaction_strength=0.7,
+        ...     n_regimes=3
+        ... )
+        >>> processor = NonLinearTargetProcessor(config, random_state=42)
+        >>> y_complex = processor.process(C, y_base)
+    """
+
+    def __init__(
+        self,
+        config: NonLinearTargetConfig,
+        random_state: Optional[int] = None,
+    ) -> None:
+        self.config = config
+        self.rng = np.random.default_rng(random_state)
+        self._random_state = random_state
+
+    def process(
+        self,
+        concentrations: np.ndarray,
+        y_base: np.ndarray,
+        spectra: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """
+        Apply all configured complexity to base targets.
+
+        Args:
+            concentrations: Component concentration matrix (n_samples, n_components).
+            y_base: Base target values (n_samples,) or (n_samples, n_targets).
+            spectra: Optional spectra matrix for spectral-based regimes.
+
+        Returns:
+            Transformed target values with added complexity.
+        """
+        y = y_base.copy()
+        n_samples = len(y)
+
+        # Ensure 1D for processing
+        was_1d = y.ndim == 1
+        if was_1d:
+            y = y.reshape(-1, 1)
+
+        # Step 1: Apply non-linear interactions
+        if self.config.nonlinear_interactions != "none":
+            y = self._apply_nonlinear_interactions(concentrations, y)
+
+        # Step 2: Add hidden factors (unpredictable component)
+        if self.config.hidden_factors > 0:
+            y = self._add_hidden_factors(y)
+
+        # Step 3: Apply multi-regime transformation
+        if self.config.n_regimes > 1:
+            y = self._apply_multi_regime(concentrations, y, spectra)
+
+        # Step 4: Apply confounders
+        if self.config.n_confounders > 0:
+            y = self._apply_confounders(concentrations, y)
+
+        # Step 5: Apply temporal drift
+        if self.config.temporal_drift:
+            y = self._apply_temporal_drift(y)
+
+        # Step 6: Apply signal-to-confound ratio (add irreducible noise)
+        if self.config.signal_to_confound_ratio < 1.0:
+            y = self._apply_signal_ratio(y)
+
+        # Step 7: Apply heteroscedastic noise
+        if self.config.noise_heteroscedasticity > 0:
+            y = self._apply_heteroscedastic_noise(y, concentrations)
+
+        # Restore original shape
+        if was_1d and y.shape[1] == 1:
+            y = y.ravel()
+
+        return y
+
+    def _apply_nonlinear_interactions(
+        self,
+        C: np.ndarray,
+        y: np.ndarray,
+    ) -> np.ndarray:
+        """Apply non-linear interaction terms."""
+        n_samples, n_components = C.shape
+        strength = self.config.interaction_strength
+
+        if self.config.nonlinear_interactions == "polynomial":
+            # Generate polynomial features
+            y_nonlinear = self._polynomial_transform(C, y)
+
+        elif self.config.nonlinear_interactions == "synergistic":
+            # Synergistic: combinations enhance effect
+            y_nonlinear = self._synergistic_transform(C, y)
+
+        elif self.config.nonlinear_interactions == "antagonistic":
+            # Antagonistic: saturation/inhibition effects
+            y_nonlinear = self._antagonistic_transform(C, y)
+
+        else:
+            return y
+
+        # Blend linear and non-linear based on strength
+        y_blended = (1 - strength) * y + strength * y_nonlinear
+
+        return y_blended
+
+    def _polynomial_transform(
+        self,
+        C: np.ndarray,
+        y: np.ndarray,
+    ) -> np.ndarray:
+        """Generate polynomial interaction terms."""
+        n_samples, n_components = C.shape
+        degree = self.config.polynomial_degree
+
+        # Normalize concentrations to avoid numerical issues
+        C_norm = (C - C.mean(axis=0)) / (C.std(axis=0) + 1e-8)
+
+        # Build polynomial features
+        poly_terms = []
+
+        # Quadratic terms: C_i^2
+        for i in range(n_components):
+            poly_terms.append(C_norm[:, i] ** 2)
+
+        # Interaction terms: C_i * C_j
+        for i in range(n_components):
+            for j in range(i + 1, n_components):
+                poly_terms.append(C_norm[:, i] * C_norm[:, j])
+
+        # Cubic terms if degree >= 3
+        if degree >= 3:
+            for i in range(n_components):
+                poly_terms.append(C_norm[:, i] ** 3)
+            for i in range(min(n_components, 3)):
+                for j in range(i + 1, min(n_components, 3)):
+                    poly_terms.append(C_norm[:, i] ** 2 * C_norm[:, j])
+
+        # Combine terms with random weights
+        poly_features = np.column_stack(poly_terms) if poly_terms else np.zeros((n_samples, 1))
+        weights = self.rng.standard_normal(poly_features.shape[1])
+        weights = weights / np.linalg.norm(weights)  # Normalize
+
+        # Combine with base y
+        nonlinear_component = poly_features @ weights
+        nonlinear_component = nonlinear_component.reshape(-1, 1)
+
+        # Scale to match y range
+        y_range = y.max() - y.min()
+        if y_range > 0:
+            nonlinear_component = (
+                (nonlinear_component - nonlinear_component.mean())
+                / (nonlinear_component.std() + 1e-8)
+                * y.std()
+                + y.mean()
+            )
+
+        return nonlinear_component if y.shape[1] == 1 else np.tile(nonlinear_component, (1, y.shape[1]))
+
+    def _synergistic_transform(
+        self,
+        C: np.ndarray,
+        y: np.ndarray,
+    ) -> np.ndarray:
+        """Synergistic effects: combinations enhance the target non-linearly."""
+        n_samples, n_components = C.shape
+
+        # Select pairs of components for synergy
+        n_pairs = min(3, n_components * (n_components - 1) // 2)
+        synergy_terms = []
+
+        for _ in range(n_pairs):
+            i, j = self.rng.choice(n_components, 2, replace=False)
+            # Synergistic term: sqrt(C_i * C_j) * (C_i + C_j)
+            term = np.sqrt(C[:, i] * C[:, j] + 1e-8) * (C[:, i] + C[:, j])
+            synergy_terms.append(term)
+
+        if synergy_terms:
+            synergy = np.column_stack(synergy_terms)
+            weights = self.rng.uniform(0.5, 1.5, len(synergy_terms))
+            synergy_effect = (synergy * weights).sum(axis=1, keepdims=True)
+
+            # Scale and add to y
+            synergy_effect = (
+                (synergy_effect - synergy_effect.mean())
+                / (synergy_effect.std() + 1e-8)
+                * y.std()
+            )
+            return y + synergy_effect
+
+        return y
+
+    def _antagonistic_transform(
+        self,
+        C: np.ndarray,
+        y: np.ndarray,
+    ) -> np.ndarray:
+        """Antagonistic effects: saturation and inhibition (Michaelis-Menten-like)."""
+        n_samples, n_components = C.shape
+
+        # Apply Michaelis-Menten kinetics to primary component
+        primary_idx = self.rng.integers(0, n_components)
+        C_primary = C[:, primary_idx]
+
+        # Vmax and Km parameters
+        Vmax = y.max() * 1.2
+        Km = np.median(C_primary) * 0.5
+
+        # Michaelis-Menten: V = Vmax * [S] / (Km + [S])
+        mm_term = Vmax * C_primary / (Km + C_primary + 1e-8)
+
+        # Optional competitive inhibition from another component
+        if n_components > 1:
+            inhibitor_idx = (primary_idx + 1) % n_components
+            Ki = np.median(C[:, inhibitor_idx])
+            inhibition_factor = 1 / (1 + C[:, inhibitor_idx] / (Ki + 1e-8))
+            mm_term = mm_term * inhibition_factor
+
+        mm_term = mm_term.reshape(-1, 1)
+
+        # Scale to match y
+        mm_term = (
+            (mm_term - mm_term.mean()) / (mm_term.std() + 1e-8) * y.std() + y.mean()
+        )
+
+        return mm_term if y.shape[1] == 1 else np.tile(mm_term, (1, y.shape[1]))
+
+    def _add_hidden_factors(self, y: np.ndarray) -> np.ndarray:
+        """Add latent factors that affect y but have no spectral signature."""
+        n_samples = y.shape[0]
+        n_hidden = self.config.hidden_factors
+
+        # Generate hidden factors
+        hidden = self.rng.standard_normal((n_samples, n_hidden))
+
+        # Random weights for hidden factor contribution
+        weights = self.rng.uniform(0.1, 0.3, n_hidden)
+
+        # Hidden effect (unobservable from spectra)
+        hidden_effect = (hidden * weights).sum(axis=1, keepdims=True)
+        hidden_effect = hidden_effect / (hidden_effect.std() + 1e-8) * y.std() * 0.3
+
+        return y + hidden_effect
+
+    def _apply_multi_regime(
+        self,
+        C: np.ndarray,
+        y: np.ndarray,
+        spectra: Optional[np.ndarray],
+    ) -> np.ndarray:
+        """Apply different target functions in different regimes."""
+        n_samples = y.shape[0]
+        n_regimes = self.config.n_regimes
+
+        # Assign samples to regimes
+        regime_assignments = self._assign_regimes(C, spectra)
+
+        # Generate different transformation functions per regime
+        y_transformed = np.zeros_like(y)
+
+        for regime_id in range(n_regimes):
+            mask = regime_assignments == regime_id
+            if not np.any(mask):
+                continue
+
+            # Each regime has a different relationship
+            y_regime = y[mask].copy()
+            C_regime = C[mask]
+
+            # Regime-specific transformation
+            if regime_id == 0:
+                # Linear (baseline)
+                y_regime = y_regime
+            elif regime_id == 1:
+                # Quadratic emphasis
+                if C_regime.shape[1] > 0:
+                    quad_term = (C_regime[:, 0] ** 2).reshape(-1, 1)
+                    quad_term = (quad_term - quad_term.mean()) / (quad_term.std() + 1e-8)
+                    y_regime = y_regime + quad_term * y_regime.std() * 0.5
+            elif regime_id == 2:
+                # Inverse relationship
+                y_regime = y_regime.max() + y_regime.min() - y_regime
+            else:
+                # Random non-linear mixing
+                component_idx = regime_id % C_regime.shape[1]
+                ratio_term = C_regime[:, component_idx] / (
+                    C_regime[:, (component_idx + 1) % C_regime.shape[1]] + 1e-8
+                )
+                ratio_term = ratio_term.reshape(-1, 1)
+                ratio_term = (ratio_term - ratio_term.mean()) / (ratio_term.std() + 1e-8)
+                y_regime = y_regime + ratio_term * y_regime.std() * 0.3
+
+            y_transformed[mask] = y_regime
+
+        # Apply overlap smoothing
+        if self.config.regime_overlap > 0:
+            y_transformed = self._smooth_regime_boundaries(
+                y_transformed, regime_assignments, y
+            )
+
+        return y_transformed
+
+    def _assign_regimes(
+        self,
+        C: np.ndarray,
+        spectra: Optional[np.ndarray],
+    ) -> np.ndarray:
+        """Assign samples to regimes based on method."""
+        n_samples = C.shape[0]
+        n_regimes = self.config.n_regimes
+
+        if self.config.regime_method == "random":
+            return self.rng.integers(0, n_regimes, size=n_samples)
+
+        elif self.config.regime_method == "concentration":
+            # Use first principal direction of concentrations
+            C_centered = C - C.mean(axis=0)
+            if C.shape[1] > 1:
+                # Simple projection onto first component
+                projection = C_centered.sum(axis=1)
+            else:
+                projection = C_centered[:, 0]
+
+            # Quantile-based assignment
+            percentiles = np.linspace(0, 100, n_regimes + 1)
+            thresholds = [np.percentile(projection, p) for p in percentiles]
+            assignments = np.zeros(n_samples, dtype=int)
+            for i in range(n_regimes - 1):
+                assignments[projection > thresholds[i + 1]] = i + 1
+            return assignments
+
+        elif self.config.regime_method == "spectral":
+            if spectra is None:
+                # Fall back to concentration-based
+                return self._assign_regimes(C, None)
+
+            # Use spectral intensity for regime assignment
+            intensity = spectra.mean(axis=1)
+            percentiles = np.linspace(0, 100, n_regimes + 1)
+            thresholds = [np.percentile(intensity, p) for p in percentiles]
+            assignments = np.zeros(n_samples, dtype=int)
+            for i in range(n_regimes - 1):
+                assignments[intensity > thresholds[i + 1]] = i + 1
+            return assignments
+
+        return np.zeros(n_samples, dtype=int)
+
+    def _smooth_regime_boundaries(
+        self,
+        y_transformed: np.ndarray,
+        regime_assignments: np.ndarray,
+        y_original: np.ndarray,
+    ) -> np.ndarray:
+        """Smooth transitions between regimes."""
+        # Simple implementation: blend with original at boundaries
+        overlap = self.config.regime_overlap
+        n_regimes = self.config.n_regimes
+
+        # For each regime boundary, create a soft transition
+        # This is a simplified version - more sophisticated approaches possible
+        blend_factor = np.ones((y_transformed.shape[0], 1))
+
+        for regime in range(n_regimes):
+            mask = regime_assignments == regime
+            if np.sum(mask) == 0:
+                continue
+
+            # Reduce blend at edges (simple approach)
+            edge_samples = int(np.sum(mask) * overlap)
+            if edge_samples > 0:
+                regime_indices = np.where(mask)[0]
+                for idx in regime_indices[:edge_samples]:
+                    blend_factor[idx] = 0.5 + 0.5 * (
+                        np.where(regime_indices == idx)[0][0] / edge_samples
+                    )
+
+        return blend_factor * y_transformed + (1 - blend_factor) * y_original
+
+    def _apply_confounders(
+        self,
+        C: np.ndarray,
+        y: np.ndarray,
+    ) -> np.ndarray:
+        """Apply confounding variables that affect spectra and target differently."""
+        n_samples = y.shape[0]
+        n_confounders = self.config.n_confounders
+
+        # Generate confounders correlated with concentrations
+        confounder_effect = np.zeros((n_samples, 1))
+
+        for i in range(n_confounders):
+            # Each confounder is partially correlated with a component
+            component_idx = i % C.shape[1]
+            base_confounder = 0.5 * C[:, component_idx] + 0.5 * self.rng.standard_normal(n_samples)
+
+            # Non-linear transformation of confounder effect on y
+            # (different from its effect on spectra which is linear)
+            effect = np.sin(base_confounder * np.pi) + base_confounder ** 2
+            effect = effect.reshape(-1, 1)
+            effect = (effect - effect.mean()) / (effect.std() + 1e-8)
+
+            confounder_effect += effect * 0.2 / n_confounders
+
+        return y + confounder_effect * y.std()
+
+    def _apply_temporal_drift(self, y: np.ndarray) -> np.ndarray:
+        """Apply temporal drift - relationship changes over samples."""
+        n_samples = y.shape[0]
+
+        # Time index (assume samples are in temporal order)
+        t = np.linspace(0, 1, n_samples).reshape(-1, 1)
+
+        # Drift function: gradual shift and scale change
+        drift_shift = 0.2 * np.sin(2 * np.pi * t)  # Oscillating shift
+        drift_scale = 1 + 0.15 * t  # Gradual scale increase
+
+        y_drifted = (y - y.mean()) * drift_scale + y.mean() + drift_shift * y.std()
+
+        return y_drifted
+
+    def _apply_signal_ratio(self, y: np.ndarray) -> np.ndarray:
+        """Add irreducible noise based on signal-to-confound ratio."""
+        n_samples = y.shape[0]
+        ratio = self.config.signal_to_confound_ratio
+
+        # Calculate noise variance to achieve target ratio
+        # If ratio = 0.7, then 30% of variance is unexplainable
+        unexplainable_var = (1 - ratio) * np.var(y)
+        noise_std = np.sqrt(unexplainable_var)
+
+        noise = self.rng.standard_normal(y.shape) * noise_std
+
+        return y + noise
+
+    def _apply_heteroscedastic_noise(
+        self,
+        y: np.ndarray,
+        C: np.ndarray,
+    ) -> np.ndarray:
+        """Apply noise that varies based on concentration/regime."""
+        n_samples = y.shape[0]
+        hetero_strength = self.config.noise_heteroscedasticity
+
+        # Noise level depends on first concentration component
+        if C.shape[1] > 0:
+            noise_scale = 1 + hetero_strength * (C[:, 0] - C[:, 0].mean()) / (C[:, 0].std() + 1e-8)
+            noise_scale = np.clip(noise_scale, 0.2, 3.0).reshape(-1, 1)
+        else:
+            noise_scale = np.ones((n_samples, 1))
+
+        base_noise = self.rng.standard_normal(y.shape) * y.std() * 0.1
+        heteroscedastic_noise = base_noise * noise_scale
+
+        return y + heteroscedastic_noise

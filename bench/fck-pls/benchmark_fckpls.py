@@ -115,8 +115,9 @@ class BenchmarkConfig:
     torch_lr: float = 0.01
     torch_val_fraction: float = 0.25
 
-    # Finetuning
-    finetune_trials: int = 15
+    # Finetuning - MUST be enough for fair comparison
+    finetune_trials: int = 30  # Full: 30 trials per model per fold
+    cartesian_count: int = 200  # Full: 200 preprocessing variants
 
     # CV configuration
     n_splits: int = 5
@@ -323,38 +324,79 @@ def evaluate_predictions(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, fl
     }
 
 
-def extract_metrics_from_result(result) -> Tuple[float, float, float]:
+def extract_metrics_from_result(result, verbose: bool = False) -> Dict[str, Any]:
     """
-    Extract R², RMSE, and MAE from nirs4all result object.
+    Extract R², RMSE, MAE, best_params and config info from nirs4all result object.
+
+    Finds the BEST result across all configurations/variants (highest R²).
 
     Returns:
-        (r2, rmse, mae) - R², RMSE, and MAE values from the best prediction
+        dict with keys: r2, rmse, mae, best_params, config_name, n_configs
     """
     import json
+
+    default_result = {
+        'r2': float('nan'),
+        'rmse': float('nan'),
+        'mae': float('nan'),
+        'best_params': {},
+        'config_name': '',
+        'n_configs': 0,
+    }
 
     try:
         df = result.predictions.to_dataframe()
 
-        # Get the weighted average prediction (best aggregated result)
-        best_rows = df.filter((df['fold_id'] == 'w_avg'))
-        if len(best_rows) == 0:
+        # Get the weighted average predictions (one per configuration/variant)
+        w_avg_rows = df.filter((df['fold_id'] == 'w_avg'))
+        if len(w_avg_rows) == 0:
             # Fall back to avg
-            best_rows = df.filter((df['fold_id'] == 'avg'))
-        if len(best_rows) == 0:
-            # Fall back to first non-fold-specific row
-            best_rows = df.head(1)
+            w_avg_rows = df.filter((df['fold_id'] == 'avg'))
+        if len(w_avg_rows) == 0:
+            # Fall back to first row
+            w_avg_rows = df.head(1)
 
-        if len(best_rows) == 0:
-            return float('nan'), float('nan'), float('nan')
+        if len(w_avg_rows) == 0:
+            return default_result
 
-        # Get scores from the first matching row
-        scores_str = best_rows['scores'][0]
-        if scores_str is None:
-            return float('nan'), float('nan'), float('nan')
+        n_configs = len(w_avg_rows)
+        default_result['n_configs'] = n_configs
 
-        scores = json.loads(scores_str)
+        # Find the BEST result across all configurations (highest R²)
+        best_r2 = float('-inf')
+        best_row = None
 
-        # Prefer test metrics if available, otherwise use val
+        for row in w_avg_rows.iter_rows(named=True):
+            scores_str = row.get('scores')
+            if scores_str is None:
+                continue
+
+            try:
+                scores = json.loads(scores_str)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            # Prefer test metrics if available, otherwise use val
+            if 'test' in scores and scores['test'].get('r2') is not None:
+                r2 = scores['test'].get('r2', float('nan'))
+            elif 'val' in scores:
+                r2 = scores['val'].get('r2', float('nan'))
+            else:
+                continue
+
+            # Keep the best R²
+            if r2 is not None and not np.isnan(r2) and r2 > best_r2:
+                best_r2 = r2
+                best_row = row
+
+        if best_row is None:
+            return default_result
+
+        # Extract all info from best row
+        scores_str = best_row.get('scores', '{}')
+        scores = json.loads(scores_str) if scores_str else {}
+
+        # Prefer test metrics
         if 'test' in scores and scores['test'].get('r2') is not None:
             r2 = scores['test'].get('r2', float('nan'))
             rmse = scores['test'].get('rmse', float('nan'))
@@ -364,15 +406,43 @@ def extract_metrics_from_result(result) -> Tuple[float, float, float]:
             rmse = scores['val'].get('rmse', float('nan'))
             mae = scores['val'].get('mae', float('nan'))
         else:
-            r2 = float('nan')
-            rmse = float('nan')
-            mae = float('nan')
+            r2 = rmse = mae = float('nan')
 
-        return r2, rmse, mae
+        # Extract best_params
+        best_params_str = best_row.get('best_params', '{}')
+        try:
+            best_params = json.loads(best_params_str) if best_params_str else {}
+        except (json.JSONDecodeError, TypeError):
+            best_params = {}
+
+        # Extract config/model name
+        config_name = best_row.get('model_name', '') or best_row.get('config_id', '')
+
+        # Extract metadata for preprocessing info
+        metadata_str = best_row.get('metadata', '{}')
+        try:
+            metadata = json.loads(metadata_str) if metadata_str else {}
+        except (json.JSONDecodeError, TypeError):
+            metadata = {}
+
+        if verbose and n_configs > 1:
+            print(f"    Found {n_configs} configurations, best: {config_name}")
+
+        return {
+            'r2': r2,
+            'rmse': rmse,
+            'mae': mae,
+            'best_params': best_params,
+            'config_name': config_name,
+            'n_configs': n_configs,
+            'metadata': metadata,
+        }
 
     except Exception as e:
         print(f"  Warning: Could not extract metrics: {e}")
-        return float('nan'), float('nan'), float('nan')
+        import traceback
+        traceback.print_exc()
+        return default_result
 
 
 def prepare_dataset_for_nirs4all(
@@ -466,16 +536,19 @@ def run_pls_baseline(
         train_time = time.time() - start
 
         # Extract metrics properly
-        r2, rmse, mae = extract_metrics_from_result(result)
+        metrics = extract_metrics_from_result(result, verbose=config.verbose > 1)
 
         return ModelResult(
             model_name="PLS-Baseline",
             dataset_name=dataset.name,
-            r2=r2,
-            rmse=rmse,
-            mae=mae,
+            r2=metrics['r2'],
+            rmse=metrics['rmse'],
+            mae=metrics['mae'],
             train_time=train_time,
-            extra_info={"n_components": n_components},
+            extra_info={
+                "n_components": n_components,
+                "best_params": metrics['best_params'],
+            },
         )
 
     except Exception as e:
@@ -506,24 +579,26 @@ def run_pls_tuned(
     Uses nirs4all pipeline with full preprocessing search to show the overhead
     that FCK-PLS aims to avoid.
 
-    The cartesian product generates many different preprocessing combinations
-    as separate pipelines (not feature augmentation). Each is evaluated with
-    the same finetuning strategy.
+    The cartesian product generates many different preprocessing combinations.
+    Each is evaluated with TPE-based hyperparameter tuning. We run each variant
+    as a separate pipeline to ensure fresh dataset state.
     """
-    n_trials = 5 if config.quick_mode else config.finetune_trials
+    from nirs4all.pipeline.config.generator import expand_spec
+
+    # Fair comparison: enough trials to properly tune n_components
+    n_trials = 10 if config.quick_mode else config.finetune_trials
+    n_pp_variants = 5 if config.quick_mode else config.cartesian_count
+
     dataset_arg, effective_train_size = prepare_dataset_for_nirs4all(dataset, config)
 
     # For finetuning, we need to be more conservative with max_components
-    # In CV, we further split train into train/val, so effective size is smaller
-    # Also account for grouped approach which uses all folds
     fold_train_size = int(effective_train_size * (config.n_splits - 1) / config.n_splits)
-    max_components = min(20, fold_train_size - 2, dataset.n_features)
-    max_components = max(3, max_components)  # Ensure at least 3 components
+    max_components = min(30, fold_train_size - 2, dataset.n_features)
+    max_components = max(3, max_components)
 
-    # Large cartesian preprocessing search - this is what FCK-PLS aims to avoid!
-    # Uses the full 4-stage pipeline generator from study_runner.py
-    # 4 × 4 × 3 × 5 = 240 combinations (capped by count)
-    cartesian_preprocessing = {
+    # Cartesian preprocessing search using expand_spec
+    # 4 × 4 × 3 × 5 = 240 combinations, sampled to count
+    preprocessing_spec = {
         "_cartesian_": [
             # Stage 1: Scatter correction
             {"_or_": [None, StandardNormalVariate(), EMSC(), Detrend()]},
@@ -534,69 +609,99 @@ def run_pls_tuned(
             # Stage 4: Additional transforms
             {"_or_": [None, Haar(), Detrend(), AreaNormalization(), Wavelet("coif3")]},
         ],
-        "count": 10 if config.quick_mode else 100,  # Number of preprocessing variants to try
+        "count": n_pp_variants,
     }
 
-    # Use cartesian as pipeline generator (not feature_augmentation)
-    # This creates multiple pipelines, each with a different preprocessing chain
-    pipeline = [
-        MinMaxScaler(),
-        cartesian_preprocessing,  # Generator: creates N pipeline variants
-        ShuffleSplit(n_splits=config.n_splits, test_size=config.test_size, random_state=config.seed),
-        {
-            "model": PLSRegression(),
-            "name": "PLS",
-            "finetune_params": {
-                "n_trials": n_trials,
-                "sample": "tpe",
-                "verbose": 0,
-                "approach": "single",
-                "model_params": {
-                    "n_components": ('int', 1, max_components),
-                },
-            },
-        },
-    ]
+    # Expand to get preprocessing chains
+    preprocessing_chains = expand_spec(preprocessing_spec, seed=config.seed)
 
     start = time.time()
-    try:
-        result = nirs4all.run(
-            pipeline=pipeline,
-            dataset=dataset_arg,
-            name="PLS-Tuned",
-            verbose=0,
-            save_artifacts=False,
-            save_charts=False,
-        )
+    best_r2 = -np.inf
+    best_result = None
+    best_config_name = ""
+    best_params = {}
+    n_configs = 0
 
-        train_time = time.time() - start
+    # Run each preprocessing variant as a separate pipeline
+    for i, chain in enumerate(preprocessing_chains):
+        # Filter out None values from the chain
+        pp_steps = [step for step in chain if step is not None]
+        pp_names = [type(s).__name__ for s in pp_steps]
+        pp_desc = " -> ".join(pp_names) if pp_names else "None"
 
-        # Extract metrics properly
-        r2, rmse, mae = extract_metrics_from_result(result)
+        # Build complete pipeline
+        pipeline = [MinMaxScaler()] + pp_steps + [
+            ShuffleSplit(n_splits=config.n_splits, test_size=config.test_size, random_state=config.seed),
+            {
+                "model": PLSRegression(),
+                "name": "PLS",
+                "finetune_params": {
+                    "n_trials": n_trials,
+                    "sample": "tpe",
+                    "verbose": 0,
+                    "approach": "single",
+                    "model_params": {
+                        "n_components": ('int', 1, max_components),
+                    },
+                },
+            },
+        ]
 
-        return ModelResult(
-            model_name="PLS-Tuned",
-            dataset_name=dataset.name,
-            r2=r2,
-            rmse=rmse,
-            mae=mae,
-            train_time=train_time,
-            extra_info={"n_configs": result.predictions.num_predictions},
-        )
+        try:
+            result = nirs4all.run(
+                pipeline=pipeline,
+                dataset=dataset_arg,
+                name=f"PLS_{i}",
+                verbose=0,
+                save_artifacts=False,
+                save_charts=False,
+            )
 
-    except Exception as e:
-        print(f"  ERROR in PLS-Tuned: {e}")
-        import traceback
-        traceback.print_exc()
+            # Extract metrics
+            metrics = extract_metrics_from_result(result, verbose=False)
+            n_configs += metrics.get('n_configs', 1)
+
+            if metrics['r2'] > best_r2:
+                best_r2 = metrics['r2']
+                best_result = result
+                best_config_name = pp_desc
+                best_params = metrics.get('best_params', {})
+
+        except Exception as e:
+            if config.verbose > 1:
+                print(f"    Warning: PP variant {i} failed: {e}")
+            continue
+
+    train_time = time.time() - start
+
+    if best_result is None:
         return ModelResult(
             model_name="PLS-Tuned",
             dataset_name=dataset.name,
             r2=float('nan'),
             rmse=float('nan'),
             mae=float('nan'),
-            train_time=time.time() - start,
-            extra_info={"error": str(e)},
+            train_time=train_time,
+            extra_info={"error": "All preprocessing variants failed"},
         )
+
+    # Extract final metrics from best result
+    metrics = extract_metrics_from_result(best_result, verbose=config.verbose > 1)
+
+    return ModelResult(
+        model_name="PLS-Tuned",
+        dataset_name=dataset.name,
+        r2=metrics['r2'],
+        rmse=metrics['rmse'],
+        mae=metrics['mae'],
+        train_time=train_time,
+        extra_info={
+            "n_configs": n_configs,
+            "n_trials": n_trials,
+            "best_config": best_config_name,
+            "best_params": best_params,
+        },
+    )
 
 
 # =============================================================================
@@ -611,15 +716,21 @@ def run_fckpls_static(
     """
     Run FCK-PLS (nirs4all static implementation) with finetuning.
 
+    FCK-PLS = Fractional Convolutional Kernel PLS
+    Uses fractional derivative filters (alphas) to extract spectral features,
+    then applies PLS regression.
+
     Args:
         with_preprocessing: If True, use minimal preprocessing (SNV).
                           If False, raw signal only (MinMax for scaling).
 
-    The point of FCK-PLS is to avoid extensive preprocessing search.
+    The point of FCK-PLS is to avoid extensive preprocessing search - the
+    fractional kernels learn to extract relevant features directly.
     """
-    n_trials = 5 if config.quick_mode else config.finetune_trials
+    # Fair comparison: same number of trials as PLS-Tuned per configuration
+    n_trials = 15 if config.quick_mode else config.finetune_trials
     dataset_arg, effective_train_size = prepare_dataset_for_nirs4all(dataset, config)
-    max_components = min(20, effective_train_size - 2)
+    max_components = min(25, effective_train_size - 2)
 
     model_name = "FCK-PLS-Static" + ("-PP" if with_preprocessing else "-Raw")
 
@@ -634,6 +745,19 @@ def run_fckpls_static(
             MinMaxScaler(),
         ]
 
+    # FCK-PLS hyperparameter search space
+    fckpls_params = {
+        "n_components": ('int', 3, max_components),
+        "alphas": [
+            (0.0, 0.5, 1.0, 1.5, 2.0),  # Full range
+            (0.0, 1.0, 2.0),             # Sparse
+            (0.5, 1.0, 1.5),             # Centered
+            (0.0, 0.5, 1.0),             # Low orders
+            (1.0, 1.5, 2.0),             # High orders
+        ],
+        "kernel_size": [11, 15, 21, 31],
+    }
+
     pipeline = preprocessing_steps + [
         ShuffleSplit(n_splits=config.n_splits, test_size=config.test_size, random_state=config.seed),
         {
@@ -644,15 +768,7 @@ def run_fckpls_static(
                 "sample": "tpe",
                 "verbose": 0,
                 "approach": "single",
-                "model_params": {
-                    "n_components": ('int', 3, max_components),
-                    "alphas": [
-                        (0.0, 0.5, 1.0, 1.5, 2.0),
-                        (0.0, 1.0, 2.0),
-                        (0.5, 1.0, 1.5),
-                    ],
-                    "kernel_size": [11, 15, 21],
-                },
+                "model_params": fckpls_params,
             },
         },
     ]
@@ -671,16 +787,24 @@ def run_fckpls_static(
         train_time = time.time() - start
 
         # Extract metrics properly
-        r2, rmse, mae = extract_metrics_from_result(result)
+        metrics = extract_metrics_from_result(result, verbose=config.verbose > 1)
+
+        # Show best params found
+        if config.verbose > 0 and metrics.get('best_params'):
+            print(f"    Best params: {metrics['best_params']}")
 
         return ModelResult(
             model_name=model_name,
             dataset_name=dataset.name,
-            r2=r2,
-            rmse=rmse,
-            mae=mae,
+            r2=metrics['r2'],
+            rmse=metrics['rmse'],
+            mae=metrics['mae'],
             train_time=train_time,
-            extra_info={"n_configs": result.predictions.num_predictions, "with_preprocessing": with_preprocessing},
+            extra_info={
+                "n_configs": metrics['n_configs'],
+                "with_preprocessing": with_preprocessing,
+                "best_params": metrics.get('best_params', {}),
+            },
         )
 
     except Exception as e:
@@ -895,17 +1019,26 @@ def run_benchmark(
             result.dataset_name = dataset.name
             results.append(result)
             print(f"R²={result.r2:.4f}, RMSE={result.rmse:.4f}, Time={result.train_time:.1f}s")
+            if result.extra_info and result.extra_info.get('best_params'):
+                print(f"        Best params: {result.extra_info['best_params']}")
 
         # =====================================================================
         # Step 2: PLS Tuned with cartesian preprocessing
         # =====================================================================
         if config.step >= 2 and (model_filter is None or model_filter == "pls"):
             model_idx += 1
-            print(f"  [{model_idx}] PLS-Tuned (cartesian + finetune)...", end=" ", flush=True)
+            print(f"  [{model_idx}] PLS-Tuned (cartesian + finetune)...", flush=True)
             result = run_pls_tuned(dataset, config)
             result.dataset_name = dataset.name
             results.append(result)
-            print(f"R²={result.r2:.4f}, RMSE={result.rmse:.4f}, Time={result.train_time:.1f}s")
+            print(f"        -> Best R²={result.r2:.4f}, RMSE={result.rmse:.4f}, Time={result.train_time:.1f}s")
+            if result.extra_info:
+                n_configs = result.extra_info.get('n_configs', 0)
+                best_config = result.extra_info.get('best_config', '')
+                best_params = result.extra_info.get('best_params', {})
+                print(f"        Configs tested: {n_configs}, Best: {best_config}")
+                if best_params:
+                    print(f"        Best params: {best_params}")
 
         # =====================================================================
         # Step 3: FCK-PLS and Torch models
@@ -919,6 +1052,8 @@ def run_benchmark(
                 result.dataset_name = dataset.name
                 results.append(result)
                 print(f"R²={result.r2:.4f}, RMSE={result.rmse:.4f}, Time={result.train_time:.1f}s")
+                if result.extra_info and result.extra_info.get('best_params'):
+                    print(f"        Best params: {result.extra_info['best_params']}")
 
                 # FCK-PLS Static without preprocessing
                 model_idx += 1
@@ -927,6 +1062,8 @@ def run_benchmark(
                 result.dataset_name = dataset.name
                 results.append(result)
                 print(f"R²={result.r2:.4f}, RMSE={result.rmse:.4f}, Time={result.train_time:.1f}s")
+                if result.extra_info and result.extra_info.get('best_params'):
+                    print(f"        Best params: {result.extra_info['best_params']}")
 
             # FCK-PLS Torch V1
             if model_filter is None or model_filter == "torch":
@@ -936,6 +1073,8 @@ def run_benchmark(
                 result.dataset_name = dataset.name
                 results.append(result)
                 print(f"R²={result.r2:.4f}, RMSE={result.rmse:.4f}, Time={result.train_time:.1f}s")
+                if result.extra_info and result.extra_info.get('best_params'):
+                    print(f"        Best params: {result.extra_info['best_params']}")
 
                 # FCK-PLS Torch V2
                 model_idx += 1
@@ -944,6 +1083,8 @@ def run_benchmark(
                 result.dataset_name = dataset.name
                 results.append(result)
                 print(f"R²={result.r2:.4f}, RMSE={result.rmse:.4f}, Time={result.train_time:.1f}s")
+                if result.extra_info and result.extra_info.get('best_params'):
+                    print(f"        Best params: {result.extra_info['best_params']}")
 
         print()
 
@@ -1038,13 +1179,35 @@ def generate_report(results: List[ModelResult]) -> str:
     lines.append("")
     lines.append("| Model | Description |")
     lines.append("|-------|-------------|")
-    lines.append("| **PLS-Baseline** | PLSRegression with fixed preprocessing (MinMax + SNV) |")
-    lines.append("| **PLS-Tuned** | PLSRegression with cartesian preprocessing search + n_components tuning |")
-    lines.append("| **FCK-PLS-Static-PP** | nirs4all FCKPLS with preprocessing (SNV) + finetuning |")
-    lines.append("| **FCK-PLS-Static-Raw** | nirs4all FCKPLS without preprocessing + finetuning |")
-    lines.append("| **FCK-PLS-Torch-V1** | PyTorch learnable kernels (no preprocessing) |")
-    lines.append("| **FCK-PLS-Torch-V2** | PyTorch parametric α/σ kernels (no preprocessing) |")
+    lines.append("| **PLS-Baseline** | PLSRegression with fixed preprocessing (MinMax + SNV), n_components=10 |")
+    lines.append("| **PLS-Tuned** | PLSRegression with cartesian preprocessing search (200 variants) + n_components tuning |")
+    lines.append("| **FCK-PLS-Static-PP** | Fractional Convolutional Kernel PLS with preprocessing (SNV) + finetuning |")
+    lines.append("| **FCK-PLS-Static-Raw** | Fractional Convolutional Kernel PLS without preprocessing + finetuning |")
+    lines.append("| **FCK-PLS-Torch-V1** | PyTorch FCK-PLS with learnable kernels (no preprocessing) |")
+    lines.append("| **FCK-PLS-Torch-V2** | PyTorch FCK-PLS with parametric α/σ kernels (no preprocessing) |")
     lines.append("")
+
+    # Best parameters section
+    lines.append("## Best Parameters Found")
+    lines.append("")
+
+    for r in results:
+        if r.extra_info:
+            best_params = r.extra_info.get('best_params', {})
+            best_config = r.extra_info.get('best_config', '')
+            n_configs = r.extra_info.get('n_configs', 1)
+
+            if best_params or best_config:
+                lines.append(f"### {r.model_name} on {r.dataset_name}")
+                lines.append("")
+                if n_configs > 1:
+                    lines.append(f"- **Configs tested**: {n_configs}")
+                if best_config:
+                    lines.append(f"- **Best config**: {best_config}")
+                if best_params:
+                    lines.append(f"- **Best params**: `{best_params}`")
+                lines.append(f"- **R²**: {r.r2:.4f}")
+                lines.append("")
 
     return "\n".join(lines)
 

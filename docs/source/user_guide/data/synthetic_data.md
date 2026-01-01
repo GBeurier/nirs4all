@@ -129,6 +129,110 @@ dataset = (
 )
 ```
 
+## Non-Linear Target Complexity (NEW!)
+
+By default, synthetic targets have a simple linear relationship with spectral features,
+making them too easy to predict. Use these methods to create more realistic, challenging datasets:
+
+### Non-Linear Interactions
+
+Add polynomial, synergistic, or antagonistic relationships between concentrations and targets:
+
+```python
+dataset = (
+    SyntheticDatasetBuilder(n_samples=1000, random_state=42)
+    .with_features(complexity="realistic")
+    .with_targets(component=0, range=(0, 100))
+    .with_nonlinear_targets(
+        interactions="polynomial",     # polynomial, synergistic, antagonistic
+        interaction_strength=0.6,      # 0=linear, 1=fully non-linear
+        hidden_factors=2,              # Latent variables not in spectra
+        polynomial_degree=2            # Quadratic terms
+    )
+    .build()
+)
+```
+
+| Interaction Type | Description | Use Case |
+|------------------|-------------|----------|
+| `"polynomial"` | C₁², C₁×C₂, C₁×C₂×C₃ terms | General non-linearity |
+| `"synergistic"` | Combinations enhance effect | Chemical synergies |
+| `"antagonistic"` | Michaelis-Menten saturation | Enzyme kinetics, inhibition |
+
+### Confounders and Partial Predictability
+
+Introduce factors that make the target only partially predictable from spectra:
+
+```python
+dataset = (
+    SyntheticDatasetBuilder(n_samples=1000, random_state=42)
+    .with_features(complexity="realistic")
+    .with_targets(component=0, range=(0, 100))
+    .with_target_complexity(
+        signal_to_confound_ratio=0.7,  # 70% predictable, 30% irreducible error
+        n_confounders=2,               # Variables affecting both spectra and target
+        temporal_drift=True            # Relationship changes over samples
+    )
+    .build()
+)
+```
+
+### Multi-Regime Target Landscapes
+
+Create regions in feature space with different target-spectra relationships:
+
+```python
+dataset = (
+    SyntheticDatasetBuilder(n_samples=1000, random_state=42)
+    .with_features(complexity="realistic")
+    .with_targets(component=0, range=(0, 100))
+    .with_complex_target_landscape(
+        n_regimes=3,                      # 3 different relationship regimes
+        regime_method="concentration",    # concentration, spectral, or random
+        regime_overlap=0.2,               # Smooth transitions between regimes
+        noise_heteroscedasticity=0.5      # Noise varies by regime
+    )
+    .build()
+)
+```
+
+### Combining All Complexity Features
+
+For realistic benchmarking, combine all complexity features:
+
+```python
+# Create a challenging benchmark dataset
+dataset = (
+    SyntheticDatasetBuilder(n_samples=1000, random_state=42)
+    .with_features(complexity="realistic")
+    .with_targets(component=0, range=(0, 100))
+    # Non-linear interactions
+    .with_nonlinear_targets(
+        interactions="polynomial",
+        interaction_strength=0.5,
+        hidden_factors=2
+    )
+    # Confounders
+    .with_target_complexity(
+        signal_to_confound_ratio=0.7,
+        n_confounders=2
+    )
+    # Multi-regime
+    .with_complex_target_landscape(
+        n_regimes=3,
+        noise_heteroscedasticity=0.3
+    )
+    .build()
+)
+```
+
+```{note}
+These features help test whether your model can handle:
+- Non-linear relationships (try tree-based models, neural networks)
+- Irreducible error (avoid overfitting)
+- Subpopulations with different behaviors (local models, mixture models)
+```
+
 ## Configuration Options
 
 ### Complexity Levels
@@ -378,6 +482,16 @@ for preproc in [MinMaxScaler(), StandardScaler(), SNV(), MSC(), FirstDerivative(
 | `ComponentLibrary` | Collection of spectral components |
 | `SpectralComponent` | Single chemical component definition |
 | `NIRBand` | Single absorption band (Voigt profile) |
+| `NonLinearTargetProcessor` | Non-linear target complexity (NEW!) |
+| `NonLinearTargetConfig` | Configuration for target complexity |
+
+### Builder Methods for Target Complexity
+
+| Method | Description |
+|--------|-------------|
+| `.with_nonlinear_targets()` | Add polynomial, synergistic, or antagonistic interactions |
+| `.with_target_complexity()` | Add confounders and partial predictability |
+| `.with_complex_target_landscape()` | Create multi-regime target landscapes |
 
 ## See Also
 

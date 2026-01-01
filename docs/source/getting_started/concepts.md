@@ -186,7 +186,7 @@ The simplest way to run a pipeline:
 ```python
 result = nirs4all.run(
     pipeline=pipeline,           # List of steps
-    dataset=dataset,             # Path or DatasetConfigs
+    dataset=dataset,             # See below for supported formats
     name="MyPipeline",           # Pipeline name
     verbose=1,                   # 0=silent, 1=progress, 2=debug
     save_artifacts=True,         # Save models and results
@@ -194,6 +194,19 @@ result = nirs4all.run(
     plots_visible=False          # Show plots interactively
 )
 ```
+
+### Supported Dataset Formats
+
+The `dataset` parameter accepts multiple formats:
+
+| Format | Example |
+|--------|----------|
+| Path to folder | `"sample_data/regression"` |
+| Numpy arrays | `(X, y)` or `X` alone |
+| Dict with arrays | `{"X": X, "y": y, "metadata": meta}` |
+| `SpectroDataset` | Direct dataset instance |
+| `List[SpectroDataset]` | Multiple datasets for multi-dataset runs |
+| `DatasetConfigs` | Full configuration object |
 
 For more control, use `PipelineRunner` directly:
 

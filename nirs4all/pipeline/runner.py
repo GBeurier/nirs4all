@@ -252,7 +252,7 @@ class PipelineRunner:
     def run(
         self,
         pipeline: Union[PipelineConfigs, List[Any], Dict, str],
-        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        dataset: Union[DatasetConfigs, SpectroDataset, List[SpectroDataset], np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
         pipeline_name: str = "",
         dataset_name: str = "dataset",
         max_generation_count: int = 10000
@@ -322,7 +322,7 @@ class PipelineRunner:
     def predict(
         self,
         prediction_obj: Union[Dict[str, Any], str],
-        dataset: Union[DatasetConfigs, SpectroDataset, np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
+        dataset: Union[DatasetConfigs, SpectroDataset, List[SpectroDataset], np.ndarray, Tuple[np.ndarray, ...], Dict, List[Dict], str, List[str]],
         dataset_name: str = "prediction_dataset",
         all_predictions: bool = False,
         verbose: int = 0
