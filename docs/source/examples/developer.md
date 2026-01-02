@@ -9,20 +9,23 @@ This section contains advanced examples for users who want to extend NIRS4ALL's 
 
 ## Overview
 
-Developer examples cover advanced topics:
+Developer examples are organized into six sections, progressing from advanced pipeline patterns to internal customization:
 
-| Section | Topics |
-|---------|--------|
-| [Advanced Pipelines](#advanced-pipelines) | Branching, merging, stacking |
-| [Generators](#generators) | Dynamic pipeline generation |
-| [Deep Learning](#deep-learning) | PyTorch, JAX, TensorFlow |
-| [Transfer Learning](#transfer-learning) | Instrument adaptation |
-| [Advanced Features](#advanced-features) | Metadata, transforms |
-| [Internals](#internals) | Custom controllers, sessions |
+| Section | Topics | Difficulty |
+|---------|--------|------------|
+| [Advanced Pipelines](#advanced-pipelines) | Branching, merging, stacking | ★★★☆☆ |
+| [Generators](#generators) | Dynamic pipeline generation | ★★★☆☆ |
+| [Synthetic Data](#synthetic-data) | Custom data generation | ★★★☆☆ |
+| [Deep Learning](#deep-learning) | PyTorch, JAX, TensorFlow | ★★★★☆ |
+| [Transfer Learning](#transfer-learning) | Instrument adaptation | ★★★★☆ |
+| [Advanced Features](#advanced-features) | Metadata, transforms | ★★★★☆ |
+| [Internals](#internals) | Custom controllers, sessions | ★★★★★ |
 
 ---
 
 ## Advanced Pipelines
+
+Pipeline branching and merging enable sophisticated model comparison, ensemble methods, and multi-source data handling.
 
 ### D01: Branching Basics
 
@@ -85,11 +88,11 @@ analyzer.plot_branch_boxplot(display_metric='rmse')
 analyzer.plot_branch_heatmap(y_var='fold_id', display_metric='rmse')
 ```
 
-### D03: Merge Predictions
+### D03: Merge Basics
 
 **Stacking and ensemble methods through prediction merging.**
 
-[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D03_merge_predictions.py)
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/01_advanced_pipelines/D03_merge_basics.py)
 
 ```python
 pipeline = [
@@ -142,6 +145,8 @@ pipeline = [
 
 ## Generators
 
+Generators enable dynamic pipeline generation for automated hyperparameter search and experiment design.
+
 ### D01: Generator Syntax
 
 **Dynamic pipeline generation with `_or_`, `_range_`, `_grid_`.**
@@ -192,15 +197,89 @@ pipeline = [
 
 [📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D04_nested_generators.py)
 
-### D05-D06: Synthetic Data Customization
+---
 
-**Custom spectral components and testing scenarios.**
+## Synthetic Data
+
+The synthetic data generator allows creating realistic NIRS spectra for testing, validation, and development. These examples show advanced customization options.
+
+### D05: Custom Components
+
+**Create custom spectral components for synthetic data.**
 
 [📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D05_synthetic_custom_components.py)
+
+Learn how to define your own chemical components with specific absorption profiles.
+
+### D06: Testing Scenarios
+
+**Generate data for specific testing scenarios.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D06_synthetic_testing.py)
+
+Create targeted datasets for unit tests, edge cases, and validation.
+
+### D07: Wavenumber & Procedural
+
+**Procedural generation with wavenumber control.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D07_synthetic_wavenumber_procedural.py)
+
+Advanced spectral range and resolution control for realistic data generation.
+
+### D08: Application Domains
+
+**Domain-specific synthetic data.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D08_synthetic_application_domains.py)
+
+Generate spectra tailored to specific applications: food, pharma, agriculture, etc.
+
+### D09: Instrument Effects
+
+**Simulate instrument-specific characteristics.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D09_synthetic_instruments.py)
+
+Model detector noise, wavelength calibration, and other instrument effects.
+
+### D10: Custom Components Advanced
+
+**Advanced component modeling techniques.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D10_synthetic_custom_components.py)
+
+### D11: Testing Advanced
+
+**Advanced testing scenarios and edge cases.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D11_synthetic_testing.py)
+
+### D12: Environmental Effects
+
+**Model environmental factors in synthetic spectra.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D12_synthetic_environmental.py)
+
+Temperature, humidity, and other environmental effects on spectra.
+
+### D13: Validation
+
+**Validation techniques for synthetic data quality.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D13_synthetic_validation.py)
+
+### D14: Fitter Integration
+
+**Integrate synthetic data with model fitting.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D14_synthetic_fitter.py)
 
 ---
 
 ## Deep Learning
+
+NIRS4ALL integrates with PyTorch, JAX, and TensorFlow for deep learning workflows.
 
 ### D01: PyTorch Models
 
@@ -276,6 +355,8 @@ class MyModel(nn.Module):
 
 ## Transfer Learning
 
+Adapt trained models to new instruments or conditions.
+
 ### D01: Transfer Analysis
 
 **Analyze instrument transfer challenges.**
@@ -311,15 +392,27 @@ predictor.retrain(
 
 ## Advanced Features
 
+Advanced data handling and transformation features.
+
 ### D01: Metadata Branching
 
 **Branch based on sample metadata.**
 
 [📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/05_advanced_features/D01_metadata_branching.py)
 
-### D02: Custom Transforms
+### D02: Concat Transform
 
-**Create custom preprocessing operators.**
+**Concatenation transforms for multi-source data.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/05_advanced_features/D02_concat_transform.py)
+
+### D03: Repetition Transform
+
+**Repetition-based transforms.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/05_advanced_features/D03_repetition_transform.py)
+
+### Creating Custom Transforms
 
 ```python
 from sklearn.base import TransformerMixin, BaseEstimator
@@ -341,6 +434,8 @@ pipeline = [MyTransform(param=2.0), PLSRegression()]
 ---
 
 ## Internals
+
+Extend NIRS4ALL at the deepest level with custom controllers and session management.
 
 ### D01: Session Workflow
 
@@ -378,9 +473,17 @@ class MyController(OperatorController):
     def matches(cls, step, operator, keyword) -> bool:
         return keyword == "my_custom_step"
 
+    @classmethod
+    def use_multi_source(cls) -> bool:
+        return False
+
+    @classmethod
+    def supports_prediction_mode(cls) -> bool:
+        return True  # Run during prediction
+
     def execute(self, step_info, dataset, context, runtime_context, **kwargs):
         # Custom logic
-        return dataset, results
+        return context, output
 ```
 
 ---
@@ -396,6 +499,13 @@ cd examples
 # Run specific section
 ./run.sh -n "D01*.py" -c developer
 
+# Run only generator examples
+./run.sh -n "D0[1-4]*.py" -c developer
+
+# Run synthetic data examples
+./run.sh -n "D0[5-9]*.py" -c developer
+./run.sh -n "D1*.py" -c developer
+
 # Skip deep learning (faster)
 ./run.sh -c developer -q
 ```
@@ -410,6 +520,6 @@ Developer examples assume familiarity with:
 
 ## Next Steps
 
-- Read the [Architecture Guide](../reference/architecture.md)
-- Explore the [API Reference](../reference/api/index.md)
+- Read the {doc}`/developer/architecture` guide
+- Explore the {doc}`/api/modules`
 - Contribute to NIRS4ALL on [GitHub](https://github.com/GBeurier/nirs4all)
