@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - Synthetic Data Enhancement & Pipeline Improvements - 2026-01-02
+
+### ✨ New Features
+
+#### Synthetic Data Generation (Phase 4)
+- **Wavenumber utilities**: Conversions, NIR zone classification, overtone/combination band calculations, hydrogen bonding shifts
+- **Procedural component generation**: Functional group types, properties dictionary, and procedural generator
+- **Application domain priors**: 20 predefined domains across agriculture, food, pharmaceutical, and industrial categories
+- **Instrument simulation**: Instrument archetypes (FOSS, Bruker, SCiO), detector types, multi-sensor stitching, measurement modes
+- **Environmental/matrix effects**: Temperature, moisture, particle size effects simulation
+- **Spectral realism validation**: Scorecard with correlation length, derivative stats, peak density, SNR metrics, adversarial validation
+- **Benchmark dataset matching**: Generate synthetic data matching published dataset characteristics
+- **GPU acceleration**: JAX/CuPy backends for fast generation
+- **Real data fitting**: Analyze real spectra and create matching generators
+- **48 predefined spectral components** (expanded from 31): Added casein, gluten, dietary fiber, glycerol, malic acid, tartaric acid, polymers, plastics
+
+#### Pipeline Improvements
+- **Run tracking in logs**: PipelineOrchestrator now logs current run and total runs for better progress visibility
+- **Batch execution**: Enhanced support for multiple pipelines and datasets in `nirs4all.run()`
+- **Group-by in `top()`**: Get top N results per group with `return_grouped` option
+
+#### Optuna Integration
+- **Sorted tuple parameter type**: New parameter type for OptunaManager
+- **Detailed configuration support**: Enhanced parameter sampling with log-scale and advanced options
+
+#### Deep Learning
+- **FCK-PLS Torch**: End-to-end learnable Fractional Convolutional Kernel PLS prototype (in bench/)
+- **PyTorch model improvements**: Better target handling and custom regularization support
+
+### 🔧 Improvements
+
+- **Dataset handling**: Support for lists of SpectroDataset instances, deep copies to prevent mutation
+- **Non-linear target complexity**: NonLinearConfig, ConfounderConfig, MultiRegimeConfig for complex scenarios
+- **CI/CD**: Aggressive disk cleanup, improved Windows test stability, logging reset for file handle issues
+
+### 🐛 Bug Fixes
+
+- **OptunaManager**: Support both tuple and list formats for length configuration
+- **ConcentrationPrior tests**: Use unified params dictionary structure
+- **Procedural generator tests**: Corrected parameter names for consistency
+
+### 📚 Documentation
+
+- **New examples**: D07-D09 synthetic generator examples (wavenumber, domains, instruments)
+- **Reference examples**: R05-R07 for environmental effects, validation, and fitting
+- **Updated developer path**: Reflects new synthetic data examples
+- **pybaselines dependency**: Added to project requirements
+
 ## [0.6.1] - GitHub Actions CI/CD Update - 2025-12-31
 
 ### 🔧 Infrastructure
