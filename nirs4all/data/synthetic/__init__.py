@@ -126,6 +126,12 @@ from .fitter import (
     compute_spectral_properties,
     fit_to_real_data,
     compare_datasets,
+    # Phase 1-4 enhanced inference classes
+    InstrumentInference,
+    DomainInference,
+    EnvironmentalInference,
+    ScatteringInference,
+    MeasurementModeInference,
 )
 
 # ================================================================
@@ -468,6 +474,12 @@ __all__ = [
     "compute_spectral_properties",
     "fit_to_real_data",
     "compare_datasets",
+    # Phase 1-4 enhanced inference classes
+    "InstrumentInference",
+    "DomainInference",
+    "EnvironmentalInference",
+    "ScatteringInference",
+    "MeasurementModeInference",
     # ================================================================
     # Phase 1: Enhanced Component Generation
     # ================================================================
