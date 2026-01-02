@@ -67,7 +67,8 @@ pls_params = {
 }
 
 pipeline_pls_pp = [
-    ASLSBaseline(),
+    {"_or_": [None, ASLSBaseline()]},
+    {"_or_": [None, StandardScaler(), MinMaxScaler()]},
     {"y_processing": MinMaxScaler},
     SPXYGFold(n_splits=3),
     {
@@ -77,7 +78,7 @@ pipeline_pls_pp = [
             {"_or_": [None, SavitzkyGolay(window_length=15, deriv=1), SavitzkyGolay(window_length=15, deriv=2)]},
             {"_or_": [None, Haar(), Detrend(), AreaNormalization(), Wavelet("coif3")]},
         ],
-        "count": 100,
+        # "count": 100,
     },
     {
         "model": PLSRegression,
@@ -132,9 +133,9 @@ fckpls_v1_train_params_search = {
 
 fckpls_v1_train_params_final = {
     # Final training with best params (thorough)
-    'epochs': 400,
-    'lr': 1e-3,
-    'patience': 50,
+    'epochs': 800,
+    'lr': 1e-4,
+    'patience': 100,
     'batch_size': 2048,
 }
 
@@ -175,9 +176,9 @@ fckpls_v2_train_params_search = {
 
 fckpls_v2_train_params_final = {
     # Final training with best params (thorough)
-    'epochs': 500,  # More epochs for parametric convergence
-    'lr': 1e-3,
-    'patience': 60,
+    'epochs': 800,  # More epochs for parametric convergence
+    'lr': 1e-4,
+    'patience': 100,
     'batch_size': 2048,
 }
 
@@ -188,7 +189,7 @@ fckpls_params = {
     "kernel_size": {'type': 'int', 'min': 5, 'max': 51, 'step': 2},
 }
 
-fck_pls_n_trials = 200
+fck_pls_n_trials = 500
 
 pipeline_fck_pls = [
     {"_or_": [None, ASLSBaseline()]},
@@ -225,7 +226,7 @@ pipeline_fck_pls = [
         "model": FCKPLS(),
         "name": "FCK-PLS-default",
         "finetune_params": {
-            "n_trials": fck_pls_n_trials,
+            "n_trials": 200,
             "sample": "tpe",
             "verbose": 0,
             "approach": "single",

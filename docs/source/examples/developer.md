@@ -211,69 +211,44 @@ The synthetic data generator allows creating realistic NIRS spectra for testing,
 
 Learn how to define your own chemical components with specific absorption profiles.
 
-### D06: Testing Scenarios
+### D06: Testing Integration
 
-**Generate data for specific testing scenarios.**
+**Generate data for testing and benchmarking.**
 
 [📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D06_synthetic_testing.py)
 
-Create targeted datasets for unit tests, edge cases, and validation.
+Create reproducible datasets for unit tests, benchmark different configurations, and compare real vs synthetic data.
 
 ### D07: Wavenumber & Procedural
 
-**Procedural generation with wavenumber control.**
+**Wavenumber utilities and procedural component generation (Phase 1).**
 
 [📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D07_synthetic_wavenumber_procedural.py)
 
-Advanced spectral range and resolution control for realistic data generation.
+Advanced wavenumber-to-wavelength conversions, overtone calculations, and procedural spectral band generation.
 
 ### D08: Application Domains
 
-**Domain-specific synthetic data.**
+**Domain-specific synthetic data (Phase 1).**
 
 [📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D08_synthetic_application_domains.py)
 
-Generate spectra tailored to specific applications: food, pharma, agriculture, etc.
+Generate spectra tailored to specific applications: agriculture, food, pharmaceutical, petrochemical, and more.
 
-### D09: Instrument Effects
+### D09: Instrument Simulation
 
-**Simulate instrument-specific characteristics.**
+**Simulate instrument-specific characteristics (Phase 2).**
 
 [📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D09_synthetic_instruments.py)
 
-Model detector noise, wavelength calibration, and other instrument effects.
+Model detector types, multi-sensor stitching, multi-scan averaging, and measurement mode effects.
 
-### D10: Custom Components Advanced
-
-**Advanced component modeling techniques.**
-
-[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D10_synthetic_custom_components.py)
-
-### D11: Testing Advanced
-
-**Advanced testing scenarios and edge cases.**
-
-[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D11_synthetic_testing.py)
-
-### D12: Environmental Effects
-
-**Model environmental factors in synthetic spectra.**
-
-[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D12_synthetic_environmental.py)
-
-Temperature, humidity, and other environmental effects on spectra.
-
-### D13: Validation
-
-**Validation techniques for synthetic data quality.**
-
-[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D13_synthetic_validation.py)
-
-### D14: Fitter Integration
-
-**Integrate synthetic data with model fitting.**
-
-[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/developer/02_generators/D14_synthetic_fitter.py)
+```{note}
+For advanced synthetic data features (environmental effects, validation, real data fitting), see the Reference Examples:
+- R05: Environmental and Matrix Effects (Phase 3)
+- R06: Validation and Quality Assessment (Phase 4)
+- R07: Fitting to Real Data (Phase 4)
+```
 
 ---
 
@@ -499,12 +474,11 @@ cd examples
 # Run specific section
 ./run.sh -n "D01*.py" -c developer
 
-# Run only generator examples
+# Run only generator examples (D01-D04)
 ./run.sh -n "D0[1-4]*.py" -c developer
 
-# Run synthetic data examples
+# Run synthetic data examples (D05-D09)
 ./run.sh -n "D0[5-9]*.py" -c developer
-./run.sh -n "D1*.py" -c developer
 
 # Skip deep learning (faster)
 ./run.sh -c developer -q

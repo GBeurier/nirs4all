@@ -161,19 +161,22 @@ class PipelineOrchestrator:
         # Clear previous figure references
         self._figure_refs.clear()
 
-        nb_combinations = len(pipeline_configs.steps) * len(dataset_configs.configs)
+        n_pipelines = len(pipeline_configs.steps)
+        n_datasets = len(dataset_configs.configs)
+        total_runs = n_pipelines * n_datasets
         logger.info("=" * 120)
         logger.starting(
-            f"Starting Nirs4all run(s) with {len(pipeline_configs.steps)} "
-            f"pipeline on {len(dataset_configs.configs)} dataset ({nb_combinations} total runs)."
+            f"Starting Nirs4all run(s) with {n_pipelines} "
+            f"pipeline(s) on {n_datasets} dataset(s) ({total_runs} total runs)."
         )
         logger.info("=" * 120)
 
         datasets_predictions = {}
         run_predictions = Predictions()
+        current_run = 0
 
         # Execute for each dataset
-        for config, name in dataset_configs.configs:
+        for dataset_idx, (config, name) in enumerate(dataset_configs.configs):
             # Create run directory: workspace/runs/<dataset>/
             # All pipelines for a dataset go in the same folder regardless of date
             current_run_dir = self.runs_dir / name
@@ -227,6 +230,9 @@ class PipelineOrchestrator:
                 pipeline_configs.names,
                 pipeline_configs.generator_choices
             )):
+                current_run += 1
+                logger.info(f"Run {current_run}/{total_runs}: pipeline '{config_name}' on dataset '{name}'")
+
                 dataset = dataset_configs.get_dataset(config, name)
 
                 # Capture raw data BEFORE any preprocessing happens

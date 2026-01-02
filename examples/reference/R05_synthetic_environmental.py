@@ -1,10 +1,11 @@
 """
-D12 - Synthetic Generator: Environmental and Matrix Effects
+R05 - Synthetic Generator: Environmental and Matrix Effects
 ============================================================
 
-Learn to simulate realistic environmental and matrix effects in synthetic NIR spectra.
+Comprehensive reference for environmental and matrix effects simulation
+in synthetic NIR spectra (Phase 3 features).
 
-This tutorial covers Phase 3 of the synthetic generator:
+This reference covers:
 
 * Temperature effects on spectral bands (O-H, N-H, C-H shifts)
 * Moisture and water activity effects
@@ -14,10 +15,10 @@ This tutorial covers Phase 3 of the synthetic generator:
 
 Prerequisites
 -------------
-Complete D05-D09 first.
+Complete D05-D09 synthetic generator developer examples first.
 
 Duration: ~10 minutes
-Difficulty: ★★★★☆
+Difficulty: ★★★★★
 
 Scientific Background
 ---------------------
@@ -87,17 +88,17 @@ from nirs4all.data.synthetic import (
 )
 
 # Add examples directory to path for example_utils
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from example_utils import get_example_output_path, print_output_location, save_array_summary
 
 # Parse command-line arguments
-parser = argparse.ArgumentParser(description='D12 Environmental Effects Example')
+parser = argparse.ArgumentParser(description='R05 Environmental Effects Reference')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
 # Example name for output directory
-EXAMPLE_NAME = "D12_synthetic_environmental"
+EXAMPLE_NAME = "R05_synthetic_environmental"
 
 
 # =============================================================================

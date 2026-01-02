@@ -220,8 +220,8 @@ class TestProceduralComponentGenerator:
         )
         base = generator.generate_component("base", config)
 
-        # Generate variant with perturbations
-        variant = generator.generate_variant(base, perturbation_scale=0.1)
+        # Generate variant with perturbations (using correct parameter name)
+        variant = generator.generate_variant(base, variation_scale=0.1)
 
         assert variant is not None
         assert len(variant.bands) == len(base.bands)
@@ -292,8 +292,8 @@ class TestProceduralIntegration:
 
         # Should be able to compute on wavelength array
         wavelengths = np.linspace(900, 2500, 100)
-        concentration = 0.5
-        spectrum = component.compute(wavelengths, concentration)
+        # compute() takes only wavelengths, not concentration
+        spectrum = component.compute(wavelengths)
 
         assert spectrum.shape == wavelengths.shape
         assert np.all(spectrum >= 0)  # Absorbance should be non-negative
@@ -314,10 +314,11 @@ class TestProceduralIntegration:
         )
 
         wavelengths = np.linspace(900, 2500, 100)
+        # compute() takes only wavelengths
         spectra = [
-            comp_hydroxyl.compute(wavelengths, 0.5),
-            comp_amine.compute(wavelengths, 0.5),
-            comp_aromatic.compute(wavelengths, 0.5),
+            comp_hydroxyl.compute(wavelengths),
+            comp_amine.compute(wavelengths),
+            comp_aromatic.compute(wavelengths),
         ]
 
         # Spectra should be different from each other
