@@ -789,7 +789,7 @@ Key Concepts:
 
    Or use the helper: make_pipeline_choices(stages, pick_range, count)
 
-8. NEW: _cartesian_ keyword for SINGLE-SPEC solution:
+8. _cartesian_ keyword for SINGLE-SPEC solution:
    {
      "_cartesian_": [stage1, stage2, stage3],  # Stages with _or_
      "pick": (1, 3),  # Pick 1-3 complete pipelines

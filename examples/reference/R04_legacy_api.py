@@ -103,7 +103,6 @@ print("\n" + "-" * 70)
 print("Section 2: New API Equivalent")
 print("-" * 70)
 
-# NEW API:
 # 1. Call nirs4all.run() with all parameters
 # 2. Access results via RunResult convenience methods
 
@@ -132,7 +131,7 @@ print("Section 3: API Comparison")
 print("-" * 70)
 
 print("""
-TASK                          LEGACY API                              NEW API
+TASK                          LEGACY API                              PUBLIC API
 ─────────────────────────────────────────────────────────────────────────────────
 Configuration objects         PipelineConfigs, DatasetConfigs         (inline)
 Runner creation               PipelineRunner(...)                     nirs4all.run(...)

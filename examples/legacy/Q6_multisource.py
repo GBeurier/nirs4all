@@ -105,7 +105,7 @@ for idx, prediction in enumerate(top_models):
 # # Plot comparison of top models
 # # fig1 = analyzer.plot_top_k(k=best_model_count, rank_metric='rmse')
 
-# # Plot heatmap: models vs preprocessing using NEW v2 method
+# # Plot heatmap: models vs preprocessing using v2 method
 # # This properly ranks on val and displays test scores
 # fig2 = analyzer.plot_heatmap(
 #     x_var="model_name",

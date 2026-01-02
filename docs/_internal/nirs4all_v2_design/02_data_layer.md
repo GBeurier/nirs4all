@@ -2896,7 +2896,7 @@ pipeline = [
 ]
 ```
 
-#### Mid Fusion (NEW)
+#### Mid Fusion
 
 Mid fusion combines intermediate representations from neural networks. This requires:
 1. Model layer extraction/truncation

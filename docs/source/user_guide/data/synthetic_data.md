@@ -129,7 +129,7 @@ dataset = (
 )
 ```
 
-## Non-Linear Target Complexity (NEW!)
+## Non-Linear Target Complexity
 
 By default, synthetic targets have a simple linear relationship with spectral features,
 making them too easy to predict. Use these methods to create more realistic, challenging datasets:
@@ -231,6 +231,216 @@ These features help test whether your model can handle:
 - Non-linear relationships (try tree-based models, neural networks)
 - Irreducible error (avoid overfitting)
 - Subpopulations with different behaviors (local models, mixture models)
+```
+
+## Environmental and Matrix Effects
+
+Real NIR spectra are affected by environmental conditions and sample matrix properties. Use these features to generate more realistic synthetic data.
+
+### Temperature Effects
+
+Temperature variations cause peak shifts, intensity changes, and band broadening:
+
+```python
+from nirs4all.data.synthetic import (
+    SyntheticDatasetBuilder,
+    EnvironmentalEffectsConfig,
+    TemperatureConfig,
+)
+
+dataset = (
+    SyntheticDatasetBuilder(n_samples=1000, random_state=42)
+    .with_features(complexity="realistic")
+    .with_targets(component=0, range=(0, 100))
+    .with_environmental_effects(
+        temperature=TemperatureConfig(
+            sample_temperature=35.0,      # °C above reference (25°C)
+            temperature_variation=5.0,    # Sample-to-sample variation
+        ),
+    )
+    .build()
+)
+```
+
+| Effect | Description | Impact on Spectra |
+|--------|-------------|-------------------|
+| Peak shift | O-H bands shift with temperature | ~0.3 nm/°C blue shift |
+| Intensity change | H-bonding decreases with temperature | ~0.2%/°C intensity decrease |
+| Broadening | Thermal motion widens peaks | ~0.1%/°C width increase |
+
+### Moisture/Water Activity Effects
+
+Water content and activity affect hydrogen bonding and water band shapes:
+
+```python
+from nirs4all.data.synthetic import MoistureConfig
+
+dataset = (
+    SyntheticDatasetBuilder(n_samples=1000, random_state=42)
+    .with_features(complexity="realistic")
+    .with_environmental_effects(
+        moisture=MoistureConfig(
+            water_activity=0.65,          # Water activity (0-1)
+            moisture_content=0.12,        # Fractional moisture
+            free_water_fraction=0.4,      # Fraction of free water
+        ),
+    )
+    .build()
+)
+```
+
+### Particle Size Effects (Scattering)
+
+Particle size affects scattering in diffuse reflectance measurements:
+
+```python
+from nirs4all.data.synthetic import (
+    ScatteringEffectsConfig,
+    ParticleSizeConfig,
+    ParticleSizeDistribution,
+)
+
+dataset = (
+    SyntheticDatasetBuilder(n_samples=1000, random_state=42)
+    .with_features(complexity="realistic")
+    .with_scattering_effects(
+        particle_size=ParticleSizeConfig(
+            distribution=ParticleSizeDistribution(
+                mean_size_um=50.0,        # Mean particle size (μm)
+                std_size_um=15.0,         # Size variation
+                distribution="lognormal", # Distribution type
+            ),
+        ),
+    )
+    .build()
+)
+```
+
+### Combined Effects
+
+Combine environmental and scattering effects for maximum realism:
+
+```python
+from nirs4all.data.synthetic import (
+    SyntheticNIRSGenerator,
+    EnvironmentalEffectsConfig,
+    ScatteringEffectsConfig,
+    TemperatureConfig,
+    MoistureConfig,
+    ParticleSizeConfig,
+    EMSCConfig,
+)
+
+# Create generator with all Phase 3 effects
+generator = SyntheticNIRSGenerator(
+    wavelength_start=1000,
+    wavelength_end=2500,
+    complexity="realistic",
+    environmental_config=EnvironmentalEffectsConfig(
+        temperature=TemperatureConfig(sample_temperature=30.0),
+        moisture=MoistureConfig(water_activity=0.6),
+    ),
+    scattering_effects_config=ScatteringEffectsConfig(
+        particle_size=ParticleSizeConfig(
+            distribution=ParticleSizeDistribution(mean_size_um=60.0)
+        ),
+        emsc=EMSCConfig(multiplicative_range=(0.85, 1.15)),
+    ),
+    random_state=42,
+)
+
+# Generate with effects enabled
+X, C, E = generator.generate(
+    n_samples=500,
+    include_environmental_effects=True,
+    include_scattering_effects=True,
+)
+```
+
+```{note}
+Environmental and scattering effects are correctable by standard preprocessing (SNV, MSC, derivatives). Use them to test robustness of your preprocessing pipeline.
+```
+
+## Validation and Benchmarking
+
+Phase 4 introduces tools to validate synthetic data quality and benchmark against standard datasets.
+
+### Spectral Realism Scorecard
+
+Evaluate how realistic your synthetic data is compared to real reference data using 6 quantitative metrics:
+
+```python
+from nirs4all.data.synthetic import compute_spectral_realism_scorecard
+
+# Compare synthetic data to real reference data
+score = compute_spectral_realism_scorecard(
+    real_spectra=X_real,
+    synthetic_spectra=X_synth,
+    wavelengths=wavelengths,
+    include_adversarial=True
+)
+
+print(f"Overall Pass: {score.overall_pass}")
+print(f"Correlation Length Overlap: {score.correlation_length_overlap:.3f}")
+print(f"Adversarial AUC: {score.adversarial_auc:.3f}")  # Lower is better (harder to distinguish)
+```
+
+### Benchmark Datasets
+
+Access metadata and properties for standard NIR benchmark datasets to create matching synthetic data:
+
+```python
+from nirs4all.data.synthetic import (
+    list_benchmark_datasets,
+    get_benchmark_info,
+    create_synthetic_matching_benchmark
+)
+
+# List available benchmarks
+print(list_benchmark_datasets())
+# ['corn', 'tecator', 'shootout2002', 'wheat_kernels', ...]
+
+# Get info about a dataset
+info = get_benchmark_info("corn")
+print(f"{info.full_name}: {info.n_samples} samples, {info.n_wavelengths} wavelengths")
+
+# Create synthetic data matching the benchmark properties
+X, C, E = create_synthetic_matching_benchmark("corn", n_samples=1000)
+```
+
+### Prior Sampling
+
+Generate realistic configurations based on domain knowledge (hierarchical sampling):
+
+```python
+from nirs4all.data.synthetic import sample_prior
+
+# Sample a random realistic configuration
+config = sample_prior(random_state=42)
+print(f"Domain: {config['domain']}")
+print(f"Instrument: {config['instrument']}")
+
+# Sample for a specific domain
+food_config = sample_prior(domain="food")
+```
+
+### GPU Acceleration
+
+Accelerate generation of large datasets using JAX or CuPy (automatically detected):
+
+```python
+from nirs4all.data.synthetic import AcceleratedGenerator
+
+# Automatically uses GPU if available (JAX/CuPy)
+gen = AcceleratedGenerator(random_state=42)
+
+# Generate large batch efficiently
+X = gen.generate_batch(
+    n_samples=100000,
+    wavelengths=wavelengths,
+    component_spectra=E,
+    concentrations=C
+)
 ```
 
 ## Configuration Options
@@ -576,8 +786,35 @@ for preproc in [MinMaxScaler(), StandardScaler(), SNV(), MSC(), FirstDerivative(
 | `ComponentLibrary` | Collection of spectral components |
 | `SpectralComponent` | Single chemical component definition |
 | `NIRBand` | Single absorption band (Voigt profile) |
-| `NonLinearTargetProcessor` | Non-linear target complexity (NEW!) |
+| `NonLinearTargetProcessor` | Non-linear target complexity |
 | `NonLinearTargetConfig` | Configuration for target complexity |
+
+### Environmental & Scattering Classes (Phase 3)
+
+| Class | Description |
+|-------|-------------|
+| `TemperatureConfig` | Temperature effect configuration |
+| `MoistureConfig` | Moisture/water activity configuration |
+| `EnvironmentalEffectsConfig` | Combined environmental effects |
+| `EnvironmentalEffectsSimulator` | Apply temperature and moisture effects |
+| `ParticleSizeConfig` | Particle size distribution configuration |
+| `ParticleSizeDistribution` | Sample particle size distributions |
+| `EMSCConfig` | EMSC-style scattering configuration |
+| `ScatteringCoefficientConfig` | Scattering coefficient generation |
+| `ScatteringEffectsConfig` | Combined scattering effects |
+| `ScatteringEffectsSimulator` | Apply particle size and scattering effects |
+
+### Validation & Benchmarking Classes (Phase 4)
+
+| Class | Description |
+|-------|-------------|
+| `SpectralRealismScore` | Scorecard results container |
+| `RealismMetric` | Enum of validation metrics |
+| `BenchmarkDatasetInfo` | Metadata for benchmark datasets |
+| `NIRSPriorConfig` | Configuration for prior sampling |
+| `PriorSampler` | Hierarchical configuration sampler |
+| `AcceleratedGenerator` | GPU-accelerated generation engine |
+| `AcceleratorBackend` | Enum of acceleration backends (JAX, CuPy, NumPy) |
 
 ### Builder Methods for Target Complexity
 

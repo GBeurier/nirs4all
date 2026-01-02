@@ -11,13 +11,27 @@ nirs4all/data/synthetic/
 ├── builder.py            # SyntheticDatasetBuilder (fluent API)
 ├── components.py         # NIRBand, SpectralComponent, ComponentLibrary
 ├── config.py             # Configuration dataclasses
-├── _constants.py         # Predefined components, defaults
+├── _constants.py         # Predefined components (111 total), defaults
 ├── metadata.py           # MetadataGenerator
 ├── targets.py            # TargetGenerator (regression/classification)
 ├── sources.py            # MultiSourceGenerator
 ├── exporter.py           # DatasetExporter, CSVVariationGenerator
 ├── fitter.py             # RealDataFitter
-└── validation.py         # Data validation utilities
+├── validation.py         # Data validation utilities
+│
+├── # === Phase 1: Enhanced Component Generation ===
+├── wavenumber.py         # Wavenumber utilities, overtone/combination bands
+├── procedural.py         # ProceduralComponentGenerator
+├── domains.py            # Application domain priors (20 domains)
+│
+├── # === Phase 2: Realistic Instrument Simulation ===
+├── instruments.py        # InstrumentArchetype, InstrumentSimulator, multi-sensor
+├── measurement_modes.py  # MeasurementMode, measurement mode simulators
+├── detectors.py          # DetectorSimulator, detector response curves
+│
+├── # === Phase 3: Environmental and Matrix Effects ===
+├── environmental.py      # Temperature and moisture/water activity effects
+└── scattering.py         # Particle size effects, EMSC-style scattering
 ```
 
 ## Physical Model
@@ -234,6 +248,1188 @@ class CustomTargetGenerator(TargetGenerator):
         return np.clip(ratio, 0, 10)
 ```
 
+## Wavenumber Utilities (Phase 1)
+
+The `wavenumber` module provides utilities for physically-correct band placement based on wavenumber (cm⁻¹) instead of wavelength (nm). This is critical because harmonic relationships (overtones, combinations) are **linear in wavenumber space**, not wavelength space.
+
+### Mathematical Background
+
+```
+λ (nm) = 10⁷ / ν̃ (cm⁻¹)
+ν̃ (cm⁻¹) = 10⁷ / λ (nm)
+```
+
+For overtones with anharmonicity correction:
+
+```
+ν̃ₙ = n × ν̃₀ × (1 - n × χ)
+```
+
+Where:
+- `n` is the quantum number (1 = fundamental, 2 = 1st overtone, etc.)
+- `ν̃₀` is the fundamental frequency
+- `χ` is the anharmonicity constant (typically 0.01-0.03)
+
+### NIR Spectral Zones
+
+The module defines 7 NIR spectral zones in wavenumber space:
+
+| Zone | Wavenumber (cm⁻¹) | Wavelength (nm) | Description |
+|------|-------------------|-----------------|-------------|
+| 3rd overtones | 9000-12500 | 800-1111 | Electronic transitions |
+| 2nd overtones | 7500-9000 | 1111-1333 | C-H, N-H 2nd overtones |
+| 1st O-H/N-H | 6000-7500 | 1333-1667 | O-H, N-H 1st overtones |
+| 1st C-H | 5500-6250 | 1600-1818 | C-H 1st overtones |
+| O-H comb | 5000-5500 | 1818-2000 | O-H combination bands |
+| N-H comb | 4500-5200 | 1923-2222 | N-H, C-H combinations |
+| C-H comb | 4000-4545 | 2200-2500 | C-H, C-O combinations |
+
+### Fundamental Vibrations
+
+22 fundamental vibrations are defined (in cm⁻¹):
+
+```python
+from nirs4all.data.synthetic import FUNDAMENTAL_VIBRATIONS
+
+# O-H vibrations
+print(FUNDAMENTAL_VIBRATIONS["O-H_stretch_free"])    # 3650 cm⁻¹
+print(FUNDAMENTAL_VIBRATIONS["O-H_stretch_hbond"])   # 3400 cm⁻¹
+
+# C-H vibrations
+print(FUNDAMENTAL_VIBRATIONS["C-H_stretch_CH3_asym"])  # 2960 cm⁻¹
+print(FUNDAMENTAL_VIBRATIONS["C-H_stretch_aromatic"])  # 3060 cm⁻¹
+
+# N-H vibrations
+print(FUNDAMENTAL_VIBRATIONS["N-H_stretch_primary"])   # 3400 cm⁻¹
+```
+
+### Overtone Calculation
+
+Calculate overtone positions with anharmonicity correction:
+
+```python
+from nirs4all.data.synthetic import calculate_overtone_position
+
+# Calculate O-H 1st overtone (n=2 in spectroscopic convention)
+result = calculate_overtone_position("O-H_stretch_free", 2)
+print(f"O-H 1st overtone: {result.wavelength_nm:.1f} nm")  # ~1433 nm
+print(f"Wavenumber: {result.wavenumber_cm:.1f} cm⁻¹")
+print(f"Amplitude factor: {result.amplitude_factor:.3f}")
+
+# C-H overtone series
+for n in [2, 3, 4]:  # 1st, 2nd, 3rd overtones
+    result = calculate_overtone_position("C-H_stretch_CH3_asym", n)
+    print(f"C-H {n-1}st overtone: {result.wavelength_nm:.1f} nm")
+
+# Use numeric frequency directly
+result = calculate_overtone_position(3400, 2, anharmonicity=0.022)
+```
+
+### Combination Band Calculation
+
+Calculate combination band positions:
+
+```python
+from nirs4all.data.synthetic import calculate_combination_band
+
+# O-H stretch + bend combination
+result = calculate_combination_band(["O-H_stretch_free", "O-H_bend"])
+print(f"O-H combination: {result.wavelength_nm:.1f} nm")  # ~1890 nm
+
+# Multiple modes
+result = calculate_combination_band(["C-H_stretch_CH3_asym", "C-H_bend"])
+print(f"C-H combination: {result.wavelength_nm:.1f} nm")
+```
+
+### Hydrogen Bonding Shift
+
+Model hydrogen bonding effects on band positions:
+
+```python
+from nirs4all.data.synthetic import apply_hydrogen_bonding_shift
+
+# Free O-H stretch
+free_oh = 3650  # cm⁻¹
+
+# Apply H-bonding (shifts to lower wavenumber = longer wavelength)
+bonded_oh = apply_hydrogen_bonding_shift(free_oh, strength=0.5)
+print(f"H-bonded O-H: {bonded_oh:.0f} cm⁻¹")  # ~3400 cm⁻¹
+```
+
+### Zone Classification
+
+Classify wavelengths into NIR zones:
+
+```python
+from nirs4all.data.synthetic import classify_wavelength_zone
+
+zone = classify_wavelength_zone(1450)  # O-H 1st overtone region
+print(f"1450 nm is in: {zone}")
+
+zone = classify_wavelength_zone(2100)  # Combination region
+print(f"2100 nm is in: {zone}")
+```
+
+## Procedural Component Generator (Phase 1)
+
+The `procedural` module enables programmatic generation of chemically-plausible spectral components based on functional group properties.
+
+### Functional Group Types
+
+10 functional group types are defined:
+
+```python
+from nirs4all.data.synthetic import FunctionalGroupType
+
+print(list(FunctionalGroupType))
+# [HYDROXYL, AMINE, METHYL, METHYLENE, AROMATIC_CH,
+#  VINYL, CARBONYL, CARBOXYL, THIOL, WATER]
+```
+
+Each functional group has physical properties defined:
+
+```python
+from nirs4all.data.synthetic import FUNCTIONAL_GROUP_PROPERTIES
+
+props = FUNCTIONAL_GROUP_PROPERTIES[FunctionalGroupType.HYDROXYL]
+print(f"Fundamental: {props['fundamental_cm']} cm⁻¹")
+print(f"Bandwidth: {props['bandwidth_cm']} cm⁻¹")
+print(f"H-bond susceptibility: {props['h_bond_susceptibility']}")
+print(f"Typical amplitude: {props['typical_amplitude']}")
+```
+
+### Procedural Configuration
+
+```python
+from nirs4all.data.synthetic import ProceduralComponentConfig
+
+config = ProceduralComponentConfig(
+    # Band generation
+    n_fundamental_bands=3,           # Number of fundamental vibrations
+    include_overtones=True,          # Generate overtone bands
+    max_overtone_order=3,            # Up to 2nd overtone (n=3)
+    include_combinations=True,       # Generate combination bands
+    max_combinations=3,              # Max combination bands
+
+    # Environmental effects
+    h_bond_strength=0.5,             # Average H-bonding (0-1)
+    h_bond_variability=0.2,          # Random variation
+
+    # Anharmonicity
+    anharmonicity=0.02,              # Default anharmonicity constant
+    anharmonicity_variability=0.005, # Random variation
+
+    # Band property variation
+    amplitude_variability=0.3,
+    bandwidth_variability=0.2,
+
+    # Wavelength range
+    wavelength_range=(900, 2500),    # NIR region
+
+    # Specific functional groups (optional)
+    functional_groups=[
+        FunctionalGroupType.HYDROXYL,
+        FunctionalGroupType.METHYL,
+    ],
+)
+```
+
+### Generating Components
+
+```python
+from nirs4all.data.synthetic import ProceduralComponentGenerator
+
+generator = ProceduralComponentGenerator(random_state=42)
+
+# Generate a single component
+component = generator.generate_component(
+    name="ethanol_like",
+    config=config,
+)
+
+print(f"Generated: {component.name}")
+print(f"Bands: {len(component.bands)}")
+for band in component.bands:
+    print(f"  - {band.name}: {band.center:.1f} nm")
+```
+
+### Specifying Functional Groups
+
+```python
+# Generate from specific functional groups
+component = generator.generate_component(
+    name="amine_compound",
+    functional_groups=[
+        FunctionalGroupType.AMINE,
+        FunctionalGroupType.METHYLENE,
+    ],
+)
+
+# Generate sugar-like compound
+sugar = generator.generate_component(
+    name="carbohydrate",
+    functional_groups=[
+        FunctionalGroupType.HYDROXYL,  # Multiple O-H groups
+        FunctionalGroupType.HYDROXYL,
+        FunctionalGroupType.METHYLENE,
+    ],
+    config=ProceduralComponentConfig(
+        h_bond_strength=0.7,  # Strong H-bonding
+    ),
+)
+```
+
+### Generating Variants
+
+Create perturbed versions of existing components:
+
+```python
+# Generate base component
+base = generator.generate_component("base_compound")
+
+# Create variants with small perturbations
+for i in range(5):
+    variant = generator.generate_variant(
+        base,
+        perturbation_scale=0.1,  # 10% variation
+    )
+    print(f"Variant {i+1}: {len(variant.bands)} bands")
+```
+
+### Integration with ComponentLibrary
+
+```python
+from nirs4all.data.synthetic import ComponentLibrary
+
+# Create library with procedural + predefined components
+library = ComponentLibrary(random_state=42)
+
+# Add predefined components
+predefined = ComponentLibrary.from_predefined(["water", "starch"])
+for comp in predefined.components.values():
+    library.add_component(comp)
+
+# Add procedurally generated components
+proc_gen = ProceduralComponentGenerator(random_state=42)
+for i in range(5):
+    component = proc_gen.generate_component(
+        name=f"novel_compound_{i}",
+        config=ProceduralComponentConfig(n_fundamental_bands=3),
+    )
+    library.add_component(component)
+
+print(f"Library has {len(library.component_names)} components")
+```
+
+## Application Domains (Phase 1)
+
+The `domains` module provides domain-aware configuration for synthetic data generation, with 20 predefined application domains across 8 categories.
+
+### Domain Categories
+
+```python
+from nirs4all.data.synthetic import DomainCategory
+
+print(list(DomainCategory))
+# [AGRICULTURE, FOOD, PHARMACEUTICAL, PETROCHEMICAL,
+#  ENVIRONMENTAL, BIOMEDICAL, INDUSTRIAL, RESEARCH]
+```
+
+### Available Domains
+
+| Category | Domains |
+|----------|---------|
+| Agriculture | `agriculture_grain`, `agriculture_forage`, `agriculture_oilseeds`, `agriculture_fruit` |
+| Food | `food_dairy`, `food_meat`, `food_beverages`, `food_baking` |
+| Pharmaceutical | `pharma_tablets`, `pharma_powders`, `pharma_liquids` |
+| Petrochemical | `petrochem_fuel`, `petrochem_polymers`, `petrochem_lubricants` |
+| Environmental | `environ_water`, `environ_soil` |
+| Biomedical | `biomed_tissue`, `biomed_blood` |
+| Industrial | `industrial_textiles`, `industrial_coatings` |
+
+### Getting Domain Configuration
+
+```python
+from nirs4all.data.synthetic import get_domain_config, list_domains
+
+# List all domains
+all_domains = list_domains()
+print(f"Available domains: {len(all_domains)}")
+
+# List domains by category
+ag_domains = list_domains(category=DomainCategory.AGRICULTURE)
+print(f"Agriculture domains: {ag_domains}")
+
+# Get specific domain configuration
+grain = get_domain_config("agriculture_grain")
+print(f"Domain: {grain.name}")
+print(f"Category: {grain.category}")
+print(f"Components: {grain.typical_components}")
+print(f"Wavelength range: {grain.wavelength_range}")
+print(f"Measurement mode: {grain.measurement_mode}")
+```
+
+### Domain Configuration Details
+
+Each domain includes:
+
+```python
+from nirs4all.data.synthetic import DomainConfig
+
+# DomainConfig fields:
+# - name: Display name
+# - category: DomainCategory enum
+# - description: Detailed description
+# - typical_components: List of component names
+# - component_weights: Relative importance weights
+# - concentration_priors: Statistical priors for concentrations
+# - wavelength_range: (start, end) in nm
+# - n_components_range: (min, max) components per sample
+# - noise_level: "low", "medium", "high"
+# - measurement_mode: "reflectance", "transmission", etc.
+# - typical_sample_types: Example sample types
+# - complexity: "simple", "realistic", "complex"
+```
+
+### Concentration Priors
+
+Domains include realistic concentration priors:
+
+```python
+from nirs4all.data.synthetic import ConcentrationPrior
+import numpy as np
+
+# Get grain domain priors
+grain = get_domain_config("agriculture_grain")
+
+# Starch typically 50-80% in grains
+starch_prior = grain.concentration_priors.get("starch")
+if starch_prior:
+    print(f"Starch prior: {starch_prior.distribution}")
+    print(f"  Mean: ~65%, Range: 30-80%")
+
+# Sample from priors
+rng = np.random.default_rng(42)
+concentrations = grain.sample_concentrations(n_samples=100, rng=rng)
+print(f"Sampled starch mean: {concentrations.get('starch', []).mean():.2f}")
+```
+
+### Domain-Aware Library Creation
+
+The `create_domain_aware_library` function samples components and concentrations based on domain priors:
+
+```python
+from nirs4all.data.synthetic import create_domain_aware_library
+
+# Returns (component_names, concentration_matrix)
+components, concentrations = create_domain_aware_library(
+    "agriculture_grain",
+    n_samples=100,
+    random_state=42
+)
+print(f"Components: {components}")
+print(f"Concentrations shape: {concentrations.shape}")
+```
+
+### Using Domains with Generator
+
+To use domain configurations with `SyntheticNIRSGenerator`, create a `ComponentLibrary` from the domain's typical components:
+
+```python
+from nirs4all.data.synthetic import (
+    SyntheticNIRSGenerator,
+    ComponentLibrary,
+    get_domain_config,
+)
+
+# Get domain config
+domain = get_domain_config("agriculture_grain")
+
+# Create ComponentLibrary from domain's typical components
+library = ComponentLibrary.from_predefined(domain.typical_components[:5])
+
+# Configure generator with domain parameters
+generator = SyntheticNIRSGenerator(
+    component_library=library,
+    wavelength_start=domain.wavelength_range[0],
+    wavelength_end=domain.wavelength_range[1],
+    complexity="realistic",
+    random_state=42,
+)
+
+# Generate domain-appropriate data
+X, C, *rest = generator.generate(n_samples=500)
+print(f"Generated {X.shape[0]} spectra for grain analysis")
+```
+
+### Getting Domain Components
+
+```python
+from nirs4all.data.synthetic import get_domain_components, get_domains_for_component
+
+# Get typical components for a domain
+components = get_domain_components("food_dairy")
+print(f"Dairy components: {components}")
+
+# Find which domains use a specific component
+domains = get_domains_for_component("protein")
+print(f"Domains using protein: {domains}")
+```
+
+## Extended Component Library (Phase 1)
+
+The predefined component library has been extended from 31 to **111 components** covering diverse application areas.
+
+### Component Categories
+
+| Category | Count | Examples |
+|----------|-------|----------|
+| Carbohydrates | 15 | starch, cellulose, glucose, maltose, raffinose, inulin |
+| Proteins | 10 | protein, casein, gluten, albumin, collagen, keratin |
+| Lipids | 12 | lipid, oil, oleic_acid, linoleic_acid, phospholipid |
+| Alcohols | 8 | ethanol, methanol, glycerol, sorbitol, mannitol |
+| Organic Acids | 10 | acetic_acid, citric_acid, ascorbic_acid, formic_acid |
+| Pharmaceuticals | 10 | aspirin, paracetamol, ibuprofen, metformin |
+| Polymers | 8 | polyethylene, polystyrene, pmma, pet, abs |
+| Minerals | 5 | kaolinite, montmorillonite, silica, talc |
+| Pigments | 7 | chlorophyll, carotenoid, anthocyanin, lycopene |
+| Solvents | 7 | acetone, dmso, ethyl_acetate, toluene |
+| Other | 19 | water, aromatic, alkane, etc. |
+
+### Listing Components
+
+```python
+from nirs4all.data.synthetic._constants import get_predefined_components
+
+components = get_predefined_components()
+print(f"Total components: {len(components)}")
+
+# List all component names
+for name in sorted(components.keys()):
+    print(f"  - {name}")
+```
+
+### Using Extended Components
+
+```python
+from nirs4all.data.synthetic import ComponentLibrary
+
+# Pharmaceutical formulation
+pharma = ComponentLibrary.from_predefined([
+    "ibuprofen", "microcrystalline_cellulose", "starch", "water"
+])
+
+# Food analysis
+food = ComponentLibrary.from_predefined([
+    "protein", "lipid", "starch", "glucose", "fructose", "moisture"
+])
+
+# Polymer analysis
+polymers = ComponentLibrary.from_predefined([
+    "polyethylene", "polypropylene", "pet", "abs", "pmma"
+])
+
+# Soil analysis
+soil = ComponentLibrary.from_predefined([
+    "kaolinite", "montmorillonite", "silica", "cellulose", "lignin"
+])
+```
+
+## Instrument Simulation (Phase 2)
+
+Phase 2 introduces realistic instrument simulation with 19 predefined instrument archetypes, multi-sensor stitching, multi-scan averaging, and detector response modeling.
+
+### Instrument Archetypes
+
+The module provides pre-configured models of real NIR instruments:
+
+```python
+from nirs4all.data.synthetic import (
+    get_instrument_archetype,
+    list_instrument_archetypes,
+    get_instruments_by_category,
+    InstrumentCategory,
+)
+
+# List all available instruments (19 total)
+instruments = list_instrument_archetypes()
+print(f"Available: {instruments}")
+
+# Get by category
+by_category = get_instruments_by_category()
+for cat, names in by_category.items():
+    print(f"{cat}: {names}")
+
+# Get specific instrument
+foss_xds = get_instrument_archetype("foss_xds")
+print(f"FOSS XDS range: {foss_xds.wavelength_range}")
+print(f"Resolution: {foss_xds.spectral_resolution} nm")
+print(f"SNR: {foss_xds.snr}")
+```
+
+#### Available Instruments
+
+| Category | Instruments |
+|----------|-------------|
+| Benchtop | `foss_xds`, `unity_spectrastar`, `metrohm_ds2500` |
+| FT-NIR | `bruker_mpa`, `perkin_spectrum_two`, `thermo_antaris`, `abb_mb3600` |
+| Handheld | `viavi_micronir`, `scio`, `tellspec`, `linksquare`, `siware_neoscanner` |
+| Process | `nir_o_process`, `asd_fieldspec`, `buchi_nirmaster` |
+| Embedded | `neospectra_micro`, `innospectra` |
+| Filter | `foss_infratec` |
+| Diode Array | `perten_da7200` |
+
+### InstrumentArchetype Properties
+
+Each archetype includes complete optical and electronic specifications:
+
+```python
+from nirs4all.data.synthetic import (
+    InstrumentArchetype,
+    InstrumentCategory,
+    DetectorType,
+    MonochromatorType,
+)
+
+# Create custom instrument
+custom = InstrumentArchetype(
+    name="my_instrument",
+    category=InstrumentCategory.BENCHTOP,
+    detector_type=DetectorType.INGAAS,
+    monochromator_type=MonochromatorType.GRATING,
+    wavelength_range=(900, 1700),
+    spectral_resolution=4.0,           # nm FWHM
+    wavelength_accuracy=0.1,           # nm
+    photometric_noise=0.0001,          # AU
+    photometric_range=(0.0, 3.0),      # AU min/max
+    snr=20000,                         # Signal-to-noise ratio
+    stray_light=0.0001,                # Fraction
+    warm_up_drift=0.1,                 # %/hour
+    temperature_sensitivity=0.01,      # nm/°C
+    scan_speed=5.0,                    # Scans/second
+    integration_time_ms=50.0,          # ms
+    description="Custom research instrument",
+)
+```
+
+### Multi-Sensor Configuration
+
+Many NIR instruments use multiple detectors to cover wide wavelength ranges, then stitch the signals together:
+
+```python
+from nirs4all.data.synthetic import (
+    MultiSensorConfig,
+    SensorConfig,
+    DetectorType,
+)
+
+# Configure multi-sensor system (e.g., FOSS XDS with Si + PbS)
+multi_sensor = MultiSensorConfig(
+    enabled=True,
+    sensors=[
+        SensorConfig(
+            detector_type=DetectorType.SI,
+            wavelength_range=(400, 1100),
+            spectral_resolution=0.5,
+            noise_level=0.8,
+            gain=1.0,
+            overlap_range=20.0,  # nm overlap for stitching
+        ),
+        SensorConfig(
+            detector_type=DetectorType.PBS,
+            wavelength_range=(1100, 2500),
+            spectral_resolution=0.5,
+            noise_level=1.2,
+        ),
+    ],
+    stitch_method="weighted",      # weighted, average, first, last, optimal
+    stitch_smoothing=10.0,         # nm smoothing at boundaries
+    add_stitch_artifacts=True,     # Simulate stitching artifacts
+    artifact_intensity=0.01,       # Artifact strength (0-1)
+)
+```
+
+#### Stitch Methods
+
+| Method | Description |
+|--------|-------------|
+| `weighted` | Linear blend based on distance from boundary |
+| `average` | Simple average in overlap region |
+| `first` | Use first sensor's data in overlap |
+| `last` | Use second sensor's data in overlap |
+| `optimal` | SNR-weighted combination |
+
+### Multi-Scan Averaging
+
+Real instruments take multiple scans and average them to reduce noise:
+
+```python
+from nirs4all.data.synthetic import MultiScanConfig
+
+multi_scan = MultiScanConfig(
+    enabled=True,
+    n_scans=32,                     # Number of scans to average
+    averaging_method="mean",        # mean, median, weighted, savgol
+    scan_to_scan_noise=0.001,       # Additional noise between scans
+    wavelength_jitter=0.05,         # nm shift between scans
+    discard_outliers=True,          # Remove outlier scans
+    outlier_threshold=2.5,          # Z-score threshold
+)
+```
+
+#### Averaging Methods
+
+| Method | Description | Use Case |
+|--------|-------------|----------|
+| `mean` | Arithmetic mean | Standard averaging |
+| `median` | Median filter | Robust to outliers |
+| `weighted` | SNR-weighted average | Variable quality scans |
+| `savgol` | Savitzky-Golay smoothing | Spectral smoothing |
+
+### Using Instruments with the Generator
+
+```python
+from nirs4all.data.synthetic import SyntheticNIRSGenerator
+
+# Generate with a predefined instrument
+gen = SyntheticNIRSGenerator(
+    wavelength_start=1000,
+    wavelength_end=2500,
+    instrument="foss_xds",  # Apply FOSS XDS effects
+    random_state=42,
+)
+
+X, C, pure, metadata = gen.generate(n_samples=100, return_metadata=True)
+print(f"Multi-sensor applied: {metadata.get('multi_sensor')}")
+print(f"Multi-scan applied: {metadata.get('multi_scan')}")
+
+# Generate with custom multi-sensor/multi-scan config
+gen = SyntheticNIRSGenerator(
+    wavelength_start=400,
+    wavelength_end=2500,
+    multi_sensor_config=multi_sensor,
+    multi_scan_config=multi_scan,
+    random_state=42,
+)
+```
+
+### InstrumentSimulator
+
+For fine-grained control, use the simulator directly:
+
+```python
+from nirs4all.data.synthetic import InstrumentSimulator, get_instrument_archetype
+import numpy as np
+
+# Get archetype and create simulator
+archetype = get_instrument_archetype("bruker_mpa")
+simulator = InstrumentSimulator(archetype, random_state=42)
+
+# Apply to existing spectra
+spectra = np.random.default_rng(42).normal(0.5, 0.1, (100, 500))
+wavelengths = np.linspace(1000, 2500, 500)
+
+result, output_wl = simulator.apply(
+    spectra,
+    wavelengths,
+    temperature_offset=2.0,  # °C deviation from calibration
+)
+print(f"Output shape: {result.shape}")
+print(f"Output range: {output_wl.min():.0f}-{output_wl.max():.0f} nm")
+```
+
+### Detector Response Curves
+
+The module includes realistic detector spectral response curves:
+
+```python
+from nirs4all.data.synthetic import (
+    get_detector_response,
+    list_detector_types,
+    DetectorType,
+    DetectorSimulator,
+)
+import numpy as np
+
+# Available detectors
+print(f"Detector types: {list_detector_types()}")
+# ['si', 'ingaas', 'ingaas_ext', 'pbs', 'pbse', 'mems', 'mct']
+
+# Get response curve
+wavelengths = np.linspace(800, 2500, 1000)
+ingaas = get_detector_response(DetectorType.INGAAS)
+
+print(f"InGaAs sensitivity: {ingaas.short_cutoff}-{ingaas.cutoff_wavelength} nm")
+print(f"Peak wavelength: {ingaas.peak_wavelength} nm")
+print(f"Peak QE: {ingaas.peak_qe}")
+
+# Get responsivity at specific wavelengths
+responsivity = ingaas.get_response_at(wavelengths)
+```
+
+#### Detector Specifications
+
+| Type | Range (nm) | Peak (nm) | Peak QE | Use Case |
+|------|------------|-----------|---------|----------|
+| Si | 350-1100 | 850 | 0.85 | Visible/short-NIR |
+| InGaAs | 850-1700 | 1300 | 0.92 | Standard NIR |
+| InGaAs Ext | 850-2500 | 1700 | 0.85 | Extended NIR |
+| PbS | 1000-3000 | 2200 | 0.85 | Long-NIR |
+| PbSe | 1500-5000 | 3500 | 0.75 | MIR |
+| MEMS | 900-1700 | 1300 | 0.60 | Miniature/embedded |
+| MCT | 1000-14000 | 5000 | 0.70 | Cooled high-perf |
+
+### Detector Noise Models
+
+Each detector type has characteristic noise properties:
+
+```python
+from nirs4all.data.synthetic import (
+    DetectorSimulator,
+    DetectorConfig,
+    NoiseModelConfig,
+    DetectorType,
+)
+
+# Configure detector noise
+noise_config = NoiseModelConfig(
+    shot_noise_factor=1.0,       # Signal-dependent (√signal)
+    thermal_noise_factor=0.5,    # Temperature-dependent
+    read_noise_factor=0.3,       # Constant per-pixel
+    flicker_noise_factor=0.1,    # 1/f noise
+    dark_current=0.001,          # Counts/ms
+    integration_time_ms=50.0,
+)
+
+detector_config = DetectorConfig(
+    detector_type=DetectorType.INGAAS,
+    gain=1.0,
+    nonlinearity=0.01,           # Nonlinearity coefficient
+    noise=noise_config,
+)
+
+# Apply detector effects
+simulator = DetectorSimulator(detector_config, random_state=42)
+processed = simulator.apply(spectra, wavelengths, add_noise=True)
+```
+
+### Measurement Modes
+
+Different sampling geometries produce different spectral characteristics:
+
+```python
+from nirs4all.data.synthetic import (
+    MeasurementModeSimulator,
+    MeasurementModeConfig,
+    MeasurementMode,
+    TransmittanceConfig,
+    ReflectanceConfig,
+    ATRConfig,
+)
+
+# Transmittance (liquid samples)
+trans_config = MeasurementModeConfig(
+    mode=MeasurementMode.TRANSMITTANCE,
+    transmittance=TransmittanceConfig(
+        path_length_mm=10.0,
+        path_length_variation=0.02,
+        cuvette_material="quartz",
+    ),
+)
+sim = MeasurementModeSimulator(config=trans_config, random_state=42)
+processed = sim.apply(spectra, wavelengths)
+
+# Diffuse reflectance (powder samples)
+refl_config = MeasurementModeConfig(
+    mode=MeasurementMode.REFLECTANCE,
+    reflectance=ReflectanceConfig(
+        geometry="integrating_sphere",
+        sample_presentation="powder",
+        illumination_angle=0.0,
+        collection_angle=45.0,
+    ),
+)
+
+# ATR (solids, pastes)
+atr_config = MeasurementModeConfig(
+    mode=MeasurementMode.ATR,
+    atr=ATRConfig(
+        crystal_material="diamond",
+        crystal_refractive_index=2.4,
+        incidence_angle=45.0,
+        n_reflections=1,
+    ),
+)
+```
+
+#### Available Measurement Modes
+
+| Mode | Description | Typical Samples |
+|------|-------------|-----------------|
+| `transmittance` | Light passes through sample | Liquids, thin films |
+| `reflectance` | Diffuse or specular reflection | Powders, solids |
+| `transflectance` | Transmission + reflection | Liquids with mirror |
+| `atr` | Attenuated total reflectance | Pastes, thick liquids |
+| `interactance` | Fiber probe immersed | Suspensions |
+| `fiber_optic` | Remote fiber measurement | Process monitoring |
+
+## Environmental Effects (Phase 3)
+
+Phase 3 introduces simulation of environmental and matrix effects that affect NIR spectra in real-world measurements. These effects are critical for generating realistic synthetic data that captures the variability seen in practical applications.
+
+### Temperature Effects
+
+Temperature affects NIR spectra through peak shifts, intensity changes, and band broadening. The `environmental.py` module provides comprehensive temperature simulation:
+
+```python
+from nirs4all.data.synthetic import (
+    TemperatureEffectSimulator,
+    TemperatureConfig,
+    TemperatureEffectParams,
+    SpectralRegion,
+)
+import numpy as np
+
+# Configure temperature effects
+temp_config = TemperatureConfig(
+    sample_temperature=35.0,           # Sample temperature (°C)
+    reference_temperature=25.0,        # Reference/calibration temperature
+    temperature_variation=2.0,         # Sample-to-sample variation (σ)
+    enable_wavelength_shift=True,      # Enable peak position shifts
+    enable_intensity_change=True,      # Enable intensity changes
+    enable_broadening=True,            # Enable thermal broadening
+)
+
+# Create simulator
+simulator = TemperatureEffectSimulator(temp_config, random_state=42)
+
+# Apply to spectra
+wavelengths = np.linspace(1000, 2500, 751)
+spectra = np.random.randn(100, 751) * 0.1 + 0.5  # Example spectra
+
+# Generate per-sample temperatures
+sample_temps = simulator.sample_temperatures(n_samples=100)
+
+# Apply effects
+modified_spectra = simulator.apply(spectra, wavelengths, sample_temperatures=sample_temps)
+```
+
+#### Spectral Regions
+
+The module defines 8 spectral regions with distinct temperature responses:
+
+| Region | Wavelength (nm) | Shift (nm/°C) | Intensity (%/°C) | Reference |
+|--------|-----------------|---------------|------------------|-----------|
+| O-H 1st overtone | 1400-1520 | -0.30 | -0.20 | Maeda et al. (1995) |
+| O-H combination | 1900-2000 | -0.40 | -0.30 | Segtnan et al. (2001) |
+| C-H 1st overtone | 1650-1780 | -0.05 | -0.05 | Literature estimate |
+| C-H combination | 2200-2400 | -0.08 | -0.08 | Literature estimate |
+| N-H 1st overtone | 1500-1550 | -0.20 | -0.15 | Literature estimate |
+| N-H combination | 2000-2100 | -0.25 | -0.20 | Literature estimate |
+| Free water | N/A | -0.35 | -0.25 | Luck (1998) |
+| Bound water | N/A | -0.20 | -0.35 | Büning-Pfaue (2003) |
+
+#### Custom Temperature Parameters
+
+```python
+from nirs4all.data.synthetic import TemperatureEffectParams, SpectralRegion
+
+# Define custom parameters for a specific region
+custom_params = TemperatureEffectParams(
+    wavelength_range=(1400, 1520),
+    shift_per_degree=-0.30,           # nm/°C (negative = blue shift)
+    intensity_change_per_degree=-0.002,  # fraction/°C
+    broadening_per_degree=0.001,      # fraction/°C
+    reference="Custom application"
+)
+
+# Use in configuration
+temp_config = TemperatureConfig(
+    sample_temperature=40.0,
+    custom_params={SpectralRegion.OH_FIRST_OVERTONE: custom_params}
+)
+```
+
+### Moisture/Water Activity Effects
+
+Water content and activity affect hydrogen bonding, which in turn modifies water-related bands:
+
+```python
+from nirs4all.data.synthetic import (
+    MoistureEffectSimulator,
+    MoistureConfig,
+)
+
+# Configure moisture effects
+moisture_config = MoistureConfig(
+    water_activity=0.6,              # Water activity (0-1)
+    moisture_content=0.15,           # Fractional moisture content
+    free_water_fraction=0.3,         # Fraction of water that is free
+    bound_water_shift=20.0,          # nm shift for bound water
+    enable_band_shift=True,
+    enable_intensity_modulation=True,
+)
+
+# Create simulator
+moisture_sim = MoistureEffectSimulator(moisture_config, random_state=42)
+
+# Apply effects
+modified_spectra = moisture_sim.apply(spectra, wavelengths)
+```
+
+#### Water Activity Effects
+
+| Water Activity | Effect on Spectra |
+|----------------|-------------------|
+| Low (< 0.3) | Bound water dominates, shifted O-H bands |
+| Medium (0.3-0.7) | Mixed free/bound water, broadened bands |
+| High (> 0.7) | Free water dominates, sharp O-H bands |
+
+### Combined Environmental Effects
+
+The `EnvironmentalEffectsSimulator` combines all environmental effects:
+
+```python
+from nirs4all.data.synthetic import (
+    EnvironmentalEffectsSimulator,
+    EnvironmentalEffectsConfig,
+    TemperatureConfig,
+    MoistureConfig,
+)
+
+# Combine temperature and moisture
+env_config = EnvironmentalEffectsConfig(
+    temperature=TemperatureConfig(
+        sample_temperature=35.0,
+        temperature_variation=3.0,
+    ),
+    moisture=MoistureConfig(
+        water_activity=0.65,
+        moisture_content=0.12,
+    ),
+)
+
+# Create combined simulator
+env_simulator = EnvironmentalEffectsSimulator(env_config, random_state=42)
+
+# Apply all effects
+modified_spectra = env_simulator.apply(
+    spectra,
+    wavelengths,
+    sample_temperatures=temps,  # Optional: explicit temperatures
+)
+```
+
+## Scattering Effects (Phase 3)
+
+The `scattering.py` module simulates light scattering effects, which are critical for diffuse reflectance spectra. Rather than implementing full Mie theory, this module uses empirical EMSC-style models that approximate real-world scattering distortions.
+
+### Particle Size Effects
+
+Particle size strongly affects NIR spectra through scattering:
+
+```python
+from nirs4all.data.synthetic import (
+    ParticleSizeSimulator,
+    ParticleSizeConfig,
+    ParticleSizeDistribution,
+)
+
+# Configure particle size distribution
+psd = ParticleSizeDistribution(
+    mean_size_um=50.0,       # Mean size in micrometers
+    std_size_um=15.0,        # Standard deviation
+    min_size_um=5.0,         # Minimum (truncation)
+    max_size_um=200.0,       # Maximum (truncation)
+    distribution="lognormal", # lognormal, normal, or uniform
+)
+
+# Configure particle size effects
+ps_config = ParticleSizeConfig(
+    distribution=psd,
+    reference_size_um=50.0,  # Reference size for calibration
+    enable_baseline_shift=True,
+    enable_multiplicative_scatter=True,
+    enable_wavelength_dependence=True,
+)
+
+# Create simulator
+ps_simulator = ParticleSizeSimulator(ps_config, random_state=42)
+
+# Sample particle sizes for each sample
+sizes = psd.sample(n_samples=100, rng=np.random.default_rng(42))
+
+# Apply effects
+modified_spectra = ps_simulator.apply(spectra, wavelengths, particle_sizes=sizes)
+```
+
+#### Particle Size Regimes
+
+| Size Regime | Particle Size | Scattering Behavior | λ Dependence |
+|-------------|---------------|---------------------|--------------|
+| Small | < 10 μm | Rayleigh-like | λ⁻⁴ |
+| Medium | 10-100 μm | Mixed Mie | λ⁻¹ to λ⁻² |
+| Large | > 100 μm | Geometrical | Weak |
+
+### EMSC-Style Transformations
+
+Extended Multiplicative Scatter Correction (EMSC) models are used to simulate realistic scattering distortions:
+
+```python
+from nirs4all.data.synthetic import (
+    EMSCTransformSimulator,
+    EMSCConfig,
+)
+
+# Configure EMSC-style effects
+emsc_config = EMSCConfig(
+    baseline_offset_range=(-0.1, 0.1),      # Additive offset
+    multiplicative_range=(0.8, 1.2),         # Multiplicative scaling
+    linear_slope_range=(-0.0001, 0.0001),   # Linear baseline
+    quadratic_range=(-1e-7, 1e-7),          # Quadratic baseline
+    inverse_lambda_range=(0.0, 0.01),       # 1/λ scattering term
+    sample_variation=0.3,                    # Sample-to-sample variation
+)
+
+# Create simulator
+emsc_simulator = EMSCTransformSimulator(emsc_config, random_state=42)
+
+# Apply EMSC-style distortions
+distorted_spectra = emsc_simulator.apply(spectra, wavelengths)
+```
+
+#### EMSC Model
+
+The EMSC model transforms spectra as:
+
+```
+A_observed = a + b × A_pure + c × λ + d × λ² + e × (1/λ)
+```
+
+Where:
+- `a`: Baseline offset (scattering-induced)
+- `b`: Multiplicative scaling (path length variation)
+- `c`: Linear wavelength dependence
+- `d`: Quadratic term (curvature)
+- `e`: Inverse wavelength term (Rayleigh-like scattering)
+
+### Scattering Coefficient Generation
+
+For Kubelka-Munk reflectance simulation, generate realistic scattering coefficients:
+
+```python
+from nirs4all.data.synthetic import (
+    ScatteringCoefficientGenerator,
+    ScatteringCoefficientConfig,
+)
+
+# Configure scattering coefficient generation
+scat_config = ScatteringCoefficientConfig(
+    baseline_scattering=1.0,         # S₀ reference value
+    wavelength_reference_nm=1700.0,  # Reference wavelength
+    wavelength_exponent=1.5,         # λ dependence exponent
+    particle_size_um=50.0,           # Affects wavelength exponent
+)
+
+# Generate scattering coefficients
+generator = ScatteringCoefficientGenerator(scat_config, random_state=42)
+S_lambda = generator.generate(wavelengths)
+
+# Use with Kubelka-Munk
+# R∞ = 1 + K/S - √((K/S)² + 2K/S)
+```
+
+#### Wavelength Exponent vs Particle Size
+
+| Particle Size | Wavelength Exponent b | Model |
+|---------------|----------------------|-------|
+| < 10 μm | 2-4 | Rayleigh (λ⁻⁴) |
+| 10-50 μm | 1-2 | Mixed |
+| 50-100 μm | 0.5-1 | Mie |
+| > 100 μm | 0-0.5 | Geometrical |
+
+### Combined Scattering Effects
+
+The `ScatteringEffectsSimulator` combines all scattering-related effects:
+
+```python
+from nirs4all.data.synthetic import (
+    ScatteringEffectsSimulator,
+    ScatteringEffectsConfig,
+    ParticleSizeConfig,
+    EMSCConfig,
+    ScatteringCoefficientConfig,
+)
+
+# Combine all scattering effects
+scatter_config = ScatteringEffectsConfig(
+    particle_size=ParticleSizeConfig(
+        distribution=ParticleSizeDistribution(mean_size_um=50.0),
+    ),
+    emsc=EMSCConfig(
+        multiplicative_range=(0.85, 1.15),
+    ),
+    scattering_coefficient=ScatteringCoefficientConfig(
+        baseline_scattering=1.0,
+    ),
+)
+
+# Create combined simulator
+scatter_simulator = ScatteringEffectsSimulator(scatter_config, random_state=42)
+
+# Apply all scattering effects
+modified_spectra = scatter_simulator.apply(
+    spectra,
+    wavelengths,
+    particle_sizes=sizes,  # Optional: explicit sizes
+)
+```
+
+### Integration with Generator
+
+Phase 3 effects are integrated into the main `SyntheticNIRSGenerator`:
+
+```python
+from nirs4all.data.synthetic import (
+    SyntheticNIRSGenerator,
+    EnvironmentalEffectsConfig,
+    ScatteringEffectsConfig,
+    TemperatureConfig,
+    ParticleSizeConfig,
+)
+
+# Configure environmental and scattering effects
+env_config = EnvironmentalEffectsConfig(
+    temperature=TemperatureConfig(
+        sample_temperature=30.0,
+        temperature_variation=5.0,
+    ),
+)
+
+scatter_config = ScatteringEffectsConfig(
+    particle_size=ParticleSizeConfig(
+        distribution=ParticleSizeDistribution(mean_size_um=75.0),
+    ),
+)
+
+# Create generator with Phase 3 effects
+generator = SyntheticNIRSGenerator(
+    wavelength_start=1000,
+    wavelength_end=2500,
+    complexity="realistic",
+    environmental_config=env_config,
+    scattering_effects_config=scatter_config,
+    random_state=42,
+)
+
+# Generate with effects
+X, C, E = generator.generate(
+    n_samples=500,
+    include_environmental_effects=True,
+    include_scattering_effects=True,
+)
+```
+
 ## Metadata System
 
 The `MetadataGenerator` creates realistic sample metadata:
@@ -283,7 +1479,7 @@ y = target_gen.classification(
 # - "cluster": K-means-like assignment
 ```
 
-## Non-Linear Target Complexity (NEW!)
+## Non-Linear Target Complexity
 
 The `NonLinearTargetProcessor` creates challenging, realistic targets that require
 non-linear models to predict well. It implements three strategies:

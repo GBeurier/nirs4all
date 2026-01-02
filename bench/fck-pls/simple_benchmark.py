@@ -83,7 +83,7 @@ pipeline_pls_pp = [
         "model": PLSRegression,
         "name": "PLS_pp_tuned",
         "finetune_params": {
-            "n_trials": 20,
+            "n_trials": 25,
             "sample": "tpe",
             "verbose": 2,
             "approach": "grouped",

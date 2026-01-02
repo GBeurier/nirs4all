@@ -1,8 +1,11 @@
 ## ROADMAP
 
-Add documentation for examples
+> [Augmentations] Transfer synthesis mechanisms (temperature, machine, noise, etc.) to sample_augmentations operators
+> [Synthesis] Review fit on real datasets with new methods. Dedicated example.
 
-**RELEASE** 0.6.1: Stable MVP
+update run scripts
+
+**RELEASE** 0.6.2: Ready for UI
 
 
 > [Design] Define all services
