@@ -3047,7 +3047,7 @@ pipeline = [
     {"meta_model": LinearRegression()}
 ]
 
-# Mid Fusion (representation-level) - NEW
+# Mid Fusion (representation-level)
 from nirs4all.operators import MidFusionConfig
 
 pipeline = [

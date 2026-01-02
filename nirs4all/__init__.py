@@ -73,7 +73,7 @@ from .utils import (
 
 # Make commonly used classes available at package level
 __all__ = [
-    # Module-level API (NEW - primary interface)
+    # Module-level API (primary interface)
     "run",
     "predict",
     "explain",

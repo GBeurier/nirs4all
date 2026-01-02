@@ -86,7 +86,7 @@ print("="*120)
 
 
 # ============================================================================
-# NEW: Cross-Dataset Analysis for Multi-Machine Compatibility
+# Cross-Dataset Analysis for Multi-Machine Compatibility
 # ============================================================================
 print("\n" + "="*120)
 print("CROSS-DATASET ANALYSIS - Evaluating Multi-Machine Compatibility")
@@ -165,7 +165,7 @@ else:
 # Generate all visualizations
 print("\n🎨 Generating visualizations...")
 
-# NEW: Key visualizations for transfer learning
+# Key visualizations for transfer learning
 if not evaluator.cross_dataset_df_.empty:
     print(f"\n   {TARGET}KEY VISUALIZATIONS FOR TRANSFER LEARNING:")
 

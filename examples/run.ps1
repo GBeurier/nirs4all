@@ -130,6 +130,8 @@ $developerExamples = @(
     "developer/02_generators/D04_nested_generators.py"
     "developer/02_generators/D05_synthetic_custom_components.py"
     "developer/02_generators/D06_synthetic_testing.py"
+    "developer/02_generators/D07_synthetic_wavenumber_procedural.py"
+    "developer/02_generators/D08_synthetic_application_domains.py"
     # 03_deep_learning
     "developer/03_deep_learning/D01_pytorch_models.py"
     "developer/03_deep_learning/D02_jax_models.py"

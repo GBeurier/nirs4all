@@ -1265,6 +1265,732 @@ def get_predefined_components() -> "Dict[str, SpectralComponent]":
                 ],
                 correlation_group=4,
             ),
+            # ================================================================
+            # EXTENDED CARBOHYDRATES (Phase 1.4 additions)
+            # ================================================================
+            # Maltose: Malt sugar (glucose-glucose disaccharide)
+            # Refs: [2] pp. 368-372
+            "maltose": SpectralComponent(
+                name="maltose",
+                bands=[
+                    NIRBand(center=1445, sigma=26, gamma=3, amplitude=0.52, name="O-H 1st overtone"),
+                    NIRBand(center=1688, sigma=18, gamma=2, amplitude=0.33, name="C-H 1st overtone"),
+                    NIRBand(center=2078, sigma=30, gamma=3, amplitude=0.58, name="O-H combination"),
+                    NIRBand(center=2268, sigma=22, gamma=2, amplitude=0.40, name="Maltose combination"),
+                ],
+                correlation_group=4,
+            ),
+            # Raffinose: Trisaccharide (galactose-glucose-fructose)
+            "raffinose": SpectralComponent(
+                name="raffinose",
+                bands=[
+                    NIRBand(center=1448, sigma=27, gamma=3, amplitude=0.50, name="O-H 1st overtone"),
+                    NIRBand(center=1692, sigma=19, gamma=2, amplitude=0.32, name="C-H 1st overtone"),
+                    NIRBand(center=2082, sigma=31, gamma=3, amplitude=0.55, name="O-H combination"),
+                    NIRBand(center=2272, sigma=23, gamma=2, amplitude=0.38, name="Raffinose combination"),
+                ],
+                correlation_group=4,
+            ),
+            # Inulin: Fructose polymer (dietary fiber)
+            "inulin": SpectralComponent(
+                name="inulin",
+                bands=[
+                    NIRBand(center=1432, sigma=28, gamma=3, amplitude=0.48, name="O-H 1st overtone"),
+                    NIRBand(center=1698, sigma=20, gamma=2, amplitude=0.30, name="C-H 1st overtone"),
+                    NIRBand(center=2068, sigma=32, gamma=3, amplitude=0.52, name="O-H combination"),
+                    NIRBand(center=2258, sigma=24, gamma=2, amplitude=0.36, name="Inulin combination"),
+                ],
+                correlation_group=4,
+            ),
+            # Xylose: Pentose monosaccharide
+            "xylose": SpectralComponent(
+                name="xylose",
+                bands=[
+                    NIRBand(center=1438, sigma=25, gamma=3, amplitude=0.50, name="O-H 1st overtone"),
+                    NIRBand(center=1686, sigma=18, gamma=2, amplitude=0.32, name="C-H 1st overtone"),
+                    NIRBand(center=2072, sigma=30, gamma=3, amplitude=0.55, name="O-H combination"),
+                    NIRBand(center=2262, sigma=22, gamma=2, amplitude=0.38, name="Xylose combination"),
+                ],
+                correlation_group=4,
+            ),
+            # Arabinose: Pentose monosaccharide
+            "arabinose": SpectralComponent(
+                name="arabinose",
+                bands=[
+                    NIRBand(center=1442, sigma=25, gamma=3, amplitude=0.48, name="O-H 1st overtone"),
+                    NIRBand(center=1684, sigma=18, gamma=2, amplitude=0.30, name="C-H 1st overtone"),
+                    NIRBand(center=2076, sigma=30, gamma=3, amplitude=0.52, name="O-H combination"),
+                    NIRBand(center=2266, sigma=22, gamma=2, amplitude=0.36, name="Arabinose combination"),
+                ],
+                correlation_group=4,
+            ),
+            # Galactose: Hexose monosaccharide
+            "galactose": SpectralComponent(
+                name="galactose",
+                bands=[
+                    NIRBand(center=1442, sigma=25, gamma=3, amplitude=0.54, name="O-H 1st overtone"),
+                    NIRBand(center=1692, sigma=18, gamma=2, amplitude=0.34, name="C-H 1st overtone"),
+                    NIRBand(center=2082, sigma=30, gamma=3, amplitude=0.58, name="O-H combination"),
+                    NIRBand(center=2272, sigma=22, gamma=2, amplitude=0.40, name="Galactose combination"),
+                ],
+                correlation_group=4,
+            ),
+            # Mannose: Hexose monosaccharide
+            "mannose": SpectralComponent(
+                name="mannose",
+                bands=[
+                    NIRBand(center=1444, sigma=25, gamma=3, amplitude=0.52, name="O-H 1st overtone"),
+                    NIRBand(center=1688, sigma=18, gamma=2, amplitude=0.33, name="C-H 1st overtone"),
+                    NIRBand(center=2078, sigma=30, gamma=3, amplitude=0.56, name="O-H combination"),
+                    NIRBand(center=2268, sigma=22, gamma=2, amplitude=0.39, name="Mannose combination"),
+                ],
+                correlation_group=4,
+            ),
+            # Trehalose: Non-reducing disaccharide
+            "trehalose": SpectralComponent(
+                name="trehalose",
+                bands=[
+                    NIRBand(center=1440, sigma=26, gamma=3, amplitude=0.50, name="O-H 1st overtone"),
+                    NIRBand(center=1686, sigma=18, gamma=2, amplitude=0.32, name="C-H 1st overtone"),
+                    NIRBand(center=2076, sigma=30, gamma=3, amplitude=0.54, name="O-H combination"),
+                    NIRBand(center=2266, sigma=22, gamma=2, amplitude=0.38, name="Trehalose combination"),
+                ],
+                correlation_group=4,
+            ),
+            # ================================================================
+            # EXTENDED PROTEINS (Phase 1.4 additions)
+            # ================================================================
+            # Albumin: Globular protein (egg white, serum)
+            "albumin": SpectralComponent(
+                name="albumin",
+                bands=[
+                    NIRBand(center=1512, sigma=20, gamma=2, amplitude=0.52, name="N-H 1st overtone"),
+                    NIRBand(center=1682, sigma=24, gamma=3, amplitude=0.42, name="C-H aromatic"),
+                    NIRBand(center=2055, sigma=30, gamma=3, amplitude=0.62, name="N-H combination"),
+                    NIRBand(center=2182, sigma=24, gamma=2, amplitude=0.50, name="Protein C-H"),
+                    NIRBand(center=2295, sigma=20, gamma=2, amplitude=0.35, name="N-H+Amide III"),
+                ],
+                correlation_group=2,
+            ),
+            # Collagen: Fibrous structural protein
+            "collagen": SpectralComponent(
+                name="collagen",
+                bands=[
+                    NIRBand(center=1508, sigma=22, gamma=2.5, amplitude=0.48, name="N-H 1st overtone"),
+                    NIRBand(center=1560, sigma=20, gamma=2, amplitude=0.35, name="N-H H-bonded"),
+                    NIRBand(center=2048, sigma=32, gamma=3, amplitude=0.58, name="N-H combination"),
+                    NIRBand(center=2175, sigma=25, gamma=2, amplitude=0.45, name="Protein C-H"),
+                    NIRBand(center=2285, sigma=22, gamma=2, amplitude=0.38, name="N-H+Amide III"),
+                ],
+                correlation_group=2,
+            ),
+            # Keratin: Structural protein (hair, nails)
+            "keratin": SpectralComponent(
+                name="keratin",
+                bands=[
+                    NIRBand(center=1520, sigma=22, gamma=2.5, amplitude=0.50, name="N-H 1st overtone"),
+                    NIRBand(center=1685, sigma=22, gamma=2.5, amplitude=0.40, name="C-H aromatic"),
+                    NIRBand(center=2060, sigma=30, gamma=3, amplitude=0.55, name="N-H combination"),
+                    NIRBand(center=2185, sigma=24, gamma=2, amplitude=0.48, name="Protein C-H"),
+                ],
+                correlation_group=2,
+            ),
+            # Zein: Corn protein (prolamin)
+            "zein": SpectralComponent(
+                name="zein",
+                bands=[
+                    NIRBand(center=1515, sigma=21, gamma=2, amplitude=0.48, name="N-H 1st overtone"),
+                    NIRBand(center=1676, sigma=23, gamma=2.5, amplitude=0.38, name="C-H aromatic"),
+                    NIRBand(center=2052, sigma=30, gamma=3, amplitude=0.55, name="N-H combination"),
+                    NIRBand(center=2178, sigma=24, gamma=2, amplitude=0.46, name="Protein C-H"),
+                ],
+                correlation_group=2,
+            ),
+            # Gelatin: Denatured collagen
+            "gelatin": SpectralComponent(
+                name="gelatin",
+                bands=[
+                    NIRBand(center=1505, sigma=22, gamma=2.5, amplitude=0.46, name="N-H 1st overtone"),
+                    NIRBand(center=2045, sigma=32, gamma=3.5, amplitude=0.55, name="N-H combination"),
+                    NIRBand(center=2172, sigma=26, gamma=2.5, amplitude=0.44, name="Protein C-H"),
+                ],
+                correlation_group=2,
+            ),
+            # Whey: Milk serum proteins
+            "whey": SpectralComponent(
+                name="whey",
+                bands=[
+                    NIRBand(center=1514, sigma=20, gamma=2, amplitude=0.50, name="N-H 1st overtone"),
+                    NIRBand(center=1680, sigma=24, gamma=3, amplitude=0.40, name="C-H aromatic"),
+                    NIRBand(center=2052, sigma=30, gamma=3, amplitude=0.58, name="N-H combination"),
+                    NIRBand(center=2180, sigma=24, gamma=2, amplitude=0.48, name="Protein C-H"),
+                ],
+                correlation_group=2,
+            ),
+            # ================================================================
+            # EXTENDED LIPIDS (Phase 1.4 additions)
+            # ================================================================
+            # Oleic acid: Monounsaturated fatty acid (C18:1)
+            "oleic_acid": SpectralComponent(
+                name="oleic_acid",
+                bands=[
+                    NIRBand(center=1162, sigma=15, gamma=1.5, amplitude=0.30, name="=C-H 2nd overtone"),
+                    NIRBand(center=1722, sigma=22, gamma=2, amplitude=0.60, name="C-H 1st overtone"),
+                    NIRBand(center=2142, sigma=20, gamma=2, amplitude=0.45, name="=C-H 1st overtone"),
+                    NIRBand(center=2308, sigma=18, gamma=2, amplitude=0.50, name="CH2 combination"),
+                ],
+                correlation_group=3,
+            ),
+            # Linoleic acid: Polyunsaturated fatty acid (C18:2)
+            "linoleic_acid": SpectralComponent(
+                name="linoleic_acid",
+                bands=[
+                    NIRBand(center=1158, sigma=15, gamma=1.5, amplitude=0.32, name="=C-H 2nd overtone"),
+                    NIRBand(center=1718, sigma=22, gamma=2, amplitude=0.58, name="C-H 1st overtone"),
+                    NIRBand(center=2138, sigma=20, gamma=2, amplitude=0.48, name="=C-H 1st overtone"),
+                    NIRBand(center=2172, sigma=18, gamma=2, amplitude=0.38, name="C=C combination"),
+                    NIRBand(center=2305, sigma=18, gamma=2, amplitude=0.48, name="CH2 combination"),
+                ],
+                correlation_group=3,
+            ),
+            # Linolenic acid: Polyunsaturated fatty acid (C18:3)
+            "linolenic_acid": SpectralComponent(
+                name="linolenic_acid",
+                bands=[
+                    NIRBand(center=1155, sigma=15, gamma=1.5, amplitude=0.35, name="=C-H 2nd overtone"),
+                    NIRBand(center=1715, sigma=22, gamma=2, amplitude=0.55, name="C-H 1st overtone"),
+                    NIRBand(center=2135, sigma=20, gamma=2, amplitude=0.52, name="=C-H 1st overtone"),
+                    NIRBand(center=2168, sigma=18, gamma=2, amplitude=0.42, name="C=C combination"),
+                    NIRBand(center=2302, sigma=18, gamma=2, amplitude=0.45, name="CH2 combination"),
+                ],
+                correlation_group=3,
+            ),
+            # Palmitic acid: Saturated fatty acid (C16:0)
+            "palmitic_acid": SpectralComponent(
+                name="palmitic_acid",
+                bands=[
+                    NIRBand(center=1196, sigma=18, gamma=2, amplitude=0.42, name="CH2 2nd overtone"),
+                    NIRBand(center=1732, sigma=22, gamma=2, amplitude=0.65, name="C-H 1st overtone"),
+                    NIRBand(center=2318, sigma=18, gamma=2, amplitude=0.55, name="CH2 combination"),
+                    NIRBand(center=2358, sigma=16, gamma=2, amplitude=0.45, name="CH3 combination"),
+                ],
+                correlation_group=3,
+            ),
+            # Stearic acid: Saturated fatty acid (C18:0)
+            "stearic_acid": SpectralComponent(
+                name="stearic_acid",
+                bands=[
+                    NIRBand(center=1194, sigma=18, gamma=2, amplitude=0.44, name="CH2 2nd overtone"),
+                    NIRBand(center=1728, sigma=22, gamma=2, amplitude=0.68, name="C-H 1st overtone"),
+                    NIRBand(center=2315, sigma=18, gamma=2, amplitude=0.58, name="CH2 combination"),
+                    NIRBand(center=2355, sigma=16, gamma=2, amplitude=0.48, name="CH3 combination"),
+                ],
+                correlation_group=3,
+            ),
+            # Phospholipid: Lecithin-like membrane lipids
+            "phospholipid": SpectralComponent(
+                name="phospholipid",
+                bands=[
+                    NIRBand(center=1205, sigma=20, gamma=2, amplitude=0.38, name="C-H 2nd overtone"),
+                    NIRBand(center=1725, sigma=24, gamma=2.5, amplitude=0.55, name="C-H 1st overtone"),
+                    NIRBand(center=2305, sigma=20, gamma=2, amplitude=0.48, name="CH2 combination"),
+                    NIRBand(center=2165, sigma=22, gamma=2.5, amplitude=0.35, name="P-O combination"),
+                ],
+                correlation_group=3,
+            ),
+            # Cholesterol: Sterol lipid
+            "cholesterol": SpectralComponent(
+                name="cholesterol",
+                bands=[
+                    NIRBand(center=1390, sigma=18, gamma=2, amplitude=0.35, name="O-H 1st overtone"),
+                    NIRBand(center=1708, sigma=22, gamma=2, amplitude=0.50, name="C-H 1st overtone"),
+                    NIRBand(center=2298, sigma=20, gamma=2, amplitude=0.45, name="C-H combination"),
+                ],
+                correlation_group=3,
+            ),
+            # Cocoa butter: Triglyceride mix
+            "cocoa_butter": SpectralComponent(
+                name="cocoa_butter",
+                bands=[
+                    NIRBand(center=1210, sigma=20, gamma=2, amplitude=0.40, name="C-H 2nd overtone"),
+                    NIRBand(center=1728, sigma=24, gamma=2, amplitude=0.65, name="C-H 1st overtone"),
+                    NIRBand(center=2312, sigma=20, gamma=2, amplitude=0.52, name="CH2 combination"),
+                    NIRBand(center=2352, sigma=18, gamma=2, amplitude=0.42, name="CH3 combination"),
+                ],
+                correlation_group=3,
+            ),
+            # ================================================================
+            # EXTENDED ALCOHOLS (Phase 1.4 additions)
+            # ================================================================
+            # Propanol: Propyl alcohol
+            "propanol": SpectralComponent(
+                name="propanol",
+                bands=[
+                    NIRBand(center=1415, sigma=18, gamma=2, amplitude=0.58, name="O-H 1st overtone"),
+                    NIRBand(center=1575, sigma=25, gamma=3, amplitude=0.42, name="O-H H-bonded"),
+                    NIRBand(center=1698, sigma=18, gamma=2, amplitude=0.38, name="C-H 1st overtone"),
+                    NIRBand(center=2055, sigma=28, gamma=3, amplitude=0.48, name="O-H combination"),
+                    NIRBand(center=2295, sigma=20, gamma=2, amplitude=0.38, name="C-H combination"),
+                ],
+                correlation_group=7,
+            ),
+            # Butanol: Butyl alcohol
+            "butanol": SpectralComponent(
+                name="butanol",
+                bands=[
+                    NIRBand(center=1418, sigma=18, gamma=2, amplitude=0.55, name="O-H 1st overtone"),
+                    NIRBand(center=1572, sigma=25, gamma=3, amplitude=0.40, name="O-H H-bonded"),
+                    NIRBand(center=1702, sigma=20, gamma=2, amplitude=0.42, name="C-H 1st overtone"),
+                    NIRBand(center=2058, sigma=28, gamma=3, amplitude=0.46, name="O-H combination"),
+                    NIRBand(center=2298, sigma=20, gamma=2, amplitude=0.40, name="C-H combination"),
+                ],
+                correlation_group=7,
+            ),
+            # Sorbitol: Sugar alcohol
+            "sorbitol": SpectralComponent(
+                name="sorbitol",
+                bands=[
+                    NIRBand(center=1445, sigma=28, gamma=3, amplitude=0.55, name="O-H 1st overtone"),
+                    NIRBand(center=1585, sigma=25, gamma=3, amplitude=0.42, name="O-H H-bonded"),
+                    NIRBand(center=1695, sigma=20, gamma=2, amplitude=0.35, name="C-H 1st overtone"),
+                    NIRBand(center=2065, sigma=30, gamma=3, amplitude=0.52, name="O-H combination"),
+                    NIRBand(center=2282, sigma=22, gamma=2, amplitude=0.40, name="C-H combination"),
+                ],
+                correlation_group=7,
+            ),
+            # Mannitol: Sugar alcohol
+            "mannitol": SpectralComponent(
+                name="mannitol",
+                bands=[
+                    NIRBand(center=1448, sigma=28, gamma=3, amplitude=0.52, name="O-H 1st overtone"),
+                    NIRBand(center=1582, sigma=25, gamma=3, amplitude=0.40, name="O-H H-bonded"),
+                    NIRBand(center=1698, sigma=20, gamma=2, amplitude=0.33, name="C-H 1st overtone"),
+                    NIRBand(center=2068, sigma=30, gamma=3, amplitude=0.50, name="O-H combination"),
+                    NIRBand(center=2285, sigma=22, gamma=2, amplitude=0.38, name="C-H combination"),
+                ],
+                correlation_group=7,
+            ),
+            # Xylitol: Sugar alcohol
+            "xylitol": SpectralComponent(
+                name="xylitol",
+                bands=[
+                    NIRBand(center=1442, sigma=27, gamma=3, amplitude=0.54, name="O-H 1st overtone"),
+                    NIRBand(center=1578, sigma=25, gamma=3, amplitude=0.42, name="O-H H-bonded"),
+                    NIRBand(center=1692, sigma=19, gamma=2, amplitude=0.34, name="C-H 1st overtone"),
+                    NIRBand(center=2062, sigma=30, gamma=3, amplitude=0.52, name="O-H combination"),
+                    NIRBand(center=2278, sigma=22, gamma=2, amplitude=0.40, name="C-H combination"),
+                ],
+                correlation_group=7,
+            ),
+            # Isopropanol: Isopropyl alcohol
+            "isopropanol": SpectralComponent(
+                name="isopropanol",
+                bands=[
+                    NIRBand(center=1412, sigma=18, gamma=2, amplitude=0.58, name="O-H 1st overtone"),
+                    NIRBand(center=1568, sigma=24, gamma=3, amplitude=0.44, name="O-H H-bonded"),
+                    NIRBand(center=1690, sigma=18, gamma=2, amplitude=0.40, name="C-H 1st overtone"),
+                    NIRBand(center=2048, sigma=28, gamma=3, amplitude=0.50, name="O-H combination"),
+                    NIRBand(center=2288, sigma=20, gamma=2, amplitude=0.38, name="C-H combination"),
+                ],
+                correlation_group=7,
+            ),
+            # ================================================================
+            # EXTENDED ORGANIC ACIDS (Phase 1.4 additions)
+            # ================================================================
+            # Formic acid: HCOOH
+            "formic_acid": SpectralComponent(
+                name="formic_acid",
+                bands=[
+                    NIRBand(center=1425, sigma=30, gamma=4, amplitude=0.52, name="Carboxylic O-H"),
+                    NIRBand(center=1695, sigma=18, gamma=2, amplitude=0.28, name="C=O 2nd overtone"),
+                    NIRBand(center=1935, sigma=35, gamma=4, amplitude=0.58, name="O-H combination"),
+                ],
+                correlation_group=8,
+            ),
+            # Oxalic acid: (COOH)2
+            "oxalic_acid": SpectralComponent(
+                name="oxalic_acid",
+                bands=[
+                    NIRBand(center=1435, sigma=32, gamma=4, amplitude=0.50, name="Carboxylic O-H"),
+                    NIRBand(center=1705, sigma=20, gamma=2.5, amplitude=0.35, name="C=O 2nd overtone"),
+                    NIRBand(center=1945, sigma=35, gamma=4, amplitude=0.55, name="O-H combination"),
+                ],
+                correlation_group=8,
+            ),
+            # Succinic acid: Dicarboxylic acid
+            "succinic_acid": SpectralComponent(
+                name="succinic_acid",
+                bands=[
+                    NIRBand(center=1432, sigma=30, gamma=3.5, amplitude=0.48, name="Carboxylic O-H"),
+                    NIRBand(center=1705, sigma=20, gamma=2, amplitude=0.32, name="C=O 2nd overtone"),
+                    NIRBand(center=1942, sigma=35, gamma=4, amplitude=0.52, name="O-H combination"),
+                    NIRBand(center=2245, sigma=22, gamma=2, amplitude=0.35, name="C-H combination"),
+                ],
+                correlation_group=8,
+            ),
+            # Fumaric acid: Unsaturated dicarboxylic
+            "fumaric_acid": SpectralComponent(
+                name="fumaric_acid",
+                bands=[
+                    NIRBand(center=1428, sigma=30, gamma=3.5, amplitude=0.48, name="Carboxylic O-H"),
+                    NIRBand(center=1700, sigma=20, gamma=2, amplitude=0.30, name="C=O 2nd overtone"),
+                    NIRBand(center=1938, sigma=35, gamma=4, amplitude=0.50, name="O-H combination"),
+                    NIRBand(center=2135, sigma=20, gamma=2, amplitude=0.28, name="C=C combination"),
+                ],
+                correlation_group=8,
+            ),
+            # Propionic acid: CH3CH2COOH
+            "propionic_acid": SpectralComponent(
+                name="propionic_acid",
+                bands=[
+                    NIRBand(center=1422, sigma=30, gamma=4, amplitude=0.52, name="Carboxylic O-H"),
+                    NIRBand(center=1698, sigma=18, gamma=2, amplitude=0.30, name="C=O 2nd overtone"),
+                    NIRBand(center=1938, sigma=35, gamma=4, amplitude=0.55, name="O-H combination"),
+                    NIRBand(center=2242, sigma=22, gamma=2, amplitude=0.36, name="C-H combination"),
+                ],
+                correlation_group=8,
+            ),
+            # Butyric acid: Short-chain fatty acid
+            "butyric_acid": SpectralComponent(
+                name="butyric_acid",
+                bands=[
+                    NIRBand(center=1420, sigma=30, gamma=4, amplitude=0.50, name="Carboxylic O-H"),
+                    NIRBand(center=1702, sigma=18, gamma=2, amplitude=0.32, name="C=O 2nd overtone"),
+                    NIRBand(center=1940, sigma=35, gamma=4, amplitude=0.52, name="O-H combination"),
+                    NIRBand(center=2248, sigma=22, gamma=2, amplitude=0.38, name="C-H combination"),
+                ],
+                correlation_group=8,
+            ),
+            # Ascorbic acid: Vitamin C
+            "ascorbic_acid": SpectralComponent(
+                name="ascorbic_acid",
+                bands=[
+                    NIRBand(center=1445, sigma=28, gamma=3, amplitude=0.50, name="O-H 1st overtone"),
+                    NIRBand(center=1565, sigma=25, gamma=3, amplitude=0.38, name="O-H H-bonded"),
+                    NIRBand(center=1918, sigma=32, gamma=3.5, amplitude=0.48, name="C=O combination"),
+                    NIRBand(center=2062, sigma=30, gamma=3, amplitude=0.52, name="O-H combination"),
+                ],
+                correlation_group=8,
+            ),
+            # ================================================================
+            # EXTENDED PHARMACEUTICALS (Phase 1.4 additions)
+            # ================================================================
+            # Ibuprofen: Anti-inflammatory drug
+            "ibuprofen": SpectralComponent(
+                name="ibuprofen",
+                bands=[
+                    NIRBand(center=1148, sigma=15, gamma=1.5, amplitude=0.32, name="Ar C-H 2nd overtone"),
+                    NIRBand(center=1432, sigma=25, gamma=3, amplitude=0.38, name="Carboxylic O-H"),
+                    NIRBand(center=1682, sigma=18, gamma=2, amplitude=0.48, name="Ar C-H 1st overtone"),
+                    NIRBand(center=1722, sigma=20, gamma=2, amplitude=0.42, name="C-H 1st overtone"),
+                    NIRBand(center=2025, sigma=25, gamma=2.5, amplitude=0.42, name="C=O combination"),
+                ],
+                correlation_group=9,
+            ),
+            # Naproxen: NSAID drug
+            "naproxen": SpectralComponent(
+                name="naproxen",
+                bands=[
+                    NIRBand(center=1145, sigma=14, gamma=1.5, amplitude=0.35, name="Ar C-H 2nd overtone"),
+                    NIRBand(center=1430, sigma=25, gamma=3, amplitude=0.40, name="Carboxylic O-H"),
+                    NIRBand(center=1678, sigma=18, gamma=2, amplitude=0.50, name="Ar C-H 1st overtone"),
+                    NIRBand(center=2028, sigma=25, gamma=2.5, amplitude=0.45, name="C=O combination"),
+                    NIRBand(center=2140, sigma=22, gamma=2, amplitude=0.38, name="Ar combination"),
+                ],
+                correlation_group=9,
+            ),
+            # Diclofenac: NSAID drug
+            "diclofenac": SpectralComponent(
+                name="diclofenac",
+                bands=[
+                    NIRBand(center=1142, sigma=15, gamma=1.5, amplitude=0.33, name="Ar C-H 2nd overtone"),
+                    NIRBand(center=1505, sigma=20, gamma=2, amplitude=0.42, name="N-H 1st overtone"),
+                    NIRBand(center=1675, sigma=18, gamma=2, amplitude=0.48, name="Ar C-H 1st overtone"),
+                    NIRBand(center=2032, sigma=26, gamma=2.5, amplitude=0.44, name="C=O combination"),
+                ],
+                correlation_group=9,
+            ),
+            # Metformin: Diabetes drug
+            "metformin": SpectralComponent(
+                name="metformin",
+                bands=[
+                    NIRBand(center=1485, sigma=20, gamma=2, amplitude=0.45, name="N-H 1st overtone"),
+                    NIRBand(center=1545, sigma=22, gamma=2.5, amplitude=0.40, name="N-H asym"),
+                    NIRBand(center=2045, sigma=28, gamma=3, amplitude=0.52, name="N-H combination"),
+                    NIRBand(center=2168, sigma=22, gamma=2, amplitude=0.38, name="C-N combination"),
+                ],
+                correlation_group=9,
+            ),
+            # Omeprazole: Proton pump inhibitor
+            "omeprazole": SpectralComponent(
+                name="omeprazole",
+                bands=[
+                    NIRBand(center=1148, sigma=15, gamma=1.5, amplitude=0.30, name="Ar C-H 2nd overtone"),
+                    NIRBand(center=1498, sigma=20, gamma=2, amplitude=0.42, name="N-H 1st overtone"),
+                    NIRBand(center=1672, sigma=18, gamma=2, amplitude=0.45, name="Ar C-H 1st overtone"),
+                    NIRBand(center=2038, sigma=26, gamma=2.5, amplitude=0.48, name="S=O combination"),
+                ],
+                correlation_group=9,
+            ),
+            # Amoxicillin: Antibiotic
+            "amoxicillin": SpectralComponent(
+                name="amoxicillin",
+                bands=[
+                    NIRBand(center=1148, sigma=15, gamma=1.5, amplitude=0.28, name="Ar C-H 2nd overtone"),
+                    NIRBand(center=1390, sigma=20, gamma=2.5, amplitude=0.40, name="Phenolic O-H"),
+                    NIRBand(center=1512, sigma=20, gamma=2, amplitude=0.45, name="N-H 1st overtone"),
+                    NIRBand(center=1675, sigma=18, gamma=2, amplitude=0.42, name="Ar C-H 1st overtone"),
+                    NIRBand(center=2050, sigma=28, gamma=3, amplitude=0.50, name="Amide combination"),
+                ],
+                correlation_group=9,
+            ),
+            # Microcrystalline cellulose: Pharmaceutical excipient
+            "microcrystalline_cellulose": SpectralComponent(
+                name="microcrystalline_cellulose",
+                bands=[
+                    NIRBand(center=1492, sigma=22, gamma=2, amplitude=0.42, name="O-H 1st overtone"),
+                    NIRBand(center=1782, sigma=18, gamma=2, amplitude=0.32, name="Cellulose C-H"),
+                    NIRBand(center=2092, sigma=28, gamma=3, amplitude=0.52, name="O-H combination"),
+                    NIRBand(center=2282, sigma=22, gamma=2, amplitude=0.42, name="Cellulose C-O"),
+                    NIRBand(center=2342, sigma=20, gamma=2, amplitude=0.36, name="C-H combination"),
+                ],
+                correlation_group=4,
+            ),
+            # ================================================================
+            # EXTENDED POLYMERS (Phase 1.4 additions)
+            # ================================================================
+            # PMMA: Polymethyl methacrylate (acrylic)
+            "pmma": SpectralComponent(
+                name="pmma",
+                bands=[
+                    NIRBand(center=1190, sigma=18, gamma=2, amplitude=0.38, name="C-H 2nd overtone"),
+                    NIRBand(center=1718, sigma=22, gamma=2, amplitude=0.52, name="C-H 1st overtone"),
+                    NIRBand(center=2015, sigma=25, gamma=2.5, amplitude=0.42, name="Ester C=O"),
+                    NIRBand(center=2298, sigma=20, gamma=2, amplitude=0.45, name="C-H combination"),
+                ],
+                correlation_group=11,
+            ),
+            # PVC: Polyvinyl chloride
+            "pvc": SpectralComponent(
+                name="pvc",
+                bands=[
+                    NIRBand(center=1188, sigma=17, gamma=1.8, amplitude=0.35, name="C-H 2nd overtone"),
+                    NIRBand(center=1715, sigma=22, gamma=2, amplitude=0.48, name="C-H 1st overtone"),
+                    NIRBand(center=2295, sigma=20, gamma=2, amplitude=0.42, name="C-H combination"),
+                ],
+                correlation_group=11,
+            ),
+            # PP: Polypropylene
+            "polypropylene": SpectralComponent(
+                name="polypropylene",
+                bands=[
+                    NIRBand(center=1185, sigma=18, gamma=1.8, amplitude=0.38, name="C-H 2nd overtone"),
+                    NIRBand(center=1392, sigma=15, gamma=1.5, amplitude=0.30, name="C-H combination"),
+                    NIRBand(center=1718, sigma=22, gamma=2, amplitude=0.58, name="C-H 1st overtone"),
+                    NIRBand(center=2305, sigma=18, gamma=2, amplitude=0.48, name="CH2 combination"),
+                    NIRBand(center=2348, sigma=16, gamma=2, amplitude=0.42, name="CH3 combination"),
+                ],
+                correlation_group=11,
+            ),
+            # PET: Polyethylene terephthalate (separate from polyester for clarity)
+            "pet": SpectralComponent(
+                name="pet",
+                bands=[
+                    NIRBand(center=1138, sigma=14, gamma=1.5, amplitude=0.36, name="Ar C-H 2nd overtone"),
+                    NIRBand(center=1658, sigma=16, gamma=2, amplitude=0.46, name="Ar C-H 1st overtone"),
+                    NIRBand(center=1722, sigma=20, gamma=2, amplitude=0.52, name="C-H 1st overtone"),
+                    NIRBand(center=2018, sigma=25, gamma=2.5, amplitude=0.42, name="Ester C=O"),
+                    NIRBand(center=2132, sigma=22, gamma=2, amplitude=0.34, name="Ar combination"),
+                ],
+                correlation_group=11,
+            ),
+            # PTFE: Polytetrafluoroethylene (Teflon)
+            "ptfe": SpectralComponent(
+                name="ptfe",
+                bands=[
+                    NIRBand(center=2180, sigma=25, gamma=2.5, amplitude=0.35, name="C-F combination"),
+                    NIRBand(center=2365, sigma=22, gamma=2, amplitude=0.30, name="C-F overtone"),
+                ],
+                correlation_group=11,
+            ),
+            # ABS: Acrylonitrile butadiene styrene
+            "abs": SpectralComponent(
+                name="abs",
+                bands=[
+                    NIRBand(center=1145, sigma=15, gamma=1.5, amplitude=0.38, name="Ar C-H 2nd overtone"),
+                    NIRBand(center=1158, sigma=16, gamma=1.5, amplitude=0.28, name="=C-H 2nd overtone"),
+                    NIRBand(center=1682, sigma=18, gamma=2, amplitude=0.52, name="Ar C-H 1st overtone"),
+                    NIRBand(center=1718, sigma=20, gamma=2, amplitude=0.45, name="C-H 1st overtone"),
+                    NIRBand(center=2172, sigma=22, gamma=2, amplitude=0.42, name="Ar C-H combination"),
+                ],
+                correlation_group=11,
+            ),
+            # ================================================================
+            # EXTENDED MINERALS (Phase 1.4 additions)
+            # ================================================================
+            # Montmorillonite: Smectite clay
+            "montmorillonite": SpectralComponent(
+                name="montmorillonite",
+                bands=[
+                    NIRBand(center=1410, sigma=22, gamma=2.5, amplitude=0.42, name="Al-OH 1st overtone"),
+                    NIRBand(center=1910, sigma=32, gamma=3.5, amplitude=0.45, name="H-O-H combination"),
+                    NIRBand(center=2210, sigma=25, gamma=2.5, amplitude=0.52, name="Al-OH combination"),
+                ],
+                correlation_group=13,
+            ),
+            # Illite: Mica-like clay
+            "illite": SpectralComponent(
+                name="illite",
+                bands=[
+                    NIRBand(center=1405, sigma=20, gamma=2.5, amplitude=0.40, name="Al-OH 1st overtone"),
+                    NIRBand(center=2205, sigma=24, gamma=2.5, amplitude=0.50, name="Al-OH combination"),
+                    NIRBand(center=2345, sigma=22, gamma=2, amplitude=0.35, name="Fe-OH combination"),
+                ],
+                correlation_group=13,
+            ),
+            # Goethite: Iron oxyhydroxide
+            "goethite": SpectralComponent(
+                name="goethite",
+                bands=[
+                    NIRBand(center=1420, sigma=25, gamma=3, amplitude=0.38, name="Fe-OH 1st overtone"),
+                    NIRBand(center=1920, sigma=30, gamma=3, amplitude=0.42, name="Fe-OH combination"),
+                    NIRBand(center=2260, sigma=25, gamma=2.5, amplitude=0.45, name="Fe-OH combination 2"),
+                ],
+                correlation_group=13,
+            ),
+            # Talc: Magnesium silicate
+            "talc": SpectralComponent(
+                name="talc",
+                bands=[
+                    NIRBand(center=1395, sigma=18, gamma=2, amplitude=0.42, name="Mg-OH 1st overtone"),
+                    NIRBand(center=2315, sigma=22, gamma=2.5, amplitude=0.52, name="Mg-OH combination"),
+                    NIRBand(center=2390, sigma=20, gamma=2, amplitude=0.38, name="Mg-OH combination 2"),
+                ],
+                correlation_group=13,
+            ),
+            # Silica: Silicon dioxide
+            "silica": SpectralComponent(
+                name="silica",
+                bands=[
+                    NIRBand(center=1380, sigma=20, gamma=2, amplitude=0.35, name="Si-OH 1st overtone"),
+                    NIRBand(center=1900, sigma=35, gamma=4, amplitude=0.40, name="H2O combination"),
+                    NIRBand(center=2220, sigma=25, gamma=2.5, amplitude=0.45, name="Si-OH combination"),
+                ],
+                correlation_group=13,
+            ),
+            # ================================================================
+            # EXTENDED PIGMENTS (Phase 1.4 additions)
+            # ================================================================
+            # Anthocyanin: Red-purple plant pigment
+            "anthocyanin": SpectralComponent(
+                name="anthocyanin",
+                bands=[
+                    NIRBand(center=1040, sigma=18, gamma=2, amplitude=0.25, name="Electronic tail"),
+                    NIRBand(center=1425, sigma=22, gamma=2.5, amplitude=0.38, name="Phenolic O-H"),
+                    NIRBand(center=1672, sigma=18, gamma=2, amplitude=0.42, name="Ar C-H 1st overtone"),
+                    NIRBand(center=2055, sigma=22, gamma=2.5, amplitude=0.35, name="Phenolic combination"),
+                ],
+                correlation_group=5,
+            ),
+            # Lycopene: Red carotenoid (tomatoes)
+            "lycopene": SpectralComponent(
+                name="lycopene",
+                bands=[
+                    NIRBand(center=1055, sigma=22, gamma=2.5, amplitude=0.28, name="Electronic tail"),
+                    NIRBand(center=1685, sigma=18, gamma=2, amplitude=0.42, name="=C-H 1st overtone"),
+                    NIRBand(center=2138, sigma=22, gamma=2, amplitude=0.38, name="C=C combination"),
+                    NIRBand(center=2282, sigma=20, gamma=2, amplitude=0.32, name="C-H combination"),
+                ],
+                correlation_group=5,
+            ),
+            # Lutein: Yellow carotenoid (xanthophyll)
+            "lutein": SpectralComponent(
+                name="lutein",
+                bands=[
+                    NIRBand(center=1048, sigma=20, gamma=2, amplitude=0.26, name="Electronic tail"),
+                    NIRBand(center=1415, sigma=20, gamma=2, amplitude=0.35, name="O-H 1st overtone"),
+                    NIRBand(center=1678, sigma=18, gamma=2, amplitude=0.40, name="=C-H 1st overtone"),
+                    NIRBand(center=2132, sigma=22, gamma=2, amplitude=0.35, name="C=C combination"),
+                ],
+                correlation_group=5,
+            ),
+            # Xanthophyll: General yellow pigments
+            "xanthophyll": SpectralComponent(
+                name="xanthophyll",
+                bands=[
+                    NIRBand(center=1052, sigma=20, gamma=2, amplitude=0.25, name="Electronic tail"),
+                    NIRBand(center=1418, sigma=20, gamma=2, amplitude=0.36, name="O-H 1st overtone"),
+                    NIRBand(center=1682, sigma=18, gamma=2, amplitude=0.42, name="=C-H 1st overtone"),
+                    NIRBand(center=2135, sigma=22, gamma=2, amplitude=0.36, name="C=C combination"),
+                ],
+                correlation_group=5,
+            ),
+            # Melanin: Brown-black pigment
+            "melanin": SpectralComponent(
+                name="melanin",
+                bands=[
+                    NIRBand(center=1100, sigma=30, gamma=3, amplitude=0.35, name="Electronic absorption"),
+                    NIRBand(center=1510, sigma=22, gamma=2.5, amplitude=0.40, name="N-H 1st overtone"),
+                    NIRBand(center=1680, sigma=20, gamma=2, amplitude=0.38, name="Ar C-H 1st overtone"),
+                    NIRBand(center=2055, sigma=28, gamma=3, amplitude=0.42, name="N-H combination"),
+                ],
+                correlation_group=5,
+            ),
+            # ================================================================
+            # EXTENDED SOLVENTS (Phase 1.4 additions)
+            # ================================================================
+            # Dimethyl sulfoxide (DMSO)
+            "dmso": SpectralComponent(
+                name="dmso",
+                bands=[
+                    NIRBand(center=1700, sigma=20, gamma=2, amplitude=0.40, name="C-H 1st overtone"),
+                    NIRBand(center=2020, sigma=25, gamma=2.5, amplitude=0.45, name="S=O combination"),
+                    NIRBand(center=2290, sigma=20, gamma=2, amplitude=0.38, name="C-H combination"),
+                ],
+                correlation_group=12,
+            ),
+            # Ethyl acetate: Ester solvent
+            "ethyl_acetate": SpectralComponent(
+                name="ethyl_acetate",
+                bands=[
+                    NIRBand(center=1695, sigma=18, gamma=2, amplitude=0.42, name="C-H 1st overtone"),
+                    NIRBand(center=1720, sigma=20, gamma=2, amplitude=0.38, name="C-H 1st overtone"),
+                    NIRBand(center=2010, sigma=25, gamma=2.5, amplitude=0.40, name="Ester C=O"),
+                    NIRBand(center=2285, sigma=20, gamma=2, amplitude=0.38, name="C-H combination"),
+                ],
+                correlation_group=12,
+            ),
+            # Toluene: Aromatic solvent
+            "toluene": SpectralComponent(
+                name="toluene",
+                bands=[
+                    NIRBand(center=1142, sigma=14, gamma=1.5, amplitude=0.38, name="Ar C-H 2nd overtone"),
+                    NIRBand(center=1678, sigma=17, gamma=2, amplitude=0.55, name="Ar C-H 1st overtone"),
+                    NIRBand(center=1705, sigma=18, gamma=2, amplitude=0.42, name="CH3 1st overtone"),
+                    NIRBand(center=2145, sigma=20, gamma=2, amplitude=0.42, name="Ar C-H combination"),
+                ],
+                correlation_group=12,
+            ),
+            # Chloroform: Halogenated solvent
+            "chloroform": SpectralComponent(
+                name="chloroform",
+                bands=[
+                    NIRBand(center=1695, sigma=18, gamma=2, amplitude=0.38, name="C-H 1st overtone"),
+                    NIRBand(center=2250, sigma=22, gamma=2.5, amplitude=0.32, name="C-Cl combination"),
+                ],
+                correlation_group=12,
+            ),
+            # Hexane: Alkane solvent
+            "hexane": SpectralComponent(
+                name="hexane",
+                bands=[
+                    NIRBand(center=1192, sigma=18, gamma=2, amplitude=0.40, name="C-H 2nd overtone"),
+                    NIRBand(center=1718, sigma=24, gamma=2.5, amplitude=0.62, name="C-H 1st overtone"),
+                    NIRBand(center=2308, sigma=20, gamma=2, amplitude=0.52, name="CH2 combination"),
+                    NIRBand(center=2358, sigma=18, gamma=2, amplitude=0.42, name="CH3 combination"),
+                ],
+                correlation_group=12,
+            ),
         }
 
     return _PREDEFINED_COMPONENTS

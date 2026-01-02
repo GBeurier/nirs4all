@@ -40,7 +40,7 @@ shap_params = {
 }
 ```
 
-**NEW: Per-Visualization Configuration!**
+**Per-Visualization Configuration**
 
 You can now specify different binning for each visualization using dictionaries:
 
@@ -199,7 +199,7 @@ shap_params = {
 results, output_dir = explainer.explain(best, dataset_config, shap_params)
 ```
 
-### Custom Binning (Per-Visualization) ⭐ NEW
+### Custom Binning (Per-Visualization)
 
 ```python
 shap_params = {

@@ -11,7 +11,7 @@ This tutorial covers:
 * Exporting test datasets
 * Comparing real and synthetic data
 * Performance benchmarking
-* **NEW**: Non-linear target complexity for realistic benchmarks
+* Non-linear target complexity for realistic benchmarks
 
 Prerequisites
 -------------
@@ -233,7 +233,7 @@ benchmark_data = (
         components=["water", "protein", "lipid", "starch"]
     )
     .with_targets(component="protein", range=(0, 100))
-    # NEW: Add non-linear complexity for realistic benchmarking
+    # Add non-linear complexity for realistic benchmarking
     .with_nonlinear_targets(
         interactions="polynomial",
         interaction_strength=0.3,

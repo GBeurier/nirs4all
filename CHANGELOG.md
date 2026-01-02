@@ -18,7 +18,7 @@ This release introduces a new module-level API, complete documentation overhaul,
 
 ### ✨ New Features
 
-#### Synthetic Data Generation (NEW)
+#### Synthetic Data Generation
 - **New `nirs4all.generate()` API**: Generate realistic synthetic NIRS spectra for testing and prototyping
 - **Convenience functions**: `nirs4all.generate.regression()`, `nirs4all.generate.classification()`, `nirs4all.generate.multi_source()`
 - **Builder pattern**: `SyntheticDatasetBuilder` with fluent interface for full control

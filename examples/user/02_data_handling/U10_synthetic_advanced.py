@@ -10,7 +10,7 @@ This tutorial covers:
 * Metadata generation (groups, repetitions)
 * Multi-source datasets
 * Batch effects simulation
-* **NEW**: Non-linear target complexity for realistic benchmarks
+* Non-linear target complexity for realistic benchmarks
 * Exporting to files
 * Matching real data characteristics
 
@@ -183,10 +183,10 @@ print("   Useful for testing domain adaptation algorithms.")
 
 
 # =============================================================================
-# Section 5: Non-Linear Target Complexity (NEW!)
+# Section 5: Non-Linear Target Complexity
 # =============================================================================
 print("\n" + "-" * 60)
-print("Section 5: Non-Linear Target Complexity (NEW!)")
+print("Section 5: Non-Linear Target Complexity")
 print("-" * 60)
 
 print("\n⚠️  Default synthetic targets are too easy to predict!")
@@ -579,7 +579,7 @@ Builder API Methods:
       .with_output(as_dataset, include_metadata)
       .build()
 
-  NEW - Target Complexity Methods:
+ Target Complexity Methods:
 
       .with_nonlinear_targets(interactions, interaction_strength,
                               hidden_factors, polynomial_degree)

@@ -236,7 +236,7 @@ class SampleAugmentationController(OperatorController):
 
         selection = config.get("selection", "random")
         random_state = config.get("random_state", None)
-        bin_balancing = config.get("bin_balancing", "sample")  # NEW: "sample" or "value"
+        bin_balancing = config.get("bin_balancing", "sample")  # "sample" or "value"
 
         # Get train samples ONLY (ensure we're in train partition)
         train_context = context.with_partition("train")
