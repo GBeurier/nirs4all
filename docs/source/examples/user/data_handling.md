@@ -16,6 +16,7 @@ This section covers all the ways to load, configure, and work with data in NIRS4
 | [U03](#u03-multi-source) | Multi-Source Data | ★★★☆☆ | ~3 min |
 | [U04](#u04-wavelength-handling) | Wavelength Handling | ★★☆☆☆ | ~3 min |
 | [U05](#u05-synthetic-data) | Synthetic Data | ★★☆☆☆ | ~2 min |
+| [U06](#u06-synthetic-advanced) | Advanced Synthetic Data | ★★★☆☆ | ~5 min |
 
 ---
 
@@ -408,6 +409,68 @@ result = nirs4all.run(
     dataset=nirs4all.generate.regression(n_samples=600, complexity="realistic"),
     name="SyntheticTest"
 )
+```
+
+---
+
+## U06: Synthetic Advanced
+
+**Master the full synthetic data generation API for complex scenarios.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/user/02_data_handling/U06_synthetic_advanced.py)
+
+### What You'll Learn
+
+- Using `SyntheticDatasetBuilder` for full control
+- Metadata generation (groups, repetitions)
+- Multi-source datasets
+- Batch effects simulation
+- Non-linear target complexity for realistic benchmarks
+- Exporting to files
+- Matching real data characteristics
+
+### SyntheticDatasetBuilder
+
+For maximum control over synthetic data generation:
+
+```python
+from nirs4all.data.synthetic import SyntheticDatasetBuilder
+
+# Full control over generation
+builder = SyntheticDatasetBuilder(
+    n_samples=500,
+    wavelength_range=(1000, 2500),
+    n_wavelengths=256,
+    components=["water", "protein", "lipid"],
+)
+
+# Add batch effects
+builder.add_batch_effect(n_batches=3, intensity=0.1)
+
+# Add metadata
+builder.add_group_metadata(n_groups=5)
+
+# Generate dataset
+dataset = builder.build()
+```
+
+### Multi-Source Synthetic Data
+
+```python
+# Create multi-source datasets
+builder = SyntheticDatasetBuilder(n_samples=300)
+builder.add_source("NIR", wavelength_range=(1000, 2500), n_wavelengths=256)
+builder.add_source("markers", n_features=10, feature_type="numerical")
+
+dataset = builder.build()
+```
+
+### Exporting to Files
+
+```python
+# Export for loader testing
+dataset.to_csv("synthetic_data/")
+# Creates: Xtrain.csv, Ytrain.csv, Xtest.csv, Ytest.csv
 ```
 
 ---

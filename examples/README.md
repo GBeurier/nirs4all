@@ -19,7 +19,7 @@ examples/
 │
 ├── developer/               # 🔧 Developer Path
 │   ├── 01_advanced_pipelines/  # D01-D05: Branching and merging
-│   ├── 02_generators/          # D01-D08: Pipeline generation & synthetic data
+│   ├── 02_generators/          # D01-D14: Pipeline generation & synthetic data
 │   ├── 03_deep_learning/       # D01-D04: TensorFlow, PyTorch, JAX
 │   ├── 04_transfer_learning/   # D01-D03: Domain adaptation
 │   ├── 05_advanced_features/   # D01-D03: Metadata, outliers, etc.
@@ -134,6 +134,12 @@ The Developer Path covers advanced features for power users and contributors.
 | D06_synthetic_testing.py | Testing with synthetic data | ★★★★☆ |
 | D07_synthetic_wavenumber_procedural.py | Wavenumber utilities & procedural generation | ★★★★☆ |
 | D08_synthetic_application_domains.py | Application domains & domain-aware generation | ★★★★☆ |
+| D09_synthetic_instruments.py | Simulate instrument-specific characteristics | ★★★★☆ |
+| D10_synthetic_custom_components.py | Advanced component modeling | ★★★★☆ |
+| D11_synthetic_testing.py | Advanced testing scenarios | ★★★★☆ |
+| D12_synthetic_environmental.py | Environmental effects on spectra | ★★★★☆ |
+| D13_synthetic_validation.py | Validation techniques | ★★★★☆ |
+| D14_synthetic_fitter.py | Integrate with model fitting | ★★★★★ |
 
 ### 03_deep_learning/ - Deep Learning
 

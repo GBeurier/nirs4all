@@ -55,7 +55,7 @@ cd examples
 ./run.sh -n "U01*.py"
 
 # Run with plots
-./run.sh --plots --show
+./run.sh -p -s
 
 # Quick mode (skip deep learning)
 ./run.sh -q
