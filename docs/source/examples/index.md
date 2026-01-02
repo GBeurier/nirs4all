@@ -36,7 +36,18 @@ Advanced examples for extending NIRS4ALL capabilities.
 
 | Section | Description |
 |---------|-------------|
-| {doc}`developer` | Branching, generators, deep learning, transfer learning, custom controllers |
+| {doc}`developer` | Branching, generators, synthetic data, deep learning, transfer learning, custom controllers |
+
+## Reference Examples
+
+Comprehensive reference examples for advanced features.
+
+| Example | Description |
+|---------|-------------|
+| R01-R04 | Pipeline syntax, generators, keywords, legacy API |
+| R05 | Synthetic Data: Environmental and Matrix Effects (Phase 3) |
+| R06 | Synthetic Data: Validation and Quality Assessment (Phase 4) |
+| R07 | Synthetic Data: Fitting to Real Data (Phase 4) |
 
 ## Quick Start
 
@@ -85,12 +96,14 @@ examples/
 │   └── 07_explainability/   # U01-U03: SHAP
 ├── developer/               # Advanced developer examples
 │   ├── 01_advanced_pipelines/
-│   ├── 02_generators/
+│   ├── 02_generators/       # D01-D04: Generators, D05-D09: Synthetic
 │   ├── 03_deep_learning/
 │   ├── 04_transfer_learning/
 │   ├── 05_advanced_features/
 │   └── 06_internals/
-├── reference/               # Reference examples (R01-R04)
+├── reference/               # Reference examples (R01-R07)
+│   ├── R01-R04              # Pipeline and generator reference
+│   └── R05-R07              # Advanced synthetic data features
 └── sample_data/             # Sample datasets
 ```
 

@@ -490,8 +490,9 @@ Key concepts covered:
    - Shot noise, thermal noise, dark current
 
 Next steps:
-- D10: Advanced synthetic testing with transfer learning
-- D11: Using synthetic data for model robustness
+- R05: Environmental and matrix effects simulation
+- R06: Validation and quality assessment
+- R07: Fitting generators to real data
 """)
 
 print("\n✅ Example completed successfully!")

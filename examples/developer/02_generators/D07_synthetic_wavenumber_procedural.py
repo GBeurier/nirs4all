@@ -398,9 +398,9 @@ fig, axes = plt.subplots(2, 3, figsize=(15, 10))
 ax1 = axes[0, 0]
 wavelengths = np.linspace(800, 3500, 1000)
 for vib_name, color, label in [
-    ("O-H_stretch_free", "blue", "O-H"),
-    ("C-H_stretch_CH3_asym", "red", "C-H"),
-    ("N-H_stretch_primary", "green", "N-H"),
+    ("O-H_stretch_free", "b", "O-H"),
+    ("C-H_stretch_CH3_asym", "r", "C-H"),
+    ("N-H_stretch_primary", "g", "N-H"),
 ]:
     positions = []
     amplitudes = []

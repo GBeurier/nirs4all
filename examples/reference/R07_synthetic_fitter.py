@@ -1,10 +1,11 @@
 """
-D14 - Synthetic Generator: Fitting to Real Data
+R07 - Synthetic Generator: Fitting to Real Data
 ================================================
 
-Learn to analyze real NIRS datasets and create matching synthetic spectra.
+Comprehensive reference for analyzing real NIRS datasets and creating
+matching synthetic spectra (Phase 4 features).
 
-This tutorial covers:
+Topics covered:
 
 * Analyzing spectral properties of real data
 * Inferring instrument archetypes from spectra
@@ -16,7 +17,7 @@ This tutorial covers:
 
 Prerequisites
 -------------
-Complete D05-D13 first.
+Complete D05-D09 synthetic generator developer examples first.
 
 Duration: ~10 minutes
 Difficulty: ★★★★★
@@ -49,24 +50,24 @@ from nirs4all.data.synthetic import (
 )
 
 # Add examples directory to path for example_utils
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from example_utils import get_example_output_path, print_output_location
 
 # Parse command-line arguments
-parser = argparse.ArgumentParser(description='D14 Fitting to Real Data Example')
+parser = argparse.ArgumentParser(description='R07 Fitting to Real Data Reference')
 parser.add_argument('--plots', action='store_true', help='Generate plots')
 parser.add_argument('--show', action='store_true', help='Display plots interactively')
 args = parser.parse_args()
 
 # Example name for output directory
-EXAMPLE_NAME = "D14_synthetic_fitter"
+EXAMPLE_NAME = "R07_synthetic_fitter"
 
 
 # =============================================================================
 # Section 1: Loading Real Data
 # =============================================================================
 print("\n" + "=" * 60)
-print("D14 - Fitting Synthetic Generators to Real Data")
+print("R07 - Fitting Synthetic Generators to Real Data")
 print("=" * 60)
 
 print("\n" + "-" * 60)
@@ -74,7 +75,7 @@ print("Section 1: Loading Real NIR Data")
 print("-" * 60)
 
 # Load the sample regression dataset
-data_path = Path(__file__).parent.parent.parent / "sample_data" / "regression"
+data_path = Path(__file__).parent.parent / "sample_data" / "regression"
 
 # Load calibration data (semicolon-separated)
 X_cal = np.loadtxt(data_path / "Xcal.csv.gz", delimiter=";")

@@ -1,9 +1,6 @@
 ## ROADMAP
 
 > [Augmentations] Transfer synthesis mechanisms (temperature, machine, noise, etc.) to sample_augmentations operators
-> [Synthesis] Review fit on real datasets with new methods. Dedicated example.
-
-update run scripts
 
 **RELEASE** 0.6.2: Ready for UI
 

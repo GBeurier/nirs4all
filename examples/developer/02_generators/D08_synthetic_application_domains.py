@@ -149,7 +149,7 @@ print(f"   {'-'*25} {'-'*15} {'-'*12} {'-'*15} {'-'*15}")
 
 compare_domains = [
     "agriculture_grain", "food_dairy", "pharma_tablets",
-    "petrochem_fuel", "environ_water", "biomed_tissue"
+    "petrochem_fuels", "environmental_water", "biomedical_tissue"
 ]
 
 for domain_name in compare_domains:
@@ -283,7 +283,7 @@ domain_ranges = [
     ("food_dairy", "fat", "0-40%"),
     ("food_dairy", "protein", "3-5%"),
     ("pharma_tablets", "api", "1-90%"),
-    ("petrochem_fuel", "octane", "87-93"),
+    ("petrochem_fuels", "octane", "87-93"),
 ]
 
 for domain, comp, range_str in domain_ranges:
@@ -401,8 +401,8 @@ ax1.grid(True, alpha=0.3)
 # Plot 2: Domain wavelength ranges
 ax2 = axes[0, 1]
 domain_list = ["agriculture_grain", "agriculture_forage", "food_dairy",
-               "food_meat", "pharma_tablets", "petrochem_fuel",
-               "environ_water", "biomed_tissue"]
+               "food_meat", "pharma_tablets", "petrochem_fuels",
+               "environmental_water", "biomedical_tissue"]
 y_pos = np.arange(len(domain_list))
 for i, domain_name in enumerate(domain_list):
     try:

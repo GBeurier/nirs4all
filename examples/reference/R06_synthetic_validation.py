@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 """
-D13 - Synthetic Data Validation and Quality Assessment
+R06 - Synthetic Data Validation and Quality Assessment
 
-This example demonstrates the Phase 4 validation features of the
-synthetic data generator:
+Comprehensive reference for Phase 4 validation features of the
+synthetic data generator.
+
+Topics covered:
 
 1. Spectral Realism Scorecard - Quantitative metrics to assess synthetic data
 2. Adversarial Validation - Train classifier to distinguish real vs synthetic
@@ -20,7 +22,7 @@ The realism scorecard evaluates synthetic data quality across six metrics:
 - Adversarial validation AUC
 
 Author: nirs4all team
-Category: Developer - Generators
+Category: Reference - Synthetic
 """
 
 # Standard library imports
@@ -401,7 +403,7 @@ def example_gpu_acceleration():
 def main():
     """Run all Phase 4 validation examples."""
     print("=" * 70)
-    print("D13 - Synthetic Data Validation (Phase 4)")
+    print("R06 - Synthetic Data Validation (Phase 4)")
     print("=" * 70)
 
     # Run examples in order
