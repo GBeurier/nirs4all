@@ -1,0 +1,96 @@
+{
+  "name": "Branching Basic Pipeline",
+  "description": "Demonstrates named branches with multiple preprocessing and model paths",
+  "pipeline": [
+    {
+      "class": "sklearn.preprocessing.MinMaxScaler"
+    },
+    {
+      "y_processing": {
+        "class": "sklearn.preprocessing.StandardScaler"
+      }
+    },
+    {
+      "class": "sklearn.model_selection.KFold",
+      "params": {
+        "n_splits": 3,
+        "shuffle": true,
+        "random_state": 42
+      }
+    },
+    {
+      "branch": {
+        "snv_pls": [
+          {"class": "nirs4all.operators.transforms.StandardNormalVariate"},
+          {
+            "model": {
+              "class": "sklearn.cross_decomposition.PLSRegression",
+              "params": {"n_components": 5}
+            },
+            "name": "PLS-5-SNV"
+          },
+          {
+            "model": {
+              "class": "sklearn.cross_decomposition.PLSRegression",
+              "params": {"n_components": 10}
+            },
+            "name": "PLS-10-SNV"
+          }
+        ],
+        "msc_rf": [
+          {"class": "nirs4all.operators.transforms.MultiplicativeScatterCorrection"},
+          {
+            "model": {
+              "class": "sklearn.ensemble.RandomForestRegressor",
+              "params": {
+                "n_estimators": 50,
+                "max_depth": 8,
+                "random_state": 42
+              }
+            },
+            "name": "RF-MSC"
+          }
+        ],
+        "derivative_ridge": [
+          {"class": "nirs4all.operators.transforms.FirstDerivative"},
+          {
+            "class": "sklearn.decomposition.PCA",
+            "params": {"n_components": 30}
+          },
+          {
+            "model": {
+              "class": "sklearn.linear_model.Ridge",
+              "params": {"alpha": 1.0}
+            },
+            "name": "Ridge-Deriv"
+          },
+          {
+            "model": {
+              "class": "sklearn.linear_model.ElasticNet",
+              "params": {"alpha": 0.1, "l1_ratio": 0.5}
+            },
+            "name": "ElasticNet-Deriv"
+          }
+        ],
+        "savgol_gbr": [
+          {
+            "class": "nirs4all.operators.transforms.SavitzkyGolay",
+            "params": {"window_length": 11, "polyorder": 2}
+          },
+          {
+            "model": {
+              "class": "sklearn.ensemble.GradientBoostingRegressor",
+              "params": {
+                "n_estimators": 50,
+                "max_depth": 4,
+                "learning_rate": 0.1,
+                "random_state": 42
+              }
+            },
+            "name": "GBR-SavGol"
+          }
+        ]
+      }
+    }
+  ]
+}

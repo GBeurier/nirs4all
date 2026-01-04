@@ -1,0 +1,83 @@
+# Pipeline 3: Sample Augmentation (Data Augmentation)
+#
+# Features covered:
+# - sample_augmentation for training-time data augmentation
+# - Multiple augmentation transformers
+# - count, selection, and random_state parameters
+# - Spectral augmentation techniques
+#
+# Sample augmentation creates synthetic training samples to improve
+# model generalization and robustness.
+
+pipeline:
+  # Step 1: Initial preprocessing
+  - class: sklearn.preprocessing.StandardScaler
+
+  # Step 2: Target normalization
+  - y_processing:
+      class: sklearn.preprocessing.RobustScaler
+
+  # Step 3: Sample augmentation with multiple transformers
+  - sample_augmentation:
+      transformers:
+        # Rotation and translation augmentation
+        - class: nirs4all.operators.transforms.Rotate_Translate
+          params:
+            p_range: 1.0
+            y_factor: 2.0
+
+        # Gaussian additive noise
+        - class: nirs4all.operators.transforms.GaussianAdditiveNoise
+          params:
+            sigma: 0.005
+
+        # Multiplicative noise for intensity variation
+        - class: nirs4all.operators.transforms.MultiplicativeNoise
+          params:
+            sigma_gain: 0.02
+
+        # Baseline drift simulation
+        - class: nirs4all.operators.transforms.LinearBaselineDrift
+          params:
+            offset_range: [-0.05, 0.05]
+            slope_range: [-0.001, 0.001]
+
+        # Wavelength shift simulation
+        - class: nirs4all.operators.transforms.WavelengthShift
+          params:
+            shift_range: [-2.0, 2.0]
+
+      # Number of augmented samples per original
+      count: 3
+
+      # Selection strategy: random, all, or sequential
+      selection: random
+
+      # For reproducibility
+      random_state: 42
+
+  # Step 4: Cross-validation
+  - class: sklearn.model_selection.ShuffleSplit
+    params:
+      n_splits: 3
+      test_size: 0.2
+      random_state: 42
+
+  # Step 5: Apply spectral preprocessing after augmentation
+  - class: nirs4all.operators.transforms.StandardNormalVariate
+
+  # Step 6: Model
+  - model:
+      class: sklearn.cross_decomposition.PLSRegression
+      params:
+        n_components: 10
+    name: PLS-Augmented
+
+  # Step 7: Random Forest for comparison
+  - model:
+      class: sklearn.ensemble.RandomForestRegressor
+      params:
+        n_estimators: 50
+        max_depth: 10
+        random_state: 42
+    name: RF-Augmented

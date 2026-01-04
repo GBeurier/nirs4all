@@ -1,0 +1,47 @@
+{
+  "name": "Feature Augmentation Pipeline",
+  "description": "Demonstrates feature_augmentation with generators _or_, pick, and count",
+  "pipeline": [
+    {
+      "class": "sklearn.preprocessing.MinMaxScaler"
+    },
+    {
+      "y_processing": {
+        "class": "sklearn.preprocessing.MinMaxScaler"
+      }
+    },
+    {
+      "feature_augmentation": {
+        "_or_": [
+          {"class": "nirs4all.operators.transforms.StandardNormalVariate"},
+          {"class": "nirs4all.operators.transforms.MultiplicativeScatterCorrection"},
+          {"class": "nirs4all.operators.transforms.FirstDerivative"},
+          {"class": "nirs4all.operators.transforms.SecondDerivative"},
+          {"class": "nirs4all.operators.transforms.Detrend"},
+          {"class": "nirs4all.operators.transforms.SavitzkyGolay", "params": {"window_length": 11, "polyorder": 2}},
+          {"class": "nirs4all.operators.transforms.Gaussian", "params": {"sigma": 1.5}}
+        ],
+        "pick": [1, 2],
+        "count": 5
+      },
+      "action": "extend"
+    },
+    {
+      "class": "sklearn.model_selection.ShuffleSplit",
+      "params": {
+        "n_splits": 3,
+        "test_size": 0.25,
+        "random_state": 42
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.cross_decomposition.PLSRegression",
+        "params": {
+          "n_components": 10
+        }
+      },
+      "name": "PLS-FeatureAug"
+    }
+  ]
+}

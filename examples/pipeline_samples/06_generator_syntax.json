@@ -1,0 +1,89 @@
+{
+  "name": "Generator Syntax Pipeline",
+  "description": "Demonstrates all generator keywords: _or_, _range_, _log_range_, _grid_, pick, arrange, count",
+  "pipeline": [
+    {
+      "class": "sklearn.preprocessing.MinMaxScaler"
+    },
+    {
+      "y_processing": {
+        "class": "sklearn.preprocessing.StandardScaler"
+      }
+    },
+    {
+      "_or_": [
+        {"class": "nirs4all.operators.transforms.StandardNormalVariate"},
+        {"class": "nirs4all.operators.transforms.MultiplicativeScatterCorrection"},
+        {
+          "class": "nirs4all.operators.transforms.Detrend",
+          "params": {"bp": 0}
+        }
+      ],
+      "count": 2,
+      "_comment": "Randomly pick 2 preprocessing methods from the 3 options"
+    },
+    {
+      "class": "sklearn.model_selection.ShuffleSplit",
+      "params": {
+        "n_splits": 3,
+        "test_size": 0.25,
+        "random_state": 42
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.cross_decomposition.PLSRegression"
+      },
+      "_range_": [2, 15, 3],
+      "param": "n_components",
+      "_comment": "Generates PLS models with n_components = [2, 5, 8, 11, 14]"
+    },
+    {
+      "model": {
+        "class": "sklearn.linear_model.Ridge"
+      },
+      "_log_range_": [0.001, 100, 5],
+      "param": "alpha",
+      "_comment": "Generates Ridge models with log-spaced alpha values"
+    },
+    {
+      "model": {
+        "class": "sklearn.ensemble.RandomForestRegressor",
+        "params": {
+          "random_state": 42
+        }
+      },
+      "_grid_": {
+        "n_estimators": [50, 100],
+        "max_depth": [5, 10]
+      },
+      "_comment": "Grid search over n_estimators x max_depth = 4 models"
+    },
+    {
+      "_or_": [
+        {
+          "model": {
+            "class": "sklearn.linear_model.ElasticNet",
+            "params": {"alpha": 0.1, "l1_ratio": 0.2}
+          },
+          "name": "ElasticNet-L2-biased"
+        },
+        {
+          "model": {
+            "class": "sklearn.linear_model.ElasticNet",
+            "params": {"alpha": 0.1, "l1_ratio": 0.5}
+          },
+          "name": "ElasticNet-balanced"
+        },
+        {
+          "model": {
+            "class": "sklearn.linear_model.ElasticNet",
+            "params": {"alpha": 0.1, "l1_ratio": 0.8}
+          },
+          "name": "ElasticNet-L1-biased"
+        }
+      ],
+      "_comment": "Three ElasticNet variants to compare L1/L2 ratios"
+    }
+  ]
+}

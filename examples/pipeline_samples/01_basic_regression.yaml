@@ -1,0 +1,60 @@
+# Pipeline 1: Basic Regression with Y-Processing and Grouped Splitting
+#
+# Features covered:
+# - y_processing for target scaling
+# - Split with group parameter (GroupKFold) - NOTE: requires metadata
+# - Named models
+# - Basic finetune_params with model_params
+#
+# This is a fundamental regression pipeline demonstrating core concepts.
+#
+# NOTE: This pipeline demonstrates the 'group' keyword syntax.
+# For datasets without metadata, comment out the 'group' parameter.
+
+pipeline:
+  # Step 1: Feature scaling
+  - class: sklearn.preprocessing.MinMaxScaler
+    params:
+      feature_range: [0, 1]
+
+  # Step 2: Target scaling (y_processing keyword)
+  - y_processing:
+      class: sklearn.preprocessing.StandardScaler
+
+  # Step 3: Cross-validation
+  # For grouped splits, uncomment 'group' and use GroupKFold
+  # The 'group' keyword specifies metadata column for grouped splits
+  - class: sklearn.model_selection.KFold
+    params:
+      n_splits: 3
+      shuffle: true
+      random_state: 42
+  # Alternative with groups (requires dataset with metadata):
+  # - split:
+  #     class: sklearn.model_selection.GroupKFold
+  #     params:
+  #       n_splits: 3
+  #   group: Sample_ID  # Metadata column for grouping
+
+  # Step 4: Basic PLS model with custom name
+  - model:
+      class: sklearn.cross_decomposition.PLSRegression
+      params:
+        n_components: 10
+    name: PLS-10-Baseline
+
+  # Step 5: Model with finetuning
+  - model:
+      class: sklearn.cross_decomposition.PLSRegression
+    name: PLS-Finetuned
+    finetune_params:
+      n_trials: 10
+      approach: single
+      eval_mode: best
+      sample: grid
+      verbose: 0
+      model_params:
+        n_components:
+          type: int
+          low: 1
+          high: 20
