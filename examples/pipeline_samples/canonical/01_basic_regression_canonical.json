@@ -1,0 +1,59 @@
+{
+  "name": "01_basic_regression",
+  "description": "",
+  "pipeline": [
+    {
+      "class": "sklearn.preprocessing._data.MinMaxScaler",
+      "params": {
+        "feature_range": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "y_processing": {
+        "class": "sklearn.preprocessing._data.StandardScaler"
+      }
+    },
+    {
+      "class": "sklearn.model_selection._split.KFold",
+      "params": {
+        "n_splits": 3,
+        "shuffle": true,
+        "random_state": 42
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.cross_decomposition._pls.PLSRegression",
+        "params": {
+          "n_components": 10
+        }
+      },
+      "name": "PLS-10-Baseline"
+    },
+    {
+      "model": {
+        "class": "sklearn.cross_decomposition._pls.PLSRegression"
+      },
+      "name": "PLS-Finetuned",
+      "finetune_params": {
+        "n_trials": 10,
+        "approach": "single",
+        "eval_mode": "best",
+        "sample": "grid",
+        "verbose": 0,
+        "model_params": {
+          "n_components": {
+            "type": "int",
+            "low": 1,
+            "high": 20
+          }
+        }
+      }
+    }
+  ],
+  "has_generators": false,
+  "num_configurations": 1
+}

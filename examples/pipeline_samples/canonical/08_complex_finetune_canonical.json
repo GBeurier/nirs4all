@@ -1,0 +1,206 @@
+{
+  "name": "Complex Finetune Pipeline",
+  "description": "Demonstrates advanced finetune_params including train_params for neural networks, hyperband, and various tuning strategies",
+  "pipeline": [
+    {
+      "class": "sklearn.preprocessing._data.MinMaxScaler",
+      "params": {
+        "feature_range": [
+          0.1,
+          0.9
+        ]
+      }
+    },
+    {
+      "y_processing": {
+        "class": "sklearn.preprocessing._data.StandardScaler"
+      }
+    },
+    {
+      "class": "sklearn.model_selection._split.KFold",
+      "params": {
+        "n_splits": 5,
+        "shuffle": true,
+        "random_state": 42
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.cross_decomposition._pls.PLSRegression"
+      },
+      "name": "PLS-GridTuned",
+      "finetune_params": {
+        "n_trials": 15,
+        "approach": "single",
+        "eval_mode": "best",
+        "sample": "grid",
+        "verbose": 0,
+        "model_params": {
+          "n_components": {
+            "type": "int",
+            "low": 1,
+            "high": 20
+          }
+        }
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.ensemble._forest.RandomForestRegressor",
+        "params": {
+          "random_state": 42
+        }
+      },
+      "name": "RF-RandomTuned",
+      "finetune_params": {
+        "n_trials": 20,
+        "approach": "single",
+        "eval_mode": "mean",
+        "sample": "random",
+        "verbose": 0,
+        "model_params": {
+          "n_estimators": {
+            "type": "int",
+            "low": 20,
+            "high": 200
+          },
+          "max_depth": {
+            "type": "int",
+            "low": 3,
+            "high": 15
+          },
+          "min_samples_split": {
+            "type": "int",
+            "low": 2,
+            "high": 20
+          },
+          "min_samples_leaf": {
+            "type": "int",
+            "low": 1,
+            "high": 10
+          }
+        }
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.ensemble._gb.GradientBoostingRegressor",
+        "params": {
+          "random_state": 42
+        }
+      },
+      "name": "GBR-HyperbandTuned",
+      "finetune_params": {
+        "n_trials": 30,
+        "approach": "cross",
+        "eval_mode": "best",
+        "sample": "hyperband",
+        "verbose": 0,
+        "model_params": {
+          "n_estimators": [
+            50,
+            100,
+            150,
+            200
+          ],
+          "max_depth": [
+            3,
+            5,
+            7,
+            10
+          ],
+          "learning_rate": {
+            "type": "float",
+            "low": 0.01,
+            "high": 0.3,
+            "log": true
+          },
+          "subsample": {
+            "type": "float",
+            "low": 0.6,
+            "high": 1.0
+          }
+        }
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.linear_model._coordinate_descent.ElasticNet"
+      },
+      "name": "ElasticNet-Tuned",
+      "finetune_params": {
+        "n_trials": 25,
+        "approach": "single",
+        "eval_mode": "best",
+        "sample": "random",
+        "model_params": {
+          "alpha": {
+            "type": "float",
+            "low": 0.0001,
+            "high": 10.0,
+            "log": true
+          },
+          "l1_ratio": {
+            "type": "float",
+            "low": 0.0,
+            "high": 1.0
+          }
+        }
+      }
+    },
+    {
+      "model": {
+        "function": "nirs4all.operators.models.tensorflow.nicon.customizable_nicon"
+      },
+      "name": "NICON-Tuned",
+      "finetune_params": {
+        "n_trials": 10,
+        "sample": "hyperband",
+        "approach": "single",
+        "verbose": 0,
+        "model_params": {
+          "filters_1": [
+            8,
+            16,
+            32
+          ],
+          "filters_2": [
+            8,
+            16,
+            32
+          ],
+          "filters_3": [
+            8,
+            16,
+            32
+          ],
+          "dropout_rate": {
+            "type": "float",
+            "low": 0.1,
+            "high": 0.5
+          }
+        },
+        "train_params": {
+          "epochs": {
+            "type": "int",
+            "low": 5,
+            "high": 50
+          },
+          "batch_size": [
+            16,
+            32,
+            64
+          ],
+          "verbose": 0
+        }
+      },
+      "train_params": {
+        "epochs": 100,
+        "batch_size": 32,
+        "verbose": 0
+      }
+    }
+  ],
+  "has_generators": false,
+  "num_configurations": 1
+}

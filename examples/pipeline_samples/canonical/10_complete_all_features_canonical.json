@@ -1,0 +1,226 @@
+{
+  "name": "Complete All-Features Pipeline",
+  "description": "Maximum complexity pipeline demonstrating ALL nirs4all pipeline features in a single configuration",
+  "pipeline": [
+    {
+      "preprocessing": {
+        "class": "sklearn.preprocessing._data.MinMaxScaler",
+        "params": {
+          "feature_range": [
+            0.1,
+            0.9
+          ]
+        }
+      }
+    },
+    {
+      "y_processing": {
+        "class": "sklearn.preprocessing._data.StandardScaler"
+      }
+    },
+    {
+      "sample_augmentation": {
+        "transformers": [
+          {
+            "class": "nirs4all.operators.augmentation.random.Rotate_Translate",
+            "params": {
+              "p_range": 1.0,
+              "y_factor": 2.0
+            }
+          },
+          {
+            "class": "nirs4all.operators.augmentation.spectral.GaussianAdditiveNoise",
+            "params": {
+              "sigma": 0.003
+            }
+          }
+        ],
+        "count": 2,
+        "selection": "random",
+        "random_state": 42
+      }
+    },
+    {
+      "class": "nirs4all.operators.splitters.splitters.SPXYGFold",
+      "params": {
+        "n_splits": 1,
+        "test_size": 0.2,
+        "random_state": 42
+      }
+    },
+    {
+      "class": "sklearn.model_selection._split.KFold",
+      "params": {
+        "n_splits": 3,
+        "shuffle": true,
+        "random_state": 42
+      }
+    },
+    {
+      "branch": {
+        "pls_path": [
+          {
+            "class": "nirs4all.operators.transforms.scalers.StandardNormalVariate"
+          },
+          {
+            "concat_transform": [
+              {
+                "class": "sklearn.decomposition._pca.PCA",
+                "params": {
+                  "n_components": 20
+                }
+              },
+              {
+                "class": "sklearn.decomposition._truncated_svd.TruncatedSVD",
+                "params": {
+                  "n_components": 15,
+                  "random_state": 42
+                }
+              }
+            ]
+          },
+          {
+            "model": {
+              "class": "sklearn.cross_decomposition._pls.PLSRegression",
+              "params": {
+                "n_components": 5
+              }
+            },
+            "name": "PLS-5-Concat"
+          },
+          {
+            "model": {
+              "class": "sklearn.cross_decomposition._pls.PLSRegression",
+              "params": {
+                "n_components": 10
+              }
+            },
+            "name": "PLS-10-Concat"
+          }
+        ],
+        "rf_path": [
+          {
+            "class": "nirs4all.operators.transforms.nirs.MultiplicativeScatterCorrection"
+          },
+          {
+            "model": {
+              "class": "sklearn.ensemble._forest.RandomForestRegressor",
+              "params": {
+                "n_estimators": 50,
+                "max_depth": 8,
+                "random_state": 42
+              }
+            },
+            "name": "RF-MSC"
+          }
+        ],
+        "finetuned_path": [
+          {
+            "class": "nirs4all.operators.transforms.nirs.SavitzkyGolay",
+            "params": {
+              "window_length": 11,
+              "polyorder": 2
+            }
+          },
+          {
+            "model": {
+              "class": "sklearn.cross_decomposition._pls.PLSRegression"
+            },
+            "name": "PLS-Finetuned",
+            "finetune_params": {
+              "n_trials": 5,
+              "approach": "single",
+              "eval_mode": "best",
+              "sample": "random",
+              "verbose": 0,
+              "model_params": {
+                "n_components": {
+                  "type": "int",
+                  "low": 2,
+                  "high": 10
+                }
+              }
+            }
+          }
+        ],
+        "generator_path": [
+          {
+            "class": "nirs4all.operators.transforms.nirs.FirstDerivative"
+          },
+          {
+            "model": {
+              "class": "sklearn.linear_model._ridge.Ridge"
+            },
+            "_range_": [
+              0.1,
+              1.5,
+              0.4
+            ],
+            "param": "alpha"
+          }
+        ]
+      }
+    },
+    {
+      "merge": {
+        "predictions": [
+          {
+            "branch": 0,
+            "select": "best",
+            "metric": "rmse"
+          },
+          {
+            "branch": 1,
+            "select": "all"
+          },
+          {
+            "branch": 2,
+            "select": "best",
+            "metric": "rmse"
+          },
+          {
+            "branch": 3,
+            "select": {
+              "top_k": 2
+            },
+            "metric": "r2"
+          }
+        ],
+        "features": [
+          0
+        ],
+        "output_as": "features",
+        "on_missing": "warn"
+      }
+    },
+    {
+      "model": {
+        "class": "nirs4all.operators.models.meta.MetaModel",
+        "params": {
+          "model": {
+            "class": "sklearn.linear_model._ridge.Ridge",
+            "params": {
+              "alpha": 0.5
+            }
+          },
+          "source_models": "all"
+        }
+      },
+      "name": "Meta-Ridge-Stacked"
+    },
+    {
+      "model": {
+        "class": "sklearn.ensemble._gb.GradientBoostingRegressor",
+        "params": {
+          "n_estimators": 50,
+          "max_depth": 4,
+          "learning_rate": 0.1,
+          "random_state": 42
+        }
+      },
+      "name": "Meta-GBR-Final"
+    }
+  ],
+  "has_generators": false,
+  "num_configurations": 1
+}
