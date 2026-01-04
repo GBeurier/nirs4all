@@ -1,0 +1,75 @@
+# Pipeline 7: Concat Transform for Multi-View Feature Fusion
+#
+# Features covered:
+# - concat_transform to combine multiple transformer outputs
+# - Chained transformers within concat branches
+# - Named concatenation transforms
+# - Combining dimensionality reduction methods
+#
+# concat_transform horizontally concatenates features from multiple
+# transformations, creating a unified multi-view representation.
+
+pipeline:
+  # Step 1: Initial scaling
+  - class: sklearn.preprocessing.StandardScaler
+
+  # Step 2: Target processing
+  - y_processing:
+      class: sklearn.preprocessing.MinMaxScaler
+
+  # Step 3: Multi-view feature extraction via concat_transform
+  # Each branch is a transformation; outputs are horizontally concatenated
+  - concat_transform:
+      # Branch 1: PCA features
+      - class: sklearn.decomposition.PCA
+        params:
+          n_components: 20
+
+      # Branch 2: Truncated SVD features
+      - class: sklearn.decomposition.TruncatedSVD
+        params:
+          n_components: 15
+          random_state: 42
+
+      # Branch 3: Chained preprocessing + PCA
+      # (represented as a list = sequential execution)
+      - - class: nirs4all.operators.transforms.StandardNormalVariate
+        - class: sklearn.decomposition.PCA
+          params:
+            n_components: 15
+
+      # Branch 4: Derivative-based features
+      - - class: nirs4all.operators.transforms.FirstDerivative
+        - class: sklearn.decomposition.PCA
+          params:
+            n_components: 10
+
+  # Result: 20 + 15 + 15 + 10 = 60 concatenated features
+
+  # Step 4: Cross-validation
+  - class: sklearn.model_selection.ShuffleSplit
+    params:
+      n_splits: 3
+      test_size: 0.2
+      random_state: 42
+
+  # Step 5: Models on fused features
+  - model:
+      class: sklearn.cross_decomposition.PLSRegression
+      params:
+        n_components: 10
+    name: PLS-Fused
+
+  - model:
+      class: sklearn.linear_model.Ridge
+      params:
+        alpha: 1.0
+    name: Ridge-Fused
+
+  - model:
+      class: sklearn.ensemble.RandomForestRegressor
+      params:
+        n_estimators: 100
+        max_depth: 10
+        random_state: 42
+    name: RF-Fused

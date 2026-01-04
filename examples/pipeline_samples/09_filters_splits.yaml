@@ -1,0 +1,111 @@
+# Pipeline 9: Filters, Group Splits, and Metadata Partitioning
+#
+# Features covered:
+# - sample_filter with multiple filter types
+# - Split with group parameter (GroupKFold, SPXYGFold) - syntax demonstration
+# - metadata_partitioner for per-group processing - syntax demonstration
+# - Custom splitters (SPXYGFold, KennardStoneSplitter)
+# - Chart visualization steps
+#
+# This pipeline demonstrates data quality control and metadata-aware processing.
+#
+# NOTE: Some features (group splits, metadata_partitioner) require datasets
+# with metadata columns. The commented sections show the full syntax.
+
+pipeline:
+  # Step 1: Visualize raw data
+  - chart_2d
+
+  # Step 2: Sample filtering for quality control
+  - sample_filter:
+      filters:
+        # Remove samples with Y outliers (IQR method)
+        - class: nirs4all.operators.filters.YOutlierFilter
+          params:
+            method: iqr
+            threshold: 1.5
+            reason: iqr_outlier
+
+        # Remove samples with spectral quality issues
+        - class: nirs4all.operators.filters.SpectralQualityFilter
+          params:
+            max_nan_ratio: 0.1
+            max_zero_ratio: 0.3
+            min_variance: 1.0e-6
+            max_value: 4.0
+            min_value: -0.5
+
+      # Mode: all (all filters must agree), any (at least one), or vote
+      mode: any
+      # Generate filtering report
+      report: true
+
+  # Step 3: Visualize filtered data with excluded samples highlighted
+  - chart_2d:
+      include_excluded: true
+      highlight_excluded: true
+
+  # Step 4: Feature scaling
+  - class: sklearn.preprocessing.MinMaxScaler
+
+  # Step 5: Target processing
+  - y_processing:
+      class: sklearn.preprocessing.StandardScaler
+
+  # Step 6: Train/test split with SPXY algorithm
+  # For grouped splits, add: group: Sample_ID
+  - class: nirs4all.operators.splitters.SPXYGFold
+    params:
+      n_splits: 1
+      test_size: 0.2
+      random_state: 42
+  # Alternative with groups (requires dataset with metadata):
+  # - split:
+  #     class: nirs4all.operators.splitters.SPXYGFold
+  #     params:
+  #       n_splits: 1
+  #       test_size: 0.2
+  #       random_state: 42
+  #   group: Sample_ID
+
+  # Step 7: Cross-validation split
+  # For grouped splits, add: group: Sample_ID
+  - class: sklearn.model_selection.KFold
+    params:
+      n_splits: 3
+      shuffle: true
+      random_state: 42
+  # Alternative with groups (requires dataset with metadata):
+  # - split:
+  #     class: sklearn.model_selection.GroupKFold
+  #     params:
+  #       n_splits: 3
+  #   group: Sample_ID
+
+  # Step 8: Spectral preprocessing
+  # For datasets with metadata, use metadata_partitioner instead:
+  # - metadata_partitioner:
+  #     column: variety
+  #     branches:
+  #       variety_A:
+  #         - class: nirs4all.operators.transforms.StandardNormalVariate
+  #       variety_B:
+  #         - class: nirs4all.operators.transforms.MultiplicativeScatterCorrection
+  #     default:
+  #       - class: nirs4all.operators.transforms.Detrend
+  - class: nirs4all.operators.transforms.StandardNormalVariate
+
+  # Step 9: Final models
+  - model:
+      class: sklearn.cross_decomposition.PLSRegression
+      params:
+        n_components: 10
+    name: PLS-Filtered
+
+  - model:
+      class: sklearn.ensemble.RandomForestRegressor
+      params:
+        n_estimators: 100
+        max_depth: 10
+        random_state: 42
+    name: RF-Filtered
