@@ -1,0 +1,80 @@
+{
+  "name": "Generator Syntax Pipeline",
+  "description": "Demonstrates all generator keywords: _or_, _range_, _log_range_, _grid_, pick, arrange, count",
+  "pipeline": [
+    {
+      "class": "sklearn.preprocessing._data.MinMaxScaler"
+    },
+    {
+      "y_processing": {
+        "class": "sklearn.preprocessing._data.StandardScaler"
+      }
+    },
+    {
+      "class": "nirs4all.operators.transforms.signal.Detrend",
+      "params": {
+        "bp": 0
+      }
+    },
+    {
+      "class": "sklearn.model_selection._split.ShuffleSplit",
+      "params": {
+        "n_splits": 3,
+        "test_size": 0.25,
+        "random_state": 42
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.cross_decomposition._pls.PLSRegression"
+      },
+      "_range_": [
+        2,
+        15,
+        3
+      ],
+      "param": "n_components"
+    },
+    {
+      "model": {
+        "class": "sklearn.linear_model._ridge.Ridge"
+      },
+      "_log_range_": [
+        0.001,
+        100,
+        5
+      ],
+      "param": "alpha"
+    },
+    {
+      "model": {
+        "class": "sklearn.ensemble._forest.RandomForestRegressor",
+        "params": {
+          "random_state": 42
+        }
+      },
+      "_grid_": {
+        "n_estimators": [
+          50,
+          100
+        ],
+        "max_depth": [
+          5,
+          10
+        ]
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.linear_model._coordinate_descent.ElasticNet",
+        "params": {
+          "alpha": 0.1,
+          "l1_ratio": 0.2
+        }
+      },
+      "name": "ElasticNet-L2-biased"
+    }
+  ],
+  "has_generators": true,
+  "num_configurations": 6
+}

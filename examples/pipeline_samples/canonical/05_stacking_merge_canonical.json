@@ -1,0 +1,169 @@
+{
+  "name": "05_stacking_merge",
+  "description": "",
+  "pipeline": [
+    {
+      "class": "sklearn.preprocessing._data.MinMaxScaler"
+    },
+    {
+      "y_processing": {
+        "class": "sklearn.preprocessing._data.StandardScaler"
+      }
+    },
+    {
+      "class": "sklearn.model_selection._split.KFold",
+      "params": {
+        "n_splits": 5,
+        "shuffle": true,
+        "random_state": 42
+      }
+    },
+    {
+      "branch": {
+        "pls_branch": [
+          {
+            "class": "nirs4all.operators.transforms.scalers.StandardNormalVariate"
+          },
+          {
+            "model": {
+              "class": "sklearn.cross_decomposition._pls.PLSRegression",
+              "params": {
+                "n_components": 5
+              }
+            },
+            "name": "PLS-5"
+          },
+          {
+            "model": {
+              "class": "sklearn.cross_decomposition._pls.PLSRegression",
+              "params": {
+                "n_components": 10
+              }
+            },
+            "name": "PLS-10"
+          },
+          {
+            "model": {
+              "class": "sklearn.cross_decomposition._pls.PLSRegression",
+              "params": {
+                "n_components": 15
+              }
+            },
+            "name": "PLS-15"
+          }
+        ],
+        "rf_branch": [
+          {
+            "class": "nirs4all.operators.transforms.nirs.MultiplicativeScatterCorrection"
+          },
+          {
+            "model": {
+              "class": "sklearn.ensemble._forest.RandomForestRegressor",
+              "params": {
+                "n_estimators": 50,
+                "max_depth": 5,
+                "random_state": 42
+              }
+            },
+            "name": "RF-shallow"
+          },
+          {
+            "model": {
+              "class": "sklearn.ensemble._forest.RandomForestRegressor",
+              "params": {
+                "n_estimators": 100,
+                "max_depth": 10,
+                "random_state": 42
+              }
+            },
+            "name": "RF-deep"
+          }
+        ],
+        "ridge_branch": [
+          {
+            "class": "nirs4all.operators.transforms.nirs.FirstDerivative"
+          },
+          {
+            "class": "sklearn.decomposition._pca.PCA",
+            "params": {
+              "n_components": 20
+            }
+          },
+          {
+            "model": {
+              "class": "sklearn.linear_model._ridge.Ridge",
+              "params": {
+                "alpha": 0.1
+              }
+            },
+            "name": "Ridge-PCA"
+          },
+          {
+            "model": {
+              "class": "sklearn.linear_model._ridge.Ridge",
+              "params": {
+                "alpha": 1.0
+              }
+            },
+            "name": "Ridge-Strong"
+          }
+        ]
+      }
+    },
+    {
+      "merge": {
+        "predictions": [
+          {
+            "branch": 0,
+            "select": "best",
+            "metric": "rmse"
+          },
+          {
+            "branch": 1,
+            "select": {
+              "top_k": 2
+            },
+            "metric": "rmse"
+          },
+          {
+            "branch": 2,
+            "select": "all"
+          }
+        ],
+        "features": [
+          0
+        ],
+        "output_as": "features",
+        "on_missing": "warn"
+      }
+    },
+    {
+      "model": {
+        "class": "nirs4all.operators.models.meta.MetaModel",
+        "params": {
+          "model": {
+            "class": "sklearn.linear_model._ridge.Ridge",
+            "params": {
+              "alpha": 0.5
+            }
+          },
+          "source_models": "all"
+        }
+      },
+      "name": "Meta-Ridge"
+    },
+    {
+      "model": {
+        "class": "sklearn.ensemble._forest.RandomForestRegressor",
+        "params": {
+          "n_estimators": 30,
+          "max_depth": 5,
+          "random_state": 42
+        }
+      },
+      "name": "Meta-RF"
+    }
+  ],
+  "has_generators": false,
+  "num_configurations": 1
+}

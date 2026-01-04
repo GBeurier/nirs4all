@@ -1,0 +1,92 @@
+{
+  "name": "07_concat_transform",
+  "description": "",
+  "pipeline": [
+    {
+      "class": "sklearn.preprocessing._data.StandardScaler"
+    },
+    {
+      "y_processing": {
+        "class": "sklearn.preprocessing._data.MinMaxScaler"
+      }
+    },
+    {
+      "concat_transform": [
+        {
+          "class": "sklearn.decomposition._pca.PCA",
+          "params": {
+            "n_components": 20
+          }
+        },
+        {
+          "class": "sklearn.decomposition._truncated_svd.TruncatedSVD",
+          "params": {
+            "n_components": 15,
+            "random_state": 42
+          }
+        },
+        [
+          {
+            "class": "nirs4all.operators.transforms.scalers.StandardNormalVariate"
+          },
+          {
+            "class": "sklearn.decomposition._pca.PCA",
+            "params": {
+              "n_components": 15
+            }
+          }
+        ],
+        [
+          {
+            "class": "nirs4all.operators.transforms.nirs.FirstDerivative"
+          },
+          {
+            "class": "sklearn.decomposition._pca.PCA",
+            "params": {
+              "n_components": 10
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "class": "sklearn.model_selection._split.ShuffleSplit",
+      "params": {
+        "n_splits": 3,
+        "test_size": 0.2,
+        "random_state": 42
+      }
+    },
+    {
+      "model": {
+        "class": "sklearn.cross_decomposition._pls.PLSRegression",
+        "params": {
+          "n_components": 10
+        }
+      },
+      "name": "PLS-Fused"
+    },
+    {
+      "model": {
+        "class": "sklearn.linear_model._ridge.Ridge",
+        "params": {
+          "alpha": 1.0
+        }
+      },
+      "name": "Ridge-Fused"
+    },
+    {
+      "model": {
+        "class": "sklearn.ensemble._forest.RandomForestRegressor",
+        "params": {
+          "n_estimators": 100,
+          "max_depth": 10,
+          "random_state": 42
+        }
+      },
+      "name": "RF-Fused"
+    }
+  ],
+  "has_generators": false,
+  "num_configurations": 1
+}
