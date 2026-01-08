@@ -118,7 +118,8 @@ class ManifestManager:
         pipeline_config: dict,
         pipeline_hash: str,
         metadata: Optional[dict] = None,
-        generator_choices: Optional[List[Dict[str, Any]]] = None
+        generator_choices: Optional[List[Dict[str, Any]]] = None,
+        dataset_info: Optional[Dict[str, Any]] = None
     ) -> tuple[str, Path]:
         """
         Create new pipeline with sequential numbering.
@@ -131,6 +132,8 @@ class ManifestManager:
             metadata: Optional initial metadata
             generator_choices: List of generator choices that produced this pipeline.
                 Each choice is a dict like {"_or_": selected_value} or {"_range_": 18}.
+            dataset_info: Optional dataset version info for run tracking (Phase 7).
+                Expected format: {"path": str, "hash": str, "version_at_run": int}
 
         Returns:
             Tuple of (pipeline_id, pipeline_dir)
@@ -165,6 +168,8 @@ class ManifestManager:
             "pipeline": pipeline_config,
             "generator_choices": generator_choices or [],
             "metadata": metadata or {},
+            # Phase 7: Dataset version tracking for run compatibility
+            "dataset_info": dataset_info or {},
             "artifacts": {
                 "schema_version": CURRENT_MANIFEST_SCHEMA,
                 "items": []

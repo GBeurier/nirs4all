@@ -26,6 +26,8 @@ Create the example synth pipelines x synth datasets for testing purpose
 **RELEASE** 0.7.0: UI
 > [HuggingFace] Huggingface controller ?
 
+> [Stacking] Stacking from predictions directly (need hash for oof and clean separation)
+
 > [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
 >   - [MB-PLS] test on multi-source/block ---
 >   - [PLS] Implement variable selection methods (CARS and MC-UVE done)
