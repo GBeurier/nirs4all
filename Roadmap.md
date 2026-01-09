@@ -1,5 +1,7 @@
 ## ROADMAP
 
+> [pyproject.toml] Add umap-learn as dependency
+
 > [Augmentations] Transfer synthesis mechanisms (temperature, machine, noise, etc.) to sample_augmentations operators
 
 **RELEASE** 0.6.2: Ready for UI

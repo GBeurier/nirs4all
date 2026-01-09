@@ -37,12 +37,29 @@ class PipelineConfigs:
     def __init__(self, definition: Union[Dict, List[Any], str], name: str = "", description: str = "No description provided", max_generation_count: int = 10000):
         """
         Initialize the pipeline configuration.
+
+        Args:
+            definition: Pipeline definition (can be dict, list, or path to YAML file)
+            name: Optional name for the pipeline
+            description: Optional description
+            max_generation_count: Maximum number of configurations to generate
+
+        Attributes:
+            original_template: The original definition before expansion (deep copy)
+            steps: List of expanded pipeline configurations
+            generator_choices: Choices made for each expanded pipeline
+            has_configurations: Whether multiple configurations were generated
         """
+        import copy
+
         ## Parse / Format / Validate the configuration
         self.description = description
         self.steps = self._load_steps(definition)
         self.steps = self._preprocess_steps(self.steps)
         self.steps = serialize_component(self.steps)
+
+        # Store original template BEFORE expansion (for reproducibility)
+        self.original_template = copy.deepcopy(self.steps)
 
         ## Generation
         self.has_configurations = False
@@ -358,3 +375,32 @@ class PipelineConfigs:
         Returns a single string of all values for the given key, joined by commas.
         """
         return ", ".join(cls.value_of(obj, key))
+
+    @property
+    def expansion_count(self) -> int:
+        """
+        Return the number of pipeline configurations generated from the template.
+
+        Returns:
+            Number of expanded configurations (1 if no generators were used)
+        """
+        return len(self.steps)
+
+    def get_template_yaml(self) -> str:
+        """
+        Serialize the original template to YAML format for storage.
+
+        Returns:
+            YAML string of the original template
+        """
+        return yaml.dump(self.original_template, default_flow_style=False, sort_keys=False)
+
+    def get_template_dict(self) -> Dict:
+        """
+        Get the original template as a dictionary.
+
+        Returns:
+            Original template dictionary (deep copy to prevent mutation)
+        """
+        import copy
+        return copy.deepcopy(self.original_template)

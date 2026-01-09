@@ -1203,3 +1203,245 @@ class ManifestManager:
 
         self.save_manifest(pipeline_id, manifest)
         logger.info(f"Upgraded manifest {pipeline_id} to v2")
+
+    # ============= Run-Level Manifest Methods =============
+
+    def create_run_manifest(
+        self,
+        run_id: str,
+        name: str,
+        templates: List[Dict[str, Any]],
+        datasets: List[Dict[str, Any]],
+        config: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Path:
+        """
+        Create a run-level manifest for tracking experiment sessions.
+
+        A run combines pipeline templates with datasets and generates results
+        for every combination of expanded pipeline configurations and datasets.
+
+        Args:
+            run_id: Unique identifier for the run (e.g., "2026-01-09_experiment_abc123")
+            name: Human-readable name for the run
+            templates: List of template metadata dictionaries with:
+                - id: Template ID
+                - name: Template name
+                - original_template: The unexpanded template definition
+                - expansion_count: Number of configs generated
+                - file_path: Optional path to template file
+            datasets: List of dataset metadata dictionaries with:
+                - name: Dataset name
+                - path: Dataset path
+                - hash: Dataset content hash
+                - file_size: File size in bytes
+                - n_samples, n_features: Dimensions
+                - y_stats: Target variable statistics
+            config: Run configuration (cv_folds, metric, etc.)
+            metadata: Additional user metadata
+
+        Returns:
+            Path to the created run manifest file
+
+        Example:
+            >>> manager = ManifestManager(results_dir)
+            >>> run_path = manager.create_run_manifest(
+            ...     run_id="2026-01-09_protein_abc123",
+            ...     name="Protein Content Optimization",
+            ...     templates=[{
+            ...         "id": "t1",
+            ...         "name": "PLS Variants",
+            ...         "original_template": [{"_or_": [...]}, ...],
+            ...         "expansion_count": 6
+            ...     }],
+            ...     datasets=[{
+            ...         "name": "Wheat",
+            ...         "path": "/data/wheat.csv",
+            ...         "hash": "abc123"
+            ...     }],
+            ...     config={"cv_folds": 5, "metric": "r2"}
+            ... )
+        """
+        run_dir = self.results_dir / "_runs" / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        # Calculate total expected results
+        total_configs = sum(t.get("expansion_count", 1) for t in templates)
+        total_results = total_configs * len(datasets)
+
+        # Create run manifest
+        run_manifest = {
+            "schema_version": CURRENT_MANIFEST_SCHEMA,
+            "type": "run",
+            "run_id": run_id,
+            "uid": str(uuid.uuid4()),
+            "name": name,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "status": "queued",
+            "templates": templates,
+            "datasets": datasets,
+            "config": config or {
+                "cv_folds": 5,
+                "cv_strategy": "kfold",
+                "metric": "r2",
+                "save_predictions": True,
+                "save_models": True,
+            },
+            "total_pipeline_configs": total_configs,
+            "total_results_expected": total_results,
+            "summary": {
+                "completed_results": 0,
+                "failed_results": 0,
+                "best_result": None,
+            },
+            "checkpoints": [],
+            "metadata": metadata or {},
+        }
+
+        # Save run manifest
+        run_manifest_path = run_dir / "run.yaml"
+        sanitized = _sanitize_for_yaml(run_manifest)
+        with open(run_manifest_path, "w", encoding="utf-8") as f:
+            yaml.dump(sanitized, f, default_flow_style=False, sort_keys=False)
+
+        # Save templates to separate file for easier inspection
+        templates_path = run_dir / "templates.yaml"
+        templates_data = {
+            "run_id": run_id,
+            "templates": [
+                {
+                    "id": t.get("id"),
+                    "name": t.get("name"),
+                    "description": t.get("description"),
+                    "expansion_count": t.get("expansion_count", 1),
+                    "definition": t.get("original_template"),
+                }
+                for t in templates
+            ]
+        }
+        with open(templates_path, "w", encoding="utf-8") as f:
+            yaml.dump(_sanitize_for_yaml(templates_data), f, default_flow_style=False, sort_keys=False)
+
+        logger.info(f"Created run manifest: {run_manifest_path}")
+        return run_manifest_path
+
+    def load_run_manifest(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Load a run manifest.
+
+        Args:
+            run_id: Run identifier
+
+        Returns:
+            Run manifest dictionary or None if not found
+        """
+        run_manifest_path = self.results_dir / "_runs" / run_id / "run.yaml"
+
+        if not run_manifest_path.exists():
+            return None
+
+        with open(run_manifest_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
+    def update_run_status(
+        self,
+        run_id: str,
+        status: str,
+        summary_updates: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Update run status and optionally summary.
+
+        Args:
+            run_id: Run identifier
+            status: New status (queued, running, completed, failed, paused, cancelled)
+            summary_updates: Optional summary field updates
+        """
+        run_manifest = self.load_run_manifest(run_id)
+        if not run_manifest:
+            raise FileNotFoundError(f"Run manifest not found: {run_id}")
+
+        run_manifest["status"] = status
+
+        # Update timestamps based on status
+        now = datetime.now(timezone.utc).isoformat()
+        if status == "running" and "started_at" not in run_manifest:
+            run_manifest["started_at"] = now
+        elif status in ("completed", "failed", "cancelled"):
+            run_manifest["completed_at"] = now
+
+        # Update summary if provided
+        if summary_updates:
+            run_manifest["summary"].update(summary_updates)
+
+        # Save updated manifest
+        run_manifest_path = self.results_dir / "_runs" / run_id / "run.yaml"
+        with open(run_manifest_path, "w", encoding="utf-8") as f:
+            yaml.dump(_sanitize_for_yaml(run_manifest), f, default_flow_style=False, sort_keys=False)
+
+    def add_run_checkpoint(
+        self,
+        run_id: str,
+        result_id: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Add a checkpoint to record completed result.
+
+        Args:
+            run_id: Run identifier
+            result_id: Result/pipeline identifier that completed
+            metadata: Optional additional metadata for the checkpoint
+        """
+        run_manifest = self.load_run_manifest(run_id)
+        if not run_manifest:
+            raise FileNotFoundError(f"Run manifest not found: {run_id}")
+
+        checkpoint = {
+            "result_id": result_id,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if metadata:
+            checkpoint.update(metadata)
+
+        run_manifest["checkpoints"].append(checkpoint)
+        run_manifest["summary"]["completed_results"] = len(run_manifest["checkpoints"])
+
+        # Save updated manifest
+        run_manifest_path = self.results_dir / "_runs" / run_id / "run.yaml"
+        with open(run_manifest_path, "w", encoding="utf-8") as f:
+            yaml.dump(_sanitize_for_yaml(run_manifest), f, default_flow_style=False, sort_keys=False)
+
+    def list_runs(self) -> List[Dict[str, Any]]:
+        """
+        List all runs in this workspace.
+
+        Returns:
+            List of run summary dictionaries
+        """
+        runs_dir = self.results_dir / "_runs"
+        if not runs_dir.exists():
+            return []
+
+        runs = []
+        for run_dir in runs_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+
+            manifest = self.load_run_manifest(run_dir.name)
+            if manifest:
+                runs.append({
+                    "run_id": manifest.get("run_id"),
+                    "name": manifest.get("name"),
+                    "status": manifest.get("status"),
+                    "created_at": manifest.get("created_at"),
+                    "total_configs": manifest.get("total_pipeline_configs"),
+                    "total_results": manifest.get("total_results_expected"),
+                    "completed_results": manifest.get("summary", {}).get("completed_results", 0),
+                    "num_templates": len(manifest.get("templates", [])),
+                    "num_datasets": len(manifest.get("datasets", [])),
+                })
+
+        # Sort by creation date (newest first)
+        runs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        return runs
