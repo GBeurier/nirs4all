@@ -1418,6 +1418,156 @@ class SpectroDataset:
         """Get number of feature sources."""
         return self._feature_accessor.num_sources
 
+    # ========== Rich Metadata for Run Manifests ==========
+
+    def get_dataset_metadata(self, include_y_stats: bool = True) -> Dict[str, Any]:
+        """
+        Get comprehensive dataset metadata for run manifests.
+
+        Returns metadata suitable for efficient path resolution and
+        dataset version tracking in run manifests.
+
+        Args:
+            include_y_stats: If True, include target variable statistics
+
+        Returns:
+            Dict with:
+                - name: Dataset name
+                - path: Original file path (if set)
+                - hash: Content hash (if computed)
+                - file_size: File size in bytes (if available)
+                - n_samples: Number of samples
+                - n_features: Number of features
+                - n_sources: Number of feature sources
+                - task_type: Classification or regression
+                - num_classes: Number of classes (classification only)
+                - y_columns: Target column names
+                - y_stats: Target statistics (min, max, mean, std)
+                - wavelength_range: [min, max] wavelength
+                - wavelength_unit: Unit (nm, cm-1)
+                - signal_types: List of signal types per source
+                - metadata_columns: Available metadata columns
+
+        Example:
+            >>> dataset = SpectroDataset.load("wheat.n4a")
+            >>> meta = dataset.get_dataset_metadata()
+            >>> print(meta["n_samples"], meta["y_stats"])
+        """
+        import hashlib
+        from pathlib import Path
+
+        meta: Dict[str, Any] = {
+            "name": self.name,
+            "n_samples": self._feature_accessor.num_samples if self._features.sources else 0,
+            "n_features": self._feature_accessor.num_features if self._features.sources else 0,
+            "n_sources": self._feature_accessor.num_sources if self._features.sources else 0,
+        }
+
+        # Path and file info (if loaded from file)
+        source_path = getattr(self, '_source_path', None)
+        if source_path:
+            meta["path"] = str(source_path)
+            path_obj = Path(source_path)
+            if path_obj.exists():
+                meta["file_size"] = path_obj.stat().st_size
+
+        # Content hash (if stored or compute from features)
+        if hasattr(self, '_content_hash') and self._content_hash:
+            meta["hash"] = self._content_hash
+        elif self._features.sources and meta["n_samples"] > 0:
+            # Compute quick hash from sample of features
+            try:
+                X = self.x(None, layout="2d")
+                if X is not None and len(X) > 0:
+                    # Hash first 100 rows + last 100 rows for efficiency
+                    sample_rows = min(100, len(X))
+                    sample_data = np.vstack([X[:sample_rows], X[-sample_rows:]]) if len(X) > sample_rows * 2 else X
+                    meta["hash"] = hashlib.md5(sample_data.tobytes()).hexdigest()[:12]
+            except Exception:
+                pass
+
+        # Task type
+        task_type = self._target_accessor.task_type
+        if task_type:
+            meta["task_type"] = task_type.value if hasattr(task_type, 'value') else str(task_type)
+
+            # Classification-specific
+            if self.is_classification:
+                meta["num_classes"] = self.num_classes()
+
+        # Target statistics
+        if include_y_stats and self._targets.num_samples > 0:
+            try:
+                y = self.y(None)
+                if y is not None and len(y) > 0:
+                    if self.is_classification:
+                        # For classification, show class distribution
+                        unique, counts = np.unique(y, return_counts=True)
+                        meta["y_stats"] = {
+                            "n_classes": len(unique),
+                            "class_distribution": dict(zip(unique.astype(str).tolist(), counts.tolist())),
+                        }
+                    else:
+                        # For regression, show numeric stats
+                        meta["y_stats"] = {
+                            "min": float(np.nanmin(y)),
+                            "max": float(np.nanmax(y)),
+                            "mean": float(np.nanmean(y)),
+                            "std": float(np.nanstd(y)) if len(y) > 1 else 0.0,
+                        }
+            except Exception:
+                pass
+
+        # Wavelength info
+        if self._features.sources:
+            try:
+                # Get wavelength range from first source
+                wavelengths = self.float_headers(0)
+                if wavelengths is not None and len(wavelengths) > 0:
+                    meta["wavelength_range"] = [float(wavelengths.min()), float(wavelengths.max())]
+
+                    # Detect unit
+                    header_unit = self.header_unit(0)
+                    if header_unit:
+                        meta["wavelength_unit"] = header_unit
+                    elif wavelengths.max() > 100:
+                        meta["wavelength_unit"] = "nm" if wavelengths.max() < 3000 else "cm-1"
+            except Exception:
+                pass
+
+            # Signal types
+            try:
+                meta["signal_types"] = [
+                    self.signal_type(src).value if hasattr(self.signal_type(src), 'value') else str(self.signal_type(src))
+                    for src in range(meta["n_sources"])
+                ]
+            except Exception:
+                pass
+
+        # Metadata columns
+        if self._metadata.num_rows > 0:
+            meta["metadata_columns"] = self._metadata.columns
+
+        return meta
+
+    def set_source_path(self, path: str) -> None:
+        """
+        Set the source file path for metadata tracking.
+
+        Args:
+            path: Path to the original dataset file
+        """
+        self._source_path = path
+
+    def set_content_hash(self, hash_value: str) -> None:
+        """
+        Set the content hash for version tracking.
+
+        Args:
+            hash_value: Content hash string
+        """
+        self._content_hash = hash_value
+
     # ========== String Representations ==========
 
     def __str__(self):

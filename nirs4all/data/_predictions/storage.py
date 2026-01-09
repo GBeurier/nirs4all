@@ -263,9 +263,10 @@ class PredictionStorage:
 
     def save_parquet(self, meta_path: Path, arrays_path: Path) -> None:
         """
-        Save predictions using split Parquet format (metadata + array registry).
+        Save predictions using split Parquet format with embedded summary.
 
         Saves metadata and arrays separately for optimal performance.
+        Automatically embeds summary metadata for instant retrieval.
 
         Args:
             meta_path: Metadata Parquet file path
@@ -278,13 +279,8 @@ class PredictionStorage:
             ...     Path("predictions.arrays.parquet")
             ... )
         """
-        meta_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Save metadata DataFrame (contains array IDs)
-        self._df.write_parquet(meta_path, compression="zstd")
-
-        # Save array registry
-        self._array_registry.save_to_parquet(arrays_path)
+        # Delegate to save_parquet_with_summary for consistent behavior
+        self.save_parquet_with_summary(meta_path, arrays_path)
 
     def load_parquet(self, meta_path: Path, arrays_path: Path) -> None:
         """
@@ -466,3 +462,285 @@ class PredictionStorage:
     def __repr__(self) -> str:
         """String representation."""
         return f"PredictionStorage({len(self)} predictions)"
+
+    # ============= Summary Computation Methods =============
+
+    def _compute_score_stats(self, df: pl.DataFrame) -> Dict[str, Any]:
+        """
+        Compute statistics for score columns.
+
+        Args:
+            df: Polars DataFrame with predictions
+
+        Returns:
+            Dict with stats per score column
+        """
+        stats = {}
+        for col in ["val_score", "test_score", "train_score"]:
+            if col in df.columns:
+                values = df[col].drop_nulls()
+                if len(values) > 0:
+                    stats[col] = {
+                        "min": float(values.min()),
+                        "max": float(values.max()),
+                        "mean": float(values.mean()),
+                        "std": float(values.std()) if len(values) > 1 else 0.0,
+                        "quartiles": [
+                            float(values.quantile(0.25)),
+                            float(values.quantile(0.50)),
+                            float(values.quantile(0.75)),
+                        ],
+                    }
+        return stats
+
+    def _compute_facets(self, df: pl.DataFrame) -> Dict[str, Any]:
+        """
+        Compute faceted counts for filtering.
+
+        Args:
+            df: Polars DataFrame with predictions
+
+        Returns:
+            Dict with facet information
+        """
+        facets = {}
+
+        # Models with counts and avg scores
+        if "model_name" in df.columns:
+            model_stats = (
+                df.group_by("model_name")
+                .agg([
+                    pl.len().alias("count"),
+                    pl.col("val_score").mean().alias("avg_val_score"),
+                ])
+                .sort("count", descending=True)
+            )
+            facets["models"] = [
+                {
+                    "name": row["model_name"],
+                    "count": row["count"],
+                    "avg_val_score": round(row["avg_val_score"], 4) if row["avg_val_score"] is not None else None,
+                }
+                for row in model_stats.iter_rows(named=True)
+            ]
+
+        # Partitions
+        if "partition" in df.columns:
+            partition_counts = df.group_by("partition").agg(pl.len().alias("count")).sort("partition")
+            facets["partitions"] = [
+                {"name": row["partition"], "count": row["count"]}
+                for row in partition_counts.iter_rows(named=True)
+            ]
+
+        # Folds
+        if "fold_id" in df.columns:
+            facets["folds"] = df["fold_id"].drop_nulls().unique().sort().to_list()
+
+        # Task types
+        if "task_type" in df.columns:
+            task_counts = df.group_by("task_type").agg(pl.len().alias("count")).sort("count", descending=True)
+            facets["task_types"] = [
+                {"name": row["task_type"], "count": row["count"]}
+                for row in task_counts.iter_rows(named=True)
+            ]
+
+        # Counts
+        facets["n_configs"] = df["config_name"].n_unique() if "config_name" in df.columns else 0
+        facets["n_pipelines"] = df["pipeline_uid"].n_unique() if "pipeline_uid" in df.columns else 0
+
+        return facets
+
+    def _compute_top_predictions(self, df: pl.DataFrame, n: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get top N predictions by validation score.
+
+        Uses top_k() for O(n log k) instead of sort().head() for O(n log n).
+
+        Args:
+            df: Polars DataFrame with predictions
+            n: Number of top predictions to return
+
+        Returns:
+            List of top prediction dicts
+        """
+        if "val_score" not in df.columns or len(df) == 0:
+            return []
+
+        # Use top_k for efficiency (O(n log k) vs O(n log n) for sort)
+        top = df.top_k(n, by="val_score")
+
+        return [
+            {
+                "id": row.get("id"),
+                "model_name": row.get("model_name"),
+                "config_name": row.get("config_name"),
+                "val_score": round(row.get("val_score", 0), 4) if row.get("val_score") is not None else None,
+                "test_score": round(row.get("test_score", 0), 4) if row.get("test_score") is not None else None,
+                "fold_id": row.get("fold_id"),
+                "partition": row.get("partition"),
+            }
+            for row in top.iter_rows(named=True)
+        ]
+
+    def _compute_run_summaries(self, df: pl.DataFrame) -> List[Dict[str, Any]]:
+        """
+        Compute per-run summaries.
+
+        Args:
+            df: Polars DataFrame with predictions
+
+        Returns:
+            List of run summary dicts
+        """
+        if "config_name" not in df.columns or len(df) == 0:
+            return []
+
+        run_stats = (
+            df.group_by("config_name")
+            .agg([
+                pl.len().alias("n_predictions"),
+                pl.col("val_score").max().alias("best_val_score"),
+                pl.col("test_score").max().alias("best_test_score"),
+            ])
+            .sort("best_val_score", descending=True, nulls_last=True)
+        )
+
+        return [
+            {
+                "id": row["config_name"],
+                "name": row["config_name"],
+                "n_predictions": row["n_predictions"],
+                "best_val_score": round(row["best_val_score"], 4) if row["best_val_score"] is not None else None,
+                "best_test_score": round(row["best_test_score"], 4) if row["best_test_score"] is not None else None,
+            }
+            for row in run_stats.iter_rows(named=True)
+        ]
+
+    def compute_summary(self) -> Dict[str, Any]:
+        """
+        Compute complete summary of predictions.
+
+        Returns:
+            Summary dict ready for embedding in parquet metadata
+        """
+        from datetime import datetime, timezone
+
+        df = self._df
+
+        # Get dataset name
+        dataset_name = None
+        if "dataset_name" in df.columns and len(df) > 0:
+            unique_datasets = df["dataset_name"].drop_nulls().unique().to_list()
+            dataset_name = unique_datasets[0] if len(unique_datasets) == 1 else None
+
+        return {
+            "n4a_version": "1.0",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "dataset_name": dataset_name,
+            "total_predictions": len(df),
+            "stats": self._compute_score_stats(df),
+            "facets": self._compute_facets(df),
+            "runs": self._compute_run_summaries(df),
+            "top_predictions": self._compute_top_predictions(df, n=10),
+        }
+
+    def save_parquet_with_summary(self, meta_path: Path, arrays_path: Path) -> None:
+        """
+        Save predictions using split Parquet format with embedded summary.
+
+        Computes summary while data is in memory and embeds it in parquet
+        file metadata for instant retrieval without scanning rows.
+
+        Args:
+            meta_path: Metadata Parquet file path
+            arrays_path: Array registry Parquet file path
+
+        Examples:
+            >>> storage = PredictionStorage()
+            >>> storage.save_parquet_with_summary(
+            ...     Path("predictions.meta.parquet"),
+            ...     Path("predictions.arrays.parquet")
+            ... )
+        """
+        import pyarrow.parquet as pq
+
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Compute summary while data is in memory (zero extra cost)
+        summary = self.compute_summary()
+
+        # Convert Polars DataFrame to PyArrow Table
+        table = self._df.to_arrow()
+
+        # Embed summary in file metadata
+        existing_meta = table.schema.metadata or {}
+        new_meta = {
+            **existing_meta,
+            b"n4a_summary": json.dumps(summary).encode("utf-8"),
+        }
+        table = table.replace_schema_metadata(new_meta)
+
+        # Write parquet file with embedded summary
+        pq.write_table(table, str(meta_path), compression="zstd")
+
+        # Save array registry
+        self._array_registry.save_to_parquet(arrays_path)
+
+    @classmethod
+    def read_summary_only(cls, parquet_path: Path) -> Optional[Dict[str, Any]]:
+        """
+        Read ONLY the summary metadata from parquet file.
+
+        This reads just the file footer (~1KB), not the row data.
+        Time: ~2-5ms for any file size.
+
+        Args:
+            parquet_path: Path to .meta.parquet file
+
+        Returns:
+            Summary dict if present, None otherwise
+
+        Examples:
+            >>> summary = PredictionStorage.read_summary_only(Path("predictions.meta.parquet"))
+            >>> if summary:
+            ...     print(f"Total predictions: {summary['total_predictions']}")
+        """
+        import pyarrow.parquet as pq
+
+        try:
+            parquet_file = pq.ParquetFile(str(parquet_path))
+            metadata = parquet_file.schema_arrow.metadata
+
+            if metadata and b"n4a_summary" in metadata:
+                return json.loads(metadata[b"n4a_summary"].decode("utf-8"))
+
+            return None
+        except Exception:
+            return None
+
+    @classmethod
+    def read_all_summaries(cls, workspace_path: Path) -> List[Dict[str, Any]]:
+        """
+        Read summaries from all parquet files in workspace.
+
+        Time: ~10-50ms for entire workspace (vs 2-5s for full scan)
+
+        Args:
+            workspace_path: Path to workspace directory
+
+        Returns:
+            List of summary dicts with source_file added
+
+        Examples:
+            >>> summaries = PredictionStorage.read_all_summaries(Path("/path/to/workspace"))
+            >>> total = sum(s.get("total_predictions", 0) for s in summaries)
+        """
+        summaries = []
+
+        for parquet_file in workspace_path.glob("*.meta.parquet"):
+            summary = cls.read_summary_only(parquet_file)
+            if summary:
+                summary["source_file"] = str(parquet_file)
+                summaries.append(summary)
+
+        return summaries
